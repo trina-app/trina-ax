@@ -11,6 +11,7 @@ import { rulesHashV1 } from '../../server/src/admin/access-edit'
 import { policyGeneration } from '../../server/src/safe-ops/publication'
 import { folderAccessProblems } from '../../server/src/policy/invariants'
 import { newId } from '../../server/src/db'
+import { audit } from '../../server/src/admin/audit'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 let h: Harness
@@ -19,6 +20,7 @@ let design: string
 let sales: string
 let kim: string
 let bob: string
+let bobClient: Client
 const access = (id: string, p: string) => h.ctx.files.rules().access(h.ctx.files.principal(id), p.split('/'))
 const folder = async (p: string) => ((await owner.call('GET', '/api/admin/folders')).items as Folder[]).find((f) => f.path === p)!
 
@@ -28,7 +30,9 @@ beforeAll(async () => {
   design = (await owner.call('POST', '/api/admin/groups', { name: 'Design' })).id
   sales = (await owner.call('POST', '/api/admin/groups', { name: 'Sales' })).id
   kim = (await addMember(h, owner, { username: 'kim', groupIds: [design] })).id
-  bob = (await addMember(h, owner, { username: 'bob' })).id
+  const b = await addMember(h, owner, { username: 'bob' })
+  bob = b.id
+  bobClient = b.client
   fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'hr'), { recursive: true })
 })
 afterAll(() => h.close())
@@ -128,6 +132,23 @@ describe('origin rows (C1-A)', () => {
     const f = await folder('shared/hr')
     await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'user', subjectId: kim, access: 'read' }], expectedHash: f.rulesHash })
     expect((h.ctx.db.query('SELECT origin FROM folder_rules WHERE folder_id = ? AND subject_id = ?').get(f.id, kim) as { origin: string | null }).origin).toBeNull()
+  })
+})
+
+describe('the one-time Admin notice after the conversion', () => {
+  test('lists the folders the conversion named people on that are still there (not in projects/), until an admin closes it', async () => {
+    expect((await owner.call('GET', '/api/admin/folder-access/notice')).notice).toBeNull()
+    audit(h.ctx.db, { actor: null, action: 'folders.additive_conversion', detail: { byName: [{ path: 'shared/hr', count: 2 }, { path: 'shared/gone', count: 1 }, { path: 'projects/x', count: 3 }, { path: 'shared', count: 0 }] } })
+    const n = (await owner.call('GET', '/api/admin/folder-access/notice')).notice
+    expect(n.folders).toEqual([{ path: 'shared/hr', count: 2 }])
+    expect(typeof n.at).toBe('string')
+    const member = bobClient
+    expect((await member.try('GET', '/api/admin/folder-access/notice')).status).toBe(403)
+    expect((await member.try('POST', '/api/admin/folder-access/notice/dismiss')).status).toBe(403)
+    const r = await owner.try('POST', '/api/admin/folder-access/notice/dismiss')
+    expect(r.status).toBe(204)
+    expect((await owner.call('GET', '/api/admin/folder-access/notice')).notice).toBeNull()
+    expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'folders.notice_dismissed'").get()).toEqual({ n: 1 })
   })
 })
 

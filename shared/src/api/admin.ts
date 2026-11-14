@@ -105,6 +105,11 @@ export const UpdateGroupBody = z.object({ name: z.string().trim().min(1).max(100
  * group (or the group goes). Nothing is saved.
  */
 export const OriginCheckBody = z.object({ changes: z.array(z.object({ userId: UserId, groupId: z.string().min(1).max(64) })).max(5000) })
+/** The one-time Admin notice after the folder access conversion (docs/DECISIONS.md "Folder access adds up like Google
+ * Drive (P2)"): the folders that now list their people by name, and how many were added by name on each. null: nothing
+ * to say (nobody was named, or an owner or admin dismissed it). */
+export const FolderAccessNotice = z.object({ notice: z.object({ at: IsoTime, folders: z.array(z.object({ path: RelPath, count: z.number().int().positive() })) }).nullable() })
+export type FolderAccessNotice = z.infer<typeof FolderAccessNotice>
 export const OriginCheckResponse = z.object({ kept: z.array(z.object({ user: UserRef, path: RelPath, access: Access, groupId: z.string() })) })
 
 // ---------------- folders and rules ----------------
@@ -607,6 +612,8 @@ export const ADMIN = {
   createGroup: endpoint({ method: 'POST', path: '/api/admin/groups', auth: 'admin', owner: 'A', status: 201, body: GroupBody, response: Group, summary: 'New group.' }),
   updateGroup: endpoint({ method: 'PATCH', path: '/api/admin/groups/:id', auth: 'admin', owner: 'A', body: UpdateGroupBody, response: Group, summary: 'Rename / change members.' }),
   deleteGroup: endpoint({ method: 'DELETE', path: '/api/admin/groups/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Delete a group (its folder rules go too).' }),
+  folderAccessNotice: endpoint({ method: 'GET', path: '/api/admin/folder-access/notice', auth: 'admin', owner: 'A', response: FolderAccessNotice, summary: 'The one-time notice after the folder access conversion: folders that now list their people by name.' }),
+  dismissFolderAccessNotice: endpoint({ method: 'POST', path: '/api/admin/folder-access/notice/dismiss', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Dismiss the folder access conversion notice for the team.' }),
   originCheck: endpoint({ method: 'POST', path: '/api/admin/groups/origin-check', auth: 'admin', owner: 'A', body: OriginCheckBody, response: OriginCheckResponse, summary: 'Before a group change: the people named by the folder access conversion who keep access by name after it. Nothing is saved.' }),
 
   listFolders: endpoint({ method: 'GET', path: '/api/admin/folders', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Folder) }), summary: 'Folders that carry rules, with their rules (= /api/admin/folder-rules of the design).' }),

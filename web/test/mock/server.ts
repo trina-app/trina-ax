@@ -3954,6 +3954,11 @@ export class MockServer {
       this.folders = this.folders.filter((x) => x.id !== f.id)
       return undefined
     },
+    // the one-time notice after the P2 conversion and the group-change check: the mock never converts and writes no
+    // conversion origins, so there is nothing to say
+    folderAccessNotice: () => ({ notice: null }),
+    dismissFolderAccessNotice: () => undefined,
+    originCheck: () => ({ kept: [] }),
     explainFolderAccess: (c) => this.explainFolder(c.query),
     explainPersonAccess: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)

@@ -117,6 +117,9 @@ function decidedText(t: T, f: PersonFolderAccess, role: Role, names: Names): str
     case 'left':
       return t('accessView.why.notMember')
     case 'no-rule': {
+      // a limited folder stopped the walk up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): said
+      // as Drive says it, Limit access and not listed there
+      if (r.cutAt !== undefined) return r.cutAt === f.path ? t('accessView.why.limitedHere') : t('accessView.why.limitedFrom', { folder: folderName(t, r.cutAt) })
       // no folder on the way up has a rule FOR THIS PERSON; rules for others may be there
       if (!names.ruleFolders) return t('accessView.why.noRule')
       const near = nearestRuleFolder(f.path, names.ruleFolders)

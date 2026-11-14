@@ -14,8 +14,10 @@ const group = (id: string, access: Access) => ({ subjectType: 'group' as const, 
 
 describe('reading a folder\'s rules', () => {
   test('the basic access: the member row first, else the everyone row, else follow (the root: only the people named)', () => {
-    expect(draftOf([], false).draft).toEqual({ basic: 'follow', named: [] })
-    expect(draftOf([], true).draft).toEqual({ basic: 'named', named: [] })
+    expect(draftOf([], false).draft).toEqual({ basic: 'follow', named: [], limited: false })
+    expect(draftOf([], true).draft).toEqual({ basic: 'named', named: [], limited: false })
+    // Limit access (P2) is carried in the draft; the team root has no limit (nothing above it)
+    expect(draftOf([], false, true).draft.limited).toBe(true)
     expect(draftOf([every('none')], false).draft.basic).toBe('named')
     expect(draftOf([every('read')], false).draft.basic).toBe('read')
     expect(draftOf([every('write')], false).draft.basic).toBe('write')

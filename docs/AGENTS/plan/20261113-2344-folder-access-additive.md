@@ -73,9 +73,11 @@ restore, origin warnings).
 
 Built as planned with the defaults C1-A, M6-A, 9-A, 12-A (docs/DECISIONS.md "Folder access adds up like Google Drive
 (P2)"). Differences from the spec:
-- The web "Limit access" switch and the group-change warning before saving are not built (they wait for the P1 dialog
-  on dev); the server answers them (`Folder.limited`, `POST /api/admin/groups/origin-check`).
-- The one-time Admin notice is not built; the conversion's audit row holds what it would list.
+- The web step came second in the same PR, after P1 was on dev: the Limit access switch, Access removed › Add, the
+  Manager row, the "Added when folders changed" tag, the warning before saving on Admin › Groups and the person's page
+  (with Remove), the one-time Admin notice (GET/POST `/api/admin/folder-access/notice[/dismiss]`), "Limit access" in the
+  By folder / By person reasons, and P1's "lower than" captions removed. Shots of a QA-Acme copy at 1440/390
+  light/dark.
 - Inside a project's zone the conversion names a person only with what rules at or below `projects/<name>` gave them
   (otherwise promoting them to admin later would let them in by that name); access through a rule above the project is
   a listed fail-closed case (7.5-1), as the spec's §7.4 expects.

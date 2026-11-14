@@ -26770,15 +26770,19 @@ item 9-A, item 12-A. Spec v3 and three reviews are with the owner (not in the re
 - **Rejected**: keeping deepest-wins (not Drive); encoding a limit as `everyone: none` only (a limited folder with no
   rules was invisible to the loader); converting by current members only (B4); a leaver exception tied to
   `project_leavers` (fails open on delete or repoint); `limited` defaulting to false when missing.
+- **Web (built in the same PR, second step)**: the Share dialog's Settings › **Limit access** switch (also on a limited
+  top folder, M3; off on the team root), General access apart from it (a role lower than what the folders above give
+  cannot be picked on a folder that is not limited: the line says so with "Limit access to change this"), **Access
+  removed › Add** on a limited folder (from the folder answers of it and its parent: who opens the parent and is stopped
+  by this limit, `cutAt`), the owner and admins as a **Manager** row ("관리 권한"), a row's "Editor from '<folder>'"
+  when the folders above give more, the **"Added when folders changed"** tag (`byConversion`), the **warning before
+  saving** on Admin › Groups (a member taken out, a group deleted) and the person's page (a group taken off) from
+  origin-check, each line with Remove (`web/src/pages/admin/originKept.tsx`), and the **one-time Admin notice** on
+  Folder permissions (GET/POST `/api/admin/folder-access/notice[/dismiss]`, one team setting, audited). P1's "lower
+  than" captions are removed (`lowerOf`, `generalLowerOf`, `overridingGroup`: with access adding up a lower row lowers
+  nobody). `client_outdated` needs no prompt of its own: this web always sends the rules-v2 hash, and an older page
+  gets the server's "reload the page" message as its save error.
 - **Not built yet / TODO**:
-  - Web (after the P1 Share dialog is on dev): the Limit access switch (also on a limited top folder, M3), General
-    access apart from it, Access removed › Add from `cutAt`, the Manager row ("관리 권한"), the "Added when folders
-    changed" tag, the group-change warning before saving on Admin › Groups and the person's page (from origin-check),
-    the `client_outdated` reload prompt, the one-time Admin notice listing the folders frozen by name, and **removing
-    P1's "lower than the folder above" captions** (`lowerOf`, `generalLowerOf`: with access adding up a lower row lowers
-    nobody, so they would say "can only view here" to someone who can edit; spec item 13). Until then the
-    web saves Restricted as `limited: true` (`web/src/lib/access-edit.ts limitedOf`, `useRulesDraft`) and the old
-    panel's "No access" rows on a limited folder are dropped (the limit keeps them out).
   - C1-B (only if picked): S3, the `group_members` revert must compare old and new member lists in code (both group
     and person saves delete and re-insert every membership), and the explicit revert on deleteGroup.
   - M6-B (only if picked): S2, the "written by an older build" dirty marks must skip this build's own writers (moves,

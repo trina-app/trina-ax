@@ -13,7 +13,7 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, isLimited, keepOfRow, listFolders, originKeepers,
+  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, isLimited, keepOfRow, listFolders, originKeepers, folderAccessNotice, FOLDER_ACCESS_NOTICE_DISMISSED,
   previewRules, resolveFolderPath, rulesHashAt, rulesHashV1At, rulesOf, toFolder, validateRules, writeFolderAccess, type FolderRow,
 } from '../admin/folders'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
@@ -109,6 +109,11 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.createGroup, ({ c, body }) => createGroup(c, ctx, body))
     kit.handle(API.updateGroup, ({ c, params, body }) => updateGroup(c, ctx, params.id, body))
     kit.handle(API.deleteGroup, ({ c, params }) => deleteGroup(c, ctx, params.id))
+    kit.handle(API.folderAccessNotice, () => ({ notice: folderAccessNotice(ctx.db) }))
+    kit.handle(API.dismissFolderAccessNotice, ({ auth }) => {
+      ctx.db.query('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FOLDER_ACCESS_NOTICE_DISMISSED, JSON.stringify({ by: auth.user.id, at: new Date().toISOString() }))
+      audit(ctx.db, { actor: auth.user.id, action: 'folders.notice_dismissed', target: null, detail: null })
+    })
     kit.handle(API.originCheck, ({ body }) => ({ kept: originKeepers(ctx.db, body.changes).map((k) => ({ user: { id: k.userId, name: k.name }, path: k.path, access: k.access, groupId: k.groupId })) }))
 
     // ---------------- folders and rules ----------------

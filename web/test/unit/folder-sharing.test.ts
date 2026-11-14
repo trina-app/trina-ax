@@ -3,11 +3,11 @@
 // when Save asks before saving. The answers here come from the server's own preview (server/src/admin/access-edit.ts
 // editPreview on a RuleSet), so the words are checked against what the permission function says.
 import { describe, expect, test } from 'bun:test'
-import type { Access, FolderEditChange, FolderEditPreview, Group } from '@mycel/shared/api'
+import type { Access, FolderEditChange, FolderEditPreview } from '@mycel/shared/api'
 import { type Principal } from '../../../server/src/policy/access'
 import { editPreview } from '../../../server/src/admin/access-edit'
 import { draftOf, rulesOf, type Draft } from '../../src/lib/access-edit'
-import { aboveRows, askTitle, audienceOf, generalLevel, generalLowerOf, hasPanel, lowerOf, pickBasic, inProjects, kindOf, latentLines, namesText, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk } from '../../src/lib/folder-sharing'
+import { aboveRows, askTitle, audienceOf, generalLevel, hasPanel, inheritedOf, pickBasic, pickable, inProjects, kindOf, latentLines, namesText, outcomeLines, parentOf, removedPeople, sameOutcome, saveAsk } from '../../src/lib/folder-sharing'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { ruleWorld, type RuleRow } from '../../../tests/lib/rule-world'
 
@@ -74,13 +74,9 @@ describe('rows from the folders above', () => {
 })
 
 describe('a person and their group set here', () => {
-  test('the person\'s own setting wins here, and the row says so in plain words', () => {
-    const d = draftOf(QUOTES, false).draft
-    expect(overridingGroup(d, 'alice', groups)?.name).toBe('Sales')
-    expect(overridingGroup(d, 'erin', groups)).toBeNull()
-    expect(overrideText(en, 'Sales', 'read')).toBe('In Sales, but can only view here')
-    expect(overrideText(en, 'Sales', 'none')).toBe("In Sales, but can't open it here")
-    expect(overrideText(ko, '영업', 'write')).toBe('영업에 속하지만 여기선 고칠 수 있음')
+  test('since P2 the wider of the two decides (access adds up): no "In Sales, but can only view here" line any more', () => {
+    const alice = people.find((p) => p.id === 'alice')!
+    expect(ruleWorld(WORLD).access(alice, ['shared', 'sales', 'quotes', 'x.md'])).toBe('write')
   })
 })
 
@@ -223,163 +219,78 @@ describe('the answer asked again at Save', () => {
 })
 
 describe('general access', () => {
-  test('what "everyone" gets for each choice', () => {
-    expect(generalLevel('follow', 'read')).toBe('read')
-    expect(generalLevel('named', 'write')).toBe('none')
-    expect(generalLevel('read', 'none')).toBe('read')
-    expect(generalLevel('write', 'none')).toBe('write')
+  test('what the team gets for each choice: its own setting, plus the folders above unless the folder is limited', () => {
+    expect(generalLevel('follow', false, 'read')).toBe('read')
+    expect(generalLevel('named', false, 'write')).toBe('write')
+    expect(generalLevel('named', true, 'write')).toBe('none')
+    expect(generalLevel('read', false, 'none')).toBe('read')
+    expect(generalLevel('read', false, 'write')).toBe('write')
+    expect(generalLevel('read', true, 'write')).toBe('read')
+    expect(generalLevel('write', false, 'none')).toBe('write')
   })
 })
 
-describe('General access as Drive shows it (P1): Restricted or the team with a role, no "Same as"', () => {
+describe('General access as Drive shows it (P2): Restricted or the team with a role; lower than above needs Limit access', () => {
   test('the audience of a level', () => {
     expect(audienceOf('none')).toBe('restricted')
     expect(audienceOf('read')).toBe('team')
     expect(audienceOf('write')).toBe('team')
   })
-  test('a pick: Restricted is always stored, a team role the folder already follows stays "no setting here", else stored', () => {
-    // no setting here, the folder above gives the team Viewer: picking Viewer again stores nothing
-    expect(pickBasic('read', { initial: 'follow', above: 'read', canFollow: true })).toBe('follow')
-    expect(pickBasic('write', { initial: 'follow', above: 'read', canFollow: true })).toBe('write')
-    // set here to Viewer like the folder above: picking Viewer back keeps the setting (nothing changes)
-    expect(pickBasic('read', { initial: 'read', above: 'read', canFollow: true })).toBe('read')
-    // set here to Editor, Viewer picked: stored here (back to the folder above is its own control, "Use the access of")
-    expect(pickBasic('read', { initial: 'write', above: 'read', canFollow: true })).toBe('read')
-    // shared/, skills/ and the team root keep a setting of their own
-    expect(pickBasic('read', { initial: 'write', above: 'read', canFollow: false })).toBe('read')
+  test('a pick: back to what the folder had keeps it; equal to what comes from above stores nothing; Restricted stores no team setting', () => {
+    expect(pickBasic('read', { initial: 'follow', limited: false, above: 'read' })).toBe('follow')
+    expect(pickBasic('write', { initial: 'follow', limited: false, above: 'read' })).toBe('write')
+    expect(pickBasic('read', { initial: 'read', limited: false, above: 'read' })).toBe('read')
+    expect(pickBasic('read', { initial: 'write', limited: true, above: 'write' })).toBe('read')
+    expect(pickBasic('none', { initial: 'read', limited: false, above: 'none' })).toBe('follow')
+    expect(pickBasic('none', { initial: 'read', limited: true, above: 'read' })).toBe('named')
+    expect(pickBasic('none', { initial: 'named', limited: true, above: 'read' })).toBe('named')
   })
-  test('review H1: Restricted under a Restricted folder above is stored (everyone: no access), cutting off who that folder lets in', () => {
-    // the folder above is Restricted but lists Sales: following it lets Sales in; Restricted here must not
-    expect(pickBasic('none', { initial: 'follow', above: 'none', canFollow: true })).toBe('named')
-    expect(pickBasic('none', { initial: 'follow', above: 'read', canFollow: true })).toBe('named')
-    expect(pickBasic('none', { initial: 'read', above: 'none', canFollow: false })).toBe('named')
-    // and the permission function agrees: Sales (Alice) gets in by following, not with "everyone: none" here
-    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'group', 'sales', 'read')]
-    const alice = people.find((p) => p.id === 'alice')!
-    expect(ruleWorld(rows).access(alice, ['shared', 'Q', 'x.md'])).toBe('read')
-    expect(ruleWorld([...rows, row('shared/Q', 'everyone', null, 'none')]).access(alice, ['shared', 'Q', 'x.md'])).toBe('none')
+  test('what can be picked: nothing lower than above on a folder that is not limited; anything once limited', () => {
+    expect(pickable('read', { limited: false, above: 'write' })).toBe(false)
+    expect(pickable('none', { limited: false, above: 'read' })).toBe(false)
+    expect(pickable('write', { limited: false, above: 'read' })).toBe(true)
+    expect(pickable('read', { limited: false, above: 'read' })).toBe(true)
+    expect(pickable('none', { limited: true, above: 'write' })).toBe(true)
   })
-  test('review H2: shared/ or skills/ with no team setting yet (it keeps rows of its own): a team pick is stored', () => {
-    expect(pickBasic('read', { initial: 'follow', above: 'read', canFollow: false })).toBe('read')
-    expect(pickBasic('write', { initial: 'follow', above: 'write', canFollow: false })).toBe('write')
-    expect(pickBasic('none', { initial: 'follow', above: 'none', canFollow: false })).toBe('named')
-  })
-  test('General access lower than the folder above is said for as long as it is so', () => {
-    expect(generalLowerOf('read', { access: 'write', folder: 'shared' })).toEqual({ kind: 'view', folder: 'shared' })
-    expect(generalLowerOf('named', { access: 'read', folder: '' })).toEqual({ kind: 'closed', folder: '' })
-    expect(generalLowerOf('follow', { access: 'write', folder: 'shared' })).toBeNull()
-    expect(generalLowerOf('write', { access: 'write', folder: 'shared' })).toBeNull()
-    expect(generalLowerOf('read', { access: 'read', folder: 'shared' })).toBeNull()
-    expect(generalLowerOf('named', { access: 'none', folder: null })).toBeNull()
-    expect(generalLowerOf('named', null)).toBeNull()
-  })
-  test('General access lower than a person or group above (not only the team): said with who', () => {
-    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'group', 'sales', 'write')]
-    const data = answer(rows, 'shared/Q', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])
-    expect(generalLowerOf('read', data.everyoneAbove, { above: data.above })).toEqual({ kind: 'view', folder: 'shared', who: ['Sales'] })
-    expect(generalLowerOf('named', data.everyoneAbove, { above: data.above })).toEqual({ kind: 'closed', folder: 'shared', who: ['Sales'] })
-    // Sales listed here: its own row decides, nothing to say
-    expect(generalLowerOf('read', data.everyoneAbove, { above: data.above, named: new Set(['group:sales']) })).toBeNull()
-  })
-  test('the line names everyone kept out, and "the folders above" when they come from several (review of #783)', () => {
-    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'erin', 'read'), row('shared/A', 'user', 'frank', 'read')]
-    const one = answer([row('shared', 'everyone', null, 'none'), row('shared', 'user', 'erin', 'read'), row('shared', 'user', 'frank', 'read')], 'shared/Q', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
-    expect(generalLowerOf('named', one.everyoneAbove, { above: one.above })).toEqual({ kind: 'closed', folder: 'shared', who: ['Erin', 'Frank'] })
-    expect(en('folderAccess.generalLowerClosedWho', { who: namesText(en, 'en', ['Erin', 'Frank'], 2), folder: 'Company-wide' })).toBe('Erin and Frank can open "Company-wide", but not this folder.')
-    const two = answer(rows, 'shared/A/Q', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
-    const got = generalLowerOf('named', two.everyoneAbove, { above: two.above })
-    expect(got?.folder).toBeNull()
-    expect(got?.who?.sort()).toEqual(['Erin', 'Frank'])
+  test('the permission function agrees: Restricted on a folder that is not limited keeps out nobody the folder above lets in', () => {
+    const rows = [row('shared', 'everyone', null, 'read')]
+    const erin = people.find((p) => p.id === 'erin')!
+    expect(ruleWorld([...rows, row('shared/Q', 'user', 'frank', 'read')]).access(erin, ['shared', 'Q', 'x.md'])).toBe('read')
   })
 })
 
-// TODO(P2 UI, before P2 ships): since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive
-// (P2)") a lower row no longer lowers anyone: the permission function gives the wider access with and without the row
-// (asserted below), so these A1 captions (lib/folder-sharing.ts lowerOf, generalLowerOf) describe the old model and go
-// with the P2 Share dialog (spec item 13: "P1 keeps them while out alone; P2 removes them").
-describe('a Viewer row lower than what they would get otherwise (review A1): the caption, and what the permission function gives since P2', () => {
-  const groupMap = new Map<string, Group>([
-    ['sales', { id: 'sales', name: 'Sales', description: null, memberIds: ['alice', 'bob'] } as Group],
-    ['leads', { id: 'leads', name: 'Leads', description: null, memberIds: ['bob', 'carol'] } as Group],
-  ])
-  type Rule = { subjectType: 'user' | 'group' | 'everyone'; subjectId: string | null; access: Access }
-  /** the caption for `who` with these rules on `at`, and the access the permission function gives them with and
-   * without that row */
-  const check = (rows: Row[], at: string, rules: Rule[], who: { subjectType: 'user' | 'group'; subjectId: string }, person: string) => {
-    const data = answer(rows, at, rules)
-    const draft = draftOf(rules, false).draft
-    const n = draft.named.find((x) => x.subjectType === who.subjectType && x.subjectId === who.subjectId)!
-    const lower = lowerOf(draft, n, { groups: groupMap, above: data.above, everyoneAbove: data.everyoneAbove })
-    const accessOf = (rs: Rule[]) => ruleWorld([...rows.filter((r) => r.path !== at), ...rs.map((r) => row(at, r.subjectType, r.subjectId, r.access))]).access(people.find((p) => p.id === person)!, `${at}/x.md`.split("/"))
-    const without = rules.filter((r) => !(r.subjectType === who.subjectType && r.subjectId === who.subjectId))
-    return { lower, with: accessOf(rules), without: accessOf(without) }
-  }
-
-  test('a person set to Viewer under a folder where the team can edit (screenshot 08 "Downgrade")', () => {
-    const r = check([row('shared', 'everyone', null, 'write')], 'shared/Down', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }], { subjectType: 'user', subjectId: 'erin' }, 'erin')
-    expect(r.lower).toEqual({ kind: 'team', folder: 'shared' })
-    expect([r.with, r.without]).toEqual(['write', 'write'])
-    expect(en('folderAccess.lowerTeamAbove', { team: 'Acme', folder: 'Company-wide' })).toBe('Can only view here, though anyone at Acme can edit "Company-wide"')
-  })
-
-  test('a group set to Viewer next to General access team Editor on the same folder', () => {
-    const r = check([], 'shared', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'write' }], { subjectType: 'group', subjectId: 'sales' }, 'alice')
-    expect(r.lower).toEqual({ kind: 'team', folder: null })
-    expect([r.with, r.without]).toEqual(['write', 'write'])
-  })
-
-  test('a person set to Viewer below their group set to Editor on the same folder', () => {
-    const r = check([], 'shared/Q', [{ subjectType: 'group', subjectId: 'sales', access: 'write' }, { subjectType: 'user', subjectId: 'alice', access: 'read' }], { subjectType: 'user', subjectId: 'alice' }, 'alice')
-    expect(r.lower).toEqual({ kind: 'group', group: 'Sales' })
-    expect([r.with, r.without]).toEqual(['write', 'write'])
-  })
-
-  test('a person or group set to Viewer where a group above can edit', () => {
+describe('a person or group row and what it gets from the folders above (P2: "Editor from …")', () => {
+  test('the widest rule above that applies, with its folder; a role below it cannot be picked', () => {
     const rows = [row('shared', 'everyone', null, 'read'), row('shared/Sales', 'group', 'sales', 'write')]
-    const p = check(rows, 'shared/Sales/Q', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }], { subjectType: 'user', subjectId: 'alice' }, 'alice')
-    expect(p.lower).toEqual({ kind: 'groupAbove', group: 'Sales', folder: 'shared/Sales' })
-    expect([p.with, p.without]).toEqual(['write', 'write'])
-    const g = check(rows, 'shared/Sales/Q', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }], { subjectType: 'group', subjectId: 'sales' }, 'alice')
-    expect(g.lower).toEqual({ kind: 'groupAbove', group: 'Sales', folder: 'shared/Sales' })
-    expect([g.with, g.without]).toEqual(['write', 'write'])
+    const data = answer(rows, 'shared/Sales/Q', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }])
+    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'alice' }, groups)).toEqual({ access: 'write', folder: 'shared/Sales' })
+    expect(inheritedOf(data.above, { subjectType: 'group', subjectId: 'sales' }, groups)).toEqual({ access: 'write', folder: 'shared/Sales' })
+    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'erin' }, groups)).toEqual({ access: 'read', folder: 'shared' })
+    expect(inheritedOf(data.above, { subjectType: 'group', subjectId: 'leads' }, groups)).toEqual({ access: 'read', folder: 'shared' })
+    expect(en('folderAccess.fromAbove', { role: en('access.write'), folder: 'Sales' })).toContain('Sales')
   })
-
-  test('a group set to Viewer whose member has their own Editor row above: that member is named', () => {
-    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'bob', 'write')]
-    const data = answer(rows, 'shared/Q', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }])
-    const draft = draftOf([{ subjectType: 'group', subjectId: 'sales', access: 'read' }], false).draft
-    expect(lowerOf(draft, draft.named[0]!, { groups: groupMap, above: data.above, everyoneAbove: data.everyoneAbove, names: (id) => people.find((p) => p.id === id)?.name })).toEqual({ kind: 'groupAbove', group: 'Bob', folder: 'shared' })
-    const bob = people.find((p) => p.id === 'bob')!
-    expect(ruleWorld([...rows, row('shared/Q', 'group', 'sales', 'read')]).access(bob, ['shared', 'Q', 'x.md'])).toBe('write')
-    expect(ruleWorld(rows).access(bob, ['shared', 'Q', 'x.md'])).toBe('write')
+  test('nothing from above: null', () => {
+    const data = answer([row('shared', 'everyone', null, 'none')], 'shared/Q', [])
+    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'erin' }, groups)).toBeNull()
+    expect(inheritedOf(null, { subjectType: 'user', subjectId: 'erin' }, groups)).toBeNull()
   })
-
-  test('the caption names the rule that decides: a deeper group with Viewer wins over a group above with Editor (no caption)', () => {
-    // Bob: Leads can edit shared, Sales can only view shared/A (deeper): without his row here he views
-    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'group', 'leads', 'write'), row('shared/A', 'group', 'sales', 'read')]
-    const r = check(rows, 'shared/A/Q', [{ subjectType: 'user', subjectId: 'bob', access: 'read' }], { subjectType: 'user', subjectId: 'bob' }, 'bob')
-    expect([r.with, r.without]).toEqual(['write', 'write'])
-    expect(r.lower).toBeNull()
-    // Carol (Leads only): Leads decides for her, Editor: said
-    const c = check(rows, 'shared/A/Q', [{ subjectType: 'user', subjectId: 'carol', access: 'read' }], { subjectType: 'user', subjectId: 'carol' }, 'carol')
-    expect([c.with, c.without]).toEqual(['write', 'write'])
-    expect(c.lower).toEqual({ kind: 'groupAbove', group: 'Leads', folder: 'shared' })
+  test('and the permission function: a Viewer row under an Editor folder lowers nobody (access adds up)', () => {
+    const rows = [row('shared', 'everyone', null, 'write')]
+    const erin = people.find((p) => p.id === 'erin')!
+    expect(ruleWorld([...rows, row('shared/Down', 'user', 'erin', 'read')]).access(erin, ['shared', 'Down', 'x.md'])).toBe('write')
   })
+})
 
-  test('a person set to Viewer where their own row above lets them edit', () => {
-    const r = check([row('shared', 'user', 'erin', 'write')], 'shared/Q', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }], { subjectType: 'user', subjectId: 'erin' }, 'erin')
-    expect(r.lower).toEqual({ kind: 'selfAbove', folder: 'shared' })
-    expect([r.with, r.without]).toEqual(['write', 'write'])
-  })
-
-  test('no caption where the row lowers nobody: Viewer where they would view anyway, Editor, Restricted here', () => {
-    expect(check([row('shared', 'everyone', null, 'read')], 'shared/Q', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }], { subjectType: 'user', subjectId: 'erin' }, 'erin').lower).toBeNull()
-    expect(check([row('shared', 'everyone', null, 'write')], 'shared/Q', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }], { subjectType: 'user', subjectId: 'erin' }, 'erin').lower).toBeNull()
-    const closed = check([row('shared', 'everyone', null, 'write')], 'shared/Q', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], { subjectType: 'user', subjectId: 'erin' }, 'erin')
-    expect(closed.lower).toBeNull()
-    expect([closed.with, closed.without]).toEqual(['read', 'none'])
-    // a person in a group set to Viewer here, General access Editor: the group decides first, so the person's Viewer
-    // row lowers nothing
-    expect(check([], 'shared', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }, { subjectType: 'user', subjectId: 'alice', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'write' }], { subjectType: 'user', subjectId: 'alice' }, 'alice').lower).toBeNull()
+describe('Access removed on a limited folder (Drive)', () => {
+  test('people who open the folder above but are stopped by this limit, by name; not those cut higher up or named here', () => {
+    const here = [
+      { user: { id: 'erin', name: 'Erin' }, access: 'none' as Access, reason: { kind: 'no-rule', cutAt: 'shared/Q' } },
+      { user: { id: 'bob', name: 'Bob' }, access: 'none' as Access, reason: { kind: 'no-rule', cutAt: 'shared/Q' } },
+      { user: { id: 'frank', name: 'Frank' }, access: 'none' as Access, reason: { kind: 'no-rule', cutAt: 'shared' } },
+      { user: { id: 'alice', name: 'Alice' }, access: 'read' as Access, reason: { kind: 'rule' } },
+      { user: { id: 'carol', name: 'Carol' }, access: 'none' as Access, reason: { kind: 'no-rule', cutAt: 'shared/Q' } },
+    ]
+    const above = [{ user: { id: 'erin' }, access: 'read' as Access }, { user: { id: 'bob' }, access: 'write' as Access }, { user: { id: 'frank' }, access: 'read' as Access }, { user: { id: 'alice' }, access: 'read' as Access }, { user: { id: 'carol' }, access: 'none' as Access }]
+    expect(removedPeople(here, above, 'shared/Q')).toEqual([{ id: 'bob', name: 'Bob' }, { id: 'erin', name: 'Erin' }])
   })
 })

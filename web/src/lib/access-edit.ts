@@ -11,8 +11,8 @@
 //
 // Since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"), "only the people
 // named" is Limit access (the folder's `limited`), not an "everyone: none" rule: the server refuses "no access" rules.
-// TODO(P2 UI): the Limit access switch of its own, General access apart from it, Access removed › Add, the Manager row
-// and the "Added when folders changed" tag (docs/DECISIONS.md, same entry).
+// The draft carries the limit itself (`limited`, the dialog's Limit access switch); the basic access is the team's own
+// setting here ('follow' and 'named' both store no everyone rule: 'named' is the limited folder's "only people added").
 import type { Access, FolderRuleInput } from '@mycel/shared/api'
 
 /** The basic access, for everyone the rows below do not name: follow the folder above (no everyone rule), only the
@@ -21,7 +21,7 @@ export type Basic = 'follow' | 'named' | 'read' | 'write'
 export const BASICS: readonly Basic[] = ['follow', 'named', 'read', 'write']
 /** A person or a group named in the folder's rules, with their access there ("none" keeps them out of an open folder). */
 export interface Named { subjectType: 'user' | 'group'; subjectId: string; access: Access }
-export interface Draft { basic: Basic; named: Named[] }
+export interface Draft { basic: Basic; named: Named[]; limited?: boolean }
 /** A rule as the API has it. */
 export interface RuleLike { subjectType: string; subjectId: string | null; access: Access }
 
@@ -41,7 +41,7 @@ export function draftOf(rules: readonly RuleLike[], root: boolean, limited = fal
   // a limited folder without an everyone rule: only the people named
   const basic = basicOf((member ?? every)?.access) ?? (root || limited ? 'named' : 'follow')
   const named = rules.filter((r): r is Named => (r.subjectType === 'user' || r.subjectType === 'group') && !!r.subjectId).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
-  return { draft: { basic, named }, converted: { member: !!member, admin: rules.some((r) => r.subjectType === 'role' && r.subjectId === 'admin') } }
+  return { draft: { basic, named, limited: !root && limited }, converted: { member: !!member, admin: rules.some((r) => r.subjectType === 'role' && r.subjectId === 'admin') } }
 }
 
 /**
@@ -61,7 +61,7 @@ export function rulesOf(draft: Draft, _o: { root: boolean; rootNoneRow?: boolean
 /** The folder's limit a draft saves: "only the people named" limits it, "follow the folder above" takes the limit away;
  * an everyone choice keeps what the folder has (undefined: the server keeps it). At the team root nothing is above it:
  * kept as it is. */
-export const limitedOf = (draft: Draft, root: boolean): boolean | undefined => (root ? undefined : draft.basic === 'named' ? true : draft.basic === 'follow' ? false : undefined)
+export const limitedOf = (draft: Draft, root: boolean): boolean | undefined => (root ? undefined : draft.limited !== undefined ? draft.limited : draft.basic === 'named' ? true : draft.basic === 'follow' ? false : undefined)
 
 /** Kept for callers from before the limit: the root's "only the people named" is no everyone rule now. */
 export const rootNoneRow = (_rules: readonly RuleLike[]) => false
@@ -77,7 +77,7 @@ export function sameRules(a: readonly RuleLike[], b: readonly RuleLike[]): boole
 /** One string per set of rules (in the order given): the server's answer is kept by it, and an older one dropped. */
 export const rulesKey = (rules: readonly RuleLike[]) => rules.map(ruleKey).join('\u0001')
 /** One string per draft: whether the admin changed anything. */
-export const draftKey = (d: Draft) => `${d.basic}\u0002${d.named.map((n) => `${n.subjectType}\u0000${n.subjectId}\u0000${n.access}`).join('\u0001')}`
+export const draftKey = (d: Draft) => `${d.basic}\u0003${d.limited ? 1 : 0}\u0002${d.named.map((n) => `${n.subjectType}\u0000${n.subjectId}\u0000${n.access}`).join('\u0001')}`
 
 /** The draft with a person or group added (read, at the end), or with their access changed, or without them. */
 export const addNamed = (d: Draft, n: Omit<Named, 'access'>, access: Access = 'read'): Draft =>

@@ -397,6 +397,22 @@ export function originKeepers(db: Database, changes: readonly { userId: string; 
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
 }
+/**
+ * The one-time Admin notice after the conversion: the folders it listed people on by name (its audit row), those still
+ * there and not in the trash, until an owner or admin dismisses it (one setting for the team).
+ */
+export const FOLDER_ACCESS_NOTICE_DISMISSED = 'folder_access_notice_dismissed'
+export function folderAccessNotice(db: Database): { at: string; folders: { path: string; count: number }[] } | null {
+  const row = db.query("SELECT detail, at FROM audit_log WHERE action = 'folders.additive_conversion' ORDER BY id DESC LIMIT 1").get() as { detail: string | null; at: string } | null
+  if (!row?.detail) return null
+  const dismissed = db.query('SELECT value FROM settings WHERE key = ?').get(FOLDER_ACCESS_NOTICE_DISMISSED) as { value: string } | null
+  if (dismissed) return null
+  let byName: { path: string; count: number }[] = []
+  try { byName = (JSON.parse(row.detail) as { byName?: { path: string; count: number }[] }).byName ?? [] } catch { return null }
+  const folders = byName.filter((b) => b.count > 0 && !isParkedRow(b.path) && !insideProject(b.path) && !!getFolderByPath(db, b.path)).map((b) => ({ path: b.path, count: b.count }))
+  return folders.length ? { at: new Date(row.at.endsWith('Z') ? row.at : row.at + 'Z').toISOString(), folders } : null
+}
+
 /** What one line says about them (the connector's group tools; English, as the tools answer). */
 export function originKeptText(kept: readonly OriginKept[]): string {
   if (!kept.length) return ''
