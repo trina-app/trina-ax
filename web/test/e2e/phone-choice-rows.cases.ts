@@ -94,7 +94,7 @@ export function phoneCases() {
 
     await backCloses(page, 'team-default-locale', 'English')
     const menu = await openChoices(page, 'team-default-locale', 'English')
-    await expect(menu.getByRole('menuitemradio')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
+    await expect(menu.getByRole('menuitemradio')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
     await shot(page, 'general-language-sheet.png')
     await page.getByTestId('team-default-locale-option-ja').click()
     await expect(sheet(page)).toHaveCount(0)
