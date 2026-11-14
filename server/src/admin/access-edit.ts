@@ -287,3 +287,26 @@ function plainAbove(rules: RuleSet, segs: readonly string[]): NonNullable<Folder
   const e = rules.explain(NOBODY, segs)
   return { access: e.access, folder: e.reason.kind === 'rule' ? e.reason.folder : null }
 }
+
+const ORDER: Record<Access, number> = { none: 0, read: 1, write: 2 }
+/**
+ * 12-A at save time (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): on a folder that is not limited a
+ * rule lower than what the folders above already give its subject restricts nobody (access adds up), so it is stored at
+ * that level instead: General access, a group, a person. What anyone can open does not change; the stored rules just say
+ * what is true. `rs` is the rules now; the folder's own rules and limit are left out of "above". A person who is gone
+ * (no principal) keeps their row as it is.
+ */
+export function raiseToAbove<R extends { subjectType: string; subjectId: string | null; access: Access }>(rs: RuleSet, path: string, rules: readonly R[], principalOf: (id: string) => Principal | null): R[] {
+  const without = rs.replacing(path, { rules: [], limited: false })
+  const segs = path.split('/')
+  // what a subject gets from above: everyone through a member who is in no group; a group through a member only in it
+  const of = (p: Principal) => without.access(p, segs)
+  const plain = (groups: string[]): Principal => ({ id: '\u0000above', name: '', role: 'member', groups })
+  return rules.map((r) => {
+    if (r.access === 'write') return r
+    const p = r.subjectType === 'everyone' ? plain([]) : r.subjectType === 'group' && r.subjectId ? plain([r.subjectId]) : r.subjectType === 'user' && r.subjectId ? principalOf(r.subjectId) : null
+    if (!p) return r
+    const up = of(p)
+    return ORDER[up] > ORDER[r.access] ? { ...r, access: up } : r
+  })
+}

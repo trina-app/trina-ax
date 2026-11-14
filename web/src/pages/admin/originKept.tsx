@@ -2,12 +2,15 @@
 // the one-time folder access conversion added to a folder by name keep that access when they leave the group, like a
 // Google Drive share given by name. Admin › Groups (a member taken out, a group deleted) and the person's page (a group
 // taken off) ask the server first (POST /api/admin/groups/origin-check, nothing saved) and, when someone keeps access,
-// say so before saving; each line can take the person off that folder right there.
+// say so before saving; each line can take the person off that folder right there ("Remove now": it acts at once,
+// whatever the dialog's answer). A folder inside a team project offers no Remove: its members manage it there.
 import { useState } from 'react'
 import type { Folder, FolderRuleInput } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { useFolderWords } from '../../lib/folderLabels'
+import { inProjects } from '../../lib/folder-sharing'
+import { toast } from '../../store/ui'
 import { Button, confirmDialog } from '../../components/ui'
 import { useActionOk } from './common'
 
@@ -37,16 +40,19 @@ function OriginKeptList({ kept }: { kept: Kept[] }) {
   const [busy, setBusy] = useState<string | null>(null)
   const remove = async (k: Kept, id: string) => {
     setBusy(id)
+    let gone = false
     const ok = await actOk(async () => {
       const f = (await api.call(API.listFolders)).items.find((x: Folder) => x.path === k.path)
-      if (!f) return
+      // not in the list (removed meanwhile): nothing was taken off, so never "Removed"
+      if (!f) { gone = true; return }
       // the folder's own rules without this person (no access rows and the managed marker are the server's own; the
       // limit stays)
       const rules = f.rules.filter((r) => r.access !== 'none' && r.subjectType !== 'role' && !(r.subjectType === 'user' && r.subjectId === k.user.id)).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }) as FolderRuleInput)
       await api.call(API.putFolderRules, { params: { id: f.id }, body: { rules, limited: !!f.limited, ...(f.rulesHash ? { expectedHash: f.rulesHash } : {}) } })
     })
     setBusy(null)
-    if (ok) setDone((d) => new Set(d).add(id))
+    if (gone) toast({ level: 'error', text: t('groups.originGone') })
+    else if (ok) setDone((d) => new Set(d).add(id))
   }
   return (
     <ul className="space-y-2 text-sm" data-testid="origin-kept">
@@ -57,7 +63,7 @@ function OriginKeptList({ kept }: { kept: Kept[] }) {
             <span className="min-w-0 flex-1">{t('groups.originWarning', { name: k.user.name, folder: words.path(k.path, ' › ') })}</span>
             {done.has(id) ? (
               <span className="shrink-0 py-1 text-xs text-muted">{t('groups.originRemoved')}</span>
-            ) : (
+            ) : inProjects(k.path) ? null : (
               <Button variant="ghost" size="sm" busy={busy === id} disabled={busy !== null} onClick={() => void remove(k, id)} data-testid="origin-kept-remove">
                 {t('groups.originRemove')}
               </Button>

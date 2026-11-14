@@ -464,6 +464,22 @@ test('a phone: a chosen folder is a page of its own, without the two views\' swi
   await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
 })
 
+test('a phone: the Share sheet opened from a folder\'s page closes with one Back, staying in Folder permissions', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  await page.goto('/admin/folders')
+  await page.goto('/admin/folders?folder=shared')
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+  await page.getByTestId('folder-detail-edit').click()
+  await expect(page.getByTestId('sharing')).toBeVisible()
+  await page.goBack()
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/admin\/folders\?folder=shared/)
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+})
+
 test('rule folders only: the folders with rules and the way to them, open; pages; back to the whole tree', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

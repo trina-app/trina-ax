@@ -749,21 +749,28 @@ export function keepFolderAccess(live: string, staged: string, log?: Pick<Logger
   // start of this one. Then a copy of it is converted and read, never the backup's rules while a live database exists)
   let source = live
   let copy: string | null = null
+  let model: string | null
   try {
     const d = new Database(live, { readonly: true })
-    let model: string | null
     try { d.query('SELECT 1 FROM folders LIMIT 1').all(); model = modelOf(d) } finally { d.close() }
-    if (model !== FOLDER_ACCESS_MODEL) {
-      copy = path.join(path.dirname(live), LIVE_CONVERTED_COPY)
+  } catch (e) {
+    // a broken current database: the restore is the way back from it, with the backup's rules (said in the result)
+    log?.error('could not read the folder permissions of the current database; the restored database keeps the backup\'s', { err: e })
+    return false
+  }
+  if (model !== FOLDER_ACCESS_MODEL) {
+    // a readable but unconverted current database: its rules must be kept, so a copy that cannot be made stops the
+    // restore (the throw), never the backup's rules (review of #787)
+    copy = path.join(path.dirname(live), LIVE_CONVERTED_COPY)
+    try {
       fs.rmSync(copy, { force: true })
       const w = new Database(live, { readonly: true })
       try { w.query('VACUUM INTO ?').run(copy) } finally { w.close() }
-      source = copy
+    } catch (e) {
+      for (const s of ['', '-wal', '-shm']) try { fs.rmSync(copy + s, { force: true }) } catch { /* the throw below says it */ }
+      throw new Error('could not copy the current database to convert its folder permissions; the restore stops', { cause: e })
     }
-  } catch (e) {
-    log?.error('could not read the folder permissions of the current database; the restored database keeps the backup\'s', { err: e })
-    if (copy) fs.rmSync(copy, { force: true })
-    return false
+    source = copy
   }
   try {
     // a converted copy that fails to convert stops the restore (the throw): never the backup's rules here

@@ -210,12 +210,32 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   }
   const anyone = draft.named.some((n) => n.access !== 'none') || fromAbove.some((r) => r.access !== 'none')
   const parent = parentOf(path)
-  const pick = (to: Access) => setDraft((x) => ({ ...x, basic: pickBasic(to, { initial: d.initial.basic, limited: !!x.limited, above }) }))
-  /** Limit access on or off: the team's "only people added" goes with it (no setting of the team's either way) */
-  const setLimit = (on: boolean) => setDraft((x) => ({ ...x, limited: on, basic: on ? (x.basic === 'follow' ? 'named' : x.basic) : x.basic === 'named' ? 'follow' : x.basic }))
+  // shared/ and skills/ keep a setting of their own (the server refuses neither rules nor limit there): no "follow" for
+  // them, and Restricted there is Limit access (as P1 stored it, review of #787)
+  const teamFolder = folder?.keep === 'team'
+  const pick = (to: Access) => setDraft((x) => {
+    if (teamFolder && to === 'none') return { ...x, basic: 'named', limited: true }
+    const b = pickBasic(to, { initial: d.initial.basic, limited: !!x.limited, above })
+    return { ...x, basic: teamFolder && b === 'follow' ? (to === 'none' ? 'named' : to) : b }
+  })
+  /** Limit access on or off: the team's "only people added" goes with it (no setting of the team's either way). Off: a
+   * role lower than what the folders above give is raised to it (12-A at save time: access adds up, so a lower row
+   * would restrict nobody); the server does the same on save */
+  const setLimit = (on: boolean) => setDraft((x) => {
+    if (on) return { ...x, limited: true, basic: x.basic === 'follow' ? 'named' : x.basic }
+    const own: Access = x.basic === 'read' || x.basic === 'write' ? x.basic : 'none'
+    const basic = RANK_OF[own] >= RANK_OF[above] ? (x.basic === 'named' && !teamFolder ? 'follow' : x.basic) : teamFolder ? (above as 'read' | 'write') : 'follow'
+    const named = x.named.map((n) => {
+      if (n.access === 'none') return n
+      const from = data ? inheritedOf(data.above, n, groupById) : null
+      return from && RANK_OF[from.access] > RANK_OF[n.access] ? { ...n, access: from.access } : n
+    })
+    return { ...x, limited: false, basic, named }
+  })
   // Limit access is the owner's and admins' (the dialog is theirs): on subfolders; on a top folder (nothing above it but
-  // the team root) only while it is limited, so a limit the update put there can be taken away; never at the team root
-  const limitShown = parent !== null && (parent !== '' || limited || !!d.base.limited)
+  // the team root) only while it is limited, so a limit the update put there can be taken away, and always on shared/
+  // and skills/ (their Restricted is the limit); never at the team root
+  const limitShown = parent !== null && (parent !== '' || limited || !!d.base.limited || teamFolder)
   // people the update listed by name on this folder ("Added when folders changed"), while their role is as it was
   const byConversion = new Set((folder?.rules ?? []).filter((r) => r.byConversion).map((r) => `${r.subjectType}:${r.subjectId}:${r.access}`))
   // a connected folder offers the team no Editor, unless it has it now (shown as it is)
@@ -430,7 +450,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
                 </div>
                 <select
                   value={always ? STAFF : n.access}
-                  aria-label={t('folderAccess.levelOf', { name: label })}
+                  aria-label={`${t('folderAccess.levelOf', { name: label })}: ${always ? t('folderAccess.manager') : t(n.access === 'write' ? 'folderAccess.canEdit' : 'folderAccess.canView')}`}
                   onChange={(e) => {
                     if (e.target.value === REMOVE) void removeRow(i, label)
                     else if (e.target.value !== STAFF) setDraft((x) => setNamed(x, i, e.target.value as Access))
@@ -609,6 +629,8 @@ function AboveButton({ onOpen, title, second, level, label, tile, face, testId, 
   )
 }
 
+const RANK_OF: Record<Access, number> = { none: 0, read: 1, write: 2 }
+
 /** Access removed shows this many before "Show all". */
 const REMOVED_SHOWN = 3
 
@@ -639,7 +661,7 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
         {/* before the first answer no value is known: none is shown (not "Restricted"), re-review of #779 */}
         <select
           value={loading ? '' : audience}
-          aria-labelledby={id}
+          aria-label={loading ? t('folderAccess.general') : `${t('folderAccess.general')}: ${audience === 'restricted' ? t('folderAccess.restricted') : teamName}`}
           onChange={(e) => onAudience(e.target.value as 'restricted' | 'team')}
           className={clsx(generalSelect, 'min-w-0 flex-1 disabled:cursor-default disabled:opacity-60')}
           disabled={loading}
@@ -652,7 +674,7 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
           <option value="team">{teamName}</option>
         </select>
         {!loading && audience === 'team' && (
-          <select value={level} aria-label={t('folderAccess.teamRole', { team: teamName })} onChange={(e) => onPick(e.target.value as Access)} disabled={loading} className={clsx(generalSelect, 'shrink-0')} data-testid="sharing-general-role">
+          <select value={level} aria-label={`${t('folderAccess.teamRole', { team: teamName })}: ${t(level === 'write' ? 'folderAccess.canEdit' : 'folderAccess.canView')}`} onChange={(e) => onPick(e.target.value as Access)} disabled={loading} className={clsx(generalSelect, 'shrink-0')} data-testid="sharing-general-role">
             <option value="read" disabled={!canPick('read')}>{t('folderAccess.canView')}</option>
             {teamEdit && <option value="write">{t('folderAccess.canEdit')}</option>}
           </select>

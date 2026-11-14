@@ -354,6 +354,39 @@ describe('review of #779: the owner\'s row, and General access before the first 
   })
 })
 
+describe('review of #787: Limit access off, and shared/', () => {
+  test('turning Limit access off raises rows lower than the folders above give (12-A at save time)', async () => {
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])
+    limitedPaths.add('shared/Sales/Quotes')
+    const m = await open()
+    await tick(m, m.get('sharing-limit'))
+    await m.until(() => rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:erin')?.getAttribute('data-access') === 'write', 'Erin raised to Editor')
+    await ready(m)
+    await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)[0], 'the save')
+    expect(put.body.limited).toBe(false)
+    // the team's Viewer row is gone (it follows Editor from above); Erin is stored as Editor
+    expect(put.body.rules).toEqual([{ subjectType: 'user', subjectId: 'erin', access: 'write' }])
+    await m.unmount()
+  })
+
+  test('shared/: Restricted is Limit access (shared/ keeps a setting of its own); Save is not stopped', async () => {
+    const m = await mountHost('shared')
+    await m.until(() => m.find('sharing-general-select') && !m.find('sharing-general-select')!.hasAttribute('disabled'), 'General access')
+    await choose(m.get('sharing-general-select'), 'restricted')
+    await m.until(() => (m.find('sharing-limit') as unknown as { checked?: boolean } | null)?.checked === true, 'the limit on')
+    await ready(m)
+    expect(m.find('sharing-keep-one')).toBeNull()
+    await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared')}/rules`)[0], 'the save')
+    expect(put.body).toMatchObject({ rules: [], limited: true })
+    await m.unmount()
+  })
+})
+
 describe('a draft belongs to one folder', () => {
   test('another folder starts from its own rules; its save goes to its own id with its own hash', async () => {
     const m = await open()

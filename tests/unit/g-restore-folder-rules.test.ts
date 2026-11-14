@@ -234,6 +234,20 @@ describe('restores across the conversion (§9)', () => {
     expect(fs.existsSync(path.join(dir, LIVE_CONVERTED_COPY))).toBe(false)
   })
 
+  test('an unconverted live database whose copy cannot be made stops the restore: never the backup\'s rules (review of #787)', () => {
+    const dir = path.join(W, 'copy-fails')
+    const staged = path.join(dir, 'staged.db'), live = path.join(dir, 'live.db')
+    oldDbFile(staged, () => {})
+    oldDbFile(live, (d) => addTo(d)('f-hr', 'shared/HR', [['everyone', null, 'none'], ['user', 'olga', 'write']]))
+    migrateFile(staged)
+    // the copy's place is taken by a folder with a file in it: the copy (VACUUM INTO) cannot be made there
+    fs.mkdirSync(path.join(dir, LIVE_CONVERTED_COPY, 'x'), { recursive: true })
+    const before = fs.readFileSync(staged)
+    expect(() => keepFolderAccess(live, staged)).toThrow(/restore stops/)
+    // nothing was written to the staged database
+    expect(Buffer.compare(fs.readFileSync(staged), before)).toBe(0)
+  })
+
   test('a backup-only row that is not parked is not limited (H4c); a project left after the backup: the exception holds (H4a)', async () => {
     const { db, rules } = await restoreAfter('backup-only', (db) => {
       folder(db, 'f-old', 'shared/Old', [['everyone', null, 'none']])

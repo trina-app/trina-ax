@@ -9,8 +9,8 @@
 - Version impact: minor, a migration and a new permission model. With the default M6-A the database reader level goes
   to 7, so this release cannot be rolled back automatically (owner decision).
 
-**Do not merge before the owner decides** C1 (people named by the conversion, after a group change) and M6 (reader
-level 7, no roll-back), and has seen the dry-run numbers. Built with the defaults C1-A, M6-A, item 9-A, item 12-A.
+**Owner decided (2026-11-14):** C1-A with the warning before saving, M6-A with a rehearsed manual roll-back runbook
+(docs/BACKUP-RESTORE.md), item 9-A, item 12-A also at save time. The coordinator merges.
 
 ## Goal
 

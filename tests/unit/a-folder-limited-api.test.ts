@@ -87,6 +87,22 @@ describe('limited through the API', () => {
     expect(preview.status).toBe(400)
   })
 
+  test('12-A at save time: not limited, a rule lower than what shared/ gives is stored at that level; limited, kept as asked', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'low'), { recursive: true })
+    const low = [{ subjectType: 'user', subjectId: kim, access: 'read' }, { subjectType: 'group', subjectId: sales, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'read' }]
+    let f = await owner.call('POST', '/api/admin/folders', { path: 'shared/low', create: false, rules: low }) as Folder
+    // shared/ lets everyone edit: each read row restricts nobody, so it is stored as Editor
+    expect(f.rules.map((r) => r.access)).toEqual(['write', 'write', 'write'])
+    expect(access(kim, 'shared/low')).toBe('write')
+    f = await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: low, expectedHash: f.rulesHash, limited: true })
+    expect(f.limited).toBe(true)
+    expect(f.rules.filter((r) => r.access !== 'none').map((r) => r.access)).toEqual(['read', 'read', 'read'])
+    // the limit taken off with the low rows: raised again
+    f = await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: low, expectedHash: f.rulesHash, limited: false })
+    expect(f.rules.map((r) => r.access)).toEqual(['write', 'write', 'write'])
+    expect(folderAccessProblems(h.ctx.db)).toEqual([])
+  })
+
   test('shared/ may be limited with no rules (M3): the team folder keeps a rule or a limit', async () => {
     const f = await folder('shared')
     const empty = await owner.try('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [], expectedHash: f.rulesHash })

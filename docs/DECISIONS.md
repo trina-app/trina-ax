@@ -26688,10 +26688,21 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   `chat-errors-plain.test.ts`; the harness option `turnTimeoutMs` is now `stallTimeoutMs`.
 - Version impact: **patch** (a limit removed, one error text added; no API or database change).
 
-## Folder access adds up like Google Drive (P2) — 폴더 권한이 드라이브처럼 위에서 더해진다 (feat/folder-access-additive, 2026-11-14, owner decisions pending)
+## Folder access adds up like Google Drive (P2) — 폴더 권한이 드라이브처럼 위에서 더해진다 (feat/folder-access-additive, 2026-11-14, owner decided)
 
-**Not merged before the owner decides C1 and M6 and has seen the dry-run numbers.** Built with the defaults C1-A, M6-A,
-item 9-A, item 12-A. Spec v3 and three reviews are with the owner (not in the repo).
+**Owner, 2026-11-14: go with P2.** C1-A with the warning before saving; M6-A with a written and rehearsed manual
+roll-back runbook (docs/BACKUP-RESTORE.md "Going back from the folder access update"); item 9-A; item 12-A applied at
+save time too. Spec v3 and the reviews are with the owner (not in the repo).
+
+- **12-A at save time** (owner, review of #787): on a folder that is not limited a rule lower than what the folders
+  above give its subject restricts nobody, so it is never stored: turning Limit access off in the dialog raises General
+  access and every person or group row to the level from above, and the server stores such a rule at that level on any
+  save or create (`raiseToAbove`, `server/src/admin/access-edit.ts`), so it does not rely on the web.
+- **Review of #787 (FIX FIRST), fixed:** an unconverted live database whose copy (VACUUM INTO) cannot be made stops the
+  restore, never the backup's rules; the group warning offers no Remove on a folder inside a team project (its members
+  manage it) and a folder gone meanwhile is an error, never "Removed"; Remove says it acts at once ("Remove now");
+  shared/ and skills/ keep a setting of their own again (P1's guard): their Restricted is Limit access, and the switch
+  shows there; Korean "변경하려면 액세스 제한 켜기" and "지금 제외"; role menus name their shown role (WCAG 2.5.3).
 
 - **The permission function** (`server/src/policy/access.ts`): outside the fixed branches (users/, .system/, temp
   names, the system principal, the owner and admins outside `projects/<name>`, the zone floor and the M2 check, all
