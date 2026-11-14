@@ -21,7 +21,7 @@ import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
 import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
 import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, originKeepers, resetEngineSessions } from './folders'
-import { stopTurnsOf } from '../chat/runtime'
+import { forgetUserName, stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { MY_PROFILE_CHANGED } from '../auth/profiles'
 import { revokeTeamLinksBy } from '../auth/team-links'
@@ -178,6 +178,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     }
     if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'user.update', target: id, detail: changed })
   }).immediate()
+  if (changed.name !== undefined) forgetUserName(ctx, id)
   // asked-for deletions they no longer handle (demoted), or that are now only the owner's (a member made an admin)
   if (changed.role === 'member') try { notificationsOf(ctx).forgetDeletionNotices({ userId: id }) } catch { /* the inbox row ages out */ }
   if (changed.role === 'admin') try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: id }) } catch { /* the inbox row ages out */ }

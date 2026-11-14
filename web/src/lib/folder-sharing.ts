@@ -113,18 +113,22 @@ export function lowerOf(d: Draft, n: { subjectType: 'user' | 'group'; subjectId:
   return null
 }
 
-/** General access lower than what the folders above give: `view` (they can only view here, though the team, or a
- * person or group above, `who`, can edit there) or `closed` (Restricted here, though the team or `who` can open the
- * folder above). Said under General access for as long as it is so, not only before Save. `above`: the server's rows of
+/** General access lower than what the folders above give: `view` (they can only view here, though the team, or the
+ * people and groups above, `who`, all of them, can edit there) or `closed` (Restricted here, though the team or `who`
+ * can open the folder above; `folder` null: several folders above). Said under General access for as long as it is so, not only before Save. `above`: the server's rows of
  * who decides with no rules here; people and groups listed here are left out (their own row decides). */
-export function generalLowerOf(basic: Basic, everyoneAbove: { access: Access; folder: string | null } | null | undefined, o: { above?: readonly AccessTreeWho[] | null; named?: ReadonlySet<string> } = {}): { kind: 'view' | 'closed'; folder: string; who?: string } | null {
+export function generalLowerOf(basic: Basic, everyoneAbove: { access: Access; folder: string | null } | null | undefined, o: { above?: readonly AccessTreeWho[] | null; named?: ReadonlySet<string> } = {}): { kind: 'view' | 'closed'; folder: string | null; who?: string[] } | null {
   const e = everyoneAbove
   if (basic === 'named' && e && e.access !== 'none' && e.folder !== null) return { kind: 'closed', folder: e.folder }
   if (basic === 'read' && e && e.access === 'write' && e.folder !== null) return { kind: 'view', folder: e.folder }
   if (basic !== 'named' && basic !== 'read') return null
   const rows = (o.above ?? []).filter((w) => w.reason === 'rule' && w.folder !== null && w.subject && (w.subject.type === 'user' || w.subject.type === 'group') && w.count > 0 && !o.named?.has(`${w.subject.type}:${w.subject.id}`))
-  const hit = rows.find((w) => (basic === 'named' ? w.access !== 'none' : w.access === 'write'))
-  return hit ? { kind: basic === 'named' ? 'closed' : 'view', folder: hit.folder!, who: hit.subject!.name ?? '' } : null
+  // everyone it keeps out or lowers, by name (not only the first); one folder named, or null for several
+  const hits = rows.filter((w) => (basic === 'named' ? w.access !== 'none' : w.access === 'write'))
+  if (!hits.length) return null
+  const folders = new Set(hits.map((w) => w.folder!))
+  const who = [...new Set(hits.map((w) => w.subject!.name ?? ''))].filter(Boolean)
+  return { kind: basic === 'named' ? 'closed' : 'view', folder: folders.size === 1 ? hits[0]!.folder! : null, who }
 }
 
 /** The people and groups the folders above let in here (or keep out), from the server's answer: the person and group

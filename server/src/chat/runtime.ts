@@ -132,6 +132,10 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
   return rt
 }
 
+/** A person's name changed (their own rename, an admin's): shared chats and the AI's transcript labels name them anew
+ * (ChatStore.userRef keeps names it read; QA TC-1410). No runtime yet: nothing was kept. */
+export function forgetUserName(ctx: AppContext, userId: string) { runtimes.get(ctx)?.store.forgetName(userId) }
+
 /**
  * Forget the engine sessions of a person's chats (their read access shrank or the account was disabled: tab 2
  * "권한 회수", review H7). The next turn of each chat starts a fresh session from the chat's DB history.

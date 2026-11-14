@@ -8,6 +8,7 @@ import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from '../tools/web-allow-all'
 import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
+import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
@@ -93,6 +94,7 @@ export const authRoutes: RouteModule = {
         if (body.locale !== undefined) setUserLocale(ctx.db, auth.user.id, body.locale)
       })()
       if (renamed) {
+        forgetUserName(ctx, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: ['name'], name: { from: u!.name, to: body.name } } })
         ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
       }

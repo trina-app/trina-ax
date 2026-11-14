@@ -171,10 +171,16 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   /** the second line: a person's title, a group's kind (with how many people when that may be read; `n`: how many of
    * them are in the project, the members dialog's), then the tags unless the row puts them on the name's line
    * (`inline`: a person's row in the list, so my row is as tall as the others) */
-  const sub = (x: ParticipantOption, n?: number, inline = false) => {
+  const sub = (x: ParticipantOption, n?: number, inline = false, withNote = true) => {
     const count = n ?? x.members?.length
     const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
-    return [kind, !inline && tags(x), notes?.get(participantKey(x))].filter(Boolean).join(' · ')
+    return [kind, !inline && tags(x), withNote && notes?.get(participantKey(x))].filter(Boolean).join(' · ')
+  }
+
+  /** a group's "except Kim" in the list: after the second line on desktop, on its own wrapped line on a phone (never cut) */
+  const noteOf = (x: ParticipantOption, lead: string) => {
+    const note = notes?.get(participantKey(x))
+    return note ? <>{lead && <span className="max-sm:hidden"> · </span>}<span className="max-sm:block max-sm:whitespace-normal max-sm:break-words">{note}</span></> : null
   }
 
   return (
@@ -240,7 +246,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const out = !!before && before.has(k) && !picked.has(k)
             const fresh = !!before && !before.has(k) && picked.has(k)
             const inside = x.subjectType === 'group' ? groupPeople?.get(x.subjectId) : undefined
-            const s = sub(x, inside?.length, !inside)
+            const s = sub(x, inside?.length, !inside, false)
             const nameTags = inside ? '' : tags(x)
             const open = opened.has(x.subjectId)
             return (
@@ -254,6 +260,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                       <span className={clsx('block truncate group-hover:underline', rowName(), out && 'text-faint line-through')}>{x.name}</span>
                       <span className="block truncate text-meta text-faint">
                         {s}
+                        {noteOf(x, s)}
                         {fresh && <> · <span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
                       </span>
                     </span>
@@ -265,9 +272,10 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                     <span className={clsx('truncate', rowName(), out && 'text-faint line-through')}>{x.name}</span>
                     {nameTags && <span className="shrink-0 text-meta text-faint" data-testid={`participant-tags-${x.subjectType}-${x.subjectId}`}>{nameTags}</span>}
                   </span>
-                  {(s || fresh) && (
+                  {(s || fresh || notes?.has(k)) && (
                     <span className="block truncate text-meta text-faint">
                       {s}
+                      {noteOf(x, s)}
                       {fresh && <>{s && ' · '}<span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
                     </span>
                   )}

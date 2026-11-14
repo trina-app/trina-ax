@@ -276,10 +276,20 @@ describe('General access as Drive shows it (P1): Restricted or the team with a r
   test('General access lower than a person or group above (not only the team): said with who', () => {
     const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'group', 'sales', 'write')]
     const data = answer(rows, 'shared/Q', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])
-    expect(generalLowerOf('read', data.everyoneAbove, { above: data.above })).toEqual({ kind: 'view', folder: 'shared', who: 'Sales' })
-    expect(generalLowerOf('named', data.everyoneAbove, { above: data.above })).toEqual({ kind: 'closed', folder: 'shared', who: 'Sales' })
+    expect(generalLowerOf('read', data.everyoneAbove, { above: data.above })).toEqual({ kind: 'view', folder: 'shared', who: ['Sales'] })
+    expect(generalLowerOf('named', data.everyoneAbove, { above: data.above })).toEqual({ kind: 'closed', folder: 'shared', who: ['Sales'] })
     // Sales listed here: its own row decides, nothing to say
     expect(generalLowerOf('read', data.everyoneAbove, { above: data.above, named: new Set(['group:sales']) })).toBeNull()
+  })
+  test('the line names everyone kept out, and "the folders above" when they come from several (review of #783)', () => {
+    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'erin', 'read'), row('shared/A', 'user', 'frank', 'read')]
+    const one = answer([row('shared', 'everyone', null, 'none'), row('shared', 'user', 'erin', 'read'), row('shared', 'user', 'frank', 'read')], 'shared/Q', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    expect(generalLowerOf('named', one.everyoneAbove, { above: one.above })).toEqual({ kind: 'closed', folder: 'shared', who: ['Erin', 'Frank'] })
+    expect(en('folderAccess.generalLowerClosedWho', { who: namesText(en, 'en', ['Erin', 'Frank'], 2), folder: 'Company-wide' })).toBe('Erin and Frank can open "Company-wide", but not this folder.')
+    const two = answer(rows, 'shared/A/Q', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    const got = generalLowerOf('named', two.everyoneAbove, { above: two.above })
+    expect(got?.folder).toBeNull()
+    expect(got?.who?.sort()).toEqual(['Erin', 'Frank'])
   })
 })
 
