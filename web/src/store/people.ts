@@ -14,7 +14,8 @@ interface PeopleState {
   loaded: boolean
   byId: Record<string, Person>
   /** guests a list other than the directory said are guests (a project's people, GET /api/projects/:id/people): an
-   * owner or admin outside a guest's one place has them in that list but not in the directory */
+   * owner or admin outside a guest's one place has them in that list but not in the directory. Only added to: a guest
+   * made a member keeps the tag until the next sign-in or reload (rare; reset() clears it) */
   guestIds: Record<string, true>
   failed: boolean
   load: (force?: boolean) => Promise<void>

@@ -49,6 +49,9 @@ describe('@mentions', () => {
     expect(at('@Ben is here')).toBeNull()
     expect(at('@QA Member ')).toBeNull()
     expect(at('@QA\nMember')).toBeNull()
+    // a first name and a space, with only a longer name to fit: the list stays (Enter then picks that name)
+    expect(mentionAt('@Ben ', 5, ['Ben Lee'])).toEqual({ start: 0, query: 'Ben ' })
+    expect(mentionAt('@Ben is', 7, ['Ben Lee'])).toBeNull()
     // without the names (as before): a space ends it
     expect(mentionAt('@QA M', 5)).toBeNull()
   })

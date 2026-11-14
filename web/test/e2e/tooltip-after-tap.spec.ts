@@ -23,7 +23,8 @@ test('a dialog opened with a click or tap focuses its close button without a tip
   await page.keyboard.press('Shift+Tab')
   await expect(close).toBeFocused()
   await expect(page.getByTestId('tooltip')).toHaveText('닫기')
-  // a tap somewhere else in the dialog: gone
-  await page.getByRole('dialog').getByRole('heading').first().click()
+  // a press somewhere else that moves no focus (a pen or finger on the sheet): gone
+  await page.getByRole('dialog').getByRole('heading').first().dispatchEvent('pointerdown', { pointerType: 'touch' })
+  await expect(close).toBeFocused()
   await expect(page.getByTestId('tooltip')).toHaveCount(0)
 })
