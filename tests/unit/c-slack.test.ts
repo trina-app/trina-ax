@@ -97,7 +97,7 @@ describe('setup (the owner)', () => {
     expect(Object.fromEntries(Object.entries(SLACK).map(([k, e]) => [k, e.auth]))).toEqual({
       slackAdmin: 'admin', saveSlackTokens: 'owner', setSlackEnabled: 'admin', removeSlack: 'admin', startSlackInstall: 'admin',
       mySlack: 'user', unlinkSlack: 'user', previewSlackLink: 'user', confirmSlackLink: 'user', startSlackSignIn: 'user', cancelSlackLink: 'user',
-      recheckSlackReadScopes: 'admin',
+      recheckSlackReadScopes: 'admin', cancelSlackSignIn: 'user', cancelSlackInstall: 'admin',
     })
   })
 
@@ -335,6 +335,18 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(params(url.href)).toMatchObject({ response_type: 'code', scope: 'openid profile', client_id: fake.clientId, team: 'T0ACME', redirect_uri: 'https://team.acme.example/api/integrations/slack/oauth/callback' })
     // stored hashed only
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_signin_flows').all())).not.toContain(params(url.href).state!)
+  })
+
+  test('Cancel in the app ends the waiting sign-in: the window left open links nothing and says so (QA TC-1417)', async () => {
+    const p = params((await start('carol')).json.authorizationUrl)
+    // someone else's cancel is not this one's
+    expect((await call('erin', 'DELETE', '/api/slack/signin/flow')).status).toBe(204)
+    expect((h.ctx.db.query("SELECT state FROM slack_signin_flows WHERE user_id = 'carol' ORDER BY created_at DESC").get() as { state: string }).state).toBe('pending')
+    expect((await call('carol', 'DELETE', '/api/slack/signin/flow')).status).toBe(204)
+    const code = 'code-carol-cancelled'
+    fake.codes[code] = { user: 'U0NOMAIL', nonce: p.nonce! }
+    expect(await back('carol', { state: p.state!, code })).toBe('signin_cancelled_here')
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'carol'").get()).toBeNull()
   })
 
   test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept', async () => {

@@ -84,8 +84,8 @@ interface ConfigRow {
 /** sealed together: the two tokens and, for Sign in with Slack, the app's client secret (own app); the bot token alone
  * (the official app: the app-level token and the client secret stay at the hosting service) */
 interface Tokens { bot: string; app?: string; clientSecret?: string }
-interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null }
-interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string }
+interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null; reason: string | null }
+interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string; reason: string | null }
 /** test deps: also the hosting service's broker (null: none; left out: from the environment, broker.ts) */
 export interface SlackConnectorDeps extends SlackDeps {
   broker?: SlackBrokerOptions | null; pollWaitMs?: number
@@ -149,6 +149,9 @@ export const appIdOfToken = (token: string): string | null => /^xapp-\d+-(A[A-Z0
 export const SIGNIN_CODE = /^[A-Za-z0-9._-]{8,512}$/
 const CODE = SIGNIN_CODE
 const APP_TOKEN = /^xapp-[A-Za-z0-9-]{10,250}$/
+
+/** a flow's reason once it was cancelled in the app (cancelFlows) */
+const CANCELLED_HERE = 'cancelled_here'
 
 export class SlackConnector {
   readonly api: SlackApi
@@ -749,6 +752,8 @@ export class SlackConnector {
   async finishSignIn(input: { state?: string; code?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'signin_expired', client: 'web' }
     const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as SigninFlowRow | null
+    // cancelled in the app (cancelFlows): nothing is linked, and the window says so
+    if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'signin_cancelled_here', client: f.client }
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'signin_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
@@ -906,6 +911,14 @@ export class SlackConnector {
     }
   }
 
+  /** Cancel (or the screen stopped waiting, QA TC-1417): this person's sign-in or install of this session that still
+   * waits is ended, so a browser window left open cannot finish it afterwards (an install of another workspace would drop
+   * everyone's links). One already being finished is not stopped. */
+  cancelFlows(kind: 'signin' | 'install', userId: string, session: string) {
+    const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+    this.db.query(`UPDATE ${table} SET state = 'failed', reason = ? WHERE user_id = ? AND session_id = ? AND state = 'pending'`).run(CANCELLED_HERE, userId, session)
+  }
+
   /** The hosting service sent the browser back after Slack's "Add to Slack": only a browser signed in as the owner
    * or admin who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
    * The handoff is redeemed with this flow's verifier for the install and its bot token (sealed to a key made for
@@ -913,6 +926,8 @@ export class SlackConnector {
   async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'install_expired', client: 'web' }
     const f = this.db.query('SELECT * FROM slack_install_flows WHERE state_hash = ?').get(sha(input.state)) as InstallFlowRow | null
+    // cancelled in the app (cancelFlows): nothing is added (no other workspace replaces this one), and the window says so
+    if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'install_cancelled_here', client: f.client }
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'install_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }

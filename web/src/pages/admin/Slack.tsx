@@ -89,7 +89,7 @@ function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: bool
   // "I updated them" pressed and Slack still does not list them: said once, under the button
   const [still, setStill] = useState(false)
   const official = s.mode === 'official'
-  const away = useBrowserHandoff(onBack)
+  const away = useBrowserHandoff(onBack, cancelInstall)
   const approve = async () => {
     setBusy(true); setError(null)
     try { away.go((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
@@ -114,7 +114,7 @@ function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: bool
       {still && <p role="status" className="mt-2 text-warn" data-testid="slack-read-still">{t('slack.admin.readStill')}</p>}
       {away.timedOut && <p role="status" className="mt-2 text-warn" data-testid="slack-read-timeout">{t('connect.wait.timedOut')}</p>}
       {official && away.waiting ? (
-        <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-read-waiting" busy={busy} onRetry={() => void approve()} onCancel={away.stop} />
+        <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-read-waiting" busy={busy} onRetry={() => void approve()} onCancel={away.cancel} />
       ) : (
       <div className="mt-2 flex flex-wrap gap-3">
         {official
@@ -125,6 +125,9 @@ function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: bool
     </div>
   )
 }
+
+/** "Add to Slack" left (Cancel, or the wait ran out): the waiting install ends on the server (QA TC-1417) */
+const cancelInstall = () => { void api.call(SLACK.cancelSlackInstall).catch(() => { /* it expires there by itself */ }) }
 
 /** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
 function FixText({ text, href, onClick }: { text: string; href?: string; onClick?: () => void }) {
@@ -288,7 +291,7 @@ function OfficialAdd({ removed, onOwnApp, onRemove, onBack }: { removed: boolean
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // the desktop and phone apps open Slack in another browser and this page waits (lib/browserHandoff.ts)
-  const away = useBrowserHandoff(onBack)
+  const away = useBrowserHandoff(onBack, cancelInstall)
   const add = async () => {
     setBusy(true); setError(null)
     // this browser goes to Slack and comes back to this page
@@ -304,7 +307,7 @@ function OfficialAdd({ removed, onOwnApp, onRemove, onBack }: { removed: boolean
       {away.timedOut && <p role="status" className="mt-2 text-sm text-warn" data-testid="slack-add-timeout">{t('connect.wait.timedOut')}</p>}
       {away.waiting ? (
         // a new press replaces the earlier one at the server (one waiting install, 10 minutes, used once)
-        <BrowserWait framed className="mt-3" text={t('slack.wait.install')} testId="slack-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.stop} />
+        <BrowserWait framed className="mt-3" text={t('slack.wait.install')} testId="slack-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} />
       ) : (
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="primary" className="max-md:h-11" busy={busy} disabled={busy} onClick={() => void add()} data-testid="slack-add">{t('slack.official.add')}</Button>

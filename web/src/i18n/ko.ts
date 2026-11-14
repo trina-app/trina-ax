@@ -4249,6 +4249,8 @@ export const ko = {
   "slack.signin.linked": "Slack 계정을 연결했어요. 이제 Slack에서 물어볼 수 있어요.",
   "slack.signin.expired": "로그인 시간이 지났거나 이미 썼어요. 다시 눌러 주세요.",
   "slack.signin.cancelled": "Slack 로그인을 끝내지 않았어요.",
+  "slack.signin.cancelledHere": "앱에서 이 로그인을 취소해서 아무것도 연결하지 않았어요. Slack 계정을 연결하려면 앱에서 다시 시작하세요.",
+  "slack.install.cancelledHere": "앱에서 취소해서 Slack에 아무것도 추가하지 않았어요. 추가하려면 관리자 › 연결한 앱 › Slack에서 다시 시작하세요.",
   "slack.signin.outsider": "이 워크스페이스의 Slack 계정이 아니에요. 팀이 쓰는 워크스페이스로 로그인해 주세요.",
   "slack.signin.taken": "이 Slack 계정은 이미 다른 사람의 계정과 연결되어 있어요.",
   "slack.signin.off": "지금은 Slack으로 로그인해서 연결할 수 없어요. 팀장에게 관리자 › 연결한 서비스 › Slack을 확인해 달라고 하세요.",

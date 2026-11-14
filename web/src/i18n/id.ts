@@ -4250,6 +4250,8 @@ export const id: Record<MessageKey, string> = {
   "slack.signin.linked": "Akun Slack Anda tertaut. Sekarang Anda bisa bertanya di Slack.",
   "slack.signin.expired": "Proses masuk kedaluwarsa atau sudah dipakai. Coba lagi.",
   "slack.signin.cancelled": "Masuk ke Slack tidak diselesaikan.",
+  "slack.signin.cancelledHere": "Login ini dibatalkan di aplikasi, jadi tidak ada yang ditautkan. Untuk menautkan akun Slack, mulai lagi dari aplikasi.",
+  "slack.install.cancelledHere": "Ini dibatalkan di aplikasi, jadi tidak ada yang ditambahkan ke Slack. Untuk menambahkannya, mulai lagi dari Admin › Aplikasi terhubung › Slack.",
   "slack.signin.outsider": "Itu bukan akun Slack di workspace ini. Masuklah ke workspace yang dipakai tim Anda.",
   "slack.signin.taken": "Akun Slack ini sudah tertaut ke akun orang lain.",
   "slack.signin.off": "\"Masuk dengan Slack\" tidak bisa dipakai sekarang. Minta pemilik tim memeriksa Admin › Aplikasi terhubung › Slack.",

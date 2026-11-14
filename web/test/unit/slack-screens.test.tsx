@@ -128,6 +128,8 @@ describe('Admin › Connected apps › Slack: the official app (the hosting serv
     // Cancel: Add to Slack is back
     await m.click('slack-add-waiting-cancel')
     await m.until(() => m.find('slack-add'), 'Add to Slack again')
+    // the waiting install is ended on the server too: a window left open adds nothing
+    await m.until(() => calls.includes('DELETE /api/admin/slack/install/flow'), 'cancelled there')
     expect(m.find('slack-add-waiting')).toBeNull()
     // added in the other browser meanwhile: the page reads it when the window is used again
     await m.click('slack-add')

@@ -4206,6 +4206,8 @@ export const es: Record<MessageKey, string> = {
   "slack.signin.linked": "Su cuenta de Slack está vinculada. Ya puede preguntar en Slack.",
   "slack.signin.expired": "El inicio de sesión caducó o ya se usó. Inténtelo de nuevo.",
   "slack.signin.cancelled": "No se terminó el inicio de sesión en Slack.",
+  "slack.signin.cancelledHere": "Este inicio de sesión se canceló en la app, así que no se vinculó nada. Para vincular tu cuenta de Slack, empieza de nuevo desde la app.",
+  "slack.install.cancelledHere": "Se canceló en la app, así que no se añadió nada a Slack. Para añadirlo, empieza de nuevo desde Administración › Apps conectadas › Slack.",
   "slack.signin.outsider": "No es una cuenta de Slack de este espacio de trabajo. Inicie sesión en el que usa su equipo.",
   "slack.signin.taken": "Esta cuenta de Slack ya está vinculada a la cuenta de otra persona.",
   "slack.signin.off": "Ahora no se puede usar «Iniciar sesión con Slack». Pida al propietario del equipo que revise Administración › Apps conectadas › Slack.",

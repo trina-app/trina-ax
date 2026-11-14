@@ -132,14 +132,23 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
   }
 
   /** the flow on the server too, while it still waits: a window left open cannot finish it afterwards (QA TC-1417) */
-  const drop = (flowId: string | null | undefined) => {
-    if (flowId) void api.call(API.cancelIntegrationFlow, { params: { id: flowId } }).catch(() => { /* it expires there by itself */ })
+  // One the service already answered (being exchanged) is not stopped by it: the flow is read again after, and one that
+  // ended connected says so (the list reads it again) instead of the screen saying cancelled or timed out.
+  const drop = (flowId: string | null | undefined, id: string | undefined) => {
+    if (!flowId) return
+    void (async () => {
+      try { await api.call(API.cancelIntegrationFlow, { params: { id: flowId } }) } catch { /* it expires there by itself */ }
+      try {
+        const f = await api.call(API.integrationFlow, { params: { id: flowId } })
+        if (f.state === 'completed' && id) { setS((x) => (x && x.flowId === flowId ? null : x)); done.current(id) }
+      } catch { /* gone: nothing more to say */ }
+    })()
   }
   const cancel = () => {
     generation.current++
     popup.current?.close()
     popup.current = null
-    if (s && WAITING.has(s.state)) drop(s.flowId)
+    if (s && WAITING.has(s.state)) drop(s.flowId, s.id)
     setS(null)
   }
   // waiting too long (the window was closed, or left): the wait ends as timed out, with Try again and Close
@@ -148,7 +157,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     generation.current++
     popup.current?.close()
     popup.current = null
-    drop(s.flowId)
+    drop(s.flowId, s.id)
     setS((x) => (x && x.flowId === s.flowId ? { ...x, state: 'expired', reason: null } : x))
   })
 

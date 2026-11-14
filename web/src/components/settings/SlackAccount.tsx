@@ -38,7 +38,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
     return () => { window.removeEventListener('focus', again); document.removeEventListener('visibilitychange', again) }
   }, [load])
   // the desktop and phone apps sign in in another browser while this line waits (lib/browserHandoff.ts)
-  const away = useBrowserHandoff(load)
+  const away = useBrowserHandoff(load, () => { void api.call(SLACK.cancelSlackSignIn).catch(() => { /* it expires there by itself */ }) })
   const linked = !!me?.link, stopWaiting = away.stop
   useEffect(() => { if (linked) stopWaiting() }, [linked, stopWaiting])
   const shown = !!me && (me.available || !!me.link)
@@ -83,7 +83,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
           : me.signIn && !away.waiting && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} title={t('slack.signin.button')} data-testid="slack-signin">{t('slack.signin.short')}</Button>}
       </div>
       {/* a new press replaces the earlier sign-in at the server (the newest only, 10 minutes, used once) */}
-      {!me.link && away.waiting && <BrowserWait text={t('slack.wait.signIn')} testId="slack-signin-waiting" busy={busy} onRetry={() => void signIn()} onCancel={away.stop} />}
+      {!me.link && away.waiting && <BrowserWait text={t('slack.wait.signIn')} testId="slack-signin-waiting" busy={busy} onRetry={() => void signIn()} onCancel={away.cancel} />}
       {!me.link && away.timedOut && <p role="status" className="text-sm text-warn" data-testid="slack-signin-timeout">{t('connect.wait.timedOut')}</p>}
     </div>
   )

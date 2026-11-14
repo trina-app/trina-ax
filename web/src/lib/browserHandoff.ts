@@ -8,12 +8,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWaitLimit } from './signInWait'
 
-export function useBrowserHandoff(onBack?: () => void) {
+/** `onBack`: read the state again (the window is used again). `onCancel`: end the flow on the server too (Cancel, and
+ * a wait that ran out), so a window left open cannot finish it afterwards. */
+export function useBrowserHandoff(onBack?: () => void, onCancel?: () => void) {
   // when the wait began (a new wait: a new clock), or null
   const [since, setSince] = useState<number | null>(null)
   const [timedOut, setTimedOut] = useState(false)
   const back = useRef(onBack)
   back.current = onBack
+  const cancelled = useRef(onCancel)
+  cancelled.current = onCancel
   const waiting = since !== null
   useEffect(() => {
     if (!waiting) return
@@ -28,13 +32,15 @@ export function useBrowserHandoff(onBack?: () => void) {
       document.removeEventListener('visibilitychange', again)
     }
   }, [waiting])
-  useWaitLimit(waiting, since, () => { setSince(null); setTimedOut(true) })
+  useWaitLimit(waiting, since, () => { setSince(null); setTimedOut(true); cancelled.current?.() })
   return {
     waiting,
     timedOut,
     /** go to `url` (this page, or the other browser) and wait for the way back */
     go: (url: string) => { setTimedOut(false); setSince(Date.now()); window.location.assign(url) },
-    /** stop waiting (Cancel, or it finished) */
+    /** stop waiting: it finished */
     stop: () => { setSince(null); setTimedOut(false) },
+    /** Cancel: stop waiting and end the flow on the server */
+    cancel: () => { setSince(null); setTimedOut(false); cancelled.current?.() },
   }
 }
