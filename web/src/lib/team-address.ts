@@ -33,7 +33,8 @@ export function teamAddressShown(address: string | null | undefined): string | n
 export function addressToTell(before: string | null | undefined, after: string | null | undefined): string | null {
   const was = teamAddressShown(before), now = teamAddressShown(after)
   if (!was || !now || was === now) return null
-  const rest = (s: string) => s.replace(/^https?:\/\//, '').split('.').slice(1).join('.')
+  // a name (acme.example.com), not an IP address, whose parent is the same
+  const rest = (s: string) => (/^(https?:\/\/)?[\d.:[\]]+(:\d+)?$/.test(s) ? '' : s.replace(/^https?:\/\//, '').split('.').slice(1).join('.'))
   if (rest(was) && rest(was) === rest(now)) return null
   return now
 }

@@ -443,6 +443,10 @@ const DETAIL_TEXT: Record<string, MessageKey> = {
 /** claim codes as the account console shows them: groups of four letters / digits */
 const claimCodeOk = (c: string) => c === '' || /^[A-Za-z0-9 -]{16,64}$/.test(c.trim())
 
+/** The address the team reaches this server at, as far as the connection status knows it. */
+const connAddress = (d: { address: string | null; publicAddress?: string | null } | null | undefined): string | null =>
+  d?.address ?? (d?.publicAddress ? `https://${d.publicAddress}` : null)
+
 function Connection({ canChange = true }: { canChange?: boolean }) {
   const t = useT()
   const locale = useLocale()
@@ -458,13 +462,14 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   useEffect(() => {
     if (!waiting) return
     const stop = setTimeout(() => setWaiting(null), 5 * 60_000)
-    const poll = setInterval(() => void state.reload(), 5000)
+    // a failed read (the server is restarting) is ignored: the card keeps what it shows
+    const poll = setInterval(() => { api.call(API.connection).then(state.setData, () => {}) }, 5000)
     return () => { clearTimeout(stop); clearInterval(poll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waiting])
   useEffect(() => {
     const d = state.data
-    const now = d?.address ?? (d?.publicAddress ? `https://${d.publicAddress}` : null)
+    const now = connAddress(d)
     if (!waiting || !teamAddressShown(now) || teamAddressShown(now) === teamAddressShown(waiting)) return
     setTell(addressToTell(waiting, now))
     setWaiting(null)
@@ -621,7 +626,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             )
             if (r) {
               setTell(null)
-              setWaiting(state.data?.address ?? null)
+              setWaiting(connAddress(state.data))
               state.setData(r)
               setChange(null)
               setConfirming(false)

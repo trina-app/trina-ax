@@ -14,6 +14,9 @@ describe('the new team address to tell the team after a saved change (QA TC-1232
     expect(addressToTell('https://acme.example.com', null)).toBeNull()
     expect(addressToTell('https://acme.example.com', 'https://acme.example.com')).toBeNull()
   })
+  test('an IP address that changes is not a rename', () => {
+    expect(addressToTell('http://10.168.1.2:19300', 'http://11.168.1.2:19300')).toBe('http://11.168.1.2:19300')
+  })
   test('an office address over plain http is told with its http:// as people type it', () => {
     expect(addressToTell('https://acme.example.com', 'http://192.168.1.2:19300')).toBe('http://192.168.1.2:19300')
   })
