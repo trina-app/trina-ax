@@ -2,7 +2,8 @@
 
 - Date (UTC): 2026-11-14
 - Branch: `plan/shared-chats-everywhere` (this plan); build branches per phase below
-- Status: draft, revision 2 (after an independent security review and a UX review, 2026-11-14)
+- Status: draft, revision 3 (revision 2: an independent security review and a UX review; revision 3: the owner decided
+  TC-1404 rule (b) and added the widening list, 2026-11-14)
 - Where: Team AX core (`server/src/chat/{shared,shared-answers,share-chat,turn,runtime,store,prompt,tools,version-chats,answer-share,read-scope,members-only-once,project-members}.ts`,
   `server/src/rooms/{history,store,service,inbox,reader,search}.ts`, `server/src/connectors/remote-mcp/rooms.ts`,
   `server/src/routes/{chats,system}.ts`, `server/src/tools/artifact.ts`, `server/src/system/export.ts`,
@@ -44,9 +45,10 @@ chat appears in the recipient's own list), roles (everyone who sees a chat may c
 
 ## TC-1404 design: what "nobody is hidden from" means, safely
 
-> **Owner decision pending, recommended.** The security review (verified against the code, below) showed that removing
-> the rule outright would expose content no card ever covered. The recommended design keeps the owner's rule for every
-> answer from the cutover on, and keeps the old hiding only for older answers that no card covered.
+> **Decided by the owner (2026-11-14): the recommended design.** No new hiding from the cutover; older answers that no
+> card covered keep the old hiding; explicit widening warns, with a list of the answers ("The widening list" below);
+> silent widening by admins and groups is accepted. The security review (verified against the code, below) showed that
+> removing the rule outright would expose content no card ever covered.
 
 **Why not remove everything (verified):**
 - The card appears only when someone in **today's** audience can't open a place (`turn.ts` ~2769: with nobody
@@ -73,7 +75,8 @@ chat appears in the recipient's own list), roles (everyone who sees a chat may c
 - (c) **Going forward, keep writing `shared_answer_reads`** (each answer's places and who saw the chat), plus `y: 1` on
   a group recorded after a card yes. It hides nothing; it is used to **warn on explicit widening**: the project
   Members dialog (`project-members.ts` today says only "the whole history of N shared chats") and the new Share dialog
-  say "{n} answers here used places {names} can't open. Adding them shows those answers too." Keep writing
+  say "{n} answers here used places {names} can't open. Adding them shows those answers too." The line opens a list
+  of those answers (owner, 2026-11-14; "The widening list" below), not just a count. Keep writing
   `room_messages.source_scope` too (`rooms/store.ts` 382-387 `attachedLinksOf` reads it).
 - (d) **Silent widening is accepted and said plainly:** a person who joins a listed group or a project's group, an admin
   rule or role change, or an account enabled again sees the whole history from the cutover on without a warning. That
@@ -135,7 +138,7 @@ creator from the line under the message box. Nothing else opens it (the header m
 │ A group added also opens it to whoever joins that    │
 │ group later.                                         │
 │ 3 answers here used places Sales can't open. Adding  │
-│ them shows those answers too.                        │
+│ them shows those answers too.  [Show answers ›]      │
 │                                                      │
 │ Everyone here sees the whole chat, including what    │
 │ was said before they were added, and can ask the AI  │
@@ -274,6 +277,12 @@ Share dialog and chat (web):
   the AI in it themselves. You can remove people later. What they've already seen stays seen."
 - `chat.share.widen`: "{n, plural, one {# answer} other {# answers}} here used places {names} can't open. Adding them
   shows those answers too." (`{names}`: the new people and groups, as picked)
+- Widening list (shared by the Share dialog and the Members dialog; keys `share.widenList.*`): `show` "Show answers";
+  `title` "Answers {names} will see"; `sub` "These answers used places {names} can't open. Adding them shows the
+  answers too."; `item` "{who} asked · {when}"; `placeHidden` "a place you can't open"; `whoMisses` "{names} can't open
+  it"; `showAll` "Show all {n}"; `more` "Show more"; `open` "Open in a new tab"; `back` "Back to sharing"; `gone` "That
+  answer is no longer here."; `empty` "Nothing to warn about any more. Something changed since."; `loadFailed`
+  "Couldn't load the answers. Try again."
 - `chat.share.futureGroup`: reuse `futureGroup` ("A group added also opens it to whoever joins that group later.")
 - `chat.share.share` "Share"; `chat.share.save` "Save"; `chat.share.shareAnyway` "Share anyway"
 - `chat.share.discardTitle` "Discard changes?"; `chat.share.keepEditing` "Keep editing"; `chat.share.discard` "Discard"
@@ -322,7 +331,8 @@ Rules: additive only, never drop, rename or rebuild; data-only migrations are fi
 number when building (294 is the highest on dev today).
 
 **Phase 1 (TC-1404): one data-only migration** `2xx_b_hidden_answers_cutover.sql`:
-`INSERT OR IGNORE INTO settings (key, value) VALUES ('hidden_answers_cutover', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`.
+`INSERT OR IGNORE INTO settings (key, value) VALUES ('hidden_answers_cutover', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+plus the additive index `shared_answer_reads_chat_msg` for the widening list.
 `shared_answer_reads` and `room_hidden_answers` stay and keep being written (the walk still writes rows for old
 answers). Rollback: an older build ignores the key and applies the full old rule (hides more, never less).
 
@@ -372,10 +382,116 @@ CREATE TABLE chat_files ( ... );                              -- chat-scoped cop
 
 **Phase 2 (TC-1406): no migration.**
 
+## The widening list (owner, 2026-11-14)
+
+The warning line in the project **Members** dialog (`ProjectMembersDialog`, when adding) and in the **Share** dialog
+(when adding) has **Show answers ›**. It opens a list of the answers the new people would start seeing that used places
+some of them can't open. Not just a count.
+
+**Each item:** the chat title (the Members dialog spans every shared chat of the project; in the Share dialog it is the
+one chat and is left out), when the answer was made, who asked (face and name), a one-line preview of the answer
+(its first line, Markdown stripped, at most 120 characters), and the places it used: each place's name **only if the
+adder can open it now**, else "a place you can't open" (several such places count as one). With several people or
+groups being added, "{names} can't open it" names which of **the picked ones** miss it (names the adder chose; never
+anyone else). The adder never learns more than they already see: only answers they can see themselves (not hidden
+from them by rule (b)), place names under their own read access. Answers that stay hidden from the new people anyway
+(old uncovered answers, rule (b)) are not listed: they widen nothing.
+
+Computer: the list replaces the dialog's body in place (same dialog, picks kept), ‹ returns to the picker:
+
+```
+┌──────────────────────────────────────────────────────┐
+│ ‹  Answers Sales will see                         ✕  │
+│ These answers used places Sales can't open. Adding   │
+│ them shows the answers too.                          │
+│ ──────────────────────────────────────────────────── │
+│ Q3 budget questions                              ↗   │
+│ (M) Mina asked · Nov 12                              │
+│ "The finance draft puts Q3 spend at 41 % over…"      │
+│ 📁 Finance · Board pack                              │
+│ ──────────────────────────────────────────────────── │
+│ Supplier review                                  ↗   │
+│ (J) Jun asked · Nov 9                                │
+│ "Two contracts renew in December; the cheaper…"      │
+│ 🔒 a place you can't open                            │
+│ ──────────────────────────────────────────────────── │
+│                              [ Show all 20 ]         │
+└──────────────────────────────────────────────────────┘
+```
+
+Phone 390: a second page of the same bottom sheet: ‹ Back at the top, full-width rows (48 px minimum, the whole row is
+the link), the preview wraps to two lines, the place line last.
+
+```
+┌──────────────────────────────┐
+│ ‹ Answers Sales will see     │
+│ These answers used places    │
+│ Sales can't open…            │
+│ ──────────────────────────── │
+│ Q3 budget questions        › │
+│ (M) Mina asked · Nov 12      │
+│ "The finance draft puts Q3   │
+│ spend at 41 % over…"         │
+│ 📁 Finance · Board pack       │
+│ ──────────────────────────── │
+│ [       Show all 20       ]  │
+└──────────────────────────────┘
+```
+
+**Opening an answer, and the way back.** An item opens `/c/<chatId>?answer=<messageId>`: the chat page shows the branch
+holding that answer (for this view only; the chat's active branch is not changed for others), scrolls to it and
+highlights it briefly; an answer no longer visible opens the chat at its end with "That answer is no longer here."
+- Computer (web and desktop app): a new tab (desktop app: a new window); the dialog and its unsaved picks stay as they
+  were. The item's label says "Open in a new tab".
+- Phone: same screen. Before leaving, the dialog's draft (target, picks, the list's scroll) is kept in the app's memory
+  store and in `sessionStorage` (try/catch). The chat page shows a top bar **‹ Back to sharing**, which, like the
+  system Back, returns to the screen that opened the dialog and reopens it on the list with the picks restored. A draft
+  older than 30 minutes, or one whose target changed meanwhile (members saved, the chat's audience saved), is dropped
+  and the dialog opens fresh.
+
+**Endpoint.** `POST /api/sharing/widening-answers` (`auth: 'user'`, contract in `shared/src/api/chats.ts`):
+- body `{ target: { kind: 'project', projectId } | { kind: 'chat', chatId }, add: ChatAudienceSubject[] (1..100),
+  cursor?: string, limit?: 1..50 (default 20) }` (for a project, `add` takes the Members dialog's participants);
+- answer `{ total: number, totalCapped: boolean, items: [{ chatId, chatTitle, messageId, at, askedBy: UserRef | null,
+  preview, places: ({ name: string } | { hidden: true })[], missedBy: string[] }], nextCursor: string | null }`
+  (`missedBy`: display names of the picked subjects only).
+- Who may call: for a project, whoever may change its members (`Project.membersEditable`: its creator or an admin); for
+  a chat, its creator. A project or chat the caller doesn't see: 404; one they see but may not change: 403
+  `widening_not_allowed`. Only answers the caller sees (`chatFor 'view'`, rule (b) applied for the caller). The first
+  page takes one room-send token (no free probe of who may read what, as the share check); next pages use a cursor that
+  is an HMAC over the target, the subjects, the resolved new people and the position (a change answers 409 `changed`,
+  and the list says `empty`/reloads).
+- The count and the list agree: `ProjectAccessPreview.hiddenAnswers` and the Share confirm's `hiddenAnswers` come from
+  the same function.
+
+**Query and speed.** One function, `chat/widening.ts wideningAnswers(db, files, target, newPeople, viewer, page)`:
+1. Candidate answers newest first from `shared_answer_reads` joined to `chats` and `messages`: for a project
+   `c.project_id = ? AND c.shared_at IS NOT NULL AND c.deleted_at IS NULL` (index `chats_shared_project`, 265), for a
+   chat `r.chat_id = ?`; seek by message rowid below the cursor.
+2. Places first: each answer's sources are parsed once; each distinct source key is judged once for all new people
+   (`viewersOf` with them as principals) and once for the viewer (name or hidden). A project has few distinct places,
+   so this is a handful of rule checks however many answers there are.
+3. Listed: some new person misses one of its places, and it is hidden neither from that person (rule (b)) nor from the
+   viewer.
+4. Pages of 20; at most 2,000 candidates scanned per request (the page then ends with `nextCursor`); `total` counted in
+   the same pass up to 2,000 (`totalCapped`: shown as "2,000+", and the button reads "Show more"). Budget: under 100 ms
+   for a project with 5,000 answers (a bench in `tests/unit/b-widening-answers.test.ts`).
+- New index (phase 1 migration, additive): `CREATE INDEX shared_answer_reads_chat_msg ON shared_answer_reads(chat_id,
+  message_id)`; the walk joins `messages` by primary key for rowid, time, turn and text.
+
+**Placement.** The endpoint (project target), the Members dialog's list, `?answer=` and the phone way back ship in
+**phase 1** (TC-1404); the chat target in **phase 3**, its list in the Share dialog in **phase 4**. `docs/features.ts`:
+`projects.members` claims `wideningAnswers` (phase 1), `chat.share` adds the chat target's use (phase 3). Permission
+matrix (`tests/security/lib/cases.ts`): `wideningAnswers` for the project creator, an admin, a member who sees the
+project but may not change members (403), an outsider (404), the chat creator, a chat recipient (403), anon and
+pwchange; checks that no item names a place the caller can't open and no item comes from an answer hidden from the
+caller.
+
 ## API changes (shared/src/api)
 
 Phase 1: `Message.withheld` stays (now only for old hidden answers). `ProjectAccessPreview` gains
-`hiddenAnswers?: number` (answers whose recorded places some added person can't open) for the Members dialog warning.
+`hiddenAnswers?: number` (answers whose recorded places some added person can't open) for the Members dialog warning;
+`POST /api/sharing/widening-answers` with the project target ("The widening list"). Phase 3 adds the chat target.
 
 Phase 2: `Chat.shared.people` / `peopleCount` in **every** list response but the trash (`GET /api/chats` all modes,
 `GET /api/chats/groups`), the other writers only (the viewer left out; `peopleCount` counts them); one grouped query
@@ -513,11 +629,14 @@ Independent security review before phases 1 and 3 merge.
 **Phase 1: no new hidden answers (TC-1404).** `feat/no-new-hidden-answers`. The cutover migration; `hiddenHere` and the
 rooms walk limited to old answers with the narrower criteria (b); `y: 1` on card-yes groups; `wouldSeeFrom` defined
 and tested (S2); the card's and rooms' new words (5 languages); `ProjectAccessPreview.hiddenAnswers` and its line in
-the Members dialog; DECISIONS.md entry amending "People who see a shared chat later" and "지난 대화";
+the Members dialog with **Show answers ›** and the widening list (endpoint with the project target, index
+`shared_answer_reads_chat_msg`, `?answer=` on the chat page, the phone way back); DECISIONS.md entry amending "People who see a shared chat later" and "지난 대화";
 `changes/no-new-hidden-answers.md`. Tests: `b-shared-chat-audience` (new answer visible to a later reader; old
 silent-group answer still hidden; old card-yes answer visible; `x: 1` still hidden), `b-room-history*` (new shared
 answer visible; old closed-scope answer hidden; old folder answer visible), `b-answer-share`, `b-rooms-*`, the members
-warning, e2e "later reader". QA TC-1404: (a) a new answer in a project chat is visible to someone added afterwards;
+warning and list (`b-widening-answers.test.ts`: places named only when the caller reads them, rule (b) answers left
+out, cursor and `changed`, the 100 ms bench; the `wideningAnswers` matrix case), web unit for the list and the phone
+way back, e2e "later reader" and "members widening list". QA TC-1404: (a) a new answer in a project chat is visible to someone added afterwards;
 (b) a new answer sent to a team room is visible to a later member; (c) the card's words in en and ko; (d) a removed
 member gets not-found; (e) the Members dialog warns when added people miss places.
 
@@ -540,7 +659,8 @@ group join/leave/delete, disabled, purges, 1A, side chat, scheduled run, move re
 `SHARED_TOOLS`, path-less search, chat files, notices and dedupe, hide). QA TC-1405 (API): share with a person and a
 group; the recipient opens and continues; an outsider gets 404.
 
-**Phase 4: the Share dialog, Activity, hide (TC-1405).** `feat/share-dialog-chats`. `ChatShareDialog` (dialog and
+**Phase 4: the Share dialog, Activity, hide (TC-1405).** `feat/share-dialog-chats`. The widening list in the Share
+dialog (the phase 1 component with the chat target). `ChatShareDialog` (dialog and
 sheet, Drive save model, ✕ rows, discard ask, inline error), Share… in menus (not on shared project chats), the line
 under the box for the creator, "Continue in a chat only you see" without a project, "Hide from my list", the lost-access
 page, Move… then reopen, Activity row and preference, 5 languages. Tests: `chat-share-dialog.test.tsx` (every exit:
@@ -553,9 +673,8 @@ phases 1, 3 and 4, targeted specs for phase 2.
 
 ## Open questions
 
-1. **Owner decision pending, recommended: TC-1404 rule (b)** (older answers that no card covered stay hidden; nothing
-   new is ever hidden). The alternative is everything visible now, with the risks listed in "TC-1404 design".
-   Recommendation: (b).
+None. TC-1404 rule (b) was decided by the owner on 2026-11-14 (the recommended design); the widening list was added by
+the owner the same day.
 
 Decided here, easy to change in review: a creator's purge deletes their people-shared chats (the admin dialog offers
 disabling instead); faces show other writers only.
