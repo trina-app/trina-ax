@@ -26731,3 +26731,53 @@ connect_service are unchanged.
   phone; names 15px and 16px.
 - `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
   title as the second line, 추가 / 추가됨).
+
+## Office Mac turns get the model-request body check (fix/office-model-proxy-tc359, 2026-11-14, owner, QA TC-359, TC-358)
+
+- **Office turns with the Mac's own Claude sign-in now use the proxy's checked HTTP path, like Linux.** Before, they
+  reached `api.anthropic.com` through a CONNECT tunnel that stays TLS end to end, so `checkProxyRequest` (no
+  `mcp_servers`, no code execution, no server tool but `web_search`, inline image / document data only), the tool
+  lockdown (`checkToolNames`), the confidential-chat search rule and the budget never ran. Now the office proxy has
+  `ownLogin`: the engine gets `ANTHROPIC_BASE_URL=http://127.0.0.1:<proxy>` (the launcher sets it from `--proxy-port`
+  when a request asks for it, never another address) and the turn's proxy token in `ANTHROPIC_CUSTOM_HEADERS`
+  (`x-mycel-turn`). The proxy takes the token only from that header (never from Authorization, which is the Mac's
+  login), checks the TCP peer as before, runs the same checks as managed mode and sends the request on to
+  `https://api.anthropic.com` with the engine's own Authorization (or x-api-key), never with the turn token. No usage
+  is counted there (the turn's result does), and a 401 / long 429 of the Mac's login comes back as it came (Claude Code
+  refreshes by itself). The turn subscribes to the proxy's events, so a lockdown or budget refusal ends it.
+- **CONNECT keeps only the refresh host, and that tunnel is read too.** `CLAUDE_CONNECT_HOSTS` is now
+  `platform.claude.com:443` only. That host also answers the Messages API (an unauthenticated POST /v1/messages there
+  gets the API's own "x-api-key header is required"), so a plain tunnel to it would be the same hole. Its tunnel ends at
+  the refresh terminator (`server/src/proxy/refresh-terminator.ts`): a loopback TLS listener with a certificate for
+  that host, signed by a CA made on this Mac with `/usr/bin/openssl` (in `<secrets>/claude-refresh-ca`, 0600, CA key
+  deleted after signing, made again after a year). The engine trusts it through `NODE_EXTRA_CA_CERTS` (the CA in the
+  turn's `.turn`, written by the launcher). It answers only `POST /v1/oauth/token` with a `refresh_token` grant, which it
+  sends to the real host; everything else is a 403 + audit. `CLAUDE_CODE_CUSTOM_OAUTH_URL` cannot point at the proxy
+  (the CLI takes only Anthropic's approved addresses). Claude Code still tries a tunnel to `api.anthropic.com` for side
+  lookups (seen: `GET /v1/mcp_servers`, the claude.ai connector list); it is refused without an Activity line when the
+  caller is the turn's engine (`CLAUDE_TURN_QUIET`) and the turn goes on.
+- **Why the engine still reads the Mac's login.** Claude Code signs every request with it and refreshes it itself (the
+  refresh token rotates in the keychain or `~/.claude/.credentials.json`). The server taking that over would mean
+  re-implementing the OAuth refresh and writing the Mac user's sign-in from outside the CLI. What is narrowed is where
+  the token can be used: the engine's only network is the proxy port, the proxy forwards checked Messages API requests
+  and the refresh grant only, and nothing else reaches Anthropic. The rule from "Claude Code 자격 증명 우선순위" still
+  holds: no proxy token is injected as a credential in this mode, so there is no silent fallback to the stored login.
+- **Left open (accepted, written down).** ① The engine can read the Mac owner's refresh token, which a Linux engine
+  never holds. Anthropic will not fetch or connect for it any more, but the allowed `web_search` server tool takes any
+  query, so a taken-over engine could put text (the token too) into a search query that the search provider sees.
+  Turning search off for office turns would cost a normal turn a feature; the owner's remedy is the office
+  setup-token mode (r4b "사무실도 구독 setup-token으로"), where the engine holds no real credential. ② Certificates are
+  renewed at server start (made again after a year, valid 825 days). ③ The Claude sign-in process of managed mode
+  (`claude-login:` tokens) still tunnels to `platform.claude.com` directly; it runs the fixed `claude setup-token`, not
+  a turn. ④ The terminator forwards the checked body written again (a duplicate key cannot read differently at the
+  host), with an exact content type; an openssl failure stops the engine core with a clear message (fails closed).
+- **Checked with the real CLI** (Claude Code 2.1.325, outside the sandbox, the Mac's own sign-in, through this proxy):
+  a plain answer and a WebSearch answer both worked, every model request went through the checked HTTP path, and the
+  CLI trusted a terminated tunnel's CA through `NODE_EXTRA_CA_CERTS`. A real refresh was not forced (that would touch
+  the Mac's sign-in); a refresh grant through the terminator reached the real host and got its 400 for a made-up token.
+  Tests: `tests/security/r4b-office-body-check.test.ts` (CI: refused bodies, header-only token, peer, 401 pass-through,
+  the terminator), `tests/security/r4b-office-engine-network.test.ts` (macOS sandbox: real office core + stand-in
+  engine), `tests/unit/native.test.ts` (launcher base URL).
+- **TC-358 (session folder of shared project chats): accepted, no change** (owner 2026-11-14: "거기서는 어쩔 수 없는거").
+  A shared project chat is shared by design, so what one member's turn leaves in the AI session can be read by the next
+  member's turn.

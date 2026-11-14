@@ -8,7 +8,12 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // credential_usage_daily; usage_source 'proxy').
 //   /v1/*     Claude Code turns (family 'anthropic'): a Claude subscription token as a Bearer, or an Anthropic key
 //   /codex/*  Codex turns (family 'openai'): ChatGPT sign-in or OpenAI key (./codex-path.ts)
-//   CONNECT   office mode's Claude login tunnels and the ChatGPT sign-in process (./connect.ts); never a Codex turn
+//   CONNECT   office mode's Claude login refresh and the ChatGPT sign-in process (./connect.ts); never a Codex turn
+// Office mode with the Mac user's own Claude login (`ownLogin`, TC-359): the same /v1 path and the same checks, but the
+// credential is the engine's own (its Authorization / x-api-key goes on unchanged to api.anthropic.com) and the turn's
+// proxy token comes in the OWN_LOGIN_TURN_HEADER header (ANTHROPIC_CUSTOM_HEADERS). No usage is counted here (the
+// turn's own result does) and a refusal or limit of the Mac's login is passed back as it came (Claude Code refreshes
+// on a 401 by itself).
 import crypto from 'node:crypto'
 import net from 'node:net'
 import type { IncomingMessage } from 'node:http'
@@ -22,6 +27,11 @@ import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
+
+/** office own-login: the header that carries the turn's proxy token (Authorization carries the Mac's login) */
+export const OWN_LOGIN_TURN_HEADER = 'x-mycel-turn'
+/** office own-login: where checked requests go (the only host Claude Code's Messages API calls use) */
+export const OWN_LOGIN_UPSTREAM = 'https://api.anthropic.com'
 
 /** What one Claude attempt's model requests may name as tools (checkToolNames): `team` = the exact names (without
  * mcp__team__) the turn's tool connection lists, so a tool of another MCP server whose name only starts like ours
@@ -119,8 +129,8 @@ export function checkToolNames(body: unknown, policy: ToolPolicy): string | null
 
 export interface ProxyOpts {
   db: Database
-  /** the team's AI connections (credentials/broker.ts); null = this proxy has no model path at all (503: office mode
-   * with the Mac user's own login, where Claude goes through the CONNECT tunnel) */
+  /** the team's AI connections (credentials/broker.ts); null = no team connection: the Claude path answers 503, or
+   * with `ownLogin` forwards the engine's own login (office mode with the Mac user's login) */
   broker: CredentialBroker | null
   /** return false to refuse (TCP peer not in the turn's engine session; the launcher finds the process) */
   peerCheck?: (clientPort: number, serverPort: number, turnId: string) => Promise<boolean>
@@ -130,6 +140,10 @@ export interface ProxyOpts {
   codexModels?: () => string[]
   /** HTTPS tunnels on the same port (CONNECT, ./connect.ts); absent = CONNECT is refused */
   connect?: Omit<ConnectOpts, 'db'>
+  /** office mode with the Mac user's own Claude login (with broker null): Claude turns' model requests come here in
+   * plain HTTP with the engine's own credential, get the same checks as managed mode and go to `upstream` (default
+   * OWN_LOGIN_UPSTREAM) with that credential (TC-359) */
+  ownLogin?: { upstream?: string }
   port?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
@@ -279,10 +293,12 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   const turnOf = new WeakMap<Request, { turnId: string; revoked: boolean }>()
 
   /** token + peer: the request's proxy token row, or a Response that refuses it */
-  async function admit(req: Request, clientPort: number, family: Family, path: string): Promise<TokenRow | Response> {
+  async function admit(req: Request, clientPort: number, family: Family, path: string, ownLogin = false): Promise<TokenRow | Response> {
     // Claude Code sends its per-turn token as x-api-key (API key kind) or as a Bearer (subscription kind); Codex as a
-    // Bearer (its placeholder auth.json carries it as the access token / API key)
-    const tok = (req.headers.get('x-api-key') || req.headers.get('authorization')?.replace(/^Bearer\s*/i, '') || '').trim()
+    // Bearer (its placeholder auth.json carries it as the access token / API key). Office own-login: only the turn
+    // header (Authorization is the Mac's login, never looked up as a token)
+    const tok = (ownLogin ? req.headers.get(OWN_LOGIN_TURN_HEADER) ?? ''
+      : req.headers.get('x-api-key') || req.headers.get('authorization')?.replace(/^Bearer\s*/i, '') || '').trim()
     if (!tok) return apiError(401, 'authentication_error', 'missing proxy token')
     const row = tokenRow(db, tok)
     if (row) turnOf.set(req, { turnId: row.turn_id, revoked: !!row.revoked_at })
@@ -311,12 +327,13 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         })
       }
       if (!url.pathname.startsWith('/v1/')) return apiError(404, 'not_found_error', 'not found')
-      const admitted = await admit(req, clientPort, 'anthropic', url.pathname)
+      const own = !o.broker && !!o.ownLogin
+      const admitted = await admit(req, clientPort, 'anthropic', url.pathname, own)
       if (admitted instanceof Response) return admitted
       const row = admitted
-      if (!o.broker) return apiError(503, 'api_error', 'no AI connection path on this team server')
+      if (!o.broker && !own) return apiError(503, 'api_error', 'no AI connection path on this team server')
       const broker = o.broker
-      const gateway = broker.gateway ?? null
+      const gateway = broker?.gateway ?? null
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
@@ -339,7 +356,15 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         o.onTurnEvent?.(row.turn_id, { type: 'budget' })
         return apiError(403, 'permission_error', 'budget_exceeded')
       }
-      const cred = await broker.forRequest({ credentialId: row.credential_id, family: row.family, turnId: row.turn_id, userId: row.user_id }, 'anthropic')
+      // office own-login: the engine's own credential, exactly one kind, on to the fixed upstream
+      const ownCred = () => {
+        const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() ?? ''
+        const key = req.headers.get('x-api-key')?.trim() ?? ''
+        if (!bearer === !key) return { ok: false as const, status: 401, type: 'authentication_error', message: 'the engine sent no Claude login', event: undefined, retryAfter: undefined }
+        return { ok: true as const, credentialId: '', upstream: o.ownLogin?.upstream ?? OWN_LOGIN_UPSTREAM,
+          inject: bearer ? { type: 'anthropic-bearer' as const, token: bearer } : { type: 'anthropic-x-api-key' as const, key } }
+      }
+      const cred = broker ? await broker.forRequest({ credentialId: row.credential_id, family: row.family, turnId: row.turn_id, userId: row.user_id }, 'anthropic') : ownCred()
       if (!cred.ok) {
         if (cred.event) o.onTurnEvent?.(row.turn_id, cred.event)
         return apiError(cred.status, cred.type, cred.message, cred.retryAfter ? { 'retry-after': String(cred.retryAfter) } : {})
@@ -382,14 +407,14 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const outHeaders = new Headers()
       for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase())) outHeaders.set(k, v)
 
-      if (up.status === 401) {
+      if (up.status === 401 && broker) {
         // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
         await broker.onUnauthorized(cred.credentialId, sent)
         o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
       }
       if (up.status === 429) {
         const s = retryAfterSeconds(up.headers.get('retry-after'))
-        if (s !== null && s > SHORT_RETRY_S) {
+        if (s !== null && s > SHORT_RETRY_S && broker) {
           // the subscription's own limit: this connection stays out until it resets; the turn moves on or ends
           await up.body?.cancel().catch(() => {})
           const until = new Date(Date.now() + s * 1000)
@@ -403,11 +428,11 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       // 529: the provider is overloaded; the SDK retries it like a short limit
       if (up.status === 529) busy(row.turn_id, true)
       if (up.status >= 200 && up.status < 300) {
-        broker.succeeded(cred.credentialId)
+        broker?.succeeded(cred.credentialId)
         busy(row.turn_id, false)
       }
       const counts = url.pathname === '/v1/messages' && up.status < 400
-      const record = (m: string, u: Record<string, unknown>) => { if (Object.keys(u).length) broker.record(cred.credentialId, row.turn_id, m, u) }
+      const record = (m: string, u: Record<string, unknown>) => { if (broker && Object.keys(u).length) broker.record(cred.credentialId, row.turn_id, m, u) }
       if (counts && (up.headers.get('content-type') ?? '').includes('text/event-stream') && up.body) {
         // pass the stream through as it arrives while reading usage from message_start / message_delta. Input and
         // cache numbers come from message_start, output from the last message_delta (a running total, not added up).
