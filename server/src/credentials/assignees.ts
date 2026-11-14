@@ -51,7 +51,7 @@ export function pruneAssignments(db: Database, actor: string | null, now: string
  * After the delete is written: connections it switched off are told to the owner when an admin deleted (as any
  * admin's switch-off is, store.ts noticeOwners), and the engines' state is read again. Never throws.
  */
-export function afterPrune(ctx: AppContext, actor: string, pruned: readonly Pruned[]): void {
+export function afterPrune(ctx: AppContext, actor: string | null, pruned: readonly Pruned[]): void {
   const off = pruned.filter((p) => p.switchedOff)
   if (!off.length) return
   try {

@@ -67,6 +67,8 @@ export const UsersResponse = z.object({
   /** The people with an open request to have their account deleted (Settings › Profile › 계정 삭제 요청,
    * shared/src/api/account-deletion.ts). For the owner and the admins, who delete accounts (an admin gets the members' requests only). */
   deletionRequested: z.array(UserId).optional(),
+  /** With `deletionRequested`: when each of those accounts is deleted by itself (ISO). Absent from older servers. */
+  deletionDue: z.record(UserId, IsoTime).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the

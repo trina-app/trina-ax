@@ -2,6 +2,7 @@
 // Implements: CHATS (chats, messages, stop, regenerate, edit, branch, turn cards, projects)
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
+import { registerChatAccountCleanup } from '../chat/account-cleanup'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
@@ -201,6 +202,8 @@ export const chatsRoutes: RouteModule = {
   name: 'chats',
   owner: 'B',
   async init(ctx) {
+    // what a deleted account leaves of this component goes with it (auth/account-removal.ts)
+    registerChatAccountCleanup(ctx)
     const rt = installChatRuntime(ctx)
     ctx.services.realtime = rt.hub
     await rt.recover()

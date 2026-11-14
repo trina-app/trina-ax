@@ -83,6 +83,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'room.dm': case 'room.mention': return true
     // a person asks the owner to delete their account (shown always, Notifications.deletionRequest)
     case 'account.deletion_request': return true
+    // my own account's automatic deletion date (shown always, Notifications.deletionDue)
+    case 'account.deletion_due': return true
     // a Drive shared with the team stopped and needs an admin's new sign-in (shown always, Notifications.driveShareReconnect)
     case 'drive.share_reconnect': return true
     // an admin changed the team's AI (told to the owners), or switched off / removed a member's own connection (told to them)
