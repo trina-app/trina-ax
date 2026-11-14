@@ -132,8 +132,8 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
     company: { name: s.company },
     visitor: 'mina',
     people: [
-      ...team.map((id) => ({ id, name: pp[id].name, title: pp[id].title, avatar: `avatar-${id}.png` })),
-      { id: 'chris', name: pp.chris.name, title: pp.chris.title, org: pp.chris.org, outside: true as const, avatar: 'avatar-chris.png' },
+      ...team.map((id) => ({ id, name: pp[id].name, title: pp[id].title, avatar: `avatar-${id}.jpg` })),
+      { id: 'chris', name: pp.chris.name, title: pp.chris.title, org: pp.chris.org, outside: true as const, avatar: 'avatar-chris.jpg' },
     ],
     groups: [{ id: 'mkt', name: s.marketingGroup, members: marketing }],
     rooms: [

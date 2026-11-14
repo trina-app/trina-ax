@@ -4,8 +4,8 @@ The story the hands-on demo build plays (format: [`web/demo/script.ts`](../../..
 `docs/AGENTS/plan/20261114-0507-mina-demo.md`). English first; other languages come after the owner's review.
 
 **Steepling is a fictional company.** Every person, number, address and file here is made up for the demo. The
-agency's address uses the reserved `.example` domain. The avatars are initials on plain shapes (photos of made-up
-people will replace them: same file names), and the product and the banner backgrounds are drawn in CSS.
+agency's address uses the reserved `.example` domain. The avatars are photos of made-up people (generated with
+Higgsfield, checked by hand), and the product and the banner backgrounds are drawn in CSS.
 
 ## Layout
 
@@ -15,7 +15,7 @@ people will replace them: same file names), and the product and the banner backg
 | `story.ts` | the structure: ids, rooms, triggers, steps, file paths, timing. No words of its own |
 | `strings/en.ts` | every word: names, prompts, answers, captions, messages, toasts, email, guide lines and nudges, end card |
 | `assets/*.en.*` | what is English: banners, squares, stories, team files, skills |
-| `assets/bg-b.png`, `assets/avatar-*.png` | the same in every language: the "Higgsfield" background, the avatars |
+| `assets/bg-b.png`, `assets/avatar-*.jpg` | the same in every language: the "Higgsfield" background, the profile photos (fictional people, 512×512) |
 | `source/` | how the pictures are made: templates, `banners/copy.en.json` (their words), `render.mjs`; the demo never reads it |
 
 **Adding a language** (ko, id, ja, es): copy `strings/en.ts` to `strings/<locale>.ts` (`export const ko: Strings = …`)

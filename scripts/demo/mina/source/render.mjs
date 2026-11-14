@@ -2,7 +2,7 @@
 //   banners (1200×628) from banners/*.html filled with banners/copy.<locale>.json → banner-leo.<locale>.png, …
 //   the Instagram square (1080×1080) and story (1080×1920) of A and B, kit.html       → square-a.<locale>.png, story-b…
 //   the "Higgsfield" background (no words, every locale)                       → bg-b.png
-//   avatars (256×256, initials on a plain shape, every locale)                    → avatar-<id>.png
+//   avatars: photos in assets/avatar-<id>.jpg (512×512, made with Higgsfield), not rendered here
 //
 //   bun scripts/demo/mina/source/render.mjs [locale]        (default: en)
 //
@@ -62,7 +62,7 @@ const jobs = [
   kit('a', 'story', 1080, 1920),
   kit('b', 'square', 1080, 1080),
   kit('b', 'story', 1080, 1920),
-  ...AVATARS.map((a, i) => [avatarPage(a, i), `_avatar-${a[0]}.html`, `avatar-${a[0]}.png`, 256, 256, true]),
+  // (avatars are photos now: assets/avatar-<id>.jpg, made with Higgsfield; the initials pages below are not rendered)
 ]
 
 const browser = await chromium.launch()
