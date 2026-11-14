@@ -281,7 +281,7 @@ export class UpdateManager {
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
     const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && this.needsRoot(chk.feed))
-    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, ...(prev ? { previousNeedsRestore: !this.canRead(prev) } : {}), feed: this.feedUsable, needsRoot }
+    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, ...(prev ? { previousNeedsRestore: !this.canRead(prev) } : {}), feed: this.feedUsable, needsRoot, ...(this.feedUsable && chk?.error ? { checkFailed: true } : {}) }
   }
 
   /** Can this staged version open the database as it is now? Its bundle's highest min_compatible_reader is its reader

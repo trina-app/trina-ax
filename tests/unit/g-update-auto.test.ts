@@ -290,6 +290,17 @@ describe('through the app', () => {
       delete (u as unknown as Record<string, unknown>).feedUsable
     }
   })
+  test('two admins press Update together: one update starts, the other is told it is busy (QA TC-1230)', async () => {
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0' }) }))
+    const ops = getOps(h.ctx)!
+    try {
+      const [a, b] = await Promise.all([owner.try('POST', '/api/admin/update', { password: OWNER_PW }), owner.try('POST', '/api/admin/update', { password: OWNER_PW })])
+      expect([a.status, b.status].sort()).toEqual([202, 409])
+      expect([a, b].find((x) => x.status === 409)!.body.error.code).toBe('busy')
+      for (let i = 0; i < 200 && ops.busyWith; i++) await new Promise((x) => setTimeout(x, 50))
+      expect(ops.busyWith).toBeNull()
+    } finally { fs.rmSync(path.join(h.ctx.config.dataDir, 'update-check.json'), { force: true }) }
+  })
   test('a release in its staged roll-out: the update status says when this server\'s turn comes (turnAt)', async () => {
     const published = new Date(Date.now() - 3600_000)
     const salt = '3f9a1c7e5b2d4086a1e0c9b8f7d6e5a4'
@@ -449,5 +460,19 @@ describe('through the app', () => {
     expect(p.body.error).toMatchObject({ code: 'busy', message: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.' })
     ops.unlock()
     expect((await owner.try('POST', '/api/admin/backup', { scope: 'db' })).status).toBe(202)
+  })
+})
+
+describe('update page: unreachable feed and two presses (QA TC-1229, TC-1230)', () => {
+  test('a failed look at the feed is reported (checkFailed), a good one is not, and no feed says nothing', () => {
+    const dataDir = path.join(W, 'check-failed')
+    fs.mkdirSync(dataDir, { recursive: true })
+    const mgr = (feedUrl: string | null) => new UpdateManager({ appDir: null, dataDir, version: '1.0.0', channel: 'stable', feedUrl, log: silentLogger, keys: ['x'] })
+    const rec = (error: string | null) => fs.writeFileSync(path.join(dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error, feed: null }))
+    rec('fetch failed')
+    expect(mgr('http://127.0.0.1:1/feed.json').status().checkFailed).toBe(true)
+    expect(mgr(null).status().checkFailed).toBeUndefined()
+    rec(null)
+    expect(mgr('http://127.0.0.1:1/feed.json').status().checkFailed).toBeUndefined()
   })
 })

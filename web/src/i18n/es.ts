@@ -2576,6 +2576,7 @@ export const es: Record<MessageKey, string> = {
   'system.available': "Nueva versión {version}",
   'system.oneWay': "Después de esta actualización, volver a la versión anterior requiere restaurar una copia de seguridad.",
   'system.installUpdate': "Instalar actualización",
+  'system.checkFailed': "No se pudo conectar con el servidor de actualizaciones. Esta página lo intentará de nuevo más tarde.",
   'system.upToDate': "Tiene la versión más reciente.",
   'system.noFeed': "Este servidor no busca nuevas versiones en línea. Para actualizar, ejecute de nuevo el instalador de la nueva versión en la Mac del servidor; cambiará a ella y conservará la actual para poder volver atrás.",
   'system.rollback': "Volver a la versión anterior ({version})",
