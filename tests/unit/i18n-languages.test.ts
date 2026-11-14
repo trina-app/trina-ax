@@ -137,6 +137,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/devenv/messages.ts': { why: 'dev environment refusals in the team settings (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/rooms/apps/text.ts': { why: 'the cards and lines of apps posting in rooms (ko next to en/id/ja/es)' },
+  'server/src/rooms/apps/presets/notion.ts': { why: 'not screen text: recognises a Notion property named "상태" (Status) for the card\'s status line', also: /\(status\|상태\)/ },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
   'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
   'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
