@@ -303,6 +303,7 @@ export const ko = {
   'drive.confirm': '이 계정으로 연결 완료',
   'drive.cardDesc': '내 Drive 파일을 찾고 읽어요',
   'drive.setUpFirst': "Google Drive를 아직 설정하지 않았어요. 관리자 › 연결한 서비스에서 설정해요.",
+  'drive.notReadyHosted': "이 팀은 아직 Google Drive를 쓸 수 없어요. 곧 저절로 켜져요. 계속 꺼져 있으면 호스팅 지원팀에 문의해 주세요.",
   'drive.goSetUp': "설정하러 가기",
   'home.inProject': '이 프로젝트의 폴더와 지침으로 대화해요',
   'home.myFolder': '내 폴더',

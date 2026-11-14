@@ -304,6 +304,7 @@ export const id: Record<MessageKey, string> = {
   'drive.confirm': 'Konfirmasi akun ini',
   'drive.cardDesc': 'Cari dan baca file Drive Anda',
   'drive.setUpFirst': "Google Drive belum disiapkan di server ini. Siapkan di Admin › Aplikasi terhubung.",
+  'drive.notReadyHosted': "Google Drive belum siap untuk tim ini. Ini akan aktif sendiri; kalau tetap mati, hubungi dukungan hosting.",
   'drive.goSetUp': "Siapkan",
   'home.inProject': 'Chat di sini memakai folder dan instruksi proyek ini',
   'home.myFolder': 'Folder saya',

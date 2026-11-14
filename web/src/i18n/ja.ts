@@ -291,6 +291,7 @@ export const ja: Record<MessageKey, string> = {
   'drive.confirm': "このアカウントを確認",
   'drive.cardDesc': 'Driveのファイルを検索して読む',
   'drive.setUpFirst': "このサーバーではまだGoogle Driveを設定していません。管理 › 連携サービスで設定します。",
+  'drive.notReadyHosted': "このチームではまだGoogle Driveを使えません。自動でオンになります。オフのままの場合はホスティングのサポートにお問い合わせください。",
   'drive.goSetUp': "設定する",
   'home.inProject': "ここのチャットは、このプロジェクトのフォルダーと指示を使用します",
   'home.myFolder': "自分のフォルダー",

@@ -27485,3 +27485,23 @@ guides, "Apps posting here") are phase 2.
     naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
 - Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
   tests/security/lib/room-apps-cases.ts.
+
+## Hosted teams get the hosting service's Google (and Slack) sign-in without setup (fix/hosted-drive-broker-default, 2026-11-14, the owner)
+
+- **Problem.** A new hosted team (diontree, 0.5.3) showed "Google Drive isn't set up on this server yet. Set it up in
+  Admin › Connected apps." in onboarding. The team server used the hosting service's Google sign-in only when
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL` was in its environment, and nothing writes it on a hosted tenant (mycel-enroll's
+  `/etc/default/mycel` holds only the time zone, install id and windows; the control plane has no command that sets
+  environment). The control plane already serves every hosted team (it recorded the relay key at enroll and has the
+  Google client), so the only missing piece was the variable: no hosted team ever reached the broker.
+- **Rule.** On a hosted server (`deployment: "hosted"`) without a Google client of its own, the broker address
+  defaults to the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`brokerOrigin`, `hostedDefault`). An
+  empty value or `off` still turns it off; a set value still wins; a client of its own still wins. Slack's official app
+  uses the same default (`slackBrokerOrigin`), since both brokers are on the console. Self-installed servers are
+  unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
+- **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
+  guard as the other loops); the unit tests pass their own env to check the default.
+- **Text.** If a hosted team still has no Drive (the hosting service says no), the card and onboarding say
+  "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting support." and
+  an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+- Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts, tests/unit/c-slack-broker.test.ts.

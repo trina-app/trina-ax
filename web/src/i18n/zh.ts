@@ -291,6 +291,7 @@ export const zh: Record<MessageKey, string> = {
   "drive.confirm": "确认此账号",
   "drive.cardDesc": "搜索和读取你的 Drive 文件",
   "drive.setUpFirst": "此服务器尚未设置 Google Drive。请在“管理 › 已连接的应用”中设置。",
+  "drive.notReadyHosted": "此团队暂时还不能使用 Google Drive。它会自动开启；如果一直未开启，请联系托管支持。",
   "drive.goSetUp": "去设置",
   "home.inProject": "这里的对话会使用此项目的文件夹和指示",
   "home.myFolder": "我的文件夹",

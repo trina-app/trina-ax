@@ -7,6 +7,7 @@
 import crypto from 'node:crypto'
 import { afterAll, describe, expect, test } from 'bun:test'
 import { SLACK_BROKER_PATHS, parseSlackBrokerAuthorization, slackBrokerSealAad, slackBrokerSigningString, SLACK_BROKER_SEAL_ALG } from '@mycel/shared/cloud-protocol'
+import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 import { SlackBrokerClient, SlackBrokerError, SlackBrokerFeed, challengeOf, openSealedToken, sealKeyPair, slackBrokerOrigin, type BrokerFetch } from '../../server/src/integrations/slack/broker'
 import { createLogger } from '../../server/src/log'
 import { sealForTest, startFakeBroker } from '../lib/fake-slack-broker'
@@ -109,6 +110,12 @@ describe('calls', () => {
 
   test('which hosting service: MYCEL_SLACK_BROKER_URL, else the Drive broker\'s console; an origin, https or this machine', () => {
     expect(slackBrokerOrigin({})).toBeNull()
+    // a hosted server that names no broker: the hosting service's console (a self-installed one: off); "off" still wins
+    expect(slackBrokerOrigin({}, true)).toBe(`https://${SERVICE_HOSTS.accountHost}`)
+    expect(slackBrokerOrigin({ MYCEL_GOOGLE_DRIVE_BROKER_URL: 'off' }, true)).toBe(`https://${SERVICE_HOSTS.accountHost}`)
+    expect(slackBrokerOrigin({ MYCEL_SLACK_BROKER_URL: 'off' }, true)).toBeNull()
+    expect(slackBrokerOrigin({ NODE_ENV: 'test' }, true)).toBeNull()
+    expect(slackBrokerOrigin({ MYCEL_SLACK_BROKER_URL: 'https://account.example' }, true)).toBe('https://account.example')
     expect(slackBrokerOrigin({ MYCEL_SLACK_BROKER_URL: 'https://account.example' })).toBe('https://account.example')
     expect(slackBrokerOrigin({ MYCEL_GOOGLE_DRIVE_BROKER_URL: 'https://account.example/' })).toBe('https://account.example')
     expect(slackBrokerOrigin({ MYCEL_SLACK_BROKER_URL: 'off', MYCEL_GOOGLE_DRIVE_BROKER_URL: 'https://account.example' })).toBeNull()

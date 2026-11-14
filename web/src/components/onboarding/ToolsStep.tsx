@@ -25,6 +25,7 @@ import { connectorsPlace } from '../../pages/settingsTabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { Button } from '../ui'
+import { useMe } from '../../store/session'
 import { useDriveConnection } from '../settings/DriveConnection'
 import { LogoTile } from '../integrations/ConnectorsView'
 import { IntegrationDialog } from '../integrations/IntegrationDialog'
@@ -90,6 +91,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
  * "{account} 계정이 맞나요? [맞아요] [다른 계정]" → "연결됨 · {account}". */
 function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
   const t = useT()
+  const hosted = useMe()?.server.deployment === 'hosted'
   const s = useDriveConnection((c) => { keep(null); onConnected(c.status === 'connected') })
   const { d } = s
   const c: DriveConnection | null = s.connection
@@ -119,7 +121,7 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
       <LogoTile src={builtInLogo('google-drive')} className={logoCls} />
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm font-medium text-ink">{DRIVE.name}</p>
-        <p className="text-sm text-muted" data-testid="welcome-tools-drive-line">{t('drive.setUpFirst')}</p>
+        <p className="text-sm text-muted" data-testid="welcome-tools-drive-line">{t(hosted ? 'drive.notReadyHosted' : 'drive.setUpFirst')}</p>
       </div>
       <span className="max-w-28 shrink-0 pt-0.5 text-right text-xs text-faint" data-testid="welcome-tools-drive-off">{t('gapps.off.notSetUp')}</span>
     </li>

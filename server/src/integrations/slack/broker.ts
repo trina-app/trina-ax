@@ -4,8 +4,9 @@
 // server only the envelopes of the workspace it installed, through a long poll this server makes (no public address
 // needed), and that workspace's bot token, sealed to a one-time key of the request. Answers go to Slack from here.
 //
-// When it is used (slackBrokerFor): ONLY when the operator set MYCEL_SLACK_BROKER_URL (or MYCEL_GOOGLE_DRIVE_BROKER_URL:
-// both brokers are on the hosting service's console), and only once `status` answers that it serves this server. A
+// When it is used (slackBrokerFor): when the operator set MYCEL_SLACK_BROKER_URL (or MYCEL_GOOGLE_DRIVE_BROKER_URL:
+// both brokers are on the hosting service's console), or on a HOSTED server that sets neither (the edition's console,
+// like the Drive broker: google-drive/broker.ts brokerOrigin), and only once `status` answers that it serves this server. A
 // server with its own Slack app saved keeps it; a server without the variable never calls the hosting service.
 //
 // Trust boundaries:
@@ -24,6 +25,8 @@ import {
 import type { AppContext } from '../../context'
 import type { Logger } from '../../log'
 import { loadOrCreateKey } from '../../relay-client/registration'
+import { isHosted } from '../../system/deployment'
+import { brokerUrlOrigin, hostedDefault } from '../google-drive/broker'
 
 export type BrokerFetch = (input: string, init: RequestInit) => Promise<Response>
 export interface SlackBrokerIdentity { key: KeyObject; publicKey: string }
@@ -34,24 +37,21 @@ export class SlackBrokerError extends Error {
   constructor(readonly code: string, readonly status = 0) { super(`slack_broker_${code}`) }
 }
 
-/** The hosting service's console origin: MYCEL_SLACK_BROKER_URL, else MYCEL_GOOGLE_DRIVE_BROKER_URL (the same console).
- * https, or http to this machine; an origin only. null: not set or not usable (also MYCEL_SLACK_BROKER_URL=off). */
-export function slackBrokerOrigin(env: Record<string, string | undefined> = process.env): string | null {
+/** The hosting service's console origin: MYCEL_SLACK_BROKER_URL, else MYCEL_GOOGLE_DRIVE_BROKER_URL (the same console),
+ * else on a hosted server the edition's console (hostedDefault). https, or http to this machine; an origin only.
+ * null: not set on a self-installed server, or not usable (also MYCEL_SLACK_BROKER_URL=off). */
+export function slackBrokerOrigin(env: Record<string, string | undefined> = process.env, hosted = false): string | null {
   const own = env.MYCEL_SLACK_BROKER_URL?.trim()
   if (own === 'off') return null
-  const raw = own || env.MYCEL_GOOGLE_DRIVE_BROKER_URL?.trim()
-  if (!raw) return null
-  let u: URL
-  try { u = new URL(raw) } catch { return null }
-  const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]'
-  if (u.username || u.password || u.search || u.hash || (u.pathname !== '/' && u.pathname !== '')) return null
-  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && loopback)) return null
-  return u.origin
+  const drive = env.MYCEL_GOOGLE_DRIVE_BROKER_URL?.trim()
+  const raw = own || (drive !== 'off' ? drive : undefined)
+  if (!raw) return hostedDefault(env, hosted)
+  return brokerUrlOrigin(raw)
 }
 
 /** The broker of this server, or null without the variable. */
 export function slackBrokerFor(ctx: AppContext, env: Record<string, string | undefined> = process.env): SlackBrokerOptions | null {
-  const origin = slackBrokerOrigin(env)
+  const origin = slackBrokerOrigin(env, isHosted(ctx.config))
   if (!origin) return null
   return { origin, identity: () => { const { key, publicKey } = loadOrCreateKey(ctx.config.dataDir); return { key, publicKey } } }
 }

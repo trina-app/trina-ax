@@ -291,6 +291,7 @@ export const es: Record<MessageKey, string> = {
   'drive.confirm': "Confirmar esta cuenta",
   'drive.cardDesc': 'Busque y lea sus archivos de Drive',
   'drive.setUpFirst': "Google Drive aún no está configurado en este servidor. Configúrelo en Administración › Apps conectadas.",
+  'drive.notReadyHosted': "Google Drive aún no está listo para este equipo. Se activa solo; si sigue desactivado, contacte con el soporte del alojamiento.",
   'drive.goSetUp': "Configurar",
   'home.inProject': "Los chats de aquí usan la carpeta y las instrucciones de este proyecto",
   'home.myFolder': "Mi carpeta",

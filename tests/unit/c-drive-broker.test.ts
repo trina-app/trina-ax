@@ -21,6 +21,7 @@ import { registerDriveTools } from '../../server/src/tools/drive'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { GOOGLE_REVOKE, GOOGLE_TOKEN } from '../../server/src/integrations/google-drive/client'
 import { DRIVE_BROKER_PATHS } from '../../shared/src/cloud-protocol/drive-broker'
+import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
 
@@ -46,11 +47,16 @@ beforeEach(async () => {
 })
 afterEach(async () => { await a?.close() })
 
-test('broker mode only with the broker URL and without a Google client of its own; the direct flow stays otherwise', async () => {
+test('broker mode with the broker URL (or by default on a hosted server) and without a Google client of its own; the direct flow stays otherwise', async () => {
   const env = { MYCEL_GOOGLE_DRIVE_BROKER_URL: 'https://account.trina.app' }
-  // nothing changes without the operator's broker URL, even on a hosted server
-  expect(driveBrokerFor(a.ctx, false, false, {})).toBeNull()
+  // a hosted server whose environment names no broker uses the hosting service's console: a new team needs no setup
+  expect(driveBrokerFor(a.ctx, false, false, {})?.origin).toBe(`https://${SERVICE_HOSTS.accountHost}`)
+  expect(brokerOrigin({}, true)).toBe(`https://${SERVICE_HOSTS.accountHost}`)
+  // the operator can still turn it off (empty or "off"), and a test app never calls the real hosting service
   expect(driveBrokerFor(a.ctx, false, false, { MYCEL_GOOGLE_DRIVE_BROKER_URL: ' ' })).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, false, { MYCEL_GOOGLE_DRIVE_BROKER_URL: 'off' })).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, false, { NODE_ENV: 'test' })).toBeNull()
+  expect(driveBrokerFor(a.ctx, true, false, {})).toBeNull() // a client of its own: direct, no default
   expect(driveBrokerFor(a.ctx, false, false, env)?.origin).toBe('https://account.trina.app')
   expect(driveBrokerFor(a.ctx, true, false, env)).toBeNull() // client.json of its own: direct, unchanged
   expect(driveBrokerFor(a.ctx, false, true, env)).toBeNull() // MYCEL_GOOGLE_DRIVE_CLIENT_FILE: direct
@@ -60,7 +66,9 @@ test('broker mode only with the broker URL and without a Google client of its ow
   expect(driveBrokerFor(a.ctx, false, false, env)?.origin).toBe('https://account.trina.app')
   expect(driveBrokerFor(a.ctx, true, false, env)).toBeNull()
   expect(driveBrokerFor(a.ctx, false, true, env)).toBeNull()
+  // self-installed: nothing changes without the operator's broker URL (no call to the hosting service)
   expect(driveBrokerFor(a.ctx, false, false, {})).toBeNull()
+  expect(brokerOrigin({}, false)).toBeNull()
   // only https, or http to this machine; never a path, query or credentials
   for (const bad of ['http://evil.test', 'https://u:p@cp.test', 'https://cp.test/x', 'https://cp.test/?a=1', 'ftp://cp.test', 'not a url'])
     expect(brokerOrigin({ MYCEL_GOOGLE_DRIVE_BROKER_URL: bad })).toBeNull()

@@ -304,6 +304,7 @@ export const en: Record<MessageKey, string> = {
   'drive.confirm': 'Confirm this account',
   'drive.cardDesc': 'Search and read your Drive files',
   'drive.setUpFirst': "Google Drive isn't set up on this server yet. Set it up in Admin › Connected apps.",
+  'drive.notReadyHosted': "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting support.",
   'drive.goSetUp': "Set it up",
   'home.inProject': "Chats here use this project's folder and instructions",
   'home.myFolder': 'My folder',

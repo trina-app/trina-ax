@@ -1,0 +1,2 @@
+- Google Drive (and the Google apps and Slack's official app) can now be connected on a new Trina Cloud team right away. The team needed a setting nobody could make, so onboarding said "Google Drive isn't set up on this server yet".
+- If Google Drive is not ready on a hosted team, the card now says so in plain words and to contact hosting support, instead of sending the admin to a setup page that has nothing to set up.

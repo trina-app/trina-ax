@@ -77,7 +77,9 @@ four steps.
   these first makes the old bot token useless at Slack, so the next team gets a fresh one. An organization-wide
   (Enterprise Grid) install is refused too.
 - **Server settings.** `MYCEL_SLACK_BROKER_URL` (the console origin, e.g. `https://account.trina.app`; it falls back to
-  `MYCEL_GOOGLE_DRIVE_BROKER_URL`, which is the same console; `off` turns the official app off). Without it, or until
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL`, which is the same console; `off` turns the official app off). A hosted server that
+  sets neither uses the edition's console (`https://` + `SERVICE_HOSTS.accountHost`), like Google Drive. Without it
+  (self-installed), or until
   the hosting service answers that it serves this server (asked every minute, every 10 minutes once it does), nothing
   changes: the own app's four steps. An own app saved keeps working; to switch, Remove it and add the official app.
 
