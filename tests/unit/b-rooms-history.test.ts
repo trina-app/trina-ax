@@ -1,7 +1,7 @@
 // A team room's and the everyone room's history for a member who joins later (docs/DECISIONS.md "지난 대화", "People who
 // see a shared chat later: nothing new is hidden"): like a Slack channel they see what was said before them (people's
 // messages, threads, reactions, files, quotes, answers) and nothing old is unread or notifies; group chats and 1:1s
-// still start at the join. From the cutover (migration 351) on nothing is hidden ("from the cutover on" below). An
+// still start at the join. From the cutover (migration 295) on nothing is hidden ("from the cutover on" below). An
 // answer from before it (the old room AI's, or one shared from a person's own AI chat) is still one line for a later
 // member (RoomMessage.withheld), and hidden everywhere else (its thread, quotes, reactions, sources, the rooms list, the
 // Inbox, the readers of the person's own AI chat and of AI apps, the room AI's context), only where no card could have

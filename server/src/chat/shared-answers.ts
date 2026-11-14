@@ -1,6 +1,6 @@
 // Who sees an answer of a shared project chat (docs/DECISIONS.md "Shared project chats", "People who see a shared chat
-// later: nothing new is hidden"; migrations 273, 351). The chat is seen by whoever sees its project now (chat/shared.ts).
-// From the cutover (settings 'hidden_answers_cutover', written once by migration 351) on, no answer is hidden from
+// later: nothing new is hidden"; migrations 273, 295). The chat is seen by whoever sees its project now (chat/shared.ts).
+// From the cutover (settings 'hidden_answers_cutover', written once by migration 295) on, no answer is hidden from
 // anyone who sees the chat: the read card before reading says that what it finds stays in the chat for everyone who sees
 // it, people who get access later included (QA TC-1404). An answer made before the cutover keeps the old rule where no
 // card covered it: it stays visible to the person whose turn it was, to the people who saw the chat when it read what it
@@ -12,7 +12,7 @@
 //   shared_answer_reads.reads     groups {c, s, x?, y?}: the people who saw the chat (c) when the places (s) were read;
 //                                 x: what it read is not all known, so only c (an answer from before the table, a chat
 //                                 shared later whose check could not tell); y: a read card's yes covered it (written by
-//                                 the card from now on, and by migration 351 for the groups of a turn whose audit row
+//                                 the card from now on, and by migration 295 for the groups of a turn whose audit row
 //                                 chat.shared_read says 'shared'). Still written for every answer: nothing is hidden by
 //                                 a new one, but explicit widening warns from them (chat/widening.ts)
 //   shared_answer_reads.left_out  the answers above it on its branch that its runner did not see: they were not in its
@@ -32,7 +32,7 @@ import { sourceKey, viewersOf, type ReadSource } from './read-scope'
  * card's yes covered it (an answer from before the cutover is not hidden for it). */
 export interface ReadGroup { c: string[]; s: ReadSource[]; x?: 1; y?: 1 }
 
-/** The settings key of the cutover (migration 351). */
+/** The settings key of the cutover (migration 295). */
 export const CUTOVER_KEY = 'hidden_answers_cutover'
 const cutovers = new WeakMap<Database, string>()
 

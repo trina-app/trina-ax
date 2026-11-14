@@ -26985,7 +26985,7 @@ Supersedes "People who see a shared chat later — 나중에 보는 사람" (202
 from now on. Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` (phase 1, QA TC-1404); the owner decided
 the recommended design after an independent security and UX review.
 
-- **The rule.** From the cutover (settings `hidden_answers_cutover`, written once by migration 351 when this build
+- **The rule.** From the cutover (settings `hidden_answers_cutover`, written once by migration 295 when this build
   first runs) no answer is hidden from anyone who sees a shared project chat or a team room / the everyone room. The
   read card before reading stays and now says so: "If it reads it, what it finds stays in this chat for everyone who
   sees the chat, including people who get access later." "Send to a chat room" and the AI's post-to-room card add, for
@@ -26993,7 +26993,7 @@ the recommended design after an independent security and UX review.
   removed from a chat's audience still lose the whole chat.
 - **Older answers keep the old hiding only where no card covered them** (rule b): a shared project chat's answer from
   before the cutover is judged by the 11-08 walk, but a read group a card's yes covered (`y: 1`) never hides; `x: 1`
-  groups and silent groups keep hiding. Migration 351 marks `y` on the groups of every turn whose audit row
+  groups and silent groups keep hiding. Migration 295 marks `y` on the groups of every turn whose audit row
   `chat.shared_read` says `shared`; the card writes it from now on. In rooms, an older message is hidden from a later
   member only when its scope is closed or not kept, or holds a person's own folder, browser or connection (`user`), a
   team connection or a shared Drive the member may not read, or the room itself where an older answer hidden from them
