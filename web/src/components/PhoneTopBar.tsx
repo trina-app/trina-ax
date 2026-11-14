@@ -26,6 +26,7 @@ import { useUi } from '../store/ui'
 import { useTrinaDrawer } from './phone/TrinaDrawer'
 import { IconButton } from './ui'
 import { PhonePageBar } from './phone/PhonePageBar'
+import { useSetupReturnShown } from './onboarding/SetupReturn'
 import { PhoneBarSlot, usePhoneBarTitle } from './phone/PhoneBarAction'
 
 const icon = 'size-11 shrink-0'
@@ -43,6 +44,8 @@ export function PhoneTopBar() {
   const backLabel = useBackLabel(up, () => null)
   // a page's own name for the bar (one project's page: phone/PhoneBarAction.tsx PhoneBarTitle)
   const pageTitle = usePhoneBarTitle()
+  // opened from the welcome steps: their way back (onboarding/SetupReturn.tsx) is the page's one back, no ‹ beside it
+  const setupBack = useSetupReturnShown() !== null
   // 파일 draws its own bar, as Admin does
   if (hidesTabs(path) || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
   // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
@@ -70,7 +73,7 @@ export function PhoneTopBar() {
   // tab's screens, from search, keeps its ‹ back there)
   const root = !!rootTab(`${path}${search}`) && !stackNow()?.below
   if (!rooms)
-    return <PhonePageBar onBack={root ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
+    return <PhonePageBar onBack={root || setupBack ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {/* as wide as the two buttons on the right and the gap between them, so the name stays in the middle */}

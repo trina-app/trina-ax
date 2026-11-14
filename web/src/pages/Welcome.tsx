@@ -35,7 +35,7 @@ import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { aiName } from '../lib/tabs'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, setupReturnStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -98,6 +98,10 @@ function WelcomeSteps() {
   // ⌘K's "팀원 초대" (TeamMenu.tsx): the invite step itself, not where the steps would resume (it needs no AI)
   const location = useLocation()
   const askedInvite = (location.state as { step?: unknown } | null)?.step === 'invite'
+  // back from a page a step linked to (components/onboarding/SetupReturn.tsx): that step again, as it was (the team files
+  // step keeps its result), even when it was recorded done meanwhile; the AI step resumes by itself (resumeStep)
+  const returnedTo = setupReturnStep(location.state)
+  const askedBack = returnedTo && returnedTo !== 'ai' ? returnedTo : null
   const me = useMeStrict()
   // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
   useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
@@ -191,7 +195,9 @@ function WelcomeSteps() {
       const here = !window.matchMedia?.(PHONE_QUERY).matches
       // where the steps resume, decided before a phone's walk past 도구 연결 is recorded: that record can finish the setup,
       // and the step the owner came back for (an invite put off, say) still opens then
-      const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, here)
+      const s = askedInvite && !p.finishedAt ? 'invite'
+        : askedBack && !p.finishedAt && offeredHere(askedBack, here) && !(needsAi(askedBack) && !useAiAccess.getState().usable) ? askedBack
+          : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
       for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
       // gone elsewhere meanwhile: nothing to open
@@ -201,6 +207,8 @@ function WelcomeSteps() {
       if (!s) return void navigate('/', { replace: true })
       if (named && !here) return setStep(named)
       setStep(s)
+      // the way back's ask is used: a reload of this entry later resumes as usual
+      if (here && askedBack) navigate('/welcome', { replace: true, state: null })
       if (here) return
       // a phone arriving without a step: the steps before this one go under it (not under the invite asked for by itself:
       // the goal card's [팀원 초대], Back goes back there); with nothing of the app's under the steps (a landing, right

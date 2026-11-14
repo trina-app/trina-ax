@@ -27447,8 +27447,11 @@ guides, "Apps posting here") are phase 2.
   (`components/onboarding/SetupReturn.tsx`): "← Back to getting started", and after the AI step, once AI answers (asked
   again on an engines change and on window focus, for a sign-in in another tab), "Continue setup" in the accent. Both
   open /welcome, which resumes by itself (the AI step recorded done). On a phone whose entry under the page is the
-  steps, it goes back in the history instead. Owner only; nothing once the steps are finished. The engines line goes
-  straight to /admin/providers (the /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
-- **Not done.** The state lives in that one history entry: moving to another page drops the control (the setup row is
-  the way back from there).
+  steps, it goes back in the history instead; on a computer /welcome opens the step it came from even when that step was
+  recorded done meanwhile (the team files result with the project made, not the next step). While it shows, a phone's
+  bar has no ‹ of its own (one back). A failed AI check (read as "usable" so nothing warns) does not offer "Continue
+  setup". Owner only; nothing once the steps are finished. The engines line goes straight to /admin/providers (the
+  /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
+  drops the control (the setup row is the way back from there).
 - Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.

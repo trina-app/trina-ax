@@ -7,6 +7,8 @@ import type { AiAction } from '../lib/aiAccess'
 interface State {
   loaded: boolean
   usable: boolean
+  /** the last read was answered (a failed read leaves `usable` true so nothing shows; this says AI was not confirmed) */
+  answered: boolean
   action: AiAction
   requested: boolean
   /** the trial AI credit is used up or over (GET /api/me/ai-access `trial`) */
@@ -41,16 +43,16 @@ async function readAccess(get: () => State, set: (s: Partial<State>) => void): P
     if (g !== generation) return
     readAt = Date.now()
     // a press that went through while this answer was on its way stays "Told"
-    set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
+    set({ loaded: true, answered: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
   } catch {
     if (g !== generation) return
     // a failed check is not "no AI": nothing shows
-    set({ loaded: true, usable: true })
+    set({ loaded: true, answered: false, usable: true })
   }
 }
 
 export const useAiAccess = create<State>((set, get) => ({
-  loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false,
+  loaded: false, usable: true, answered: false, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false,
   load(force) {
     if (get().loaded && !force) return Promise.resolve()
     // a forced read wants an answer from after now: it shares only another forced one
@@ -66,7 +68,7 @@ export const useAiAccess = create<State>((set, get) => ({
     if (get().loaded && Date.now() - readAt < RECENT_MS) return Promise.resolve()
     return get().load(true)
   },
-  reset() { generation++; reading = null; readAt = 0; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false }) },
+  reset() { generation++; reading = null; readAt = 0; set({ loaded: false, usable: true, answered: false, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false }) },
   markNotReadyTold() { set({ notReadyTold: true }) },
   async ask() {
     if (get().sending || get().requested) return
