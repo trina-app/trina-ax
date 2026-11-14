@@ -380,10 +380,12 @@ export interface AccessCount { n: number; hiddenAnswers?: number }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
  * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
- * answers the people added would start seeing, a walk of the project's shared chats); null while asking or when it
- * failed. */
+ * answers the people added would start seeing, a walk of the project's shared chats); null while asking. When the dry
+ * run fails (past its 60 a minute, 429) the last count comes back, with no error: the widening warning that reads it
+ * stays (QA TC-1695); null only when no count came yet. */
 export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
+  const last = useRef<AccessCount | null>(null)
   const key = participants.map(participantKey).sort().join(',')
   const removing = (o.removeRules ?? []).map(ruleKey).sort().join(',')
   useEffect(() => {
@@ -391,7 +393,11 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
     let live = true
     setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }), () => {})
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => {
+        if (!live) return
+        last.current = { n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }
+        setN(last.current)
+      }, () => { if (live) setN(last.current) })
     }, ACCESS_COUNT_DEBOUNCE_MS)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
