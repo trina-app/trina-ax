@@ -9,6 +9,7 @@ const WORDS = {
   working: { en: 'Trina is working…', ko: '트리나가 작업 중이에요…', ja: 'トリナが作業中です…', es: 'Trina está trabajando…', id: 'Trina sedang bekerja…' },
   waiting: { en: 'Something is on its way…', ko: '곧 소식이 와요…', ja: 'まもなく届きます…', es: 'Algo está en camino…', id: 'Sebentar lagi…' },
   openChat: { en: 'Open “{title}” →', ko: '“{title}” 열기 →', ja: '「{title}」を開く →', es: 'Abre «{title}» →', id: 'Buka “{title}” →' },
+  pressSend: { en: 'Press send →', ko: '보내기를 누르세요 →', ja: '送信を押してください →', es: 'Pulsa enviar →', id: 'Tekan kirim →' },
   card: { en: "Choose on Trina's card →", ko: '트리나의 카드에서 골라 주세요 →', ja: 'トリナのカードで選んでください →', es: 'Elige en la tarjeta de Trina →', id: 'Pilih di kartu Trina →' },
 } satisfies Record<string, Partial<Record<Locale, string>> & { en: string }>
 

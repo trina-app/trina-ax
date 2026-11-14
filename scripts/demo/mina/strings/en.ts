@@ -211,6 +211,11 @@ export const en = {
     usually: 'usually ~2 days',
     signup: 'See plans & start free',
     explore: 'Look around',
+    /** the end popup */
+    popupTitle: 'That\'s Mina\'s first day 🎉',
+    /** {time}: the visitor's real time */
+    popupLine: 'Launch campaign shipped in {time}. Usually about 2 days.',
+    recap: ['Read 3 team files', 'Made 4 assets with Higgsfield', 'CEO approved', 'Emailed the agency'],
   },
 }
 

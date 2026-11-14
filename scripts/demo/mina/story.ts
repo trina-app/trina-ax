@@ -192,6 +192,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       title: s.end.title,
       contrast: s.end.usually,
       signup: { label: s.end.signup, url: 'https://ax.trina.app/pricing' },
+      popup: { title: s.end.popupTitle, line: s.end.popupLine, recap: s.end.recap, close: s.end.explore },
     },
   }
 }

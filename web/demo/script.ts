@@ -271,4 +271,7 @@ export interface DemoEnd {
   contrast?: string
   /** the sign-up link, opened in a new tab (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
   signup: { label: string; url: string }
+  /** the end popup (the app's own Modal; the owner's one exception to "no demo cards"), shown with the end line:
+   * its title, one line ({time}: the real time), a short recap, and "Look around" (closes it; the end line stays) */
+  popup?: { title: string; line: string; recap?: string[]; close: string }
 }

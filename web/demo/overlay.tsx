@@ -6,6 +6,7 @@
 // Styles are in demo.css (not Tailwind: the product's stylesheet must not change for the demo).
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Button, Modal } from '../src/components/ui'
 import { useLocale, useT } from '../src/i18n'
 import type { DemoAnswer, DemoGo } from './script'
 import type { DemoServer } from './server'
@@ -145,15 +146,31 @@ async function goTo(server: DemoServer, go: DemoGo) {
 const boxOf = (go: DemoGo) => (go !== 'home' && 'side' in go ? '[data-testid="side-chat-input"]' : '[data-testid="composer-input"]')
 const sendOf = (go: DemoGo) => (go !== 'home' && 'side' in go ? '[data-testid="side-chat-send"]:not([disabled])' : '[data-testid="send"]:not([disabled])')
 
-/** a suggested prompt, sent with the app's own box as if typed */
-async function sendPrompt(server: DemoServer, go: DemoGo, a: DemoAnswer) {
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+/** the box's text, through its own input event, so the app's state follows (never focused: no phone keyboard) */
+function setBox(box: HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, value)
+  box.dispatchEvent(new Event('input', { bubbles: true }))
+}
+/** the visible message box of a place, now */
+const boxNow = (go: DemoGo) => [...document.querySelectorAll<HTMLTextAreaElement>(boxOf(go))].reverse().find(visible) ?? null
+
+/** A suggested prompt typed into the place's real message box, as a person types (25–40 ms a letter, a short pause at
+ * some spaces; at once with reduced motion or `instant`), and left there: the visitor presses send. Never over the
+ * visitor's own text, and it stops when they type in between (what they typed stays). */
+async function typePrompt(server: DemoServer, go: DemoGo, a: DemoAnswer, instant: boolean) {
   if (!atPlace(server, go, appPathNow())) await goTo(server, go)
   const box = await waitFor<HTMLTextAreaElement>(boxOf(go))
-  if (!box) return
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, a.prompt)
-  box.dispatchEvent(new Event('input', { bubbles: true }))
-  const send = await waitFor<HTMLButtonElement>(sendOf(go), 2000)
-  send?.click()
+  if (!box || box.value === a.prompt) return
+  if (box.value.trim()) return
+  if (instant || reducedMotion()) { setBox(box, a.prompt); return }
+  const text = a.prompt
+  const per = Math.min(40, Math.max(25, 1700 / text.length))
+  for (let i = 1; i <= text.length; i++) {
+    if (!box.isConnected || box.value !== text.slice(0, i - 1)) return
+    setBox(box, text.slice(0, i))
+    await sleep(per + Math.random() * 10 - 5 + (text[i - 1] === ' ' && Math.random() < 0.2 ? 60 + Math.random() * 70 : 0))
+  }
 }
 
 function useEngine(server: DemoServer) {
@@ -223,9 +240,9 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const here = !!step && atPlace(server, step.go, path)
   // in the room of a side-chat step with the side chat closed: the line already says the step (✦ is ringed)
   const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)
-  const [sending, setSending] = useState(false)
-  // a step's prompts go once one was sent (they come back with the next step), and while the AI's card waits
-  const [usedFor, setUsedFor] = useState<string | null>(null)
+  // the step whose prompt was typed (once a step: a later press fills it at once), and a typing under way
+  const [typedFor, setTypedFor] = useState<string | null>(null)
+  const [typing, setTyping] = useState(false)
   const cardOpen = [...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
   // the AI is still answering on screen (its card not out yet): the guide waits with it
   const working = !cardOpen && [...document.querySelectorAll('[data-testid="assistant-message"][data-status="streaming"]')].some(visible)
@@ -233,7 +250,12 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const goProject = step && step.go !== 'home' && 'project' in step.go ? step.go.project : null
   const projectChat = goProject && /^\/projects\/[^/]+$/.test(path) ? server.script.projects.find((p) => p.id === goProject)?.chats?.[0] : undefined
   const chatRow = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) ?? null : null
-  const suggest = here && !chatRow && usedFor !== step?.id && !cardOpen && !working ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
+  // the place's message box holds text (typed by the demo or by the visitor): the guide line says to press send, and the
+  // real send button is ringed
+  const box = here && step && !chatRow ? boxNow(step.go) : null
+  const sendReady = !!box?.value.trim() && !typing && !working && !cardOpen
+  const sendButton = sendReady && step ? [...document.querySelectorAll(sendOf(step.go))].reverse().find(visible) ?? null : null
+  const suggest = here && !chatRow && !typing && !sendReady && !cardOpen && !working ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
   // one prompt only: no choice buttons, the guide line itself sends it (and glows)
   const choices = suggest.length > 1 ? suggest : []
   // a dialog of the app is open (Send to room): the guide steps back so it never covers the dialog's buttons
@@ -241,7 +263,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
 
   // the one thing ringed: the AI's card when it waits, the share dialog's next control, the step's control, or the way
   // there; nothing while Trina works or while the step's prompts are in the guide line
-  const target: Element | null = !step || end || working || suggest.length ? null
+  const target: Element | null = !step || end || working || typing || suggest.length ? null
+    : sendButton ? sendButton
     : cardOpen && here ? [...document.querySelectorAll('[data-testid="ask-card"]')].reverse().find(visible) ?? null
     : chatRow ?? shareTarget(server)
       ?? (here && step.highlight ? [...document.querySelectorAll(step.highlight)].reverse().find(visible) ?? null : null)
@@ -256,17 +279,24 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     if (r.bottom > window.innerHeight - 160 || r.top < 64) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [target, shown])
 
+  /** a prompt into the real box: typed the first time at a step, at once after that (a prompt stopped, or cleared) */
   const pick = async (a: DemoAnswer) => {
-    if (!step || sending) return
-    setSending(true)
-    // the prompt is put away while it is sent, and comes back if it never went or was stopped (the answer streaming
-    // hides it meanwhile; an answer that finished moves the story on)
-    setUsedFor(step.id)
-    try { await sendPrompt(server, step.go, a) } finally {
-      setSending(false)
-      setTimeout(() => setUsedFor((u) => (u === step.id ? null : u)), 1500)
-    }
+    if (!step || typing) return
+    const instant = typedFor === step.id
+    setTyping(true)
+    setTypedFor(step.id)
+    try { await typePrompt(server, step.go, a, instant) } finally { setTyping(false) }
   }
+  // arriving at a step with one prompt (Leo's chat, the side chat opened by hand or by the guide line): it types itself
+  const single = here && !chatRow && !cardOpen && !working && !typing && step?.suggest?.length === 1 && typedFor !== step.id && !box?.value.trim()
+  const singleAnswer = single ? server.script.answers.find((a) => a.id === step!.suggest![0]) : undefined
+  useEffect(() => {
+    if (!singleAnswer || !step) return
+    // (a moment for the place to settle: the page's own focus and scroll first)
+    const id = setTimeout(() => void pick(singleAnswer), 500)
+    return () => clearTimeout(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [singleAnswer?.id, step?.id])
 
   /** the guide line does its step: it presses the ringed control (the card: its first choice; a row: its button), sends
    * the step's first prompt, or goes there */
@@ -277,8 +307,14 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     if (row) { navigate(inAppLink(row) ?? `/c/${server.idOf('chat', projectChat!.id)}`); return }
     // (here, read again: the last render may be a quarter of a second old)
     const hereNow = atPlace(server, step.go, appPathNow())
-    const firstPrompt = hereNow && usedFor !== step.id && ![...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
-      ? server.script.answers.find((a) => a.id === step.suggest?.[0]) : undefined
+    const noCard = ![...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
+    // the box holds the prompt (or the visitor's words): the guide line is the visitor pressing send
+    const full = hereNow && noCard ? boxNow(step.go) : null
+    if (full?.value.trim()) {
+      ;[...document.querySelectorAll<HTMLButtonElement>(sendOf(step.go))].reverse().find(visible)?.click()
+      return
+    }
+    const firstPrompt = hereNow && noCard ? server.script.answers.find((a) => a.id === step.suggest?.[0]) : undefined
     if (firstPrompt) { void pick(firstPrompt); return }
     // elsewhere: straight there (the ring shows the way for a visitor who clicks by hand), unless the step's own
     // control is on screen (a link in a message)
@@ -313,6 +349,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     return () => o.disconnect()
   }, [])
 
+  const popup = server.script.end.popup
   const secs = Math.max(0, Math.round(((e.endedAt ?? Date.now()) - e.startedAt) / 1000))
   const elapsed = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
   return (
@@ -321,7 +358,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
         {choices.length > 0 && (
           <div className="demo-choices" data-testid="demo-suggest">
             {choices.map((a) => (
-              <button key={a.id} type="button" className="demo-choice" disabled={sending} onClick={() => void pick(a)} data-testid={`demo-suggest-${a.id}`}>{a.label ?? a.prompt}</button>
+              <button key={a.id} type="button" className="demo-choice" disabled={typing} onClick={() => void pick(a)} data-testid={`demo-suggest-${a.id}`}>{a.label ?? a.prompt}</button>
             ))}
           </div>
         )}
@@ -333,8 +370,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
               <a className="demo-next" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{server.script.end.signup.label} →</a>
             </span>
           ) : step && !working ? (
-            <button type="button" className={target || choices.length ? 'demo-next' : 'demo-next demo-glow'} disabled={sending} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
-              {here && cardOpen ? demoWord('card', locale) : chatRow && projectChat ? demoWord('openChat', locale).replace('{title}', projectChat.title) : here || inSideRoom ? step.text : step.away ?? step.text}
+            <button type="button" className={target || choices.length ? 'demo-next' : 'demo-next demo-glow'} disabled={typing} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
+              {sendReady ? demoWord('pressSend', locale) : here && cardOpen ? demoWord('card', locale) : chatRow && projectChat ? demoWord('openChat', locale).replace('{title}', projectChat.title) : here || inSideRoom ? step.text : step.away ?? step.text}
             </button>
           ) : (
             <span className="demo-next demo-wait" data-testid="demo-wait" role="status">{demoWord(working ? 'working' : 'waiting', locale)}</span>
@@ -342,6 +379,27 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           <button type="button" className="demo-restart" onClick={() => location.assign(BASE)} data-testid="demo-restart">{demoWord('restart', locale)}</button>
         </div>
       </div>
+      {end && popup && (
+        // the end popup: the app's own Modal (a bottom sheet on phones), no motion of its own
+        <Modal
+          open={!e.endClosed}
+          onClose={() => e.closeEnd()}
+          title={popup.title}
+          width={460}
+          footer={(
+            <>
+              <Button onClick={() => location.assign(BASE)} data-testid="demo-popup-restart">{demoWord('restart', locale)}</Button>
+              <Button onClick={() => e.closeEnd()} data-testid="demo-popup-close">{popup.close}</Button>
+              <Button variant="primary" onClick={() => window.open(signupUrl, '_blank', 'noopener')} data-testid="demo-popup-signup">{server.script.end.signup.label}</Button>
+            </>
+          )}
+        >
+          <div data-testid="demo-popup">
+            <p className="text-sm text-ink">{popup.line.replace('{time}', elapsed)}</p>
+            {popup.recap?.length ? <p className="mt-2 text-sm text-muted">{popup.recap.join(' · ')}</p> : null}
+          </div>
+        </Modal>
+      )}
       {ring && ring.width > 0 && (
         <span className="demo-ring" data-testid="demo-ring" aria-hidden style={{ left: ring.left - 5, top: ring.top - 5, width: ring.width + 10, height: ring.height + 10 }} />
       )}

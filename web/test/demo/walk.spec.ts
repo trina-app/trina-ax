@@ -48,10 +48,23 @@ async function follow(page: Page, text?: string) {
   await guide(page).click()
 }
 
-/** a step's prompt: its own button when the step offers a choice, else the guide line itself sends the one prompt */
-async function prompt(page: Page, id: string, owner: string) {
+const PRESS_SEND = 'Press send →'
+/** A step's prompt: typed into the real box by itself on arrival (one prompt) or by its button (a choice), then sent with
+ * the real send button (by hand) or the guide line ("Press send →"). Checks the box holds the prompt, the ring is on
+ * send, and the box was never focused (no phone keyboard). */
+async function prompt(page: Page, id: string, owner: string, byGuide: boolean, box: string, send: string) {
   if (step(owner).suggest!.length > 1) await page.getByTestId(`demo-suggest-${id}`).click()
-  else await guide(page).click()
+  await expect(guide(page)).toHaveText(PRESS_SEND, { timeout: 15_000 })
+  await expect(page.locator(`[data-testid="${box}"]:visible`).last()).toHaveValue(answer(id).prompt)
+  await expect(ring(page)).toBeVisible()
+  const sendBox = await page.locator(`[data-testid="${send}"]:visible`).last().boundingBox()
+  const ringBox = await ring(page).boundingBox()
+  expect(Math.abs((ringBox!.x + ringBox!.width / 2) - (sendBox!.x + sendBox!.width / 2))).toBeLessThan(8)
+  // on a phone the typing never takes the focus (no keyboard); on a computer the app's chat focuses its own box, and the
+  // app's side chat does so everywhere when it opens
+  if (box === 'composer-input' && test.info().project.name.startsWith('390')) expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('TEXTAREA')
+  if (byGuide) await guide(page).click()
+  else await page.locator(`[data-testid="${send}"]:visible`).last().click()
 }
 
 // every branch of the choice, the first by the guide line alone; with one prompt only, once by the guide line and
@@ -94,13 +107,9 @@ for (const { branch, byGuide } of runs) {
     await expect(page.locator('[data-testid="assistant-message"] img[src*="/api/files/download"]').first()).toBeVisible()
     // ② the step's prompt: its choice buttons in the guide line, or (one prompt) the guide line itself
     if (banner.length > 1) await expect(page.getByTestId(`demo-suggest-${branch}`)).toBeVisible()
-    else {
-      await expect(guide(page)).toHaveText(step('banner').text)
-      await expect(page.getByTestId('demo-suggest')).toHaveCount(0)
-    }
+    else await expect(page.getByTestId('demo-suggest')).toHaveCount(0)
     await shot(page, `${branch}-4-project`)
-    if (byGuide) await guide(page).click()
-    else await prompt(page, branch, 'banner')
+    await prompt(page, branch, 'banner', byGuide, 'composer-input', 'send')
     // the answer as the app shows it: the pictures inline, the saved files, the sources
     await expect(guide(page)).toHaveText(step('share').text, { timeout: 60_000 })
     const pictures = page.locator('[data-testid="assistant-message"]').last().locator('img[src*="/api/files/download"]')
@@ -130,10 +139,11 @@ for (const { branch, byGuide } of runs) {
     // ④ ✦ is ringed when Sara says Gmail is connected; the side chat's prompt is in the guide line
     await expect(guide(page)).toHaveText(step('mail').text, { timeout: 60_000 })
     await shot(page, `${branch}-7-room`)
-    await guide(page).click()
-    await expect(page.getByTestId('side-chat-panel')).toBeVisible()
+    // the side chat: opened by the guide line, or by its real ✦ button; its prompt types itself, send is ringed
     if (byGuide) await guide(page).click()
-    else await prompt(page, step('mail').suggest![0]!, 'mail')
+    else await page.locator('[data-testid="room-side-chat-button"]:visible').first().click()
+    await expect(page.getByTestId('side-chat-panel')).toBeVisible()
+    await prompt(page, step('mail').suggest![0]!, 'mail', byGuide, 'side-chat-input', 'side-chat-send')
     const card = page.getByTestId('ask-card').last()
     await expect(card).toBeVisible({ timeout: 40_000 })
     await expect(ring(page)).toBeVisible()
@@ -150,8 +160,21 @@ for (const { branch, byGuide } of runs) {
     await expect(shout).toBeVisible()
     for (const emoji of ['🎉', '🔥', '👏', '🙌']) await expect(shout.getByText(emoji).first()).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-testid="room-message"]').filter({ hasText: 'Welcome to the team' })).toBeVisible({ timeout: 20_000 })
-    // the end: the guide line becomes the end line (the real time, what it usually takes, the plans link)
-    await expect(page.getByTestId('demo-end')).toBeVisible({ timeout: 40_000 })
+    // the end popup (the app's own Modal): the real time, the recap, the plans link in a new tab, then Look around
+    const popup = page.getByRole('dialog')
+    await expect(popup.getByTestId('demo-popup')).toBeVisible({ timeout: 40_000 })
+    await expect(popup).toContainText(script.end.popup!.title)
+    await expect(popup.getByTestId('demo-popup')).toContainText(/shipped in \d+:\d\d\./)
+    for (const r of script.end.popup!.recap ?? []) await expect(popup).toContainText(r)
+    await shot(page, `${branch}-9-popup`)
+    const [plans] = await Promise.all([page.context().waitForEvent('page'), popup.getByTestId('demo-popup-signup').click()])
+    await plans.waitForURL(/pricing|about:blank/).catch(() => {})
+    expect(plans.url() === 'about:blank' || plans.url().startsWith(script.end.signup.url)).toBe(true)
+    await plans.close()
+    await popup.getByTestId('demo-popup-close').click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    // after it: the guide line's end line (the real time, what it usually takes, the plans link) is the way back
+    await expect(page.getByTestId('demo-end')).toBeVisible()
     await expect(page.getByTestId('demo-end')).toContainText(/shipped in \d+:\d\d \(usually ~2 days\)/)
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('href', script.end.signup.url)
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('target', '_blank')
@@ -210,16 +233,32 @@ test('Stop while the guide line\'s prompt streams: the guide line sends it again
   await follow(page, step('project').text)
   const leoChat = script.projects[0]!.chats![0]!.title
   await follow(page, `Open “${leoChat}” →`)
-  await follow(page, step('banner').text)
+  await follow(page, PRESS_SEND)
   await expect(page.getByTestId('stop').first()).toBeVisible({ timeout: 20_000 })
   await page.getByTestId('stop').first().click()
   await expect(page.getByTestId('stop')).toHaveCount(0)
-  // the prompt is back on the guide line, and pressing it sends it again
+  // the prompt is back on the guide line: pressing it fills the box at once (no second typing), then send
   await expect(guide(page)).toHaveText(step('banner').text)
-  await page.waitForTimeout(1800)
   const sent = await page.getByTestId('user-message').count()
   await guide(page).click()
+  await expect(guide(page)).toHaveText(PRESS_SEND)
+  await guide(page).click()
   await expect(page.getByTestId('user-message')).toHaveCount(sent + 1, { timeout: 20_000 })
+})
+
+test('reduced motion: the prompt is filled at once and the ring on send stands still', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto(START)
+  await follow(page, step('ask').text)
+  await expect(page.getByTestId('answer-sources')).toBeVisible({ timeout: 40_000 })
+  await follow(page)
+  await expect(page).toHaveURL(/\/rooms\//)
+  await follow(page, step('project').text)
+  const leoChat = script.projects[0]!.chats![0]!.title
+  await follow(page, `Open “${leoChat}” →`)
+  await expect(page.locator('[data-testid="composer-input"]:visible').last()).toHaveValue(answer(step('banner').suggest![0]!).prompt, { timeout: 2000 })
+  await expect(guide(page)).toHaveText(PRESS_SEND)
+  expect(await ring(page).evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
 })
 
 test('a picture downloads and opens on its own (under a base path too)', async ({ page, context }, info) => {
