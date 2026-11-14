@@ -23,8 +23,10 @@ import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
- * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
-const workKeys = ['chatAnswers', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+ * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림"); chatShares: a push
+ * when someone shares a chat with me by name (docs/DECISIONS.md "Chats shared with me: a push that names the sharer";
+ * a server from before it leaves it out: no row) */
+const workKeys = ['chatAnswers', 'chatShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
