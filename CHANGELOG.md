@@ -7,6 +7,9 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.4 — 2026-11-14
 
+- Share… in a chat's menu and in every chat row's menu: for a chat outside projects it opens a Share dialog like Google Drive's. Add people and groups, take them out with ✕ (Undo until you save), and Save; leaving with unsaved changes asks first, and a failed save keeps your picks. Before new people are added it shows what they would start seeing (answers that used places they can't open, with the list of those answers) and asks to Share anyway. A chat in a personal project explains why and offers Move…; a chat in a team project is shared with the project's members as before.
+- The people a chat is shared with find it in their list and in Activity ("Olga shared a chat with you"), can continue it or hide it from their list (opening it brings it back), and are told "This chat is no longer shared with you" when they are taken out. When an admin deletes an account, the dialog says how many of that person's shared chats go with it and suggests disabling the account instead.
+
 - **Admin › Folder permissions** is now two plain lists: the folders shared differently from the folder they are in (with **Share**, and **Limited** marked), and what one person can open and why. The rule tree and the by-person table are gone.
 - **Admin** opens faster: members, groups and the other lists are read once and shared by every admin page for a minute, so moving between pages no longer reads them again (Team settings asked for them three times). A change you make shows at once; one made by another admin shows within a minute.
 - Picture previews in a chat room show at once when you come back to the room: your browser keeps them for up to an hour while you stay signed in. Signing out clears them from the browser.
