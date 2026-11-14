@@ -910,10 +910,12 @@ export class TurnExec {
         if (!core.proxy.ready) { this.error = engineError('proxy_down', spec.locale); return }
         this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
       }
-      // office mode with the Mac user's login: the engine's HTTPS goes through the proxy's CONNECT tunnel (the sandbox
-      // allows no other network); no proxy, no turn (fail closed)
+      // office mode with the Mac user's login: the engine's model requests go to the proxy's checked HTTP path and its
+      // login refresh through the CONNECT tunnel (the sandbox allows no other network); no proxy, no turn (fail
+      // closed). Its findings (a tool outside the lockdown, budget) end this turn like in managed mode (TC-359)
       const tunnelPort = !claude.modelProxy && claude.connectProxy ? core.proxy?.port ?? null : null
       if (!claude.modelProxy && claude.connectProxy && !core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
+      if (tunnelPort !== null && core.proxy) this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
       if (!resume) sid = crypto.randomUUID()
       // a team / chat / personal model if someone chose one; else a Claude subscription connection runs on Opus (set
       // where the attempt picks its connection below; main's subscription-mode rule, v0.2.2), an API key keeps Claude
@@ -976,7 +978,7 @@ export class TurnExec {
           // Opus unless someone chose (also makes the refusal retry's "other model" really another one)
           if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
           proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools: { agent: subagents, webSearch, team: turnTools } })
-        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, tools: { agent: subagents, webSearch, team: turnTools } })
+        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, family: 'anthropic', tools: { agent: subagents, webSearch, team: turnTools } })
         this.lockdown = { webSearch, subagents, team: new Set(turnTools) }
         // calls wait for the stream to say which agent made them from the start when sub-agents are possible: a child's
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
@@ -984,7 +986,7 @@ export class TurnExec {
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
-          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
+          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()

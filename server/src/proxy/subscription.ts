@@ -91,8 +91,12 @@ export interface ProxyServiceOptions {
   codexModels?: () => string[]
   secretsDir: string
   peerCheck?: ProxyOpts['peerCheck']
-  /** CONNECT tunnels through the same port (office local-login Claude, the ChatGPT sign-in process) */
+  /** CONNECT tunnels through the same port (office local-login Claude's login refresh, the ChatGPT sign-in process) */
   connect?: ProxyOpts['connect']
+  /** office local-login: Claude turns' requests carry the Mac user's own login (ProxyOpts.ownLogin) */
+  ownLogin?: ProxyOpts['ownLogin']
+  /** office local-login: the CA the engine trusts for its login refresh, which the proxy reads (./refresh-terminator.ts) */
+  refreshCaPem?: string
   log?: { warn(msg: string, f?: Record<string, unknown>): void; info(msg: string, f?: Record<string, unknown>): void; debug?(msg: string, f?: Record<string, unknown>): void }
   /** why a turn was stopped (ProxyOpts.stopReason) */
   stopReason?: ProxyOpts['stopReason']
@@ -115,6 +119,8 @@ export class ModelProxyService {
 
   /** the AI connections behind this proxy (null: none, see ProxyServiceOptions.broker) */
   get broker() { return this.o.broker }
+  /** office local-login: the CA certificate of the login refresh terminator (the turn's NODE_EXTRA_CA_CERTS) */
+  get refreshCaPem() { return this.o.refreshCaPem ?? null }
 
   get ready() { return this.state === 'listening' }
   get baseUrl() { return `http://127.0.0.1:${this.port}` }
@@ -133,6 +139,7 @@ export class ModelProxyService {
       peerCheck: this.o.peerCheck,
       ...(this.o.stopReason ? { stopReason: this.o.stopReason } : {}),
       ...(this.o.connect ? { connect: this.o.connect } : {}),
+      ...(this.o.ownLogin ? { ownLogin: this.o.ownLogin } : {}),
       onTurnEvent: (turnId, ev) => this.listeners.get(turnId)?.(ev),
     }).then((p) => {
       if (this.state === 'stopped') { void p.stop(); return }

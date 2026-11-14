@@ -66,13 +66,33 @@ export interface ClaudeConf {
   /** managed mode with an Anthropic-compatible gateway (app-config engine.anthropicGateway): its model ids. A turn
    * nobody chose a model for runs on `default`; Claude Code's aliases and its small fast model name the others. */
   gatewayModels?: { default: string; opus?: string; sonnet?: string; haiku?: string }
-  /** local-login in office mode: the engine's HTTPS goes through the proxy's CONNECT tunnel (HTTPS_PROXY with a
-   * per-turn token; the sandbox allows no other network, security round 4b) */
+  /** local-login in office mode: the engine's model requests go to the local proxy's checked HTTP path and its login
+   * refresh through the proxy's CONNECT tunnel (per-turn token; the sandbox allows no other network, security round
+   * 4b, TC-359) */
   connectProxy?: boolean
 }
 
 /** HTTPS_PROXY of a turn that tunnels through the local proxy: the per-turn token is the proxy password */
 export const turnProxyUrl = (port: number, token: string) => `http://turn:${token}@127.0.0.1:${port}`
+
+/** Office mode with the Mac user's login (TC-359): the environment that sends the engine's model requests to the local
+ * proxy's checked HTTP path (the engine's own login on them, the turn's token in OWN_LOGIN_TURN_HEADER) and only its
+ * login refresh through the CONNECT tunnel. NO_PROXY keeps the plain-HTTP calls off the tunnel. */
+export function ownLoginEnv(tunnel: OwnLoginTunnel): Record<string, string> {
+  return {
+    HTTPS_PROXY: turnProxyUrl(tunnel.port, tunnel.token),
+    NO_PROXY: '127.0.0.1,localhost',
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${tunnel.port}`,
+    ANTHROPIC_CUSTOM_HEADERS: `x-mycel-turn: ${tunnel.token}`,
+    // the login refresh's tunnel ends at the proxy's refresh terminator (proxy/refresh-terminator.ts): its CA, in the
+    // turn folder (the launcher writes it), is trusted by this engine only
+    ...(tunnel.caPem ? { NODE_EXTRA_CA_CERTS: '{TURN_DIR}/refresh-ca.pem' } : {}),
+  }
+}
+/** office own-login: the proxy port, this attempt's proxy token and the refresh terminator's CA */
+export interface OwnLoginTunnel { port: number; token: string; caPem?: string | null }
+/** the launch files of an office own-login turn (the refresh CA) */
+const ownLoginFiles = (tunnel: OwnLoginTunnel | undefined) => (tunnel?.caPem ? [{ rel: '.turn/refresh-ca.pem', content: tunnel.caPem }] : [])
 
 /** Claude names its project folder after the cwd with every non-alphanumeric character replaced by '-' */
 export const projectSlug = (dir: string) => {
@@ -109,8 +129,8 @@ export function buildClaudeLaunch(i: {
   /** the kind of the turn's AI connection: the engine then behaves as with that kind of credential (subscription
    * defaults for a Claude subscription token, x-api-key for an API key); default oauth */
   tokenKind?: 'oauth' | 'api-key'
-  /** local-login through the CONNECT tunnel (office mode): the proxy port and this attempt's proxy token */
-  tunnel?: { port: number; token: string }
+  /** office mode (local-login): the proxy port, this attempt's proxy token and the refresh CA (ownLoginEnv) */
+  tunnel?: OwnLoginTunnel
   /** our MCP tools besides the six file tools offered to this turn (remember, ask_user, browser tools, make_file ...) */
   extraTools?: string[]
   /** False for approved local-folder templates; normal chat keeps the existing built-in search. */
@@ -157,8 +177,9 @@ export function buildClaudeLaunch(i: {
     env.HOME = os.homedir()
     for (const k of ['USER', 'LOGNAME']) if (process.env[k]) env[k] = process.env[k]!
     // office mode: the only way out of the sandbox is the proxy port (the token is useless to any process outside this
-    // turn's engine session: the proxy checks the TCP peer through the launcher)
-    if (i.tunnel) env.HTTPS_PROXY = turnProxyUrl(i.tunnel.port, i.tunnel.token)
+    // turn's engine session: the proxy checks the TCP peer through the launcher); model requests go to its checked
+    // HTTP path, only the login refresh tunnels (TC-359)
+    if (i.tunnel) Object.assign(env, ownLoginEnv(i.tunnel))
   } else {
     // managed: everything of the CLI stays in the chat folder (the only place the sandbox lets the
     // engine write); the launcher creates .home. The per-turn proxy token goes to the launcher, which hands it to the
@@ -182,7 +203,7 @@ export function buildClaudeLaunch(i: {
     op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt,
     stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}),
     // written by the launcher into .turn (0600) before the engine starts, removed with it when the turn ends
-    ...(i.subagents ? { files: [{ rel: '.turn/agents.json', content: launcherLiteral(JSON.stringify(i.subagents.agents)) }, { rel: '.turn/subagent.md', content: launcherLiteral(i.subagents.prompt) }] } : {}),
+    ...((i.subagents || i.tunnel?.caPem) ? { files: [...(i.subagents ? [{ rel: '.turn/agents.json', content: launcherLiteral(JSON.stringify(i.subagents.agents)) }, { rel: '.turn/subagent.md', content: launcherLiteral(i.subagents.prompt) }] : []), ...ownLoginFiles(i.tunnel)] } : {}),
     ...(i.resume && i.stash ? { sessionRestore: { dir: loc.restoreDir, name: `${i.sessionId}.jsonl`, b64: i.stash.toString('base64') } } : {}),
     sessionCollect: { dir: loc.collectDir, name: `${i.sessionId}.jsonl`, removeDir: true },
   }
@@ -197,7 +218,7 @@ export function buildClaudeLaunch(i: {
  */
 export function buildClaudeReaderLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; model: string; timeoutMs: number
-  proxyToken?: string; tokenKind?: 'oauth' | 'api-key'; tunnel?: { port: number; token: string }
+  proxyToken?: string; tokenKind?: 'oauth' | 'api-key'; tunnel?: OwnLoginTunnel
 }, conf: ClaudeConf): LaunchRequest {
   const gw = conf.authMode !== 'local-login' ? conf.gatewayModels : undefined
   const args = [
@@ -223,7 +244,7 @@ export function buildClaudeReaderLaunch(i: {
   if (conf.authMode === 'local-login') {
     env.HOME = os.homedir()
     for (const k of ['USER', 'LOGNAME']) if (process.env[k]) env[k] = process.env[k]!
-    if (i.tunnel) env.HTTPS_PROXY = turnProxyUrl(i.tunnel.port, i.tunnel.token)
+    if (i.tunnel) Object.assign(env, ownLoginEnv(i.tunnel))
   } else {
     env.HOME = path.join(i.chatDir, '.home')
     env.CLAUDE_CONFIG_DIR = path.join(i.chatDir, '.claude')
@@ -236,5 +257,6 @@ export function buildClaudeReaderLaunch(i: {
     }
   }
   const modelToken = conf.authMode !== 'local-login' && i.proxyToken ? { kind: i.tokenKind ?? 'oauth', value: i.proxyToken } : undefined
-  return { op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt, stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}) }
+  const files = ownLoginFiles(i.tunnel)
+  return { op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt, stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}), ...(files.length ? { files } : {}) }
 }
