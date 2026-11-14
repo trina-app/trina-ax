@@ -4127,6 +4127,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.info.leave": "退出聊天",
   "rooms.info.leaveTitle": "退出此聊天？",
   "rooms.info.leaveBody": "你将无法再看到此聊天的消息和文件。如果再次被邀请，你会看到之后的内容。",
+  "rooms.info.leaveBodyGuest": "退出后，你在此团队的账号将停用，除非再次被邀请，否则无法登录。你也将无法再看到此聊天的消息和文件。",
   "rooms.info.manager": "管理者",
   "rooms.info.remove": "从聊天中移除",
   "rooms.info.removeTitle": "移除{name}？",

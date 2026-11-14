@@ -4186,6 +4186,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.info.leave": "Leave chat",
   "rooms.info.leaveTitle": "Leave this chat?",
   "rooms.info.leaveBody": "You will no longer see this chat's messages and files. If you are invited again, you see them from then on.",
+  "rooms.info.leaveBodyGuest": "Leaving ends your account in this team: you can't sign in again unless someone invites you again. You will no longer see this chat's messages and files.",
   "rooms.info.manager": "Manager",
   "rooms.info.remove": "Remove from chat",
   "rooms.info.removeTitle": "Remove {name}?",

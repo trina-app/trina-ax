@@ -4142,6 +4142,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.info.leave": "トークを退出",
   "rooms.info.leaveTitle": "このトークを退出しますか?",
   "rooms.info.leaveBody": "退出すると、このトークのメッセージとファイルは見られなくなります。もう一度招待されると、その時点から表示されます。",
+  "rooms.info.leaveBodyGuest": "退出すると、このチームのアカウントがなくなります。もう一度招待されるまでログインできません。このトークのメッセージとファイルも見られなくなります。",
   "rooms.info.manager": "管理者",
   "rooms.info.remove": "トークから外す",
   "rooms.info.removeTitle": "{name}さんを外しますか?",
