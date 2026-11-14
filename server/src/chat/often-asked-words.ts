@@ -99,4 +99,13 @@ export const APP_PROMPTS: Record<Locale, readonly string[]> = {
     "No se permitió el guardado anterior. Guarde el mismo contenido en mi carpeta.",
     "El artefacto \"{title}\" (id: {key}, v{version}) falla al ejecutarse:",
   ],
+  zh: [
+    "只看{folder}文件夹中文件的名称和类型，不包括{brand}和技能文件夹，挑出我应该先看的 3 个",
+    "用 3 行概括我们公司是做什么的",
+    "告诉我你能帮我们团队做的 3 件事",
+    "读取文件 `{path}`，然后",
+    "你没有{path}的写入权限。请把相同的内容保存到我的文件夹。",
+    "之前的保存未被允许。请把相同的内容保存到我的文件夹。",
+    "作品“{title}”（id：{key}，v{version}）运行时出错：",
+  ],
 }

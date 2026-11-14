@@ -69,6 +69,7 @@ const NEXT: Record<SyncBy, T> = {
     id: 'Timer pembaruan melakukannya di jendela pembaruan; sekarang: sudo mycel-ctl update',
     ja: '更新時間に更新タイマーが行います。今すぐ: sudo mycel-ctl update',
     es: 'El temporizador de actualizaciones lo hace en la ventana de actualización; ahora: sudo mycel-ctl update',
+    zh: '更新计时器会在更新时段内处理；立即处理：sudo mycel-ctl update',
   },
   admin: {
     ko: '자동 업데이트가 꺼져 있어 저절로는 하지 않아요: sudo mycel-ctl update',
@@ -76,6 +77,7 @@ const NEXT: Record<SyncBy, T> = {
     id: 'Pembaruan otomatis mati, jadi tidak ada yang melakukannya sendiri: sudo mycel-ctl update',
     ja: '自動更新がオフのため自動では行いません: sudo mycel-ctl update',
     es: 'Las actualizaciones automáticas están apagadas, así que nada lo hace solo: sudo mycel-ctl update',
+    zh: '自动更新已关闭，所以不会自动处理：sudo mycel-ctl update',
   },
   hosted: {
     ko: '호스팅 서비스의 다음 업데이트가 해요.',
@@ -83,12 +85,13 @@ const NEXT: Record<SyncBy, T> = {
     id: 'Pembaruan berikutnya dari layanan hosting melakukannya.',
     ja: 'ホスティングサービスの次の更新で行います。',
     es: 'La próxima actualización del servicio de alojamiento lo hace.',
+    zh: '托管服务的下一次更新会处理。',
   },
 }
-const join = (a: T, b: T): T => ({ ko: `${a.ko} ${b.ko}`, en: `${a.en} ${b.en}`, id: `${a.id} ${b.id}`, ja: `${a.ja}${b.ja}`, es: `${a.es} ${b.es}` })
+const join = (a: T, b: T): T => ({ ko: `${a.ko} ${b.ko}`, en: `${a.en} ${b.en}`, id: `${a.id} ${b.id}`, ja: `${a.ja}${b.ja}`, es: `${a.es} ${b.es}`, zh: `${a.zh}${b.zh}` })
 
 export const SYSTEM_PACKAGES_TEXT = {
-  label: { ko: '시스템 패키지', en: 'System packages', id: 'Paket sistem', ja: 'システムパッケージ', es: 'Paquetes del sistema' } as T,
+  label: { ko: '시스템 패키지', en: 'System packages', id: 'Paket sistem', ja: 'システムパッケージ', es: 'Paquetes del sistema', zh: '系统软件包' } as T,
   ok: (when: string, browser: string): T => {
     const done: T = {
       ko: `이 버전의 목록대로예요(${when}).`,
@@ -96,6 +99,7 @@ export const SYSTEM_PACKAGES_TEXT = {
       id: `Sesuai daftar versi ini (${when}).`,
       ja: `このバージョンのリストどおりです(${when})。`,
       es: `Como dice la lista de esta versión (${when}).`,
+      zh: `与这个版本的列表一致（${when}）。`,
     }
     return browser ? join(done, {
       ko: `HTML→PDF 브라우저 ${browser}.`,
@@ -103,6 +107,7 @@ export const SYSTEM_PACKAGES_TEXT = {
       id: `Browser untuk HTML ke PDF: ${browser}.`,
       ja: `HTML→PDF のブラウザ: ${browser}。`,
       es: `Navegador para HTML a PDF: ${browser}.`,
+      zh: `用于 HTML 转 PDF 的无界面浏览器：${browser}。`,
     }) : done
   },
   pending: (by: SyncBy): T => join({
@@ -111,6 +116,7 @@ export const SYSTEM_PACKAGES_TEXT = {
     id: 'Belum disesuaikan dengan daftar versi ini.',
     ja: 'まだこのバージョンのリストに合わせていません。',
     es: 'Aún no está como dice la lista de esta versión.',
+    zh: '尚未更新到这个版本的列表。',
   }, NEXT[by]),
   incomplete: (when: string, detail: string, by: SyncBy): T => join({
     ko: `${when}에 다 맞추지 못했어요: ${detail}.`,
@@ -118,12 +124,14 @@ export const SYSTEM_PACKAGES_TEXT = {
     id: `Percobaan pada ${when} belum selesai: ${detail}.`,
     ja: `${when} の実行は完了しませんでした: ${detail}。`,
     es: `El intento de ${when} no terminó: ${detail}.`,
+    zh: `${when}的尝试没有完成：${detail}。`,
   }, by === 'timer' ? {
     ko: '업데이트 타이머가 몇 시간 뒤 다시 해요. 지금 하려면: sudo mycel-ctl update',
     en: 'The update timer tries again after some hours; now: sudo mycel-ctl update',
     id: 'Timer pembaruan mencoba lagi setelah beberapa jam; sekarang: sudo mycel-ctl update',
     ja: '数時間後に更新タイマーがもう一度試します。今すぐ: sudo mycel-ctl update',
     es: 'El temporizador lo intenta de nuevo tras unas horas; ahora: sudo mycel-ctl update',
+    zh: '更新计时器会在几小时后重试；立即处理：sudo mycel-ctl update',
   } : NEXT[by]),
   blocked: (detail: string): T => ({
     ko: `관리자가 할 일이 있어요: ${detail}`,
@@ -131,6 +139,7 @@ export const SYSTEM_PACKAGES_TEXT = {
     id: `Perlu administrator: ${detail}`,
     ja: `管理者の操作が必要です: ${detail}`,
     es: `Necesita a un administrador: ${detail}`,
+    zh: `需要管理员处理：${detail}`,
   }),
 }
 

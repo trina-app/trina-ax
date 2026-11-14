@@ -22,7 +22,7 @@ const viewer = (auth: AuthInfo) => ({ id: auth.user.id, role: auth.user.role })
 /** a sign-in the service did not finish, in words (never a code, never the service's answer); one that never started
  * here (no session in this browser, a used link) says to sign in to the team account */
 const FAILED_TEXT: Record<FlowFailure, TextKey> = {
-  client: 'callbackClient', client_template: 'callbackClientTemplate', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged',
+  client: 'callbackClient', client_template: 'callbackClientTemplate', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged', cancelled: 'callbackCancelled',
 }
 
 export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
@@ -37,6 +37,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.refreshIntegration, ({ c, auth, params }) => svc().refresh(viewer(auth), params.id, c.get('locale')))
   kit.handle(API.authorizeIntegration, ({ c, auth, params }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale')))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
+  kit.handle(API.cancelIntegrationFlow, ({ auth, params }) => { svc().cancelFlow(auth.user.id, auth.session.id, params.id) })
   kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')) }))
   kit.handle(API.createTeamIntegration, async ({ c, auth, body }) => { const i = await svc().create(viewer(auth), body, 'team', c.get('locale')); afterTeamConnection(ctx, i.url); return i })
   // an admin asks a member to connect a service as their own connection (integrations/connections/requests.ts)

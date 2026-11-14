@@ -199,6 +199,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 /* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
    overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
+/* Chinese takes the Simplified Chinese system face first: Apple SD Gothic Neo and Noto Sans KR draw Han characters in
+   their Korean shapes and lack many simplified ones (PingFang SC on Apple devices, Microsoft YaHei on Windows) */
+:root:lang(zh) { --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Segoe UI", Roboto, system-ui, sans-serif; }
 ::selection { background: var(--c-accent-soft); }
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a

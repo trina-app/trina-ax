@@ -25,15 +25,16 @@ import { readCompanyProfile } from './profile'
 import { BRAND_AT, BRAND_OWN_FILES, BRAND_TRIED_AT, brandDone, brandFoldersOf, brandOwnFiles, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead } from './welcome'
 
 const TEXT = {
-  intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md' },
-  logo: { ko: '로고', en: 'logo', id: 'logo', ja: 'ロゴ', es: 'logotipo' },
-  image: { ko: '홈페이지', en: 'website', id: 'situs', ja: 'サイト', es: 'sitio' },
+  intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md', zh: '公司介绍.md' },
+  logo: { ko: '로고', en: 'logo', id: 'logo', ja: 'ロゴ', es: 'logotipo', zh: '标志' },
+  image: { ko: '홈페이지', en: 'website', id: 'situs', ja: 'サイト', es: 'sitio', zh: '网站' },
   blocked: {
     ko: '팀 폴더를 만들지 못했어요. 폴더 권한을 확인해 주세요.',
     en: 'The team folder could not be made. Check the folder permissions.',
     id: 'Folder tim tidak bisa dibuat. Periksa izin folder.',
     ja: 'チームのフォルダーを作れませんでした。フォルダーの権限を確認してください。',
     es: 'No se pudo crear la carpeta del equipo. Revise los permisos de la carpeta.',
+    zh: '无法创建团队文件夹。请检查文件夹权限。',
   },
   noMaterial: {
     ko: '아직 회사 소개가 없어요. 홈페이지를 읽거나 회사 소개 자료를 올려 주세요.',
@@ -41,6 +42,7 @@ const TEXT = {
     id: 'Belum ada profil perusahaan. Baca situs web, atau tambahkan berkas profil perusahaan.',
     ja: 'まだ会社紹介がありません。ホームページを読むか、会社紹介の資料を追加してください。',
     es: 'Aún no hay perfil de la empresa. Lea el sitio web o añada un archivo de presentación.',
+    zh: '还没有公司介绍。请读取网站，或添加一个公司介绍文件。',
   },
   badFile: {
     ko: '올린 파일을 찾을 수 없어요. 다시 올려 주세요.',
@@ -48,6 +50,7 @@ const TEXT = {
     id: 'Berkas yang Anda tambahkan tidak ditemukan. Tambahkan lagi.',
     ja: '追加したファイルが見つかりません。もう一度追加してください。',
     es: 'No se encontró un archivo que añadió. Añádalo de nuevo.',
+    zh: '找不到你添加的文件。请重新添加。',
   },
 } satisfies Record<string, Record<Locale, string>>
 
@@ -58,6 +61,7 @@ const MD: Record<Locale, { head: (name: string) => string; lead: (site: string) 
   id: { head: (n) => `# Profil perusahaan ${n}`, lead: (s) => `Isi situs web (${s}) yang diperiksa di langkah awal. Gunakan hanya fakta dan angka yang tertulis di sini.`, leadNoSite: 'Yang diperiksa di langkah awal. Gunakan hanya fakta dan angka yang tertulis di sini.', oneLine: 'Satu kalimat', products: 'Produk dan layanan', audience: 'Pelanggan', tone: 'Gaya bahasa', avoid: 'Ungkapan yang dihindari', colors: 'Warna merek', pages: 'Teks dari situs web', source: 'Sumber' },
   ja: { head: (n) => `# ${n} 会社紹介`, lead: (s) => `ホームページ（${s}）を読んで確認した内容です。数字と事実はここに書かれたものだけを使います。`, leadNoSite: '会社紹介のステップで確認した内容です。数字と事実はここに書かれたものだけを使います。', oneLine: 'ひとことで', products: '製品・サービス', audience: '顧客', tone: '話し方', avoid: '避ける表現', colors: 'ブランドカラー', pages: 'ホームページで読んだ文章', source: '出典' },
   es: { head: (n) => `# Presentación de ${n}`, lead: (s) => `Lo que dice el sitio web (${s}), revisado en los primeros pasos. Use solo los datos y cifras escritos aquí.`, leadNoSite: 'Lo revisado en los primeros pasos. Use solo los datos y cifras escritos aquí.', oneLine: 'En una línea', products: 'Productos y servicios', audience: 'Clientes', tone: 'Tono', avoid: 'Expresiones que se evitan', colors: 'Colores de marca', pages: 'Texto leído en el sitio web', source: 'Fuente' },
+  zh: { head: (n) => `# ${n}公司介绍`, lead: (s) => `网站（${s}）上的内容，已在欢迎步骤中确认。只使用这里写明的事实和数字。`, leadNoSite: '在欢迎步骤中确认的内容。只使用这里写明的事实和数字。', oneLine: '一句话介绍', products: '产品和服务', audience: '客户', tone: '语气', avoid: '避免使用的表达', colors: '品牌色', pages: '从网站读取的文字', source: '来源' },
 }
 
 /** All of the website text that goes into 회사 소개.md, at most. */

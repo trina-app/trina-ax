@@ -224,7 +224,7 @@ export function cleanLabel(s: string, max = 80): string {
   return one.length > max ? one.slice(0, max - 1) + '…' : one
 }
 
-type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es'
+type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 /** the words of the place labels (%s: the sheet name or the slide number) */
 const WORDS: Record<Lang, { sheet: string; slide: string }> = {
   ko: { sheet: "시트 '%s'", slide: '슬라이드 %s' },
@@ -232,6 +232,7 @@ const WORDS: Record<Lang, { sheet: string; slide: string }> = {
   id: { sheet: "sheet '%s'", slide: 'slide %s' },
   ja: { sheet: 'シート「%s」', slide: 'スライド%s' },
   es: { sheet: "hoja '%s'", slide: 'diapositiva %s' },
+  zh: { sheet: '工作表“%s”', slide: '幻灯片%s' },
 }
 const fill = (word: string, v: string | number) => word.replace('%s', () => String(v))
 

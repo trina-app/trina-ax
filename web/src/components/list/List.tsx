@@ -64,7 +64,10 @@ export const headBox = 'flex h-row items-center gap-1 pointer-coarse:min-h-11 ma
  * 768px) bleeds on the left only: its right keeps the page's gutter, so a row's "···" and `actions` end where the
  * content above them ends (a page's switch, a heading's action), 16px from the screen's edge, not on it (QA TC-1040) */
 export const pageRowBox = 'min-h-row-page'
-const pageBleed = '-mx-3 w-[calc(100%+1.5rem)] max-md:mr-0 max-md:w-[calc(100%+0.75rem)]'
+export const pageBleed = '-mx-3 w-[calc(100%+1.5rem)] max-md:mr-0 max-md:w-[calc(100%+0.75rem)]'
+/** A row that opens something: its hover fill and keyboard ring, the same on every list (ListRow's; a connection's row,
+ * integrations/ConnectionRow.tsx) */
+export const rowOpenHover = 'rounded-lg hover:bg-hover'
 
 export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-normal text-faint tabular-nums'
 
@@ -137,7 +140,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
     'flex gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2',
     // a page's list: the row's inset outside the column (with `actions`, only on the left: they take the right's)
     page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [rowBox, 'w-full'],
-    (to || onClick || choice) && !disabled && 'hover:bg-hover',
+    (to || onClick || choice) && !disabled && rowOpenHover,
     choice && 'cursor-pointer has-[:disabled]:opacity-60',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
     selected && 'bg-hover',

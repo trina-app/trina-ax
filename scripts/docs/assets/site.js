@@ -2,6 +2,10 @@
 (function () {
   var base = document.body.dataset.base || ''
   var root = document.documentElement
+  // labels the script sets, in the page's language (the build writes the rest)
+  var T = root.lang === 'zh-CN'
+    ? { copied: '已复制', copyCode: '复制代码', hideToc: '隐藏“本页内容”', showToc: '显示“本页内容”', noResults: '没有结果' }
+    : { copied: 'Copied', copyCode: 'Copy code', hideToc: 'Hide On this page', showToc: 'Show On this page', noResults: 'No results' }
   var $ = function (s, el) { return (el || document).querySelector(s) }
   var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)) }
   function store(k, v) { try { localStorage.setItem(k, v) } catch (e) {} }
@@ -69,7 +73,7 @@
     navigator.clipboard.writeText(text).then(function () {
       var label = el.querySelector('span') || el
       var old = label.innerHTML
-      label.textContent = 'Copied'
+      label.textContent = T.copied
       setTimeout(function () { label.innerHTML = old }, 1500)
     }, function () {})
   }
@@ -152,8 +156,8 @@
     b.addEventListener('click', function () {
       if (!navigator.clipboard) return
       navigator.clipboard.writeText(b.parentElement.querySelector('pre').innerText).then(function () {
-        b.classList.add('done'); b.setAttribute('aria-label', 'Copied')
-        setTimeout(function () { b.classList.remove('done'); b.setAttribute('aria-label', 'Copy code') }, 1500)
+        b.classList.add('done'); b.setAttribute('aria-label', T.copied)
+        setTimeout(function () { b.classList.remove('done'); b.setAttribute('aria-label', T.copyCode) }, 1500)
       }, function () {})
     })
   })
@@ -162,7 +166,7 @@
   var tocToggle = $('.toc-toggle')
   function setToc(open) {
     document.body.classList.toggle('toc-collapsed', !open)
-    if (tocToggle) { tocToggle.setAttribute('aria-expanded', String(open)); tocToggle.setAttribute('aria-label', open ? 'Hide On this page' : 'Show On this page') }
+    if (tocToggle) { tocToggle.setAttribute('aria-expanded', String(open)); tocToggle.setAttribute('aria-label', open ? T.hideToc : T.showToc) }
   }
   if (tocToggle) {
     if (read('trina-docs-toc') === 'closed') setToc(false)
@@ -209,7 +213,7 @@
   function render() {
     list.innerHTML = ''
     if (!input.value.trim()) { list.hidden = true; input.setAttribute('aria-expanded', 'false'); return }
-    if (!results.length) { var li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No results'; list.appendChild(li) }
+    if (!results.length) { var li = document.createElement('li'); li.className = 'empty'; li.textContent = T.noResults; list.appendChild(li) }
     results.forEach(function (doc, i) {
       var item = document.createElement('li'); item.setAttribute('role', 'option'); item.id = 'sr-' + i
       item.setAttribute('aria-selected', String(i === active))

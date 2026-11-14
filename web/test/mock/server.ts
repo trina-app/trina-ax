@@ -448,6 +448,9 @@ export class MockServer {
   /** an admin chose the speech provider (stored); false: like server/src/admin/settings.ts, it reads OpenRouter while the
    * team's key is set and off without it (speechNow) */
   speechChosen = true
+  /** where phone notifications go (server/src/notifications/push-gateway-setting.ts); /__test/push-gateway sets it,
+   * e.g. { lockedBy: 'MYCEL_PUSH_GATEWAY', choice: 'custom', url } for a server whose config sets it */
+  pushGateway: import('@mycel/shared/api').PushGatewaySetting = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
@@ -709,6 +712,7 @@ export class MockServer {
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.speechChosen = true
+    this.pushGateway = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
     this.transcribeChats = []
     this.transcribeProgress = null
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
@@ -2207,7 +2211,7 @@ export class MockServer {
       const u = this.users.find((x) => x.username === c.body.username)
       // like the server: before sign-in, the page's language header, else the team default
       const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
-      const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.' }[loc]
+      const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.', zh: '用户名或密码不正确。' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
@@ -4140,7 +4144,7 @@ export class MockServer {
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
     plan: (c) => ({
       plan: this.cloud ? {
-        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim', ja: 'チーム', es: 'Equipo' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
+        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim', ja: 'チーム', es: 'Equipo', zh: '团队' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
         maxActiveMembers: 12, activeMembers: this.users.filter((u) => u.status === 'active').length, diskGiB: 50, memoryMiB: 4096, cpuCores: 3,
         localBackupRetentionDays: 3, links: { account: 'https://app.teamax.example/billing', status: 'https://status.teamax.example', support: 'support@teamax.example' },
         updatedAt: now(),
@@ -4524,6 +4528,12 @@ export class MockServer {
       this.integrationFlows.set(flow.flowId, { flow, integrationId: x.id, userId: c.user.id, polls: 0 })
       return { flowId: flow.flowId, authorizationUrl: `https://auth.example.test/authorize?client_id=mock&state=${flow.flowId}`, expiresAt: flow.expiresAt }
     },
+    cancelIntegrationFlow: (c) => {
+      const f = this.integrationFlows.get(c.params.id)
+      if (!f || f.userId !== c.user.id) return fail('not_found', 404)
+      if (f.flow.state === 'pending') Object.assign(f.flow, { state: 'failed', reason: 'cancelled' })
+      return undefined
+    },
     integrationFlow: (c) => {
       const f = this.integrationFlows.get(c.params.id)
       if (!f || f.userId !== c.user.id) return fail('not_found', 404)
@@ -4822,6 +4832,20 @@ export class MockServer {
       return this.notifyPrefs
     },
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
+    // like server/src/routes/push.ts: locked by the server's config; a custom address is saved only when it answers as a
+    // gateway (here: any https://<host> whose name does not start with "not-"; "down." answers nothing)
+    getPushGateway: () => this.pushGateway,
+    setPushGateway: (c) => {
+      if (this.pushGateway.lockedBy) fail('conflict', 409, undefined, undefined, { reason: 'locked' })
+      if (c.body.choice === 'custom') {
+        const m = /^https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)+)\/?$/.exec((c.body.url ?? '').trim())
+        if (!m) fail('validation', 400, undefined, { 'body.url': 'address' }, { reason: 'address' })
+        if (m![1]!.startsWith('down.')) fail('validation', 400, undefined, { 'body.url': 'unreachable' }, { reason: 'unreachable' })
+        if (m![1]!.startsWith('not-')) fail('validation', 400, undefined, { 'body.url': 'not_gateway' }, { reason: 'not_gateway' })
+        this.pushGateway = { ...this.pushGateway, choice: 'custom', url: `https://${m![1]}` }
+      } else this.pushGateway = { ...this.pushGateway, choice: c.body.choice, url: null }
+      return this.pushGateway
+    },
     // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "SK") ----------------
     // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
     // step shows its Claude Code line. A share proposal is a fixed, realistic one whatever was sent (the server's
@@ -5494,6 +5518,7 @@ export class MockServer {
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
+    else if (p === '/__test/push-gateway') this.pushGateway = { ...this.pushGateway, ...(body as Partial<import('@mycel/shared/api').PushGatewaySetting>) }
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/google-own-app') {
       const b = body as Partial<ReturnType<typeof MockServer.freshGoogleOwn>>

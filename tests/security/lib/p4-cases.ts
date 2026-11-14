@@ -27,6 +27,9 @@ export const P4_SPECS: Record<string, Spec> = {
   removePushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/remove', { key: 'A'.repeat(43) }), scope: 'byLevel' },
   // public by design (the iPhone's notification extension, with the label key; no session): {} for every failure
   labelPushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/label', { key: 'A'.repeat(43), notificationId: 'n-1' }), scope: 'byLevel' },
+  // Settings › Notifications › Phone: where phone notifications go (owners and admins only; 'off' needs no network)
+  getPushGateway: { build: c => c.get('/api/admin/push-gateway'), scope: 'byLevel' },
+  setPushGateway: { build: c => c.put('/api/admin/push-gateway', { choice: 'off' }), scope: 'byLevel' },
   myDriveConnection: { build: c => c.get('/api/integrations/google-drive?userId=alice'), scope: 'self' },
   authorizeDrive: { build: c => c.post('/api/integrations/google-drive/authorize', {}), scope: 'self' },
   driveFlow: { build: c => c.get('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },

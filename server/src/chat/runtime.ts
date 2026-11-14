@@ -107,7 +107,7 @@ export type ChatNotify = 'card' | 'answer'
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
-  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." },
+  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." }, zh: { queue_full: '现在请求较多，请稍后再发送。', queue_full_user: '你已经有3个问题在等待。请等之前的回答结束后再发送。' },
 }
 
 export interface ChatRuntimeOptions {
@@ -1214,7 +1214,7 @@ export class ChatRuntime {
     let answer: unknown
     try { answer = JSON.parse(r?.prefs ?? '{}')?.answerLocale } catch {}
     const l = (answer ?? r?.locale) as string | undefined
-    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' ? l : DEFAULT_LOCALE
+    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' || l === 'zh' ? l : DEFAULT_LOCALE
   }
 
   /** The launcher's answers for the last purge run (tests wait on it; chat/forget.ts never rejects). */

@@ -198,7 +198,7 @@ describe('wiring', () => {
   test('the words: plain, the AI by its name, in every language', () => {
     expect(STRINGS.ko['pane.driving']).toBe('트리나가 브라우저를 쓰는 중')
     expect(STRINGS.en['pane.driving']).toBe('Trina is using the browser')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const k of ['pane.driving', 'pane.loading', 'pane.resize', 'pane.stop'] as const) expect(STRINGS[l][k].length).toBeGreaterThan(0)
       expect(STRINGS[l]['pane.driving']).not.toMatch(/\bAI\b|ＡＩ/)
     }

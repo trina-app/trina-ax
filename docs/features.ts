@@ -116,7 +116,7 @@ export const FEATURES: Feature[] = [
   { id: 'schedules.review', name: 'Review a paused scheduled task', area: 'Scheduled tasks', endpoints: ['getScheduleReview', 'confirmScheduleReview', 'listSchedulesAwaitingReview'] },
 
   // ---------------- Connections ----------------
-  { id: 'connectors.mine', name: 'My connectors (MCP services)', area: 'Connections', endpoints: ['listIntegrations', 'createIntegration', 'updateIntegration', 'deleteIntegration', 'refreshIntegration', 'authorizeIntegration', 'integrationFlow', 'setIntegrationTool', 'stopAlwaysAllow'], screens: ['/settings/connectors', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId'] },
+  { id: 'connectors.mine', name: 'My connectors (MCP services)', area: 'Connections', endpoints: ['listIntegrations', 'createIntegration', 'updateIntegration', 'deleteIntegration', 'refreshIntegration', 'authorizeIntegration', 'integrationFlow', 'cancelIntegrationFlow', 'setIntegrationTool', 'stopAlwaysAllow'], screens: ['/settings/connectors', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId'] },
   { id: 'connectors.team', name: 'Team connectors (Admin › Connected apps)', area: 'Connections', endpoints: ['listTeamIntegrations', 'createTeamIntegration'], screens: ['/admin/connectors', '/admin/connectors/:id', '/admin/connectors/mcp/:id'] },
   { id: 'connectors.requests', name: 'Admin asks a member to connect a service', area: 'Connections', endpoints: ['*IntegrationRequest*'] },
   { id: 'connectors.templates', name: 'Shared connector templates', area: 'Connections', endpoints: ['*IntegrationTemplate*'] },
