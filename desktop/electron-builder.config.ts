@@ -36,16 +36,22 @@ export default {
     identity: null,
     hardenedRuntime: false,
     artifactName: `${A}-\${version}-mac-\${arch}.\${ext}`,
+    // permission prompts: English here (the Info.plist base), each language's InfoPlist.strings in
+    // build-resources/mac-infoplist/ copied into Contents/Resources/<folder>.lproj. Electron already ships zh_CN.lproj
+    // and es_419.lproj, so Simplified Chinese and Spanish go there too, whichever folder macOS picks.
     extendInfo: {
-      NSMicrophoneUsageDescription: 'Voice input in chats uses the microphone. / 채팅 음성 입력에 마이크를 사용합니다.',
+      NSMicrophoneUsageDescription: 'Voice input in chats uses the microphone.',
       LSApplicationCategoryType: 'public.app-category.productivity',
-      NSLocalNetworkUsageDescription: 'Connects straight to your team server inside the office. / 사무실 안에서 팀 서버에 직접 연결합니다.',
+      NSLocalNetworkUsageDescription: 'Connects straight to your team server inside the office.',
       // the team page's folder window (docs/DECISIONS.md "W6"): a folder picked there counts as consent; these say why
       // if macOS asks anyway
-      NSDesktopFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents. / 고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.',
-      NSDocumentsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents. / 고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.',
-      NSDownloadsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents. / 고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.',
+      NSDesktopFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents.',
+      NSDocumentsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents.',
+      NSDownloadsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents.',
+      CFBundleLocalizations: ['en', 'ko', 'zh-Hans', 'ja', 'es', 'id'],
     },
+    extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
+      .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },
   dmg: { sign: false, title: `${PRODUCT.displayName} \${version}`, artifactName: `${A}-\${version}-mac-\${arch}.\${ext}` },
   win: {
