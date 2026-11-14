@@ -685,3 +685,13 @@ describe('uploads', () => {
     expect(Object.keys(kept).at(-1)).toBe(fingerprint(file, { kind: 'path', path: 'x/big.bin', onExists: 'rename' }))
   })
 })
+
+describe('files over the server limit (QA TC-1156)', () => {
+  test('splitOversize keeps the files that fit and names the first one that does not', async () => {
+    const { splitOversize } = await import('../../src/lib/upload')
+    const { UPLOAD_SESSION_MAX } = await import('@mycel/shared/api')
+    const a = { name: 'a.txt', size: 10 }, big = { name: 'huge.bin', size: UPLOAD_SESSION_MAX + 1 }, edge = { name: 'edge.bin', size: UPLOAD_SESSION_MAX }
+    expect(splitOversize([a, edge])).toEqual({ fit: [a, edge], tooBig: undefined })
+    expect(splitOversize([a, big, edge])).toEqual({ fit: [a, edge], tooBig: big })
+  })
+})

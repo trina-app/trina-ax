@@ -18,10 +18,10 @@
   ],
   "rules": [
     { "path": "groups", "rules": [{ "user": "dana", "access": "read" }], "why": "the CEO reads every team folder" },
-    { "path": "shared/budget", "rules": [{ "everyone": true, "access": "none" }, { "user": "dana", "access": "write" }], "why": "the budget: the CEO only" },
+    { "path": "shared/budget", "limited": true, "rules": [{ "user": "dana", "access": "write" }], "why": "the budget: the CEO only" },
     { "path": "shared/budget/teams/Marketing", "rules": [{ "user": "sam", "access": "read" }], "why": "the Marketing lead reads the Marketing budget" },
     { "path": "shared/budget/teams/Sales", "rules": [{ "user": "priya", "access": "read" }], "why": "the Sales lead reads the Sales budget" },
-    { "path": "skills/work", "rules": [{ "everyone": true, "access": "none" }, { "group": "Marketing", "access": "read" }, { "user": "dana", "access": "read" }], "why": "the work pack's natural-writing skill: Marketing and the CEO" }
+    { "path": "skills/work", "limited": true, "rules": [{ "group": "Marketing", "access": "read" }, { "user": "dana", "access": "read" }], "why": "the work pack's natural-writing skill: Marketing and the CEO" }
   ],
   "uploaders": [
     { "path": "groups/Marketing/meetings", "username": "jordan" },

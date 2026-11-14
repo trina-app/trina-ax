@@ -39,6 +39,7 @@ sudo ./install-linux.sh check --from .
 ```
 
 #### Install
+Run it on the server, inside the unpacked kit folder (`TrinaAX-server-<version>-linux-<arch>`).
 ```sh
 sudo ./install-linux.sh install --from . --engine claude --engine codex
 sudo mycel-ctl status
@@ -46,7 +47,7 @@ sudo mycel-ctl status
 The installer creates the service accounts, installs into `/var/lib/mycel` and sets up the sandbox, firewall and systemd units. The app listens on `127.0.0.1:47820`. It installs the same system packages as a hosted server, from one list in the kit: CJK fonts, the dev environment's tools (not turned on) and a pinned headless browser for HTML to PDF. `--minimal` installs only what every server needs.
 
 #### Create the owner
-Open an SSH tunnel (`ssh -L 47820:127.0.0.1:47820 <server>`), read the setup code from `/var/lib/mycel/setup/code` on the server, and open the setup page.
+On the server, read the setup code: `sudo cat /var/lib/mycel/setup/code`. On your computer, open an SSH tunnel (`ssh -L 47820:127.0.0.1:47820 <server>`) and open `http://127.0.0.1:47820/setup?token=<setup code>` in a browser.
 
 #### Give it an HTTPS address
 Put a tunnel or reverse proxy in front of `127.0.0.1:47820`, then register its host name with `sudo ./install-linux.sh repair --public-host team.example.com`.
@@ -54,6 +55,10 @@ Put a tunnel or reverse proxy in front of `127.0.0.1:47820`, then register its h
 
 :::warning
 Do not use `--allow-unsigned` for published releases. It is only for kits you built yourself.
+:::
+
+:::tip
+An AI coding agent (Claude Code, Codex) can do these steps for you. Copy the prompt in [Install with your AI agent](../../INSTALL-LINUX.en.md#install-with-your-ai-agent).
 :::
 
 @tab Office Mac
@@ -74,7 +79,7 @@ Download `TrinaAX-office-<version>-mac.zip` and `SHA256SUMS` from the [latest re
 bash "$OFFICE_DIR/office-install.sh" --check-only
 bash "$OFFICE_DIR/office-install.sh"
 ```
-No sudo is needed. It installs into `~/TeamAX`.
+No sudo is needed. It installs into `~/TeamAX`. An AI coding agent can do this for you: see [Install with your AI agent](../../OFFICE.en.md#install-with-your-ai-agent).
 
 #### Create the owner
 Use the local setup link the installer prints. Office computers then use `https://<Mac-IP>:8443` after trusting the office certificate (`~/TeamAX/teamax card` shows its fingerprint).
@@ -103,7 +108,7 @@ People join from the desktop and phone apps by pasting the invite link or the te
 
 - **Desktop app**: the address needs a certificate the computer trusts. A self-signed certificate fails the first check. On the office network the app can still pin the office certificate after it first connected through the team address.
 - **Phone app**: https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
-- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **Phone notifications** go through Trina's push service (`https://push.trina.app`) by default. To turn them off, set `MYCEL_PUSH_GATEWAY=off` (or `''`); to use a gateway of your own, set it to that `https://` address. Without the variable, an owner or admin can also choose this in Settings › Notifications › Phone.
 - **Where people find the address**: Settings › Apps shows the team address to everyone signed in, with a copy button.
 - **Tapped links**: on a `*.trina.app` team, a tapped invite or team link opens the phone app (universal links and app links; every team server serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`). The apps declare only `*.trina.app`, so on a domain of your own a tapped link opens the browser; its join page has **Open in the app** (`trina-ax://open?url=…`), which opens the desktop or phone app instead. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 

@@ -20,7 +20,7 @@ const write = (file_path: string, content: string) => ({ tool: 'write', args: { 
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-subagents', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-subagents', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-alice-sub' })
   await alice.next('hello')
 })
@@ -269,19 +269,18 @@ describe('limits, stop and the lockdown check', () => {
     } finally { rt.maxEngineTurns = saved }
   })
 
-  test('the time limit while children work: the answer pauses (continue), the cut sub-tasks are audited', async () => {
-    const rt = h.rt() as unknown as { turnTimeoutMs: number }
-    const saved = rt.turnTimeoutMs
-    rt.turnTimeoutMs = 2000
+  test('a stall while children work (nothing from any of them): the answer ends stalled, the cut sub-tasks are audited', async () => {
+    const rt = h.rt() as unknown as { stallTimeoutMs: number }
+    const saved = rt.stallTimeoutMs
+    rt.stallTimeoutMs = 2000
     try {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'Working.' }, { agents: [{ id: 'toolu_P1', steps: [read('users/alice/todo.md'), { sleep: 20000 }] }, { id: 'toolu_P2', steps: [{ sleep: 20000 }] }] }), { ms: 25_000 })
-      expect(r.done).toMatchObject({ status: 'done', error: null, stopReason: 'time_limit' })
+      expect(r.done).toMatchObject({ status: 'error', content: 'Working.', error: { params: { reason: 'stalled' } } })
+      expect(r.done.stopReason).toBeUndefined()
       expect(events(r.started.turnId).filter((e) => e.tool === 'agent' && e.ok === 0).map((e) => e.tool_use_id).sort()).toEqual(['toolu_P1', 'toolu_P2'])
       expect(events(r.started.turnId).find((e) => e.tool === 'agent' && e.ok === 0)!.summary).toContain('stopped with the answer')
-      const next = await ask(h, alice, 'alice', chat.id, fake({ echo: 'message' }))
-      expect(next.done.content).toContain('Sub-agents that were still working')
-    } finally { rt.turnTimeoutMs = saved }
+    } finally { rt.stallTimeoutMs = saved }
   })
 
   test('Stop while a child waits: stopped, the gate takes no more of its calls', async () => {

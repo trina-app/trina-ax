@@ -25,6 +25,9 @@ export interface TurnToolSet {
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
   beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>
+  /** a tool call starts (any tools/call of the turn); the function returned is called when it ends. The chat turn's
+   * stall guard waits while one of our tools runs (chat/turn.ts ownCallStarted) */
+  callStarted?(): () => void
   /** before a batch tool's first file (edit_files): a refusal stops the whole batch */
   beforeBatch?(name: string, args: unknown, caller?: ToolCaller): Promise<{ refusal: string; summary: string } | null>
 }
@@ -66,10 +69,11 @@ export class TurnRegistry {
     const token = crypto.randomBytes(32).toString('base64url')
     const turn: Turn = { id, userId, chatId, tokenHash: h(token), files: new TurnFiles(), pgid: null, revoked: false, abort: new AbortController(), waiters: [] }
     if (existingId) {
-      const updated = this.db.query("UPDATE turns SET status = 'running', started_at = COALESCE(dispatched_at, started_at), engine = ?, model = ? WHERE id = ? AND user_id = ? AND chat_id = ? AND status IN ('queued','running')").run(engine, model, id, userId, chatId)
+      const updated = this.db.query("UPDATE turns SET status = 'running', started_at = COALESCE(dispatched_at, started_at), engine = ?, model = ?, people_checked = 1, shared_checked = CASE WHEN shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ? AND user_id = ? AND chat_id = ? AND status IN ('queued','running')").run(engine, model, id, userId, chatId)
       if (updated.changes !== 1) throw new Error('turn is not available for registration')
     }
-    else this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model) VALUES (?,?,?,?,?)').run(id, chatId, userId, engine, model)
+    // started by this build now: marked for both rollback guards (chat/shared.ts, chat/people-guard.ts)
+    else this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model, people_checked, shared_checked) VALUES (?,?,?,?,?,1,1)').run(id, chatId, userId, engine, model)
     // Publish no usable token until the durable row accepted this execution.
     this.byId.set(id, turn); this.byHash.set(turn.tokenHash, turn)
     return { turn, token }

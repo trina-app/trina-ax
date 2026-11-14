@@ -46,8 +46,8 @@ import { teamTimeZone } from '../admin/settings'
 import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
-  lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
+  dmPeerGone, lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -82,8 +82,9 @@ export interface SendInput { body: string; replyToId?: string | null; threadRoot
  * kept with it for those who join the room later (rooms/history.ts). The caller took the sending budget's token for the
  * request already (before its check): send takes none more. */
 /** `via`: 'ai' when the AI's post_to_room sent it after the person's yes on its card (chat/post-to-room.ts); absent: the
- * button under an answer. */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai' }
+ * button under an answer. `plain`: post_to_room's own_words, the person's own message with no AI-answer quote (no
+ * answer_at; checked and audited as a share). `openedDm`: the post made the 1:1 chat (audited as a flag, nobody named). */
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai'; plain?: boolean; openedDm?: boolean }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -601,6 +602,7 @@ export class Rooms {
     const { room, me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
+    if (dmPeerGone(this.db, room)) fail('conflict', tr('roomPeerGone', o.locale ?? DEFAULT_LOCALE))
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
@@ -641,10 +643,10 @@ export class Rooms {
       // join the room later (rooms/history.ts)
       this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope)
         VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0, answer ? answer.scope : carried ?? null)
+        b.mentionsAll && !answer ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}) } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -725,6 +727,12 @@ export class Rooms {
       // an AI answer's "참고한 파일" go with it, and the reactions on it (a deleted message takes none)
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
+      // an app's message: its card goes too, but for the app's name and kind (its sender line); audited (rooms/apps)
+      if (m.app_card && !m.author_id) {
+        this.db.query("UPDATE room_messages SET app_card = json_object('title', '', 'details', json('[]'), 'app', json_extract(app_card, '$.app')) WHERE id = ?").run(m.id)
+        const room = roomRow(this.db, roomId)!
+        audit(this.db, { actor: userId, action: 'room_app.message_delete', target: m.id, detail: { ...roomAuditRef(room), ...(room.kind === 'team' || room.kind === 'all' ? { appId: m.app_id } : {}) } })
+      }
       if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: roomAuditRef(roomRow(this.db, roomId)!) })
       return [...this.moveRuns(m), ...(this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)]
     })()
@@ -840,6 +848,15 @@ export class Rooms {
    * is how they put one away), or any AI answer they can see when they are an owner or admin in the room. */
   private removable(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
+    // a message an app posted (rooms/apps): whoever manages the room's apps (in a team room or the everyone room its
+    // owners and admins; in a 1:1 or a group chat its members), audited
+    if (m && m.app_card && !m.author_id && !m.event) {
+      if (!canSee(this.db, m, me)) return fail('not_found')
+      const room = roomRow(this.db, roomId)!
+      if (!mayManageApps(this.db, room, userId)) return fail('forbidden')
+      if (m.deleted_at) return fail('conflict')
+      return m
+    }
     // my own message (own() decides, also for one hidden from me)
     if (m && m.author_kind !== 'ai' && m.author_id === userId) return this.own(roomId, messageId, userId, me, true)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
@@ -951,7 +968,8 @@ export class Rooms {
    * else brings a team room or the everyone room back, at any level: a room still hidden makes no notice
    * (recordNotices). Never an event line, a deleted or a private message. */
   private unhideFor(row: MessageRow) {
-    if (row.visibility !== 'room' || row.deleted_at || row.event) return
+    // an app's quiet line brings nothing back (rooms/apps: Quiet)
+    if (row.visibility !== 'room' || row.deleted_at || row.event || row.app_quiet) return
     const room = roomRow(this.db, row.room_id)
     if (!room) return
     // only the members who hid it (an everyone room may have hundreds of members, few of them hiding it)
@@ -969,7 +987,8 @@ export class Rooms {
   }
   private recordNotices(row: MessageRow): Map<string, RoomNoticeEvent> {
     const out = new Map<string, RoomNoticeEvent>()
-    if (row.visibility !== 'room' || row.deleted_at || row.event) return out
+    // an app's quiet line tells nobody (rooms/apps: Quiet, the paused line)
+    if (row.visibility !== 'room' || row.deleted_at || row.event || row.app_quiet) return out
     const room = roomRow(this.db, row.room_id)
     if (!room) return out
     // a room I still hide (unhideFor did not bring it back) tells me nothing

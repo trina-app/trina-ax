@@ -13,6 +13,7 @@ import { RuleSet, type Principal } from '../../server/src/policy/access'
 import type { Entry } from '../../server/src/file-list/store'
 import type fs from 'node:fs'
 import { FILE_LIST_RULE } from '../../server/src/chat/prompt'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const HANGUL = /[ㄱ-ㆎ가-힣]/
 
@@ -164,8 +165,8 @@ const FILES = ['shared/a.md', 'shared/sub/deep/b.md', 'shared/hr/policy.md', 'sh
 const entry = (p: string, chain = 'shared'): Entry => ({ path: p, size: 1, mtimeMs: 1, sha: p, kind: 'text', real: null, fields: { type: 'document', names: [], date: '', what: `about ${p}`, lang: 'en' }, via: 'model', readAt: null, tries: 0, chain, ino: null })
 
 describe('which list a file goes into', () => {
-  const rules = new RuleSet(ROWS)
-  const units = new Units(rules.ruleFolders())
+  const rules = ruleWorld(ROWS)
+  const units = new Units(rules.boundaryFolders())
   test('nested rule folders each get their own list; a file with its own rule, personal folders (for now), skills and loose files none', () => {
     const where = Object.fromEntries(FILES.filter((f) => units.listable(f.split('/'))).map((f) => [f, Units.listPath(units.listFolderOf(f.split('/')))]))
     expect(where).toEqual({
@@ -192,7 +193,7 @@ describe('which list a file goes into', () => {
 })
 
 describe('the list a person sees', () => {
-  const units = new Units(new RuleSet(ROWS).ruleFolders())
+  const units = new Units(ruleWorld(ROWS).boundaryFolders())
   const st = (size: number, mtimeMs: number) => ({ size, mtimeMs }) as fs.Stats
   test('only lines of files they can open now, with the size and mtime that were described, read in this unit', () => {
     const entries = byListFolder([...['shared/a.md', 'shared/b.md', 'shared/c.md', 'shared/d.md'].map((p) => entry(p)), entry('shared/e.md', 'shared/hr\u0000shared')], units).get('shared')!

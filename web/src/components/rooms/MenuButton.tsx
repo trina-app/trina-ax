@@ -15,6 +15,8 @@
 // closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
 // `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header);
 // `describedBy`: the id of the words that describe the button (a phone's choice row: its short line, phone/PhoneChoice.tsx).
+// `at`: a right-click's menu (components/FileMenu.tsx, a Files row): on a computer it opens at that point of the window
+// (its top left corner there, moved in where it would run off), not by the button, and a scroll closes it.
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
@@ -46,6 +48,15 @@ function sheetOrder(items: MenuItem[]): MenuItem[] {
 }
 const dangerLine = "max-md:relative max-md:mt-2 max-md:before:absolute max-md:before:inset-x-3 max-md:before:-top-1 max-md:before:border-t max-md:before:border-line max-md:before:content-['']"
 
+/** A computer's menu box (from 768px; a phone's sheet adds its own): as wide as its longest item, never narrower than
+ * 176px, so a longer word does not wrap ("Pindahkan ke proyek", "Answering or waiting for you"); a window narrower
+ * than that: as wide as the window less its edges, the words wrap and the row grows with them. Every menu of the app
+ * uses it, this one and those that place their own boxes (the Trina history's filter, nav/HistoryList.tsx). */
+export const menuBoxCls = 'border border-line bg-surface shadow-lg md:rounded-lg md:p-1 md:w-max md:max-w-[calc(100vw-1rem)] md:min-w-44 md:max-h-[calc(100dvh-1rem)] md:overflow-y-auto'
+/** A menu's row: no fixed height, it grows with its words (a row of a fixed height let a wrapped label run over the
+ * next one, TC-1030); the colour and hover are the caller's (an item, a danger item, the chosen one) */
+export const menuRowCls = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm'
+
 /** px a computer's menu keeps clear of the window's edges, and between it and its button */
 export const MENU_EDGE = 8
 const MENU_GAP = 4
@@ -59,6 +70,37 @@ export function menuSpot(at: { top: number; right: number; bottom: number }, siz
   const below = at.bottom + MENU_GAP, above = at.top - MENU_GAP - size.height
   const y = below + size.height <= view.height - MENU_EDGE ? below : above >= MENU_EDGE ? above : Math.max(MENU_EDGE, view.height - MENU_EDGE - size.height)
   return { x, y }
+}
+
+/** A row's ways to its menu: a right-click (or the keyboard's menu key) on the row, and on a touch screen a long press
+ * (a sheet on a phone). Spread `row` on the row's <li>; `guard` on its link's click (the finger lifting after a long press
+ * opens no room); `openSignal` / `openRequest` go to the row's RoomMenu. */
+export function useRowMenu() {
+  const [openSignal, setPress] = useState(0)
+  const [openRequest, setRequest] = useState(0)
+  const pressedAt = useRef(0)
+  const longPress = useLongPress(() => {
+    pressedAt.current = Date.now()
+    setPress((n) => n + 1)
+  })
+  return {
+    openSignal,
+    openRequest,
+    row: {
+      ...longPress,
+      onContextMenu: (e: MouseEvent) => {
+        longPress.onContextMenu(e)
+        // a finger's long press opened it already (and kept the phone's own menu away); Shift keeps the browser's own
+        // menu (open in a new tab, copy the address)
+        if (e.defaultPrevented || e.shiftKey) return
+        e.preventDefault()
+        setRequest((n) => n + 1)
+      },
+    },
+    guard: (e: MouseEvent) => {
+      if (Date.now() - pressedAt.current < 800) e.preventDefault()
+    },
+  }
 }
 
 /** A long press with a finger (not a mouse): `onLong` after `ms` without moving; scrolling or lifting cancels it. The
@@ -99,7 +141,7 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy, at = null }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string; at?: { x: number; y: number } | null }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -110,6 +152,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   const hadFocus = useRef(false)
   /** when a long press opened it: the finger lifting right after is no choice of an item */
   const pressedAt = useRef(0)
+  /** the point it opened at (`at`, from openRequest or openSignal); null: by its button */
+  const openAt = useRef<{ x: number; y: number } | null>(null)
   // a phone's sheet: Back closes it, not the page under it (lib/backCloses.ts); an item that opens a page or a dialog
   // takes its history entry over
   useOverlayEntry(open, () => close())
@@ -132,7 +176,10 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     m.style.setProperty('--menu-x', '0px')
     m.style.setProperty('--menu-y', '0px')
     const o = m.getBoundingClientRect()
-    const { x, y } = menuSpot(a.getBoundingClientRect(), o, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight })
+    // a right-click's point: the menu's top left there (its right edge lined up `width` past it)
+    const p = openAt.current
+    const spot = p ? { top: p.y, bottom: p.y, right: p.x + o.width } : a.getBoundingClientRect()
+    const { x, y } = menuSpot(spot, o, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight })
     m.style.setProperty('--menu-x', `${x - o.left}px`)
     m.style.setProperty('--menu-y', `${y - o.top}px`)
   }
@@ -150,6 +197,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
       // a phone's sheet stands on its own, not by the button (hidden on a touch screen): the list moving under it (the
       // keyboard going down as the sheet opens) does not close it
       if (!window.matchMedia?.('(min-width: 48rem)').matches) return
+      // at a right-click's point: what was under it moved away
+      if (openAt.current) return setOpen(false)
       const a = box.current?.getBoundingClientRect(), s = list.getBoundingClientRect?.()
       if (a && s && (a.bottom < s.top || a.top > s.bottom)) return setOpen(false)
       fit()
@@ -166,11 +215,13 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   // a phone) is no second click that closes it
   const toggle = () => {
     if (open && Date.now() - pressedAt.current < 800) return
+    openAt.current = null
     setOpen(!open)
   }
   useEffect(() => {
     if (!openSignal) return
     pressedAt.current = Date.now()
+    openAt.current = at
     setOpen(true)
     navigator.vibrate?.(10)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,6 +229,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   useEffect(() => {
     if (!openRequest) return
     pressedAt.current = 0
+    openAt.current = at
     setOpen(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest])
@@ -246,24 +298,23 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           onContextMenu={(e) => e.stopPropagation()}
           aria-label={heading ?? label}
           className={clsx(
-            'fixed z-30 border border-line bg-surface shadow-lg md:rounded-lg md:p-1',
+            'fixed z-30',
+            menuBoxCls,
             // where fit() puts it (menuSpot), at once: no transition (with reduced motion every property has a short
             // one, index.css), which would leave it at 0,0 for a frame and spoil fit()'s measure at 0,0
             'md:top-[var(--menu-y,0px)] md:left-[var(--menu-x,0px)] md:transition-none',
-            // as wide as its longest item, never narrower than 176px (a longer word does not wrap: "Pindahkan ke proyek…");
-            // a window narrower than that: as wide as the window less its edges, the words wrap
-            'md:w-max md:max-w-[calc(100vw-1rem)] md:min-w-44 md:max-h-[calc(100dvh-1rem)] md:overflow-y-auto',
             // phones: on the keyboard while it is still up (iOS lets a sheet open under it; lib/viewport.ts
             // --kb-inset), never higher than what is in sight, its rows scrolling
             'max-md:inset-x-0 max-md:bottom-[var(--kb-inset,0px)] max-md:max-h-[calc(var(--app-h,100dvh)-var(--safe-top))] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
-            // its words start at the left wherever it sits (a table's right-aligned cell); an item that is off: greyed, no hover
-            'text-left [&_[role^=menuitem]:disabled]:cursor-not-allowed [&_[role^=menuitem]:disabled]:bg-transparent [&_[role^=menuitem]:disabled]:opacity-40',
+            // its words start at the left wherever it sits (a table's right-aligned cell); an item that is off: greyed, no
+            // hover, its hint (why it is off) kept readable
+            'text-left [&_[role^=menuitem]:disabled]:cursor-not-allowed [&_[role^=menuitem]:disabled]:bg-transparent [&_[role^=menuitem]:disabled_svg]:opacity-40 [&_[role^=menuitem]:disabled_[data-menu-label]]:opacity-40',
           )}
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}
           {/* the menu's name (aria-label above), shown: not one of its items */}
           {/* (a phone's long sheet, the time zones: it stays at the top while the rows scroll) */}
-          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:sticky max-md:top-0 max-md:z-[1] max-md:bg-surface max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
+          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:sticky max-md:top-0 max-md:z-[1] max-md:bg-surface max-md:px-3 max-md:pt-2 max-md:pb-2">{heading}</p>}
           {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
           {sheetOrder(items).map((it, i, all) => (
             <button
@@ -280,13 +331,14 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
                 close()
                 it.onSelect()
               }}
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}
+              className={clsx(menuRowCls, 'max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}
               data-testid={it.testId}
             >
               {it.icon}
               <span className="min-w-0 flex-1">
-                {it.label}
-                {it.hint && <span className="ml-1.5 text-muted">{it.hint}</span>}
+                <span data-menu-label>{it.label}</span>
+                {/* (an item that is off: why, on a line of its own) */}
+                {it.hint && <span className={it.disabled ? 'block text-xs text-muted' : 'ml-1.5 text-muted'}>{it.hint}</span>}
               </span>
               {it.checked !== undefined && <Check size={16} aria-hidden className={clsx('shrink-0 text-accent-text', !it.checked && 'invisible')} />}
             </button>

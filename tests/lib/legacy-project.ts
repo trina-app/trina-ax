@@ -6,6 +6,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { API, uuidv7, type Project } from '@mycel/shared/api'
+import { isZoneTop } from '../../server/src/policy/access'
+import { setFolderAccess } from './folder-access'
 
 export interface OldProjectInput { name: string; folderPath: string; instructions?: string; id?: string }
 
@@ -24,6 +26,9 @@ export function legacyProject(db: Database, team: string, by: string, o: OldProj
       .run(id, o.name, o.folderPath, instructions, by, new Date().toISOString(), by, instructions)
     if (o.folderPath !== '' && !personal && !db.query('SELECT 1 FROM folders WHERE path = ?').get(o.folderPath))
       db.query('INSERT INTO folders (id, path, created_at) VALUES (?,?,?)').run(uuidv7(), o.folderPath, new Date().toISOString())
+    // a project's folder in projects/ is limited since folder access adds up (the conversion limits every one)
+    const row = db.query('SELECT id, limited FROM folders WHERE path = ?').get(o.folderPath) as { id: string; limited: number } | null
+    if (row && !row.limited && isZoneTop(o.folderPath)) setFolderAccess(db, row.id, (db.query('SELECT subject_type AS subjectType, subject_id AS subjectId, access FROM folder_rules WHERE folder_id = ?').all(row.id) as OldFolderRule[]).filter((r) => r.access !== 'none'), by, { limited: true })
   })()
   return id
 }
@@ -47,9 +52,8 @@ export function legacyProjectFolder(db: Database, team: string, folderPath: stri
   let row = db.query('SELECT id FROM folders WHERE path = ?').get(folderPath) as { id: string } | null
   db.transaction(() => {
     if (!row) { row = { id: uuidv7() }; db.query('INSERT INTO folders (id, path, created_at) VALUES (?,?,?)').run(row.id, folderPath, now) }
-    db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(row.id)
-    const ins = db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?,?,?,?,?,?,?)')
-    for (const r of rules) ins.run(uuidv7(), row!.id, r.subjectType, r.subjectId, r.access, by, now)
+    // (the rules as tests wrote them before folder access added up: tests/lib/folder-access.ts says what they mean now)
+    setFolderAccess(db, row.id, rules, by)
   })()
   return row!.id
 }

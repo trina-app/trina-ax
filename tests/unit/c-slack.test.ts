@@ -97,7 +97,7 @@ describe('setup (the owner)', () => {
     expect(Object.fromEntries(Object.entries(SLACK).map(([k, e]) => [k, e.auth]))).toEqual({
       slackAdmin: 'admin', saveSlackTokens: 'owner', setSlackEnabled: 'admin', removeSlack: 'admin', startSlackInstall: 'admin',
       mySlack: 'user', unlinkSlack: 'user', previewSlackLink: 'user', confirmSlackLink: 'user', startSlackSignIn: 'user', cancelSlackLink: 'user',
-      recheckSlackReadScopes: 'admin',
+      recheckSlackReadScopes: 'admin', cancelSlackSignIn: 'user', cancelSlackInstall: 'admin',
     })
   })
 
@@ -164,7 +164,11 @@ describe('setup (the owner)', () => {
     const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
     expect(on.json.enabled).toBe(true)
     await fake.connected()
+    // how long it has been connecting (QA TC-1415: the screens turn a long wait into a problem): a number while
+    // connecting, null once connected
+    expect(on.json.state === 'connecting' ? typeof on.json.connectingFor : null).toBe(on.json.state === 'connecting' ? 'number' : null)
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json.connectingFor).toBeNull()
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.botName === 'acme-helper')).toBe(true)
     expect(fake.sockets()).toBe(1)
     const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'slack.%' ORDER BY id").all() as { action: string }[]).map((r) => r.action)
@@ -261,6 +265,14 @@ describe('linking', () => {
     expect((await call('erin', 'POST', '/api/slack/link/cancel', { token: mt })).status).toBe(204)
     expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: mt })).status).toBe(404)
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE slack_user_id IN ('U0BOB','U0MALLORY')").get()).toEqual({ n: 0 })
+    // asking again at once: the cancelled link holds nothing back, a new one is offered (not "use the link sent a moment ago")
+    const had = linksTo('U0MALLORY').length
+    skew = linkClock + 5_000 // (the clock of the link above: only seconds have passed)
+    mention('U0MALLORY', 'again')
+    const again = await waitFor(() => { const all = linksTo('U0MALLORY'); return all.length > had ? all.at(-1) : null })
+    skew = 0
+    expect(again && linkTokenFrom(again)).toBeTruthy()
+    expect(linkTokenFrom(again!)).not.toBe(mt)
   })
 
   test('a person of another workspace (Slack Connect) is never offered a link', async () => {
@@ -323,6 +335,18 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(params(url.href)).toMatchObject({ response_type: 'code', scope: 'openid profile', client_id: fake.clientId, team: 'T0ACME', redirect_uri: 'https://team.acme.example/api/integrations/slack/oauth/callback' })
     // stored hashed only
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_signin_flows').all())).not.toContain(params(url.href).state!)
+  })
+
+  test('Cancel in the app ends the waiting sign-in: the window left open links nothing and says so (QA TC-1417)', async () => {
+    const p = params((await start('carol')).json.authorizationUrl)
+    // someone else's cancel is not this one's
+    expect((await call('erin', 'DELETE', '/api/slack/signin/flow')).status).toBe(204)
+    expect((h.ctx.db.query("SELECT state FROM slack_signin_flows WHERE user_id = 'carol' ORDER BY created_at DESC").get() as { state: string }).state).toBe('pending')
+    expect((await call('carol', 'DELETE', '/api/slack/signin/flow')).status).toBe(204)
+    const code = 'code-carol-cancelled'
+    fake.codes[code] = { user: 'U0NOMAIL', nonce: p.nonce! }
+    expect(await back('carol', { state: p.state!, code })).toBe('signin_cancelled_here')
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'carol'").get()).toBeNull()
   })
 
   test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept', async () => {
@@ -1163,6 +1187,35 @@ describe('secrets and accounts', () => {
 })
 
 describe('text', () => {
+  test('what the app says in Slack follows the person\'s Trina language, not the language their answers are in; else the team\'s, then English (QA TC-1418)', () => {
+    const db = h.ctx.db
+    const before = db.query("SELECT locale, locale_follows_team, prefs FROM users WHERE id = 'bob'").get() as { locale: string; locale_follows_team: number; prefs: string | null }
+    const team = db.query("SELECT value FROM settings WHERE key = 'defaultLocale'").get() as { value: string } | null
+    try {
+      // Korean screens, answers in English: the status lines ("Working on it…", "Answering as …", "Open in …") in Korean
+      db.query("UPDATE users SET locale = 'ko', locale_follows_team = 0, prefs = ? WHERE id = 'bob'").run(JSON.stringify({ answerLocale: 'en' }))
+      const c = slackOf(h.ctx)
+      expect(c.localeOf('bob')).toBe('ko')
+      expect(sayText('working', c.localeOf('bob'))).toBe('답을 만들고 있어요…')
+      // "Posted to the thread." and "Asked by …" read the same language (the asker's)
+      expect(sayText('posted', c.localeOf('bob'))).toBe('스레드에 올렸어요.')
+      expect(sayText('askedBy', c.localeOf('bob'), { name: 'Bob' })).toContain('Bob님의 질문')
+      db.query("UPDATE users SET locale = 'ja' WHERE id = 'bob'").run()
+      expect(c.localeOf('bob')).toBe('ja')
+      // nobody known (a person not linked): the team's default
+      db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify('es'))
+      expect(c.localeOf(null)).toBe('es')
+      expect(c.localeOf('nobody-here')).toBe('es')
+      // no team default either: English
+      db.query("DELETE FROM settings WHERE key = 'defaultLocale'").run()
+      expect(c.localeOf(null)).toBe('en')
+    } finally {
+      db.query("UPDATE users SET locale = ?, locale_follows_team = ?, prefs = ? WHERE id = 'bob'").run(before.locale, before.locale_follows_team, before.prefs)
+      if (team) db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(team.value)
+      else db.query("DELETE FROM settings WHERE key = 'defaultLocale'").run()
+    }
+  })
+
   test('e-mails compare in NFC, trimmed, in lower case; a full-width look-alike is another address', () => {
     expect(normEmail(' Jose\u0301@Acme.Example ')).toBe(normEmail('jos\u00e9@acme.example'))
     expect(normEmail('ａｌｉｃｅ@acme.example')).not.toBe(normEmail('alice@acme.example'))
@@ -1328,13 +1381,74 @@ describe('text', () => {
     expect((para.blocks.at(-1)!.elements.at(-1) as { elements: unknown[] }).elements.slice(-2)).toEqual([a('https://acme.example/end', '끝'), t(' (acme.example)')])
   })
 
+  test('an HTML link the AI wrote becomes a Slack link; code stays as written; what is not a whole link stays text', () => {
+    expect(one('Quelle: <a href="https://acme.example/refunds">Refund policy</a> und mehr')).toEqual([t('Quelle: '), a('https://acme.example/refunds', 'Refund policy'), t(' (acme.example) und mehr')])
+    expect(one(`<A HREF='https://acme.example/x?a=1&amp;b=2' target="_blank">acme.example</A>`)).toEqual([a('https://acme.example/x?a=1&b=2', 'acme.example')])
+    expect(one('<a href="https://acme.example/b"><b>Bold</b> text</a>')[0]).toMatchObject({ type: 'link', url: 'https://acme.example/b' })
+    // the app's own page opens at the team's address
+    expect(one('<a href="/files/view?p=a">budget.txt</a>')).toEqual([a(`${o}/files/view?p=a`, 'budget.txt')])
+    // code spans and code blocks are not touched
+    expect(one('Write `<a href="https://acme.example">x</a>` like this')).toEqual([t('Write '), t('<a href="https://acme.example">x</a>', { code: true }), t(' like this')])
+    const block = richText('```\n<a href="https://acme.example">x</a>\n```')
+    expect(block).toEqual([{ type: 'rich_text_preformatted', elements: [{ type: 'text', text: '<a href="https://acme.example">x</a>' }] }])
+    // not a whole link, or not a web link: as written
+    expect(plainOf(richText('<a href="https://acme.example">no end'))).toBe('<a href="https://acme.example">no end')
+    expect(plainOf(richText('<a href="https://acme.example/ x">sp</a>'))).toBe('<a href="https://acme.example/ x">sp</a>')
+    expect(plainOf(richText('<a name="x">anchor</a>'))).toBe('<a name="x">anchor</a>')
+    expect(plainOf(richText('<a href="javascript:alert(1)">click</a>'))).toBe('<a href="javascript:alert(1)">click</a>')
+    expect(plainOf(richText('<abbr title="x">y</abbr> and a < b'))).toBe('<abbr title="x">y</abbr> and a < b')
+  })
+
+  test('a very large answer of unclosed or nested HTML links is read in linear time (no backtracking)', () => {
+    const big = (unit: string) => unit.repeat(Math.ceil((2 * 1024 * 1024) / unit.length))
+    const cases = [
+      big('<a href="https://acme.example/x" '), // opened, never closed
+      big('<a '), big('<a href="'), big('<a href=https://acme.example>'), big('</a>'),
+      big('<a href="https://acme.example">x'), big('<a href="https://acme.example">x</a'),
+      big('<a href="https://acme.example/a">a</a> '),
+      `<a href="https://acme.example">${'x'.repeat(2 * 1024 * 1024)}</a>`,
+      `<a ${'href '.repeat(400_000)}>`,
+    ]
+    for (const md of cases) {
+      const t0 = performance.now()
+      const els = richText(md, o)
+      const ms = performance.now() - t0
+      expect(els.length).toBeGreaterThan(0)
+      expect(ms).toBeLessThan(5000)
+    }
+    // the same inside a long list and many lines
+    const t0 = performance.now()
+    richText(Array.from({ length: 40_000 }, (_, i) => `- Source ${i}: <a href="https://acme.example/${i}">page ${i}</a>`).join('\n'), o)
+    expect(performance.now() - t0).toBeLessThan(5000)
+  })
+
   test('a reason code is a plain sentence in Slack; a sentence stays; one wording for an outsider', () => {
     expect(sayText('failed', 'en', { reason: 'gone' })).toBe('Could not answer. The chat was deleted.')
     expect(sayText('failed', 'en', { reason: 'error' })).toBe('Could not answer. Something went wrong while answering.')
     expect(sayText('cannotStart', 'en', { reason: 'internal' })).toBe('Could not start the answer. Something went wrong on the server. Ask again in a moment.')
     expect(sayText('cannotStart', 'ko', { reason: 'forbidden' })).not.toContain('forbidden')
     expect(sayText('cannotStart', 'en', { reason: 'You used up this month\'s budget.' })).toBe('Could not start the answer. You used up this month\'s budget.')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
     expect(refusal('missing_scope', 'ko', { scopes: 'users:read' })).not.toContain('매니페스트')
+  })
+})
+
+describe('the own app\'s bot token is refused by Slack', () => {
+  test('Admin says so in a state of its own (not Connected) and offers new tokens; saving tokens again clears it', async () => {
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    // Slack refuses the bot token at the next post (revoked in the app's settings)
+    fake.failNext['chat.postEphemeral'] = { error: 'token_revoked' }
+    mention('U0ALICE', say('Does the bot still post?'))
+    const bad = await waitFor(async () => { const v = (await call('dana', 'GET', '/api/admin/slack')).json; return v.lastError === 'bot_refused' ? v : null }, { timeoutMs: 15_000 })
+    expect(bad).toMatchObject({ mode: 'own', state: 'error', lastError: 'bot_refused', tokens: true })
+    expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n).toBe(1)
+    // a socket that reconnects does not turn it back into "Connected"
+    await Bun.sleep(300)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ state: 'error', lastError: 'bot_refused' })
+    // new tokens: the problem is gone
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect(await waitFor(async () => { const v = (await call('dana', 'GET', '/api/admin/slack')).json; return v.state === 'connected' && v.lastError === null })).toBe(true)
   })
 })

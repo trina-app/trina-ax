@@ -20,7 +20,7 @@ const json = { 'content-type': 'application/json' }
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'attach-team-files', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'attach-team-files', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-alice-attach' })
   await alice.next('hello')
 })

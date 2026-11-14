@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, Menu, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
@@ -29,6 +29,7 @@ import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
+import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
@@ -289,12 +290,30 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
-  // the team page's "다른 팀으로 전환…": the OS menu's own team list as a menu under the pointer (the page never sees it)
+  // the team page's "다른 팀으로 전환": the OS menu's own team list as a menu under the pointer (the page never sees it)
   ipcMain.on('bridge:team-menu', (e) => {
     if (!fromApp(e) || !win) return
     Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
   })
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
+  // 이미지 복사 (the image viewer, a picture's right-click menu): the PNG the page read through its own file routes goes on
+  // the computer's clipboard as a picture; nothing is fetched here. Bytes that are no PNG the system can draw: false
+  ipcMain.handle('bridge:copy-image', async (e, bytes: unknown) => {
+    const png = fromApp(e) ? clipboardPng(bytes) : null
+    if (!png || nativeImage.createFromBuffer(Buffer.from(png.buffer, png.byteOffset, png.byteLength)).isEmpty()) return false
+    try {
+      await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })])
+      return true
+    } catch {
+      return false
+    }
+  })
+  // the look chosen on the team page (Settings: light, dark or system) becomes the whole app's look (themeSource): the
+  // app's own screens (the browser toolbar's ui.css) and the window's colour follow it, and so do the sites open in the
+  // in-app browser: their prefers-color-scheme is now the app's theme, not the computer's. Only the team page may set it
+  ipcMain.on('bridge:set-theme', (e, t: unknown) => {
+    if (fromApp(e) && (t === 'light' || t === 'dark' || t === 'system') && nativeTheme.themeSource !== t) nativeTheme.themeSource = t
+  })
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
@@ -326,7 +345,7 @@ function registerIpc() {
 // ------------------------------------------------------------------ menu
 
 /** The 팀 menu's items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). One list for the OS menu
- * and the team page's "다른 팀으로 전환…" (bridge:team-menu). */
+ * and the team page's "다른 팀으로 전환" (bridge:team-menu). */
 function teamMenuItems(): MenuItemConstructorOptions[] {
   const tr = (k: UiKey) => t(locale(), k)
   const teamItems: MenuItemConstructorOptions[] = (win?.teamList() ?? []).map((x, i) => ({

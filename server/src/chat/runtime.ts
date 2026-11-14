@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
@@ -17,7 +18,7 @@ import { startPresence, type Presence, type PresenceOptions } from '../realtime/
 import { startRoomTyping } from '../rooms/typing'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
-import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
+import { STALL_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
 import { engineError, tr } from './i18n'
 import { forgetPurgedChats, launcherSockOf, retryPendingForgets } from './forget'
 import { effectiveConcurrency, memoryAdmission } from '../system/limits'
@@ -33,7 +34,8 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
-import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { unsharePeopleChecked } from './people-guard'
+import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
 
 export const DEFAULT_CONCURRENCY = 3
@@ -63,12 +65,26 @@ const UPDATE_HOLD_MS = 120_000
 const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
 /** settings key: the server stopped answers for an update (shutdown); the next start's recovery reads and clears it */
 export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
+
+/** An answer a stop left streaming: its steps still running become stopped (Step.stopped; status 'error' for older
+ * apps). Returns how many of them were work (not the AI's thinking). A stored list that does not read is left as it is. */
+export function stopRunningSteps(db: Database, messageId: string, now: string): number {
+  const row = db.query("SELECT steps FROM messages WHERE id = ? AND status = 'streaming'").get(messageId) as { steps: string | null } | null
+  if (!row?.steps) return 0
+  let steps: { kind?: string; status?: string; stopped?: true; endedAt?: string | null }[]
+  try { steps = JSON.parse(row.steps) } catch { return 0 }
+  if (!Array.isArray(steps)) return 0
+  let n = 0, work = 0
+  for (const st of steps) if (st && st.status === 'running') { st.status = 'error'; st.stopped = true; st.endedAt = now; n++; if (st.kind !== 'thinking') work++ }
+  if (n) db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
+  return work
+}
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
 export const CLAIM_TRIES = 3
-/** a quarantined slot whose engine was never confirmed gone is released this long after the turn's own wall deadline:
- * the launcher was told to end the engine by then (LaunchRequest.timeoutMs), so it is a bounded wait, never forever */
+/** a quarantined slot whose engine was never confirmed gone is released this long after its launch's own hard stop, or
+ * after QUARANTINE_HOLD_MAX_MS past the stop when that comes first (chat/turn.ts): a bounded wait, never forever */
 export const QUARANTINE_RELEASE_GRACE_MS = 5 * 60_000
 /** Engines that may be up at once, per slot: answers waiting for a person hold no slot but keep their (idle) engine,
  * so without this cap every queued answer could start beside them where memory is not checked (a Mac, office mode) */
@@ -92,15 +108,15 @@ export type ChatNotify = 'card' | 'answer'
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
-  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." },
+  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." }, zh: { queue_full: '现在请求较多，请稍后再发送。', queue_full_user: '你已经有3个问题在等待。请等之前的回答结束后再发送。' },
 }
 
 export interface ChatRuntimeOptions {
   engines?: EngineProvider
   hub?: HubOptions
   relay?: BrowserRelayOptions
-  turnTimeoutMs?: number
-  wallTimeoutMs?: number
+  /** the stall guard's silence (STALL_TIMEOUT_MS; tests shorten it) */
+  stallTimeoutMs?: number
   /** Status-only polling while installed startup waits for an idle launcher. */
   recoveryPollMs?: number
   askUserTimeoutMs?: number
@@ -132,6 +148,10 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
   return rt
 }
 
+/** A person's name changed (their own rename, an admin's): shared chats and the AI's transcript labels name them anew
+ * (ChatStore.userRef keeps names it read; QA TC-1410). No runtime yet: nothing was kept. */
+export function forgetUserName(ctx: AppContext, userId: string) { runtimes.get(ctx)?.store.forgetName(userId) }
+
 /**
  * Forget the engine sessions of a person's chats (their read access shrank or the account was disabled: tab 2
  * "권한 회수", review H7). The next turn of each chat starts a fresh session from the chat's DB history.
@@ -153,9 +173,16 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 }
 
 /** A disabled or deleted account: its running and queued turns stop now (they would otherwise go on with the
- * engine for up to 20 minutes on the owner's subscription; their tool calls are already refused). */
+ * engine on the owner's subscription until the answer ends; their tool calls are already refused). */
 export function stopTurnsOf(ctx: AppContext, userId: string): number {
   return runtimes.get(ctx)?.stopUserTurns(userId) ?? 0
+}
+
+/** Someone stopped seeing these shared chats (their project's members changed: admin/folders.ts afterAccessChange): their
+ * running or queued turn in them stops now, so nothing more of it reaches them and it reads nothing more with their
+ * access (a shared chat runs one turn at a time; another person's turn there goes on). */
+export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly string[]): number {
+  return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
 }
 
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
@@ -177,8 +204,9 @@ export class ChatRuntime {
   readonly relay: BrowserRelay
   readonly presence: Presence
   readonly engines: EngineProvider
-  readonly turnTimeoutMs: number
-  readonly wallTimeoutMs: number
+  /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
+   * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */
+  stallTimeoutMs: number
   /** an answer that ran this long tells the person when it ends (LONG_ANSWER_MS; a test may change it) */
   longAnswerMs: number
   readonly queueStore: QueueStore
@@ -276,8 +304,7 @@ export class ChatRuntime {
     // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
     startRoomTyping(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)
-    this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
-    this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000
+    this.stallTimeoutMs = o.stallTimeoutMs ?? STALL_TIMEOUT_MS
     this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
     this.queueStore = new QueueStore(ctx.db)
     this.lastConcurrency = this.concurrency()
@@ -367,7 +394,7 @@ export class ChatRuntime {
   }
   execFor(turnId: string): TurnExec | undefined { return this.running.get(turnId) }
   /** The chat's earlier answer ended but its engine's end is not confirmed yet (a quarantined slot, at most until its
-   * wall deadline plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
+   * launch's hard stop or 45 minutes after the stop, plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
   endingUnconfirmed(chatId: string): boolean {
     for (const e of this.running.values()) if (e.spec.chatId === chatId && e.quarantineState()) return true
     return false
@@ -422,7 +449,7 @@ export class ChatRuntime {
   }
 
   /** A turn opened its first card (it waits for a person): its slot goes to the next answer. Its engine stays up, idle
-   * on the tool call: the card's own time limit and the wall limit still end it. A turn that was waiting for a slot
+   * on the tool call: the card's own time limit still ends it. A turn that was waiting for a slot
    * after an answer and opened another card (a tool running beside it) waits for the person again: it keeps its place
    * in line (grantResumes passes it by while a card is open), and what it was given stays held until it has a slot. */
   turnWaiting(exec: TurnExec) {
@@ -515,6 +542,19 @@ export class ChatRuntime {
     return n
   }
 
+  /** Stop this person's running and queued turns in these chats (they lost the chats: stopTurnsIn). */
+  stopUserTurnsIn(userId: string, chatIds: readonly string[]): number {
+    const lost = new Set(chatIds)
+    const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
+    let n = 0
+    // (stopChat stops the chat's running turn first: only while that one is theirs, never another person's)
+    for (const chatId of chats) {
+      const runner = [...this.running.values()].find((e) => e.spec.chatId === chatId)
+      if ((!runner || runner.spec.userId === userId) && this.stopChat(chatId)) n++
+    }
+    return n
+  }
+
   private enqueue(spec: TurnSpec & QueueTiming) {
     this.queued.push(spec)
     this.queueRevision++
@@ -601,7 +641,7 @@ export class ChatRuntime {
       // a claim that failed is tried again only after MEMORY_RECHECK_MS (a busy database gets time to settle)
       const failed = this.claimFailures.get(spec.turnId)
       if (failed && Date.now() - failed.at < MEMORY_RECHECK_MS) { this.dispatchRetry = true; break }
-      try { timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs) } catch (err) {
+      try { timing = this.queueStore.claim(head.turnId, head.userId) } catch (err) {
         // the claim's transaction rolled back: nothing committed, so the turn may be claimed again a little later
         const n = (failed?.n ?? 0) + 1
         if (n < CLAIM_TRIES) {
@@ -692,7 +732,7 @@ export class ChatRuntime {
     try {
       const now = new Date().toISOString()
       this.db.transaction(() => {
-        this.db.query("UPDATE turns SET status='error', ended_at=?, error='dispatch failed' WHERE id=? AND status IN ('queued','running')").run(now, spec.turnId)
+        this.db.query("UPDATE turns SET status='error', ended_at=?, error='dispatch failed', people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id=? AND status IN ('queued','running')").run(now, spec.turnId)
         this.db.query("UPDATE messages SET status='error', error=?, updated_at=? WHERE id=? AND status='streaming'")
           .run(JSON.stringify(engineError('crash', spec.locale)), now, spec.assistantId)
         this.queueStore.settle(spec.userId)
@@ -800,7 +840,7 @@ export class ChatRuntime {
     const spec = this.queued[i]!
     const now = new Date().toISOString()
     this.db.transaction(() => {
-      this.db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ? AND status='queued'").run(now, spec.turnId)
+      this.db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ? AND status='queued'").run(now, spec.turnId)
       this.db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ? AND status='streaming'").run(now, spec.assistantId)
       this.queueStore.settle(spec.userId)
     })()
@@ -867,9 +907,12 @@ export class ChatRuntime {
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
       // without a record is hidden from everyone but its runner: chat/shared-answers.ts)
       if (isSharedRow(chat)) newAnswerRecord(this.db, chat.id, assistantId)
-      // shared_checked: this build runs the turn, with the read gate of shared chats (chat/shared.ts rollback guard)
-      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked)
-        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
+      // shared_checked and people_checked stay 0 while it waits: they are set when THIS build starts it (queue-store.ts
+      // claim, turns.ts create) or ends it without running it. A queued turn an older build picks up after a rollback
+      // runs without the shared chats' gates and keeps 0, so the rollback guards see it (chat/shared.ts
+      // unshareUncheckedChats, chat/people-guard.ts unsharePeopleChecked; they pass turns still queued)
+      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked, people_checked)
+        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
       // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
       const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : '')
@@ -1022,12 +1065,16 @@ export class ChatRuntime {
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
     if (r && isSharedRow(r)) {
-      const project = this.store.projectRow(r.project_id!)
       const aud = new Audiences(this.db, this.files)
       const hide = redactorFor(this.ctx, r.user_id).hide
-      for (const uid of project ? aud.of(project) : []) {
+      // the rows' faces (Chat.shared.people, as the lists give them): who wrote in it, read once, each person's own
+      // view leaving them out; none for a chat in the trash (the trash list has none either)
+      const writers = change === 'deleted' || r.deleted_at ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
+      // (its project's people, or the people and groups a chat outside projects is shared with: Audiences.ofChat)
+      for (const uid of aud.ofChat(r)) {
         if (o.window && uid !== userId) continue
-        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
+        const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined
+        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
         if (o.window) this.hub.publishTo(uid, o.window, ev)
         else this.hub.publish(uid, ev)
       }
@@ -1070,6 +1117,10 @@ export class ChatRuntime {
     // (fails closed: a check that cannot run stops the recovery, nothing runs)
     const unshared = unshareUncheckedChats(this.db)
     if (unshared.length) this.log.warn('shared chats with turns of an older build are no longer shared', { n: unshared.length })
+    // the same for chats shared with people and groups (chat/people-share.ts), and such a chat an older build moved
+    // into a project becomes its creator's private project chat
+    const peopleUnshared = unsharePeopleChecked(this.db)
+    if (peopleUnshared.unshared.length || peopleUnshared.moved.length) this.log.warn('people-shared chats an older build ran or moved are no longer shared', { ran: peopleUnshared.unshared.length, moved: peopleUnshared.moved.length })
     // answers of shared chats from before migration 273 (or an older build's): seen by who sees the chat now, nobody
     // else (chat/shared-answers.ts). A failure leaves them hidden from everyone but their runners (fails closed)
     try { recordOlderAnswers(this.db, this.files) } catch (e) { this.log.warn('older shared answers not recorded', { err: e }) }
@@ -1081,7 +1132,12 @@ export class ChatRuntime {
     this.db.transaction(() => { for (const t of running) {
       const locale = this.userLocale(t.user_id)
       this.db.query("UPDATE turns SET status = 'interrupted', ended_at = ?, error = 'interrupted' WHERE id = ?").run(now, t.id)
-      if (t.message_id) this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(why, locale)), now, t.message_id)
+      if (t.message_id) {
+        // a step still running when the process went (a command, a render): stopped, not failed, and the line says so
+        const cutSteps = stopRunningSteps(this.db, t.message_id, now)
+        const reason = why === 'updating' && cutSteps ? 'updating_step' : why
+        this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(reason, locale)), now, t.message_id)
+      }
       this.db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ? AND revoked_at IS NULL').run(now, t.id)
     } })()
     // Invalid users/chats/messages never survive a restart as runnable work.
@@ -1094,7 +1150,7 @@ export class ChatRuntime {
          -- a scheduled run of a free-text task nobody confirmed (queued before the upgrade): never runs (schedules.ts)
          OR EXISTS(SELECT 1 FROM schedules s WHERE s.id=t.schedule_id AND s.template_id IS NULL AND s.confirmed_at IS NULL))`).all() as { id: string; message_id: string | null }[]
       for (const t of bad) {
-        this.db.query("UPDATE turns SET status='stopped',ended_at=? WHERE id=?").run(now,t.id)
+        this.db.query("UPDATE turns SET status='stopped',ended_at=?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id=?").run(now,t.id)
         if (t.message_id) this.db.query("UPDATE messages SET status='stopped',updated_at=? WHERE id=? AND status='streaming'").run(now,t.message_id)
       }
       this.queueStore.repair()
@@ -1105,12 +1161,12 @@ export class ChatRuntime {
     // queued turns of chats in the trash never run (stop would have caught them; a crash between writes may not)
     this.db.query(`UPDATE messages SET status = 'stopped', updated_at = ? WHERE status = 'streaming' AND id IN (SELECT t.message_id FROM turns t JOIN chats c ON c.id = t.chat_id
       WHERE t.status = 'queued' AND c.deleted_at IS NOT NULL)`).run(now)
-    this.db.query(`UPDATE turns SET status = 'stopped', ended_at = ? WHERE status = 'queued'
+    this.db.query(`UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE status = 'queued'
       AND (chat_id IN (SELECT id FROM chats WHERE deleted_at IS NOT NULL) OR chat_id NOT IN (SELECT id FROM chats))`).run(now)
     const seen = new Set<string>()
     for (const t of queued) {
       if (!t.message_id || !t.user_message_id || seen.has(t.chat_id)) {
-        this.db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ?").run(now, t.id)
+        this.db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ?").run(now, t.id)
         if (t.message_id) this.db.query("UPDATE messages SET status = 'stopped' WHERE id = ? AND status = 'streaming'").run(t.message_id)
         continue
       }
@@ -1166,7 +1222,7 @@ export class ChatRuntime {
     let answer: unknown
     try { answer = JSON.parse(r?.prefs ?? '{}')?.answerLocale } catch {}
     const l = (answer ?? r?.locale) as string | undefined
-    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' ? l : DEFAULT_LOCALE
+    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' || l === 'zh' ? l : DEFAULT_LOCALE
   }
 
   /** The launcher's answers for the last purge run (tests wait on it; chat/forget.ts never rejects). */

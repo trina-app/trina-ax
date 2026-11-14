@@ -45,15 +45,15 @@ export const GENERAL_DECK_SKILL = 'skills/general/intro-deck/SKILL.md'
 export const WORK_HUMANIZER_SKILL = 'skills/work/humanizer/SKILL.md'
 
 /** The meeting notes folder inside the team's own group folder (groups/<team>/회의록/), named in the team language. */
-export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones' } as const satisfies Record<Locale, string>
+export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones', zh: '会议记录' } as const satisfies Record<Locale, string>
 
 /** Inside the team's own group folder: the brand folder (the company intro, 회사 소개.md), named in each language
  * (made in the team's language): groups/<team>/브랜드/. */
-export const BRAND_FOLDER = { ko: '브랜드', en: 'Brand', id: 'Merek', ja: 'ブランド', es: 'Marca' } as const satisfies Record<Locale, string>
+export const BRAND_FOLDER = { ko: '브랜드', en: 'Brand', id: 'Merek', ja: 'ブランド', es: 'Marca', zh: '品牌' } as const satisfies Record<Locale, string>
 
 /** Inside the brand folder: its images folder (what the website reading collected, and the photos made for the first
  * card news): groups/<team>/브랜드/이미지/. */
-export const BRAND_IMAGES_FOLDER = { ko: '이미지', en: 'Images', id: 'Gambar', ja: '画像', es: 'Imágenes' } as const satisfies Record<Locale, string>
+export const BRAND_IMAGES_FOLDER = { ko: '이미지', en: 'Images', id: 'Gambar', ja: '画像', es: 'Imágenes', zh: '图片' } as const satisfies Record<Locale, string>
 
 /** created: written now · present: already there with the pack's own text · kept: there with other text (someone
  * edited it, or another file has the name): left as it is · blocked: could not be written here (folder rules, a

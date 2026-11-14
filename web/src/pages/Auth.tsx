@@ -8,7 +8,7 @@ import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
+import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
@@ -91,6 +91,32 @@ export function LanguageSwitcher() {
   )
 }
 
+/** An invite page opens in the team's language (DECISIONS: no browser detection after first setup). When the visitor's
+ * browser speaks another of our languages, and they have not picked one here, this one line offers it, in that language:
+ * a tap shows the page in it and the pick goes with the account as its language (the same pick as the switcher below). */
+export function BrowserLanguageOffer() {
+  const locale = useLocale()
+  const pick = useSession((s) => s.pickLocale)
+  const mine = typeof navigator === 'undefined' ? null : browserLocale(navigator.languages?.length ? navigator.languages : [navigator.language])
+  // the other language's words load on demand: the line shows once they are here, in that language
+  const [loaded, setLoaded] = useState<Locale | null>(null)
+  const wanted = mine && mine !== locale && !storedLocale() ? mine : null
+  useEffect(() => {
+    if (!wanted) return
+    let live = true
+    loadLocale(wanted).then(() => { if (live) setLoaded(wanted) }, () => {})
+    return () => { live = false }
+  }, [wanted])
+  if (!mine || !wanted || loaded !== wanted) return null
+  return (
+    <p className="mb-4 text-center text-sm" lang={mine} data-testid="invite-browser-language">
+      <button type="button" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={() => pick(mine)}>
+        {translate(mine, 'invite.browserLanguage', { language: LOCALES.find((l) => l.id === mine)?.label ?? mine })}
+      </button>
+    </p>
+  )
+}
+
 /** The sign-in style screens. From 640px the form is a card in the middle of the screen; on a phone it has no frame
  * (the card's edge sat 16px from the screen's and only boxed the fields in once more) and it starts near the top, so
  * the button is in view and the keyboard does not push the page around. On a phone the page scrolls in its own box,
@@ -109,7 +135,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {PRODUCT.displayName}
         </p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)] max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none">
-          <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
+          <h1 className={clsx('text-title font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>
@@ -706,6 +732,7 @@ export function AcceptInvite() {
     )
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+      <BrowserLanguageOffer />
       <JoinChoices path={`/invite/${token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>
@@ -787,6 +814,7 @@ export function TeamJoin() {
     )
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+      <BrowserLanguageOffer />
       <JoinChoices path={`/join#t=${link.token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>

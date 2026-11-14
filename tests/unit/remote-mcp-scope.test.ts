@@ -277,6 +277,8 @@ test('the guide names the team rules and the company profile the person may read
   expect(text(await f.tool('read', { file_path: 'skills/style.md' }))).toContain('RULE-TEXT-CANARY')
   expect((await f.tool('write', { file_path: 'shared/notes.txt', content: 'synthetic' })).isError).toBeUndefined()
   // nothing the person may not read: skills/ closed to everyone but the owner and admins
+  // (Limit access since access adds up: the folder limited, its everyone rule becomes the legacy marker)
+  f.h.ctx.db.query("UPDATE folders SET limited = 1 WHERE path = 'skills'").run()
   f.h.ctx.db.query("UPDATE folder_rules SET access = 'none' WHERE subject_type = 'everyone' AND folder_id = (SELECT id FROM folders WHERE path = 'skills')").run()
   const closed = connectorInstructions(f.h.ctx, f.member.id)
   for (const no of ['Team rules', 'skills/style.md', 'company-profile']) expect(closed).not.toContain(no)

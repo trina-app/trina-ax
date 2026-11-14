@@ -30,7 +30,8 @@ async function fits(page: Page) {
 /** each page: what shows once it has loaded, its main button, and its Filters button (`filters`: its test id prefix) */
 const PAGES: { path: string; ready: string; primary?: string; filters?: string }[] = [
   { path: '/admin/groups', ready: 'group-list', primary: 'group-new' },
-  { path: '/admin/folders', ready: 'access-tree', primary: 'folder-rule-new', filters: 'tree-filters' },
+  // Folder permissions: two tabs and a search, no main button or Filters (docs/DECISIONS.md "드라이브처럼 공유 P1.5")
+  { path: '/admin/folders', ready: 'folders-list' },
   { path: '/admin/providers', ready: 'engine-list' },
   // no Add on a phone: adding a service by its address is a computer's job (TC-270, phone-admin-pages.spec.ts)
   { path: '/admin/connectors', ready: 'connector-list' },
@@ -92,21 +93,17 @@ test.describe('each page', () => {
     await expect(row.getByText('Olga')).toHaveCount(0)
   })
 
-  test('Folder permissions: By folder / By person on their own row, Filters in the bar; the switch is under Filters', async ({ page }) => {
+  test('Folder permissions: Folders / What a person can open on their own row, the search under them', async ({ page }) => {
     await page.goto('/admin/folders')
-    const views = page.getByRole('tablist', { name: t['accessView.tabs'] })
-    // the two views take the row; the Filters icon sits in the bar beside + (QA TC-379, phone-admin-bar.cases.ts)
+    const views = page.getByRole('tablist', { name: t['admin.folders'] })
+    // the two views take the row
     expect(Math.round((await box(views)).width)).toBeGreaterThanOrEqual(390 - 34)
-    await expect(page.getByTestId('phone-page-bar').getByTestId('tree-filters-toggle')).toBeVisible()
-    await expect(page.getByTestId('tree-ruled-only')).toBeHidden()
-    await page.getByTestId('tree-filters-toggle').click()
-    await page.getByTestId('tree-filters').getByText(t['accessTree.ruledOnly']).click()
-    await expect(page.getByTestId('tree-ruled-only')).toBeChecked()
-    // the filters are a bottom sheet (TC-269): Done closes it
-    await page.getByTestId('tree-filters-done').click()
-    await expect(page.getByTestId('tree-filters-count')).toContainText('1')
+    await expect(page.getByTestId('folders-search')).toBeInViewport()
+    await expect(page.locator('[data-testid="folders-row"][data-path="finance"]')).toBeVisible()
+    await tall(page.locator('[data-testid="folders-row"][data-path="finance"]').getByTestId('folders-share'))
+    await fits(page)
     // the views still switch, with no history added (PR 1a)
-    await views.getByRole('tab', { name: t['accessView.byPerson'] }).click()
+    await views.getByRole('tab', { name: t['folders.tabPerson'] }).click()
     await expect(page.getByTestId('access-person-search')).toBeVisible()
   })
 
@@ -254,7 +251,7 @@ test.describe('a computer', () => {
     await expect(page.getByTestId('activity-kinds')).toBeVisible()
     await expect(page.getByTestId('activity-more-toggle')).toHaveCount(0)
     await page.goto('/admin/folders')
-    await expect(page.getByTestId('tree-ruled-only')).toBeVisible()
+    await expect(page.getByTestId('folders-search')).toBeVisible()
     await page.goto('/admin/providers')
     await expect(page.getByTestId('provider-accounts-claude')).toBeVisible()
     await page.goto('/admin/groups')

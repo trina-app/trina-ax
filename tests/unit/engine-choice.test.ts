@@ -11,7 +11,7 @@ import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harne
 import { canChooseEngine, filterEnginePrefs, HOSTED_FALLBACK_SET_KEY, LIMIT_FALLBACK_KEY, limitFallbackSetting, personalDefault, readyEngines, settleHostedFallback, turnEngine } from '../../server/src/admin/engine-choice'
 
 setDefaultTimeout(30_000)
-const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 

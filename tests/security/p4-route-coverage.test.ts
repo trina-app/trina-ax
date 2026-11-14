@@ -32,6 +32,6 @@ test('every /api/chats/:id route goes through chatFor; no route uses the old own
   // the other places that take a chat id from a request: artifacts, team-file attachments, uploads, thumbnails
   for (const f of ['server/src/tools/artifact.ts', 'server/src/uploads/team-refs.ts', 'server/src/uploads/attachments.ts'])
     expect({ f, checks: fs.readFileSync(path.join(root, f), 'utf8').includes('visibleSharedChat(') }).toEqual({ f, checks: true })
-  // the owner-only lookup left for the server's own flows (drafts, merges) never returns a shared chat
-  expect(fs.readFileSync(path.join(root, 'server/src/chat/store.ts'), 'utf8')).toContain('r.room_id || r.shared_at) return null')
+  // the owner-only lookup left for the server's own flows (drafts, merges) never returns a shared chat of either kind
+  expect(fs.readFileSync(path.join(root, 'server/src/chat/store.ts'), 'utf8')).toContain('r.room_id || r.shared_at || r.people_shared_at) return null')
 })

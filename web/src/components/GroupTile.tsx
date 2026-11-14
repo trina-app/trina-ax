@@ -3,9 +3,11 @@
 // groups (square) tell apart at a glance. Neutral like a picture's letter tile: no first letter (it would read as a
 // person), no member faces and no accent colour. Decorative: the group's name is always written beside it.
 import clsx from 'clsx'
-import { UsersRound } from 'lucide-react'
+import { UsersRound, type LucideIcon } from 'lucide-react'
 
-export function GroupTile({ size = 24, className }: { size?: number; className?: string }) {
+/** `icon`: another mark on the same tile, for a row that is not a person (the Share dialog's "Owner and admins", its
+ * General access). */
+export function GroupTile({ size = 24, className, icon: Icon = UsersRound }: { size?: number; className?: string; icon?: LucideIcon }) {
   return (
     <span
       aria-hidden
@@ -13,7 +15,7 @@ export function GroupTile({ size = 24, className }: { size?: number; className?:
       className={clsx('flex shrink-0 items-center justify-center bg-hover text-muted', className)}
       data-testid="group-tile"
     >
-      <UsersRound size={Math.round(size * 0.6)} />
+      <Icon size={Math.round(size * 0.6)} />
     </span>
   )
 }

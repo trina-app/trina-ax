@@ -22,10 +22,12 @@ import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } f
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
+import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
 import { componentC } from '../../server/src/team-files/component'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(40_000)
 const REPO = path.join(import.meta.dir, '..', '..')
@@ -39,15 +41,19 @@ const who = (id: string, role: Principal['role'] = 'member', groups: string[] = 
 const ruleRows = (xs: (string | null)[][]) => xs.map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s ?? null, access: a as Access }))
 const FIXTURE_ROWS = ruleRows([
   ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
-  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
+  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'everyone', null, 'none'],
   ['groups/finance', 'group', 'finance', 'write'],
   ['projects/falcon', 'user', 'alice', 'write'], ['projects/falcon', 'group', 'finance', 'read'], ['projects/falcon/public', 'everyone', null, 'read'],
   ['projects/atlas', 'group', 'finance', 'write'],
 ])
-const FIXTURE_RULES = new RuleSet(FIXTURE_ROWS)
+/** the fixture's limited folders (salaries: nobody below the owner and admins; the project folders and falcon's public
+ * folder, as the conversion makes them; docs/DECISIONS.md "Folder access adds up like Google Drive (P2)") */
+const FIXTURE_LIMITED = ['groups/marketing/salaries', 'projects/falcon', 'projects/falcon/public', 'projects/atlas']
+const fixtureWorld = (rows: RuleRow[]) => ruleWorld(rows, FIXTURE_LIMITED)
+const FIXTURE_RULES = fixtureWorld(FIXTURE_ROWS)
 /** the same, with carol (an admin) a member of projects/falcon: inside a team project the owner and admins are judged
  * as members (docs/DECISIONS.md "Project contents only for members") */
-const CAROL_IN_FALCON = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
+const CAROL_IN_FALCON = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
 const PEOPLE: Record<string, Principal> = { alice: who('alice', 'member', ['marketing']), bob: who('bob', 'member', ['finance']), carol: who('carol', 'admin'), dana: who('dana', 'owner'), erin: who('erin', 'member', ['marketing']) }
 
 describe('the folder access of a run (from the folder rules)', () => {
@@ -99,25 +105,25 @@ describe('the folder access of a run (from the folder rules)', () => {
     // a member keeps the rules above: no rule anywhere gives alice projects/plain, so it is hidden for her as before
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('none')
     // rules on the team root or projects/ (an admin's own, a role rule, everyone) never reach in for admins; members get them
-    const above = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
+    const above = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
     const a = folderView(above, PEOPLE.carol!, undefined, undefined, zone)
     for (const f of ['projects/plain/notes.md', 'projects/falcon/plan.md', 'projects/atlas/x.md']) expect([f, viewAccess(a, f)]).toEqual([f, 'none'])
     expect(viewAccess(folderView(above, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('read')
     // a rule inside such a folder is a boundary without the runner's list too (its projects/<name> is a candidate)
-    const inner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
+    const inner = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
     const i = folderView(inner, PEOPLE.carol!)
     expect(i.denyRead).toContain('projects/plain')
     expect(viewAccess(i, 'projects/plain/notes.md')).toBe('none')
     // ...and that rule does not let her in while she does not read projects/plain itself; a member keeps it
     expect(viewAccess(i, 'projects/plain/inner/a.md')).toBe('none')
-    const aliceInner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
+    const aliceInner = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
     expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/inner/a.md')).toBe('read')
     expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/notes.md')).toBe('none')
     // once a member (read on projects/plain), the rule inside counts for her too
-    const both = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
+    const both = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
     expect(viewAccess(folderView(both, PEOPLE.carol!, undefined, undefined, zone), 'projects/plain/inner/a.md')).toBe('read')
     // with a member rule the admin reads it, and nothing else changes
-    const member = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
+    const member = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
     const r = folderView(member, PEOPLE.carol!, undefined, undefined, zone)
     expect(r.denyWrite).toEqual(['projects/plain'])
     expect(r.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])
@@ -148,7 +154,7 @@ describe('the folder access of a run (from the folder rules)', () => {
         const t = rnd(3)
         rows.push(t === 0 ? { path: f, subject_type: 'everyone', subject_id: null, access: acc[rnd(3)]! } : t === 1 ? { path: f, subject_type: 'user', subject_id: 'u', access: acc[rnd(3)]! } : { path: f, subject_type: 'group', subject_id: 'g', access: acc[rnd(3)]! })
       }
-      const rules = new RuleSet(rows)
+      const rules = ruleWorld(rows)
       const p = who('u', 'member', rnd(2) ? ['g'] : [])
       const v = folderView(rules, p)
       for (const f of folders) {
@@ -281,7 +287,7 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
         const t = rnd(3)
         rows.push(t === 0 ? { path: f, subject_type: 'everyone', subject_id: null, access: acc[rnd(3)]! } : t === 1 ? { path: f, subject_type: 'user', subject_id: 'u', access: acc[rnd(3)]! } : { path: f, subject_type: 'group', subject_id: 'g', access: acc[rnd(3)]! })
       }
-      const rules = new RuleSet(rows)
+      const rules = ruleWorld(rows)
       const p = who('u', 'member', rnd(2) ? ['g'] : [])
       const run = { start: rnd(5) === 0 ? null : folders[rnd(folders.length)]! }
       const v = folderView(rules, p, run)
@@ -897,6 +903,7 @@ afterAll(async () => {
   fs.rmSync(devBase, { recursive: true, force: true })
 })
 beforeEach(() => {
+  _resetUpdateWait()
   for (const r of runs.values()) if (r.state === 'active') { r.state = 'gone'; r.resolve({ code: null, signal: 'SIGKILL' }) }
   runs.clear(); stops.length = 0; publish.length = 0; selfTestProblem = ''; cpu = 0
   _active().clear()
@@ -1170,6 +1177,26 @@ describe('the storage rule before each command', () => {
   test('where the rule is not enforced the command runs', async () => {
     configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
     expect((await alice().call({ command: 'echo hi' })).isError).toBeUndefined()
+  })
+})
+
+describe('an update waits for running work (system/update-wait.ts)', () => {
+  test('a foreground command that could not end before the update restarts is refused; one that can, and a job (it runs through the restart), go', async () => {
+    beginUpdateWait(new Date(), new Date(Date.now() + 10 * 60_000))
+    try {
+      const long = await alice({ project: null, chat: chatPlain }).call({ command: 'npx remotion render', timeout_sec: 1800 })
+      expect(long.isError).toBe(true)
+      expect(out(long)).toContain('a Trina update is waiting for running tasks to finish')
+      expect(out(long)).toContain('job=true')
+      expect(out(long)).toMatch(/keep timeout_sec at 5[0-9]{2} or less/)
+      expect(runs.size).toBe(0)
+      expect((await alice({ project: null, chat: chatPlain }).call({ command: 'echo short' })).isError).toBeUndefined()
+      const job = await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render' })
+      expect(out(job)).toContain('Started as job render')
+    } finally { endUpdateWait() }
+    // no update waiting: the long command runs
+    for (const r of runs.values()) if (r.state === 'active') { r.state = 'gone'; r.resolve({ code: 0, signal: null }) }
+    expect(out(await alice({ project: null, chat: chatPlain2 }).call({ command: 'echo long', timeout_sec: 1800 }))).not.toContain('update is waiting')
   })
 })
 

@@ -77,7 +77,7 @@ let h: Harness | null = null
 const worktreesBefore = Bun.spawnSync(['git', '-C', path.join(import.meta.dir, '..', '..'), 'worktree', 'list', '--porcelain']).stdout.toString()
 try {
   const oauth = argv.includes('--oauth')
-  h = await startHarness({ name: 'lockdown-subagents', turnTimeoutMs: 180_000, realCore: { engine: { authMode: 'managed', claudeBin, codexBin: '/nonexistent/codex', proxyPort, modelUpstream: fake.url } },
+  h = await startHarness({ name: 'lockdown-subagents', stallTimeoutMs: 180_000, realCore: { engine: { authMode: 'managed', claudeBin, codexBin: '/nonexistent/codex', proxyPort, modelUpstream: fake.url } },
     ...(oauth ? { credentials: [{ kind: 'anthropic-oauth' as const, secret: 'sk-ant-oat01-' + 'L'.repeat(80) }] } : {}) })
   const sock: TestSocket = await h.ws('alice', { windowId: 'win-lockdown-sub' })
   await sock.next('hello')

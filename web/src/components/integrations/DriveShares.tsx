@@ -11,7 +11,7 @@ import { Search, TriangleAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
-import { mobileApp, openExternal } from '../../lib/mobile'
+import { openExternal } from '../../lib/mobile'
 import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
@@ -22,6 +22,10 @@ import { SettingRow, useLoad } from '../../pages/admin/common'
 import { CardMenu } from './AppConnectorCard'
 import { AccessPicker } from './IntegrationDialog'
 import { DriveLogo } from './DriveConnector'
+import { BrowserWait } from './BrowserWait'
+import { googleLink } from './googleLink'
+import { useWaitLimit } from '../../lib/signInWait'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
 
@@ -30,6 +34,8 @@ function useShareFlow() {
   const [flow, setFlow] = useState<DriveFlow | null>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
+  // the browser refused the window: Google's page as a link; the wait ran out (useWaitLimit): said so
+  const [popupBlocked, setPopupBlocked] = useState(false), [timedOut, setTimedOut] = useState(false)
   const generation = useRef(0), popup = useRef<Window | null>(null)
   useEffect(() => () => { generation.current++; popup.current?.close() }, [])
   useEffect(() => {
@@ -51,9 +57,10 @@ function useShareFlow() {
   }, [flow?.flowId, flow?.state])
   const start = async (shareId?: string) => {
     const g = ++generation.current
-    setBusy(true); setError(false); setFlow(null); setUrl(null)
+    setBusy(true); setError(false); setTimedOut(false); setFlow(null); setUrl(null)
     const place = signInPlace()
     popup.current = reserveSignInWindow(place)
+    setPopupBlocked(place === 'browser' && !popup.current)
     try {
       const r = await api.call(API.authorizeDriveShare, { body: shareId ? { shareId } : {} })
       if (g !== generation.current) return
@@ -85,7 +92,9 @@ function useShareFlow() {
       throw e
     } finally { if (g === generation.current) setBusy(false) }
   }
-  return { flow, url, busy, error, start, cancel, complete, inProgress: !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state) }
+  // the window was closed before Google answered: the wait ends, the flow is cancelled there (QA TC-1417)
+  useWaitLimit(!!flow && ['pending', 'exchanging'].includes(flow.state), flow?.flowId, () => { void cancel().then(() => { setError(true); setTimedOut(true) }) })
+  return { flow, url, busy, error, timedOut, popupBlocked, start, cancel, complete, inProgress: !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state) }
 }
 
 /** "Finance, Q3" or "Whole Drive" */
@@ -100,8 +109,8 @@ function foldersLine(t: ReturnType<typeof useT>, s: Pick<DriveShare, 'folders' |
 export function DriveAdminSettings({ onStatus }: { onStatus: (s: DriveAdminStatus) => void }) {
   const t = useT()
   const shares = useLoad(async () => (await api.call(API.listDriveShares)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   const [dialog, setDialog] = useState<{ share?: DriveShare; reconnect?: boolean } | null>(null)
   const refresh = async () => {
     void shares.reload()
@@ -214,12 +223,8 @@ function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }:
           {isNew && <Field label={t('driveShare.name')}><input className={inputCls} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} data-testid="drive-share-name" /></Field>}
           {!f.inProgress && <Button variant="primary" busy={f.busy} onClick={() => void f.start(share?.id)} data-testid="drive-share-google">{t('drive.openGoogle')}</Button>}
           {f.flow && f.flow.state !== 'ready' && f.inProgress && (
-            <div className="flex flex-wrap items-center gap-2 text-sm" role="status" data-testid="drive-share-waiting">
-              <span className="text-muted">{t('drive.waitingShort')}</span>
-              {f.url && <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline"
-                onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(f.url!, { purpose: 'google-oauth' }) } : undefined}>{t('drive.openGoogle')}</a>}
-              <Button size="sm" variant="ghost" className="ml-auto" onClick={() => void f.cancel()} data-testid="drive-share-cancel-flow">{t('common.cancel')}</Button>
-            </div>
+            <BrowserWait text={t('drive.waitingShort')} testId="drive-share-waiting" retryTestId="drive-share-retry-flow" cancelTestId="drive-share-cancel-flow" busy={f.busy}
+              onRetry={() => void f.start(share?.id)} onCancel={() => void f.cancel()} link={googleLink({ popupBlocked: f.popupBlocked, authorizationUrl: f.url }, t('drive.openGoogle'))} />
           )}
           {f.flow?.state === 'ready' && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="drive-share-confirm-step">
@@ -227,7 +232,7 @@ function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }:
               <Button size="sm" variant="primary" busy={f.busy} onClick={() => void confirm()} data-testid="drive-share-confirm">{t('drive.confirm')}</Button>
             </div>
           )}
-          {f.error && !f.inProgress && <p className="text-sm text-danger" role="alert">{t('drive.failed')}</p>}
+          {f.error && !f.inProgress && <p className="text-sm text-danger" role="alert">{t(f.timedOut ? 'connect.wait.timedOut' : 'drive.failed')}</p>}
         </>}
         {step === 'settings' && made && <>
           <p className="text-xs text-muted" data-testid="drive-share-signed-in">{t('driveShare.account', { email: made.account.email ?? made.account.name ?? '' })}</p>

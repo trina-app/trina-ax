@@ -1,18 +1,20 @@
 // The file screen (design tab 4 "파일", tab 2 "동시 수정"): tree, text content, save, folders, move / rename,
 // trash, version history. Every path goes through authorize() (policy/authorize.ts) with the caller's own rules;
 // what the caller may not read looks exactly like what does not exist.
+import { markTeamShares } from '../chat/team-shares'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
+import { projectsRestored } from '../chat/project-restore'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
 import { HttpError } from '../http/errors'
-import { atLeast, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
+import { atLeast, inPlace, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
@@ -24,6 +26,7 @@ import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
+import { dropFolderRow, hasAccessSettings } from '../admin/folders'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { FileError, fileError } from './errors'
@@ -362,7 +365,7 @@ export class TeamFiles {
    * moving it under users/<me>/ (where rules don't apply) or deleting it would reach what they cannot see. */
   private assertSubtreeWritable(user: Principal, rules: RuleSet, segs: string[]) {
     const base = segs.join('/')
-    for (const f of rules.ruleFolders()) if (isUnder(base, f) && rules.access(user, segsOf(f)) !== 'write') fileError('forbidden', 'hiddenInside')
+    for (const f of rules.boundaryFolders()) if (isUnder(base, f) && rules.access(user, segsOf(f)) !== 'write') fileError('forbidden', 'hiddenInside')
     const rows = this.ctx.db.query('SELECT path FROM folders').all() as { path: string }[]
     for (const f of rows) if (isUnder(base, f.path) && rules.access(user, segsOf(f.path)) !== 'write') fileError('forbidden', 'hiddenInside')
   }
@@ -375,7 +378,7 @@ export class TeamFiles {
    * author's included, for good (security review r2).
    */
   private managedInside(rules: RuleSet, base: string): boolean {
-    if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
+    if (rules.boundaryFolders().some((f) => f === base || isUnder(base, f))) return true
     return this.managedRows(base, base)
   }
   /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
@@ -386,7 +389,7 @@ export class TeamFiles {
     for (const f of rows) {
       const live = livePrefix + f.path.slice(rowPrefix.length)
       if (live === 'shared' || live === 'skills') return true
-      if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(f.id)) return true
+      if (hasAccessSettings(db, f.id)) return true
       if (db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) return true
     }
     // a project's folder (with or without a marker row: a project repointed by an admin has none); personal projects
@@ -401,7 +404,7 @@ export class TeamFiles {
   }
   /** managedInside() for what is strictly below `base` (base itself left out). */
   private managedBelow(rules: RuleSet, base: string): boolean {
-    if (rules.ruleFolders().some((f) => f !== base && isUnder(base, f))) return true
+    if (rules.boundaryFolders().some((f) => f !== base && isUnder(base, f))) return true
     const db = this.ctx.db
     const rows = db.query("SELECT path FROM folders WHERE substr(path, 1, length(?) + 1) = ? || '/'").all(base, base) as { path: string }[]
     for (const f of rows) if (this.managedRows(f.path, f.path)) return true
@@ -746,19 +749,25 @@ export class TeamFiles {
    * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
    * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
    */
-  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; widened?: number; fresh?: string; inTx?: () => void }): string | null {
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; widened?: number; fresh?: string; inTx?: () => void; onto?: true }): string | null {
     const toRel = target.join('/')
     const narrowed = o.narrowed ?? 0
     const widened = o.widened ?? 0
     const db = this.ctx.db
+    // `onto` (moveFolderOnto): the target is the empty folder the server just made for this move, and its own folders
+    // row (its rules) stays; only a row below it clashes
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
-      const clash = db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel) as { path: string } | null
+      const clash = (o.onto
+        ? db.query('SELECT path FROM folders WHERE substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel)
+        : db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel)) as { path: string } | null
       if (clash) fileError('conflict', 'exists', { to: toRel })
     }
     verifyChain(this.root, fr.segs)
-    verifyChain(this.root, target, true)
+    verifyChain(this.root, target, !o.onto)
     const aside = path.join(path.dirname(fr.abs), PRODUCT.tmpPrefix + crypto.randomUUID())
     // DB first, the rename last inside the same transaction: if anything fails nothing has moved
+    let renamed = false
+    try {
     db.transaction(() => {
       const under = (col: string) => `(${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/')`
       // history kept for a file that used to live at the new path: the moved history continues after it
@@ -783,6 +792,9 @@ export class TeamFiles {
         }
       }
       const re = (table: string, col: string) => db.query(`UPDATE ${table} SET ${col} = ? || substr(${col}, length(?) + 1) WHERE ${under(col)}`).run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
+      // onto: the moved folder's own row (a rule-less marker; moveFolderOnto refused rules and groups) gives way to the
+      // target's, which keeps its rules
+      if (o.onto) { const own = db.query('SELECT id FROM folders WHERE path = ?').get(fr.rel) as { id: string } | null; if (own) dropFolderRow(db, own.id) }
       re('folders', 'path')
       // projects follow the folder: those in place, and those whose folder went to the trash from inside it while the
       // trash items follow it (below), so that they come back with it. A project whose folder was trashed from the
@@ -790,6 +802,13 @@ export class TeamFiles {
       const trashFollows = isDir && personalSide(fr.segs) === personalSide(target)
       db.query(`UPDATE projects SET folder_path = ? || substr(folder_path, length(?) + 1) WHERE ${under('folder_path')} AND (trashed_with IS NULL${trashFollows ? " OR trashed_with IN (SELECT id FROM trash_items WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/')" : ''})`)
         .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel, ...(trashFollows ? [fr.rel, fr.rel] : []))
+      // a project whose folder left users/ is a team project now: it shares its new chats (docs/DECISIONS.md "Team
+      // project chats shared by default"; the column for a rollback build)
+      // (onto a new project folder: the share records it itself, routes/chats.ts shareProject)
+      if (!o.onto) {
+        const moved = (db.query(`SELECT id FROM projects WHERE ${under('folder_path')}`).all(toRel, toRel, toRel) as { id: string }[]).map((r) => r.id)
+        if (moved.length) markTeamShares(db, userId, 'moved', moved)
+      }
       re('file_versions', 'path')
       re('file_versions', 'conflict_path')
       re('attachments', 'path')
@@ -810,11 +829,22 @@ export class TeamFiles {
       fileEvent(db, { turnId: o.turnId ?? null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: o.tool ?? 'file-screen' } })
       fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}), ...(widened ? { audienceWidened: widened } : {}) } })
       const toAbs = path.join(this.root, ...target)
-      if (!o.fresh) fs.renameSync(fr.abs, toAbs)
+      // the caller's own rows, in the same transaction (the rename is the last step)
+      o.inTx?.()
+      if (o.onto) {
+        // onto the empty folder made for it: POSIX rename(2) replaces an empty folder in one step, so the target never
+        // goes missing and the files land under its rules at once. Windows refuses that: there the empty folder goes
+        // first and comes back if the rename fails (the database part rolls back with it)
+        if (process.platform !== 'win32') fs.renameSync(fr.abs, toAbs)
+        else {
+          fs.rmdirSync(toAbs)
+          try { fs.renameSync(fr.abs, toAbs) } catch (e) { try { fs.mkdirSync(toAbs, { mode: 0o700 }) } catch {} throw e }
+        }
+        renamed = true
+      } else if (!o.fresh) fs.renameSync(fr.abs, toAbs)
       else {
         // skill_files: the new files (the card's bytes) go where the move goes, and what moved is put aside to be
         // removed: either both happen or neither (the database part rolls back with them)
-        o.inTx?.()
         fs.renameSync(o.fresh, toAbs)
         try { fs.renameSync(fr.abs, aside) } catch (e) {
           // the card's files never stay without the move: put back, or else removed
@@ -823,6 +853,17 @@ export class TeamFiles {
         }
       }
     })()
+    } catch (e) {
+      // onto: renamed, but the transaction did not commit (its COMMIT failed, say): the folder goes back where the
+      // database still says it is, so nothing is left where its caller would take the empty folder away again
+      const gone = (abs: string) => { try { fs.lstatSync(abs); return false } catch { return true } }
+      if (renamed || (o.onto && gone(fr.abs) && !gone(path.join(this.root, ...target)))) {
+        try { fs.renameSync(path.join(this.root, ...target), fr.abs); if (process.platform !== 'win32') fs.mkdirSync(path.join(this.root, ...target), { mode: 0o700 }) } catch (err) {
+          this.ctx.log.error('a folder moved onto a project folder could not go back after the move failed', { from: fr.rel, to: toRel, err: String((err as Error)?.message ?? err) })
+        }
+      }
+      throw e
+    }
     this.moveTextCache(fr.rel, toRel, isDir)
     // what was moved, put aside: the caller settles it (settleAside)
     return o.fresh ? aside : null
@@ -1069,6 +1110,23 @@ export class TeamFiles {
     return true
   }
   /** The skills folder ensureSkillsFolder made, taken away again while it is still empty. */
+  /**
+   * Remove the caller's folder `rel` only while it is empty (the folder of a project that 되돌리기 took back right after
+   * making it: routes/chats.ts deleteProject ifEmpty). rmdir, never recursive: a file saved there in the moment since
+   * keeps the folder, and nothing is lost. false when it stayed.
+   */
+  removeEmptyFolder(userId: string, rel: string): boolean {
+    let r: Authorized
+    try { r = authorize(this.fx, this.rules(), this.principal(userId), rel, 'write', { mustExist: true }) } catch { return false }
+    // only inside my own personal folder, never the folder itself
+    if (r.segs[0] !== 'users' || r.segs[1] !== userId || r.segs.length < 3) return false
+    if (!r.st!.isDirectory() || r.st!.isSymbolicLink()) return false
+    try { fs.rmdirSync(r.abs) } catch { return false }
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'delete', detail: { folder: true, empty: true, tool: 'file-screen' } })
+    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId: null }])
+    return true
+  }
+
   dropEmptySkillsFolder(rel: string) {
     try { fs.rmdirSync(path.join(this.root, ...rel.split('/'))) } catch { /* not empty, or gone: left */ }
   }
@@ -1156,31 +1214,6 @@ export class TeamFiles {
   }
 
   /**
-   * Copy what is inside the caller's folder `from` into the empty folder `to` (a team project folder the server just
-   * made for sharing a personal project, routes/chats.ts shareProject): read as the caller, written where the caller may
-   * write (the new folder's rules let its creator write). Same limits as copyFolderTree. The caller takes `to` away
-   * when this fails.
-   */
-  copyFolderInto(userId: string, from: string, to: string, o: { maxFiles?: number; maxBytes?: number } = {}): { files: number; bytes: number } {
-    const user = this.principal(userId)
-    const rules = this.rules()
-    const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
-    if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
-    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: true })
-    if (!tr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
-    if (tr.rel === fr.rel || isUnder(fr.rel, tr.rel) || isUnder(tr.rel, fr.rel)) fileError('validation', 'intoItself', { to })
-    if (fs.readdirSync(tr.abs).length) fileError('conflict', 'exists', { to })
-    const { files, bytes } = this.copyTree(user, rules, fr, tr.abs, (tmp) => {
-      for (const name of fs.readdirSync(tmp)) fs.renameSync(path.join(tmp, name), path.join(tr.abs, name))
-      fs.rmdirSync(tmp)
-    }, o)
-    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], files: files.length, tool: 'file-screen' } })
-    for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
-    this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
-    return { files: files.length, bytes }
-  }
-
-  /**
    * Take back a folder that copyFolderTree() made in this request when the request's next step failed (sharing a
    * project refuses a folder another project names, routes/chats.ts): removed for good, not through the trash, so
    * nothing of it stays behind for an old project to take over. The copy holds only folders and files this request
@@ -1193,6 +1226,39 @@ export class TeamFiles {
     this.dropTextCache(rel, true)
     fileEvent(this.ctx.db, { turnId: null, userId, path: rel, action: 'delete', detail: { folder: true, discarded: true, tool: 'file-screen' } })
     this.publish([{ path: rel, action: 'delete', by: this.by(userId), turnId: null }])
+  }
+
+  /**
+   * Move the caller's personal project folder `from` (users/<me>/...) onto `to`, the empty team project folder
+   * projects/<name> the server just made for it with its members' rules (routes/chats.ts shareProject: sharing a
+   * personal project moves its files, docs/DECISIONS.md "Making a project"). As a move on the Files screen (relocate:
+   * history, attachments, projects and the text cache follow; what I deleted from it stays in my own trash): the
+   * database part and the rename in one transaction, so either all of it moved or nothing did and the folder is where
+   * it was. `to` keeps its folders row and rules, so the files are the members' alone the moment they arrive. `inTx`
+   * runs in that transaction right before the rename (the project's own row). A folder row with rules or a group below
+   * `from` (rules are not read under users/; moved, they would start to count) refuses the move.
+   */
+  moveFolderOnto(userId: string, from: string, to: string, inTx: () => void): { files: number; bytes: number } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const fr = authorize(this.fx, rules, user, from, 'write', { mustExist: true })
+    if (!fr.st!.isDirectory() || fr.st!.isSymbolicLink()) throw new ToolError('not a folder', 'not_folder')
+    if (fr.segs[0] !== 'users' || fr.segs[1] !== user.id || fr.segs.length < 3) throw new Denied('only a folder in my own personal folder moves onto a project folder')
+    this.assertMovable(fr.segs)
+    this.assertSubtreeWritable(user, rules, fr.segs)
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: true })
+    if (!tr.st!.isDirectory() || tr.st!.isSymbolicLink()) throw new ToolError('not a folder', 'not_folder')
+    if (tr.segs.length !== 2 || !inProjectZone(tr.segs)) throw new Denied('only onto a projects/<name> folder')
+    if (fs.readdirSync(tr.abs).length) fileError('conflict', 'exists', { to: tr.rel })
+    const db = this.ctx.db
+    const rows = db.query("SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(fr.rel, fr.rel, fr.rel) as { id: string }[]
+    for (const f of rows) {
+      if (hasAccessSettings(db, f.id) || db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) fileError('forbidden', 'ruleFolder')
+    }
+    const size = treeSize(fr.abs)
+    this.relocate(userId, fr, tr.segs, true, { tool: 'project-share', onto: true, inTx })
+    this.publish([{ path: tr.rel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }], rules)
+    return size
   }
 
   private moveTextCache(from: string, to: string, isDir: boolean) {
@@ -1430,7 +1496,7 @@ export class TeamFiles {
   private unreadableManagedBelow(user: Principal, rules: RuleSet, rel: string, projectFolders: readonly string[]): boolean {
     const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
     const me = k(rel)
-    const below = [...projectFolders, ...this.groupFolders(), ...rules.ruleFolders()].filter((f) => k(f).startsWith(me + '/'))
+    const below = [...projectFolders, ...this.groupFolders(), ...rules.boundaryFolders()].filter((f) => k(f).startsWith(me + '/'))
     return below.some((f) => !atLeast(rules.access(user, segsOf(f)), 'read'))
   }
 
@@ -1844,15 +1910,14 @@ export class TeamFiles {
       chain.push(up)
       cur = up
     }
-    const rows = db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as { path: string; subject_type: string; subject_id: string | null; access: string }[]
     const at = (p: string, base: string) => base === '' || p === base || p.startsWith(base + '/')
-    const out: typeof rows = []
-    for (const r of rows) {
-      const held = chain.find((c) => at(r.path, c.storage_path))
-      if (held) out.push({ ...r, path: held.original_path + r.path.slice(held.storage_path.length) })
-      else if (!chain.some((c) => at(r.path, c.original_path))) out.push(r)
+    // (the loader: limits and project exceptions come with the rows)
+    const map = (p: string): string | null => {
+      const held = chain.find((c) => at(p, c.storage_path))
+      if (held) return held.original_path + p.slice(held.storage_path.length)
+      return chain.some((c) => at(p, c.original_path)) ? null : p
     }
-    return { path: own.original_path + f.path.slice(storage.length), rules: new RuleSet(out as any) }
+    return { path: own.original_path + f.path.slice(storage.length), rules: RuleSet.fromDb(db, { mapPath: map }) }
   }
   /**
    * Where a trash item goes back to now: its original path (move() keeps it up to date), held against the folder it
@@ -1890,13 +1955,16 @@ export class TeamFiles {
     // a trashed group / project / rule folder went there by an admin or the owner (assertMayChangeManaged) and comes
     // back only the same way: listing it to members, whose restore then failed (they cannot write groups/ or
     // projects/), offered what could not be done (design tab 4 move/delete; security review r2)
-    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home, t.id)) return false
+    // A team project's own folder (docs/DECISIONS.md "A team project in the trash: its members keep its card"): the owner
+    // and admins manage every team project without reading it (chat/projects.ts mayManageProject), so they see and
+    // restore it here as on its page (QA TC-1061); so does its creator, while they may write it by its own parked rules,
+    // that is while they are one of its members (QA TC-1062)
+    const project = t.kind === 'folder' ? this.projectFolderOf(t, home) : null
+    if (project && isStaff(user)) return true
+    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home, t.id) && project?.created_by !== user.id) return false
     // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
     // since belong to that other folder and do not
-    const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
-        THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
-      FROM folder_rules r JOIN folders f ON f.id = r.folder_id
-      WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, home) as any) : rules
+    const r = t.kind === 'folder' ? RuleSet.fromDb(this.ctx.db, { mapPath: inPlace(t.storage_path, home) }) : rules
     const access = (p: string) => r.access(user, segsOf(p))
     if (access(home) !== 'write') return false
     if (t.folder_id) {
@@ -1909,6 +1977,42 @@ export class TeamFiles {
       if (from !== null && from !== home && !atLeast(access(from), 'read')) return false
     }
     return true
+  }
+  /**
+   * A trashed folder that is exactly one team project's own folder (projects/<name>, which went to the trash with that
+   * project and nothing else), with no group's folder parked inside it: the project (its creator may see and restore it
+   * in Files › Trash, as the owner and admins do; trashVisible).
+   */
+  private projectFolderOf(t: TrashRow, home: string): { created_by: string | null } | null {
+    const segs = segsOf(home)
+    if (segs.length !== 2 || !inProjectZone(segs)) return null
+    const db = this.ctx.db
+    const rows = db.query('SELECT created_by, folder_path FROM projects WHERE trashed_with = ?').all(t.id) as { created_by: string | null; folder_path: string }[]
+    if (rows.length !== 1 || rows[0]!.folder_path !== t.original_path) return null
+    if (db.query(`SELECT 1 FROM groups g JOIN folders f ON f.id = g.folder_id WHERE f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/' LIMIT 1`).get(t.storage_path)) return null
+    return rows[0]!
+  }
+  /** May `userId` restore trash item `id` now? The same rule as restoreTrash without `manager` (trashVisible: for a team
+   * project's own folder, the owner, admins and its creator while they may write it by its own rules). */
+  mayRestoreTrash(userId: string, id: string): boolean {
+    const t = this.trashRow(id)
+    if (!t) return false
+    try { return this.trashVisible(this.principal(userId), this.rules(), t) } catch { return false }
+  }
+  /** The team project trash item `id` is the own folder of (null: any other item, or gone): Files › Trash's Delete for
+   * good on it is the project's own delete (routes/files.ts purgeTrash, chat/project-delete.ts). */
+  trashedProjectOf(id: string): { id: string; name: string } | null {
+    const t = this.trashRow(id)
+    const home = t ? this.trashHome(t) : null
+    // a team project in projects/<name> (an older project on another folder keeps the folder-only purge it had)
+    if (!t || home === null || t.kind !== 'folder' || !this.projectFolderOf(t, home)) return null
+    return this.trashProject(t) ?? null
+  }
+  /** the project a trashed folder is the own folder of (Files › Trash names it as the project) */
+  private trashProject(t: TrashRow): { id: string; name: string } | undefined {
+    if (t.kind !== 'folder') return undefined
+    const r = this.ctx.db.query('SELECT id, name FROM projects WHERE trashed_with = ? AND folder_path = ? ORDER BY created_at, id LIMIT 1').get(t.id, t.original_path) as { id: string; name: string } | null
+    return r ?? undefined
   }
   private trashRow(id: string): TrashRow | null {
     return this.ctx.db.query('SELECT id, original_path, storage_path, size, deleted_by, turn_id, deleted_at, purge_at, kind, folder_id FROM trash_items WHERE id = ? AND restored_at IS NULL').get(id) as TrashRow | null
@@ -1937,6 +2041,7 @@ export class TeamFiles {
       items: out.map((t) => ({
         id: t.id, originalPath: t.original_path, size: t.size, deletedBy: refs.get(t.deleted_by) ?? { id: t.deleted_by, name: t.deleted_by },
         turnId: t.turn_id, deletedAt: normIso(t.deleted_at), purgeAt: normIso(t.purge_at), type: t.kind,
+        ...(() => { const project = this.trashProject(t); return project ? { project } : {} })(),
       })),
       nextCursor: out.length === limit && (more || out[out.length - 1]!.id !== after) ? out[out.length - 1]!.id : null,
     }
@@ -1970,6 +2075,7 @@ export class TeamFiles {
       if (parked && this.ctx.db.query(`SELECT 1 FROM folders WHERE ${under} LIMIT 1`).get(r.rel, r.rel, r.rel)) fileError('conflict', 'restoreTaken')
     }
     const src = path.join(this.root, ...t.storage_path.split('/'))
+    let back: string[] = []
     if (isDir) {
       const st = fs.lstatSync(src)
       if (!st.isDirectory()) throw new Denied('trash item changed')
@@ -1990,7 +2096,7 @@ export class TeamFiles {
                 AND NOT EXISTS (SELECT 1 FROM trash_items p WHERE p.kind = 'folder' AND p.id > trash_items.id AND p.id < ?3
                   AND substr(trash_items.original_path, 1, length(p.original_path) + 1) = p.original_path || '/')))`)
           .run(r.rel, t.original_path, t.id)
-        this.projectsBack(t, r.rel)
+        back = this.projectsBack(t, r.rel)
         fs.renameSync(src, r.abs)
       })()
     } else {
@@ -2001,6 +2107,13 @@ export class TeamFiles {
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
     if (!isDir) this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
+    // its projects' paused scheduled tasks and shared chats come back to their people (QA TC-1014, TC-1015)
+    projectsRestored(this.ctx, back, { by: userId, trashedAt: t.deleted_at })
+    // a project back with its folder: audited as its page's Restore audits it, from either place (QA TC-1061)
+    for (const id of back) {
+      const p = this.ctx.db.query('SELECT name FROM projects WHERE id = ?').get(id) as { name: string } | null
+      this.ctx.db.query('INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?,?,?,?)').run(userId, 'project.restore', id, JSON.stringify({ name: p?.name ?? '' }))
+    }
     return { entry: this.entry(person, this.rules(), r.segs) }
   }
   /**
@@ -2011,7 +2124,7 @@ export class TeamFiles {
    * already names stays detached, at its old path and admin-only, for an admin to point at a folder. A purge keeps the
    * mark (purgeRow): the project stays the admins' and the owner's, to delete or point elsewhere.
    */
-  private projectsBack(t: TrashRow, to: string) {
+  private projectsBack(t: TrashRow, to: string): string[] {
     const db = this.ctx.db
     const from = t.original_path
     const under = (col: string, n: number) => `(${col} = ?${n} OR substr(${col}, 1, length(?${n}) + 1) = ?${n} || '/')`
@@ -2022,13 +2135,18 @@ export class TeamFiles {
     }
     const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
     const inPlace = new Set((db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]).map((r) => key(r.folder_path)))
+    const back: string[] = []
     for (const pr of db.query('SELECT id, folder_path FROM projects WHERE trashed_with = ? ORDER BY created_at, id').all(t.id) as { id: string; folder_path: string }[]) {
       if (pr.folder_path !== from && !pr.folder_path.startsWith(from + '/')) continue
       const next = to + pr.folder_path.slice(from.length)
       if (inPlace.has(key(next))) continue
       db.query('UPDATE projects SET folder_path = ?, trashed_with = NULL WHERE id = ?').run(next, pr.id)
       inPlace.add(key(next))
+      back.push(pr.id)
     }
+    // (a project back in a team folder shares its new chats: chat/team-shares.ts)
+    markTeamShares(db, null, 'moved')
+    return back
   }
 
   /** Admin or owner (route auth), and like every trash action only for items the caller could restore: an admin has
@@ -2125,6 +2243,40 @@ export class TeamFiles {
       if (mine) return this.entry(user, rules, segs, st)
     }
     return null
+  }
+
+  // ---------------- a deleted account ----------------
+  /** A person who asked for their account to be deleted (admin/users.ts removeAccount): what they had put in the trash
+   * from their personal folder goes for good now, before the folder moves to the owner's archive (a trashed item would
+   * follow it there). Returns how many trash items went. */
+  forgetTrashUnder(prefix: string): number {
+    if (!/^users\/[^/]+$/.test(prefix)) throw new Error(`not a personal folder: ${prefix}`)
+    const rows = this.ctx.db.query("SELECT id, storage_path, kind FROM trash_items WHERE restored_at IS NULL AND (original_path = ? OR substr(original_path, 1, length(?) + 1) = ? || '/')")
+      .all(prefix, prefix, prefix) as Pick<TrashRow, 'id' | 'storage_path' | 'kind'>[]
+    let n = 0
+    for (const t of rows) {
+      // a folder purged earlier in this loop took its inner items with it
+      if (!this.ctx.db.query('SELECT 1 FROM trash_items WHERE id = ?').get(t.id)) continue
+      this.purgeRow(t); n++
+    }
+    return n
+  }
+
+  /** After the personal folder of a deleted account moved or was removed: file history (with its stored copies) and
+   * folder records still under users/<id>/ belong to no file anyone can open, and go now. */
+  forgetRecordsUnder(prefix: string): { versions: number; folders: number } {
+    if (!/^users\/[^/]+$/.test(prefix)) throw new Error(`not a personal folder: ${prefix}`)
+    const db = this.ctx.db
+    const under = "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')"
+    let versions = 0
+    for (const v of db.query(`SELECT id, storage_path FROM file_versions WHERE ${under}`).all(prefix, prefix, prefix) as { id: string; storage_path: string | null }[]) {
+      if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })
+      db.query('DELETE FROM file_versions WHERE id = ?').run(v.id)
+      versions++
+    }
+    // a folder record still used by a trashed item (someone else's, in theory) stays for that item
+    const folders = db.query(`DELETE FROM folders WHERE ${under} AND id NOT IN (SELECT folder_id FROM trash_items WHERE folder_id IS NOT NULL AND restored_at IS NULL) AND id NOT IN (SELECT folder_id FROM file_versions WHERE folder_id IS NOT NULL)`).run(prefix, prefix, prefix).changes
+    return { versions, folders }
   }
 
   // ---------------- retention ----------------

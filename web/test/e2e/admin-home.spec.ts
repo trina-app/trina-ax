@@ -277,6 +277,19 @@ test('the admin menu stays where it is while the page scrolls on a wide screen; 
   }
 })
 
+test('a short window: the menu brings the current page\'s row into view', async ({ page }) => {
+  await start(page)
+  // short enough that the menu scrolls whatever the fonts; Team settings is in its last group
+  await page.setViewportSize({ width: 1360, height: 440 })
+  await page.goto('/admin/settings')
+  const menu = page.getByTestId('admin-menu')
+  expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect(menu.getByRole('link', { name: t['admin.settings'], exact: true })).toBeInViewport()
+  // another page from the menu: its row too
+  await menu.getByRole('link', { name: t['admin.home'], exact: true }).click()
+  await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toBeInViewport()
+})
+
 test('a long explanation stays on one line until "More" opens it', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 1100, height: 800 })
@@ -569,4 +582,49 @@ test('projects from before the update: the dismiss keeps it closed; a member nev
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   expect(((await (await page.request.get('/api/projects/update-notice')).json()) as { items: unknown[] }).items).toEqual([])
+})
+
+// QA TC-1509: with tasks running, Install update asks: wait for them (the default) or update now anyway (force); an
+// update that already waits says so on Admin › System and can go on now.
+test('updating with tasks running: wait or update now anyway; an update that waits says so', async ({ page }) => {
+  await start(page)
+  let status: Record<string, unknown> = { ...NEW_STATUS, running: 2, waiting: null }
+  await answerUpdate(page, () => ({ json: status }))
+  const sent: Record<string, unknown>[] = []
+  await page.route('**/api/admin/update', (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    sent.push(r.request().postDataJSON())
+    return r.fulfill({ status: 202, json: { jobId: 'job-upd' } })
+  })
+  await page.route('**/api/jobs/job-upd', (r) => r.fulfill({ json: { id: 'job-upd', kind: 'update', status: 'running', progress: null, message: 'An update is waiting for 2 running tasks to finish', result: null, error: null, createdAt: new Date().toISOString(), finishedAt: null } }))
+  await page.goto('/admin/system/updates')
+  await page.getByRole('button', { name: t['system.installUpdate'] }).click()
+  const dialog = page.getByRole('dialog', { name: t['system.installUpdate'] })
+  await expect(dialog.getByTestId('update-running')).toContainText('2 tasks are running now')
+  await expect(dialog.getByTestId('reauth-confirm')).toHaveText(t['system.updateWait'])
+  await dialog.getByTestId('reauth-password').fill('pw')
+  await dialog.getByTestId('update-anyway').click()
+  await expect.poll(() => sent.length).toBe(1)
+  expect(sent[0]).toMatchObject({ version: '0.3.0', force: true })
+
+  // an update that waits (this server's own): the line, and "Update now anyway" sends force
+  status = { ...NEW_STATUS, running: 1, waiting: { since: new Date().toISOString(), until: new Date(Date.now() + 1_800_000).toISOString(), skippable: true } }
+  await page.goto('/admin/system/updates')
+  await expect(page.getByTestId('update-waiting')).toHaveText('An update is waiting for 1 running task to finish.')
+  await page.getByTestId('update-waiting-anyway').click()
+  const anyway = page.getByRole('dialog', { name: t['system.updateAnyway'] })
+  await anyway.getByTestId('reauth-password').fill('pw')
+  await anyway.getByTestId('reauth-confirm').click()
+  await expect.poll(() => sent.length).toBe(2)
+  expect(sent[1]).toMatchObject({ force: true })
+
+  // root's update waits (not this server's): the line, no button; no task running: no line
+  status = { ...NEW_STATUS, running: 1, waiting: { since: new Date().toISOString(), until: new Date(Date.now() + 1_800_000).toISOString(), skippable: false } }
+  await page.goto('/admin/system/updates')
+  await expect(page.getByTestId('update-waiting')).toBeVisible()
+  await expect(page.getByTestId('update-waiting-anyway')).toHaveCount(0)
+  status = { ...NEW_STATUS, running: 0, waiting: { since: new Date().toISOString(), until: new Date().toISOString(), skippable: false } }
+  await page.goto('/admin/system/updates')
+  await expect(page.getByTestId('system-update')).toBeVisible()
+  await expect(page.getByTestId('update-waiting')).toHaveCount(0)
 })

@@ -102,12 +102,16 @@ export interface World {
     projAlice: string; projFalcon: string; projMkt: string; projShared: string; projTeam: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
+    /** a scheduled task of alice's (a template: no card), for her run history (listScheduleRuns) */
+    scheduleAlice: string
     budget: string; bobChat: string; suggestion: string
     teamCredential: string; aliceOwnCredential: string
     /** the DM of alice and erin, alice's message in it, a second one of hers to delete, and an image she sent */
     dmRoom: string; dmMsg: string; dmMsgDel: string; dmFile: string
     /** a group chat alice made with erin and frank (alice is its manager), and a second one only for leaving */
     groupRoom: string; groupLeaveRoom: string
+    /** the everyone room, a GitHub app the owner added there, and an Other app alice added in her DM with erin */
+    allRoom: string; allApp: string; dmApp: string
     /** Team plan's shared chat, its trashed file and an old version of its plan.md */
     teamChat: string; trashTeam: string; teamVersion: string
   }
@@ -165,10 +169,13 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   legacyProjectFolder(inst.ctx.db, inst.team, 'projects/falcon', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: fin.id, access: 'read' }], 'dana')
   legacyProjectFolder(inst.ctx.db, inst.team, 'projects/atlas', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: fin.id, access: 'read' }], 'dana')
   legacyProjectFolder(inst.ctx.db, inst.team, 'projects/falcon/public', [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'dana')
+  // (limited, as the conversion makes it: everyone views there, nothing more from falcon; docs/DECISIONS.md "Folder
+  // access adds up like Google Drive (P2)")
+  inst.ctx.db.query("UPDATE folders SET limited = 1 WHERE path = 'projects/falcon/public'").run()
   const folderList = (await owner.ok('GET', '/api/admin/folders')).items as { id: string; path: string }[]
   const mktFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('marketing'))!.path
   const finFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('finance'))!.path
-  await owner.ok('POST', '/api/admin/folders', { path: `${mktFolder}/salaries`, create: true, rules: [rule('group', mk.id, 'none')] })
+  await owner.ok('POST', '/api/admin/folders', { path: `${mktFolder}/salaries`, create: true, limited: true, rules: [] })
   const folders = Object.fromEntries(((await owner.ok('GET', '/api/admin/folders')).items as { id: string; path: string }[]).map((f) => [f.path, f.id]))
 
   // ---------------- AI connections (sealed in the "browser" like the web app does) ----------------
@@ -197,7 +204,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await save(alice, 'projects/atlas/atlas.md', 'atlas notes\n')
   await save(carol, 'skills/team-rules.md', 'team rules\n')
   // skills: a team skill only the finance group reads, and a personal skill of alice
-  await owner.ok('POST', '/api/admin/folders', { path: 'skills/finance', create: true, rules: [rule('everyone', null, 'none'), rule('group', fin.id, 'read')] })
+  await owner.ok('POST', '/api/admin/folders', { path: 'skills/finance', create: true, limited: true, rules: [rule('group', fin.id, 'read')] })
   await save(carol, 'skills/finance/close.md', `---\nname: Month close\ndescription: ${C.finSkill}\n---\nclose the books\n`)
   await save(alice, 'users/alice/skills/mine.md', `---\nname: Alice own\ndescription: ${C.aliceSkill}\n---\nmy steps\n`)
   // trash
@@ -300,6 +307,16 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await alice.ok('POST', `/api/rooms/${groupRoom}/messages`, { body: `${C.groupMsg} agenda`, clientMessageId: cm() })
   const groupLeaveRoom = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'frank'] })).id
 
+  // ---------------- apps posting in rooms: one in the everyone room (the owner's), one in the DM of alice and erin ----------------
+  // (an app needs an internet address: the instance gets a public one from here on)
+  inst.ctx.config.publicOrigins = ['https://team.acme-corp.com']
+  const allRoom = ((await alice.ok('GET', '/api/rooms')).items as { id: string; kind: string }[]).find((r) => r.kind === 'all')!.id
+  const allApp = (await as.owner.ok('POST', `/api/rooms/${allRoom}/apps`, { kind: 'github' })).app.id
+  const dmApp = (await alice.ok('POST', `/api/rooms/${dmRoom}/apps`, { kind: 'other', name: 'Deploys' })).app.id
+
+  // a scheduled task of alice's own (a template needs no card); its run history is hers alone
+  const scheduleAlice = (await alice.ok('POST', '/api/schedule-templates', { requestId: crypto.randomUUID(), templateId: 'daily-file-index', version: 1, sourcePath: 'shared', outputPath: 'users/alice/reports', time: '09:00' })).id
+
   const desktop = { alice: inst.client('alice-desktop', { client: 'desktop', window: 'win-alice-desk' }), bob: inst.client('bob-desktop', { client: 'desktop', window: 'win-bob-desk' }) }
   await desktop.alice.login('alice', PW.alice, 'desktop')
   await desktop.bob.login('bob', PW.bob, 'desktop')
@@ -312,7 +329,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion,
+      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion, scheduleAlice, allRoom, allApp, dmApp,
     },
   }
 }

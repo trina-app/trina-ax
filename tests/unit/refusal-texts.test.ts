@@ -12,6 +12,7 @@ import { buildTurnContext, buildTurnPrompt, confidentialRule, deleteRule, shared
 import { scheduledRunBlock } from '../../server/src/chat/schedules'
 import { roomRefsBlock } from '../../server/src/chat/turn'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { DICTS } from '../../web/src/i18n'
 
 describe('refusal()', () => {
   test('the four parts in order: done, why, the extra line, the next step, the names', () => {
@@ -54,8 +55,8 @@ describe('refusal()', () => {
   })
 
   test('screens by the names the app shows, in every app language', () => {
-    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es'])
-    const trash = { ko: '파일 › 휴지통', en: 'Files › Trash', id: 'File › Sampah', ja: 'ファイル › ゴミ箱', es: 'Archivos › Papelera' }
+    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es', 'zh'])
+    const trash = { ko: '파일 › 휴지통', en: 'Files › Trash', id: 'File › Sampah', ja: 'ファイル › ゴミ箱', es: 'Archivos › Papelera', zh: '文件 › 回收站' }
     for (const L of Locale.options) {
       expect(SCREEN.trash(L)).toContain(`"${trash[L]}"`)
       for (const s of Object.values(SCREEN)) expect(s(L).length).toBeGreaterThan(5)
@@ -164,10 +165,16 @@ describe('the instructions say what each kind of chat cannot do, and where to do
     browser: false, tools: ['move_files', 'copy_files'], history: null, ...extra,
   })
 
+  test('"Continue in a chat only you see": the AI names the menu item by the app\'s own words, in every language', () => {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(SCREEN.continuePrivately(L)).toBe(DICTS[L]['chat.continuePrivately'])
+  })
+
   test('a shared chat: what is missing there, and an own chat instead', () => {
     const t = sharedSection({ project: 'Atlas', audience: 3, asker: 'Alice Kim' }, 'ko')
-    expect(t).toContain('Not available in a shared chat: memories about Alice Kim, connected services (and connecting one), Google Drive, the browser, scheduled tasks, video generation and reading team chat rooms')
-    expect(t).toContain('a chat of their own (a new AI chat), where only Alice Kim sees the answer')
+    // everything SHARED_TOOLS leaves out (review S2), and always the way to a chat only they see, by its name in the
+    // person's language (docs/DECISIONS.md "Team project chats shared by default")
+    expect(t).toContain("Not available in a shared chat: memories about Alice Kim; naming this chat; listing, saving or moving skills; putting team files in the trash; changing the project's members; team chat rooms (reading them or posting to one); scheduled tasks; Google Drive; video generation; connected services (and connecting one); the browser on Alice Kim's computer; the dev environment.")
+    expect(t).toContain('Alice Kim can ask again in a chat only they see: "나만 보는 채팅에서 이어 하기" in this chat\'s menu at the top')
   })
 
   test('a confidential chat: told, with which tools are off and why, in the instructions and a resumed session', () => {

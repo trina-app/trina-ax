@@ -53,7 +53,7 @@ function setup(db: import('bun:sqlite').Database, team: string) {
   // a team skill only finance reads: moved to the top of skills/, the whole team would get it
   put('skills/hr/payroll/SKILL.md', md('payroll', 'finance payroll'))
   const hr = 'f_skills_hr'
-  db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(hr, 'skills/hr')
+  db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(hr, 'skills/hr')
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_hr_all', ?, 'everyone', NULL, 'none')").run(hr)
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_hr_fin', ?, 'group', 'finance', 'read')").run(hr)
   put('groups/marketing/skills/brief/SKILL.md', md('brief', 'marketing brief'))
@@ -540,7 +540,7 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
   const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
   const cm = () => 'cm-' + crypto.randomUUID()
   beforeAll(async () => {
-    h = await startHarness({ name: 'skill-files-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'skill-files-app', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
     // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
     // project uses, when they run (after the start, in their own time): the fixture's falcon is this suite's own
     // project (made below, as before that build), so the one the steps made for it goes, once the steps are done

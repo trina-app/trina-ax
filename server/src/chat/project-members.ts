@@ -65,55 +65,58 @@ export const PROJECT_MEMBERS_DESCRIPTION = 'Add or remove members (people and gr
   'project: its name or folder (projects/<name>); default: this chat\'s project.'
 
 type L5 = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): L5 => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): L5 => ({ ko, en, id, ja, es, zh })
 /** The card's words (the person's language). */
 export const MEMBERS_TEXT = {
-  ask: t("'{project}' 프로젝트의 멤버를 바꿀까요?", "Change the members of the project '{project}'?", "Ubah anggota proyek '{project}'?", 'プロジェクト「{project}」のメンバーを変更しますか？', '¿Cambiar los miembros del proyecto «{project}»?'),
+  ask: t("'{project}' 프로젝트의 멤버를 바꿀까요?", "Change the members of the project '{project}'?", "Ubah anggota proyek '{project}'?", 'プロジェクト「{project}」のメンバーを変更しますか？', '¿Cambiar los miembros del proyecto «{project}»?', '要修改项目“{project}”的成员吗？'),
   both: t('{gained}명이 새로 보고 {lost}명은 이 프로젝트를 못 보게 돼요 ({before}명 → {after}명).',
     '{gained, plural, one {# person starts} other {# people start}} seeing this project and {lost, plural, one {# person stops} other {# people stop}} ({before} → {after}).',
     '{gained} orang mulai melihat proyek ini dan {lost} orang tidak lagi ({before} → {after}).',
     '{gained, plural, one {#人} other {#人}}が新たにこのプロジェクトを見られるようになり、{lost, plural, one {#人} other {#人}}が見られなくなります（{before}人 → {after}人）。',
-    '{gained, plural, one {# persona empieza} other {# personas empiezan}} a ver este proyecto y {lost, plural, one {# persona deja} other {# personas dejan}} de verlo ({before} → {after}).'),
+    '{gained, plural, one {# persona empieza} other {# personas empiezan}} a ver este proyecto y {lost, plural, one {# persona deja} other {# personas dejan}} de verlo ({before} → {after}).',
+    '{gained, plural, one {#人开始} other {#人开始}}能看到这个项目，{lost, plural, one {#人不再} other {#人不再}}能看到（{before} → {after}）。'),
   gain: t('{gained}명이 새로 이 프로젝트를 보게 돼요 ({before}명 → {after}명).',
     '{gained, plural, one {# more person sees} other {# more people see}} this project ({before} → {after}).',
     '{gained} orang lagi akan melihat proyek ini ({before} → {after}).',
     '新たに{gained, plural, one {#人} other {#人}}がこのプロジェクトを見られるようになります（{before}人 → {after}人）。',
-    '{gained, plural, one {# persona más verá} other {# personas más verán}} este proyecto ({before} → {after}).'),
+    '{gained, plural, one {# persona más verá} other {# personas más verán}} este proyecto ({before} → {after}).',
+    '{gained, plural, one {另外#人} other {另外#人}}能看到这个项目（{before} → {after}）。'),
   lose: t('{lost}명은 이 프로젝트를 못 보게 돼요 ({before}명 → {after}명).',
     '{lost, plural, one {# person no longer sees} other {# people no longer see}} this project ({before} → {after}).',
     '{lost} orang tidak akan melihat proyek ini lagi ({before} → {after}).',
     '{lost, plural, one {#人} other {#人}}がこのプロジェクトを見られなくなります（{before}人 → {after}人）。',
-    '{lost, plural, one {# persona dejará} other {# personas dejarán}} de ver este proyecto ({before} → {after}).'),
-  same: t('보는 사람은 그대로예요 ({n}명).', 'Who sees it stays the same ({n, plural, one {# person} other {# people}}).', 'Yang melihatnya tetap sama ({n} orang).', '見られる人は変わりません（{n, plural, one {#人} other {#人}}）。', 'Quién lo ve no cambia ({n, plural, one {# persona} other {# personas}}).'),
-  opens: t('새로 보는 사람에게 열리는 것: {what}.', 'What opens to the people who start seeing it: {what}.', 'Yang terbuka bagi orang yang mulai melihatnya: {what}.', '新たに見られるようになる人に開かれるもの: {what}。', 'Lo que se abre a quienes empiezan a verlo: {what}.'),
-  files: t('파일 {n}개', '{n, plural, one {# file} other {# files}}', '{n} berkas', 'ファイル{n}個', '{n, plural, one {# archivo} other {# archivos}}'),
-  filesOthers: t('파일 {n}개(다른 사람이 올린 {m}개 포함)', '{n, plural, one {# file} other {# files}} ({m} put there by other people)', '{n} berkas ({m} ditaruh oleh orang lain)', 'ファイル{n}個（ほかの人が置いた{m}個を含む）', '{n, plural, one {# archivo} other {# archivos}} ({m} puestos por otras personas)'),
-  chats: t('공유 채팅 {n}개의 지난 대화 전체', 'the whole history of {n, plural, one {# shared chat} other {# shared chats}}', 'seluruh riwayat {n} obrolan bersama', '共有チャット{n}件の過去の会話すべて', 'todo el historial de {n, plural, one {# chat compartido} other {# chats compartidos}}'),
-  skills: t('프로젝트 스킬 {n}개({names})', '{n, plural, one {# project skill} other {# project skills}} ({names})', '{n} skill proyek ({names})', 'プロジェクトスキル{n}個（{names}）', '{n, plural, one {# habilidad del proyecto} other {# habilidades del proyecto}} ({names})'),
-  more: t('외 {n}', '{n} more', '{n} lagi', 'ほか{n}', '{n} más'),
-  futureGroup: t('부서를 넣으면 이 부서에 나중에 들어오는 사람도 보게 돼요.', 'A group added also opens it to whoever joins that group later.', 'Grup yang ditambahkan juga membukanya bagi siapa pun yang bergabung ke grup itu nanti.', 'グループを追加すると、あとからそのグループに入る人も見られるようになります。', 'Un grupo añadido también lo abre a quien se una a ese grupo más adelante.'),
-  removed: t('빠지는 사람은 이 프로젝트를 못 보게 돼요: 파일·공유 채팅·프로젝트 스킬을 못 쓰고, 하던 AI 대화는 새로 시작돼요.', 'The people taken out no longer see this project: they lose its files, shared chats and project skills, and their AI chats start fresh.', 'Orang yang dikeluarkan tidak lagi melihat proyek ini: mereka kehilangan berkas, obrolan bersama, dan skill proyeknya, dan obrolan AI mereka dimulai ulang.', '外される人はこのプロジェクトを見られなくなります。ファイル・共有チャット・プロジェクトスキルを使えなくなり、AIとの会話は新しく始まります。', 'Las personas quitadas dejan de ver este proyecto: pierden sus archivos, chats compartidos y habilidades del proyecto, y sus chats con la IA empiezan de nuevo.'),
-  noticeBoth: t('새로 보는 사람, 지금 보던 사람, 빠지는 사람에게 알림이 가요.', 'The people who start seeing it, those who saw it already and those taken out are told.', 'Orang yang mulai melihatnya, yang sudah melihatnya, dan yang dikeluarkan akan diberi tahu.', '新たに見られる人、すでに見ていた人、外される人に通知が届きます。', 'Se avisa a quienes empiezan a verlo, a quienes ya lo veían y a quienes se quitan.'),
-  noticeGain: t('새로 보는 사람과 지금 보던 사람에게 알림이 가요.', 'The people who start seeing it and those who saw it already are told.', 'Orang yang mulai melihatnya dan yang sudah melihatnya akan diberi tahu.', '新たに見られる人と、すでに見ていた人に通知が届きます。', 'Se avisa a quienes empiezan a verlo y a quienes ya lo veían.'),
-  noticeLose: t('빠지는 사람에게 알림이 가요.', 'The people taken out are told.', 'Orang yang dikeluarkan akan diberi tahu.', '外される人に通知が届きます。', 'Se avisa a quienes se quitan.'),
-  red: t('빨간 표시는 내 메시지에 없는 이름이에요. 내가 부탁한 변경이 맞는지 확인해 주세요.', 'Marked in red: not in your own messages. Check that this is the change you asked for.', 'Tanda merah: tidak ada di pesan Anda sendiri. Periksa apakah ini perubahan yang Anda minta.', '赤い印は自分のメッセージにない名前です。自分が頼んだ変更か確認してください。', 'Marcado en rojo: no está en tus propios mensajes. Comprueba que es el cambio que pediste.'),
-  notSaid: t('내 메시지에 없는 이름이에요', 'Not in your messages', 'Tidak ada di pesan Anda', '自分のメッセージにない名前です', 'No está en tus mensajes'),
-  project: t('프로젝트', 'Project', 'Proyek', 'プロジェクト', 'Proyecto'),
-  add: t('추가 ({n})', 'Add ({n})', 'Tambah ({n})', '追加（{n}）', 'Añadir ({n})'),
-  remove: t('빼기 ({n})', 'Remove ({n})', 'Keluarkan ({n})', '外す（{n}）', 'Quitar ({n})'),
-  person: t('사람', 'person', 'orang', '人', 'persona'),
-  group: t('부서', 'group', 'grup', 'グループ', 'grupo'),
-  groupPeople: t('{n}명', '{n, plural, one {# person} other {# people}}', '{n} orang', '{n, plural, one {#人} other {#人}}', '{n, plural, one {# persona} other {# personas}}'),
-  sameName: t('같은 이름 {n}명', '{n} share this name', '{n} dengan nama ini', '同じ名前が{n}件', '{n} con este nombre'),
+    '{lost, plural, one {# persona dejará} other {# personas dejarán}} de ver este proyecto ({before} → {after}).',
+    '{lost, plural, one {#人} other {#人}}将不再能看到这个项目（{before} → {after}）。'),
+  same: t('보는 사람은 그대로예요 ({n}명).', 'Who sees it stays the same ({n, plural, one {# person} other {# people}}).', 'Yang melihatnya tetap sama ({n} orang).', '見られる人は変わりません（{n, plural, one {#人} other {#人}}）。', 'Quién lo ve no cambia ({n, plural, one {# persona} other {# personas}}).', '能看到的人数不变（{n, plural, one {#人} other {#人}}）。'),
+  opens: t('새로 보는 사람에게 열리는 것: {what}.', 'What opens to the people who start seeing it: {what}.', 'Yang terbuka bagi orang yang mulai melihatnya: {what}.', '新たに見られるようになる人に開かれるもの: {what}。', 'Lo que se abre a quienes empiezan a verlo: {what}.', '对开始能看到的人开放的内容：{what}。'),
+  files: t('파일 {n}개', '{n, plural, one {# file} other {# files}}', '{n} berkas', 'ファイル{n}個', '{n, plural, one {# archivo} other {# archivos}}', '{n, plural, one {#个文件} other {#个文件}}'),
+  filesOthers: t('파일 {n}개(다른 사람이 올린 {m}개 포함)', '{n, plural, one {# file} other {# files}} ({m} put there by other people)', '{n} berkas ({m} ditaruh oleh orang lain)', 'ファイル{n}個（ほかの人が置いた{m}個を含む）', '{n, plural, one {# archivo} other {# archivos}} ({m} puestos por otras personas)', '{n, plural, one {#个文件} other {#个文件}}（其中{m}个由其他人放入）'),
+  chats: t('공유 채팅 {n}개의 지난 대화 전체', 'the whole history of {n, plural, one {# shared chat} other {# shared chats}}', 'seluruh riwayat {n} obrolan bersama', '共有チャット{n}件の過去の会話すべて', 'todo el historial de {n, plural, one {# chat compartido} other {# chats compartidos}}', '{n, plural, one {#个共享对话} other {#个共享对话}}的全部历史记录'),
+  skills: t('프로젝트 스킬 {n}개({names})', '{n, plural, one {# project skill} other {# project skills}} ({names})', '{n} skill proyek ({names})', 'プロジェクトスキル{n}個（{names}）', '{n, plural, one {# habilidad del proyecto} other {# habilidades del proyecto}} ({names})', '{n, plural, one {#个项目技能} other {#个项目技能}}（{names}）'),
+  more: t('외 {n}', '{n} more', '{n} lagi', 'ほか{n}', '{n} más', '另外{n}个'),
+  futureGroup: t('부서를 넣으면 이 부서에 나중에 들어오는 사람도 보게 돼요.', 'A group added also opens it to whoever joins that group later.', 'Grup yang ditambahkan juga membukanya bagi siapa pun yang bergabung ke grup itu nanti.', 'グループを追加すると、あとからそのグループに入る人も見られるようになります。', 'Un grupo añadido también lo abre a quien se una a ese grupo más adelante.', '添加的小组也会对以后加入该小组的人开放。'),
+  removed: t('빠지는 사람은 이 프로젝트를 못 보게 돼요: 파일·공유 채팅·프로젝트 스킬을 못 쓰고, 하던 AI 대화는 새로 시작돼요.', 'The people taken out no longer see this project: they lose its files, shared chats and project skills, and their AI chats start fresh.', 'Orang yang dikeluarkan tidak lagi melihat proyek ini: mereka kehilangan berkas, obrolan bersama, dan skill proyeknya, dan obrolan AI mereka dimulai ulang.', '外される人はこのプロジェクトを見られなくなります。ファイル・共有チャット・プロジェクトスキルを使えなくなり、AIとの会話は新しく始まります。', 'Las personas quitadas dejan de ver este proyecto: pierden sus archivos, chats compartidos y habilidades del proyecto, y sus chats con la IA empiezan de nuevo.', '被移除的人将不再能看到这个项目：他们会失去项目的文件、共享对话和项目技能，他们的AI对话会重新开始。'),
+  noticeBoth: t('새로 보는 사람, 지금 보던 사람, 빠지는 사람에게 알림이 가요.', 'The people who start seeing it, those who saw it already and those taken out are told.', 'Orang yang mulai melihatnya, yang sudah melihatnya, dan yang dikeluarkan akan diberi tahu.', '新たに見られる人、すでに見ていた人、外される人に通知が届きます。', 'Se avisa a quienes empiezan a verlo, a quienes ya lo veían y a quienes se quitan.', '开始能看到的人、原本就能看到的人以及被移除的人都会收到通知。'),
+  noticeGain: t('새로 보는 사람과 지금 보던 사람에게 알림이 가요.', 'The people who start seeing it and those who saw it already are told.', 'Orang yang mulai melihatnya dan yang sudah melihatnya akan diberi tahu.', '新たに見られる人と、すでに見ていた人に通知が届きます。', 'Se avisa a quienes empiezan a verlo y a quienes ya lo veían.', '开始能看到的人和原本就能看到的人会收到通知。'),
+  noticeLose: t('빠지는 사람에게 알림이 가요.', 'The people taken out are told.', 'Orang yang dikeluarkan akan diberi tahu.', '外される人に通知が届きます。', 'Se avisa a quienes se quitan.', '被移除的人会收到通知。'),
+  red: t('빨간 표시는 내 메시지에 없는 이름이에요. 내가 부탁한 변경이 맞는지 확인해 주세요.', 'Marked in red: not in your own messages. Check that this is the change you asked for.', 'Tanda merah: tidak ada di pesan Anda sendiri. Periksa apakah ini perubahan yang Anda minta.', '赤い印は自分のメッセージにない名前です。自分が頼んだ変更か確認してください。', 'Marcado en rojo: no está en tus propios mensajes. Comprueba que es el cambio que pediste.', '红色标记：不在你自己的消息中。请确认这是你要求的修改。'),
+  notSaid: t('내 메시지에 없는 이름이에요', 'Not in your messages', 'Tidak ada di pesan Anda', '自分のメッセージにない名前です', 'No está en tus mensajes', '不在你的消息中'),
+  project: t('프로젝트', 'Project', 'Proyek', 'プロジェクト', 'Proyecto', '项目'),
+  add: t('추가 ({n})', 'Add ({n})', 'Tambah ({n})', '追加（{n}）', 'Añadir ({n})', '添加（{n}）'),
+  remove: t('빼기 ({n})', 'Remove ({n})', 'Keluarkan ({n})', '外す（{n}）', 'Quitar ({n})', '移除（{n}）'),
+  person: t('사람', 'person', 'orang', '人', 'persona', '人'),
+  group: t('부서', 'group', 'grup', 'グループ', 'grupo', '小组'),
+  groupPeople: t('{n}명', '{n, plural, one {# person} other {# people}}', '{n} orang', '{n, plural, one {#人} other {#人}}', '{n, plural, one {# persona} other {# personas}}', '{n, plural, one {#人} other {#人}}'),
+  sameName: t('같은 이름 {n}명', '{n} share this name', '{n} dengan nama ini', '同じ名前が{n}件', '{n} con este nombre', '有{n}个同名'),
   /** a group as the app labels it (web projects.whoGroup): a person who took such a label as their name shares it */
-  groupLabel: t('{name} 부서', '{name} group', 'Grup {name}', '{name}グループ', 'Grupo {name}'),
-  keepsAdmin: t('다른 방법으로 계속 봐요', 'still sees it another way', 'tetap melihatnya dengan cara lain', '別の方法で引き続き見られます', 'sigue viéndolo de otra forma'),
+  groupLabel: t('{name} 부서', '{name} group', 'Grup {name}', '{name}グループ', 'Grupo {name}', '{name}小组'),
+  keepsAdmin: t('다른 방법으로 계속 봐요', 'still sees it another way', 'tetap melihatnya dengan cara lain', '別の方法で引き続き見られます', 'sigue viéndolo de otra forma', '仍可通过其他方式看到'),
   /** a card of someone who manages the project without being a member: what the people added get, without numbers */
-  opensAll: t('새로 보는 사람은 이 프로젝트의 파일과 채팅을 보게 돼요.', "The people who start seeing it will see its files and chats.", 'Orang yang mulai melihatnya akan melihat berkas dan obrolannya.', '新たに見られるようになる人は、このプロジェクトのファイルとチャットを見られます。', 'Quienes empiecen a verlo verán sus archivos y chats.'),
-  yes: t('멤버 바꾸기', 'Change members', 'Ubah anggota', 'メンバーを変更', 'Cambiar miembros'),
-  no: t('바꾸지 않기', 'Don’t change', 'Jangan ubah', '変更しない', 'No cambiar'),
+  opensAll: t('새로 보는 사람은 이 프로젝트의 파일과 채팅을 보게 돼요.', "The people who start seeing it will see its files and chats.", 'Orang yang mulai melihatnya akan melihat berkas dan obrolannya.', '新たに見られるようになる人は、このプロジェクトのファイルとチャットを見られます。', 'Quienes empiecen a verlo verán sus archivos y chats.', '开始能看到的人将能看到它的文件和对话。'),
+  yes: t('멤버 바꾸기', 'Change members', 'Ubah anggota', 'メンバーを変更', 'Cambiar miembros', '修改成员'),
+  no: t('바꾸지 않기', 'Don’t change', 'Jangan ubah', '変更しない', 'No cambiar', '不修改'),
   /** where the person changes them (web: projects.title › the project › projects.participants) */
-  where: t('프로젝트 › {name} › 멤버', 'Projects › {name} › Members', 'Proyek › {name} › Anggota', 'プロジェクト › {name} › メンバー', 'Proyectos › {name} › Miembros'),
+  where: t('프로젝트 › {name} › 멤버', 'Projects › {name} › Members', 'Proyek › {name} › Anggota', 'プロジェクト › {name} › メンバー', 'Proyectos › {name} › Miembros', '项目 › {name} › 成员'),
 } satisfies Record<string, L5>
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ''))
 const say = (k: keyof typeof MEMBERS_TEXT, L: Locale, v: Record<string, string | number> = {}) => fill(MEMBERS_TEXT[k][L], v, L)
@@ -327,9 +330,11 @@ const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.l
 function extraRules(plan: AccessPlan, adds: readonly Subject[], removes: readonly Subject[]): string[] {
   const before = new Set(plan.current.map(ruleKey)), after = new Set(plan.next.map(ruleKey))
   const plus = [...after].filter((x) => !before.has(x)), minus = [...before].filter((x) => !after.has(x))
-  if (sameSet(plus, adds.map((s) => `${keyOf(s)}:write`)) && sameSet(minus, removes.map((s) => `${keyOf(s)}:write`))) return []
+  // (the limit is no rule row: a save that limits the folder is checked apart; docs/DECISIONS.md "Folder access adds up
+  // like Google Drive (P2)")
+  if (!plan.addsFloor && sameSet(plus, adds.map((s) => `${keyOf(s)}:write`)) && sameSet(minus, removes.map((s) => `${keyOf(s)}:write`))) return []
   const out: string[] = []
-  if (plan.addsFloor) out.push('the folder has no "everyone else: no access" rule (a folder an older version made), and the save would add it, so people who saw the project through a rule above it would stop seeing it')
+  if (plan.addsFloor) out.push('the folder is not limited (a folder an older version made), and the save would limit it, so people who saw the project through a rule above it would stop seeing it')
   if (plan.restoresCreator) out.push('the creator\'s rule is missing from the folder (taken out in Admin › Folder permissions), and the save would put it back')
   if (!out.length) out.push('other rules of the folder would change too')
   return out

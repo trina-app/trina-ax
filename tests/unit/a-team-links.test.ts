@@ -307,7 +307,7 @@ describe('changing the groups of the open link (QA TC-458)', () => {
   test('the replaced groups cannot open the link\'s skill: it is taken off (audited), not refused; Save with nothing changed writes nothing', async () => {
     const g = await owner.call('POST', '/api/admin/groups', { name: 'Pitchers' })
     const other = await owner.call('POST', '/api/admin/groups', { name: 'Others' })
-    await owner.call('POST', '/api/admin/folders', { path: 'skills/pitchers', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: g.id, access: 'read' }] })
+    await owner.call('POST', '/api/admin/folders', { path: 'skills/pitchers', limited: true, rules: [{ subjectType: 'group', subjectId: g.id, access: 'read' }] })
     writeSkill(h, 'skills/pitchers/deck/SKILL.md', 'deck')
     const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/pitchers/deck/SKILL.md', groupIds: [g.id] })
     expect(link.groupsChosen).toBe(false)
@@ -401,7 +401,7 @@ describe('skill deep link', () => {
 
   test('the folder rules decide: a group-only skill needs that group on the link, and a lost right drops the deep link', async () => {
     const g = await owner.call('POST', '/api/admin/groups', { name: 'Sales' })
-    const folder = await owner.call('POST', '/api/admin/folders', { path: 'skills/sales', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: g.id, access: 'read' }] })
+    const folder = await owner.call('POST', '/api/admin/folders', { path: 'skills/sales', limited: true, rules: [{ subjectType: 'group', subjectId: g.id, access: 'read' }] })
     writeSkill(h, 'skills/sales/pitch/SKILL.md', 'pitch')
     const bad = await owner.try('POST', '/api/admin/team-link', { skillPath: 'skills/sales/pitch/SKILL.md' })
     expect(bad.status).toBe(400)
@@ -409,7 +409,7 @@ describe('skill deep link', () => {
     const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/sales/pitch/SKILL.md', groupIds: [g.id] })
     expect((await info(tokenOf(link.url))).body.skillName).toBe('pitch')
     // the group loses the folder after the link was made: joining still works, but lands on Home
-    await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] })
+    await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { limited: true, rules: [] })
     expect((await info(tokenOf(link.url))).body).toMatchObject({ skillName: null, skillTitle: null })
     const r = await join(tokenOf(link.url))
     expect(r.status).toBe(201)

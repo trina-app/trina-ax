@@ -24,7 +24,7 @@ import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 import { browserAction } from '../../desktop/src/common/browser-action'
-import { contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
+import { CLIPBOARD_PNG_MAX, CLIPBOARD_PNG_SIDE, clipboardPng, contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -679,8 +679,8 @@ describe('UI strings', () => {
 
   test('ko, en and id have exactly the same keys and no empty strings', () => {
     const keys = Object.keys(STRINGS.ko).sort()
-    for (const l of ['en', 'id', 'ja', 'es'] as const) expect(Object.keys(STRINGS[l]).sort()).toEqual(keys)
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const k of keys) expect((STRINGS[l] as Record<string, string>)[k].length).toBeGreaterThan(0)
+    for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) expect(Object.keys(STRINGS[l]).sort()).toEqual(keys)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) for (const k of keys) expect((STRINGS[l] as Record<string, string>)[k].length).toBeGreaterThan(0)
   })
 
   test('placeholders are the same in every language', () => {
@@ -691,6 +691,7 @@ describe('UI strings', () => {
       expect(ph(STRINGS.id[k])).toBe(ph(STRINGS.ko[k]))
       expect(ph(STRINGS.ja[k])).toBe(ph(STRINGS.en[k]))
       expect(ph(STRINGS.es[k])).toBe(ph(STRINGS.en[k]))
+      expect(ph(STRINGS.zh[k])).toBe(ph(STRINGS.en[k]))
     }
   })
 
@@ -700,12 +701,14 @@ describe('UI strings', () => {
     expect(asUiLocale('in')).toBe('id')
     expect(asUiLocale('ja-JP')).toBe('ja')
     expect(asUiLocale('es-MX')).toBe('es')
+    for (const tag of ['zh', 'zh-CN', 'zh-Hans', 'zh-SG', 'zh-TW', 'zh-HK', 'zh_Hans_CN']) expect(asUiLocale(tag)).toBe('zh')
     expect(asUiLocale('fr-FR')).toBeNull()
     expect(asUiLocale({ locale: 'ko' })).toBeNull()
     expect(asUiLocale('ko'.padEnd(40, 'x'))).toBeNull()
-    expect(UI_LOCALES.map((l) => l.label)).toEqual(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
-    for (const l of ['en', 'id', 'ja', 'es'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
+    expect(UI_LOCALES.map((l) => l.label)).toEqual(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
+    for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
     expect(t('en', 'perm.site.title', { host: 'shop.test' })).toBe('The AI wants to use shop.test')
+    expect(t('zh', 'perm.site.title', { host: 'shop.test' })).toBe('AI 想要使用shop.test')
     expect(t('ko', 'err.notTeamServer')).toBe(`이 주소는 ${PRODUCT.displayName} 팀 서버가 아니에요.`)
   })
 })
@@ -885,6 +888,35 @@ describe('the right-click menu (team page and own screens)', () => {
     expect(menu).toContain('copyImage: () => teamPage() && wc.copyImageAt(p.x, p.y)')
     expect(menu).toContain('saveImage: () => teamPage() && saveableImage(p.srcURL, o.allowedOrigins()) && wc.downloadURL(p.srcURL)')
     expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('context-menu')
+  })
+  // 이미지 복사 through the app (DesktopBridge.copyImage, web/src/lib/copyImage.ts): the PNG bytes the team page read
+  // itself, nothing fetched by the app; anything else refused
+  test('the clipboard takes only PNG bytes of a sane size from the team page', () => {
+    const header = (w: number, h: number) => {
+      const b = new Uint8Array(64)
+      b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      new DataView(b.buffer).setUint32(16, w)
+      new DataView(b.buffer).setUint32(20, h)
+      return b
+    }
+    const png = header(40, 30)
+    expect(clipboardPng(png)).toBe(png)
+    // a small file that claims a huge picture is not decoded
+    expect(clipboardPng(header(CLIPBOARD_PNG_SIDE + 1, 10))).toBeNull()
+    expect(clipboardPng(header(10, 0))).toBeNull()
+    expect(clipboardPng(png.slice(0, 20))).toBeNull()
+    const jpeg = png.slice()
+    jpeg.set([0xff, 0xd8, 0xff])
+    expect(clipboardPng(jpeg)).toBeNull()
+    for (const x of ['iVBORw0KGgo=', [0x89, 0x50], null, undefined, new ArrayBuffer(64), { length: 64 }]) expect(clipboardPng(x)).toBeNull()
+    const big = new Uint8Array(CLIPBOARD_PNG_MAX + 1)
+    big.set(png.subarray(0, 24))
+    expect(clipboardPng(big)).toBeNull()
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const handler = main.slice(main.indexOf("ipcMain.handle('bridge:copy-image'"), main.indexOf("ipcMain.handle('bridge:folder-problem'"))
+    expect(handler).toContain('fromApp(e) ? clipboardPng(bytes) : null')
+    for (const word of [/fetch\(/, /net\.request/, /downloadURL/, /loadURL/]) expect(handler).not.toMatch(word)
+    expect(readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')).toContain("copyImage: (png) => ipcRenderer.invoke('bridge:copy-image'")
   })
 })
 

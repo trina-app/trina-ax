@@ -2,7 +2,7 @@
 // only in that project's chats. The Team skills page has a section per project with skills ("{project} 프로젝트 스킬",
 // "이 프로젝트 채팅에서만"), a small "같은 이름" chip where a wider skill of the name runs instead; the "/" menu marks them
 // inside that project only; asking a project chat to move a group's skills shows the move card (who loses it, by name
-// for the owner, SKILL.md, every file), and after yes the skill is under the project; "옮기기…" shows who gains and loses at each level and the whole
+// for the owner, SKILL.md, every file), and after yes the skill is under the project; "옮기기" shows who gains and loses at each level and the whole
 // text when more people would get it; the save card offers another name when the name is taken; sharing a personal
 // project whose skills/ holds skills names them first.
 import { expect, test, type Page } from '@playwright/test'
@@ -65,6 +65,9 @@ test('a project chat asked to move the files and the skills: the move card, then
   await signIn(page)
   const { project } = await seed(page)
   await page.goto(`/projects/${project}`)
+  // a chat of my own (moving files and skills is not a shared chat's tool: docs/DECISIONS.md "Team project chats
+  // shared by default")
+  await page.getByTestId('only-me-toggle').click()
   await page.getByTestId('composer-input').fill('리드 부서의 견적 파일과 스킬을 이 프로젝트로 옮겨 줘 moveskill quote-check')
   await page.getByTestId('send').click()
   const card = page.getByTestId('ask-card').last()
@@ -90,7 +93,7 @@ test('a project chat asked to move the files and the skills: the move card, then
   expect(realErrors(errors)).toEqual([])
 })
 
-test('옮기기… on the Skills page: each level with who gains and loses; more people means the whole text first', async ({ page }) => {
+test('옮기기 on the Skills page: each level with who gains and loses; more people means the whole text first', async ({ page }) => {
   await reset(page, { withAdmin: true })
   const errors = watchConsole(page)
   await signIn(page)
@@ -122,6 +125,8 @@ test('the save card: a project skill under a name the team has is offered anothe
   await signIn(page)
   const { project } = await seed(page)
   await page.goto(`/projects/${project}`)
+  // a chat of my own: saving a skill is not a shared chat's tool
+  await page.getByTestId('only-me-toggle').click()
   await page.getByTestId('composer-input').fill('projectskillsave quote')
   await page.getByTestId('send').click()
   const card = page.getByTestId('ask-card').last()
@@ -144,11 +149,11 @@ test('sharing a personal project whose skills/ holds a skill: asked first by nam
   await page.getByTestId('project-share').click()
   await page.getByTestId('project-participants-search').fill('Bob')
   await page.getByTestId('participant-add-user-bob').click()
+  // Share is the yes: no second confirm (QA TC-1069)
   await page.getByTestId('project-share-confirm').click()
-  await page.getByRole('dialog').filter({ hasText: '이 프로젝트를 함께 쓸까요?' }).getByTestId('dialog-confirm').click()
   // the skills that would switch on, by name, before anything is made
   const ask = page.getByRole('dialog').filter({ hasText: '프로젝트 스킬이 켜져요' })
-  await expect(ask).toContainText('이 폴더의 스킬 1개가 이 프로젝트 채팅에서 AI가 따르는 스킬이 돼요: jot')
+  await expect(ask).toContainText(/이 폴더의 스킬 1개가 이 프로젝트 채팅에서 .+가 따르는 스킬이 돼요: jot/)
   await ask.getByTestId('dialog-confirm').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const after = await (await page.request.get(`/api/projects/${mine.id}`)).json() as { folderPath: string }

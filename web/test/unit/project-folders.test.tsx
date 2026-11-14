@@ -67,14 +67,14 @@ describe('the chat and its project', () => {
   test('the move dialog lists no project and every project the person sees, with the current one chosen', () => {
     const list = [project('p1', 'Acme launch', 'shared/acme-launch'), project('p2', 'Acme notes', 'users/u1/acme-notes')]
     const radios = (html: string) => [...html.matchAll(/<input type="radio"[^>]*>/g)].map((m) => m[0])
-    const inP1 = inRouter(<ProjectChoices projects={list} selected="p1" onSelect={() => {}} />)
+    const inP1 = inRouter(<ProjectChoices projects={list} selected="p1" onSelect={() => {}} label="Move" />)
     expect(radios(inP1).map((r) => r.includes('checked=""'))).toEqual([false, true, false])
     expect(inP1).toContain(translate('en', 'chat.project.none'))
     // who sees it, not its folder (docs/DECISIONS.md "Making a project")
     expect(inP1).not.toContain('shared/acme-launch')
     expect(inP1).not.toContain('users/u1')
     expect(inP1).toContain(`>${translate('en', 'projects.meta.me')}<`)
-    const none = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} />)
+    const none = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} label="Move" />)
     expect(radios(none).map((r) => r.includes('checked=""'))).toEqual([true, false, false])
   })
 
@@ -87,14 +87,14 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.openProject', 'files.isProject', 'projects.whoMembers', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.openProject', 'files.isProject', 'projects.whoMembers', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.none', 'chat.project.hint', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })
 
   test('a project whose folder is in the trash (only admins list it) cannot be chosen, and says why', () => {
     const list = [project('p1', 'Acme launch', 'shared/acme-launch'), { ...project('p2', 'Acme old', 'shared/acme-old'), inTrash: true }]
-    const html = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} />)
+    const html = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} label="Move" />)
     const radios = [...html.matchAll(/<input type="radio"[^>]*>/g)].map((m) => m[0])
     expect(radios.map((r) => r.includes('disabled=""'))).toEqual([false, false, true])
     expect(html).toContain(translate('en', 'chat.project.inTrash'))
@@ -102,7 +102,7 @@ describe('the chat and its project', () => {
   })
 
   test('who can see a team project: its members (docs/DECISIONS.md "Project contents only for members"), and groups are 부서 in Korean', () => {
-    expect(translate('ko', 'projects.whoMembers', { n: 9 })).toBe('멤버 9명')
+    expect(translate('ko', 'projects.whoMembers', { n: 9 })).toBe('9명')
     expect(translate('en', 'projects.whoMembers', { n: 9 })).not.toContain('admins')
     expect(translate('ko', 'projects.whoGroup', { name: '영업' })).toBe('영업 부서')
   })

@@ -13,6 +13,7 @@ import { folderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders } from '../../server/src/devenv/srt/placeholders'
 import { chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings } from '../../server/src/devenv/srt/config'
 import { macConfig, macSystem, realMacHost } from '../../server/src/devenv/srt/system-mac'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const BASE = process.env.MYCEL_INSTALL_BASE ?? ''
 const ID = path.basename(BASE)
@@ -45,7 +46,7 @@ for (const u of [ME, 'bob']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
 fs.mkdirSync(chatWork(BASE, 'chat-2'), { recursive: true }); fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat`)
 fs.rmSync(`${DIR1}/link-to-data`, { force: true }); fs.symlinkSync(`${BASE}/data/attack-canary.txt`, `${DIR1}/link-to-data`)
-const RULES = new RuleSet(([
+const RULES = ruleWorld(([
   ['projects/one', 'user', ME, 'write'], ['projects/two', 'group', 'finance', 'write'], ['groups/finance', 'group', 'finance', 'write'],
 ] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: [] as string[] }

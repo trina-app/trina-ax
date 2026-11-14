@@ -150,7 +150,7 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
     teamName: c.teamName,
     people: [{ username: ownerName, name: c.owner.name, role: 'owner', group: null }, ...c.people.map((p) => ({ username: p.username, name: p.name, role: 'member' as const, group: p.group }))],
     groups: c.groups,
-    rules: c.rules.map((r) => ({ path: r.path, rules: r.rules, why: r.why ?? r.rules.map((x) => `${'group' in x ? x.group : 'user' in x ? x.user : 'everyone'}: ${x.access}`).join(', ') })),
+    rules: c.rules.map((r) => ({ path: r.path, rules: r.rules, ...(r.limited ? { limited: true } : {}), why: r.why ?? [...(r.limited ? ['limited'] : []), ...r.rules.map((x) => `${'group' in x ? x.group : 'user' in x ? x.user : 'everyone'}: ${x.access}`)].join(', ') })),
     filesDir,
     uploaderOf: (rel) => c.uploaders.find((u) => under(nfc(rel), nfc(u.path)))?.username ?? c.defaultUploader ?? ownerName,
     extraFiles: packFiles,

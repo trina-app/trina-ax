@@ -4,7 +4,7 @@
 //   team, its address, "팀원 초대" and 관리자, by mouse and by keyboard; a member's is not a button; 팀원 초대 opens the
 //   invite dialog, or the owner's own invite step while the welcome steps are unfinished;
 // - a chat row's "…" (nav/ChatItem.tsx, in the Trina panel's history): "상단에 고정" / "고정 해제" for every row, rename,
-//   "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) and delete for a chat of my own, the move dialog of the chat's
+//   "프로젝트로 옮기기" ("프로젝트 바꾸기" in a project) and delete for a chat of my own, the move dialog of the chat's
 //   title menu; a shared chat never offers the move;
 // - pinned chats (docs/DECISIONS.md "Pinned chats"): first, the most recently pinned first, a pin before the title.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
@@ -136,7 +136,7 @@ describe('the team menu on top', () => {
   })
 
   // UX review S6: switching teams is found under the logo, as in Slack; the app draws the list (the page never sees it)
-  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환…, which opens the app\'s own teams menu (an older app: its team list)', async () => {
+  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환, which opens the app\'s own teams menu (an older app: its team list)', async () => {
     const calls: string[] = []
     const g = globalThis as Record<string, unknown>
     try {
@@ -337,14 +337,15 @@ describe('a chat row\'s "…"', () => {
     return out
   }
 
-  test('a chat of my own: pin, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project), delete; a shared chat: never the move', async () => {
+  test('a chat of my own: pin, rename, "프로젝트로 옮기기" ("프로젝트 바꾸기" in a project), delete; a shared chat: never the move', async () => {
     useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false), pinnedAt: '2026-11-02T00:00:00.000Z' })] })
     const m = await render()
     const pin = ['chat-row-pin', ko('chat.pin')]
     const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
       // no 폴더로 옮기기: the Trina list has no folders (the owner, 2026-11-13); a project keeps chats together
-      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      // a chat of mine outside projects: Share… (docs/DECISIONS.md "Chats shared with people and groups")
+      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
       expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
       expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
@@ -374,7 +375,7 @@ describe('a chat row\'s "…"', () => {
         expect(copied.at(-1)).toBe(`https://team.acme.example/c/${chat(n).id}`)
         expect(useUi.getState().toasts.at(-1)?.text).toBe(text)
       }
-      expect(ko('chat.linkCopiedShared', { n: 3 })).toBe('링크를 복사했어요 · 멤버 3명이 열 수 있어요')
+      expect(ko('chat.linkCopiedShared', { n: 3 })).toBe('링크를 복사했어요 · 3명이 열 수 있어요')
       await m.settle(1600)
     } finally {
       if (nav) Object.defineProperty(globalThis, 'navigator', nav)
@@ -419,7 +420,7 @@ describe('a chat row\'s "…"', () => {
       await m.settle(0)
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       link.dispatchEvent(e)
-      await m.until(() => shown() === 5, 'the menu')
+      await m.until(() => shown() === 6, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
       expect(shown()).toBe(0)
@@ -427,7 +428,7 @@ describe('a chat row\'s "…"', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => shown() === 5, 'the sheet')
+      await m.until(() => shown() === 6, 'the sheet')
       expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
       // the click that follows the finger lifting is no tap on the row
       await m.click(link)
@@ -444,9 +445,9 @@ describe('a chat row\'s "…"', () => {
       hold('pointerdown')
       await m.settle(600)
       hold('pointerup')
-      await m.until(() => shown() === 5, 'the sheet again')
+      await m.until(() => shown() === 6, 'the sheet again')
       await m.click(more)
-      expect(shown()).toBe(5)
+      expect(shown()).toBe(6)
     } finally {
       await m.unmount()
     }
@@ -483,9 +484,10 @@ describe('a chat row\'s "…"', () => {
       expect(sent).toEqual([{ projectId: P }])
       expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
       await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
-      // the row is under its project's header at once (docs/DECISIONS.md "Trina history by project")
-      expect(m.get('history-group-name').textContent).toBe('Acme launch')
-      expect(m.get('history-group-rows').querySelectorAll('a').map((a) => a.textContent)).toEqual(['채팅 1'])
+      // Group by: None by default (docs/DECISIONS.md "Trina history: Group by defaults to None"): the row stays in the
+      // one list, no project header
+      expect(m.find('history-group')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('a').map((a) => a.textContent)).toEqual(['채팅 1'])
     } finally {
       await m.unmount()
     }
@@ -542,6 +544,47 @@ describe("the phone's ☰ drawer", () => {
       expect(m.html()).toContain('오늘 채팅')
     } finally {
       await act(async () => useTrinaDrawer.getState().setOpen(false))
+      await m.unmount()
+    }
+  })
+})
+
+describe('the history filter\'s kept "Confidential" (QA TC-1031)', () => {
+  const keep = () => localStorage.setItem('mycel.sidebar.historyView', JSON.stringify({ status: 'confidential' }))
+
+  test('without Safe operations 1A and no confidential chat: the whole list, as "Active"', async () => {
+    keep()
+    const m = await render()
+    try {
+      await m.until(() => m.html().includes('채팅 8'), 'the list', 2000)
+      expect(m.find('recents-no-match')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('li').length).toBe(8)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('with one confidential chat in the list: only that chat, the choice kept', async () => {
+    keep()
+    useChats.setState({ chats: [chat(1), chat(2, { confidential: true, title: '기밀 채팅' }), chat(3)], chatsLoaded: true, chatsCursor: null })
+    const m = await render()
+    try {
+      await m.until(() => m.html().includes('기밀 채팅'), 'the list', 2000)
+      expect(m.get('recents-list').querySelectorAll('li').length).toBe(1)
+      expect(m.html()).not.toContain('채팅 3')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('while 1A is on (Me.server.allChatsConfidential): the choice is kept', async () => {
+    keep()
+    const on = me('member')
+    useSession.setState({ status: { kind: 'signed-in', me: { ...on, server: { ...on.server, allChatsConfidential: true } } } } as never)
+    const m = await render()
+    try {
+      await m.until(() => m.find('recents-no-match'), 'the empty filter', 2000)
+    } finally {
       await m.unmount()
     }
   })

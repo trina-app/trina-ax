@@ -15,6 +15,7 @@ import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type FakeElement } from './dom-host'
 import { at, BEN, ME, message, room } from './rooms-fixtures'
+import { useListCache } from '../../src/store/listCache'
 
 setDefaultTimeout(30_000)
 const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
@@ -71,7 +72,8 @@ afterAll(() => {
   useSession.setState({ status })
   removeDom()
 })
-afterEach(() => { asked.length = 0; chatList = []; useUi.setState({ searchOpen: false }) })
+// each test opens Search afresh (store/listCache.ts keeps its lists)
+afterEach(() => { asked.length = 0; chatList = []; useUi.setState({ searchOpen: false }); useListCache.getState().reset() })
 
 function Where() {
   const l = useLocation()

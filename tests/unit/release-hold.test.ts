@@ -14,6 +14,7 @@ import { OfficeRelease, signRelease, verifyRelease } from '../../server/src/offi
 import { DEFAULT_RAMP, holdRollout, inheritRollout, promoteRollout, inRollout, newerHeadSeen, readRollout, resumeRollout, rolloutPercent, rolloutTurn, HeldRollout, type Rollout } from '../../server/src/system/rollout'
 import { ReleaseFeed, UpdateManager } from '../../server/src/system/update'
 import { autoUpdateDecision, runUpdate } from '../../server/src/system/update-job'
+import { _resetUpdateWait } from '../../server/src/system/update-wait'
 import type { BackupManager } from '../../server/src/system/backup'
 import { dirStore, type FeedStore } from '../../scripts/release/publish-server'
 import { holdRelease, main, type HoldOptions } from '../../scripts/release/hold'
@@ -130,7 +131,7 @@ describe('what the updaters make of a held head', () => {
     let f = ReleaseFeed.parse(JSON.parse(text))
     const updates = {
       checkFeed: async () => f, needsRoot: () => false,
-      download: async () => { did.push('download') }, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } },
+      releaseCanRead: () => true, canRead: () => true, download: async () => { did.push('download') }, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } },
     } as unknown as UpdateManager
     const backups = { run: async () => { did.push('backup') } } as unknown as BackupManager
     const d = { updates, backups, running: () => 0, restart: () => did.push('restart'), locale: 'en' as const, sleep: async () => {} }
@@ -138,6 +139,7 @@ describe('what the updaters make of a held head', () => {
     expect(did).toEqual(['backup'])
     f = { ...f, rollout: resumeRollout(held, PUBLISHED, hours(31)) }
     await runUpdate(d, '1.1.0', { staged: false, rollback: false })
+    _resetUpdateWait() // a switched run keeps its mark until the restart, which a test never does
     expect(did).toEqual(['backup', 'backup', 'download', 'switch 1.1.0', 'restart'])
   })
   test('servers that know ramp but not hold (0.4.0-beta.3 to this change), and those that know only percent: 0%', () => {

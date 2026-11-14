@@ -40,7 +40,7 @@ import { useWelcome } from '../../store/welcome'
 import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
-import { beginOrganize, OrganizeView, organizeWanted, rememberLanded, useOrganize } from './OrganizeFiles'
+import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
 import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
 
 const L = TEAM_FILES_LIMITS
@@ -311,8 +311,11 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   const runStatus = run?.view.status
   // a finished run that landed files in 전사 공유: the folder plan starts (once per run)
   useEffect(() => {
-    if (organizeWanted(run)) void beginOrganize(run!)
+    if (organizeWanted(run)) void beginOrganize(run!, me.user.id)
   }, [run, runStatus, org.runId])
+  // a plan the browser kept (a reload, another day): shown again, with no run of this tab behind it
+  useEffect(() => { if (!taggedRun(TAG)) void resumeOrganize(me.user.id) }, [me.user.id])
+  const resumed = !run && org.runId === RESUMED && (org.org.s === 'proposal' || org.org.s === 'result')
   const organizing = !!run && org.runId === run.view.id && (org.org.s === 'reading' || org.org.s === 'proposal' || org.org.s === 'result')
   // the team's home, and other groups' folders (Admin's folder list knows which folder is whose); with shared/ as the
   // home the team group's own folder is not offered (shared/ is the team's place: the same people and more)
@@ -441,6 +444,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
 
   let body: ReactNode
   if (draft.phase !== 'idle') body = <Looking phase={draft.phase} count={draft.count} />
+  else if (resumed) body = <OrganizeView uploaded={org.org.s === 'proposal' ? org.org.plan.rows.length : org.org.s === 'result' ? org.org.applied.moved.length : 0} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
   else if (draft.screen === 'run' && run && organizing) body = <OrganizeView uploaded={run.view.done} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
   else if (draft.screen === 'run' && run) body = <RunView run={run} places={places} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} onMore={phone ? null : () => void pickFolder(false)} />
   else if (draft.screen === 'list' && draft.docs.length) body = <ListView draft={draft} places={places} place={place} phone={phone} busy={stepBusy} later={later} onAddFolder={() => void pickFolder(true)} onOtherFolder={() => void pickFolder(false)} />
@@ -499,7 +503,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   // the start shows these in its own place; the list and the run under everything
   const below = draft.phase === 'idle' && ((draft.screen === 'run' && run) || (draft.screen === 'list' && draft.docs.length))
   return (
-    <div className={clsx('rounded-xl', over && 'ring-2 ring-accent/30 ring-offset-4 ring-offset-bg')} {...dropZone} data-testid="welcome-team-files" data-screen={draft.phase !== 'idle' ? 'looking' : draft.screen === 'run' && organizing ? 'organize' : draft.screen}>
+    <div className={clsx('rounded-xl', over && 'ring-2 ring-accent/30 ring-offset-4 ring-offset-bg')} {...dropZone} data-testid="welcome-team-files" data-screen={draft.phase !== 'idle' ? 'looking' : resumed || (draft.screen === 'run' && organizing) ? 'organize' : draft.screen}>
       {inputs}
       {body}
       {below && (skipped > 0 || error) && <div className="mt-3 space-y-2">{notes}</div>}
@@ -529,7 +533,7 @@ function OrganizeLine() {
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
-      <h2 className="text-lg font-semibold text-ink">{title}</h2>
+      <h2 className="text-display font-semibold text-ink">{title}</h2>
       {desc && <p className="text-sm text-balance text-muted">{desc}</p>}
     </div>
   )
@@ -544,7 +548,7 @@ function Looking({ phase, count }: { phase: Draft['phase']; count: number }) {
       {phase === 'ranking' && (
         <p className="flex items-center gap-1.5 text-sm text-muted"><Check size={14} className="text-ok" aria-hidden /> {t('welcome.teamFiles.looking', { n: count })}</p>
       )}
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-ink" role="status" data-testid="welcome-team-files-looking-title">
+      <h2 className="flex items-center gap-2 text-display font-semibold text-ink" role="status" data-testid="welcome-team-files-looking-title">
         <Loader2 size={16} className="shrink-0 animate-spin text-accent-text" aria-hidden />
         {phase === 'reading' ? t('welcome.teamFiles.reading') : phase === 'looking' ? t('welcome.teamFiles.looking', { n: count }) : t('welcome.teamFiles.ranking', { n: count })}
       </h2>
@@ -749,7 +753,7 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
   const pct = (r: (typeof rows)[number]) => (r.state === 'done' ? 100 : r.size ? Math.min(99, Math.round((r.loaded / r.size) * 100)) : 0)
   return (
     <div className="space-y-4" data-testid="welcome-team-files-run" data-status={v.status}>
-      <h2 className="text-lg font-semibold text-ink" role="status" data-testid="welcome-team-files-run-title">
+      <h2 className="text-display font-semibold text-ink" role="status" data-testid="welcome-team-files-run-title">
         {running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('welcome.teamFiles.done', { folder, n: v.done })}
       </h2>
       {(running || left.length > 0) && (

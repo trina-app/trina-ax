@@ -93,7 +93,7 @@ describe('Available skills', () => {
 
   test('none yet: says so (owners and admins: none yet; members: the owner or an admin puts them in, and how one gets there); nothing while loading', () => {
     try {
-      for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
         setLocale(l)
         for (const role of ['owner', 'admin'] as const) {
           as(role)
@@ -129,7 +129,7 @@ describe('Available skills', () => {
   })
 
   test('the catalog\'s words name no pack that is gone, in any language', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const k of ['skills.catalog.title', 'skills.catalog.more', 'skills.catalog.install', 'skills.catalog.memberEmpty', 'skillPack.installed', 'skillPack.taken'] as const) {
         expect(translate(l, k, { n: 4 })).not.toMatch(/seven|sieben|siete|tujuh|マーケティング|marketing|마케팅|pemasaran/i)
       }

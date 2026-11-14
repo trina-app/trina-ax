@@ -13,11 +13,13 @@ import { codexCatalogFor, lockedCatalogModels } from './engine/codex'
 import { FileService } from './files/service'
 import { trackSkillChanges } from './skills/changes'
 import { membersOnlyOnce } from './chat/members-only-once'
+import { markTeamShares } from './chat/team-shares'
 import type { Logger } from './log'
 import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
 import type { LauncherSandbox } from './native'
 import { CLAUDE_CONNECT_HOSTS } from './proxy/connect'
+import { startRefreshTerminator } from './proxy/refresh-terminator'
 import { noSessions, nullRealtime, type Services } from './services'
 import { engineSockets, socketPathMessage, tooLongSockets, type SocketPathProblem } from './system/sockets'
 import pkg from '../package.json'
@@ -113,18 +115,28 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   const tunnel = officeLoginProxy(ctx)
   if (tunnel) {
     // office mode with the Mac user's login (security round 4b): the engine sandbox gets no network but the proxy port
-    // (no :443 to any address, no DNS), and Claude Code reaches Anthropic through the proxy's CONNECT tunnel, which
-    // opens only to CLAUDE_CONNECT_HOSTS for a running Claude turn's own processes
-    return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy: tunnel, launcher: { allowCmds, sessionRoots, ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex, proxyPort: tunnel.port } } : {}) } })
+    // (no :443 to any address, no DNS). Claude Code's model requests go to the proxy's HTTP path, which checks every
+    // body like managed mode and forwards the engine's own login (TC-359); only the login refresh tunnels (CONNECT to
+    // CLAUDE_CONNECT_HOSTS for a running Claude turn's own processes)
+    // the refresh host also answers the Messages API: its tunnel ends at the refresh terminator, which passes the
+    // refresh only (TC-359)
+    let refresh: ReturnType<typeof startRefreshTerminator>
+    try { refresh = startRefreshTerminator({ db: ctx.db, dir: path.join(tunnel.secretsDir, 'claude-refresh-ca'), log: tunnel.log }) } catch (e) {
+      throw new CoreUnavailableError(`the Claude sign-in renewal certificate could not be made (${(e as Error).message}): engines will not run without it`)
+    }
+    ctx.onClose(() => refresh.stop())
+    const modelProxy = { ...tunnel, refreshCaPem: refresh.caPem, connect: { ...tunnel.connect, terminate: { hosts: CLAUDE_CONNECT_HOSTS, dial: refresh.dial } } }
+    return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy, launcher: { allowCmds, sessionRoots, ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex, proxyPort: tunnel.port } } : {}) } })
   }
   return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots, ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex } } : {}) } })
 }
 
-/** Office mode with the Mac user's own Claude login: the proxy that carries the engines' HTTPS (CONNECT to the Claude
- * hosts only; no Claude HTTP path, no credential in it). null in every other mode. */
+/** Office mode with the Mac user's own Claude login: the proxy that carries the engines' traffic (the checked HTTP
+ * path with the engine's own login, TC-359; CONNECT to the login refresh host only; no credential in the proxy). null
+ * in every other mode. */
 export function officeLoginProxy(ctx: AppContext) {
   if (!ctx.config.office || ctx.config.engine.authMode !== 'local-login') return null
-  return { ...prodProxyBase(ctx), broker: null, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS } }
+  return { ...prodProxyBase(ctx), broker: null, ownLogin: {}, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS } }
 }
 
 
@@ -188,6 +200,8 @@ export function createContext(o: ContextOptions): AppContext {
   // team projects are members only: once, what the owner and admins kept from reading every project by role goes
   // (chat/members-only-once.ts)
   void membersOnlyOnce(ctx)
+  // every team project shares its new chats; a rollback build may have turned the column off (chat/team-shares.ts)
+  try { markTeamShares(ctx.db, null, 'default') } catch (e) { ctx.log.warn('team project chat sharing not marked', { err: e }) }
   if (config.engine.authModeAlias) log.info(`authMode "${config.engine.authModeAlias}" is read as "managed"`)
   const gateway = anthropicGateway(config)
   if (gateway) log.info('engine.anthropicGateway: Claude requests go to the gateway, on its models only; Claude subscription connections are off', { gateway: gatewayHost(gateway), models: gatewayModelIds(gateway) })

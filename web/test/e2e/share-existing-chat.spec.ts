@@ -1,11 +1,11 @@
 // An existing private chat shared with its project's people (docs/DECISIONS.md "Shared project chats", "An existing chat
-// shared"): the move dialog's switch "프로젝트 멤버와 공유" (off by default; nothing narrower: shared right after the move),
-// the confirm when the chat used something some of the project cannot see (cancel: moved, still private; from the title
-// menu it asks first even when nothing is narrower), the same
-// from a chat row's "…" menu in the sidebar (the list grouped by project, so the moved chat's row is made again while
-// the dialog stays), the title menu's "프로젝트 멤버와 공유…", and a second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each
-// dialog. The mock (test/mock/server.ts, "프로젝트 멤버와 공유"): "mine-source" in a question reads a note in my own
-// folder, "memory" brings the memory note.
+// shared"): a chat moved into a team project arrives private, with no switch in the move dialog (QA TC-1075), its
+// header shows the lock (QA TC-1068); it is shared from the title menu's "공유…" (Share…) or the project page's
+// "chats only you see" line, always after one confirm whose focus starts on 취소 and whose material-others-can't-see
+// line is a warning (QA TC-1073); cancel leaves it private. The same from a chat row's "…" menu in the sidebar, and a
+// second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each dialog. The mock
+// (test/mock/server.ts, "프로젝트 멤버와 공유"): "mine-source" in a question reads a note in my own folder, "memory"
+// brings the memory note.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
@@ -53,7 +53,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       return page
     }
     const seenLine = (page: Page) => page.getByTestId(vp.phone ? 'composer-phone-footer' : 'composer-footer')
-    /** the title menu's "Move to project…", the project picked */
+    /** the title menu's "Move to project", the project picked */
     async function openMove(page: Page) {
       await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-project-move').click()
@@ -62,7 +62,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       return dialog
     }
 
-    test('moved with the switch on and nothing narrower: shared right away, and Bob sees it', async ({ page, browser }) => {
+    test('moved: it arrives private (no switch in the dialog), its header shows the lock; the title menu shares it, and Bob sees it', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
       const id = await project(page)
@@ -70,39 +70,43 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.goto(`/c/${chatId}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       const dialog = await openMove(page)
-      // the switch: off by default, with what it does under it
-      const toggle = dialog.getByTestId('chat-project-share-toggle')
-      await expect(toggle).not.toBeChecked()
-      await expect(dialog.getByTestId('chat-project-share-hint')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
-      await expect(toggle).toHaveAccessibleDescription(/되돌릴 수 없어요/)
-      await audit(page, 'move dialog with the share switch')
-      // no project: no switch
-      await dialog.getByText('프로젝트 없음').click()
+      // no share switch in the move dialog (QA TC-1075)
       await expect(dialog.getByTestId('chat-project-share')).toHaveCount(0)
-      await dialog.getByText('Launch', { exact: true }).click()
-      await dialog.getByText('프로젝트 멤버와 공유', { exact: true }).click()
-      await expect(toggle).toBeChecked()
+      await expect(dialog.getByText('프로젝트 멤버와 공유', { exact: true })).toHaveCount(0)
+      await audit(page, 'move dialog')
       await dialog.getByTestId('chat-project-save').click()
-      await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 멤버와 공유했어요' })).toBeVisible()
-      // one toast: the share says it (the header says where it went)
-      await expect(page.getByTestId('toast')).toHaveCount(1)
+      await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      // the header's mark and the line under the box, as for any shared chat
+      // private: the lock in the header and the full sentence under the box (QA TC-1068)
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
-      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 멤버 2명이 볼 수 있어요')
-      await expect(seenLine(page)).toContainText('멤버 2명이 이 채팅을 볼 수 있어요.')
+      await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      await expect(page.getByTestId('chat-private')).toHaveAccessibleName('이 채팅은 나만 볼 수 있어요.')
+      await expect(seenLine(page)).toContainText('이 채팅은 나만 볼 수 있어요.')
+      await audit(page, 'private chat in a team project')
+      // the title menu's share: the confirm first, the focus on 취소 (QA TC-1073)
+      await page.getByTestId('chat-menu').click()
+      await page.getByTestId('chat-share').click()
+      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
+      await expect(ask.getByTestId('share-chat-cancel')).toBeFocused()
+      await ask.getByTestId('share-chat-confirm').click()
+      await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 멤버와 공유했어요' })).toBeVisible()
+      // the header's mark and the line under the box, as for any shared chat
+      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 2명이 볼 수 있어요')
+      await expect(page.getByTestId('chat-private')).toHaveCount(0)
+      await expect(seenLine(page)).toContainText('2명이 이 채팅을 볼 수 있어요.')
       // nothing to share any more in the menu
       await page.getByTestId('chat-menu').click()
       await expect(page.getByTestId('chat-share')).toHaveCount(0)
       await expect(page.getByTestId('chat-project-move')).toHaveCount(0)
       await page.keyboard.press('Escape')
 
-      // Bob: on the project page, with the mark and who made it; he opens it and can write in it
+      // Bob: on the project page, with the face and name of who wrote in it (in place of the people icon; docs/DECISIONS.md
+      // "Faces in every chat list"); he opens it and can write in it
       const b = await bob(browser)
       await b.goto(`/projects/${id}`)
       const row = b.getByTestId('project-chats').getByRole('link', { name: /출시 일정/ })
-      await expect(row.getByTestId('shared-icon')).toBeVisible()
-      await expect(row.getByTestId('project-chat-by')).toHaveText('Olga')
+      await expect(row.getByTestId('project-chat-people-label')).toHaveText('공유 채팅 · Olga')
+      await expect(row.getByTestId('shared-icon')).toHaveCount(0)
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)
       await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')
@@ -110,7 +114,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await b.context().close()
     })
 
-    test('moved with the switch on, and it used my own folder and memories: the confirm; cancel leaves it moved and private', async ({ page, browser }) => {
+    test('it used my own folder and memories: the confirm warns, its focus on 취소; cancel leaves it moved and private', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
       await project(page)
@@ -118,34 +122,37 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.goto(`/c/${chatId}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       const dialog = await openMove(page)
-      await dialog.getByText('프로젝트 멤버와 공유', { exact: true }).click()
       await dialog.getByTestId('chat-project-save').click()
-      // one dialog asks (no toast over it: the move is told when it ends up not shared)
-      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
+      await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
+      await page.getByTestId('chat-menu').click()
+      await page.getByTestId('chat-share').click()
+      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
       await expect(ask).toBeVisible()
       await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      // what others can't see is a warning (QA TC-1073)
+      const warn = ask.getByTestId('share-chat-provenance')
+      await expect(warn).toHaveText('이 채팅에는 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      await expect(warn).toHaveClass(/text-warn/)
       await expect(ask.getByTestId('share-chat-memories')).toHaveText('개인 메모리를 참고한 답이 있을 수 있어요')
-      // 공유하기 is the default; the note comes first, before anything else in the dialog's body
-      await expect(ask.getByTestId('share-chat-confirm')).toBeFocused()
+      // 취소 is the default; the note comes first, before anything else in the dialog's body
+      await expect(ask.getByTestId('share-chat-cancel')).toBeFocused()
       await expect(ask.getByTestId('share-chat-ask').locator('p').first()).toHaveAttribute('data-testid', 'share-chat-note')
       await audit(page, 'share confirm')
-      await expect(page.getByTestId('toast')).toHaveCount(0)
-      await ask.getByTestId('share-chat-cancel').click()
+      // Enter on the focused 취소: nothing shared
+      await page.keyboard.press('Enter')
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      // moved (now it says so), and still mine alone
-      await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      await expect(page.getByTestId('chat-private')).toBeVisible()
       const b = await bob(browser)
       expect((await b.request.get(`/api/chats/${chatId}`)).status()).toBe(404)
       await b.context().close()
     })
 
-    test('from a chat row\'s "…" in the sidebar: moved with the switch on, the confirm, shared; the row moves to its project and keeps the dialog', async ({ page, browser }) => {
+    test('from a chat row\'s "…" in the sidebar: moved, still private; the project page\'s "only you see" line shares it', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
-      await project(page)
+      const id = await project(page)
       const chatId = await privateChat(page, 'mine-source 경쟁사 메모 정리해 줘')
       await page.goto('/')
       const list = await chatList(page)
@@ -155,22 +162,22 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await row.getByTestId('chat-row-move').click()
       const dialog = page.getByRole('dialog', { name: '프로젝트로 옮기기' })
       await dialog.getByText('Launch', { exact: true }).click()
-      await expect(dialog.getByTestId('chat-project-share-toggle')).not.toBeChecked()
+      await expect(dialog.getByTestId('chat-project-share')).toHaveCount(0)
       await audit(page, 'move dialog from the row menu')
-      await dialog.getByText('프로젝트 멤버와 공유', { exact: true }).click()
       await dialog.getByTestId('chat-project-save').click()
-      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
-      // a computer's 최근 기록 (one flat list since #683) names the row's project meanwhile (a phone's drawer lists by date,
-      // no tag); the question is still there
-      if (!vp.phone) await expect(row.getByTestId('chat-row-project')).toHaveText('Launch')
-      await expect(ask).toBeVisible()
-      await audit(page, 'share confirm from the row menu')
+      await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
+      // a computer's 트리나 기록 names the row's project; it is still private
+      if (!vp.phone) await expect(list.getByRole('listitem').filter({ hasText: '경쟁사 메모' }).getByTestId('chat-row-project')).toHaveText('Launch')
+      // the one place to share chats brought or moved in: the project page's line
+      await page.goto(`/projects/${id}`)
+      await page.getByTestId('private-chats-choose').click()
+      await page.getByTestId('private-chats-list').getByTestId('private-chats-share').click()
+      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      await audit(page, 'share confirm from the project page')
       await ask.getByTestId('share-chat-confirm').click()
       await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 멤버와 공유했어요' })).toBeVisible()
-      await expect(page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })).toHaveCount(0)
-      // the row has the shared mark, and its menu has no move any more
-      await expect(list.getByRole('listitem').filter({ hasText: '경쟁사 메모' }).getByTestId('shared-icon')).toBeVisible()
+      await expect(page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })).toHaveCount(0)
       const b = await bob(browser)
       expect((await b.request.get(`/api/chats/${chatId}`)).status()).toBe(200)
       await b.context().close()
@@ -185,7 +192,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-share').click()
-      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
+      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
       await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
       await expect(ask.getByTestId('share-chat-provenance')).toHaveCount(0)
       await expect(ask.getByTestId('share-chat-memories')).toHaveCount(0)
@@ -198,38 +205,33 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
     test('the title menu shares a private chat already in the project: the confirm, then shared; Bob sees it', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
-      const quiet = await project(page, false)
+      const quiet = await project(page)
+      // moved in: it stays private; its creator's title menu offers the share in any team project (no setting gates it:
+      // docs/DECISIONS.md "Team project chats shared by default")
       const before = await privateChat(page, 'mine-source 메모 정리해 줘', quiet)
-      // a project that does not share its chats: no such item
       await page.goto(`/c/${before}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await page.getByTestId('chat-menu').click()
-      await expect(page.getByTestId('chat-project-move')).toBeVisible()
-      await expect(page.getByTestId('chat-share')).toHaveCount(0)
-      await page.keyboard.press('Escape')
-      // now it does
-      expect((await patch(page, `/api/projects/${quiet}`, { shareChats: true })).ok()).toBeTruthy()
-      await page.reload()
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await page.getByTestId('chat-menu').click()
       const item = page.getByTestId('chat-share')
-      await expect(item).toHaveText('프로젝트 멤버와 공유…')
+      // one item for both kinds of sharing (docs/DECISIONS.md "Chats shared with people and groups")
+      await expect(item).toHaveText('공유…')
       await audit(page, 'chat menu with share')
       await item.click()
-      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
       await expect(ask.getByTestId('share-chat-memories')).toHaveCount(0)
       // asked again when something changed meanwhile, said so on top
       expect((await post(page, '/__test/share-changed', {})).ok()).toBeTruthy()
       await ask.getByTestId('share-chat-confirm').click()
-      const again = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
+      const again = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
       await expect(again.getByTestId('share-chat-changed')).toHaveText('그 사이 바뀐 것이 있어요. 다시 확인해 주세요')
-      await expect(again.getByTestId('share-chat-confirm')).toBeFocused()
-      await page.keyboard.press('Enter')
+      await expect(again.getByTestId('share-chat-cancel')).toBeFocused()
+      await again.getByTestId('share-chat-confirm').click()
       await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 멤버와 공유했어요' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(page.getByTestId('chat-shared')).toBeVisible()
-      await expect(seenLine(page)).toContainText('멤버 2명이 이 채팅을 볼 수 있어요.')
+      await expect(seenLine(page)).toContainText('2명이 이 채팅을 볼 수 있어요.')
       await audit(page, 'shared chat after sharing')
       const b = await bob(browser)
       await b.goto(`/c/${before}`)

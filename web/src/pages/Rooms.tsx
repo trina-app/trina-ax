@@ -64,7 +64,8 @@ export default function Rooms() {
       return p
     }, { replace: true })
   }, [asked, setParams])
-  const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
+  // the phone's rows, sized by the list tokens (index.css): at least a ListRow's height, faces as big as a ListIcon
+  const row = 'flex min-h-row-min items-center gap-3 px-4 py-2 hover:bg-hover sm:px-6'
   // a computer: the 대화 panel beside the page is the list (with its ⊕ 새 대화), so the page says to pick one and keeps
   // only what the panel has not: the hidden conversations
   const computer = useMediaQuery('(min-width: 768px)')
@@ -169,7 +170,7 @@ function HiddenRooms({ rooms }: { rooms: Room[] }) {
   return (
     <section className="pt-4 pb-8" data-testid="rooms-hidden">
       <h2>
-        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-sm text-muted hover:text-ink sm:px-6 md:min-h-9 md:text-xs" data-testid="rooms-hidden-toggle">
+        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-xs text-muted hover:text-ink sm:px-6 md:min-h-9" data-testid="rooms-hidden-toggle">
           {t('rooms.hidden.title', { n: rooms.length })}
           <ChevronDown size={14} className={clsx('transition-transform motion-reduce:transition-none', !open && '-rotate-90')} aria-hidden />
         </button>
@@ -215,7 +216,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       '[--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
       // while the "⋯" shows over the row's end, the preview stops before it (the time and the count give way)
       'pointer-fine:group-hover:pr-14 group-has-[:focus-visible]:pr-14 pointer-fine:group-has-[[aria-expanded=true]]:pr-14')} data-testid="rooms-row">
-      <RoomIcon room={room} size={40} tile presence />
+      <RoomIcon room={room} size={32} glyph={18} tile presence />
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">

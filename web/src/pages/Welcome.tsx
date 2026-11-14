@@ -181,11 +181,11 @@ function WelcomeSteps() {
     const named = phoneNow() ? phoneScreen(where.current.search) : null
     try {
       const w = useWelcome.getState()
-      let p = await w.load(true)
+      let p = await w.loadRecent()
       // the first visit starts the progress, with the setup link's website (the profile step on any device)
       const site = setupSite()
       if (!p || (site && !p.site)) p = await w.update(site ? { site } : {})
-      await useAiAccess.getState().load(true)
+      await useAiAccess.getState().loadRecent()
       // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done
       if (useAiAccess.getState().usable && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
       const here = !window.matchMedia?.(PHONE_QUERY).matches
@@ -447,7 +447,7 @@ const COLS: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'g
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
-      <h2 className="text-lg font-semibold text-ink">{title}</h2>
+      <h2 className="text-display font-semibold text-ink">{title}</h2>
       {desc && <p className="text-sm text-balance text-muted">{desc}</p>}
     </div>
   )

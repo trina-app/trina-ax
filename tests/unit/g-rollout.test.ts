@@ -13,6 +13,7 @@ import { DEFAULT_RAMP, LAST_BUCKET, inheritRollout, inRollout, newRollout, publi
 import type { BackupManager } from '../../server/src/system/backup'
 import { ReleaseFeed, type UpdateManager } from '../../server/src/system/update'
 import { autoUpdateDecision, runUpdate } from '../../server/src/system/update-job'
+import { _resetUpdateWait } from '../../server/src/system/update-wait'
 
 const VECTORS = path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-ctl', 'testdata', 'rollout.json')
 interface Case {
@@ -266,10 +267,11 @@ describe('an administrator\'s "update now" (runUpdate) does not wait for the tur
     const did: string[] = []
     const updates = {
       checkFeed: async () => f, needsRoot: () => false,
-      download: async () => { did.push('download') }, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } },
+      releaseCanRead: () => true, canRead: () => true, download: async () => { did.push('download') }, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } },
     } as unknown as UpdateManager
     const backups = { run: async () => { did.push('backup') } } as unknown as BackupManager
     const r = await runUpdate({ updates, backups, running: () => 0, restart: () => did.push('restart'), locale: 'en', sleep: async () => {} }, '1.1.0', { staged: false, rollback: false })
+    _resetUpdateWait() // a switched run keeps its mark until the restart, which a test never does
     expect(r).toEqual({ fromVersion: '1.0.0', toVersion: '1.1.0', rolledBack: false })
     expect(did).toEqual(['backup', 'download', 'switch 1.1.0', 'restart'])
   })

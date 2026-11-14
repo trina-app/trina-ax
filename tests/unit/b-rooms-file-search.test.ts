@@ -15,6 +15,7 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { roomFilesSql, searchRoomFiles } from '../../server/src/rooms/search'
 import type { ReadSource } from '../../server/src/chat/read-scope'
+import { setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -23,6 +24,9 @@ let h: Harness
 let clock = Date.now()
 beforeAll(async () => {
   h = await startHarness({ name: 'b-rooms-file-search' })
+  // the room answers here are judged by the rule for those from before the cutover (docs/DECISIONS.md "People who see
+  // a shared chat later: nothing new is hidden")
+  setHiddenAnswersCutover(h.ctx.db, '9999-12-31T00:00:00.000Z')
   const db = h.ctx.db
   db.exec('PRAGMA foreign_keys = OFF')
   for (const g of ['marketing', 'finance']) {
@@ -68,7 +72,6 @@ const names = (p: RoomFileSearchPage) => p.items.map((i) => i.file.name)
 /** the raw JSON a search answers (to look for names that must never be in it) */
 const raw = async (user: string, q: string, cursor?: string) => (await h.req(user, `/api/room-files?q=${encodeURIComponent(q)}${cursor ? `&cursor=${cursor}` : ''}`)).text()
 const EMPTY = { items: [], rooms: [], nextCursor: null }
-const folder = (p: string): ReadSource => ({ type: 'folder', id: (h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string }).id })
 const next = (roomId: string) => (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
 /** a message straight into the database: a person's (a shared answer when `answerAt` is set), or a private preview */
 function put(roomId: string, author: string, body: string, o: { privateTo?: string; answerAt?: number } = {}): string {
@@ -160,7 +163,8 @@ describe('who finds a file', () => {
 
   test('an answer hidden from a later member: neither the files in its thread nor a shared answer\'s files', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    const a = aiAnswer(roomId, 'alice', 'The brief says this', { sources: [folder('groups/marketing')] })
+    // (an older answer from alice's own folder: still hidden from a later member; a team folder would not be, rule b)
+    const a = aiAnswer(roomId, 'alice', 'The brief says this', { sources: [{ type: 'user', id: 'alice' }] })
     await sendFiles('erin', roomId, ['HIDDEN-FILE in its thread.pdf'], { threadRootId: a.answerId })
     // an answer alice sent from her own AI chat with a file attached; its chat did not say what it used
     const shared = put(roomId, 'alice', 'From my chat: the plan', { answerAt: 0 })

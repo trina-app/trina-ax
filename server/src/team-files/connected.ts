@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
-import { afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, replaceRules } from '../admin/folders'
+import { afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, writeFolderAccess } from '../admin/folders'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { badSegment } from '../policy/names'
@@ -118,7 +118,7 @@ export class ConnectedFolders {
     const before = captureState(this.db)
     this.db.transaction(() => {
       this.db.query('INSERT INTO connected_folders (id, name, source, created_by) VALUES (?, ?, ?, ?)').run(id, name, source, o.actor)
-      replaceRules(this.db, ensureFolderRow(this.db, rel).id, rules, o.actor)
+      writeFolderAccess(this.db, ensureFolderRow(this.db, rel).id, { rules }, o.actor)
       this.db.query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?, 'connected.add', ?, ?)").run(o.actor, rel, JSON.stringify({ source }))
     })()
     afterAccessChange(this.ctx, before, { actor: o.actor, target: rel, created: [rel] })
@@ -158,10 +158,12 @@ export class ConnectedFolders {
   }
 
   /** The source's files (relative path → stats), without hidden files, links, unacceptable names or huge files. */
-  private listSource(src: string): { files: Map<string, fs.Stats>; skipped: number } {
+  private listSource(src: string): { files: Map<string, fs.Stats>; raw: Map<string, string>; skipped: number } {
     const files = new Map<string, fs.Stats>()
+    // the key (every name composed, NFC) -> the path as the source spells it (a Mac's share keeps Korean names decomposed)
+    const raw = new Map<string, string>()
     let skipped = 0
-    const walk = (rel: string[]) => {
+    const walk = (rel: string[], nrel: string[]) => {
       const dir = path.join(src, ...rel)
       // a folder that became a link (or now resolves elsewhere) since its parent was read is never entered; the source
       // itself changed after the check: the sync stops (an empty listing would remove the whole mirror)
@@ -174,12 +176,12 @@ export class ConnectedFolders {
         if (badSegment(nfc)) { skipped++; continue }
         let st: fs.Stats
         try { st = fs.lstatSync(path.join(src, ...rel, n)) } catch { skipped++; continue }
-        if (st.isDirectory()) walk([...rel, n])
-        else if (st.isFile()) { if (st.size > FILE_MAX) skipped++; else files.set([...rel, nfc].join('/'), st) }
+        if (st.isDirectory()) walk([...rel, n], [...nrel, nfc])
+        else if (st.isFile()) { if (st.size > FILE_MAX) skipped++; else { const key = [...nrel, nfc].join('/'); if (files.has(key)) skipped++; else { files.set(key, st); raw.set(key, [...rel, n].join('/')) } } }
       }
     }
-    walk([])
-    return { files, skipped }
+    walk([], [])
+    return { files, raw, skipped }
   }
 
   /** A path inside the mirror folder whose every folder is a real folder (no link planted on the way). */
@@ -222,7 +224,7 @@ export class ConnectedFolders {
     const c = this.get(id)
     if (!c) throw new ConnectedError('not_found')
     const now = new Date().toISOString()
-    let listed: { files: Map<string, fs.Stats>; skipped: number }
+    let listed: { files: Map<string, fs.Stats>; raw: Map<string, string>; skipped: number }
     try {
       // the source is checked again at every sync, not only when it was connected: someone who can write to the share
       // may have replaced it with a link (to the server's own data, for example). It must still be the same real folder.
@@ -248,6 +250,15 @@ export class ConnectedFolders {
       throw new ConnectedError(why)
     }
     const man = this.manifest(id)
+    // a mirror made before folder names were composed too: its rows carry the share's decomposed folder names; they move
+    // to the composed spelling first, or the files (the same files on a disk that ignores the difference) would count
+    // as changed here and be dropped for one sync
+    for (const [k, m] of [...man]) {
+      const nk = k.normalize('NFC')
+      if (nk === k || man.has(nk)) continue
+      this.db.query('UPDATE connected_files SET path = ? WHERE folder_id = ? AND path = ?').run(nk, id, k)
+      man.delete(k); man.set(nk, m)
+    }
     const r: SyncResult = { copied: 0, updated: 0, removed: 0, kept: 0, skipped: listed.skipped, pending: false, files: 0, bytes: 0 }
     let budget = RUN_BYTES_MAX
     const put = this.db.query('INSERT OR REPLACE INTO connected_files (folder_id, path, size, mtime_ms, src_size, src_mtime_ms) VALUES (?, ?, ?, ?, ?, ?)')
@@ -268,7 +279,7 @@ export class ConnectedFolders {
       if (r.copied + r.updated >= RUN_COPIES_MAX || st.size > budget || (currentPlan() && storageRoom(st.size)?.ok === false)) { r.pending = true; continue }
       const tmp = path.join(path.dirname(dst), `.mycel-sync-${process.pid}-${Date.now()}`)
       try {
-        await copyNoFollow(path.join(c.source, ...rel.split('/')), c.source, tmp)
+        await copyNoFollow(path.join(c.source, ...(listed.raw.get(rel) ?? rel).split('/')), c.source, tmp)
         await fs.promises.utimes(tmp, st.atime, st.mtime)
         await fs.promises.rename(tmp, dst)
       } catch { fs.rmSync(tmp, { force: true }); r.skipped++; continue }

@@ -14,15 +14,19 @@
 // live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
 // Files from this computer dropped anywhere on the screen (its header, the messages, the box) go into the box
 // (components/FileDropZone.tsx); a chat in the trash or a read-only one says why nothing can be attached.
+// `?answer=<messageId>` (an item of the widening list, components/WideningList.tsx): the branch holding that answer, for
+// this view only (the chat's active branch is not changed for anyone), scrolled to it and lit for a moment; an answer
+// no longer there opens the chat at its end with "That answer is no longer here." On a phone, opened from a sharing
+// dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { isPeopleShared, noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -34,7 +38,8 @@ import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { CHAT_ROW, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
-import { chatEnd, chatPlace, keepChatPlace, useChats } from '../store/chats'
+import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
+import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
@@ -49,11 +54,14 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
-import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
+import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
+import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
+import { openChatShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
-import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { useTrashLines } from '../components/ProjectTrashNote'
+import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -65,10 +73,25 @@ const SLOT = '\u0000'
 
 export default function ChatPage() {
   const { chatId } = useParams()
-  return <ChatView key={chatId} chatId={chatId!} />
+  // ?answer= read again when it changes on the same chat (an answer of the widening list opened from this chat's own
+  // Share dialog on a phone)
+  const [params] = useSearchParams()
+  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} />
 }
 
 function ChatView({ chatId }: { chatId: string }) {
+  // ?answer=: this view shows that answer's branch; what is in memory for the chat may be another branch, so it is read
+  // again (before the first read below)
+  const [params] = useSearchParams()
+  const [focusAnswer] = useState(() => {
+    const id = params.get('answer')
+    if (id) {
+      showThrough(chatId, id)
+      useChats.setState((s) => { const { [chatId]: _, ...threads } = s.threads; return { threads } })
+    }
+    return id
+  })
+  useEffect(() => () => showThrough(chatId, null), [chatId])
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -89,7 +112,10 @@ function ChatView({ chatId }: { chatId: string }) {
   const backLink = useBackLink()
   // my chat list, or a shared chat of someone else's that this screen shows (store/chats.ts `others`)
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId) ?? s.others[chatId])
-  const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
+  // a chat opened from a list that already holds it (a project page's rows: someone else's shared chat is not in my list
+  // yet) shows its title, crumb and people on the first frame, before the read comes back (QA TC-1293)
+  const handed = (useLocation().state as { chat?: Chat } | null)?.chat
+  const [chat, setChat] = useState<Chat | null>(chatFromList ?? (handed?.id === chatId ? handed : null))
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
   const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -114,7 +140,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
   const readOnly = !!shared && !!me.server.allChatsConfidential
-  const title = chat?.title || t('chat.untitled')
+  // no title yet while the chat is read: nothing, not "Untitled" (that is a chat without one)
+  const title = chat ? chat.title || t('chat.untitled') : loading ? '' : t('chat.untitled')
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])
@@ -124,7 +151,7 @@ function ChatView({ chatId }: { chatId: string }) {
     error: (e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }),
   })
 
-  // the title menu's "Move to project…" (components/chat/ChatProject.tsx); the project's name before the title comes
+  // the title menu's "Move to project" (components/chat/ChatProject.tsx); the project's name before the title comes
   // from the projects store there
   const projectId = chat?.projectId ?? null
   const [movingProject, setMovingProject] = useState(false)
@@ -133,16 +160,34 @@ function ChatView({ chatId }: { chatId: string }) {
   // (store/projects.ts)
   const project = useProjects((s) => (projectId ? s.byId[projectId] : undefined))
   const [members, setMembers] = useState(false)
-  const who = chat ? <WhoSeesLine shared={shared ? { audience: shared.audience, alone: project?.alone } : null} place="chat" onOpen={shared && project?.membersEditable ? () => setMembers(true) : undefined} /> : undefined
+  // a chat shared with people and groups (docs/DECISIONS.md "Chats shared with people and groups"): its creator's line
+  // opens the Share dialog; to someone not told how many see it (a group in it), the names it is shared with
+  const people = isPeopleShared(chat)
+  const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
+  const who = chat ? (
+    <WhoSeesLine
+      shared={shared ? { audience: shared.audience, alone: project?.alone } : null}
+      place="chat"
+      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : undefined}
+      onOpen={people ? (rights.creator && !chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
+      openLabel={people ? t('chat.share.changeWho') : undefined}
+    />
+  ) : undefined
+  // someone else's chat shared with me: when it can't be opened any more, it says so (QA TC-1405)
+  const wasSharedWithMe = useRef(false)
+  if (people && shared && shared.by.id !== me.user.id) wasSharedWithMe.current = true
 
   useEffect(() => {
     if (choose) void loadEngines()
   }, [choose, loadEngines])
 
-  // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx)
+  // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx).
+  // When both reads fail, the page keeps the chat read's error, whichever answer came first: it is the one that says why
+  // the chat cannot be opened (a project left or in the trash; QA TC-1403), the messages' plain 404 says less.
   const load = useCallback(async () => {
     try {
-      const [c] = await Promise.all([chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } }), loadThread(chatId)])
+      const read = chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } })
+      const [c] = await Promise.all([read, loadThread(chatId).catch(async (e: unknown) => { await read; throw e })])
       setLoadError(null)
       setChat(c)
       // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list
@@ -159,9 +204,46 @@ function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     void load()
   }, [load])
+  // the chat left my lists while it is on screen (chat.updated "deleted": I lost the shared chat when a project's
+  // members changed, it went to a trash or was purged; also a list read again after a reconnect): read it again, so a
+  // chat I can no longer open shows the not-found page instead of its old messages and a box that cannot send, and one
+  // in a trash shows the trash line, as a reload would (QA TC-961). A reply that comes after the chat came back to a
+  // list (an undo, the member added back) changes nothing.
+  const wasListed = useRef(!!chatFromList)
+  useEffect(() => {
+    const was = wasListed.current
+    wasListed.current = !!chatFromList
+    if (!was || chatFromList) return
+    const back = () => { const s = useChats.getState(); return s.chats.some((x) => x.id === chatId) || !!s.others[chatId] }
+    api.call(API.getChat, { params: { id: chatId } }).then(
+      (c) => { if (!back()) setChat(c) },
+      (e) => { if (isApiError(e, 'not_found') && !back()) setLoadError(e) },
+    )
+  }, [chatId, chatFromList])
 
   const messages = thread.messages
   const running = runningMessage(messages)
+
+  // ?answer=: scroll to it and light it for a moment, once it is read; gone (or hidden from me): say so
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focusAnswer || focused.current || loading || loadError) return
+    focused.current = true
+    const m = messages.find((x) => x.id === focusAnswer)
+    const el = m && !m.withheld ? scroller.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(focusAnswer)}"]`) : null
+    if (!el) { toast({ level: 'info', text: t('share.widenList.gone') }); return }
+    stick.current = false
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'center' })
+      el.setAttribute('data-focused', '')
+      setTimeout(() => el.removeAttribute('data-focused'), 2400)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAnswer, loading, loadError, messages.length])
+  // a phone that came from a sharing dialog's list: the way back to it
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const draft = useWideningDraft((s) => s.draft)
+  const backToSharing = !!focusAnswer && phone && !!draft?.left && freshDraft(draft)
   // the AI's open question in this chat (the message box answers it), and cards only their own buttons answer
   const question = useChats((s) => composerQuestion(s.requests, chatId))
   const choosing = useChats((s) => choiceWaiting(s.requests, chatId))
@@ -359,10 +441,42 @@ function ChatView({ chatId }: { chatId: string }) {
     composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
+  // a shared chat of a project in the trash, to one of its members: the server says so (and only to them), and the page
+  // says what the project's page says (QA TC-1060)
+  if (loadError && isApiError(loadError, 'not_found') && loadError.body.params?.reason === 'project_in_trash' && typeof loadError.body.params.projectId === 'string')
+    return <ChatOfTrashedProject projectId={loadError.body.params.projectId} />
+  // a shared chat of a project I was taken out of (or left): its name, plainly (QA TC-1067)
+  const goneFrom = loadError ? noLongerMemberOf(loadError) : null
+  if (goneFrom)
+    return (
+      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="">
+        <EmptyState screen title={t('projects.noLongerMember', { name: goneFrom })}>
+          <Link to="/projects" className="mt-1 inline-block font-medium text-accent-text underline">
+            {t('projects.title')}
+          </Link>
+        </EmptyState>
+      </div>
+    )
+  // a chat someone shared with me, and I was taken out (or left its group) while it was open
+  if (loadError && isApiError(loadError, 'not_found') && wasSharedWithMe.current)
+    return (
+      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="shared">
+        <EmptyState screen title={t('notifications.event.chat.sharedGone')}>
+          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-gone-home">
+            {t('notFound.home')}
+          </Link>
+        </EmptyState>
+      </div>
+    )
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
-        <EmptyState title={t('chat.notFound')}>
+        <EmptyState screen title={t('chat.notFound')}>
+          {/* one text for every chat that cannot be opened (a chat only its creator sees, one deleted, one of a project
+              I am not in): the server answers each with the same 404, so the page tells nothing about this one; the
+              likely case, a teammate's link to a chat still private to them, says what to ask for (QA TC-919, TC-948;
+              docs/DECISIONS.md "Team project chats shared by default") */}
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
           {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
               docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
               nothing about this one */}
@@ -390,6 +504,15 @@ function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <FileDropZone className="flex h-full flex-col" empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
+      {backToSharing && (
+        <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-1">
+          {/* like the system Back: the screen that opened the dialog, which opens it again on the list (WideningDraftHost) */}
+          {/* (a chat's own Share dialog opened its answer on the same screen, which a phone replaces: back to its address) */}
+          <button type="button" onClick={() => (draft!.from.split('?')[0] === `/c/${chatId}` ? navigate(draft!.from, { replace: true }) : window.history.length > 1 ? navigate(-1) : navigate(draft!.from))} className="touch-hit inline-flex h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent-text hover:bg-hover" data-testid="back-to-sharing">
+            <ChevronLeft size={18} aria-hidden />{t('share.widenList.back')}
+          </button>
+        </div>
+      )}
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
           it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
           the name, and a new chat (✦, as a room's header asks Trina). */}
@@ -410,13 +533,19 @@ function ChatView({ chatId }: { chatId: string }) {
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
+              // a shared chat: the same question again in a chat only I see, in its project (my last question here); a
+              // chat shared with people: Home's box, no project
+              onPrivately={shared ? () => (chat.projectId ? askPrivately(navigate, chat.projectId, lastOwnQuestion(chat.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(chat.id, me?.user.id))) : undefined}
+              onHide={() => void actions.hide(chat)}
             />
           ) : (
             <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">
               {title}
             </h1>
           )}
-          {shared && <SharedChatMark audience={shared.audience} />}
+          {shared && <SharedChatMark audience={shared.audience} hidden={!!shared.audienceHidden} />}
+          {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
+          {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
         {isDesktop() && <BrowserToggle />}
         {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
@@ -492,7 +621,7 @@ function ChatView({ chatId }: { chatId: string }) {
           />
           </>
         )}
-        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}</p>}
+        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? (shared.audienceHidden ? t('chat.footerAi') : t('chat.footerShared', { n: shared.audience })) : t('chat.footerPrivate')}</p>}
       </div>
       {members && project && (
         <ProjectMembersDialog
@@ -549,3 +678,35 @@ function BrowserToggle() {
 /** the answer failed because nothing answers this person (the button to connect or ask is on it) */
 const noAiError = (m: { role: string; status?: string; error?: Parameters<typeof chatErrorReason>[0] | null } | undefined) =>
   !!m && m.role === 'assistant' && m.status === 'error' && !!m.error && isNoAiReason(chatErrorReason(m.error))
+
+/** A shared chat link of a team project in the trash, opened by one of its members: the project is in the trash, who
+ * moved it there, who can restore it, and its page (where its creator or an admin restores it). The project is read
+ * as its card is (GET /api/projects/:id?manage=1: its name and state only); not readable any more: the plain answer. */
+function ChatOfTrashedProject({ projectId }: { projectId: string }) {
+  const t = useT()
+  const [project, setProject] = useState<Project | null | false>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.getProject, { params: { id: projectId }, query: { manage: '1' } }).then((p) => live && setProject(p.inTrash ? p : false), () => live && setProject(false))
+    return () => { live = false }
+  }, [projectId])
+  const lines = useTrashLines(project || {})
+  if (project === null) return <Skeleton lines={3} className="p-6" />
+  return (
+    <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
+      <EmptyState screen title={project ? t('chat.projectInTrash', { name: project.name }) : t('chat.notFound')}>
+        {project ? (
+          <>
+            {lines.moved && <p className="mb-1 break-keep" data-testid="chat-project-trashed-by">{lines.moved}</p>}
+            <p className="mb-1 break-keep" data-testid="chat-project-trash-restores">{project.canRestore ? t('chat.projectInTrashYou') : lines.restores}</p>
+            <Link to={`/projects/${project.id}`} className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-project-open">
+              {t('chat.openProject')}
+            </Link>
+          </>
+        ) : (
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
+        )}
+      </EmptyState>
+    </div>
+  )
+}

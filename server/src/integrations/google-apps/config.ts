@@ -10,7 +10,8 @@
 //    self-installed with MYCEL_GOOGLE_DRIVE_BROKER_URL) uses the hosting service's Google app (the Drive broker,
 //    google-drive/broker.ts, with the `app` field);
 //  - "none".
-// Every card's redirect address is https://<tunnel.host>/api/integrations/google-apps/callback (one callback for all
+// Every card's redirect address is https://<public host>/api/integrations/google-apps/callback (system/deployment.ts
+// publicHostOf: tunnel.host, or a hosted server's team address) (one callback for all
 // four; the flow says which app). The settings row `integrations.googleApps.<app>.client` remembers what the page set.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -21,6 +22,7 @@ import { GOOGLE_APPS_BROKER_TEAM_RETURN_PATH } from '@mycel/shared/cloud-protoco
 import type { AppContext } from '../../context'
 import { getSetting } from '../../admin/settings'
 import { resolveLayout } from '../../system/layout'
+import { publicHostOf } from '../../system/deployment'
 import { googleDriveOf } from '../google-drive/oauth'
 import { brokerKey } from '../google-drive/broker'
 
@@ -41,7 +43,7 @@ export const clientSettingKey = (app: GoogleAppId) => `integrations.googleApps.$
 export const clientEnvName = (app: GoogleAppId) => `MYCEL_GOOGLE_${app.toUpperCase()}_CLIENT_FILE`
 
 export const appsSecretsDir = (ctx: AppContext) => path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'google-apps')
-export const redirectUriOf = (ctx: AppContext) => (ctx.config.tunnel?.host ? `https://${ctx.config.tunnel.host}${CALLBACK_PATH}` : null)
+export const redirectUriOf = (ctx: AppContext) => { const h = publicHostOf(ctx.config); return h ? `https://${h}${CALLBACK_PATH}` : null }
 
 /** Read a server-owned client file, like Drive's (google-drive/config.ts readDriveConfig): a regular private file of
  * this account, outside the team folder, never followed through a link. Invalid or missing: null, nothing logged. */

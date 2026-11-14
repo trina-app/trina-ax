@@ -56,6 +56,9 @@ export interface ViewerItem {
    * shows the message's thread: `rootId`, its root (a reply's thread root, else the message itself); `threadable`
    * false: a message that cannot have a thread (an AI answer only its asker sees), shown alone */
   room?: RoomPlace
+  /** a team file's path (an AI chat's attachment, an answer's picture): its link in the right-click menu
+   * (lib/fileMenu.ts itemLink) */
+  path?: string
 }
 
 /** Where a room's picture or file was sent: the room, the file, and the message with its thread (absent: one not sent
@@ -229,6 +232,7 @@ export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): Viewe
     height: a.height,
     download: () => startDownload(fileUrl(a.path), a.name),
     href: big || heic ? null : fileUrl(a.path, 'inline'),
+    path: a.path,
     ...shown(meta),
   }
 }
@@ -236,7 +240,7 @@ export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): Viewe
 /** A team picture in an answer: the picture on the page is the original already. */
 export function teamImageItem(path: string, name: string, meta: ViewerMetaValue = {}): ViewerItem {
   const inline = fileUrl(path, 'inline')
-  return { key: `team:${path}`, name, thumb: inline, original: inline, download: () => startDownload(fileUrl(path), name), href: inline, ...shown(meta) }
+  return { key: `team:${path}`, name, thumb: inline, original: inline, download: () => startDownload(fileUrl(path), name), href: inline, path, ...shown(meta) }
 }
 
 /** A picture in a message box, not sent yet: drawn from its own bytes; nothing to download or open. */

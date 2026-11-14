@@ -38,7 +38,7 @@ Trina AX 把团队的文件、技能和工具放在一台服务器上。每个�
 
 - **Trina 托管：** 不用自己运维服务器。14 天免费试用，之后按月订阅。[套餐](https://ax.trina.app/pricing)
 - **应用：** [Mac、iPhone、Android 和 Windows](https://ax.trina.app/download)，或任何浏览器。
-- **自托管：** 你们自己的 Linux 服务器、Docker 或办公室 Mac。免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md)
+- **自托管：** 你们自己的 Linux 服务器、Docker 或办公室 Mac。免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI 助手安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <details>
 <summary><b>10 分钟在你的电脑上试用</b>（虚构团队，AI 关闭）</summary>
@@ -76,7 +76,7 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [版本发布](https://github.com/trina-app/trina-ax/releases/latest) · [更新日志](CHANGELOG.md) · [获取支持](SUPPORT.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [开发](docs/DEVELOPMENT.md) · [配置](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
-应用界面支持英语、韩语、印尼语、日语和西班牙语。所有图片中的公司和人物都是虚构的。
+应用界面支持英语、韩语、印尼语、日语、西班牙语和简体中文。所有图片中的公司和人物都是虚构的。
 
 ## 许可证
 

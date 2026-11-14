@@ -91,6 +91,23 @@
   --text-code-sm: 0.75rem; /* 12px */
   --text-code-file: 0.78125rem; /* 12.5px */
   --leading-reading: 1.625rem; /* 26px */
+  /* Heading levels (docs/DESIGN-SYSTEM.md "Typography"), each at 600 with its own line: `text-title-sm` 17/24 for a
+     dialog's, a card's and a settings section's title and a room's or a side panel's header name; `text-title` 20/28
+     for a page's title (PageHeader, an admin page's header); `text-display` 24/32 (22/30 on phones) for an empty
+     screen's or a setup step's heading and a project's name; `text-hero` 30/38 (26/34 on phones) for the home
+     greeting only. At least 3px between levels, so the level shows; a heading never takes a px size of its own. */
+  --text-title-sm: 1.0625rem; /* 17/24 */
+  --text-title-sm--line-height: 1.5rem;
+  --text-title-sm--font-weight: 600;
+  --text-title: 1.25rem; /* 20/28 */
+  --text-title--line-height: 1.75rem;
+  --text-title--font-weight: 600;
+  --text-display: 1.5rem; /* 24/32 */
+  --text-display--line-height: 2rem;
+  --text-display--font-weight: 600;
+  --text-hero: 1.875rem; /* 30/38 */
+  --text-hero--line-height: 2.375rem;
+  --text-hero--font-weight: 600;
   /* The list panels' type (the rail's panels: 트리나, 대화, 프로젝트, 파일, 활동; the phone lists and drawer that share
      their rows; docs/DESIGN-SYSTEM.md "Typography": row, list-heading, meta): `text-row` 15px for every row, a section's header and the fixed rows
      on top; `text-meta` 13px for a row's second line and tags (a project's "나만 · 3시간 전", a chat's project); `h-row`
@@ -108,8 +125,12 @@
      phone's values are in the block after the phone sizes below, so every list (the panels, the phone tabs 대화 · 프로젝트
      · 파일 · 나 and the drawer) changes in one place */
   --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
+  --spacing-row-page: 3rem; /* a page's main list (ListRow scale="page": a project's 트리나 기록, 팀 스킬): 48px on a
+     computer and a phone, not the panels' 30px (docs/DECISIONS.md "Page lists: page density") */
   --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
   --spacing-list-glyph: 1rem; /* the icon inside it */
+  --spacing-list-face: 1.75rem; /* a row's icon box when it holds people's pictures (the member picker): 28px */
+  --text-list-face: 0.75rem; /* a person's letter on a picture that fills that box (Avatar size="fill") */
   --color-list-icon-bg: transparent;
   --color-row-read: var(--c-muted); /* a read row's name */
   --font-weight-row-read: 400;
@@ -178,6 +199,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 /* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
    overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
+/* Chinese takes the Simplified Chinese system face first: Apple SD Gothic Neo and Noto Sans KR draw Han characters in
+   their Korean shapes and lack many simplified ones (PingFang SC on Apple devices, Microsoft YaHei on Windows) */
+:root:lang(zh) { --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Segoe UI", Roboto, system-ui, sans-serif; }
 ::selection { background: var(--c-accent-soft); }
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
@@ -217,7 +241,7 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
 }
 
 /* Phones (below 768px, where the phone top bar and the tabs show): the text sizes at the phone floor (xs, sm and micro as
-   on computers, the others one step up; badges stay 11px)
+   on computers, the others one step up; badges stay 11px; display and hero one step down, title-sm and title the same)
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
    11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
    reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it
@@ -237,23 +261,31 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --text-nano: 0.6875rem; /* 11px */
     --text-code-sm: 0.8125rem; /* 13px */
     --text-code-file: 0.8125rem; /* 13px */
+    --text-display: 1.375rem; /* 22/30 */
+    --text-display--line-height: 1.875rem;
+    --text-hero: 1.625rem; /* 26/34 */
+    --text-hero--line-height: 2.125rem;
   }
 }
 
-/* The shared lists on phones (components/list/List.tsx), as the 대화 tab has always drawn them: names 17px, read ones in
-   ink at 500 (the second line carries what is new), an icon in a 40px round tile, rows at least 56px, a section's header
-   small and grey above its rows (iOS style), rows not indented under it. Only the list tokens, not the type scale. */
+/* The shared lists on phones (components/list/List.tsx), sized like iOS Settings and Slack's phone app: names 16px / 22px,
+   read ones in ink at 400 (unread and the open row 600; the second line carries what is new), an icon in a 32px round
+   tile with an 18px glyph, rows at least 48px (a tap target stays 44px or more), people's pictures 32px, a section's
+   header small and grey above its rows (iOS style), rows not indented under it. Only the list tokens, not the type
+   scale. (17px / 500 with 40px tiles and 56px rows until 2026-11-13 read heavy on a real phone.) */
 @media (max-width: 767.98px) {
   :root {
-    --text-row: 1.0625rem; /* 17px */
-    --text-row--line-height: 1.5rem;
+    --text-row: 1rem; /* 16px */
+    --text-row--line-height: 1.375rem; /* 22px */
     --spacing-row-indent: 0.75rem; /* the rows' own 12px: no extra indent */
-    --spacing-row-min: 3.5rem; /* 56px */
-    --spacing-list-icon: 2.5rem; /* 40px */
-    --spacing-list-glyph: 1.25rem; /* 20px */
+    --spacing-row-min: 3rem; /* 48px */
+    --spacing-list-icon: 2rem; /* 32px */
+    --spacing-list-glyph: 1.125rem; /* 18px */
+    --spacing-list-face: 2rem; /* 32px, as the icon box */
+    --text-list-face: 0.875rem; /* 14px */
     --color-list-icon-bg: var(--c-hover);
     --color-row-read: var(--c-ink);
-    --font-weight-row-read: 500;
+    --font-weight-row-read: 400;
     --text-list-head: 0.8125rem; /* 13px */
     --text-list-head--line-height: 1.125rem;
     --color-list-head-ink: var(--c-faint);
@@ -383,3 +415,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 /* docx-preview pages on a neutral background */
 .docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
 .docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
+
+/* an answer opened from the widening list (pages/Chat.tsx ?answer=): lit for a moment, then it fades */
+[data-message-id] { transition: box-shadow 600ms ease, background-color 600ms ease, outline-color 600ms ease; border-radius: 0.75rem; outline: 1.5px solid transparent; outline-offset: 8px; }
+[data-message-id][data-focused] { background-color: color-mix(in srgb, var(--c-accent) 8%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-accent) 8%, transparent); outline-color: var(--c-accent); }
+@media (prefers-reduced-motion: reduce) { [data-message-id] { transition: none; } }

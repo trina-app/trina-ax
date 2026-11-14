@@ -3,9 +3,8 @@
 // group chat with the other person ticked), and who is in it (GET /api/rooms/:id/members: names only, never anyone's
 // read position; photo and title from the people directory; the manager marked, and "…" › 내보내기 on a row for the
 // manager and owners or admins in it). 대화방 나가기 is in the room's "⋯" only (RoomMenu.tsx), not here a second time.
-// Rows and hairlines, no boxes. A bottom sheet on phones (Modal).
+// The lists' rows (components/list/List.tsx ListRow, a list of people's face box), no boxes. A bottom sheet on phones (Modal).
 // Each picture carries the person's online dot, mine too (components/Presence.tsx; docs/DECISIONS.md "접속 상태").
-import clsx from 'clsx'
 import { Pencil, Plus, UserMinus } from 'lucide-react'
 import { useState } from 'react'
 import { ROOM_NAME_MAX, type Room, type RoomMember } from '@mycel/shared/api'
@@ -19,6 +18,7 @@ import { PresenceFace, PresenceText } from '../Presence'
 import { StatusEmoji } from '../StatusMessage'
 import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
+import { ListRow } from '../list/List'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
@@ -36,52 +36,57 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
     if (!ok) return
     await useRooms.getState().removeMember(room.id, id).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
-  const row = 'flex w-full items-center gap-3 px-5 py-2.5 text-left max-sm:px-4'
   return (
     <Modal open={open} onClose={onClose} title={sorted ? `${t('rooms.membersTitle')} · ${sorted.length}` : t('rooms.membersTitle')} width={400}>
       <div className="-mx-5 -my-5 divide-y divide-line max-sm:-mx-4" data-testid="room-info">
         {room?.canRename && <NameRow room={room} />}
+        {/* the lists' rows (components/list/List.tsx, a list of people: the face box), inset so the words line up
+            with the dialog's 20px (16px on a phone) */}
         {(group || room?.kind === 'dm') && (
-          <button type="button" onClick={onInvite} className={clsx(row, 'text-sm font-medium text-ink hover:bg-hover')} data-testid="room-invite">
-            <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-hover text-muted">
-              <Plus size={16} />
-            </span>
-            {t('rooms.info.invite')}
-          </button>
+          <ul className="px-2 py-1 max-sm:px-1">
+            <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t('rooms.info.invite')}</span>} testId="room-invite" />
+          </ul>
         )}
         {!sorted ? (
           <div className="px-5 py-4 max-sm:px-4">
             <Skeleton lines={4} />
           </div>
         ) : (
-          <ul className="divide-y divide-line [--presence-bg:var(--c-surface)]" data-testid="room-members">
+          <ul className="px-2 py-1 max-sm:px-1 [--presence-bg:var(--c-surface)]" data-testid="room-members">
             {sorted.map(({ user }) => {
               const p = byId[user.id]
               const name = p?.name ?? user.name
               return (
-                <li key={user.id} className={clsx(row, 'group')} data-testid="room-member">
-                  <PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-baseline gap-1 text-sm">
-                      <span className="truncate font-medium text-ink">{name}</span>
-                      <StatusEmoji userId={user.id} tap className="self-center" />
+                <ListRow
+                  key={user.id}
+                  face
+                  icon={<PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size="fill" />}
+                  testId="room-member"
+                  name={
+                    // the name is cut first; the status, "· 나" and "· 매니저" always show
+                    <span className="flex min-w-0 items-baseline gap-1">
+                      <span className="truncate" data-member-name>{name}</span>
+                      <StatusEmoji userId={user.id} tap className="shrink-0 self-center" />
                       <PresenceText userId={user.id} offline />
-                      {user.id === meId && <span className="shrink-0 text-faint">· {t('rooms.you')}</span>}
-                      {group && user.id === room?.managerId && <span className="shrink-0 text-faint" data-testid="room-manager">· {t('rooms.info.manager')}</span>}
+                      {user.id === meId && <span className="shrink-0 text-meta text-faint">· {t('rooms.you')}</span>}
+                      {group && user.id === room?.managerId && <span className="shrink-0 text-meta text-faint" data-testid="room-manager">· {t('rooms.info.manager')}</span>}
                     </span>
-                    {p?.title && <span className="block truncate text-xs text-muted">{p.title}</span>}
-                  </span>
-                  {mayRemove && user.id !== meId && (
-                    <MenuButton
-                      label={t('rooms.info.memberMenu', { name })}
-                      testId="room-member-menu"
-                      // computers: on hover or focus, like a message's "…" (one per row would repeat down the list);
-                      // touch screens: always there
-                      buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
-                      items={[{ label: t('rooms.info.remove'), icon: <UserMinus size={14} aria-hidden />, danger: true, onSelect: () => void remove(user.id, name), testId: 'room-member-remove' }]}
-                    />
-                  )}
-                </li>
+                  }
+                  meta={p?.title || undefined}
+                  end={
+                    mayRemove && user.id !== meId && (
+                      <MenuButton
+                        label={t('rooms.info.memberMenu', { name })}
+                        testId="room-member-menu"
+                        className="self-center"
+                        // computers: on hover or focus, like a message's "…" (one per row would repeat down the list);
+                        // touch screens: always there
+                        buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+                        items={[{ label: t('rooms.info.remove'), icon: <UserMinus size={14} aria-hidden />, danger: true, onSelect: () => void remove(user.id, name), testId: 'room-member-remove' }]}
+                      />
+                    )
+                  }
+                />
               )
             })}
           </ul>
@@ -95,24 +100,17 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
  * server's name (a team room's group, the everyone room's word, a group chat's members). */
 function NameRow({ room }: { room: Room }) {
   const t = useT()
-  const locale = useLocale()
   const title = useRoomTitle()(room)
   const fallback = useNameFallback()(room)
   const [draft, setDraft] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const save = async () => {
-    if (draft === null || busy) return
+  // the new name shows at once; a failure puts the old one back with its own toast (store/rooms.ts rename) and opens
+  // the field again with the name typed (unless it was opened again meanwhile)
+  const save = () => {
+    if (draft === null) return
     const next = draft.trim()
-    if (next === (room.name ?? '')) return setDraft(null)
-    setBusy(true)
-    try {
-      await useRooms.getState().rename(room.id, next || null)
-      setDraft(null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(false)
-    }
+    setDraft(null)
+    if (next === (room.name ?? '')) return
+    void useRooms.getState().rename(room.id, next || null).then((ok) => { if (!ok) setDraft((d) => d ?? next) })
   }
   if (draft === null)
     return (
@@ -126,7 +124,7 @@ function NameRow({ room }: { room: Room }) {
       className="px-5 py-3 max-sm:px-4"
       onSubmit={(e) => {
         e.preventDefault()
-        void save()
+        save()
       }}
     >
       <label className="block">
@@ -153,7 +151,7 @@ function NameRow({ room }: { room: Room }) {
         <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
           {t('common.cancel')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" busy={busy} data-testid="room-name-save">
+        <Button size="sm" variant="primary" type="submit" data-testid="room-name-save">
           {t('common.save')}
         </Button>
       </div>

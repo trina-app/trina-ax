@@ -540,7 +540,9 @@ export class GoogleApps {
     const redirectUri = redirectUriOf(this.ctx)
     // the hosting service's setup: always on a hosted server; on a self-installed one only while this card signs in
     // through the broker (it serves this server, the card has no client of its own). Not served: the page may set one.
-    const hosted = isHosted(this.ctx.config) || setup.mode === 'broker'
+    // and while the company's own Google app is set (google-drive/own-app.ts): it sets all five at once, so no card has a
+    // setup of its own then, as on a hosted server (also on a self-installed server the hosting service serves)
+    const hosted = isHosted(this.ctx.config) || setup.mode === 'broker' || googleDriveOf(this.ctx).ownAppActive
     const blocked: GoogleAppAdminStatus['blocked'] = hosted ? 'hosted' : setup.byOperator ? 'server' : !redirectUri ? 'public_host' : this.library().state() === 'unsupported' ? 'unsupported' : null
     const connectedMembers = (this.db.query(`SELECT count(*) n FROM integrations i JOIN users u ON u.id = i.owner_user_id
       WHERE i.google_app = ? AND i.secret_enc IS NOT NULL AND i.status != 'needs_auth' AND u.status = 'active' AND u.deleted_at IS NULL`).get(app) as { n: number }).n

@@ -132,6 +132,12 @@ describe('wiring', () => {
     expect(win).toContain('this.personInPane = press.personInPane')
   })
 
+  test('the edge is never left hidden: a loaded toolbar is told again, an older answer never overrides a told width', () => {
+    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{\s*this\.paneWidthTold = ''\s*this\.sendPaneWidth\(\)/)
+    expect(ui).toMatch(/ui\.pane\.onWidth\(\(w: PaneWidth\) => \{\s*widthTold = true\s*applyWidth\(w\)/)
+    expect(ui).toContain('if (w && !widthTold) applyWidth(w)')
+  })
+
   test('the toolbar view reaches over the team page\'s edge, transparent there, and stays above it', () => {
     expect(win).toContain("this.chrome.setBackgroundColor('#00000000')")
     expect(pane).toContain('chrome.setBounds({ x: b.x - grab, y: b.y, width: b.width + grab, height: b.height })')
@@ -160,10 +166,39 @@ describe('wiring', () => {
     expect(win).toContain("nativeTheme.on('updated', themed)")
   })
 
+  test('calm colours: Stop is an ordinary secondary button, the site question an ordinary card with one accent button', () => {
+    const rule = (sel: string) => css.match(new RegExp(`(?:^|\\n)${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? ''
+    // the AI row: regular text, no solid ink pill
+    expect(rule('.driving-bar .label')).not.toContain('font-weight')
+    expect(rule('.driving-bar .stop')).toContain('background: var(--panel)')
+    expect(rule('.driving-bar .stop')).toContain('border: 1px solid var(--field-border)')
+    expect(rule('.driving-bar .stop')).not.toMatch(/background: var\(--text\)|font-weight/)
+    // the site question: 1px line, not a thick accent border; Deny is not red; Allow once is the only primary
+    expect(rule('.prompt')).toContain('border: 1px solid var(--line)')
+    expect(rule('.prompt')).not.toContain('var(--accent)')
+    const card = ui.slice(ui.indexOf('function promptCard'), ui.indexOf('function activityText'))
+    expect(card.match(/class: 'primary'/g)?.length).toBe(1)
+    expect(card).not.toContain("class: 'danger'")
+    // no tab and the AI not at work: the page background with a muted hint in the middle
+    expect(rule('.empty')).toContain('color: var(--muted)')
+    expect(rule('.stage:has(> .empty)')).toContain('justify-content: center')
+    expect(css).not.toMatch(/\.(stage|empty|driving-bar|prompt) \{[^}]*background: var\(--accent\)/)
+  })
+
+  test('the pane follows the look chosen on the team page, not only the computer\'s', () => {
+    const preload = read('preload/app.ts')
+    const theme = readFileSync(join(import.meta.dir, '../../web/src/lib/theme.ts'), 'utf8')
+    expect(preload).toContain("setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme))")
+    expect(main).toContain("if (fromApp(e) && (t === 'light' || t === 'dark' || t === 'system') && nativeTheme.themeSource !== t) nativeTheme.themeSource = t")
+    expect(theme).toContain('getDesktopBridge()?.setTheme?.(t)')
+    // the toolbar's colours come from prefers-color-scheme, which themeSource sets
+    expect(css).toContain('@media (prefers-color-scheme: dark)')
+  })
+
   test('the words: plain, the AI by its name, in every language', () => {
     expect(STRINGS.ko['pane.driving']).toBe('트리나가 브라우저를 쓰는 중')
     expect(STRINGS.en['pane.driving']).toBe('Trina is using the browser')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const k of ['pane.driving', 'pane.loading', 'pane.resize', 'pane.stop'] as const) expect(STRINGS[l][k].length).toBeGreaterThan(0)
       expect(STRINGS[l]['pane.driving']).not.toMatch(/\bAI\b|ＡＩ/)
     }

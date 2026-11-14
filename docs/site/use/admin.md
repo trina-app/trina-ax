@@ -3,12 +3,14 @@ title: Admin
 description: What owners and admins manage, and where each setting lives.
 ---
 
-**Admin** (관리자) is for the owner and admins. On a computer it is in the team menu under your team's logo at the top of the bar on the left, and ⌘K finds it; on a phone it is in the **나** tab. Every page in it is for the whole team: the menu's title is your
+**Admin** is for the owner and admins. On a computer it is in the team menu under your team's logo at the top of the bar on the left, and ⌘K finds it; on a phone it is in the **Me** tab. Every page in it is for the whole team: the menu's title is your
 team's name and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. The pages keep
 the same names as in Settings. Admin › Connected apps is the team's connections; yours are in **Settings › Connectors**. It opens on
 **Home**, which lists what needs attention first.
 For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
 permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
+
+![The team menu under the team's logo: the team's address, Invite people and Admin](../images/admin/team-menu.webp "Admin, in the team menu")
 
 ![Admin Home: Needs attention at the top, then one card per area, with the Admin menu on the left](../images/admin/home.webp "Admin Home")
 
@@ -17,16 +19,18 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | Providers, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), AI apps, Plugins |
+| **Connections** | AI accounts, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), Use from other AI apps, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
-**Providers** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
+**AI accounts** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
 own accounts, usage limits) are in **Team settings**. **Slack** had its own menu item too; it is one row of
 **Connected apps** now, and its old address opens it there.
 :::
+
+On a company with Google Workspace, the Google apps can sign in with your company's own Google app, set once for all five: [Use your company's own Google app](google-own-app.md).
 
 ## Your first week
 
@@ -35,10 +39,10 @@ own accounts, usage limits) are in **Team settings**. **Slack** had its own menu
 Assign folders to groups and check access with two test accounts. [Read about permissions](files-and-permissions.md).
 
 #### Connect the AI
-In **Providers**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
+In **AI accounts**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
-![Admin › AI accounts: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "Providers")
+![Admin › AI accounts: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "AI accounts")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access.
@@ -60,7 +64,7 @@ Back up, then practise a restore with IT. [Read about backups](../operate/backup
 People who operate the server, its OS or its storage can read stored files and chats. In hosted plans, that includes Trina's operators.
 :::
 
-## Providers
+## AI accounts
 
 **Admin › AI accounts**, first in the Connections group, has one row per engine (Claude Code, Codex, API) with its
 logo, its state and an on/off switch. When something is wrong, one short line under the name says how to fix it.
@@ -81,7 +85,7 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 |---|---|
 | **AI defaults** | The default engine and model, and how many answers run at the same time. |
 | **Who picks the engine** | Whether members may pick another engine, and switching to Codex at Claude's limit. |
-| **Members' own AI accounts** | Whether members may add their own accounts, whether a subscription may be shared, and the accounts they added. |
+| **Members' own accounts** | Whether members may add their own accounts, whether a subscription may be shared, and the accounts they added. |
 | **Usage limits** | Token or dollar limits a day or a month, for a person, a group or the team. |
 
 Cancel and Save appear in a group only after you change something in it; each group saves on its own.
@@ -89,6 +93,8 @@ Cancel and Save appear in a group only after you change something in it; each gr
 :::note
 From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI engines** page.
 :::
+
+![Admin › Team settings: the team's name, language and logo, time and updates, and how long the activity log is kept](../images/admin/ai-settings.webp "Team settings")
 
 ## Activity log
 
@@ -99,3 +105,5 @@ From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI en
 ## System
 
 **Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
+
+![Admin on a phone: one list of the admin areas, with the five tabs at the bottom](../images/admin/admin-phone.webp "Admin on a phone")

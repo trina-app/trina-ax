@@ -75,7 +75,7 @@ describe('POST /api/files/copy', () => {
 
 describe('POST /api/projects/:id/share', () => {
   let pid = ''
-  test('a personal project becomes a team project: a new projects/<name> with its participants, the files copied in (a link left out: the personal folder stays)', async () => {
+  test('a personal project becomes a team project: a new projects/<name> with its participants, the folder moved onto it (a link moves as it is and still opens nothing)', async () => {
     const c = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'launch-notes', scope: 'personal', instructions: 'Use notes.md' }) })
     expect(c.status).toBe(201)
     pid = c.body.id
@@ -96,9 +96,12 @@ describe('POST /api/projects/:id/share', () => {
     expect((await A.json(`/api/projects/${pid}`, { as: 'erin' })).body.instructions).toBe('Use notes.md')
     expect((await read('erin', 'projects/launch-notes/notes.md')).status).toBe(200)
     expect((await read('erin', 'projects/launch-notes/sub/a.md')).status).toBe(200)
-    expect(fs.existsSync(path.join(A.team, 'projects/launch-notes/bob-link.md'))).toBe(false) // links are not copied
-    // a link is not copied, so the copy is not whole: the personal folder stays (nothing of it is lost with the trash)
-    expect(fs.existsSync(path.join(dir, 'notes.md'))).toBe(true)
+    // the folder moved as it is (a move, as on the Files screen): the link with it, and nobody can open it there either
+    expect(fs.lstatSync(path.join(A.team, 'projects/launch-notes/bob-link.md')).isSymbolicLink()).toBe(true)
+    for (const who of ['alice', 'erin'] as const) expect((await read(who, 'projects/launch-notes/bob-link.md')).status).not.toBe(200)
+    // nothing left behind, nothing in the trash
+    expect(fs.existsSync(dir)).toBe(false)
+    expect(A.ctx.db.query('SELECT 1 FROM trash_items WHERE original_path = ?').get(c.body.folderPath)).toBeNull()
     expect((await A.json(`/api/projects/${pid}`, { as: 'bob' })).status).toBe(404)
     // nor the owner or an admin, who are not its members
     for (const who of ['carol', 'dana'] as const) {
@@ -107,7 +110,7 @@ describe('POST /api/projects/:id/share', () => {
     }
   })
 
-  test('only a personal project, only its owner, only into projects/; 413 past the limits, nothing left behind', async () => {
+  test('only a personal project, only its owner, only into projects/; a big folder moves whole (a move has no copy limits)', async () => {
     expect((await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })).status).toBe(400) // now a team project
     const c = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'big', scope: 'personal' }) })
     const dir = path.join(A.team, ...c.body.folderPath.split('/'))
@@ -118,8 +121,9 @@ describe('POST /api/projects/:id/share', () => {
     }
     for (let i = 0; i <= 1000; i++) fs.writeFileSync(path.join(dir, `f${i}.md`), 'x')
     const big = await A.json(`/api/projects/${c.body.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })
-    expect(big.status).toBe(413)
-    expect(fs.readdirSync(path.join(A.team, 'projects')).some((n) => n === 'big' || n.startsWith('.mycel-tmp-'))).toBe(false)
-    expect(A.ctx.db.query("SELECT 1 FROM folders WHERE path = 'projects/big'").get()).toBeNull()
+    expect(big.status).toBe(200)
+    expect(fs.readdirSync(path.join(A.team, 'projects/big')).length).toBe(1001)
+    expect(fs.existsSync(dir)).toBe(false)
+    expect(fs.readdirSync(path.join(A.team, 'projects')).some((n) => n.startsWith('.mycel-tmp-'))).toBe(false)
   })
 })

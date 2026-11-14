@@ -13,7 +13,7 @@
 // after it and opens the level menu as a sheet; no 이름 바꾸기 (the name opens the room's info, where it is changed); and
 // `phone.first` before the rest (the threads with new replies, whose button the header has no room for).
 import { Bell, Eye, EyeOff, Link2, LogOut, Pencil, Pin, PinOff } from 'lucide-react'
-import { useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { useRef, useState, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -21,7 +21,7 @@ import { useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
-import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
+import { MenuButton, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
 import { useFolderRowItems } from '../nav/NavFolders'
 
@@ -74,19 +74,21 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
   const fallbackOf = useNameFallback()
-  const rename = async () => {
+  const rename = async (typed?: string): Promise<void> => {
     const name = await promptDialog({
       title: t('rooms.info.rename'),
       body: t(room.kind === 'group' ? 'rooms.info.nameHintGroup' : 'rooms.info.nameHintTeam'),
       label: t('rooms.info.nameLabel'),
-      initial: room.name ?? '',
+      initial: typed ?? room.name ?? '',
       placeholder: fallbackOf(room),
       allowEmpty: true,
       maxLength: ROOM_NAME_MAX,
       confirm: t('common.save'),
     })
     if (name === null || name === (room.name ?? '')) return
-    await useRooms.getState().rename(room.id, name || null).catch(fail)
+    // on screen at once; a failure puts the old name back with its own toast (store/rooms.ts rename) and asks again
+    // with the name typed
+    if (!(await useRooms.getState().rename(room.id, name || null))) await rename(name)
   }
   const copyLink = async () => {
     await copy(roomLink(room.id))
@@ -150,33 +152,5 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title
   )
 }
 
-/** A row's ways to its menu: a right-click (or the keyboard's menu key) on the row, and on a touch screen a long press
- * (a sheet on a phone). Spread `row` on the row's <li>; `guard` on its link's click (the finger lifting after a long press
- * opens no room); `openSignal` / `openRequest` go to the row's RoomMenu. */
-export function useRowMenu() {
-  const [openSignal, setPress] = useState(0)
-  const [openRequest, setRequest] = useState(0)
-  const pressedAt = useRef(0)
-  const longPress = useLongPress(() => {
-    pressedAt.current = Date.now()
-    setPress((n) => n + 1)
-  })
-  return {
-    openSignal,
-    openRequest,
-    row: {
-      ...longPress,
-      onContextMenu: (e: MouseEvent) => {
-        longPress.onContextMenu(e)
-        // a finger's long press opened it already (and kept the phone's own menu away); Shift keeps the browser's own
-        // menu (open in a new tab, copy the address)
-        if (e.defaultPrevented || e.shiftKey) return
-        e.preventDefault()
-        setRequest((n) => n + 1)
-      },
-    },
-    guard: (e: MouseEvent) => {
-      if (Date.now() - pressedAt.current < 800) e.preventDefault()
-    },
-  }
-}
+/** A row's ways to its menu (right-click, long press): in MenuButton.tsx beside the menu, so a ListRow can use it too */
+export { useRowMenu } from './MenuButton'

@@ -57,6 +57,7 @@ import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { ComposerFileList, useComposerFiles, type Pending } from '../chat/ComposerFiles'
+import { ComposerToolbar } from '../chat/ComposerToolbar'
 import { AttachSheet } from '../chat/AttachSheet'
 import TeamFilePicker from '../chat/TeamFilePicker'
 import { FileDropZone, type DropTarget } from '../FileDropZone'
@@ -476,7 +477,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </IconButton>
         )}
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="shrink-0 text-base font-medium text-ink">{t('sideChat.title', { name })}</span>
+          <span className="shrink-0 text-title-sm font-semibold text-ink">{t('sideChat.title', { name })}</span>
           <span className="truncate text-xs text-faint" data-testid="side-chat-room">{roomTitle}</span>
         </h2>
         {/* a phone's room shows this panel full screen already: no "open full screen" there (the chat is in the history
@@ -617,35 +618,39 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             placeholder={boxLabel}
             aria-label={boxLabel}
             aria-describedby={question ? noSecretsId : undefined}
-            className="block max-h-40 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
+            className="block max-h-40 w-full resize-none bg-transparent px-4.5 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
             data-testid="side-chat-input"
           />
-          <div className="flex items-center justify-between gap-2 pr-2 pb-2 pl-1.5">
-            {phone ? (
-              <AttachSheet key={filesDraft(roomId)} onFiles={(all) => void files.addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - files.live.length} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={15} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
+          {/* the box's row, as every message box has it (chat/ComposerToolbar.tsx): the clip on the left; on the right
+              the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI
+              waits for an answer to its question) in the tooltip */}
+          <ComposerToolbar
+            testId="side-chat-tools"
+            start={phone ? (
+              <AttachSheet key={filesDraft(roomId)} onFiles={(all) => void files.addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - files.live.length} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
             ) : (
               <>
                 <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="side-chat-attach">
-                  <Paperclip size={15} aria-hidden />
+                  <Paperclip size={18} aria-hidden />
                 </IconButton>
                 <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
               </>
             )}
-            {/* the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI waits
-                for an answer to its question) in the tooltip */}
-            <Tooltip label={sendLabel}>
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={!canSend}
-                aria-label={sendLabel}
-                className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-                data-testid="side-chat-send"
-              >
-                <ArrowUp size={18} aria-hidden />
-              </button>
-            </Tooltip>
-          </div>
+            end={
+              <Tooltip label={sendLabel}>
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={!canSend}
+                  aria-label={sendLabel}
+                  className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+                  data-testid="side-chat-send"
+                >
+                  <ArrowUp size={18} aria-hidden />
+                </button>
+              </Tooltip>
+            }
+          />
         </div>
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
         {phone && (

@@ -133,6 +133,25 @@ test('member: 전체 · 트리나 only (요청 is for the owner and admins)', as
   await expect(page.getByTestId('activity-chip-requests')).toHaveCount(0)
 })
 
+// QA TC-1088: with no notification the right side said both "No notifications yet." and "Pick a notification on the
+// left"; with only read ones it said "No notifications yet."
+test('the right side: no pick hint while the list is empty; with notices, the hint and never "No notifications yet."', async ({ page }) => {
+  const chatId = await start(page, MEMBER)
+  const items: Item[] = []
+  await routeNotices(page, items)
+  await page.reload()
+  await page.getByTestId('rail-activity').click()
+  await expect(page.getByTestId('activity-panel-empty')).toHaveText(t['notifications.empty'])
+  await expect(page.getByTestId('activity-pick')).toContainText(t['notifications.empty'])
+  await expect(page.getByTestId('activity-pick-hint')).toHaveCount(0)
+  // only notices already read: the hint, no "nothing yet"
+  items.push(...week(chatId).map((x) => ({ ...x, readAt: ago(1) })))
+  await page.reload()
+  await expect(rows(page)).toHaveCount(5)
+  await expect(page.getByTestId('activity-pick-hint')).toHaveText(t['activity.pick'])
+  await expect(page.getByTestId('activity-pick')).not.toContainText(t['notifications.empty'])
+})
+
 test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes to 대화\'s 멘션·스레드', async ({ page }) => {
   const chatId = await start(page)
   const items = week(chatId)

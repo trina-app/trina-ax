@@ -26,6 +26,14 @@ const ROOMS: MockRoomSpec[] = [
 /** "YYYY-MM-DD", `n` days from today in Seoul (the mock team's zone) */
 const seoulDay = (n = 0) => new Date(Date.now() + 9 * 3600_000 + n * 86_400_000).toISOString().slice(0, 10)
 
+/** Pin "now" to midday in Seoul, for the page and for the mock's status rules alike, so that "1 hour" and "2 hours" end
+ * the same day whatever the time the spec runs (after 22:00 they end tomorrow and the words gain a date). */
+async function pinMidday(page: Page, at = `${seoulDay(0)}T12:00:00+09:00`) {
+  const r = await page.request.post('/__test/status-clock', { data: { at } })
+  expect(r.ok()).toBeTruthy()
+  await page.clock.setFixedTime(new Date(at))
+}
+
 async function status(page: Page, user: string, body: Record<string, unknown> | null, raw?: Record<string, unknown>) {
   const r = await page.request.post('/__test/status', { data: { user, status: body, ...(raw ? { raw } : {}) } })
   expect(r.ok()).toBeTruthy()
@@ -38,6 +46,7 @@ async function openDialog(page: Page) {
 
 test('a suggestion: my emoji in the sidebar and on my messages, the words on hover, then cleared', async ({ page }) => {
   await reset(page, { withAdmin: true })
+  await pinMidday(page)
   await routeRoom(page, { kind: 'all', members: [BOB, DANA], messages: [
     { id: '019a5f00-0000-7000-8000-00000000b001', author: { id: 'olga', name: 'Olga' }, body: '오늘 리뷰는 3시에 해요' },
     { id: '019a5f00-0000-7000-8000-00000000b002', author: BOB, body: '좋아요' },
@@ -69,7 +78,7 @@ test('a suggestion: my emoji in the sidebar and on my messages, the words on hov
   await expect(runs.nth(1).getByTestId('status-emoji')).toHaveCount(0)
   // a mouse on it: the words and when it ends
   await runs.nth(0).getByTestId('status-emoji').hover()
-  await expect(page.getByRole('tooltip')).toHaveText(/^회의 중 · (오전|오후) \d{1,2}:\d\d까지$/)
+  await expect(page.getByRole('tooltip')).toHaveText(/^회의 중 · 오후 1:00까지$/)
   await page.mouse.move(700, 500)
   // others see it after a reload too (the directory)
   await page.reload()
@@ -186,6 +195,7 @@ test.describe('a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   test('the drawer\'s row opens the sheet; my status shows there', async ({ page }) => {
     await reset(page)
+    await pinMidday(page)
     await signIn(page)
     const row = await myStatusRow(page)
     await expect(row).toHaveText('상태 설정')
@@ -193,7 +203,7 @@ test.describe('a phone', () => {
     await page.getByTestId('status-suggestion').filter({ hasText: '집중하는 중' }).click()
     await page.getByTestId('status-save').click()
     await expect(page.getByTestId('status-dialog')).toHaveCount(0)
-    await expect(await myStatusRow(page)).toHaveText(/^🎧집중하는 중 · (오전|오후) \d{1,2}:\d\d까지$/)
+    await expect(await myStatusRow(page)).toHaveText(/^🎧집중하는 중 · 오후 2:00까지$/)
   })
 })
 

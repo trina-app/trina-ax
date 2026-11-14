@@ -10,6 +10,35 @@
 
 [English](INSTALL-LINUX.en.md) · 전용 서버나 VM에서 설치하세요. **systemd가 PID 1이고 cgroup v2가 필요합니다. 일반 Docker 컨테이너는 운영 설치 대상이 아닙니다.**
 
+## 한눈에 보는 순서
+
+순서대로 하세요. 각 단계에 어느 기계에서 하는지 적었습니다.
+
+1. **서버:** [2. 요구 사항](#2-요구-사항)을 확인합니다.
+2. **서버:** 비어 있는 새 폴더에서 [3. 키트 받기와 확인](#3-키트-받기와-확인)의 명령을 실행합니다. 끝나면 푼 키트 폴더
+   (`TrinaAX-server-<버전>-linux-<아키텍처>`) 안에 있습니다.
+3. **서버, 그 키트 폴더 안에서:** [4. 설치](#4-설치)를 실행합니다.
+4. **내 컴퓨터:** SSH 터널과 설정 화면을 엽니다([5. 첫 설정](#5-첫-설정)). 그다음 owner와 팀을 만듭니다.
+
+[부록: 소스에서 키트 만들기](#부록-소스에서-키트-만들기-개발용)는 개발자용입니다. 설치할 때는 건너뛰세요.
+
+## AI 에이전트로 설치하기
+
+1–3단계는 AI 코딩 에이전트(Claude Code, Codex)에게 맡길 수 있습니다. 에이전트를 서버에서 실행하거나, SSH로 서버에
+들어갈 수 있는 내 컴퓨터에서 실행하세요. 아래 프롬프트를 복사해 넣으세요.
+
+```text
+이 리눅스 서버에 Trina AX를 설치해 줘. https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL-LINUX.md 를 따라 해.
+- 서명된 최신 릴리스 키트를 써. 비어 있는 새 폴더에서 "3. 키트 받기와 확인"을 실행하고, 푼 키트 폴더 안에서 "4. 설치"를 실행해.
+- 소스에서 빌드하지 마. --allow-unsigned는 절대 쓰지 마.
+- sudo 명령마다 실행 전에 무엇을 하는지 한 줄로 알려 줘. 점검이 실패하면 멈추고 나에게 물어봐.
+- owner 계정은 만들지 마. 설치 코드를 이 채팅에 보여 주지 마.
+- 마지막에 "sudo mycel-ctl status"를 실행하고 결과를 요약해 줘. 그리고 내 컴퓨터에서 실행할 SSH 터널 명령, 설정 화면 주소, 설치 코드를 보는 명령을 알려 줘.
+```
+
+owner와 팀은 설정 화면에서 직접 만드세요. 에이전트도 이 문서를 읽고 따라 하므로, 팀원을 초대하기 전에 에이전트가 한
+일을 확인하세요.
+
 ## 1. 이런 경우에 씀
 
 - 회사 서버나 클라우드 VM(우리 호스팅이 아닌 곳)에 팀 서버를 직접 둘 때. 파일을 회사 서버에 보관하려는 경우. 단, AI가 읽는 문맥은 모델 제공사로 전송된다.
@@ -22,7 +51,7 @@
 
 - **데스크톱 앱**: 컴퓨터가 믿는 인증서가 필요해요. 자체 서명 인증서는 첫 확인에서 실패해요.
 - **휴대폰 앱**: 공인 인증 기관의 https 인증서가 필요하고(자체 서명·사용자가 설치한 인증 기관은 믿지 않아요), `GET /api/health`가 리다이렉트 없이 바로 답해야 해요.
-- **휴대폰 알림**은 서버에 `MYCEL_PUSH_GATEWAY`가 있어야 와요.
+- **휴대폰 알림**은 기본으로 트리나 알림 서비스(`https://push.trina.app`)를 거쳐 가요. 끄려면 `MYCEL_PUSH_GATEWAY=off`(또는 `''`), 직접 운영하는 게이트웨이를 쓰려면 그 `https://` 주소를 넣어요. 변수를 넣지 않았다면 소유자나 관리자가 설정 › 알림 › 휴대폰에서도 고를 수 있어요.
 - **팀 주소**는 로그인한 사람 누구나 설정 › 앱에서 보고 복사할 수 있어요.
 - **누른 링크**: 앱은 `*.trina.app`의 초대 링크만 바로 열어요(유니버설 링크·앱 링크). 직접 설치한 서버의 주소에서는 링크가 브라우저로 열리고, 가입 화면의 **앱에서 열기**(`trina-ax://open?url=…`)로 데스크톱·휴대폰 앱을 열 수 있어요. 어느 쪽이든 앱은 "{주소}에 연결할까요?"를 먼저 묻고, 답하기 전에는 아무것도 열지 않아요.
 
@@ -48,6 +77,10 @@
 ```sh
 sudo ./install-linux.sh check --from .
 ```
+
+**글자 인식(OCR):** Linux 서버는 글자 인식을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
+
+**영상·오디오:** AI는 영상·오디오 파일을 배포판의 ffmpeg·ffprobe(`ffmpeg` 패키지 5.1 이상, 다른 패키지와 함께 apt로 설치, 키트에 넣지 않음)로 읽는다. 장면과, 팀 설정 › 음성 입력에서 허용하면 받아쓰기. 디코더가 사람들이 올린 파일을 읽으므로 Debian·Ubuntu 보안 업데이트를 켜 둔다(예: `unattended-upgrades` 패키지; ffmpeg 보안 수정이 이 길로 온다). ffmpeg가 없으면 AI가 이 서버에서는 영상을 읽을 수 없다고 말한다.
 
 ## 3. 키트 받기와 확인
 
@@ -79,38 +112,10 @@ sudo ./install-linux.sh check --from .
 
 체크섬은 전송 손상을 확인하며 독립적인 진위 보증은 아닙니다. 번들 검증기는 내장 릴리스 서명을 확인하고 설치기도 재확인합니다. 공개 릴리스에 `--allow-unsigned`를 쓰지 마세요. 실행 전에 소스와 배포 신뢰 경로를 확인하세요.
 
-### 3a. 소스에서 키트 만들기 (릴리스가 없을 때, 개발용)
-
-키트를 만들 리눅스 기계에서(설치할 서버와 같은 아키텍처). 2026-10-28 Lightsail 데비안 13(2 vCPU, 4 GB)에서 확인했다.
-2 vCPU에서 whisper 빌드가 약 10분, 키트 만들기가 몇 분 걸린다.
-
-```sh
-sudo apt-get install -y git curl unzip ca-certificates xz-utils zstd build-essential cmake
-# Go(native/go.mod의 버전, 예: 1.27.x)는 https://go.dev/dl/ 에서 /usr/local/go로, Bun은 고정 버전으로:
-curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.12"
-export PATH=$HOME/.bun/bin:/usr/local/go/bin:$PATH
-
-git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
-bun install --frozen-lockfile --ignore-scripts                    # 패키지 설치 스크립트 없이: Node.js가 필요 없다
-ARCHS=amd64 bash native/build.sh                                   # arm64면 ARCHS=arm64
-bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper   # 음성 받아쓰기(없으면 --no-whisper)
-bun run build:web                                                  # 웹 앱. 빠뜨리면 키트에 앱 화면이 없다
-bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whisper-dir dist/whisper --out dist/linux
-cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
-```
-
-- `--ignore-scripts`: 서버 키트에는 패키지 설치 스크립트(Electron·Windows 설치 파일)가 필요 없다. 이 옵션 없이 `bun install`이 `node: command not found`
-  (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
-  것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
-- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다. 이 설정은 repair·update에도 남으므로
-  서명된 릴리스로 옮긴 뒤에는 `sudo mycel-ctl allow-unsigned off`(설치기는 `--require-signed`)로 되돌린다. 켜져 있는 동안
-  `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
-- Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
-- AI는 영상·오디오 파일을 배포판의 ffmpeg·ffprobe(`ffmpeg` 패키지 5.1 이상, 다른 패키지와 함께 apt로 설치, 키트에 넣지 않음)로 읽는다. 장면과, 팀 설정 › 음성 입력에서 허용하면 받아쓰기. 디코더가 사람들이 올린 파일을 읽으므로 Debian·Ubuntu 보안 업데이트를 켜 둔다(예: `unattended-upgrades` 패키지; ffmpeg 보안 수정이 이 길로 온다). ffmpeg가 없으면 AI가 이 서버에서는 영상을 읽을 수 없다고 말한다.
-
-소스 빌드 버전은 예시입니다. 소스의 버전에서 고유한 개발 버전을 정하세요. 공식 릴리스 설치·업데이트에는 서명 확인을 우회하지 마세요.
 
 ## 4. 설치
+
+서버에서, 3장에서 푼 키트 폴더(`install-linux.sh`가 있는 `TrinaAX-server-<버전>-linux-<아키텍처>`) 안에서 실행합니다.
 
 ```sh
 sudo ./install-linux.sh install --from . --engine claude --engine codex
@@ -172,9 +177,11 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 서버에는 화면이 없으므로 SSH 터널로 연다.
 
 ```sh
-sudo cat /var/lib/mycel/setup/code                      # 설치 코드(서버가 읽는 data/setup-token과 같은 값)
-ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
-# 브라우저: http://127.0.0.1:47820/setup?token=<설치 코드>
+# 서버에서: 설치 코드 보기(서버가 읽는 data/setup-token과 같은 값, 남에게 보이지 않게)
+sudo cat /var/lib/mycel/setup/code
+# 내 PC에서: 터널을 열고 이 창을 열어 둔다
+ssh -L 47820:127.0.0.1:47820 <서버>
+# 내 PC의 브라우저: http://127.0.0.1:47820/setup?token=<설치 코드>
 ```
 
 팀 이름, 언어, owner 계정을 만든다. 설정이 끝나면 서버가 설치 코드(`setup/code`와 `data/setup-token`)를 지운다. 한 번 쓰면
@@ -517,3 +524,34 @@ sudo ./install-linux.sh uninstall --purge      # 전부 삭제, 계정도 삭제
 ```
 
 제거하면 `/etc/default/<id>`의 `MYCEL_SAFE_OPS_1A`·`MYCEL_HTML_PDF_BROWSER` 줄도 지운다(다시 설치하면 1A는 꺼진 채로 시작한다). 그 파일의 다른 줄은 남는다. apt 패키지와 `/opt/trina`의 브라우저는 남긴다(다른 설치가 쓸 수 있다).
+
+## 부록: 소스에서 키트 만들기 (개발용)
+
+개발자용입니다. 공개 릴리스를 설치할 때는 [3. 키트 받기와 확인](#3-키트-받기와-확인)과 [4. 설치](#4-설치)를 쓰세요.
+
+키트를 만들 리눅스 기계에서(설치할 서버와 같은 아키텍처). 2026-10-28 Lightsail 데비안 13(2 vCPU, 4 GB)에서 확인했다.
+2 vCPU에서 whisper 빌드가 약 10분, 키트 만들기가 몇 분 걸린다.
+
+```sh
+sudo apt-get install -y git curl unzip ca-certificates xz-utils zstd build-essential cmake
+# Go(native/go.mod의 버전, 예: 1.27.x)는 https://go.dev/dl/ 에서 /usr/local/go로, Bun은 고정 버전으로:
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.12"
+export PATH=$HOME/.bun/bin:/usr/local/go/bin:$PATH
+
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile --ignore-scripts                    # 패키지 설치 스크립트 없이: Node.js가 필요 없다
+ARCHS=amd64 bash native/build.sh                                   # arm64면 ARCHS=arm64
+bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper   # 음성 받아쓰기(없으면 --no-whisper)
+bun run build:web                                                  # 웹 앱. 빠뜨리면 키트에 앱 화면이 없다
+bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whisper-dir dist/whisper --out dist/linux
+cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
+```
+
+- `--ignore-scripts`: 서버 키트에는 패키지 설치 스크립트(Electron·Windows 설치 파일)가 필요 없다. 이 옵션 없이 `bun install`이 `node: command not found`
+  (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
+  것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
+- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다. 이 설정은 repair·update에도 남으므로
+  서명된 릴리스로 옮긴 뒤에는 `sudo mycel-ctl allow-unsigned off`(설치기는 `--require-signed`)로 되돌린다. 켜져 있는 동안
+  `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
+
+소스 빌드 버전은 예시입니다. 소스의 버전에서 고유한 개발 버전을 정하세요. 공식 릴리스 설치·업데이트에는 서명 확인을 우회하지 마세요.

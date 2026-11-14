@@ -249,7 +249,7 @@ function ToolsDialog({ i, manage, actions, onClose }: { i: Integration; manage: 
               </div>
               {manage && (
                 <span className="shrink-0 pt-0.5">
-                  {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
+                  {/* never disabled while saving: a disabled control loses keyboard focus (each flip shows at once and goes to the server in order) */}
                   <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
                     onChange={(v) => void actions.setTool(i, x.name, v)} testId="integration-tool-switch" />
                 </span>

@@ -6,14 +6,24 @@ import { teamDefaultLocale } from '../admin/settings'
 import type { AppEnv } from './env'
 import { fail } from './errors'
 import type { AppContext } from '../context'
+import { touchActivity } from '../system/activity'
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
-/** Request path for logs: one-time secrets in the path (invite and password reset links: the API and the web pages
- * /invite/<token>, /reset-password/<token> that the links open) are replaced by "***". */
-export function loggablePath(p: string): string {
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads)\/)[^/]+/, '$1***')
+/** Has the team an app in a room (the /in/ exemption holds only then)? */
+function hasRoomApps(ctx: AppContext): boolean {
+  try { return !!ctx.db.query('SELECT 1 FROM room_apps LIMIT 1').get() } catch { return false }
 }
+
+/** Request path for logs: secrets in the path (invite and password reset links: the API and the web pages
+ * /invite/<token>, /reset-password/<token> that the links open; an app's room address /in/<token>) are replaced by
+ * "***". */
+export function loggablePath(p: string): string {
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads|in)\/)[^/]+/, '$1***')
+}
+
+/** An app's room address (rooms/apps/inbound.ts): POST /in/<a well-formed token>. */
+export const isAppInbound = (method: string, path: string) => method === 'POST' && /^\/in\/tax_in_[A-Za-z0-9_-]{43}$/.test(path)
 
 /**
  * Set a response header after the handler ran WITHOUT re-wrapping the response. Hono's c.header() on a finished
@@ -151,7 +161,10 @@ export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
         if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return c.text('Use https\n', 403)
         return c.redirect(c.req.url, 308) // c.req.url is already https://<host>/...
       }
-      if (blocked) return c.text('Forbidden: this address is not open to your network\n', 403)
+      // an app's room address is reached by services from anywhere (Sentry, GitHub, Google): exempt from the country and
+      // network lists while the team has an app (owner decision 8); https is still required, and unknown addresses get
+      // a stricter limit there (rooms/apps/limits.ts)
+      if (blocked && !(isAppInbound(c.req.method, c.req.path) && hasRoomApps(ctx))) return c.text('Forbidden: this address is not open to your network\n', 403)
       await next()
       return
     }
@@ -196,7 +209,7 @@ export function session(ctx: AppContext): MiddlewareHandler<AppEnv> {
       try {
         const auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info'))
         c.set('auth', auth)
-        if (auth) c.set('locale', auth.user.locale)
+        if (auth) { c.set('locale', auth.user.locale); touchActivity() }
       } catch (e) {
         c.get('log').error('session lookup failed', { err: e })
         c.set('auth', null)

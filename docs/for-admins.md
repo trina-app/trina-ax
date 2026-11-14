@@ -1,6 +1,6 @@
 # IT handoff: deploy and operate Trina AX
 
-[한국어](for-admins.ko.md)
+[한국어](for-admins.ko.md) · [简体中文](for-admins.zh.md)
 
 Decide data sensitivity, server ownership, authorized provider connections, client needs, outbound network policy and who restores backups. Selected context leaves for the provider; hosted operators can access stored data. [Security boundaries](security-and-permissions.md).
 
@@ -20,7 +20,7 @@ On a team's own server (Linux or a Mac), voice input is off until an admin turns
 
 Once a day the team's AI reads the short first lines people typed in their own AI chats (never project chats, rooms, side chats, Slack or scheduled tasks; only since this feature arrived or was last turned on; links, emails, numbers, secrets and people's, projects' and group chats' names masked first) and writes general questions for the new chat screen ("what people in your group often ask"). The server shows a sentence only when 3 or more people of a group (or the team) back it with words they typed, never all from one smaller group, project or group chat, and only in a group or team where 5 or more people asked something. Nobody sees who asked or how often, and no admin view lists the lines. It is one call of the file list's reader: no tools, a small model, a team-wide AI account only (never a person's own, never a hosted trial credit), counted as the owner's usage; no chat is made. Team settings › "Show what the team often asks" (on by default) turns it off and deletes every list at once.
 
-By default one answer may use tools up to 150 times (tools the AI uses together count once); admins can change this in Team settings ("Tool rounds per answer", 10–500). At the limit the answer pauses and Continue picks it up. A higher limit lets one answer work longer, so it can cost more; the 20-minute limit and budgets still apply.
+By default one answer may use tools up to 150 times (tools the AI uses together count once); admins can change this in Team settings ("Tool rounds per answer", 10–500). At the limit the answer pauses and Continue picks it up. A higher limit lets one answer work longer, so it can cost more; budgets still apply. One answer has no time limit: it stops early only if the AI does nothing for 15 minutes.
 
 | Mode | Guide | Operational boundary |
 |---|---|---|
@@ -43,7 +43,7 @@ Pilot acceptance: demonstrate two users' different file access, review a skill r
 
 Before updating, read the [latest release](https://github.com/trina-app/trina-ax/releases/latest), including default changes, and back up. Linux and office Mac use the Trina feed. App rollback is not database/file rollback. A Linux server keeps the current version and the previous one (for roll-back) and removes older ones by itself, so the app takes about 1–1.5 GB of disk ([Kept versions](INSTALL-LINUX.en.md#kept-versions)). [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md).
 
-Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES. HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
+Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES/ZH (简体中文). HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
 
 PDFs the AI makes on a Linux server draw Korean, Japanese and Chinese with the Noto Sans CJK fonts that come with each release; there is nothing to install. An office Mac uses its own fonts (Apple SD Gothic Neo, Hiragino Sans, PingFang). Each PDF is set in the language it is written in: a Japanese document gets the Japanese faces first and a Chinese one the Chinese faces (the same characters are drawn differently in each), and a document without Korean, Japanese or Chinese text follows the team language.
 

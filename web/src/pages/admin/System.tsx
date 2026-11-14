@@ -10,6 +10,7 @@
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
+import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
@@ -17,7 +18,7 @@ import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { AdminPageHeader, BarTitleProvider, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
 import { systemGroup, systemGroups, type SystemGroupId } from './systemGroups'
@@ -29,8 +30,8 @@ import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 import { noPurchaseLinks } from '../../lib/desktop'
-import { teamAddressShown } from '../../lib/team-address'
-import { goBackOffered, releasePaused } from '../../lib/updateOutcome'
+import { addressToTell, teamAddressShown } from '../../lib/team-address'
+import { goBackOffered, releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
@@ -122,8 +123,8 @@ function OnComputer({ text, testId, className = 'mt-4' }: { text: string; testId
   const t = useT()
   return (
     <div className={className} data-testid={testId}>
-      <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
-      <p className="mt-1 text-sm text-muted">{text}</p>
+      <p className={settingName}>{t('admin.onComputer')}</p>
+      <p className={clsx('mt-0.5', settingDesc)}>{text}</p>
     </div>
   )
 }
@@ -442,6 +443,10 @@ const DETAIL_TEXT: Record<string, MessageKey> = {
 /** claim codes as the account console shows them: groups of four letters / digits */
 const claimCodeOk = (c: string) => c === '' || /^[A-Za-z0-9 -]{16,64}$/.test(c.trim())
 
+/** The address the team reaches this server at, as far as the connection status knows it. */
+const connAddress = (d: { address: string | null; publicAddress?: string | null } | null | undefined): string | null =>
+  d?.address ?? (d?.publicAddress ? `https://${d.publicAddress}` : null)
+
 function Connection({ canChange = true }: { canChange?: boolean }) {
   const t = useT()
   const locale = useLocale()
@@ -449,6 +454,26 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   const state = useLoad(() => api.call(API.connection))
   const [change, setChange] = useState<{ mode: Mode; relayUrl: string; teamName: string; claimCode: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // after a saved change that moves the team address (not a relay rename): the address to tell the team (QA TC-1232)
+  // The new address is only known once the server has restarted and registered it, so the page waits for it: `waiting`
+  // is the address before the change.
+  const [tell, setTell] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState<string | null>(null)
+  useEffect(() => {
+    if (!waiting) return
+    const stop = setTimeout(() => setWaiting(null), 5 * 60_000)
+    // a failed read (the server is restarting) is ignored: the card keeps what it shows
+    const poll = setInterval(() => { api.call(API.connection).then(state.setData, () => {}) }, 5000)
+    return () => { clearTimeout(stop); clearInterval(poll) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting])
+  useEffect(() => {
+    const d = state.data
+    const now = connAddress(d)
+    if (!waiting || !teamAddressShown(now) || teamAddressShown(now) === teamAddressShown(waiting)) return
+    setTell(addressToTell(waiting, now))
+    setWaiting(null)
+  }, [state.data, waiting])
   const modes = state.data?.availableModes ?? FALLBACK_MODES
   const teamNameOk = (n: string) => n.length >= 2 && n.length <= 40 && TEAM_NAME_RE.test(n)
   const open = () => {
@@ -504,6 +529,12 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                 </Row>
               )}
             </Rows>
+            {tell && (
+              <div className="mt-3 flex min-w-0 items-center gap-2 border-l-2 border-warn pl-3 text-sm text-ink" role="status" data-testid="connection-tell-team">
+                <span className="min-w-0 flex-1 break-words">{t('system.tellTeam', { address: tell })}</span>
+                <CopyButton text={/^https?:\/\//.test(tell) ? tell : `https://${tell}`} showLabel className="shrink-0" />
+              </div>
+            )}
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-code-sm break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
             {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}
@@ -594,6 +625,8 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               t('common.saved'),
             )
             if (r) {
+              setTell(null)
+              setWaiting(connAddress(state.data))
               state.setData(r)
               setChange(null)
               setConfirming(false)
@@ -711,13 +744,13 @@ function Update() {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.updateStatus))
-  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
+  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, running: state.data?.running, onDone: () => void state.reload() })
   const setAsk = install.ask
   // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
   const phone = useMediaQuery(PHONE)
   // a phone's list: the version, or the new one waiting
   const u0 = state.data
-  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
+  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) && !releaseCannotRead(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
   return (
     <Card title={t('system.updates')}>
       <Loadable state={state} lines={2}>
@@ -728,6 +761,15 @@ function Update() {
                 {u.current} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
                 {u.lastCheckedAt && <span className="block text-xs text-faint">{t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
               </Row>
+              {u.waiting && (u.running ?? 0) > 0 && (
+                // an update (this server's own, or root's `mycel-ctl update`) waits for running tasks before the restart;
+                // this server's own can go on now
+                <Row label={t('system.row.status')} long action={u.waiting.skippable ? (
+                  <Button size="sm" variant="secondary" onClick={() => setAsk('anyway')} data-testid="update-waiting-anyway">{t('system.updateAnyway')}</Button>
+                ) : undefined}>
+                  <span className="font-medium" data-testid="update-waiting">{t('system.updateWaiting', { count: u.running ?? 0 })}</span>
+                </Row>
+              )}
               {u.managed ? (
                 // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
                 <Row label={t('system.row.status')} long>
@@ -738,8 +780,9 @@ function Update() {
                   label={t('system.row.status')}
                   long
                   action={
-                    // a paused release: the server refuses it, so no button (Admin › Home says the same; QA TC-361)
-                    u.needsRoot || releasePaused(u) ? undefined : (
+                    // a paused release, or one that cannot open this server's data: the server refuses it, so no
+                    // button (Admin › Home says the same; QA TC-361)
+                    u.needsRoot || releasePaused(u) || releaseCannotRead(u) ? undefined : (
                       <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
                         <Upload size={14} aria-hidden /> {t('system.installUpdate')}
                       </Button>
@@ -747,16 +790,17 @@ function Update() {
                   }
                 >
                   {releasePaused(u) ? <span className="font-medium" data-testid="update-paused">{t('adminHome.update.paused', { version: u.available.version })}</span>
+                    : releaseCannotRead(u) ? <span className="font-medium" data-testid="update-cannot-read">{t('adminHome.update.cannotRead', { version: u.available.version })}</span>
                     : <span className="font-medium">{t('system.available', { version: u.available.version })}</span>}
                   <ReleaseNotes notes={u.available.notes} />
                   {u.available.needsBackupRestoreToRollBack && <span className="mt-1 block text-xs text-warn">{t('system.oneWay')}</span>}
-                  {u.needsRoot && !releasePaused(u) && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
+                  {u.needsRoot && !releasePaused(u) && !releaseCannotRead(u) && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
                     : <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>)}
                 </Row>
               ) : (
                 <Row label={t('system.row.status')} long>
                   {u.feed === false ? (phone ? <><span className="text-muted">{t('system.noFeedShort')}</span><OnComputer className="mt-2" text={t('admin.onComputerNoFeed')} testId="update-on-computer" /></>
-                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted">{t('system.upToDate')}</span>}
+                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : undefined}>{t(u.checkFailed ? 'system.checkFailed' : 'system.upToDate')}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (

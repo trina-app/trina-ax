@@ -248,7 +248,7 @@ export default function Usage() {
               <section className="rounded-xl border border-line bg-surface max-md:rounded-none max-md:border-0 max-md:bg-transparent" aria-labelledby="usage-breakdown-title">
                 {/* a phone: Group by is chosen here, beside the heading (it splits the chart above too) */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-5 max-md:px-0 max-md:pt-0">
-                  <h3 id="usage-breakdown-title" className="min-w-0 flex-1 text-base font-medium">{phone ? t('usage.breakdownTitle') : t('usage.breakdown', { by: t(`usage.by.${groupBy}`) })}</h3>
+                  <h3 id="usage-breakdown-title" className="min-w-0 flex-1 text-title-sm font-semibold">{phone ? t('usage.breakdownTitle') : t('usage.breakdown', { by: t(`usage.by.${groupBy}`) })}</h3>
                   {phone && groupByPill}
                 </div>
                 {groupBy === 'skill' && phone && skillNote}

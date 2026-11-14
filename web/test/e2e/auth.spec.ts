@@ -217,6 +217,39 @@ test('an invite link creates an account', async ({ page, browser }) => {
   await other.close()
 })
 
+test('an invite opens in the team language and offers the browser language, saved to the new account', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/members')
+  await page.getByTestId('invite-new').click()
+  await page.getByTestId('invite-create').click()
+  const link = await page.getByTestId('secret-value').innerText()
+  // an Indonesian browser: the team's Korean stays, with one line in Indonesian offering Indonesian
+  const other = await browser.newContext({ locale: 'id-ID' })
+  const p2 = await other.newPage()
+  await p2.goto(link)
+  await expect(p2.getByRole('heading', { name: 'Acme 팀에 참여하기' })).toBeVisible()
+  const offer = p2.getByTestId('invite-browser-language')
+  await expect(offer).toHaveText('Lihat halaman ini dalam Bahasa Indonesia')
+  await offer.getByRole('button').click()
+  await expect(p2.getByTestId('auth-locale')).toHaveValue('id')
+  await expect(p2.getByTestId('invite-browser-language')).toHaveCount(0)
+  await p2.getByTestId('invite-name').fill('New Person')
+  await p2.getByTestId('invite-username').fill('newbie')
+  await p2.getByTestId('invite-password').fill('another password 1')
+  await p2.getByTestId('invite-submit').click()
+  await p2.goto('/settings/profile')
+  await expect(p2.getByTestId('locale-id')).toHaveAttribute('aria-checked', 'true')
+  await other.close()
+  // a Korean browser (the team's language) is offered nothing
+  const same = await browser.newContext({ locale: 'ko-KR' })
+  const p3 = await same.newPage()
+  await p3.goto(link)
+  await expect(p3.getByTestId('auth-locale')).toHaveValue('ko')
+  await expect(p3.getByTestId('invite-browser-language')).toHaveCount(0)
+  await same.close()
+})
+
 test('language switch to English and Indonesian', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -381,6 +414,30 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await expect(page.locator('html')).toHaveAttribute('lang', locale)
   })
 }
+
+// The offline page asks again by itself: no tap needed once the server answers.
+test('the offline page retries by itself and goes back to the chat when the server answers', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByTestId('cant-reach')).toBeVisible()
+  await page.unroute('**/api/me')
+  // no click: the next quiet try (every few seconds) brings the app back
+  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('cant-reach')).toHaveCount(0)
+})
+
+test('the offline page asks at once when the network comes back', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByTestId('cant-reach')).toBeVisible()
+  await page.unroute('**/api/me')
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 3_000 })
+})
 
 test('recovery does not replace an old login pick or pass a previous account language to another person', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })

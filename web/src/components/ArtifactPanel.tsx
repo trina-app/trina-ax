@@ -142,7 +142,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
       <aside aria-label={t('artifact.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="artifact-panel" data-building>
         <header className="flex items-center gap-2 border-b border-line px-3 py-2">
           <Shapes size={16} className="shrink-0 text-accent-text" aria-hidden />
-          <h2 className="min-w-0 truncate text-sm font-semibold" title={build!.title}>
+          <h2 className="min-w-0 truncate text-title-sm font-semibold" title={build!.title}>
             {build!.title}
           </h2>
           <DeckBuildBadge build={build!} run={buildRun!} />
@@ -164,7 +164,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     <aside aria-label={t('artifact.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="artifact-panel">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <Shapes size={16} className="shrink-0 text-accent-text" aria-hidden />
-        <h2 className="min-w-0 truncate text-sm font-semibold" title={title}>
+        <h2 className="min-w-0 truncate text-title-sm font-semibold" title={title}>
           {title}
         </h2>
         {type && !ours && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-micro text-muted">{t(TYPE_LABEL[type])}</span>}

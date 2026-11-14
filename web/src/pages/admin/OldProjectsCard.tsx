@@ -68,7 +68,7 @@ export function OldProjectsCard({ compact = false }: { compact?: boolean }) {
       <div className="flex items-start gap-3 rounded-xl border border-line bg-surface p-4">
         <FolderKanban size={18} className="mt-0.5 shrink-0 text-muted" aria-hidden />
         <div className="min-w-0 flex-1">
-          <h2 id="admin-old-projects" className="text-sm font-semibold">{t('adminHome.oldProjects.title', { count })}</h2>
+          <h2 id="admin-old-projects" className="text-title-sm font-semibold">{t('adminHome.oldProjects.title', { count })}</h2>
           <p className="mt-1 text-sm break-words text-ink" data-testid="admin-old-projects-names">{listed(items.map((p) => p.name))}</p>
           <p className="mt-1 text-xs text-muted">{t('adminHome.oldProjects.body')}</p>
           <Button size="sm" variant="primary" className="mt-3" busy={busy === 'join'} disabled={busy === 'dismiss'} onClick={() => void join()} data-testid="admin-old-projects-add">

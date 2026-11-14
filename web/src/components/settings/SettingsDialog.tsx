@@ -35,6 +35,7 @@ import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useNoticeUnread } from '../../store/inbox'
+import { useCachedRead } from '../../store/listCache'
 import { isAdmin, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { IconButton, Spinner, confirmDialog, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
@@ -53,6 +54,9 @@ import type { MessageKey } from '../../i18n'
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
 const PHONE_TOP = new Set(['profile'])
+const OWN_CREDENTIALS_KEY = 'settings:ownCredentials'
+const readOwnCredentials = () => api.call(API.myCredentials).then((r) => r.allowed || r.items.length > 0)
+
 /** sections a phone shows as parts of 트리나에게 허용한 것 (the AI's sites), not as rows of their own */
 const PHONE_FOLDED = new Set(['browser', 'dev-env-sites'])
 
@@ -92,10 +96,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useFocusTrap(ref, true, softClose, returnTo)
   // the page under the dialog is inert until it has closed, so the keyboard goes back once it is reachable again
   useEffect(() => () => void requestAnimationFrame(() => returnTo?.isConnected && returnTo.focus()), [returnTo])
-  const [own, setOwn] = useState<boolean | null>(null)
-  useEffect(() => {
-    api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
-  }, [])
+  // whether the person may keep AI connections of their own: as this window last read it (store/listCache.ts), read
+  // again when Settings opens unless that was a minute ago (the team's AI choices changing marks it stale)
+  const ownRead = useCachedRead(OWN_CREDENTIALS_KEY, readOwnCredentials, { minAgeMs: 60_000 })
+  const own = ownRead.data ?? (ownRead.failed ? false : null)
   // the dev environment's sites: only while the dev environment on srt is on for this person (a 404: not on this server)
   const devEnv = me.server.devEnv
   const [sites, setSites] = useState<boolean | null>(devEnv ? null : false)
@@ -173,7 +177,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         ) : (
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
             {/* a phone starts on the title, not on a hidden ✕; a computer still starts on its first button */}
-            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none" data-testid="settings-title">
+            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 text-title-sm font-semibold outline-none" data-testid="settings-title">
               {phone ? t('tabs.me') : t('settings.title')}
             </h2>
             <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
@@ -275,8 +279,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
           <Link to="/settings/profile" className="flex items-center gap-3 px-4 py-3 hover:bg-hover focus-visible:-outline-offset-2" data-testid="settings-me">
             <Avatar user={me.user} size={48} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{me.user.name}</span>
-              <span className="block truncate text-sm text-muted">{me.user.title || t(`role.${me.user.role}`)}</span>
+              <span className="block truncate text-row font-medium">{me.user.name}</span>
+              <span className="block truncate text-meta text-muted">{me.user.title || t(`role.${me.user.role}`)}</span>
             </span>
             <span className="sr-only">{t('settings.profile')}</span>
             <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
@@ -316,7 +320,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
 
 /** The 나 tab's team: the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
  * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자; in the
- * phone app (or the desktop app at a phone's width) "다른 팀으로 전환…" for everyone (lib/teamSwitch.ts: the app's own
+ * phone app (or the desktop app at a phone's width) "다른 팀으로 전환" for everyone (lib/teamSwitch.ts: the app's own
  * screen; a plain browser has none). */
 function PhoneTeamGroup() {
   const t = useT()
@@ -328,7 +332,7 @@ function PhoneTeamGroup() {
     <PhoneListGroup testId="settings-team-group">
       <li className="flex items-center gap-3 px-4 py-3" data-testid="settings-team">
         <TeamLogo className="size-8 rounded-lg" />
-        <span className="min-w-0 flex-1 truncate font-medium">{me.team.name}</span>
+        <span className="min-w-0 flex-1 truncate text-row font-medium">{me.team.name}</span>
       </li>
       {admin && <PhoneListRow icon={<UserPlus size={16} />} title={t('teamMenu.invite')} onClick={() => void openTeamInvite(navigate, null)} chevron testId="settings-invite" />}
       {admin && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}

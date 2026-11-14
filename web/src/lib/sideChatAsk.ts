@@ -9,9 +9,10 @@ import type { SideSeed } from '../components/rooms/SideChatPanel'
  * answer about it may go to (its own, or the one it is a reply in) when it can have one: a message the whole room sees
  * that is not an event line. A private AI preview (only I see it) is never a thread's first message, nor is one in a
  * thread: it gets none, and an answer about it goes to the room (lib/sideChatSend.ts). */
-export function messageSeed(m: Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'createdAt' | 'body' | 'visibility' | 'event' | 'threadRootId'>, ai: string): SideSeed {
+export function messageSeed(m: Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'createdAt' | 'body' | 'visibility' | 'event' | 'threadRootId'> & Pick<Partial<RoomMessage>, 'app'>, ai: string): SideSeed {
   const thread = m.visibility === 'room' && !m.event ? m.threadRootId ?? m.id : undefined
-  return { key: `${m.id}:${Date.now()}`, author: m.authorKind === 'ai' ? ai : m.author?.name ?? '', at: m.createdAt, text: m.body, ...(thread ? { thread } : {}) }
+  // an app's message: by the app's name (its body is the card's plain text with Markdown escaped)
+  return { key: `${m.id}:${Date.now()}`, author: m.authorKind === 'ai' ? ai : m.app?.name ?? m.author?.name ?? '', at: m.createdAt, text: m.body, ...(thread ? { thread } : {}) }
 }
 /** "Ask Trina about this file" on a file sent in the room (its preview panel, the file viewer): its id and name, which
  * the AI opens with room_file. */

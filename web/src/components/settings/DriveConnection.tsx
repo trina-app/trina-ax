@@ -4,6 +4,8 @@ import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
+import { useWaitLimit } from '../../lib/signInWait'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, confirmDialog } from '../ui'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
@@ -107,6 +109,16 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null) } }
     finally { if (g === generation.current) setBusy(false) }
   }
+  // the window was closed (or left) before Google answered: after a while the wait ends, the flow is cancelled on the
+  // server, and Connect is back with a line that says so (reason "timeout"; QA TC-1417)
+  useWaitLimit(!!flow && ['pending', 'exchanging'].includes(flow.state), flow?.flowId, () => {
+    if (!flow) return
+    const id = flow.flowId
+    generation.current++
+    setFlow(null); setAuthorizationUrl(null); popup.current?.close()
+    setError(true); setReason('timeout')
+    void calls.current.cancel(id).catch(() => { /* it expires there by itself */ })
+  })
   const inProgress = !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state)
   return { flow, authorizationUrl, busy, setBusy, error, setError, reason, popupBlocked, generation, start, resume, cancel, complete, inProgress }
 }
@@ -137,7 +149,11 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
     </>}
     {flow.state !== 'ready' && d.authorizationUrl && <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-accent-text hover:underline" onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>{t('drive.openGoogle')}</a>}
-    <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>
+    {/* waiting: Try again (a new window, the server replaces the flow) beside Cancel, always (QA TC-1417) */}
+    <div className="flex flex-wrap gap-2">
+      {flow.state !== 'ready' && <Button disabled={d.busy} onClick={() => void d.start()} data-testid="drive-flow-retry">{t('common.retry')}</Button>}
+      <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>
+    </div>
   </div>
 }
 
@@ -146,9 +162,12 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
  * "Built in" card in Discover, its page and its row among the connections): the status, a connect that ends in
  * `onConnected`, and disconnect (with Google's revocation reported when it could not be done).
  */
+const DRIVE_KEY = 'connectors:drive'
 export function useDriveConnection(onConnected?: (c: Connection) => void) {
   const t = useT()
-  const [connection, setConnection] = useState<Connection | null>(null)
+  // as this window last read it (store/listCache.ts): Connectors shows it at once on a visit after the first
+  const [connection, setConnection] = useState<Connection | null>(() => peekCached<Connection>(DRIVE_KEY) ?? null)
+  useEffect(() => { if (connection) rememberCached(DRIVE_KEY, connection) }, [connection])
   const [revokeWarning, setRevokeWarning] = useState(false)
   // The first load of the status failed: this is not a failed connection, so it has its own message and a Retry.
   const [loadFailed, setLoadFailed] = useState(false)
@@ -159,7 +178,7 @@ export function useDriveConnection(onConnected?: (c: Connection) => void) {
   const load = () => {
     const g = ++generation.current
     setLoadFailed(false)
-    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) setLoadFailed(true) })
+    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) { setConnection(null); setLoadFailed(true) } })
   }
   useEffect(() => {
     load()

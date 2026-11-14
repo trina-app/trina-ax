@@ -90,6 +90,8 @@ function shareable(ctx: AppContext, rt: ChatRuntime, userId: string, r: ChatRow,
   if (r.room_id || r.deleted_at || r.user_id !== userId || isInternalChat(db, r.id)) return fail('not_found')
   if (r.shared_at) return no('already_shared', 'chatShareAlready')
   if (scheduledRun(db, r)) return no('scheduled_run', 'chatShareScheduled')
+  // a room's side chat holds the room's words; only the room's members may read them (QA TC-1010)
+  if (r.side_room_id) return no('side_chat', 'chatShareSideChat')
   // while safe operations (1A) are on every conversation is confidential, and a shared chat never is
   if (confidentialChat(db, r.id)) return no('safe_ops', 'chatShareSafeOps')
   const project = r.project_id ? rt.store.projectRow(r.project_id) : null
@@ -98,7 +100,8 @@ function shareable(ctx: AppContext, rt: ChatRuntime, userId: string, r: ChatRow,
   if (!project || !me || !canSeeProject(ctx.files, me, project)) return no('project_not_sharing', 'chatShareNoProject')
   if (!projectCanShare(project)) return no('project_personal', 'sharedProjectPersonal')
   if (project.trashed_with !== null) return no('project_in_trash', 'projectInTrash')
-  if (project.share_chats !== 1) return no('project_not_sharing', 'chatShareNoProject')
+  // (not the project's setting: every team project shares its new chats since 2026-11-13, and one chat shared by its
+  // creator after the check is their choice for that chat; docs/DECISIONS.md "Team project chats shared by default")
   if (rt.activeTurn(r.id)) return no('chat_busy', 'chatShareBusy')
   return project
 }
@@ -119,6 +122,9 @@ function stateOf(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: strin
 /** POST /api/chats/:id/share. `a`: the caller's chat as chatFor found it ('view'). */
 export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { confirmKey?: string; ask?: boolean }, locale: Locale): Promise<ShareChatResult> {
   const db = ctx.db
+  // a chat shared with people and groups: anyone but its creator gets the 404 of a missing chat (the plan's matrix; a
+  // shared project chat keeps its "already shared" for its audience)
+  if (a.kind === 'people' && !a.creator) fail('not_found')
   if (a.shared) fail('conflict', tr('chatShareAlready', locale), { params: { reason: 'already_shared' } })
   shareable(ctx, rt, userId, a.row, locale)
   // from the room-send budget first (429): asking who could not read what is no free probe

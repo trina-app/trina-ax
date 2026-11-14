@@ -3,6 +3,7 @@ import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
 import { knownStepTool, STEP_TEXT, stepWords } from '@mycel/shared'
 import { newId } from '../db'
+import { storedRunOutcome } from './schedule-outcome'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { isInternalChat } from './internal-chats'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
@@ -23,6 +24,9 @@ export interface ChatRow {
   shared_at: string | null
   /** migration 276: a chat opened from this room's side panel (✦ Trina); null: an ordinary chat */
   side_room_id: string | null
+  /** migration 298: shared with chosen people and groups (chat_audience; chat/people-share.ts); its project_id is NULL
+   * and shared_at stays NULL. null: not shared that way */
+  people_shared_at: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -47,7 +51,7 @@ export interface ProjectRow {
   folder_made?: number
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
@@ -193,7 +197,7 @@ export class ChatStore {
    * project chat is not theirs alone: the chat routes find both through chat/shared.ts chatFor, these flows never */
   ownChat(userId: string, id: string, o: { deleted?: boolean } = {}): ChatRow | null {
     const r = this.chatRow(id)
-    if (!r || r.user_id !== userId || r.room_id || r.shared_at) return null
+    if (!r || r.user_id !== userId || r.room_id || r.shared_at || r.people_shared_at) return null
     // nor one others wrote in before it stopped being shared (a deleted project's, the rollback guard): their words and
     // answers there are not the person's alone either
     if (this.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(id, userId)) return null
@@ -219,7 +223,17 @@ export class ChatStore {
       ...(r.side_room_id ? { sideRoomId: r.side_room_id } : {}),
       ...(pinned ? { pinnedAt: iso(pinned) } : {}),
       ...(folder ? { folderId: folder } : {}),
+      ...(o.viewer && o.viewer === r.user_id && r.title_source === 'schedule' ? this.runOf(r.id, r.user_id) : {}),
     }
+  }
+  /** Chat.schedule: the own task a run chat is a run of (its scheduled turn), and how that run went; nothing once the
+   *  task is deleted (the chat is then an ordinary chat in the lists again). */
+  private runOf(chatId: string, userId: string): Pick<Chat, 'schedule'> {
+    const r = this.db.query(`SELECT s.id, s.title, s.template_id, t.status, t.run_outcome FROM turns t JOIN schedules s ON s.id = t.schedule_id AND s.user_id = t.user_id
+      WHERE t.chat_id = ? AND t.user_id = ? AND t.schedule_id IS NOT NULL ORDER BY t.started_at LIMIT 1`).get(chatId, userId) as { id: string; title: string; template_id: string | null; status: string; run_outcome: string | null } | null
+    if (!r) return {}
+    const outcome = r.status === 'queued' || r.status === 'running' ? null : storedRunOutcome({ status: r.status, run_outcome: r.run_outcome })
+    return { schedule: { id: r.id, title: r.title, templateId: r.template_id, outcome } }
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
    * the chat on screen (never since it was made: after it was made), and how it ended when not well (Chat.lastOutcome:

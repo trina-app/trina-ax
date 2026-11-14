@@ -1,7 +1,7 @@
 // Dates, sizes and numbers through Intl (tab 5: 날짜·숫자는 Intl API로).
 import type { Locale } from '@mycel/shared/api'
 
-const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es' }
+const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es', zh: 'zh-CN' }
 export const intlTag = (l: Locale) => TAG[l]
 
 export function formatSize(bytes: number | null | undefined, locale: Locale): string {
@@ -70,6 +70,16 @@ export function dateBucket(iso: string, now = new Date()): DateBucket {
   if (t >= start - 7 * 86400_000) return 'week'
   if (t >= start - 30 * 86400_000) return 'month'
   return 'older'
+}
+
+/** How long something took, in the person's words: "45 sec", "3 min", "1 hr 5 min" (Intl units, no i18n keys). */
+export function formatElapsed(ms: number, locale: Locale): string {
+  const unit = (n: number, u: 'second' | 'minute' | 'hour') => new Intl.NumberFormat(TAG[locale], { style: 'unit', unit: u, unitDisplay: 'short' }).format(n)
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return unit(s, 'second')
+  const m = Math.round(s / 60)
+  if (m < 60) return unit(m, 'minute')
+  return m % 60 ? `${unit(Math.floor(m / 60), 'hour')} ${unit(m % 60, 'minute')}` : unit(m / 60, 'hour')
 }
 
 export function fmtDuration(s: number) {

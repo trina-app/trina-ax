@@ -15,6 +15,7 @@ import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 import { ROOM_SPECS } from './rooms-cases'
+import { ROOM_APP_SPECS } from './room-apps-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
@@ -35,6 +36,7 @@ type Scope =
   | 'finance-write'   // finance folder write: bob + owner + admin
   | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read); the owner and admins only as members (none here)
   | 'alice-project'   // who manages the participants of alice's team project: alice (its creator) + owner + admin (they manage it without being members)
+  | 'alice-project-people' // who is in alice's team project: its members alice and erin, and the owner and admins who manage it
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
@@ -44,12 +46,15 @@ type Scope =
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
+  | 'room-all-admins' // the everyone room's apps: its owners and admins (everyone is in it; members are refused)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
   /** the request carries intentionally-wrong credentials, or re-logs-in and swaps the client's cookie: a 2xx is not
    *  expected for the legit caller, so it is covered by the deny matrix + world build, not the positive-allow pass. */
-  skipPositive?: boolean }
+  skipPositive?: boolean
+  /** a GET of a made-up id: an allowed caller passes the permission check and meets a 404 */
+  allowNotFound?: boolean }
 
 /** An admin-reauth case is sent with a wrong password: the owner and an admin pass the role gate and are refused for the
  * password (403 with a body.password field), a member is refused for the role (403 without it, before the password is
@@ -84,10 +89,12 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut'
     case 'suggestion-alice': case 'alice-project': return who === 'memberIn' || who === 'owner' || who === 'admin'
+    case 'alice-project-people': return who === 'memberIn' || who === 'other' || who === 'owner' || who === 'admin'
     case 'skills-manager': case 'admins': return who === 'owner' || who === 'admin'
     case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
+    case 'room-all-admins': return who === 'owner' || who === 'admin'
     case 'nobody': return false
   }
 }
@@ -102,6 +109,8 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   if (['preview', 'hwpPreview', 'saveHtmlPdf', 'downloadHtmlPdf'].includes(route) && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
   // the room HWP preview probe uses the DM's picture: its two people pass the room checks and get 503 unsupported
   if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
+  // "Resume now" on an app that is not paused: the owner and an admin pass the checks and get 409 not_paused
+  if (route === 'resumeRoomApp' && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }
@@ -115,6 +124,7 @@ export const SPECS: Record<string, Spec> = {
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
   ...ROOM_SPECS,
+  ...ROOM_APP_SPECS,
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,
@@ -149,10 +159,11 @@ export const SPECS: Record<string, Spec> = {
   // names; the owner cannot ask (409, a state to change first, not a permission check)
   myDeletionRequest: { build: (c) => c.get('/api/me/deletion-request?userId=alice'), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none') && r.json?.state !== 'pending') throw new Error(`unexpected state for ${who}: ${r.text}`) } },
-  requestAccountDeletion: { build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true }), scope: 'self',
+  // sent with a wrong password: nobody's account is set to be deleted; the owner is refused first (409)
+  requestAccountDeletion: { skipPositive: true, build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true, password: 'not-the-password-1' }), scope: 'self',
     check: (r, _w, who) => {
       if (who === 'owner' && r.status !== 409) throw new Error(`the owner asked for their own account to be deleted: ${r.status}`)
-      if (who !== 'owner' && r.status < 300 && r.json?.state !== 'pending') throw new Error(`${who}'s request is not their own: ${r.text}`)
+      if (r.status < 300) throw new Error(`${who}: an account deletion went through with a wrong password: ${r.text}`)
     } },
   cancelAccountDeletion: { build: (c) => c.del('/api/me/deletion-request?userId=alice'), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none')) throw new Error(`${who}'s cancel left a request open: ${r.text}`) } },
@@ -161,8 +172,9 @@ export const SPECS: Record<string, Spec> = {
   inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel',
     check: (r, w, who) => {
       if (r.status !== 200 || r.json?.teamName !== 'Sec Team' || r.json?.valid !== true) throw new Error(`${who}: the invite's info answered ${r.status} ${r.text.slice(0, 160)}`)
-      const extra = Object.keys(r.json).filter((k) => !['teamName', 'role', 'expiresAt', 'valid', 'inviterName'].includes(k))
+      const extra = Object.keys(r.json).filter((k) => !['teamName', 'role', 'expiresAt', 'valid', 'inviterName', 'full'].includes(k))
       if (extra.length) throw new Error(`${who}: the invite's info carries ${extra.join(', ')}`)
+      if (typeof r.json.full !== 'boolean') throw new Error(`${who}: the invite's info has no full flag`)
       inviterOnlyByName(r, w, who, "the invite's info")
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
@@ -224,6 +236,34 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
       if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
     } },
+  // Share… for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
+  // admins and the owner too, the 404 of a missing chat); her own empty list is refused (her chat is in her personal project:
+  // project_personal) and nothing is shared; a hide on her own chat is refused (chat_hide_creator)
+  getChatAudience: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/audience`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      if (who === 'memberIn' && r.json?.kind !== 'private') throw new Error('alice\'s private chat did not read as private')
+    } },
+  putChatAudience: { build: (c, w) => c.put(`/api/chats/${w.ids.chatA}/audience`, { subjects: [] }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who}: an empty list was saved for alice's private chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      // (her chat is in her personal project: refused for that before the empty list is looked at)
+      if (who === 'memberIn' && !['needs_people', 'project_personal'].includes(r.json?.error?.params?.reason)) throw new Error(`alice was refused for another reason: ${r.text}`)
+    } },
+  hideChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} hid alice's own chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
+  unhideChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} unhid alice's own chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
+  // the delete-account dialog's count: the owner and admins only, a number and nothing else
+  userSharedChats: { build: (c) => c.get('/api/admin/users/alice/shared-chats'), scope: 'byLevel',
+    check: (r) => { if (r.status < 300 && (typeof r.json?.sharedChats !== 'number' || Object.keys(r.json).length !== 1)) throw new Error(`more than a count: ${r.text}`) } },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },
@@ -259,23 +299,58 @@ export const SPECS: Record<string, Spec> = {
   // who sees alice's team project: alice (its creator), the owner and admins see and change it; erin is a participant
   // but did not make it (403), bob does not see it (404)
   previewProjectAccess: { build: (c, w) => c.post('/api/projects/access-preview', { projectId: w.ids.projTeam, participants: [] }), scope: 'alice-project' },
-  // a team project alice put in the trash (its folder with it) comes back only by the owner or an admin, who manage it
-  // without reading it (docs/DECISIONS.md "Project contents only for members"); alice herself, its creator, may not
+  // the widening list (chat/widening.ts, docs/DECISIONS.md "People who see a shared chat later: nothing new is hidden"):
+  // whoever may change the members of alice's team project (alice, the owner, admins); erin sees it but may not change
+  // them (403 widening_not_allowed), bob does not see it (404). The owner and admins manage it without reading it: no
+  // answer of it is listed to them. That no item names a place the caller can't open and none comes from an answer
+  // hidden from them: tests/unit/b-widening-answers.test.ts
+  wideningAnswers: { build: (c, w) => c.post('/api/sharing/widening-answers', { target: { kind: 'project', projectId: w.ids.projTeam }, add: [{ subjectType: 'user', subjectId: 'erin' }, { subjectType: 'user', subjectId: 'bob' }] }), scope: 'alice-project',
+    check: (r, _w, who) => {
+      if (who === 'other' && (r.status !== 403 || r.json?.error?.params?.reason !== 'widening_not_allowed')) throw new Error(`erin, who may not change the members, got ${r.status}`)
+      if (who === 'memberOut' && r.status !== 404) throw new Error(`bob, outside the project, got ${r.status} (not 404)`)
+      if (r.status >= 300) return
+      if (!Array.isArray(r.json?.items) || typeof r.json?.total !== 'number') throw new Error(`${who}: not a widening list`)
+      if ((who === 'owner' || who === 'admin') && (r.json.items.length || r.json.total)) throw new Error(`${who}: answers of a project they manage without reading it were listed`)
+    } },
+  // a team project alice put in the trash (its folder with it) comes back by the owner or an admin, who manage it
+  // without reading it (docs/DECISIONS.md "Project contents only for members"), or by alice, its creator and a member
+  // of it (QA TC-1062, "A team project in the trash: its members keep its card"); nobody else
   restoreProject: { build: async (c, w) => {
-    const made = await w.as.memberIn.post('/api/projects', { name: `Back ${Math.random().toString(36).slice(2, 8)}`, participants: [], instructions: '' })
+    const made = await w.as.memberIn.post('/api/projects', { name: `Back ${Math.random().toString(36).slice(2, 8)}`, participants: [], instructions: 'SEC-RESTORE-INSTR' })
     await w.as.memberIn.del(`/api/projects/${made.json.id}`)
     return c.post(`/api/projects/${made.json.id}/restore`)
-  }, scope: 'admins',
+  }, scope: 'alice-project',
     check: async (r, w, who) => {
-      if (who !== 'owner' && who !== 'admin') return
-      if (r.json?.member !== false || r.json?.instructions !== '') throw new Error(`${who}: a restored project answered with its contents`)
+      if (who === 'owner' || who === 'admin') {
+        if (r.json?.member !== false || r.json?.instructions !== '') throw new Error(`${who}: a restored project answered with its contents`)
+      } else if (who === 'memberIn' && (r.json?.inTrash !== false || r.json?.instructions !== 'SEC-RESTORE-INSTR')) throw new Error('alice did not get her restored project back')
     } },
   getProjectAccess: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/access`), scope: 'alice-project' },
+  // who is in it, by face (docs/DECISIONS.md "Who is in a project, by face"): its members (erin too, who did not make
+  // it), and whoever manages it; bob, outside it, 404. Only those who manage it get the groups
+  getProjectPeople: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/people`), scope: 'alice-project-people',
+    check: (r, _w, who) => {
+      if (r.status >= 300) return
+      const ids = (r.json?.people ?? []).map((x: { id: string }) => x.id).sort().join(',')
+      if (ids !== 'alice,erin') throw new Error(`${who}: the people of alice's team project were ${ids}`)
+      if (who === 'other' && r.json?.groups !== undefined) throw new Error('erin, a member who does not manage it, got its groups')
+    } },
   putProjectParticipants: { build: (c, w) => c.put(`/api/projects/${w.ids.projTeam}/participants`, { participants: [{ subjectType: 'user', subjectId: 'bob' }], expectedHash: 'not-the-hash' }), scope: 'alice-project',
     check: (r, w, who) => {
       if (r.status < 300) throw new Error(`${who}: participants changed with a stale rules hash`)
       const bob = w.inst.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Team plan' AND r.subject_id = 'bob'").get()
       if (bob) throw new Error(`${who}: bob was added to alice's team project`)
+    } },
+  // leaving a team project (docs/DECISIONS.md "Leaving a project"): only someone in it. A fresh project of alice's with
+  // frank in it (so she is not the last one); erin and bob are not in it, the owner and admins manage it without being
+  // members: 404 as for no project, and nobody else's rule changes
+  leaveProject: { build: async (c, w) => {
+    const made = await w.as.memberIn.post('/api/projects', { name: `Leave ${Math.random().toString(36).slice(2, 8)}`, participants: [{ subjectType: 'user', subjectId: 'frank' }], instructions: '' })
+    return c.post(`/api/projects/${made.json.id}/leave`)
+  }, scope: 'own-alice',
+    check: (r, w, who) => {
+      if (who === 'memberIn' || r.status >= 300) return
+      throw new Error(`${who} left a project they are not in`)
     } },
   getProject: { build: (c, w) => c.get(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice' },
   updateProject: { build: (c, w) => c.patch(`/api/projects/${w.ids.projAlice}`, { instructions: 'pwned' }), scope: 'users-alice',
@@ -295,6 +370,10 @@ export const SPECS: Record<string, Spec> = {
   runScheduleNow: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/run', {}), scope: 'self' },
   scheduleEditCard: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/edit', { kind: 'task', title: 'x', prompt: 'x x x', repeat: 'daily', time: '09:00', projectId: null }), scope: 'self' },
   editSchedule: { build: (c) => c.put('/api/schedules/00000000-0000-7000-8000-000000000000', { kind: 'template', time: '09:00', sourcePath: 'shared', outputPath: 'users/x' }), scope: 'self' },
+  // a task's run history: alice's task is hers alone; anyone else signed in (another member, an admin, the team owner)
+  // gets 404, never a 403 that would say the task is there (tests/unit/schedule-runs.test.ts)
+  listScheduleRuns: { build: (c, w) => c.get(`/api/schedules/${w.ids.scheduleAlice}/runs`), scope: 'own-alice',
+    check: (r, _w, who) => { if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who}: alice's run history answered ${r.status}, not 404`) } },
   // nobody's task (each person's own waiting task is covered in tests/unit/schedule-review.test.ts, incl. 404 to others)
   getScheduleReview: { build: (c) => c.get('/api/schedules/00000000-0000-7000-8000-000000000000/review'), scope: 'nobody' },
   confirmScheduleReview: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/review', { requestId: 'schedule-review-x', answer: 'resume' }), scope: 'self' },
@@ -468,6 +547,10 @@ export const SPECS: Record<string, Spec> = {
   createGroup: { build: (c) => c.post('/api/admin/groups', { name: 'g' + Math.random().toString(36).slice(2, 6), memberIds: [] }), scope: 'byLevel' },
   updateGroup: { build: (c, w) => c.patch(`/api/admin/groups/${w.groups.marketing}`, { description: 'x' }), scope: 'byLevel' },
   deleteGroup: { build: (c, w) => c.del(`/api/admin/groups/${w.groups.finance}`), scope: 'byLevel' },
+  // who keeps access by name after a group change (C1-A): admins only (it names people and folders)
+  folderAccessNotice: { build: (c) => c.get('/api/admin/folder-access/notice'), scope: 'byLevel' },
+  dismissFolderAccessNotice: { build: (c) => c.post('/api/admin/folder-access/notice/dismiss'), scope: 'byLevel' },
+  originCheck: { build: (c, w) => c.post('/api/admin/groups/origin-check', { changes: [{ userId: 'alice', groupId: w.groups.marketing }] }), scope: 'byLevel' },
   listFolders: { build: (c) => c.get('/api/admin/folders'), scope: 'byLevel' },
   createFolder: { build: (c) => c.post('/api/admin/folders', { path: 'shared/sub' + Math.random().toString(36).slice(2, 6), create: true, rules: [] }), scope: 'byLevel' },
   // shared/ and skills/ keep at least one rule, also for the owner and admins (fix/folders-safety 1b): the admin API
@@ -684,6 +767,7 @@ export function allCases(): Case[] {
         check: spec.check ? (r, w) => spec.check!(r, w, who) : undefined,
         todo: spec.todo?.[who],
         skipPositive: spec.skipPositive,
+        allowNotFound: spec.allowNotFound,
       })
     }
   }

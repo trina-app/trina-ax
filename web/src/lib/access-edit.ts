@@ -1,4 +1,4 @@
-// Admin › Folder permissions › the edit panel (stage 5): a folder's rules as the panel shows them, and back. Nothing
+// The Share dialog (pages/admin/FolderSharing.tsx): a folder's rules as the dialog shows them, and back. Nothing
 // here decides access: what a draft changes comes from the server (POST /api/admin/access/edit-preview,
 // server/src/admin/access-edit.ts). The panel asks one thing first, the basic access for everyone not named below it,
 // then the people and groups named; old role rows are read as the basic access and saved as "everyone".
@@ -8,7 +8,12 @@
 // and every other person has the role "member", so "role member X" gives the same as "everyone X" except that inside one
 // folder the role step comes before the everyone step. Both in one folder: the member row decides for everyone it can
 // decide for. So "member X" (else "everyone Y") saved as "everyone X" (resp. Y) is the same for every person.
-import type { Access, FolderEditPreview, FolderRuleInput } from '@mycel/shared/api'
+//
+// Since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"), "only the people
+// named" is Limit access (the folder's `limited`), not an "everyone: none" rule: the server refuses "no access" rules.
+// The draft carries the limit itself (`limited`, the dialog's Limit access switch); the basic access is the team's own
+// setting here ('follow' and 'named' both store no everyone rule: 'named' is the limited folder's "only people added").
+import type { Access, FolderRuleInput } from '@mycel/shared/api'
 
 /** The basic access, for everyone the rows below do not name: follow the folder above (no everyone rule), only the
  * people named (everyone: none), everyone reads, everyone reads and writes. */
@@ -16,7 +21,7 @@ export type Basic = 'follow' | 'named' | 'read' | 'write'
 export const BASICS: readonly Basic[] = ['follow', 'named', 'read', 'write']
 /** A person or a group named in the folder's rules, with their access there ("none" keeps them out of an open folder). */
 export interface Named { subjectType: 'user' | 'group'; subjectId: string; access: Access }
-export interface Draft { basic: Basic; named: Named[] }
+export interface Draft { basic: Basic; named: Named[]; limited?: boolean }
 /** A rule as the API has it. */
 export interface RuleLike { subjectType: string; subjectId: string | null; access: Access }
 
@@ -30,28 +35,36 @@ const basicOf = (a: Access | undefined): Basic | undefined => (a === undefined ?
  * every member before an everyone row does), else the everyone row's, else "follow". At the team root there is no
  * folder above: no everyone rule there is "only the people named" too (nobody else gets a rule).
  */
-export function draftOf(rules: readonly RuleLike[], root: boolean): { draft: Draft; converted: Converted } {
+export function draftOf(rules: readonly RuleLike[], root: boolean, limited = false): { draft: Draft; converted: Converted } {
   const member = rules.find((r) => r.subjectType === 'role' && r.subjectId === 'member')
   const every = rules.find((r) => r.subjectType === 'everyone')
-  const basic = basicOf((member ?? every)?.access) ?? (root ? 'named' : 'follow')
+  // a limited folder without an everyone rule: only the people named
+  const basic = basicOf((member ?? every)?.access) ?? (root || limited ? 'named' : 'follow')
   const named = rules.filter((r): r is Named => (r.subjectType === 'user' || r.subjectType === 'group') && !!r.subjectId).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
-  return { draft: { basic, named }, converted: { member: !!member, admin: rules.some((r) => r.subjectType === 'role' && r.subjectId === 'admin') } }
+  return { draft: { basic, named, limited: !root && limited }, converted: { member: !!member, admin: rules.some((r) => r.subjectType === 'role' && r.subjectId === 'admin') } }
 }
 
 /**
- * The rules a draft saves: the people and groups named, then the basic access as an everyone rule ("follow": none).
- * At the team root, "only the people named" is no everyone rule unless the root had "everyone: none" (both give nobody
- * but the owner and admins; the stored form is kept).
+ * The rules a draft saves: the people and groups named, then the basic access as an everyone rule ("follow" and "only
+ * the people named": none; the second is the folder's limit, limitedOf). A person or group named with "no access" on a
+ * limited folder is left out (the limit keeps them out already); elsewhere it stays, and the server says why it cannot
+ * be saved (a folder cannot give less than the folder above unless it is limited).
  */
-export function rulesOf(draft: Draft, o: { root: boolean; rootNoneRow?: boolean }): FolderRuleInput[] {
-  const out: FolderRuleInput[] = draft.named.map((n) => (n.subjectType === 'user' ? { subjectType: 'user', subjectId: n.subjectId, access: n.access } : { subjectType: 'group', subjectId: n.subjectId, access: n.access }))
-  const every: Access | null = draft.basic === 'follow' ? null : draft.basic === 'named' ? (o.root && !o.rootNoneRow ? null : 'none') : draft.basic
+export function rulesOf(draft: Draft, _o: { root: boolean; rootNoneRow?: boolean } = { root: false }): FolderRuleInput[] {
+  const named = draft.basic === 'named' ? draft.named.filter((n) => n.access !== 'none') : draft.named
+  const out: FolderRuleInput[] = named.map((n) => (n.subjectType === 'user' ? { subjectType: 'user', subjectId: n.subjectId, access: n.access } : { subjectType: 'group', subjectId: n.subjectId, access: n.access }))
+  const every: Access | null = draft.basic === 'follow' || draft.basic === 'named' ? null : draft.basic
   if (every) out.push({ subjectType: 'everyone', subjectId: null, access: every })
   return out
 }
 
-/** The root had "everyone: none" (or "member: none"): kept as it is when the root stays "only the people named". */
-export const rootNoneRow = (rules: readonly RuleLike[]) => draftOf(rules, true).draft.basic === 'named' && rules.some((r) => (r.subjectType === 'everyone' || (r.subjectType === 'role' && r.subjectId === 'member')) && r.access === 'none')
+/** The folder's limit a draft saves: "only the people named" limits it, "follow the folder above" takes the limit away;
+ * an everyone choice keeps what the folder has (undefined: the server keeps it). At the team root nothing is above it:
+ * kept as it is. */
+export const limitedOf = (draft: Draft, root: boolean): boolean | undefined => (root ? undefined : draft.limited !== undefined ? draft.limited : draft.basic === 'named' ? true : draft.basic === 'follow' ? false : undefined)
+
+/** Kept for callers from before the limit: the root's "only the people named" is no everyone rule now. */
+export const rootNoneRow = (_rules: readonly RuleLike[]) => false
 
 const ruleKey = (r: RuleLike) => `${r.subjectType}\u0000${r.subjectId ?? ''}\u0000${r.access}`
 /** The same rules, in any order. */
@@ -64,39 +77,13 @@ export function sameRules(a: readonly RuleLike[], b: readonly RuleLike[]): boole
 /** One string per set of rules (in the order given): the server's answer is kept by it, and an older one dropped. */
 export const rulesKey = (rules: readonly RuleLike[]) => rules.map(ruleKey).join('\u0001')
 /** One string per draft: whether the admin changed anything. */
-export const draftKey = (d: Draft) => `${d.basic}\u0002${d.named.map((n) => `${n.subjectType}\u0000${n.subjectId}\u0000${n.access}`).join('\u0001')}`
+export const draftKey = (d: Draft) => `${d.basic}\u0003${d.limited ? 1 : 0}\u0002${d.named.map((n) => `${n.subjectType}\u0000${n.subjectId}\u0000${n.access}`).join('\u0001')}`
 
 /** The draft with a person or group added (read, at the end), or with their access changed, or without them. */
 export const addNamed = (d: Draft, n: Omit<Named, 'access'>, access: Access = 'read'): Draft =>
   d.named.some((x) => x.subjectType === n.subjectType && x.subjectId === n.subjectId) ? d : { ...d, named: [...d.named, { ...n, access }] }
 export const setNamed = (d: Draft, i: number, access: Access): Draft => ({ ...d, named: d.named.map((x, j) => (j === i ? { ...x, access } : x)) })
 export const removeNamed = (d: Draft, i: number): Draft => ({ ...d, named: d.named.filter((_, j) => j !== i) })
-
-/** What a change does to people, kept apart (an edit that becomes view only is not losing access): how many can no
- * longer open it, can no longer edit it, can now open it, can now edit it. From the server's `changes` for this draft
- * (the folder itself; the rule folders below are said apart). */
-export interface Outcomes { loseOpen: number; loseEdit: number; gainOpen: number; gainEdit: number }
-export function outcomesOf(changes: readonly Pick<FolderEditPreview['changes'][number], 'before' | 'after' | 'count'>[]): Outcomes {
-  const o: Outcomes = { loseOpen: 0, loseEdit: 0, gainOpen: 0, gainEdit: 0 }
-  for (const c of changes) {
-    if (c.after === 'none') o.loseOpen += c.count
-    else if (c.before === 'none') o.gainOpen += c.count
-    else if (c.before === 'write') o.loseEdit += c.count
-    else o.gainEdit += c.count
-  }
-  return o
-}
-
-type Say = (key: 'accessEdit.outLoseOpen' | 'accessEdit.outLoseEdit' | 'accessEdit.outGainOpen' | 'accessEdit.outGainEdit', params: { n: number }) => string
-/** The outcomes in words, losses first: "2 can no longer open it", "1 can no longer edit", "3 can now open it". */
-export function outcomeWords(say: Say, o: Outcomes): string[] {
-  const out: string[] = []
-  if (o.loseOpen) out.push(say('accessEdit.outLoseOpen', { n: o.loseOpen }))
-  if (o.loseEdit) out.push(say('accessEdit.outLoseEdit', { n: o.loseEdit }))
-  if (o.gainOpen) out.push(say('accessEdit.outGainOpen', { n: o.gainOpen }))
-  if (o.gainEdit) out.push(say('accessEdit.outGainEdit', { n: o.gainEdit }))
-  return out
-}
 
 /** The choices of the basic access a folder offers: no "follow" at the team root (nothing is above it); no "everyone
  * writes" in a connected folder (a one-way copy, server/src/team-files/connected.ts: what is written there never reaches

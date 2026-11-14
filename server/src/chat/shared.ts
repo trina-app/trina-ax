@@ -1,5 +1,6 @@
-// Shared project chats (docs/DECISIONS.md "Shared project chats"). A project editor turns on "share its chats"
-// (projects.share_chats); every chat made in that project from then on (chats.shared_at, only at creation) is seen by
+// Shared project chats (docs/DECISIONS.md "Shared project chats", "Team project chats shared by default"). Every team
+// project shares its chats (projects.share_chats, set for each since 2026-11-13; the switch is gone); every chat made in
+// it (chats.shared_at, only at creation) unless started "Only me" (POST /api/chats `private`) is seen by
 // the people who can see the project (canSeeProject: who can read its folder; for a project in projects/ its members
 // only, the owner and admins too only as members; while its folder is in the trash, nobody) and may be continued by them. Nothing about who sees a chat is stored:
 // the audience is the project's readers now, so a rule change applies at once (losing access hides the chat, from its
@@ -16,32 +17,40 @@ import { PROJECT_COLS, SHARED_LATER, type ChatRow, type ChatStore, type MessageR
 import { composeMessage } from './turn'
 import { HISTORY_MAX_CHARS, historyBlock } from './prompt'
 import type { FileService } from '../files/service'
-import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, inPlace, RuleSet, splitOf, type Principal } from '../policy/access'
 import { isPersonalFolder, mayEditProject } from './projects'
 import { fail } from '../http/errors'
 import { tr } from './i18n'
+import { noLongerMember } from './project-joins'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
+import { inPeopleAudience, isPeopleRow, peopleAudience, hiddenByMe } from './chat-audience'
 
-/** A chat row that is a shared project chat: made shared and still in a project. */
-export const isSharedRow = (r: Pick<ChatRow, 'shared_at' | 'project_id'>): boolean => !!r.shared_at && !!r.project_id
+/** A chat row that is a shared project chat (made shared and still in a project) or a chat outside projects shared with
+ * chosen people and groups (chat/chat-audience.ts): seen by more people than its creator, each turn its sender's. */
+export const isSharedRow = (r: Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'>): boolean => (!!r.shared_at && !!r.project_id) || isPeopleRow(r)
 
-/** Is this chat a shared project chat? (one read) */
+/** A shared project chat (not a people-shared one). */
+export const isProjectSharedRow = (r: Pick<ChatRow, 'shared_at' | 'project_id'>): boolean => !!r.shared_at && !!r.project_id
+
+/** Is this chat a shared chat of either kind? (one read) */
 export function isSharedChat(db: Database, chatId: string): boolean {
-  const r = db.query('SELECT shared_at, project_id FROM chats WHERE id = ?').get(chatId) as Pick<ChatRow, 'shared_at' | 'project_id'> | null
+  const r = db.query('SELECT shared_at, project_id, people_shared_at FROM chats WHERE id = ?').get(chatId) as Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'> | null
   return !!r && isSharedRow(r)
 }
 
 /** May this project share its chats at all: a team project (never a personal one). */
 export const projectCanShare = (p: Pick<ProjectRow, 'folder_path'>): boolean => !isPersonalFolder(p.folder_path)
 
-/** Does a chat made in this project now become a shared chat: its setting is on, it is a team project in place, and
- * safe operations are off (a chat made while 1A is on would be confidential, and those are never shared). */
-export const sharesNewChats = (p: Pick<ProjectRow, 'folder_path' | 'share_chats' | 'trashed_with'>): boolean =>
-  p.share_chats === 1 && projectCanShare(p) && p.trashed_with === null && !safeOpsEnabled()
+/** Does a chat made in this project now become a shared chat (unless it starts "Only me"): it is a team project in
+ * place, and safe operations are off (a chat made while 1A is on would be confidential, and those are never shared).
+ * Not the column projects.share_chats: every team project shares its new chats (docs/DECISIONS.md "Team project chats
+ * shared by default"); the column is kept in step for a rollback build (chat/team-shares.ts markTeamShares). */
+export const sharesNewChats = (p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>): boolean =>
+  projectCanShare(p) && p.trashed_with === null && !safeOpsEnabled()
 
 /** The active accounts as principals. */
 export function activePrincipals(db: Database): Principal[] {
@@ -57,6 +66,7 @@ export class Audiences {
   private people: Principal[] | null = null
   private rules: RuleSet | null = null
   private byProject = new Map<string, string[]>()
+  private byChat = new Map<string, string[]>()
   private uploads = new Map<string, boolean>()
   private byId: Map<string, Principal> | null = null
   constructor(private db: Database, private files: FileService) {}
@@ -87,6 +97,21 @@ export class Audiences {
     return ids
   }
   sees(userId: string, p: ProjectRow): boolean { return this.of(p).includes(userId) }
+  /** Who sees this shared chat now: its project's audience, or for a chat shared with people and groups its creator and
+   * the active people it names or who are in a group it names (chat/chat-audience.ts). A chat of one person: [] (its
+   * creator alone is not an audience). Kept for the request. */
+  ofChat(r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>): string[] {
+    if (isPeopleRow(r)) {
+      let ids = this.byChat.get(r.id)
+      if (!ids) this.byChat.set(r.id, (ids = peopleAudience(this.db, r)))
+      return ids
+    }
+    if (!isProjectSharedRow(r)) return []
+    const p = this.db.query(`SELECT ${PROJECT_COLS} FROM projects WHERE id = ?`).get(r.project_id!) as ProjectRow | null
+    return p ? this.of(p) : []
+  }
+  /** Does `userId` see this shared chat now (ofChat)? */
+  seesChat(userId: string, r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>): boolean { return this.ofChat(r).includes(userId) }
   /**
    * Nobody but `viewer` sees the project by a rule of its folder (a person, group, role or everyone rule): anyone else of
    * its audience sees it only as the owner or an admin, who see a project outside projects/ by their role (inside it
@@ -144,10 +169,7 @@ export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRo
   if (!p.trashed_with) return files.rules()
   const t = db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ?').get(p.trashed_with) as { original_path: string; storage_path: string } | null
   if (!t) return null
-  return new RuleSet(db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
-      THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
-    FROM folder_rules r JOIN folders f ON f.id = r.folder_id
-    WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, t.original_path) as ConstructorParameters<typeof RuleSet>[0])
+  return RuleSet.fromDb(db, { mapPath: inPlace(t.storage_path, t.original_path) })
 }
 
 /** Would this account see the project, by its folder's rules: whatever its status (a disabled account counts as if it
@@ -162,6 +184,18 @@ export function accountSeesProject(db: Database, rules: RuleSet | null, p: Pick<
   if (!rules) return false
   const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((r) => r.group_id)
   return seesUnder(rules, { folder_path: p.folder_path, trashed_with: null }, { ...u, groups })
+}
+
+/**
+ * A team project in the trash that this person reads again once it is back: one of its members by its folder's own rules
+ * (rulesInPlace), while its folder is still in the files trash (not deleted for good from there). Such a person keeps
+ * its card and gets its name and that it is in the trash, never its contents (docs/DECISIONS.md "A team project in the
+ * trash: its members keep its card"). false for a project in place, a personal one, or one whose folder was purged.
+ */
+export function memberWhileTrashed(db: Database, files: FileService, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, userId: string): boolean {
+  if (p.trashed_with === null || isPersonalFolder(p.folder_path)) return false
+  if (!db.query('SELECT 1 FROM trash_items WHERE id = ? AND restored_at IS NULL').get(p.trashed_with)) return false
+  return accountSeesProject(db, rulesInPlace(db, files, p), p, userId)
 }
 
 /** Who sees what, as admin/folders.ts AccessState holds it: the active people (role, groups) and the folder rules. */
@@ -211,19 +245,20 @@ export function wroteIn(db: Database, chatId: string, userId: string): boolean {
   return !!db.query("SELECT 1 FROM messages WHERE author_id = ? AND chat_id = ? AND role = 'user' LIMIT 1").get(userId, chatId)
 }
 
-/** A shared chat's writers as a project page shows them (Chat.shared.people and peopleCount). */
+/** The other people who wrote in a shared chat, as its list rows show them (Chat.shared.people and peopleCount): never
+ * the viewer themselves. */
 export interface ChatPeople { people: UserRef[]; count: number }
 
 /**
  * Who wrote in each of these chats (sent a question there; its creator too when they did), the most recent writer
- * first: at most CHAT_PEOPLE_SHOWN of them and how many in all. For a project's chat list, so one grouped query for the
- * whole page, never one per chat: for each person and each chat a seek on messages_author_chat (migration 265: author,
- * chat, only questions), which holds everything it needs (the message's rowid is the order they were written in, as
- * the share check orders answers), with the name from users in the same pass. The caller passes only chats the viewer
- * may view (chatFor 'view'): these are the authors they see in the chat anyway. A chat nobody wrote in yet is absent.
+ * first, all of them. One grouped query for a whole list, never one per chat: for each person and each chat a seek on
+ * messages_author_chat (migration 265: author, chat, only questions), which holds everything it needs (the message's
+ * rowid is the order they were written in, as the share check orders answers), with the name from users in the same
+ * pass. The caller passes only chats the viewer may view (chatFor 'view'): these are the authors they see in the chat
+ * anyway. A chat nobody wrote in yet is absent.
  */
-export function chatPeople(db: Database, chatIds: readonly string[]): Map<string, ChatPeople> {
-  const out = new Map<string, ChatPeople>()
+export function chatWriters(db: Database, chatIds: readonly string[]): Map<string, UserRef[]> {
+  const out = new Map<string, UserRef[]>()
   if (!chatIds.length) return out
   // CROSS JOIN keeps users as the outer loop, so each (person, chat) pair is one seek on the covering index
   const rows = db.query(`SELECT m.chat_id AS chat, u.id AS id, u.name AS name, MAX(m.rowid) AS last
@@ -232,17 +267,37 @@ export function chatPeople(db: Database, chatIds: readonly string[]): Map<string
     GROUP BY m.chat_id, u.id ORDER BY m.chat_id, last DESC`).all(JSON.stringify(chatIds)) as { chat: string; id: string; name: string; last: number }[]
   for (const r of rows) {
     let p = out.get(r.chat)
-    if (!p) out.set(r.chat, (p = { people: [], count: 0 }))
-    p.count++
-    if (p.people.length < CHAT_PEOPLE_SHOWN) p.people.push({ id: r.id, name: r.name })
+    if (!p) out.set(r.chat, (p = []))
+    p.push({ id: r.id, name: r.name })
   }
+  return out
+}
+
+/** A chat's writers (chatWriters) as `viewer`'s row shows them: the others only, the most recent first, at most
+ * CHAT_PEOPLE_SHOWN of them, and how many others in all (docs/DECISIONS.md "Faces in every chat list"). */
+export function peopleFor(writers: readonly UserRef[] | undefined, viewer: string): ChatPeople {
+  const others = (writers ?? []).filter((p) => p.id !== viewer)
+  return { people: others.slice(0, CHAT_PEOPLE_SHOWN), count: others.length }
+}
+
+/**
+ * The other writers of each of these shared chats for `viewer`'s list (Chat.shared.people and peopleCount), from one
+ * grouped query for the whole response (chatWriters). Only chats `viewer` may view now: the list's own filter decides.
+ */
+export function chatPeople(db: Database, chatIds: readonly string[], viewer: string): Map<string, ChatPeople> {
+  const out = new Map<string, ChatPeople>()
+  for (const [id, w] of chatWriters(db, chatIds)) out.set(id, peopleFor(w, viewer))
   return out
 }
 
 export interface ChatAccess {
   row: ChatRow
-  /** a shared project chat (and its project); else the caller's own chat */
+  /** a shared chat of either kind (a shared project chat, or one shared with people and groups); else the caller's own
+   * chat */
   shared: boolean
+  /** which kind of shared chat (null: the caller's own chat) */
+  kind: 'project' | 'people' | null
+  /** a shared project chat's project (null for a chat shared with people and groups) */
   project: ProjectRow | null
   /** the caller made it */
   creator: boolean
@@ -265,29 +320,70 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
   const L = o.locale ?? 'en'
   const r = rt.store.chatRow(id)
   if (!r || r.room_id) return fail('not_found')
+  // a chat shared with chosen people and groups (chat/chat-audience.ts): its creator and the people in it now; everyone
+  // else (an admin or the owner outside it too) gets the 404 of a missing chat. Delete and restore are its creator's.
+  if (isPeopleRow(r)) {
+    const creator = r.user_id === userId
+    if (!inPeopleAudience(rt.db, r, userId)) return fail('not_found')
+    if (r.deleted_at && (!o.deleted || mode === 'continue' || !creator)) return fail('not_found')
+    if (mode === 'manage' && !creator) return fail('forbidden', tr('sharedChatDeleteNo', L), { params: { reason: 'shared_chat_manage' } })
+    // while 1A is on every conversation is confidential, and a shared chat never is: read-only until it is off
+    if (mode === 'continue' && (safeOpsEnabled() || confidentialChat(rt.db, r.id))) return fail('conflict', tr('sharedChatSafeOps', L), { params: { reason: 'safe_ops' } })
+    return { row: r, shared: true, kind: 'people', project: null, creator, editor: false }
+  }
   if (!isSharedRow(r)) {
     if (r.user_id !== userId) return fail('not_found')
     if (r.deleted_at && (!o.deleted || mode === 'continue')) return fail('not_found')
-    return { row: r, shared: false, project: null, creator: true, editor: false }
+    return { row: r, shared: false, kind: null, project: null, creator: true, editor: false }
   }
   const project = rt.store.projectRow(r.project_id!)
   const me = loadPrincipal(rt.db, userId)
-  if (!project || !me || !projectSeenByAll(rt.db, rt.files, project, [userId])) return fail('not_found')
+  if (!project || !me || !projectSeenByAll(rt.db, rt.files, project, [userId])) {
+    // a shared chat of a project in the trash, to one of its members (who saw the chat before): the same 404, saying why
+    // and which project, so the link's page says it is in the trash (QA TC-1060). Anyone else: the plain 404.
+    if (project && me && !r.deleted_at && memberWhileTrashed(rt.db, rt.files, project, userId)) return fail('not_found', undefined, { params: { reason: 'project_in_trash', projectId: project.id } })
+    // someone taken out of its project (or who left it) opens a shared chat they saw while in it, still there: one plain
+    // reason, the project's name as it was then (QA TC-1067); a deleted chat and everyone else get the one 404 of a
+    // missing chat
+    const gone = project && me && r.shared_at && !r.deleted_at ? noLongerMember(rt.db, project.id, userId) : null
+    if (gone && r.shared_at! <= gone.at) return fail('not_found', tr('projectNoLongerMember', L, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
+    return fail('not_found')
+  }
   const creator = r.user_id === userId
   const editor = mayEditProject(rt.files, me, project)
   if (r.deleted_at && (!o.deleted || mode === 'continue' || !(creator || editor))) return fail('not_found')
   if (mode === 'manage' && !creator && !editor) return fail('forbidden', tr('sharedChatDeleteNo', L), { params: { reason: 'shared_chat_manage' } })
   // while 1A is on every conversation is confidential, and a shared chat never is: read-only until it is off
   if (mode === 'continue' && (safeOpsEnabled() || confidentialChat(rt.db, r.id))) return fail('conflict', tr('sharedChatSafeOps', L), { params: { reason: 'safe_ops' } })
-  return { row: r, shared: true, project, creator, editor }
+  return { row: r, shared: true, kind: 'project', project, creator, editor }
 }
 
 /** Chat.shared for `viewer` (who made it, how many see it, whose question is being answered, whether it is theirs). */
 export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audiences): NonNullable<Chat['shared']> {
-  const project = rt.store.projectRow(r.project_id!)
   const runner = rt.activeTurnUser(r.id)
   const me = loadPrincipal(rt.db, viewer)
+  if (isPeopleRow(r)) {
+    // how many see it: with a group in it, only its creator and admins learn the number (a member would learn a group's
+    // size from it: S8); everyone else gets audienceHidden
+    const creator = r.user_id === viewer
+    const groups = !!rt.db.query("SELECT 1 FROM chat_audience WHERE chat_id = ? AND subject_type = 'group' LIMIT 1").get(r.id)
+    const counts = !groups || creator || (!!me && me.role !== 'member')
+    return {
+      kind: 'people',
+      by: rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id },
+      audience: counts ? aud.ofChat(r).length : 0,
+      ...(counts ? {} : { audienceHidden: true as const }),
+      answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
+      // in the list of everyone in it, unless they hid it from their list
+      mine: creator || !hiddenByMe(rt.db, viewer, r.id),
+      canDelete: creator,
+      // a file from the computer is not taken here yet (chat-scoped storage comes later): team files only
+      canUpload: false,
+    }
+  }
+  const project = rt.store.projectRow(r.project_id!)
   return {
+    kind: 'project',
     by: rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id },
     audience: project ? aud.of(project).length : 0,
     answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
@@ -300,8 +396,8 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
 /**
  * A chat as `viewer` sees it in the API and in chat.updated: a stored connection secret of its creator never shows in
  * the title (QA B-W5-1). A shared chat: the AI's wait and the unseen marker are only for its runner and creator (no
- * marker for anyone else in phase 1), plus Chat.shared. `people`: a project's chat list (chatPeople for its page) adds
- * who wrote in it. Chat.pinnedAt is the viewer's own pin (chat/pins.ts).
+ * marker for anyone else in phase 1), plus Chat.shared. `people`: a chat list (chatPeople) and chat.updated add the
+ * other people who wrote in it (a chat absent from the map: nobody else wrote yet). Chat.pinnedAt is the viewer's own pin (chat/pins.ts).
  */
 export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople> } = {}): Chat {
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide
@@ -332,7 +428,7 @@ const sharedLater = (db: Database, r: Pick<ChatRow, 'id'>): boolean =>
  * that stopped being shared after others wrote in it (the rollback guard; a deleted project's, now its creator's) keeps
  * this view: its creator sees other people's turns as they did while it was shared (no usage, failure reason or step
  * detail of theirs, paths only where the creator may look, an answer hidden from them still hidden). */
-export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at' | 'project_id'>, viewer: string, locale: Locale): MessageView | undefined {
+export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at' | 'project_id' | 'people_shared_at'>, viewer: string, locale: Locale): MessageView | undefined {
   if (!isSharedRow(r) && !severalAuthors(rt.db, r.id)) return undefined
   const me = loadPrincipal(rt.db, viewer)
   const rules = rt.files.rules()
@@ -353,7 +449,7 @@ export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at'
 
 /** A message of the chat as `viewer` sees it (a streaming answer with its live text for its runner). `view`: the
  * request's messageView, when it shows more than one message. */
-export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_at' | 'project_id'>, m: MessageRow, viewer: string, locale: Locale, view = messageView(rt, chat, viewer, locale)) {
+export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_at' | 'project_id' | 'people_shared_at'>, m: MessageRow, viewer: string, locale: Locale, view = messageView(rt, chat, viewer, locale)) {
   const e = m.status === 'streaming' ? rt.execForMessage(m.id) : undefined
   return rt.store.toMessage(m, e ? { content: e.content, steps: e.steps.map((s) => ({ ...s })) } : undefined, view)
 }
@@ -362,13 +458,16 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
   const n = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(p.id) as { n: number }).n
   const a = aud ?? new Audiences(db, files)
-  const shareChats = projectCanShare(p) && p.share_chats === 1
+  // every team project (docs/DECISIONS.md "Team project chats shared by default")
+  const shareChats = projectCanShare(p)
   // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
   return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }
 
 /**
- * Rollback guard (migration 265). This build marks every turn it makes (turns.shared_checked). An older build knows
+ * Rollback guard (migration 265). This build marks every turn it starts (turns.shared_checked: set when it moves a
+ * queued turn to running or ends one without running it; a turn waits in the queue with 0, so a queued turn an older
+ * build ran after a rollback is caught too; turns still queued are passed over). An older build knows
  * nothing about shared chats and runs turns there without the read gate; when this build starts again, a shared chat
  * with a turn after it was shared that this build did not make stops being shared (its creator keeps it as their own
  * chat), and turns still queued there by anyone else are stopped. Returns the chats unshared.
@@ -376,7 +475,7 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
 export function unshareUncheckedChats(db: Database): string[] {
   // every turn of a shared chat came after it was shared: no time filter (a clock set back must not hide one)
   const rows = db.query(`SELECT c.id, c.user_id FROM chats c WHERE c.shared_at IS NOT NULL AND EXISTS (SELECT 1 FROM turns t
-    WHERE t.chat_id = c.id AND t.shared_checked = 0)`).all() as { id: string; user_id: string }[]
+    WHERE t.chat_id = c.id AND t.shared_checked = 0 AND t.status <> 'queued')`).all() as { id: string; user_id: string }[]
   if (!rows.length) return []
   const now = new Date().toISOString()
   db.transaction(() => {
@@ -384,7 +483,7 @@ export function unshareUncheckedChats(db: Database): string[] {
       db.query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(r.id)
       const queued = db.query("SELECT id, message_id FROM turns WHERE chat_id = ? AND status = 'queued' AND user_id <> ?").all(r.id, r.user_id) as { id: string; message_id: string | null }[]
       for (const t of queued) {
-        db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ?").run(now, t.id)
+        db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ?").run(now, t.id)
         if (t.message_id) db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ? AND status = 'streaming'").run(now, t.message_id)
       }
     }
@@ -449,22 +548,25 @@ export function projectSeenByAll(db: Database, files: FileService, p: Pick<Proje
   })
 }
 
-/** A shared chat that exists (not in the trash, not an old room AI session, its project still there) with its
- * project, or null. */
-function sharedChatRow(db: Database, chatId: string): { row: ChatRow; project: Pick<ProjectRow, 'id' | 'folder_path' | 'trashed_with'> } | null {
-  const r = db.query('SELECT id, user_id, project_id, shared_at, deleted_at, room_id FROM chats WHERE id = ?').get(chatId) as (Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'shared_at' | 'deleted_at' | 'room_id'>) | null
+/** A shared chat that exists (not in the trash, not an old room AI session; a shared project chat's project still there)
+ * with its project (null for a chat shared with people and groups), or null. */
+function sharedChatRow(db: Database, chatId: string): { row: ChatRow; project: Pick<ProjectRow, 'id' | 'folder_path' | 'trashed_with'> | null } | null {
+  const r = db.query('SELECT id, user_id, project_id, shared_at, deleted_at, room_id, people_shared_at FROM chats WHERE id = ?').get(chatId) as (Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'shared_at' | 'deleted_at' | 'room_id' | 'people_shared_at'>) | null
   if (!r || r.room_id || r.deleted_at || !isSharedRow(r)) return null
+  if (isPeopleRow(r)) return { row: r as ChatRow, project: null }
   const p = db.query('SELECT id, folder_path, trashed_with FROM projects WHERE id = ?').get(r.project_id!) as Pick<ProjectRow, 'id' | 'folder_path' | 'trashed_with'> | null
   return p ? { row: r as ChatRow, project: p } : null
 }
 
 
-/** A shared chat (not in the trash) that `userId` sees now, or null: a chat of one person, someone else's chat they do
- * not see, a missing one. For the places outside the chat routes that take a chat id (team-file attachments, uploads,
- * thumbnails, artifacts, export). */
+/** A shared chat of either kind (not in the trash) that `userId` sees now, or null: a chat of one person, someone else's
+ * chat they do not see, a missing one. For the places outside the chat routes that take a chat id (team-file
+ * attachments, uploads, thumbnails, artifacts, export). Only some fields of the row are read (sharedChatRow). */
 export function visibleSharedChat(db: Database, files: FileService, userId: string, chatId: string): ChatRow | null {
   const c = sharedChatRow(db, chatId)
-  return c && projectSeenByAll(db, files, c.project, [userId]) ? c.row : null
+  if (!c) return null
+  if (!c.project) return inPeopleAudience(db, c.row, userId) ? c.row : null
+  return projectSeenByAll(db, files, c.project, [userId]) ? c.row : null
 }
 
 /** What an AI gets in place of an answer hidden from the person it works for (chat/shared-answers.ts): that there was

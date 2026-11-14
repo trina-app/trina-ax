@@ -41,6 +41,7 @@ import { IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Lo
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
+import { RoomAppCard, RoomAppRef } from './room-apps'
 
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
@@ -50,7 +51,7 @@ export const ROOM_QUOTE_EXCERPT_MAX = 200
 /** an AI answer in a room is cut here (the rest is said to be cut) */
 export const ROOM_AI_ANSWER_MAX = 60_000
 
-const AI_OWN_NAMES = ['트리나', 'Trina', 'トリナ']
+export const AI_OWN_NAMES = ['트리나', 'Trina', 'トリナ']
 /** The product is named after its AI (the Trina edition): the app calls the AI by its short name there (the web app's
  * rooms.aiName, "트리나"); the core edition calls it by the product's name. */
 export const PRODUCT_NAMED_AFTER_AI = AI_OWN_NAMES.some((n) => PRODUCT.displayName.includes(n))
@@ -66,6 +67,7 @@ const ROOM_MENTION_ALL_WORD = {
   ja: '全員',
   es: 'todos',
   id: 'semua',
+  zh: '所有人',
 } as const
 export const ROOM_MENTION_ALL_WORDS: readonly string[] = Object.values(ROOM_MENTION_ALL_WORD)
 /** Does "@<one of ROOM_MENTION_ALL_WORDS>" stand in the text where a mention may start (the start, a space or an opening
@@ -192,32 +194,32 @@ export function sideQuoteOf(content: string): SideQuote | null {
  * words>", server chat/title.ts), which recognizes them in any language. */
 export const SIDE_CHAT_QUICK = {
   translate: {
-    label: { ko: '번역', en: 'Translate', id: 'Terjemahkan', ja: '翻訳', es: 'Traducir' },
-    ask: { ko: '이 메시지를 한국어로 번역해 줘.', en: 'Translate this message into English.', id: 'Terjemahkan pesan ini ke bahasa Indonesia.', ja: 'このメッセージを日本語に翻訳してください。', es: 'Traduce este mensaje al español.' },
+    label: { ko: '번역', en: 'Translate', id: 'Terjemahkan', ja: '翻訳', es: 'Traducir', zh: '翻译' },
+    ask: { ko: '이 메시지를 한국어로 번역해 줘.', en: 'Translate this message into English.', id: 'Terjemahkan pesan ini ke bahasa Indonesia.', ja: 'このメッセージを日本語に翻訳してください。', es: 'Traduce este mensaje al español.', zh: '把这条消息翻译成中文。' },
   },
   summarize: {
-    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
-    ask: { ko: '이 메시지를 요약해 줘. 스레드가 있으면 스레드도 요약해 줘.', en: 'Summarize this message. If it has a thread, summarize the thread too.', id: 'Ringkas pesan ini. Kalau ada thread, ringkas thread-nya juga.', ja: 'このメッセージを要約してください。スレッドがあればスレッドも要約してください。', es: 'Resume este mensaje. Si tiene un hilo, resume también el hilo.' },
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir', zh: '总结' },
+    ask: { ko: '이 메시지를 요약해 줘. 스레드가 있으면 스레드도 요약해 줘.', en: 'Summarize this message. If it has a thread, summarize the thread too.', id: 'Ringkas pesan ini. Kalau ada thread, ringkas thread-nya juga.', ja: 'このメッセージを要約してください。スレッドがあればスレッドも要約してください。', es: 'Resume este mensaje. Si tiene un hilo, resume también el hilo.', zh: '总结这条消息。如果有话题，也总结一下话题。' },
   },
   explain: {
-    label: { ko: '설명', en: 'Explain', id: 'Jelaskan', ja: '説明', es: 'Explicar' },
-    ask: { ko: '이 메시지를 쉬운 말로 설명해 줘.', en: 'Explain this message in plain words.', id: 'Jelaskan pesan ini dengan kata-kata sederhana.', ja: 'このメッセージをわかりやすく説明してください。', es: 'Explica este mensaje con palabras sencillas.' },
+    label: { ko: '설명', en: 'Explain', id: 'Jelaskan', ja: '説明', es: 'Explicar', zh: '解释' },
+    ask: { ko: '이 메시지를 쉬운 말로 설명해 줘.', en: 'Explain this message in plain words.', id: 'Jelaskan pesan ini dengan kata-kata sederhana.', ja: 'このメッセージをわかりやすく説明してください。', es: 'Explica este mensaje con palabras sencillas.', zh: '用简单的话解释这条消息。' },
   },
   fileSummarize: {
-    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
-    ask: { ko: '이 파일을 요약해 줘.', en: 'Summarize this file.', id: 'Ringkas file ini.', ja: 'このファイルを要約してください。', es: 'Resume este archivo.' },
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir', zh: '总结' },
+    ask: { ko: '이 파일을 요약해 줘.', en: 'Summarize this file.', id: 'Ringkas file ini.', ja: 'このファイルを要約してください。', es: 'Resume este archivo.', zh: '总结这个文件。' },
   },
   fileKeyPoints: {
-    label: { ko: '핵심 정리', en: 'Key points', id: 'Poin penting', ja: '要点', es: 'Puntos clave' },
-    ask: { ko: '이 파일의 핵심(결정, 숫자, 날짜, 해야 할 일)을 정리해 줘.', en: 'List the key points of this file: decisions, numbers, dates and what someone must do.', id: 'Tulis poin penting file ini: keputusan, angka, tanggal, dan yang harus dikerjakan.', ja: 'このファイルの要点（決定事項、数字、日付、やること）をまとめてください。', es: 'Enumera los puntos clave de este archivo: decisiones, cifras, fechas y tareas.' },
+    label: { ko: '핵심 정리', en: 'Key points', id: 'Poin penting', ja: '要点', es: 'Puntos clave', zh: '要点' },
+    ask: { ko: '이 파일의 핵심(결정, 숫자, 날짜, 해야 할 일)을 정리해 줘.', en: 'List the key points of this file: decisions, numbers, dates and what someone must do.', id: 'Tulis poin penting file ini: keputusan, angka, tanggal, dan yang harus dikerjakan.', ja: 'このファイルの要点（決定事項、数字、日付、やること）をまとめてください。', es: 'Enumera los puntos clave de este archivo: decisiones, cifras, fechas y tareas.', zh: '列出这个文件的要点：决定、数字、日期，以及谁需要做什么。' },
   },
   fileCheck: {
-    label: { ko: '검토', en: 'Check it', id: 'Periksa', ja: 'チェック', es: 'Revisar' },
-    ask: { ko: '이 파일에서 틀린 곳, 빠진 곳, 이상한 곳을 검토해 줘.', en: 'Check this file for mistakes, gaps and anything that looks wrong.', id: 'Periksa file ini: kesalahan, bagian yang kurang, dan yang terlihat janggal.', ja: 'このファイルの誤り、抜け、おかしな点を確認してください。', es: 'Revisa este archivo en busca de errores, huecos y cosas que parezcan incorrectas.' },
+    label: { ko: '검토', en: 'Check it', id: 'Periksa', ja: 'チェック', es: 'Revisar', zh: '检查' },
+    ask: { ko: '이 파일에서 틀린 곳, 빠진 곳, 이상한 곳을 검토해 줘.', en: 'Check this file for mistakes, gaps and anything that looks wrong.', id: 'Periksa file ini: kesalahan, bagian yang kurang, dan yang terlihat janggal.', ja: 'このファイルの誤り、抜け、おかしな点を確認してください。', es: 'Revisa este archivo en busca de errores, huecos y cosas que parezcan incorrectas.', zh: '检查这个文件里的错误、遗漏和看起来不对的地方。' },
   },
   fileSave: {
-    label: { ko: '팀 폴더에 저장', en: 'Save to a team folder', id: 'Simpan ke folder tim', ja: 'チームフォルダに保存', es: 'Guardar en una carpeta del equipo' },
-    ask: { ko: '이 파일을 팀 폴더에 저장해 줘.', en: 'Save this file to a team folder.', id: 'Simpan file ini ke folder tim.', ja: 'このファイルをチームフォルダに保存してください。', es: 'Guarda este archivo en una carpeta del equipo.' },
+    label: { ko: '팀 폴더에 저장', en: 'Save to a team folder', id: 'Simpan ke folder tim', ja: 'チームフォルダに保存', es: 'Guardar en una carpeta del equipo', zh: '保存到团队文件夹' },
+    ask: { ko: '이 파일을 팀 폴더에 저장해 줘.', en: 'Save this file to a team folder.', id: 'Simpan file ini ke folder tim.', ja: 'このファイルをチームフォルダに保存してください。', es: 'Guarda este archivo en una carpeta del equipo.', zh: '把这个文件保存到团队文件夹。' },
   },
 } as const satisfies Record<string, { label: Record<Locale, string>; ask: Record<Locale, string> }>
 export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
@@ -225,8 +227,8 @@ export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
  * message's thread, or to the room. One source for the app and for the AI's side panel instructions (server
  * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
 export const SIDE_CHAT_SEND = {
-  thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo' },
-  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala' },
+  thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo', zh: '发送到话题' },
+  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala', zh: '发送到群聊' },
 } as const satisfies Record<string, Record<Locale, string>>
 /** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
  * save_room_file, whose card says where and who will see it) */
@@ -381,6 +383,12 @@ export const RoomMessage = z.object({
    * (author) and when stay. Nothing can be done on it (react, reply in its thread, quote: refused like a message I do
    * not see) */
   withheld: z.literal(true).optional(),
+  /** a message an app posted (docs/DECISIONS.md "Apps posting in rooms"): author is null, authorKind 'user'; shown as
+   * the app's name with an "App" tag, never as a person. `body` is the card's plain text with Markdown marks escaped
+   * (older apps show it as text) */
+  app: RoomAppRef.optional(),
+  /** the app's card (plain text fields, one checked link): show it as text, never as Markdown or HTML */
+  appCard: RoomAppCard.optional(),
   /** my own message: the id my app made when it sent it (SendRoomMessageBody.clientMessageId), so a send whose answer
    * was lost is matched to its message when that comes another way (the live event, a replay, a page read again).
    * Only ever on the viewer's own messages */
@@ -430,6 +438,8 @@ export const RoomLastMessage = z.object({
   fileCount: z.number().int().nonnegative(),
   deleted: z.boolean(),
   createdAt: IsoTime,
+  /** a message an app posted (author null): the app, shown as its name with the "App" tag */
+  app: RoomAppRef.optional(),
 })
 export type RoomLastMessage = z.infer<typeof RoomLastMessage>
 
@@ -482,6 +492,9 @@ export const Room = z.object({
   /** the list folder I keep it in (PUT /api/rooms/:id/folder; docs/DECISIONS.md "List folders"). Mine only: each
    * member's copy of the room carries theirs. Not while hidden (it comes back with the room). Absent = in no folder. */
   folderId: Uuid7.optional(),
+  /** a DM whose other person was deleted from the team: it stays readable but nobody can write in it any more. Absent
+   * = they are still here (older servers never send it). */
+  gone: z.literal(true).optional(),
 })
 export type Room = z.infer<typeof Room>
 
@@ -554,6 +567,8 @@ export const RoomSearchHit = z.object({
   markdown: z.boolean(),
   snippet: z.string(),
   createdAt: IsoTime,
+  /** a message an app posted (author null): the app, shown as its name with the "App" tag; snippet is plain text */
+  app: RoomAppRef.optional(),
 })
 export type RoomSearchHit = z.infer<typeof RoomSearchHit>
 /** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */
@@ -616,7 +631,9 @@ export type RoomThreadReadState = z.infer<typeof RoomThreadReadState>
 export const ReactRoomMessageBody = z.object({ emoji: RoomReactionEmoji, on: z.boolean() }).strict()
 export const RoomReactions = z.object({ reactions: z.array(RoomReaction) })
 export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).optional(), size: z.string().regex(/^\d+$/).transform(Number).optional() })
-export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
+/** `k` with `thumb`: this sign-in's media key (Me.session.mediaKey): the thumbnail may be kept by this browser
+ * (server/src/auth/media-key.ts) */
+export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional(), k: z.string().max(64).optional() })
 /** "팀 파일" in a room's message box (a phone's attach sheet): a team file I may read now, copied as my upload in the
  * room, sent by id like one from POST /api/rooms/:id/files */
 export const RoomTeamFileBody = z.object({ path: RelPath }).strict()

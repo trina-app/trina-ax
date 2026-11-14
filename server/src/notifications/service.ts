@@ -18,12 +18,16 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { contributionOf } from '../skills/suggestions'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
+import { roomAppNoticeOut } from '../rooms/apps/notice'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
 import { activityTabHas, AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 import { serviceRequestOut } from '../integrations/service-request-notices'
+import { inPeopleAudience, isPeopleRow } from '../chat/chat-audience'
+import { redactorFor } from '../integrations/connections/redact'
+import { datedSql } from '../auth/deletion-requests'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -59,7 +63,7 @@ export type ServiceRequestEvent = Extract<NotificationEventType, 'service.reques
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -69,9 +73,10 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
- * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120)
+ * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), and an
+ * app in a room that paused for the day (migration 299)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'chat_answer_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'chat_answer_notices', 'chat_share_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -200,6 +205,21 @@ export class Notifications {
   projectJoined(userId: string, auditId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'project.joined', auditId, createdAt, true)
   }
+  /** Someone shared a chat with this person (chat/people-share.ts): by name (`named`) or through a group. The source is
+   * the chat.audience audit row's id; the chat and who shared it are kept to name them when the notice is read (only
+   * while the reader still sees the chat). At most one a day per chat and person (re-adds make no second notice). Shown
+   * always. A share by name is also pushed to the person's devices (push-service.ts, notifications/chat-shares.ts) while
+   * their "Chats shared with me" is on; a group's people get the Inbox row alone. The same day's unread row from a group
+   * share becomes a share by name (and its sharer the one who named them) when someone then adds the person by name:
+   * still one notice, now pushed. */
+  chatShared(userId: string, auditId: string, chatId: string, byUser: string, named: boolean, at = new Date().toISOString()) {
+    if (!this.active(userId) || at < this.cutoff()) return
+    const r = this.ctx.db.query(`INSERT INTO chat_share_notices(id,user_id,event_type,source_id,chat_id,by_user,named,day,created_at,suppressed)
+      VALUES(?,?,'chat.shared',?,?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, auditId, chatId, byUser, named ? 1 : 0, at.slice(0, 10), at)
+    if (r.changes) { this.signal(userId); return }
+    if (named) this.ctx.db.query(`UPDATE chat_share_notices SET named=1, by_user=? WHERE user_id=? AND chat_id=? AND day=? AND named=0 AND read_at IS NULL AND suppressed=0`)
+      .run(byUser, userId, chatId, at.slice(0, 10))
+  }
   /** A member asked to add an app the team has not set up (integrations/service-requests.ts): one notice per owner or
    * admin and app (the source is the app's id). A new ask arms it again (unread, its time now: it moves up and names
    * the newest asker) instead of adding a second row, so many asks are one notice. Shown always: there is no setting
@@ -266,6 +286,20 @@ export class Notifications {
     const again = this.ctx.db.query("UPDATE account_deletion_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, requesterId)
     if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'account.deletion_request', requesterId, createdAt, true)
+  }
+  /** The person's own request got its automatic date (auth/deletion-requests.ts deleteDueAccounts: a request open when
+   * this build first ran, or re-opened by an older build). One row per person, re-armed if it was read. Shown always: the
+   * account goes on that date. The date is read from the request when the inbox is shown. */
+  deletionDue(userId: string, createdAt = new Date().toISOString()) {
+    const again = this.ctx.db.query("UPDATE account_deletion_due_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_due' AND source_id=?").run(createdAt, userId, userId)
+    if (again.changes) { if (this.active(userId)) this.signal(userId); return }
+    this.record(userId, 'account.deletion_due', userId, createdAt, true)
+  }
+  /** An app in a room this person manages (or added) reached the day's cap and paused (rooms/apps/service.ts). The source
+   * is "<app id>.<team day>": one notice per app, person and day. Shown always: there is no setting for it, and the
+   * room's messages from that app stop until midnight or "Resume now". */
+  roomAppPaused(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'room_app.paused', sourceId, createdAt, true)
   }
   /** A role changed: what an owner or admin no longer handles leaves their inbox. A person who became a member is no
    * longer told of anyone's request; a member who became an admin is now the owner's business only, so the admins'
@@ -553,6 +587,18 @@ export class Notifications {
       const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(notReady ? row.source_id.slice(NOT_READY_SOURCE.length) : row.source_id) as { name: string } | null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}), ...(notReady ? { notReady: true as const } : {}) }
     }
+    // a chat shared with me: who shared it, and the chat while I still see it (chatFor's rule for a people-shared chat);
+    // else "no longer shared with you", no title and no link
+    if (row.event_type === 'chat.shared') {
+      const n = this.ctx.db.query('SELECT chat_id, by_user FROM chat_share_notices WHERE id = ?').get(row.id) as { chat_id: string; by_user: string | null } | null
+      // the sharer while their account is there and switched on (the same rule as the push label, chat-shares.ts sharerName)
+      const u = n?.by_user ? this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(n.by_user) as { name: string } | null : null
+      const c = n ? this.ctx.db.query('SELECT id, user_id, title, project_id, people_shared_at, deleted_at, room_id FROM chats WHERE id = ?').get(n.chat_id) as { id: string; user_id: string; title: string; project_id: string | null; people_shared_at: string | null; deleted_at: string | null; room_id: string | null } | null : null
+      const sees = !!c && !c.deleted_at && !c.room_id && isPeopleRow(c) && inPeopleAudience(this.ctx.db, c, row.user_id)
+      const title = sees ? plainLabel(redactorFor(this.ctx, c!.user_id).hide(c!.title || '')) : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: sees ? c!.id : null, link: sees ? 'chat' : null, outcome: null,
+        chatShared: { name: u?.name ?? null, title: title || null, ...(sees ? {} : { gone: true as const }) } }
+    }
     // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
     if (row.event_type === 'project.joined') {
       const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null
@@ -575,10 +621,16 @@ export class Notifications {
     // waits, the link opens that person in Admin › Members, where the account is deleted
     if (row.event_type === 'account.deletion_request') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
-      const q = this.ctx.db.query('SELECT cancelled_at, handled_at FROM account_deletion_requests WHERE user_id=?').get(row.source_id) as { cancelled_at: string | null; handled_at: string | null } | null
+      const q = this.ctx.db.query(`SELECT cancelled_at, handled_at, CASE WHEN ${datedSql()} THEN due_at END AS due_at FROM account_deletion_requests WHERE user_id=?`).get(row.source_id) as { cancelled_at: string | null; handled_at: string | null; due_at: string | null } | null
       const state = !q ? null : q.handled_at || !u ? 'handled' as const : q.cancelled_at ? 'cancelled' as const : 'open' as const
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: state === 'open' ? 'admin_members' : null, outcome: null,
-        ...(state ? { deletionRequest: { name: u?.name ?? null, state } } : {}) }
+        ...(state ? { deletionRequest: { name: u?.name ?? null, state, dueAt: state === 'open' ? q!.due_at : null } } : {}) }
+    }
+    // my own account's deletion date (while the request is open; the link opens the page where I can cancel it)
+    if (row.event_type === 'account.deletion_due') {
+      const q = this.ctx.db.query(`SELECT due_at FROM account_deletion_requests WHERE user_id=? AND cancelled_at IS NULL AND handled_at IS NULL AND ${datedSql()}`).get(row.user_id) as { due_at: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: q ? 'account_deletion' : null, outcome: null,
+        deletionDue: { dueAt: q?.due_at ?? null } }
     }
     // who ran which skill first (a name while the account is there) and the count then; no link
     if (row.event_type === 'onboarding.first_run') {
@@ -598,6 +650,12 @@ export class Notifications {
     // a reset link made for me: by the server or by whom (a name while the account is there), and whether it still works
     // (unused, not replaced, not expired: read now, so the advice to change the password goes once it no longer helps)
     // the hosting service's copy of the team's key or data, or the team address moved away: the words say it all, no link
+    // an app that paused in a room: what it is now, read when the notice is read (rooms/apps/notice.ts)
+    if (row.event_type === 'room_app.paused') {
+      const roomApp = roomAppNoticeOut(this.ctx, row.user_id, row.source_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: roomApp?.roomId ? 'room' : null, outcome: null,
+        ...(roomApp ? { roomApp } : {}) }
+    }
     if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
       const r = this.ctx.db.query('SELECT created_by, expires_at, used_at FROM password_resets WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { created_by: string | null; expires_at: string; used_at: string | null } | null

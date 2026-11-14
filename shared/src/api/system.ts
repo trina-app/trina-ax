@@ -65,6 +65,9 @@ export const UpdateStatus = z.object({
   /** false: this server has no release feed (update.feedUrl null) or no release key, so it never looks for new
    * versions online; a new version comes from re-running the installer. Absent from older servers. */
   feed: z.boolean().optional(),
+  /** the last look at the release feed failed (offline, bad answer): the page says so instead of "latest version".
+   * Absent from older servers and while the last look worked. */
+  checkFailed: z.boolean().optional(),
   /** the available version also changes root-owned parts (Linux: launcher, sandbox helper, units): the server does
    * not apply it; `sudo mycel-ctl update` (or the update timer / the hosted cloud) does. Absent from older servers. */
   needsRoot: z.boolean().optional(),
@@ -81,13 +84,22 @@ export const UpdateStatus = z.object({
   nextWindow: z.object({ at: IsoTime, day: z.enum(['now', 'today', 'tomorrow']) }).nullable().optional(),
   /** why the available release will not install by itself even in the window: paused = the publisher paused its
    * roll-out (a bad release; scripts/release/hold.ts); rollout = not this server's turn yet;
-   * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed. null/absent:
-   * nothing holds it. Absent from older servers. */
-  hold: z.enum(['paused', 'rollout', 'failed', 'root_failed']).nullable().optional(),
+   * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed;
+   * cannot_read = it cannot open this server's data (a newer build, a dev build say, already updated the database to a
+   * higher reader level): it waits for a newer release and is not offered. null/absent: nothing holds it. Absent from
+   * older servers. */
+  hold: z.enum(['paused', 'rollout', 'failed', 'root_failed', 'cannot_read']).nullable().optional(),
   /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
    * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
    * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */
   turnAt: IsoTime.nullable().optional(),
+  /** running tasks now (answers, scheduled runs and the commands in them): an update waits for them before it restarts
+   * the server (at most 30 minutes; "Update now anyway" does not). Absent from older servers. */
+  running: z.number().int().nonnegative().optional(),
+  /** an update waits for running tasks before the server restarts (this server's own run, or root's `mycel-ctl update`):
+   * since when and until when at most it waits; skippable: this server's own update, still waiting, which "Update now
+   * anyway" (startUpdate force) can end. null/absent: none. Absent from older servers. */
+  waiting: z.object({ since: IsoTime, until: IsoTime, skippable: z.boolean().optional() }).nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 /** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin
@@ -105,6 +117,9 @@ export const StartUpdateBody = ReauthBody.extend({
   /** default: the available version; 'rollback' = switch back to the previous version */
   version: z.string().max(50).optional(),
   rollback: z.boolean().optional(),
+  /** "Update now anyway": do not wait for running tasks (they stop and say so, with Try again). Default: wait for them,
+   * at most 30 minutes */
+  force: z.boolean().optional(),
 })
 
 export const BackupInfo = z.object({

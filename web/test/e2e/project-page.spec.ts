@@ -31,11 +31,20 @@ test('the box on a project page starts a chat in the project, which is then list
   const id = await newProject(page)
   await page.goto(`/projects/${id}`)
   await expect(page.getByRole('heading', { level: 1, name: 'Launch' })).toBeVisible()
-  // the instructions as one quiet line under the name, without their markdown
-  await expect(page.getByTestId('project-summary')).toHaveText('Answer in short bullet points.')
-  await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 없어요. 여기서 물어보면 이 프로젝트에 모여요.')
+  // the instructions show once, in Instructions; no copy of them under the name (QA TC-980)
+  await expect(page.getByTestId('project-summary')).toHaveCount(0)
+  await expect(page.getByText('Answer in short bullet points.')).toHaveCount(0)
+  await page.getByTestId('project-instructions-toggle').click()
+  await expect(page.getByText('Answer in short bullet points.')).toHaveCount(1)
+  await page.getByTestId('project-instructions-toggle').click()
+  await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 채팅이 없어요. 여기서 물어보면 멤버 모두가 봐요.')
   // a new project: my chats outside projects can come in from here
   await expect(page.getByTestId('project-import')).toBeVisible()
+  // in a team project, what comes in stays mine until I share it (QA TC-960)
+  await page.getByTestId('project-import').click()
+  await expect(page.getByTestId('project-import-private')).toHaveText("가져온 채팅은 나만 봐요. 멤버에게 보여 주려면 채팅 메뉴의 '공유…'를 쓰세요.")
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   // the draft is the project's: the same one as "/?project=<id>"
   await page.getByTestId('composer-input').fill('half a question')
   await page.goto(`/?project=${id}`)
@@ -89,7 +98,7 @@ test('instructions and files open in place; edit and delete are in the menu on t
   await expect(menu).toBeFocused()
   // a click outside closes it too
   await menu.click()
-  await page.getByTestId('project-summary').click()
+  await page.getByRole('heading', { level: 1, name: 'Launch' }).first().click()
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   await menu.click()
@@ -137,7 +146,7 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
-test('at phone width the page fits: the box first, then the lines, then the chats', async ({ page }) => {
+test('at phone width the page fits: the box first, then the chats, then the lines, empty ones one line each (QA TC-1072)', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   // a server with the dev environment on: still no line for it here
@@ -150,8 +159,17 @@ test('at phone width the page fits: the box first, then the lines, then the chat
   await expect(page.getByTestId('dev-env')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   const top = async (testId: string) => (await page.getByTestId(testId).boundingBox())!.y
-  expect(await top('composer-input')).toBeLessThan(await top('project-instructions'))
-  expect(await top('project-files')).toBeLessThan(await top('project-chats'))
+  expect(await top('composer-input')).toBeLessThan(await top('project-chats'))
+  expect(await top('project-chats')).toBeLessThan(await top('project-instructions'))
+  expect(await top('project-instructions')).toBeLessThan(await top('project-files'))
+  // each is one line
+  for (const id of ['project-instructions', 'project-files']) expect((await page.getByTestId(id).boundingBox())!.height).toBeLessThan(60)
+  // no instructions either: one line too, with 지침 쓰기 on it
+  expect((await page.request.patch(`/api/projects/${id}`, { headers: { [CSRF_HEADER]: '1' }, data: { instructions: '' } })).ok()).toBeTruthy()
+  await page.reload()
+  await expect(page.getByTestId('project-instructions-write')).toBeVisible()
+  expect((await page.getByTestId('project-instructions').boundingBox())!.height).toBeLessThan(60)
+  expect(await top('project-chats')).toBeLessThan(await top('project-instructions'))
   await audit(page, 'project (phone)')
 })
 
@@ -167,6 +185,8 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await page.goto('/projects')
     const phone = vp.size.width < 768
     const item = page.getByTestId(phone ? 'projects-panel-row' : 'project-card').filter({ hasText: 'Falcon' })
+    // a phone's list: under 다른 팀 프로젝트, folded at first (QA TC-1071)
+    if (phone) await page.getByTestId('projects-other').getByTestId('panel-section-fold').click()
     await expect(item).toBeVisible()
     await expect(item).not.toContainText('멤버가 아니')
     await (phone ? item : item.getByRole('link')).click()
@@ -175,7 +195,8 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')
     for (const testId of ['composer-input', 'project-instructions', 'project-files', 'project-summary']) await expect(page.getByTestId(testId)).toHaveCount(0)
     await expect(page.getByTestId('project-members')).toContainText('1명')
-    await expect(page.getByTestId('project-chats')).toContainText('My old notes')
+    // nobody can ask here: no Trina history with "Ask here" (QA TC-1066); her own chats stay in her lists
+    await expect(page.getByTestId('project-chats')).toHaveCount(0)
     await expect(page.getByText('plan.md')).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await audit(page, `not a member (${vp.name})`)
@@ -190,7 +211,10 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     // a member's page now: the box, the instructions, the files
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(block).toHaveCount(0)
-    await expect(page.getByTestId('project-summary')).toHaveText('Contracts only.')
+    // the instructions once, in Instructions, and no copy of them under the name (QA TC-980)
+    await expect(page.getByTestId('project-summary')).toHaveCount(0)
+    await page.getByTestId('project-instructions-toggle').click()
+    await expect(page.getByText('Contracts only.')).toHaveCount(1)
     if (vp.size.width < 768) {
       // a phone: the files row opens the project's files on a screen of its own (QA TC-254), Back comes here
       await page.getByTestId('project-files-open').click()
@@ -209,6 +233,7 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await page.getByTestId('project-members-manage').click()
     await page.getByTestId('participant-remove-user-olga').click()
     await page.getByTestId('project-members-save').click()
+    await page.getByTestId('dialog-confirm').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(block).toBeVisible()
     await expect(page.getByTestId('composer-input')).toHaveCount(0)
@@ -223,11 +248,12 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   const { id } = (await made.json()) as { id: string }
   await page.goto(`/projects/${id}`)
   await page.getByTestId('project-menu').click()
-  await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '삭제'])
+  // the item says what it does, as its confirm asks (QA TC-1064)
+  await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '휴지통으로 옮기기'])
   await page.getByTestId('project-delete').click()
   await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 휴지통으로 옮길까요?")
   // only what happens: no "its files and chats go with it" (her own chats there stay hers)
-  await expect(page.getByRole('dialog')).toContainText('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+  await expect(page.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await page.getByTestId('dialog-confirm').click()
   // still here, in the trash; the note has Restore and Delete for good, and there is no name menu beside them
   await expect(page.getByTestId('project-in-trash')).toContainText('이 프로젝트는 휴지통에 있어요.')
@@ -256,6 +282,8 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   // a chat that is not there: the owner's extra line (the same for every missing chat)
   await page.goto('/c/01900000-0000-7000-8000-00000000dead')
   await expect(page.getByTestId('chat-not-found')).toBeVisible()
+  // one text for every chat that cannot be opened (QA TC-948), then the owner's and admins' line
+  await expect(page.getByTestId('chat-not-found-why')).toBeVisible()
   await expect(page.getByTestId('chat-not-found-manage')).toHaveText('내가 멤버가 아닌 프로젝트의 채팅이면 프로젝트에서 열고 나를 멤버로 추가할 수 있어요.')
   // "프로젝트" is the way there (a phone has no back button on this page)
   await page.getByTestId('chat-not-found-projects').click()

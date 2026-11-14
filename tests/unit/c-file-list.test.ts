@@ -13,7 +13,7 @@ import { FakeReader } from '../lib/file-list-fake'
 import { addCred, testCredCtx } from '../lib/credentials'
 import { fileListOf, type FileList } from '../../server/src/file-list/service'
 import { HEADER } from '../../server/src/file-list/view'
-import { ReaderLimit } from '../../server/src/file-list/reader'
+import { ReaderLimit, ReaderUnavailable } from '../../server/src/file-list/reader'
 import { EngineReader } from '../../server/src/file-list/engine-reader'
 import { Units } from '../../server/src/file-list/units'
 import { RuleSet } from '../../server/src/policy/access'
@@ -84,7 +84,7 @@ describe('a first run', () => {
   })
 
   test('every call held files of one access unit only', () => {
-    const units = new Units(RuleSet.load(A.ctx.db).ruleFolders())
+    const units = new Units(RuleSet.load(A.ctx.db).boundaryFolders())
     expect(reader.calls.length).toBeGreaterThan(3)
     for (const c of reader.calls) expect(new Set(c.files.map((f) => units.chain(f.path.split('/')))).size).toBe(1)
   })
@@ -167,7 +167,7 @@ describe('access and moves, at once and without reading', () => {
   test('an admin narrows a folder: its lines leave every list at once; read again in their new unit at the next run', async () => {
     reader.calls = []
     expect(named(await readList('bob', 'shared/_FILES.md')).some((p) => p.startsWith('shared/policies/'))).toBe(true)
-    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', rules: [{ subjectType: 'user', subjectId: 'alice', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', limited: true, rules: [{ subjectType: 'user', subjectId: 'alice', access: 'read' }] }) })
     expect({ status: r.status, body: r.body }).toMatchObject({ status: 201 })
     // at once, without reading: gone from the wide list for everyone, and not yet shown in the narrow one (their fields
     // came from a call that held the wide unit's files)
@@ -279,6 +279,17 @@ describe('limits, the cap and the switch', () => {
     reader.fail = null
     expect(await run()).toBe('done')
     expect(fl.status().waiting).toBe(0)
+    expect(fl.status().problem).toBeNull()
+  })
+
+  test('a failing engine: the status says the last run did not finish, until a run goes through', async () => {
+    write('shared/broken-1.md', '# broken one\n')
+    reader.fail = new ReaderUnavailable('engine exited with code 1')
+    expect(await run()).toBe('failed')
+    expect(fl.status().problem).toBe('failed')
+    expect(fl.status().lastRun?.stoppedBy).toBe('failed')
+    reader.fail = null
+    expect(await run()).toBe('done')
     expect(fl.status().problem).toBeNull()
   })
 

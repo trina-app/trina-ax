@@ -2,18 +2,25 @@
 // member picker of the project create, share and members dialogs, and the count line under it. People come from the
 // people directory (/api/people, every member may read it: a name and a title); groups ("부서" in Korean copy) are a
 // member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator always sees the project.
+// Each row shows who it is the way the people list does (docs/DECISIONS.md "The member picker shows faces"): a person's
+// picture and title (the directory's, which every member reads), a group's mark and, only for admins (who read every
+// group's members in Admin › Groups), how many active people it holds and up to 3 of their faces; a member's own groups
+// say "내 부서" instead, since members do not read who is in a group.
 // The count is the server's (POST /api/projects/access-preview), so it matches who really sees it: its members ("멤버
 // 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
 // for the owner and admins by role any more).
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Search, User, Users, X } from 'lucide-react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, Search, Users, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { Group, ProjectAccessPreview, ProjectParticipant, SubjectType } from '@mycel/shared/api'
+import type { Group, ProjectAccessPreview, ProjectParticipant, ProjectPerson, SubjectType } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
 import { IconButton } from './ui'
+import { Avatar, type AvatarUser } from './Avatar'
+import { FaceStack } from './FaceStack'
+import { ListRow } from './list/List'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
 export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly ProjectParticipant[]) => {
@@ -21,8 +28,16 @@ export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly P
   return ka.size === new Set(b.map(participantKey)).size && b.every((x) => ka.has(participantKey(x)))
 }
 
-/** A person or group the picker can show: its name, and for a person the directory's title (two people of one name). */
-export interface ParticipantOption extends ProjectParticipant { name: string; title?: string }
+/** A person or group the picker can show: its name, and for a person the directory's title (two people of one name) and
+ * photo version. A group: `members`, its active people, only for an admin (who reads them in Admin › Groups); `mine`, I
+ * am in it. */
+export interface ParticipantOption extends ProjectParticipant {
+  name: string
+  title?: string
+  avatarVersion?: number
+  members?: readonly AvatarUser[]
+  mine?: boolean
+}
 
 const NO_EXTRA: readonly ParticipantOption[] = []
 /** What the picker offers: groups (a member's own; every group for admins), then the active people, both by name. */
@@ -38,9 +53,15 @@ export function useParticipantOptions(extra: readonly ParticipantOption[] = NO_E
     return () => { live = false }
   }, [admin])
   return useMemo(() => {
-    const groups = (admin ? allGroups ?? [] : me?.groups ?? []).map((g) => ({ subjectType: 'group' as const, subjectId: g.id, name: g.name }))
-    const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.title ? { title: p.title } : {}) }))
+    const mine = new Set((me?.groups ?? []).map((g) => g.id))
+    const byId = new Map((people ?? []).map((p) => [p.id, p]))
+    const groups: ParticipantOption[] = admin
+      // an admin: who is in it, the active people only (the directory's, once read: no "0 people" before it), by name
+      ? (allGroups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: mine.has(g.id), ...(people ? { members: g.memberIds.flatMap((id) => byId.get(id) ?? []).sort(byName) } : {}) }))
+      : (me?.groups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: true }))
+    const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.title ? { title: p.title } : {}), ...(p.avatarVersion ? { avatarVersion: p.avatarVersion } : {}) }))
     const out = new Map<string, ParticipantOption>()
+    // a person named only by `extra` (a member switched off, not in the directory) keeps the letter
     for (const x of [...groups.sort(byName), ...persons.sort(byName), ...extra]) if (!out.has(participantKey(x))) out.set(participantKey(x), x)
     return [...out.values()]
   }, [admin, allGroups, me, people, extra])
@@ -66,10 +87,12 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * person or group with a rule set in Admin › Folder permissions; the tag says why), then the groups and people chosen,
  * each with × to take them out. With `current` (the members saved now: the members dialog) a row added since is marked
  * 새로 and a row taken out stays, struck through, with 되돌리기 until the save. Focusing the search lists everyone who
- * can be added, typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
+ * can be added (and the ones already in, marked 추가됨), typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
  * Esc, or focus leaves the picker (the search is cleared then). After × or 되돌리기 the keyboard stays on the row.
+ * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
+ * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, readOnly = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -77,10 +100,26 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   fixed?: ReadonlyMap<string, string>
   /** the members as saved now: rows show what the save changes */
   current?: readonly ProjectParticipant[]
+  /** group id → the people in the project it holds */
+  groupPeople?: ReadonlyMap<string, readonly ProjectPerson[]>
+  /** key → words at the end of the row's second line */
+  notes?: ReadonlyMap<string, string>
+  /** the search's words ("Add by name or group" by default; a chat's Share dialog: "Add people and groups") */
+  placeholder?: string
+  /** keys never offered in the results (a chat's Share dialog: me, who is always in it) */
+  exclude?: ReadonlySet<string>
+  /** key → a short tag a phone shows instead of the row's whole tag (a chat's Share dialog: "You" for "You · Started
+   * this chat") */
+  phoneTags?: ReadonlyMap<string, string>
+  /** who is in it, without the search and without × (someone else's shared chat) */
+  readOnly?: boolean
   testId?: string
 }) {
   const t = useT()
   const [q, setQ] = useState('')
+  // the group rows opened to show their people
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
+  const toggle = (id: string) => setOpened((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -99,7 +138,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   const byKey = useMemo(() => new Map(options.map((x) => [participantKey(x), x])), [options])
   const picked = new Set(value.map(participantKey))
   const before = current ? new Set(current.map(participantKey)) : null
-  const searching = open
+  const searching = open && !readOnly
 
   // fixed ones in their order, then the chosen and the ones taken out before saving: groups, then people, by name
   const rows: ParticipantOption[] = []
@@ -112,10 +151,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   rows.sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? 0 : a.subjectType === b.subjectType ? byName(a, b) : a.subjectType === 'group' ? -1 : 1))
 
   const needle = fold(q)
-  const results = options.filter((x) => {
-    const k = participantKey(x)
-    return !picked.has(k) && !fixed.has(k) && (!needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle))
-  })
+  const results = options.filter((x) => !exclude?.has(participantKey(x)) && (!needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle)))
+  const isIn = (x: ParticipantOption) => picked.has(participantKey(x)) || fixed.has(participantKey(x))
 
   const add = (x: ParticipantOption) => {
     onChange([...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
@@ -133,7 +170,28 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
     onChange([...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
     setFocusTo(`participant-remove-${x.subjectType}-${x.subjectId}`)
   }
-  const sub = (x: ParticipantOption) => [x.subjectType === 'group' ? t('projects.groupTag') : x.title, fixed.get(participantKey(x))].filter(Boolean).join(' · ')
+  const meId = useMe()?.user.id
+  /** a person's short tags: 나 for me (one word, projects.youTag, everywhere: QA TC-1084) and the fixed tag (나, 만든 사람) */
+  const tags = (x: ParticipantOption) => {
+    const tag = fixed.get(participantKey(x))
+    const you = x.subjectType === 'user' && x.subjectId === meId && tag !== t('projects.youTag') && t('projects.youTag')
+    return [you, tag].filter(Boolean).join(' · ')
+  }
+  /** the words after the name: a person's title, a group's kind (with how many people when that may be read; `n`: how
+   * many of them are in the project, the members dialog's), then the tags unless the row shows them on its own
+   * (`inline`: the members list, which puts the tags at the row's right; `withNote`: false where the row draws the note
+   * itself, noteOf) */
+  const sub = (x: ParticipantOption, n?: number, inline = false, withNote = true) => {
+    const count = n ?? x.members?.length
+    const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
+    return [kind, !inline && tags(x), withNote && notes?.get(participantKey(x))].filter(Boolean).join(' · ')
+  }
+
+  /** a group's "except Kim" in the list: after the second line on desktop, on its own wrapped line on a phone (never cut) */
+  const noteOf = (x: ParticipantOption, lead: string) => {
+    const note = notes?.get(participantKey(x))
+    return note ? <>{lead && <span className="max-sm:hidden"> · </span>}<span className="max-sm:block max-sm:whitespace-normal max-sm:break-words">{note}</span></> : null
+  }
 
   return (
     <div
@@ -145,7 +203,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
       // Esc closes the results first (from the search or a result); the dialog stays open
       onKeyDown={(e) => { if (e.key === 'Escape' && searching) { e.preventDefault(); close(); focusQuiet(input.current) } }}
     >
-      <label htmlFor={searchId} className="flex items-center gap-2 border-b border-line px-2.5">
+      {!readOnly && <label htmlFor={searchId} className="flex items-center gap-2 border-b border-line px-2.5">
         <Search size={14} className="shrink-0 text-faint" aria-hidden />
         <input
           ref={input}
@@ -156,80 +214,121 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
           onFocus={() => { if (!quiet.current) setOpen(true) }}
           onClick={() => setOpen(true)}
           onKeyDown={(e) => { if (e.key === 'ArrowDown') setOpen(true) }}
-          placeholder={t('projects.participantsSearch')}
-          aria-label={t('projects.participantsSearch')}
+          placeholder={placeholder ?? t('projects.participantsSearch')}
+          aria-label={placeholder ?? t('projects.participantsSearch')}
           autoComplete="off"
           data-testid={`${testId}-search`}
         />
-      </label>
+      </label>}
       {searching ? (
         // the box keeps the focus on a click anywhere in the results (a row, the padding, the scrollbar): the list stays
         // until the add
-        <ul className="p-1 text-sm sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} onMouseDown={(e) => e.preventDefault()} data-testid={`${testId}-results`}>
+        <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} onMouseDown={(e) => e.preventDefault()} data-testid={`${testId}-results`}>
           {results.map((x) => {
-            const s = sub(x)
+            const added = isIn(x)
             return (
-              <li key={participantKey(x)}>
-                <button
-                  type="button"
-                  onClick={() => add(x)}
-                  className="flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-hover sm:min-h-10"
-                  data-testid={`participant-add-${x.subjectType}-${x.subjectId}`}
-                >
-                  <RowIcon group={x.subjectType === 'group'} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{x.name}</span>
-                    {s && <span className="block truncate text-xs text-faint">{s}</span>}
+              <ListRow
+                key={participantKey(x)}
+                onClick={() => add(x)}
+                disabled={added}
+                face
+                icon={<Face x={x} />}
+                name={x.name}
+                meta={sub(x) || undefined}
+                end={
+                  <span className="flex shrink-0 items-center gap-2.5 self-center">
+                    {x.members && x.members.length > 0 && <FaceStack people={x.members} count={x.members.length} size={28} testId={`participant-faces-${x.subjectId}`} />}
+                    <span className={clsx('text-meta font-medium', added ? 'text-faint' : 'text-accent-text')}>{added ? t('projects.added') : t('projects.add')}</span>
                   </span>
-                  <span className="shrink-0 text-xs font-medium text-accent-text">{t('projects.add')}</span>
-                </button>
-              </li>
+                }
+                testId={`participant-add-${x.subjectType}-${x.subjectId}`}
+                link={{ 'data-added': added ? '' : undefined }}
+              />
             )
           })}
-          {!results.length && <li className="px-2 py-2 text-faint">{t('projects.participantsNone')}</li>}
+          {!results.length && <li className="px-3 py-2 text-sm text-faint">{t('projects.participantsNone')}</li>}
         </ul>
       ) : (
-        <ul className="p-1 text-sm sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.participants')}>
+        <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.participants')}>
           {rows.map((x) => {
             const k = participantKey(x)
             const tag = fixed.get(k)
             const out = !!before && before.has(k) && !picked.has(k)
             const fresh = !!before && !before.has(k) && picked.has(k)
-            const s = sub(x)
+            const inside = x.subjectType === 'group' ? groupPeople?.get(x.subjectId) : undefined
+            // one line per person (as a chat app's member list): the name and 새로, then its title or group kind in
+            // small faint words on the same line (cut first when long), the tags at the row's right, × or 되돌리기 beside it. A group with a
+            // note (the members dialog's "except Kim": people in it who left the project) keeps those words on a second
+            // line, where the names have the row's width (QA TC-1402)
+            const s = sub(x, inside?.length, true, false)
+            const role = tags(x)
+            const open = opened.has(x.subjectId)
+            const below = !!notes?.get(k)
             return (
-              <li key={k} className="flex min-h-11 items-center gap-2.5 rounded-md px-2 py-1.5 sm:min-h-10" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
-                <RowIcon group={x.subjectType === 'group'} />
-                {/* the name on one line; the title, the group tag and the tag under it */}
-                <span className="min-w-0 flex-1">
-                  <span className={clsx('block truncate', out && 'text-faint line-through')}>{x.name}</span>
-                  {(s || fresh) && (
-                    <span className="block truncate text-xs text-faint">
-                      {s}
-                      {fresh && <>{s && ' · '}<span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
-                    </span>
-                  )}
-                </span>
-                {tag === undefined && (out ? (
-                  <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} aria-label={t('projects.undoRemoveLabel', { name: x.name })} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
-                    {t('projects.undoRemove')}
-                  </button>
-                ) : (
-                  <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
-                    <X size={14} aria-hidden />
-                  </IconButton>
-                ))}
-              </li>
+              <Fragment key={k}>
+                <ListRow
+                  face
+                  icon={<Face x={x} />}
+                  name={
+                    <>
+                      <span className={clsx(out && 'text-faint line-through')}>{x.name}</span>
+                      {fresh && <span className="ml-1.5 text-meta font-medium text-accent-text">{t('projects.newTag')}</span>}
+                      {s && !below && <span className="ml-1.5 text-meta font-normal text-faint">{s}</span>}
+                    </>
+                  }
+                  // the note wraps on its own line on a phone, never cut (noteOf, QA TC-1402)
+                  meta={below ? <>{s}{noteOf(x, s)}</> : undefined}
+                  nameTitle={[x.name, s].filter(Boolean).join(' · ')}
+                  // a phone: the short tag ("You"), the whole one in the tooltip and the accessible name (never cut)
+                  tag={role && phoneTags?.has(k) ? <><span className="sm:hidden">{phoneTags.get(k)}<span className="sr-only"> · {role}</span></span><span className="max-sm:hidden">{role}</span></> : role || undefined}
+                  tagTitle={role && phoneTags?.has(k) ? role : undefined}
+                  tagTestId={`participant-tags-${x.subjectType}-${x.subjectId}`}
+                  // a group with its people known (the members dialog): the row opens to list them
+                  {...(inside ? {
+                    onClick: () => toggle(x.subjectId),
+                    expanded: open,
+                    end: <ChevronDown size={14} className={clsx('shrink-0 self-center text-faint transition-transform motion-reduce:transition-none', open && 'rotate-180')} aria-hidden />,
+                    testId: `participant-group-toggle-${x.subjectId}`,
+                    link: { 'aria-controls': `${testId}-group-${x.subjectId}` },
+                  } : {})}
+                  li={{ 'data-testid': `participant-${x.subjectType}-${x.subjectId}`, 'data-state': tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member' }}
+                  actions={tag === undefined && !readOnly ? (out ? (
+                    <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
+                      {/* (its name starts with the words it shows: "Undo · Keep Bob") */}
+                      {t('projects.undoRemove')}<span className="sr-only"> · {t('projects.undoRemoveLabel', { name: x.name })}</span>
+                    </button>
+                  ) : (
+                    <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
+                      <X size={14} aria-hidden />
+                    </IconButton>
+                  )) : undefined}
+                />
+                {inside && (
+                  <li hidden={!open}>
+                    <ul id={`${testId}-group-${x.subjectId}`} className="pt-1 pb-1 pl-[calc(1.375rem+var(--spacing-list-face))]" aria-label={x.name} data-testid={`participant-group-people-${x.subjectId}`}>
+                      {open && inside.map((u) => (
+                        <li key={u.id} className="flex min-h-7 items-center gap-2 text-xs text-muted">
+                          <Avatar user={u} size={18} />
+                          <span className="min-w-0 truncate">{u.name}</span>
+                        </li>
+                      ))}
+                      {open && !inside.length && <li className="text-xs text-faint">{t('projects.groupNobody')}</li>}
+                    </ul>
+                  </li>
+                )}
+              </Fragment>
             )
           })}
-          {!rows.length && <li className="px-2 py-2 text-faint">{t('projects.membersNone')}</li>}
+          {!rows.length && <li className="px-3 py-2 text-sm text-faint">{t('projects.membersNone')}</li>}
         </ul>
       )}
     </div>
   )
 }
 
-const RowIcon = ({ group }: { group: boolean }) =>
-  group ? <Users size={14} className="shrink-0 text-faint" aria-hidden /> : <User size={14} className="shrink-0 text-faint" aria-hidden />
+/** a row's face, in the list's icon box: a person's picture (or letter), a group's mark */
+const Face = ({ x }: { x: ParticipantOption }) =>
+  x.subjectType === 'group' ? <Users /> : <Avatar user={{ id: x.subjectId, name: x.name, avatarVersion: x.avatarVersion }} size="fill" />
 
 /**
  * Who would see it (the server's count; the last one stays while it counts again; the names are the list above it):
@@ -253,11 +352,17 @@ export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): string 
   return t('projects.whoMembers', { n: c.n })
 }
 
-/** The server's count for the line under the picker. */
-export interface AccessCount { n: number }
+/** How long the count waits after the last pick before it asks the server (QA TC-1408). */
+export const ACCESS_COUNT_DEBOUNCE_MS = 400
+
+/** The server's count for the line under the picker; `hiddenAnswers`: the answers of its shared chats the people who
+ * gain it would start seeing although they used places some of them can't open (the widening warning) */
+export interface AccessCount { n: number; hiddenAnswers?: number }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
- * of its folder taken out too), asked again 300 ms after the last change; null while asking or when it failed. */
+ * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
+ * answers the people added would start seeing, a walk of the project's shared chats); null while asking or when it
+ * failed. */
 export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
   const key = participants.map(participantKey).sort().join(',')
@@ -267,8 +372,8 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
     let live = true
     setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people }), () => {})
-    }, 300)
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }), () => {})
+    }, ACCESS_COUNT_DEBOUNCE_MS)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, removing, o.projectId, o.enabled])

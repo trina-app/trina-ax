@@ -1,4 +1,4 @@
-// One search for a person or a group, shared by Admin › Folder permissions' edit panel (AccessEdit.tsx) and the Team
+// One search for a person or a group, shared by the Share dialog (FolderSharing.tsx) and the Team
 // skills page's "who can edit" dialog (SkillManagers.tsx), and for one member in Admin › Connectors' "Ask a member to
 // connect" (RequestDialog.tsx: no groups, its own label and words).
 import clsx from 'clsx'
@@ -26,7 +26,7 @@ export type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
  * all, for a dialog whose body scrolls (a list lying over its end would be cut off there); then a pointer that leaves
  * the field closes the list only once its click has landed (a centred dialog moves as a whole when the list closes),
  * and Tab closes it at once. `saidOf`: what a screen reader hears once one is picked (default: added with read access,
- * as the edit panel adds them). */
+ * as the Share dialog adds them). */
 export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf, placeholder, label, noMatch, testId, describedBy, invalid, autoFocus }: {
   users: User[]
   groups: Group[]

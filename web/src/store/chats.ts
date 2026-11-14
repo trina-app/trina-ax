@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
+import { keepFaces } from '../lib/sharedChat'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -98,6 +99,9 @@ export interface SendInput {
   onConflict?: (e: ApiError) => void
   /** a new chat is a side chat of this room (✦ Trina, components/rooms/SideChatPanel.tsx) */
   sideRoomId?: string
+  /** a new chat in a team project starts "Only me" (CreateChatBody.private; docs/DECISIONS.md "Team project chats
+   * shared by default") */
+  private?: boolean
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
@@ -119,6 +123,15 @@ const delivering = new Map<string, { chatId: string; done: Promise<void> }>()
  */
 type Load = { promise: Promise<void>; events: ServerEvent[]; again: boolean }
 const loads = new Map<string, Load>()
+/** a chat shown on the branch of one answer, for this view only (a widening list item: /c/<id>?answer=<messageId>;
+ * GET …/messages `through`): its reads ask for that branch until the page leaves or another branch is picked */
+const throughs = new Map<string, string>()
+/** Show `chatId` on the branch holding `answerId` (null: its active branch again). */
+export function showThrough(chatId: string, answerId: string | null) {
+  if (answerId) throughs.set(chatId, answerId)
+  else throughs.delete(chatId)
+}
+const throughOf = (chatId: string) => { const id = throughs.get(chatId); return id ? { through: id } : {} }
 /** chatId -> local changes of the visible branch (a send, regenerate or edit answered, a branch switch): a reload that
  * began before one is read again instead of used (it would take the new question and answer away) */
 const changes = new Map<string, number>()
@@ -273,7 +286,7 @@ export const useChats = create<ChatsState>((set, get) => {
     // them are not replayed, and the running turn would otherwise wait for an answer nobody can give
     const before = new Set(Object.keys(get().requests))
     const [page, open, queue] = await Promise.all([
-      api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } }),
+      api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, ...throughOf(chatId) } }),
       api.call(API.listTurnRequests, { params: { id: chatId } }).catch(() => null),
       api.call(API.getChatQueue, { params: { id: chatId } }).catch(() => null),
     ])
@@ -520,8 +533,10 @@ export const useChats = create<ChatsState>((set, get) => {
       })
     },
 
-    upsertChat(c) {
+    upsertChat(next) {
       set((s) => {
+        // a single chat or an action's answer has no faces: the row keeps the ones its list gave it
+        const c = keepFaces(s.chats.find((x) => x.id === next.id) ?? s.others[next.id], next)
         // someone else's shared chat that I have not written in is not mine to list: it is kept only while a screen
         // shows it (its thread is open), so its header and composer follow along
         if (c.shared && !c.shared.mine && !s.chats.some((x) => x.id === c.id)) return s.threads[c.id] || s.others[c.id] ? { others: { ...s.others, [c.id]: c } } : s
@@ -547,7 +562,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       const cur = thread(chatId)
       if (!cur.nextCursor) return
-      const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, cursor: cur.nextCursor } })
+      const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, cursor: cur.nextCursor, ...throughOf(chatId) } })
       if (session !== generation) return
       setThread(chatId, (t) => ({ ...t, messages: prependPage(t.messages, page.items), nextCursor: page.nextCursor }))
     },
@@ -556,7 +571,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       let chatId = o.chatId
       if (!chatId) {
-        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}) } })
+        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}), ...(o.private ? { private: true } : {}) } })
         if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id
@@ -617,6 +632,7 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async selectBranch(chatId, messageId) {
+      throughs.delete(chatId)
       const session = generation
       const page = await api.call(API.selectBranch, { params: { id: chatId }, body: { messageId } })
       if (session !== generation) return

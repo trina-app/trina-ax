@@ -21,21 +21,20 @@ export const CHAT_CARD_PUSH_DELAY_MS = 30_000
  * burst of answers is one push */
 export const CHAT_ANSWER_COALESCE_MS = 10 * 60_000
 
-type ChatRow = { id: string; user_id: string; project_id: string | null; shared_at: string | null; deleted_at: string | null; room_id: string | null; seen_at: string | null }
-const chatRow = (db: Database, id: string) => db.query('SELECT id, user_id, project_id, shared_at, deleted_at, room_id, seen_at FROM chats WHERE id = ?').get(id) as ChatRow | null
+type ChatRow = { id: string; user_id: string; project_id: string | null; shared_at: string | null; deleted_at: string | null; room_id: string | null; seen_at: string | null; people_shared_at: string | null }
+const chatRow = (db: Database, id: string) => db.query('SELECT id, user_id, project_id, shared_at, deleted_at, room_id, seen_at, people_shared_at FROM chats WHERE id = ?').get(id) as ChatRow | null
 
-/** Is this chat still the person's to open: their own, or a shared project chat while they see its project. Not a
+/** Is this chat still the person's to open: their own, or a shared chat while they see it (its project's people, or
+ * the people and groups it is shared with). Not a
  * deleted chat, a room's chat or one of the server's own. */
 export function chatOpenFor(ctx: AppContext, userId: string, chatId: string): boolean {
   const c = chatRow(ctx.db, chatId)
   if (!c || c.deleted_at || c.room_id || isInternalChat(ctx.db, c.id)) return false
   if (c.user_id === userId && !isSharedRow(c)) return true
   if (!isSharedRow(c)) return false
-  // the project as the chat list reads it (push-badge.ts: rt.store.projectRow); no runtime: no chats to open
-  let rt: ReturnType<typeof getChatRuntime>
-  try { rt = getChatRuntime(ctx) } catch { return false }
-  const p = rt.store.projectRow(c.project_id!)
-  return !!p && new Audiences(ctx.db, ctx.files).sees(userId, p)
+  // no runtime: no chats to open
+  try { getChatRuntime(ctx) } catch { return false }
+  return new Audiences(ctx.db, ctx.files).seesChat(userId, c)
 }
 
 /** Asked before and after each send (push-service.ts SOURCES wanted). */

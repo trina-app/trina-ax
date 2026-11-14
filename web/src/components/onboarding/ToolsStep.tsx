@@ -63,7 +63,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
   return (
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-ink">{t('welcome.tools.title')}</h2>
+        <h2 className="text-display font-semibold text-ink">{t('welcome.tools.title')}</h2>
         <p className="text-sm text-balance text-muted">{t('welcome.tools.desc', { ai: aiName(t), where: connectorsPlace(t) })}</p>
       </div>
       <div className="space-y-4">
@@ -150,6 +150,7 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
                 {t('drive.openGoogle')}
               </a>
             )}
+            <Button size="sm" variant="secondary" disabled={d.busy} onClick={start} data-testid="welcome-tools-drive-retry">{t('common.retry')}</Button>
             <Button size="sm" variant="ghost" disabled={d.busy} onClick={cancel} data-testid="welcome-tools-drive-cancel">{t('common.cancel')}</Button>
           </div>
         ) : (
@@ -230,7 +231,7 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
               </span>
             ) : waiting ? (
               <div className="flex shrink-0 gap-1">
-                {flow.away && <Button size="sm" variant="secondary" onClick={() => void connect(c)} data-testid="welcome-tools-service-retry">{t('common.retry')}</Button>}
+                <Button size="sm" variant="secondary" onClick={() => void connect(c)} data-testid="welcome-tools-service-retry">{t('common.retry')}</Button>
                 <Button size="sm" variant="ghost" onClick={signIn.cancel} data-testid="welcome-tools-service-cancel">{t('common.cancel')}</Button>
               </div>
             ) : (

@@ -11,6 +11,8 @@ export type Manifest = Record<string, ManifestEntry>
 export interface WalkOptions {
   /** relative paths (forward slashes) to leave out entirely, with everything below them */
   exclude?: string[]
+  /** a folder (by name, and its full path) to leave out with everything below it, wherever it is */
+  skipDir?: (name: string, abs: string) => boolean
 }
 
 export interface WalkedFile { rel: string; abs: string; size: number; mtimeMs: number; mode: number }
@@ -33,6 +35,7 @@ export async function walkTree(root: string, o: WalkOptions = {}): Promise<{ fil
       const r = rel ? `${rel}/${d.name}` : d.name
       if (exclude.has(r) || d.name.startsWith(PRODUCT.tmpPrefix)) continue
       if (d.isDirectory()) {
+        if (o.skipDir?.(d.name, path.join(root, r))) continue
         const st = await fsp.lstat(path.join(root, r)).catch(() => null)
         if (!st) continue
         dirs.push({ rel: r, mode: st.mode & 0o777, mtimeMs: Math.floor(st.mtimeMs) })

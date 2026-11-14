@@ -32,14 +32,15 @@
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
 import { Copy, Download, FileText, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
 import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
-import { Markdown, PersonMarkdown } from '../Markdown'
+import { Markdown, PersonMarkdown } from '../LazyMarkdown'
+import { AppCardText } from './AppCard'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
@@ -59,8 +60,12 @@ import type { MessageMention } from '../../lib/messageMarkdown'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
 import { StatusEmoji } from '../StatusMessage'
-import { useViewerItem, ViewerMeta } from '../ImageViewer'
-import { roomFileItem, roomItem } from '../../lib/imageViewer'
+import { useViewerItem, useViewerMeta, ViewerMeta } from '../ImageViewer'
+import { roomFileItem, roomItem, type ViewerItem, type ViewerMetaValue } from '../../lib/imageViewer'
+import { itemImage, itemLink } from '../../lib/fileMenu'
+import { askTrinaInRoom, fileSeed } from '../../lib/sideChatAsk'
+import { useFileMenu } from '../FileMenu'
+import type { SideSeed } from './SideChatPanel'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 
@@ -140,8 +145,11 @@ export const HIGHLIGHT_MS = 2400
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
+  // a picture's or file's 트리나에게 묻기 (its right-click menu): where this list asks about a message, it asks about a
+  // file too, in the same side chat (the room page's, or the image viewer's column: `onAskFile`)
+  const askFile = useMemo(() => (onAskTrina ? (fileId: string, name: string) => void (onAskFile ? onAskFile(fileSeed(fileId, name)) : askTrinaInRoom(roomId, fileSeed(fileId, name))) : null), [onAskTrina, onAskFile, roomId])
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
   const [editing, setEditing] = useState<string | null>(null)
@@ -180,6 +188,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const where = useViewerWhere(roomId)
 
   return (
+    <AskFile.Provider value={askFile}>
     <ViewerMeta where={where}>
     <div ref={list} data-testid="room-messages" onCopy={copyMessages}>
       {runs.map((run, i) => {
@@ -220,6 +229,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       highlighted={lit === m.id}
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
+                      onEditAgain={() => setEditing((e) => e ?? m.id)}
                       onThread={onThread}
                       onAskTrina={onAskTrina}
                       variant={variant}
@@ -245,7 +255,18 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
       )}
     </div>
     </ViewerMeta>
+    </AskFile.Provider>
   )
+}
+
+/** 트리나에게 묻기 about a file of the list (RoomMessages `askFile`); null: this list asks nothing */
+const AskFile = createContext<((fileId: string, name: string) => void) | null>(null)
+
+/** The right-click menu of a picture or file under a message (components/FileMenu.tsx): 이미지 복사 (a picture),
+ * 링크 복사 (its message), 내려받기, 트리나에게 묻기 where the list asks. */
+function useRoomFileMenu(f: RoomFile, item: ViewerItem) {
+  const ask = useContext(AskFile)
+  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, ask: ask ? () => ask(f.id, f.name) : null })
 }
 
 /** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
@@ -306,7 +327,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -374,7 +395,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       data-highlight={highlighted ? '' : undefined}
       data-ai={ai ? '' : undefined}
       data-visibility={m.visibility}
-      {...(menuOn ? longPress : {})}
+      {...(menuOn ? { ...longPress, onPointerDown: (e: React.PointerEvent) => !(e.target as Element).closest?.('[data-own-menu]') && longPress.onPointerDown(e) } : {})}
     >
       {/* a reply sent to the room too: in the timeline it says it belongs to a thread (a tap opens it); in the thread it
           says it went to the room as well */}
@@ -393,9 +414,12 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       {ai && !deleted ? (
         <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
       ) : editing ? (
-        <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
+        <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} onAgain={onEditAgain} />
       ) : deleted ? (
         <p className={clsx('text-reading leading-reading text-faint', WORDS)}>{t('rooms.deleted')}</p>
+      ) : m.app ? (
+        // a message an app posted: plain text, no links but the card's one (components/rooms/AppCard.tsx)
+        <AppCardText m={m} className={clsx('min-w-0 text-reading leading-reading', WORDS)} />
       ) : (
         <>
           {text && <PersonMarkdown text={text} mentions={marks} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} after={meta} />}
@@ -539,13 +563,18 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
 /** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
 function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
-  const viewer = useViewerItem((meta) => roomItem(roomId, f, meta))
+  const make = (meta: ViewerMetaValue) => roomItem(roomId, f, meta)
+  const viewer = useViewerItem(make)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()))
   return (
-    <Tooltip label={t('rooms.openImage', { name: f.name })}>
-      <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name}>
-        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
-      </button>
-    </Tooltip>
+    <>
+      <Tooltip label={t('rooms.openImage', { name: f.name })}>
+        <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name}>
+          <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+        </button>
+      </Tooltip>
+      {fileMenu.menu}
+    </>
   )
 }
 
@@ -559,12 +588,15 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
-  const viewer = useViewerItem((meta) => roomFileItem(roomId, f, me, meta))
+  const make = (meta: ViewerMetaValue) => roomFileItem(roomId, f, me, meta)
+  const viewer = useViewerItem(make)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()))
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
   const opens = roomFileOpens(f, me)
   return (
-    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name}>
-      <button type="button" ref={viewer.ref} onClick={viewer.open} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name} {...fileMenu.bind}>
+      {fileMenu.menu}
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
@@ -580,39 +612,51 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   )
 }
 
-function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void }) {
+/** an edit that failed, by message: its box opens again with the words typed and the people they mention (EditForm);
+ * kept a moment only (the box opens at once, or not: another message's box is open, the room was left) */
+const failedEdits = new Map<string, { text: string; mentions: string[] }>()
+
+/** `onAgain`: the edit failed (the old text is back): open the box again, with the words typed */
+function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void; onAgain: () => void }) {
   const t = useT()
-  const locale = useLocale()
   // the box gives line breaks back as "\n" (a message from another app may have "\r\n"): the mentions' places are counted
   // in the same text
   const body0 = useMemo(() => lineBreaks(m.body), [m.body])
-  const [draft, setDraft] = useState(body0)
-  const [busy, setBusy] = useState(false)
+  const [kept] = useState(() => {
+    const failed = failedEdits.get(m.id)
+    failedEdits.delete(m.id)
+    return failed ?? null
+  })
+  const start = kept?.text ?? body0
+  const [draft, setDraft] = useState(start)
   const input = useRef<HTMLTextAreaElement>(null)
-  // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole
-  const [picked] = useState(() => pickedInMessage(body0, [...initial, ...allMentionNames(m, MENTION_ALL_WORDS)]))
+  // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole;
+  // a failed edit's text: the people it mentioned too
+  const [picked] = useState(() => pickedInMessage(start, [...initial, ...(kept ? members.filter((x) => kept.mentions.includes(x.id)) : []), ...allMentionNames(m, MENTION_ALL_WORDS)]))
   // "@전체" only kept or taken out: an edit notifies nobody, so it cannot add one (the server refuses it)
   const everyone = m.mentionsAll ? { count: members.filter((x) => x.id !== meId).length } : null
   const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked, everyone })
-  const save = async () => {
+  // the new text shows at once and the box closes; a failure puts the old text back with its own toast (store/rooms.ts
+  // edit) and opens the box again with the words typed
+  const save = () => {
     const body = draft.trim()
-    if (!body || busy) return
+    if (!body) return
     if (body === body0) return onDone()
-    setBusy(true)
-    try {
-      await useRooms.getState().edit(roomId, m.id, body, mention.mentions(), mention.mentionsAll())
-      onDone()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      setBusy(false)
-    }
+    const mentions = mention.mentions(), all = mention.mentionsAll()
+    onDone()
+    void useRooms.getState().edit(roomId, m.id, body, mentions, all).then((ok) => {
+      if (ok) return
+      failedEdits.set(m.id, { text: draft, mentions })
+      onAgain()
+      setTimeout(() => failedEdits.delete(m.id), 1000)
+    })
   }
   return (
     <form
       className="my-1 rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
       onSubmit={(e) => {
         e.preventDefault()
-        void save()
+        save()
       }}
     >
       {mention.list}
@@ -629,7 +673,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
             onDone()
           } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) {
             e.preventDefault()
-            void save()
+            save()
           }
         }}
         className={clsx(inputCls, 'h-auto min-h-16 resize-y border-0 py-2 focus:ring-0!')}
@@ -639,7 +683,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
         <Button size="sm" variant="ghost" onClick={onDone}>
           {t('common.cancel')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" busy={busy} disabled={!draft.trim()} data-testid="room-edit-save">
+        <Button size="sm" variant="primary" type="submit" disabled={!draft.trim()} data-testid="room-edit-save">
           {t('common.save')}
         </Button>
       </div>

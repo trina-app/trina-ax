@@ -14,6 +14,7 @@
 // Before each command the rule of the AI's writes applies (assertStorageRoomForAI). A long command runs as a job: it
 // has an exit status and a log, the person gets a notice when it ends, and each later call gives the AI the results it
 // did not get yet. The AI does not go on by itself when a job ends.
+import { updateWaitingFor } from '../system/update-wait'
 import { z } from 'zod'
 import type { AppContext } from '../context'
 import type { McpContent } from '../turns'
@@ -30,9 +31,10 @@ import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from 
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
-import { placeInLine, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
+import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
+import { newId } from '../db'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -213,6 +215,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   const head = e.signal === 'timeout' ? `Stopped: the time limit (${timeoutMs / 1000} s) was reached.`
     : e.signal === 'oom' ? 'Stopped: the command ran out of memory (the team limit).'
     : e.signal === 'stopped' ? 'Stopped.'
+    : e.signal === 'setting' ? 'Stopped: the dev environment setting or your access to this folder changed. Check the access, then try again.'
     : `Exit code ${e.code}.`
   if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
   return answer(h, { notes, head, started, exit: e, w, background: false, what })
@@ -225,7 +228,18 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
   const { ctx } = h
   const problem = runProblem(ctx)
   if (problem) return { ok: false, message: `Error: the command could not run (${problem.slice(0, 300)}).`, summary: problem.slice(0, 200) }
-  const rowId = addTicket(ctx.db, { space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
+  // commands of one project run one at a time: wait for the other command first, with a plain line and no slot held
+  const rowId = newId()
+  let waitedProject = false
+  if (projectBusy(o.space.root)) {
+    waitedProject = true
+    h.queueStep?.({ id: rowId, kind: 'command', state: 'waiting', position: null, why: 'project' })
+    if (!await waitProjectFree(o.space.root, h.signal)) {
+      h.queueStep?.({ id: rowId, kind: 'command', state: 'cancelled', position: null })
+      return { ok: false, message: 'Stopped. The command did not run.', summary: 'aborted' }
+    }
+  }
+  addTicket(ctx.db, { id: rowId, space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
   const limitMs = commandWaitFor(o.timeoutMs)
   const ended = waitTicket(ctx.db, rowId, h.userId, { signal: h.signal })
   await startWaiting(ctx)
@@ -238,7 +252,7 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
     end = await ended
   }
   if (end === 'granted') {
-    if (waited) h.queueStep?.({ id: rowId, kind: 'command', state: 'started', position: null })
+    if (waited || waitedProject) h.queueStep?.({ id: rowId, kind: 'command', state: 'started', position: null })
     let done = false
     return { ok: true, release: () => { if (done) return; done = true; releaseCommand(rowId); void startWaiting(ctx).catch(() => {}) } }
   }
@@ -278,6 +292,15 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     if (!data.background || data.job) return { ...text('Invalid input: port goes only with background=true (a dev server).', true), summary: `${what} -> bad port` }
     const why = previewPortProblem(data.port)
     if (why) return { ...text(`Invalid input: port ${data.port}: ${why}. Use the port of the dev server (for example 3000 or 5173).`, true), summary: `${what} -> bad port` }
+  }
+  // an update waits for running work before the server restarts (system/update-wait.ts): a long foreground command
+  // started now could be cut off at the end of that wait, and a job keeps running through the restart
+  // (a command that can end before the wait does is fine: the update waits for it)
+  const upd = background ? null : updateWaitingFor(ctx.config)
+  const leftSec = upd ? Math.floor((Date.parse(upd.until) - Date.now()) / 1000) - 30 : 0
+  if (upd && (data.timeout_sec ?? 120) > leftSec) {
+    const fits = leftSec >= 10 ? ` or keep timeout_sec at ${leftSec} or less` : ''
+    return { ...text(`Not started: a Trina update is waiting for running tasks to finish and restarts the server soon, which would stop this command. Run it with job=true (a job keeps running through the update, and the person gets a notice when it ends)${fits}, or tell the person to try again after the update.`, true), summary: `${what} -> update waiting` }
   }
   const jobName = data.job ? (data.log_name ?? newJobName()) : null
   // the log is per person: a job or dev server with the same name would write over it

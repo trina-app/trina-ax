@@ -218,7 +218,7 @@ test('a chat\'s project link and the chat again: back, never a ping-pong', async
   await expect(tab(page, 'projects')).toHaveAttribute('aria-current', 'page')
 })
 
-test('Folder permissions opened from a folder\'s "who can open it": ‹ names the folder and Back returns to it', async ({ page }) => {
+test('Folder permissions opened from a folder\'s "who can open it": its Share dialog over the list, ‹ names the folder and Back returns to it', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await filesRoot(page)
@@ -227,11 +227,22 @@ test('Folder permissions opened from a folder\'s "who can open it": ‹ names th
   const at = await idx(page)
   await page.getByTestId('folder-access-chip').click()
   await page.getByTestId('sharing-open-admin').click()
+  // the old address (?folder=) opens the folder's Share dialog in Admin, over the list
   await expect(page).toHaveURL(/\/admin\/folders\?folder=marketing/)
+  const panel = page.getByTestId('folder-access-panel')
+  await expect(panel).toHaveAttribute('data-path', 'marketing')
   // a detour: no Admin list put under it
   await page.waitForTimeout(300)
   expect(await idx(page)).toBe(at! + 1)
   await expect(page.getByTestId('admin-back-label')).toHaveText('marketing')
+  // Done closes it and leaves the list, still a detour from the folder
+  await page.getByTestId('sharing-done').click()
+  await expect(panel).toHaveCount(0)
+  await expect(page).toHaveURL(/\/admin\/folders$/)
+  await expect(page.getByTestId('folders-list')).toBeVisible()
+  await expect(page.getByTestId('admin-back-label')).toHaveText('marketing')
+  await page.waitForTimeout(300)
+  expect(await idx(page)).toBe(at! + 1)
   await page.goBack()
   await expect.poll(() => path(page)).toBe('marketing')
   await expect(tab(page, 'files')).toHaveAttribute('aria-current', 'page')

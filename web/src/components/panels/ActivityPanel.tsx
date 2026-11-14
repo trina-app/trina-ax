@@ -21,7 +21,8 @@ import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName } from '../../lib/tabs'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
-import { reloadInboxCount } from '../../store/inbox'
+import { keepPendingReads, markAllNoticesRead, markNoticeRead } from '../../store/inbox'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { isAdmin, useMe } from '../../store/session'
 import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
@@ -109,20 +110,27 @@ function keptFor(at: { pathname: string; search: string; state?: unknown; lit: s
   return kept
 }
 
+/** what 활동's list keeps between visits */
+export type KeptFeed = { items: InboxNotification[]; cursor: string | null; unread: number }
+export const FEED_KEY = 'feed:panel'
+
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
   const chips = chipsFor(admin)
   const [chip, setChip] = useState<ActivityChip>('all')
   const shownChip = chips.includes(chip) ? chip : 'all'
-  const [items, setItems] = useState<InboxNotification[] | null>(null)
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [unread, setUnread] = useState(0)
+  // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
+  const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
+  const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
+  const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
+  const [unread, setUnread] = useState(kept?.unread ?? 0)
+  useEffect(() => { rememberCached<KeptFeed>(FEED_KEY, items ? { items, cursor, unread } : undefined) }, [items, cursor, unread])
   const [error, setError] = useState<string | null>(null)
   const [paging, setPaging] = useState(false)
   const [marking, setMarking] = useState(false)
   const pages = useRef(0)
-  const itemsRef = useRef<InboxNotification[] | null>(null)
+  const itemsRef = useRef<InboxNotification[] | null>(items)
   const life = useRef(0)
   // the newest read again wins: an older answer that lands late (or one sent before a row was read here) is dropped
   const sequence = useRef(0)
@@ -141,7 +149,8 @@ export function ActivityPanel() {
       const r = await api.call(API.listNotifications, { query: { limit, only: 'notices', ...(after ? { cursor: after } : {}) } })
       if (generation !== life.current || seq !== sequence.current) return
       if (!after) pages.current = 0
-      const next = after ? [...new Map([...(itemsRef.current ?? []), ...r.items].map((x) => [x.id, x])).values()] : r.items
+      // (a row being marked read here keeps its mark: this read may be from before it)
+      const next = keepPendingReads(after ? [...new Map([...(itemsRef.current ?? []), ...r.items].map((x) => [x.id, x])).values()] : r.items, itemsRef.current)
       itemsRef.current = next
       setItems(next)
       setCursor(r.nextCursor)
@@ -168,37 +177,37 @@ export function ActivityPanel() {
     void load(cursor)
   }, [cursor, paging, loadedUnread, unread, load])
 
+  /** the rows through `f`, on screen and for the reads after */
+  const patch = (f: (x: InboxNotification) => InboxNotification) => {
+    const next = itemsRef.current?.map(f) ?? null
+    itemsRef.current = next
+    setItems(next)
+  }
+  // read at once, with the rail's number (store/inbox.ts); a failure puts it back with a toast
   const read = (item: InboxNotification) => {
     if (item.readAt) return
     sequence.current++
-    const next = itemsRef.current?.map((x) => (x.id === item.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null
-    itemsRef.current = next
-    setItems(next)
-    setUnread((n) => Math.max(0, n - 1))
-    // the rail's number with it at once (the server's "changed" signal reads it again too); not read: as the server has it
-    void api.call(API.markNotificationRead, { params: { id: item.id } }).then(reloadInboxCount, (e) => {
-      setError(errorText(e, locale, t('error.network')))
-      void load()
+    let shown = false
+    void markNoticeRead(item, (readAt) => {
+      patch((x) => (x.id === item.id ? { ...x, readAt } : x))
+      if (!!readAt === shown) return
+      shown = !!readAt
+      setUnread((n) => Math.max(0, n + (readAt ? -1 : 1)))
     })
   }
   const markAll = async () => {
     if (marking) return
     setMarking(true)
     sequence.current++
-    const at = new Date().toISOString()
-    const next = itemsRef.current?.map((x) => (x.readAt ? x : { ...x, readAt: at })) ?? null
-    itemsRef.current = next
-    setItems(next)
-    setUnread(0)
-    try {
-      await api.call(API.markAllNotificationsRead, { body: { tab: 'all', only: 'notices' } })
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      notificationsChanged.emit()
-      reloadInboxCount()
-      setMarking(false)
-    }
+    const was = unread
+    const marked = new Set(itemsRef.current?.filter((x) => !x.readAt).map((x) => x.id))
+    await markAllNoticesRead('all', 'notices', (readAt) => {
+      patch((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x))
+      setUnread(readAt ? 0 : was)
+    })
+    // the server says so to every window too; this one reads again now
+    notificationsChanged.emit()
+    setMarking(false)
   }
 
   // the row open on the right: its own view (?n=), or its page opened from here (활동 still lit)
@@ -239,7 +248,7 @@ export function ActivityPanel() {
         <>
           <SetupRow />
           {/* two lines when the words are long (English, Spanish): never cut */}
-          <Link to={CHATS_ACTIVITY} className={clsx(panelRowBox.replace('h-row', 'min-h-row py-1'), 'text-row text-muted')} data-testid="activity-panel-to-chats">
+          <Link to={CHATS_ACTIVITY} className={clsx(panelRowBox, 'py-1 text-row text-muted')} data-testid="activity-panel-to-chats">
             <AtSign size={16} className="shrink-0" aria-hidden />
             <span className="min-w-0 flex-1">{t('activity.inChats')}</span>
             <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
@@ -267,7 +276,7 @@ export function ActivityPanel() {
     >
       {error && <p role="alert" className="px-3 py-2 text-meta text-danger">{error}</p>}
       {!items && !error && <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />}
-      {items && !shown.length && !cursor && <p className="px-3 py-2 text-row text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
+      {items && !shown.length && !cursor && <p className="px-3 py-2 text-sm text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
       {fresh.length > 0 && <ul aria-label={t('notifications.unread', { count: fresh.length })} data-testid="activity-panel-unread">{fresh.map(row)}</ul>}
       {old.length > 0 && (
         <PanelSection id="activity-panel-read" foldKey="activity:read" label={t('activity.read')} count={old.length} labelTestId="activity-panel-label" data-testid="activity-panel-read">
@@ -302,7 +311,8 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
       icon={<Icon />}
       name={noticeText(item, t, locale)}
       nameTestId="activity-panel-text"
-      meta={<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time>}
+      // a chat shared with me: its title under the words, while I still see it
+      meta={<>{item.code === 'chat.shared' && item.chatShared?.title ? <><bdi data-testid="activity-panel-chat">{item.chatShared.title}</bdi> · </> : null}<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
       end={
         unread && (
           <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent max-md:mt-0" data-testid="activity-panel-dot">

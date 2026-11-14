@@ -23,7 +23,7 @@ import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -239,6 +239,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
+    callStarted: () => exec.ownCallStarted(),
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
@@ -263,6 +264,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared project chat: a search without a path looks in the project folder; then what the call would read that
       // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
       if (exec.shared) {
+        // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
+        const noPlace = exec.sharedSearchRefusal(name, args)
+        if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         args = exec.sharedArgs(name, args)
         // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
         const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
@@ -352,6 +356,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
       // for the person's yes (chat/turn.ts confirmSharedRead)
       if (exec.shared) {
+        const noPlace = exec.sharedSearchRefusal(name, args)
+        if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
         const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
@@ -617,7 +623,7 @@ function skillTools(exec: TurnExec): Tool[] {
 }
 
 // ---------------- move_skill ----------------
-// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기… moves it,
+// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기 moves it,
 // or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
 // yes on the server's card, which the AI cannot write. The card says who newly gets the skill, who stops getting it and
 // who newly may change it (by name only to the owner, admins and a project's creator for its side: seesWho; counts for
@@ -639,7 +645,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       const copy = a.data.keep === true
       const verb = copy ? 'copied' : 'moved'
       if (a.data.name !== undefined && !copy) return bad('Not moved: name is only for a copy (keep: true). A moved skill keeps its name; to rename one, edit its SKILL.md and folder (the user confirms on a card).', 'refused: name without keep')
-      if (spec.clientKind === 'schedule') return bad(`Not ${verb}: a scheduled run has nobody to confirm the card. Tell the user to ${copy ? 'ask for the copy' : 'move the skill'} in a chat${copy ? '' : ' or with the Move item in the skill\'s menu on the Skills page (shown in their screen language)'}.`, 'refused: scheduled run')
+      if (spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'skill_files') !== 'on') return bad(`Not ${verb}: a scheduled run has nobody to confirm the card. Tell the user to ${copy ? 'ask for the copy' : 'move the skill'} in a chat${copy ? '' : ' or with the Move item in the skill\'s menu on the Skills page (shown in their screen language)'}.`, 'refused: scheduled run')
       if (exec.shared || exec.restricted || exec.templateRun) return bad(`Not ${verb}: a skill is moved or copied only from the user's own chat, where they answer the card (not from a shared chat or a run limited to one task). Tell the user to ask in one of their own chats.${copy ? '' : ' ' + toPage}`, 'refused: not here')
       let user: Principal
       try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }

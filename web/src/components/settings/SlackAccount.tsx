@@ -9,16 +9,22 @@ import { SLACK, type MySlack } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { outcomeText } from '../../lib/slackSignIn'
 import { Button, ErrorNote, confirmDialog } from '../ui'
+import { useBrowserHandoff } from '../../lib/browserHandoff'
+import { BrowserWait } from '../integrations/BrowserWait'
 
+const SLACK_KEY = 'connectors:slack'
 export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }) {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
   // the outcome of a sign-in, said once: taken out of the address so a reload or a shared link does not say it again
   const [outcome] = useState(() => params.get('slack'))
   useEffect(() => { if (params.has('slack')) setParams((p) => { p.delete('slack'); return p }, { replace: true }) }, [params, setParams])
-  const [me, setMe] = useState<MySlack | null>(null)
+  // as this window last read it (store/listCache.ts): the line shows at once on a visit after the first
+  const [me, setMe] = useState<MySlack | null>(() => peekCached<MySlack>(SLACK_KEY) ?? null)
+  useEffect(() => { if (me) rememberCached(SLACK_KEY, me) }, [me])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const load = useCallback(() => { api.call(SLACK.mySlack).then(setMe, () => {}) }, [])
@@ -31,14 +37,19 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
     document.addEventListener('visibilitychange', again)
     return () => { window.removeEventListener('focus', again); document.removeEventListener('visibilitychange', again) }
   }, [load])
+  // the desktop and phone apps sign in in another browser while this line waits (lib/browserHandoff.ts)
+  const away = useBrowserHandoff(load, () => { void api.call(SLACK.cancelSlackSignIn).catch(() => { /* it expires there by itself */ }) })
+  const linked = !!me?.link, stopWaiting = away.stop
+  useEffect(() => { if (linked) stopWaiting() }, [linked, stopWaiting])
   const shown = !!me && (me.available || !!me.link)
   useEffect(() => { onShown?.(shown) }, [shown, onShown])
   if (!me || !shown) return null
   const signIn = async () => {
     setBusy(true); setError(null)
     // the person's own browser goes to Slack and comes back to this page
-    try { window.location.assign((await api.call(SLACK.startSlackSignIn, { body: {} })).authorizationUrl) }
-    catch (e) { setError(errorText(e, locale, t('error.network'))); setBusy(false) }
+    try { away.go((await api.call(SLACK.startSlackSignIn, { body: {} })).authorizationUrl) }
+    catch (e) { setError(errorText(e, locale, t('error.network'))) }
+    finally { setBusy(false) }
   }
   const unlink = async () => {
     if (!(await confirmDialog({ title: t('slack.mine.unlinkTitle'), body: t('slack.mine.unlinkBody'), confirm: t('slack.mine.unlink'), danger: true }))) return
@@ -69,8 +80,11 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
         </div>
         {me.link
           ? <Button variant="danger" size="sm" busy={busy} disabled={busy} onClick={() => void unlink()} data-testid="slack-unlink">{t('slack.mine.unlink')}</Button>
-          : me.signIn && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} title={t('slack.signin.button')} data-testid="slack-signin">{t('slack.signin.short')}</Button>}
+          : me.signIn && !away.waiting && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} title={t('slack.signin.button')} data-testid="slack-signin">{t('slack.signin.short')}</Button>}
       </div>
+      {/* a new press replaces the earlier sign-in at the server (the newest only, 10 minutes, used once) */}
+      {!me.link && away.waiting && <BrowserWait text={t('slack.wait.signIn')} testId="slack-signin-waiting" busy={busy} onRetry={() => void signIn()} onCancel={away.cancel} />}
+      {!me.link && away.timedOut && <p role="status" className="text-sm text-warn" data-testid="slack-signin-timeout">{t('connect.wait.timedOut')}</p>}
     </div>
   )
 }

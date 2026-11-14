@@ -20,14 +20,20 @@
 // folder itself offers no new folder or upload. A project's folder is its members' (docs/DECISIONS.md "Project contents
 // only for members"): the owner or an admin who manages a project without being a member, sent to its folder, goes to
 // the project's page instead (there they can add themselves), not to "folder not found".
+// A rename, a move (one, the selection, a drag), the trash and its Undo, a new folder and a restore from the trash show
+// at once and go back with a toast when the server refuses (store/fileChanges.ts; docs/DECISIONS.md "Optimistic
+// projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
+// moved, and a no puts it back.
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
+import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
-import { formatDateTime, formatSize } from '../lib/format'
+import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
+import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
+import { ListRow } from '../components/list/List'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
 import { useScreenName } from '../lib/screens'
@@ -35,7 +41,10 @@ import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderName, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
-import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
+import { iconKind, previewKind, serverPreview, type FileIconKind } from '../lib/preview'
+import { isMenuKey, teamFileLink } from '../lib/fileMenu'
+import { canCopyImage } from '../lib/copyImage'
+import { copyImageFrom, useCopyFileLink } from '../components/FileMenu'
 import { folderProjectAction, isProjectsFolder, isProjectsTop, projectFolderOf, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
 import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
@@ -46,6 +55,11 @@ import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
+import { readManagedList, readProjectList, useProjects } from '../store/projects'
+import { useDeleteProject } from './Projects'
+import { dropFolders, FOLDER_PAGE, folderKey, keptFolder, readFolder } from '../store/teamFiles'
+import { DECLINED, fileChangeKey, fileChangePending, fileEdits, later, madeEntry, onListingEdit, placeEntry } from '../store/fileChanges'
+import { optimistic } from '../lib/optimistic'
 import { toast } from '../store/ui'
 import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
 import FileUploads from '../components/FileUploads'
@@ -58,7 +72,7 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
@@ -72,10 +86,16 @@ const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: Fi
 
 /** how long a finger stays on a row to select it (phones), and how far it may move meanwhile (more is a scroll) */
 const LONG_PRESS_MS = 500
+/** the projects list is read again when the Files screen opens, at most this often (a project made or renamed here is in
+ * the projects store at once) */
+const PROJECTS_AGE_MS = 15_000
 const LONG_PRESS_SLOP = 10
 
 /** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
 const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
+
+/** POST /api/files/move's and a trash restore's answer: the item as the server has it now */
+type MoveResult = { entry: FileEntry }
 
 /** The folder (row or breadcrumb) under a drag: what a drop there would do, or why it would not. busy: a move is
  * still running. */
@@ -172,7 +192,13 @@ function Files() {
     else n.delete('view')
     setParams(n)
   }
-  const [tree, setTree] = useState<TreeResponse | null>(null)
+  // a folder seen a moment ago shows as it was at once and is read again behind it (store/teamFiles.ts)
+  const [tree, setTree] = useState<TreeResponse | null>(() => keptFolder(path))
+  /** the listing on screen now (a read that lands checks it) */
+  const tree0 = useRef(tree)
+  tree0.current = tree
+  // a change made here shows in the listing on screen at once (store/fileChanges.ts)
+  useEffect(() => onListingEdit((folder, f) => setTree((cur) => (cur && folderKey(cur.path) === folder ? f(cur) : cur))), [])
   /** the listing that failed (kept until a listing works: the notice stays while it reads again, components/LoadError.tsx) */
   const [error, setError] = useState<unknown>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -194,14 +220,19 @@ function Files() {
   const [moving, setMoving] = useState<FileEntry | null>(null)
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   // the projects the person can see, by folder: a folder's menu opens its project or makes it one
-  const [projects, setProjects] = useState<Project[]>([])
-  const loadProjects = useCallback(() => api.call(API.listProjects).then((r) => setProjects(r.items), () => {}), [])
+  // (the projects store's list, the one the 트리나 panel and Trina history read: read again when this screen opens, at
+  // most every PROJECTS_AGE_MS, and after an access change or a moved folder; never a second request at once)
+  const listed = useProjects((s) => s.listed)
+  const projectsById = useProjects((s) => s.byId)
+  const projects = useMemo(() => (listed ? [...listed].flatMap((id) => projectsById[id] ?? []) : []), [listed, projectsById])
+  // after an event a read on its way may be from before it (the store joins it): once more after it
+  const loadProjects = useCallback((fresh = true) => (fresh ? readProjectList().finally(() => readProjectList()) : readProjectList({ minAgeMs: PROJECTS_AGE_MS })), [])
   useEffect(() => {
-    void loadProjects()
+    void loadProjects(false)
     return accessChanged.on(() => void loadProjects())
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
-  // back from Admin's edit panel opened from "Who can see it" (AccessTree's from=files): the folder's panel opens again
+  // back from Admin's Share dialog opened with from=files (AccessTree): the folder's Share dialog opens again
   // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
   const accessParam = params.get('access')
   useEffect(() => {
@@ -254,11 +285,35 @@ function Files() {
   /** only the latest listing request may set the table: an older answer arriving last (the first listing of a slow
    * folder, after the reload an upload asked for) showed the folder without the new file */
   const loads = useRef(0)
-  const load = useCallback(async () => {
+  /** `shown`: the folder just opened, which joins a read of it on its way (a project's page may have started one); any
+   * other load follows a change or an event, so it reads again */
+  /** the listing on its way, and the last one set: 더 보기 pressed while a folder shown from a moment ago is read again
+   * waits for it, so its first page never comes after (and over) the next one */
+  const pendingLoad = useRef<Promise<void> | null>(null)
+  const lastListed = useRef<TreeResponse | null>(null)
+  const load = useCallback((o?: { shown?: boolean }) => {
+    const p = listFolder(o)
+    pendingLoad.current = p
+    const off = () => {
+      if (pendingLoad.current === p) pendingLoad.current = null
+    }
+    p.then(off, off)
+    return p
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path])
+  const listFolder = async (o?: { shown?: boolean }) => {
     const mine = ++loads.current
+    const edits = fileEdits()
     try {
-      const r = await api.call(API.tree, { query: { path, limit: 200 } })
+      const r = await readFolder(path, { fresh: o?.shown !== true })
       if (mine !== loads.current) return
+      // a rename, move, trash or new folder made here while it was read, or still unanswered: this answer may be from
+      // before it and would undo it on screen; once nothing is on its way, read again (each change reads at its end)
+      if (tree0.current && folderKey(tree0.current.path) === folderKey(path) && (edits !== fileEdits() || fileChangePending())) {
+        if (!fileChangePending()) void onScreen.current?.load()
+        return
+      }
+      lastListed.current = r
       setTree(r)
       setError(null)
       shown.current = path
@@ -287,13 +342,15 @@ function Files() {
       }
       setError(e ?? new Error('failed'))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path])
+  }
 
   useEffect(() => {
-    setTree(null)
+    const kept = keptFolder(path)
+    setTree(kept)
+    // shown before: a not_found now says "access changed", as for a folder that goes while it is open
+    if (kept) shown.current = path
     setError(null)
-    void load()
+    void load({ shown: true })
   }, [load])
 
   /** the folder on screen and its listing: an upload that ends may have started in another folder, or on another visit */
@@ -329,12 +386,22 @@ function Files() {
   const more = async () => {
     if (!tree?.nextCursor) return
     const ask = ++mores.current
-    const listing = loads.current
     const from = tree.path
-    const current = () => listing === loads.current
+    let cursor: string | null = tree.nextCursor
     setLoadingMore(true)
+    const waiting = pendingLoad.current
+    if (waiting) {
+      await waiting
+      // (another folder or a reload meanwhile: this press is not theirs)
+      if (ask !== mores.current) return
+      const now = lastListed.current
+      cursor = now && now.path === from ? now.nextCursor : null
+      if (!cursor) return setLoadingMore(false)
+    }
+    const listing = loads.current
+    const current = () => listing === loads.current
     try {
-      const r = await api.call(API.tree, { query: { path, limit: 200, cursor: tree.nextCursor } })
+      const r = await api.call(API.tree, { query: { path, limit: FOLDER_PAGE, cursor } })
       if (!current()) return
       setTree((cur) => (cur && cur.path === from ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : cur))
     } catch (e) {
@@ -427,6 +494,28 @@ function Files() {
     anchor.current = null
   }
 
+  /** A batch's rows leave the listing at once, each as its own change (store/fileChanges.ts) answered by the batch's
+   * outcome: done stays done, a failure or a no puts the row back (the batch's one toast says why: no toast per row). */
+  const leaveAtOnce = (items: readonly FileEntry[]) => {
+    const answers = new Map(items.map((e) => {
+      const answer = later<void>()
+      void placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => answer.promise, failText: false })
+      return [e.path, answer] as const
+    }))
+    return {
+      settle: (r: Outcome) => {
+        for (const e of r.done) answers.get(e.path)?.resolve()
+        for (const f of r.failed) answers.get(f.entry.path)?.reject(f.error)
+        for (const e of r.declined) answers.get(e.path)?.reject(DECLINED)
+        // (none left: every item is in one of the three)
+        for (const a of answers.values()) a.reject(DECLINED)
+      },
+      fail: (err: unknown) => {
+        for (const a of answers.values()) a.reject(err)
+      },
+    }
+  }
+
   /** Move items into one folder: the selection's "move", and rows dropped on a folder or a breadcrumb. Only those the
    * person may change (the rest are skipped and counted); one question when some of them would be hidden from other
    * people; one toast. `select`: as reportBatch. */
@@ -435,6 +524,10 @@ function Files() {
     const fixed = items.filter(isFixed).length
     const skipped = items.length - ok.length - fixed
     const skipWords = [skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null, fixed ? t('files.bulk.skipFixed', { n: fixed }) : null].filter(Boolean).join(' ')
+    // the destination's kept listing does not have them yet: read when it opens
+    dropFolders([folderKey(folder)])
+    // they leave the listing at once (store/fileChanges.ts); the batch's outcome answers each one (one toast for all)
+    const each = leaveAtOnce(ok)
     setRunning('move')
     try {
       const r = await moveMany(ok, folder, {
@@ -443,6 +536,7 @@ function Files() {
         confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
         confirmSkills: confirmSkillsOn,
       })
+      each.settle(r)
       reportBatch(
         r,
         {
@@ -453,9 +547,14 @@ function Files() {
         undefined,
         select,
       )
+    } catch (err) {
+      // rows back, and why
+      each.fail(err)
+      fail(err)
     } finally {
       setRunning(null)
-      void load()
+      // (the folder on screen now: another one may have opened meanwhile)
+      void onScreen.current?.load()
     }
   }
 
@@ -482,7 +581,7 @@ function Files() {
       })
     } finally {
       setRunning(null)
-      void load()
+      void onScreen.current?.load()
     }
   }
 
@@ -493,21 +592,22 @@ function Files() {
     const skipped = chosen.length - items.length - fixedChosen
     const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
     if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
+    const each = leaveAtOnce(items)
     setRunning('delete')
     try {
       const r = await trashMany(items, { remove: (p) => api.call(API.remove, { query: { path: p } }) })
-      const undo = async () => {
-        try {
-          for (const id of r.trashIds) await api.call(API.restoreTrash, { params: { id } })
-        } catch (err) {
-          fail(err)
-        }
-        void load()
-      }
+      each.settle(r)
+      // trashIds are in the order of r.done
+      const undo = () => untrash(r.done.map((entry, i) => ({ entry, trashId: r.trashIds[i]! })))
       reportBatch(r, { done: (n) => t('files.bulk.trashed', { n }), failed: (n, list) => t('files.bulk.deleteFailed', { n, list }), okLevel: 'info' }, { label: t('common.undo'), run: () => void undo() })
+    } catch (err) {
+      // rows back, and why
+      each.fail(err)
+      fail(err)
     } finally {
       setRunning(null)
-      void load()
+      // (the folder on screen now: another one may have opened meanwhile)
+      void onScreen.current?.load()
     }
   }
 
@@ -577,70 +677,81 @@ function Files() {
   const mkdir = async () => {
     const name = await promptDialog({ title: t('files.newFolder'), label: t('files.folderName'), confirm: t('common.create'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name) return
-    try {
-      await api.call(API.mkdir, { body: { path: joinPath(path, name) } })
-      void load()
-    } catch (e) {
-      fail(e)
-    }
+    // in the listing at once, in its place among the folders; the server's copy (its own time, its rights) settles it
+    const at = joinPath(path, name)
+    const made = madeEntry({ name, path: at, type: 'folder', size: null, mtime: new Date().toISOString(), mime: null, access: 'write' })
+    await placeEntry({ key: fileChangeKey(at), from: null, to: made, send: () => api.call(API.mkdir, { body: { path: at } }), confirmed: (r) => r })
+    void onScreen.current?.load()
   }
 
   /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats (named). */
   const confirmSkillsOn = (skills: string[]) =>
-    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('files.moveAnyway') })
+    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('files.moveAnyway') })
 
   /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), or more people would see
    * it (out of a personal folder; QA TC-115), ask first, then confirm.
    * A project's folder moved to projects/<name> turns its skills on in that project's chats: that is asked first too. */
-  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean; askWiden?: boolean }): Promise<boolean> => {
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean; askWiden?: boolean }): Promise<MoveResult | null> => {
     // out of my personal folder to where more people see it: asked first as well (QA TC-115)
     body = { ...body, askWiden: true }
     try {
-      await api.call(API.move, { body })
-      return true
+      return await api.call(API.move, { body })
     } catch (err) {
       const skills = projectSkillsOn(err)
       if (skills) {
-        if (!(await confirmSkillsOn(skills))) return false
+        if (!(await confirmSkillsOn(skills))) return null
         return moveConfirmed({ ...body, skillsOk: true })
       }
       const added = widenedBy(err)
       if (added !== null) {
-        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t('files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return false
-        await api.call(API.move, { body: { ...body, confirm: true } })
-        return true
+        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t('files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
+        return await api.call(API.move, { body: { ...body, confirm: true } })
       }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
       const n = Number(err.body.params.lostViewers ?? 0)
-      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return false
-      await api.call(API.move, { body: { ...body, confirm: true } })
-      return true
+      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return null
+      return await api.call(API.move, { body: { ...body, confirm: true } })
     }
   }
+
+  /** A move or rename at once (store/fileChanges.ts): the row leaves its place (`to`: where it shows instead; null: it
+   * leaves this listing for another folder, read there when it opens), the server's questions are asked meanwhile, a
+   * no or a refusal puts it back (a refusal with one toast). */
+  const moveEntry = (e: FileEntry, dest: string, onExists: 'fail' | 'rename', to: FileEntry | null) =>
+    placeEntry<MoveResult>({
+      key: fileChangeKey(e.path),
+      from: e,
+      to,
+      send: async () => {
+        const r = await moveConfirmed({ from: e.path, to: dest, onExists })
+        if (!r) throw DECLINED
+        return r
+      },
+      confirmed: to ? (r) => r.entry : undefined,
+    }).then((r) => {
+      // the listing as the server has it now (its order, a name it changed)
+      void onScreen.current?.load()
+      return r
+    })
 
   const rename = async (e: FileEntry) => {
     // a file's name starts selected without its extension (".bashrc" and a folder: all of it)
     const dot = e.type === 'folder' ? -1 : e.name.lastIndexOf('.')
     const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, select: dot > 0 ? dot : e.name.length, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name || name === e.name) return
-    try {
-      if (await moveConfirmed({ from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' })) void load()
-    } catch (err) {
-      fail(err)
-    }
+    const dest = joinPath(parentPath(e.path), name)
+    // the new name in its place in the folder at once
+    await moveEntry(e, dest, 'fail', madeEntry({ ...e, name, path: dest }))
   }
 
   const moveTo = async (folder: string) => {
     const e = moving
     setMoving(null)
     if (!e) return
-    try {
-      if (!(await moveConfirmed({ from: e.path, to: joinPath(folder, e.name), onExists: 'rename' }))) return
-      toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
-      void load()
-    } catch (err) {
-      fail(err)
-    }
+    // the destination's kept listing does not have it yet: read when it opens
+    dropFolders([folderKey(folder)])
+    const r = await moveEntry(e, joinPath(folder, e.name), 'rename', null)
+    if (r.ok && r.newest) toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
   }
 
   /** '공유' (design tab 2 rule 3): copy the file into a team folder; first say how many more people will see it. */
@@ -661,19 +772,21 @@ function Files() {
     }
   }
 
+  /** Undo of the trash: the rows back at once (the server's copy, " (restored)" when the name was taken meanwhile). */
+  const untrash = (items: readonly { entry: FileEntry; trashId: string }[]) =>
+    Promise.all(
+      items.map(({ entry, trashId }) =>
+        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => api.call(API.restoreTrash, { params: { id: trashId } }), confirmed: (r) => r.entry }),
+      ),
+    ).then(() => void onScreen.current?.load())
+
   const remove = async (e: FileEntry) => {
     if (!(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
-    try {
-      const r = await api.call(API.remove, { query: { path: e.path } })
-      toast({
-        level: 'info',
-        text: t('files.trashed', { name: e.name }),
-        action: { label: t('common.undo'), run: () => void api.call(API.restoreTrash, { params: { id: r.trashId } }).then(() => load(), fail) },
-      })
-      void load()
-    } catch (err) {
-      fail(err)
-    }
+    // out of the listing at once; "moved to the trash" with its Undo comes with the server's answer
+    const r = await placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => api.call(API.remove, { query: { path: e.path } }) })
+    void onScreen.current?.load()
+    if (!r.ok || !r.newest) return
+    toast({ level: 'info', text: t('files.trashed', { name: e.name }), action: { label: t('common.undo'), run: () => void untrash([{ entry: e, trashId: r.reply.trashId }]) } })
   }
 
   // a file goes into a new chat as an attachment (a team-file reference); a folder is named in the prompt
@@ -892,7 +1005,7 @@ function Files() {
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
         {/* the trash is a row of 파일's list beside the rail, so no tabs here; the list says 파일 already, the breadcrumbs
             where this is: the title is for screen readers */}
-        <h1 className={clsx('mr-2 text-lg font-semibold', view !== 'trash' && 'sr-only')}>{view === 'trash' ? t('files.trash') : t('files.title')}</h1>
+        <h1 className={clsx('mr-2 text-title font-semibold', view !== 'trash' && 'sr-only')}>{view === 'trash' ? t('files.trash') : t('files.title')}</h1>
         {view === 'files' && (
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave
@@ -959,7 +1072,7 @@ function Files() {
       {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
       <TabPanel base={null} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
-        <TrashView />
+        <TrashView projects={projects} />
       ) : (
         <>
           {/* while rows are dragged the breadcrumbs come back: a drop there moves them up. Phones: the bar above says
@@ -1028,7 +1141,7 @@ function Files() {
                 )}
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
-                  <EmptyState icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
+                  <EmptyState screen icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
                     {canAdd && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}
@@ -1245,8 +1358,8 @@ function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; chi
   if (!phone) return <>{children}</>
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="flex min-w-0 items-center gap-2">{children}</span>
-      {meta && <span className="truncate text-xs text-muted" data-testid="file-row-meta">{meta}</span>}
+      <span className="flex min-w-0 items-center gap-2 text-row">{children}</span>
+      {meta && <span className="truncate text-meta text-muted" data-testid="file-row-meta">{meta}</span>}
     </span>
   )
 }
@@ -1269,6 +1382,13 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   // pressed them on their group's folder only to read "only an admin can")
   const changeable = writable && !e.fixed
   const menuId = useId()
+  // a right-click on the row (the menu key, Shift+F10): its ⋯ menu at the pointer; Shift keeps the browser's own
+  const [menuRequest, setMenuRequest] = useState(0)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const openMenuAt = (at: { x: number; y: number }) => {
+    setMenuAt(at)
+    setMenuRequest((n) => n + 1)
+  }
   // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
   // does not open it; while something is selected (`selecting`) a tap does the same instead of opening. Phones also show
   // the row in two lines (the name; date · size) and offer "Select" in its ⋯
@@ -1294,14 +1414,21 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   const icon = (I: typeof FileIcon) => <I size={14} className="shrink-0" aria-hidden />
   const fixedWhy = writable && e.fixed ? `${menuId}-fixed` : undefined
   const aiWhy = aiOff ? `${menuId}-ai-off` : undefined
+  // the right-click menu's own items (components/FileMenu.tsx, as on a room's picture): 이미지 복사 for a picture, read
+  // through the file's own address (a HEIC photo as the server's JPEG), and 링크 복사, the app's address of the file or
+  // folder (only people who may open it can)
+  const copyLink = useCopyFileLink()
+  const picture = !folder && previewKind(e.name) === 'image' && canCopyImage() ? { src: serverPreview(e.name) ? api.url(API.preview, { query: { path: e.path } }) : fileUrl(e.path, 'inline'), thumb: false } : null
   const items: MenuItem[] = [
     ...(pressSelect && !selecting && !dim ? [{ label: t('files.selectRow'), icon: icon(SquareCheck), onSelect: () => onCheck(false), testId: 'file-select' }] : []),
     ...(!folder && previewKind(e.name) ? [{ label: t('common.preview'), icon: icon(Eye), onSelect: run(onOpen), testId: 'file-preview' }] : []),
+    ...(picture ? [{ label: t('fileMenu.copyImage'), icon: icon(ImageIcon), onSelect: run(() => copyImageFrom(picture, t)), testId: 'file-copy-image' }] : []),
+    { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void copyLink(teamFileLink(e.path))), testId: 'file-copy-link' },
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
     { label: t(chatItemKey(folder), { name: aiName(t) }), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
     ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
     ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
-    ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(Users), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),
+    ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(UserPlus), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),
     ...(!folder ? [{ label: t('files.history'), icon: icon(History), onSelect: run(onHistory), testId: 'file-history' }] : []),
     ...(onSuggest ? [{ label: t('suggest.button'), icon: icon(BookmarkPlus), onSelect: run(onSuggest), testId: 'suggest-skill-file' }] : []),
     ...(!folder ? [{ label: t('files.share'), icon: icon(Copy), onSelect: run(onShare), testId: 'share-file' }] : []),
@@ -1310,7 +1437,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     { label: t('files.move'), icon: icon(FolderInput), onSelect: run(onMove), disabled: !changeable, describedBy: fixedWhy, testId: 'file-move' },
     { label: t('files.moveToTrash'), icon: icon(Trash2), onSelect: run(onDelete), danger: true, disabled: !changeable, describedBy: fixedWhy, testId: 'file-trash' },
   ]
-  const why = 'px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:text-sm'
+  const why = 'px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3'
   const footer = (aiWhy || fixedWhy) && (
     <>
       {aiWhy && <p id={aiWhy} className={why} data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly', { name: aiName(t) })}</p>}
@@ -1371,7 +1498,19 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           onPointerCancel={endPress}
           onPointerLeave={endPress}
           // a phone's own long-press menu (Android) does not open over the selection
-          onContextMenu={(ev) => (press.current || pressed.current) && ev.preventDefault()}
+          onContextMenu={(ev) => {
+            if (press.current || pressed.current) return ev.preventDefault()
+            if (dim || ev.shiftKey) return
+            ev.preventDefault()
+            const r = ev.currentTarget.getBoundingClientRect()
+            openMenuAt(ev.button === 2 || ev.clientX || ev.clientY ? { x: ev.clientX, y: ev.clientY } : { x: r.left, y: r.bottom })
+          }}
+          onKeyDown={(ev) => {
+            if (dim || !isMenuKey(ev)) return
+            ev.preventDefault()
+            const r = ev.currentTarget.getBoundingClientRect()
+            openMenuAt({ x: r.left, y: r.bottom })
+          }}
           // phones: a row of 48px or more to tap, and a long press selects the row, not its text
           className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline max-md:min-h-12 max-md:gap-3 max-md:py-1.5 max-md:select-none max-md:hover:no-underline max-md:[-webkit-touch-callout:none]"
           title={dim ? dimTitle : undefined}
@@ -1442,6 +1581,8 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
             footer={footer}
             muted
             buttonRef={menuTrigger}
+            openRequest={menuRequest}
+            at={menuAt}
             buttonClassName="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:size-11"
             sheetTitle={words.name(e.path, e.name)}
             testId="file-menu"
@@ -1608,86 +1749,204 @@ function eventText(e: FileHistoryEvent, t: ReturnType<typeof useT>): string {
   }
 }
 
-/** The trash: what was deleted, by whom and when it goes for good, each with Restore. Phones: the name, then the folder
- * it was in, in words (전사 공유 › 양식, never `shared/양식`), then when, under a one-line note; Restore's toast names
- * that folder in words too. */
-function TrashView() {
+/** The trash (docs/AGENTS/plan/20261113-1557-trash-ui-tc1040.md, QA TC-1040): each item by its name and the place it
+ * was in, in the Files sidebar's words (lib/trashList.ts; never a storage path), who deleted it and when it goes for
+ * good ("in 18 days", the date in its tooltip). The same original path deleted more than once is one row with its
+ * copies: the row's Restore brings back the latest, and the row opens to each copy with its own Restore. One line on
+ * top says how long items stay. Someone whose list has other people's deletes can show only their own ("Deleted by
+ * me", GET /api/files/trash?mine=1). What is listed and who may restore it is the server's, unchanged. */
+function TrashView({ projects }: { projects: readonly { name: string; folderPath: string }[] }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
+  const meNow = useMeStrict()
+  const me = meNow.user.id
   const phone = useMediaQuery('(max-width: 767.98px)')
+  const tabs = useId()
+  const deleteProject = useDeleteProject()
+  const [who, setWho] = useState<'all' | 'mine'>('all')
   const [items, setItems] = useState<TrashItem[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const load = useCallback(async (more = false) => {
+  // the switch stays once the Everyone list has shown someone else's delete (it is also how one gets back to Everyone)
+  const [others, setOthers] = useState(false)
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+  // a page asked for before a switch that is not shown when it comes
+  const asked = useRef(0)
+  const load = useCallback(async (more: boolean, whose: 'all' | 'mine') => {
+    const n = ++asked.current
     try {
-      const r = await api.call(API.trash, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
-      setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
+      const r = await api.call(API.trash, { query: { limit: 100, ...(whose === 'mine' ? { mine: '1' as const } : {}), cursor: more ? cursor ?? undefined : undefined } })
+      if (n !== asked.current) return
+      // a later page: its copies join the rows already there (lib/trashList.ts groupTrash over every loaded page)
+      setItems((cur) => (more && cur ? mergePage(cur, r.items) : r.items))
       setCursor(r.nextCursor)
       setError(null)
+      if (whose === 'all' && showWhoSwitch(r.items, me)) setOthers(true)
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      if (n === asked.current) setError(errorText(e, locale, t('error.network')))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor])
+  }, [cursor, me])
   useEffect(() => {
-    void load(false)
+    void load(false, who)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [who])
+  const place: PlaceWords = useMemo(
+    () => ({ words, me, projects, root: t('files.root'), myProjects: t('projectsPanel.mine'), personal: words.name('users', 'users') }),
+    [words, me, projects, t],
+  )
+  // Restore: the copy leaves the trash at once (lib/optimistic.ts); a refusal puts it back in its place with the
+  // server's words; "restored to …" (the place in words) comes with the answer
   const restore = async (it: TrashItem) => {
-    setBusy(it.id)
-    try {
-      const r = await api.call(API.restoreTrash, { params: { id: it.id } })
-      // phones: the folder it went back to, in words (short, no storage path)
-      toast({ level: 'success', text: t('files.restoredTo', { path: phone ? words.path(parentPath(r.entry.path), ' › ') || t('files.root') : r.entry.path }) })
-      setItems((cur) => cur?.filter((x) => x.id !== it.id) ?? null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(null)
+    const at = items?.findIndex((x) => x.id === it.id) ?? -1
+    const r = await optimistic({
+      key: `filetrash:${it.id}:restore`,
+      from: false,
+      to: true,
+      show: (out: boolean) =>
+        setItems((cur) => {
+          if (!cur) return cur
+          const rest = cur.filter((x) => x.id !== it.id)
+          return out ? rest : [...rest.slice(0, Math.max(0, at)), it, ...rest.slice(Math.max(0, at))]
+        }),
+      send: () => api.call(API.restoreTrash, { params: { id: it.id } }),
+    })
+    if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: placeWords(parentPath(r.reply.entry.path), place) }) })
+    // a project came back with its folder: the project lists read it again (its card, its members' too)
+    if (r.ok && it.project) {
+      void readProjectList().catch(() => {})
+      void readManagedList({ fresh: true }).catch(() => {})
     }
   }
-  const sorted = useMemo(() => items ?? [], [items])
+  // a team project in the trash, deleted for good from here (the owner and admins): the project's own delete, with its
+  // confirm (pages/Projects.tsx useDeleteProject: its files, and where its shared chats go; QA TC-1061, TC-1063)
+  const forGood = async (it: TrashItem) => {
+    if (!it.project) return
+    const d = await deleteProject({ id: it.project.id, name: it.project.name, folderPath: it.originalPath, instructions: '', createdBy: null, createdAt: it.deletedAt, canEdit: false, inTrash: true })
+    if (d === 'gone') setItems((cur) => cur && cur.filter((x) => x.id !== it.id))
+  }
+  const groups = useMemo(() => groupTrash(items ?? []), [items])
+  const days = useMemo(() => retentionDays(items ?? []), [items])
+  const toggle = (key: string) =>
+    setOpen((cur) => {
+      const next = new Set(cur)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  // phones: the day only, so a copy's line fits beside Restore
+  const deleted = (it: TrashItem) => t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: phone ? new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric' }).format(new Date(it.deletedAt)) : formatShortDateTime(it.deletedAt, locale) })
+  const goes = (it: TrashItem) => (
+    <span title={t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })} data-testid="trash-purge">
+      {t('files.purgeIn', { when: purgeIn(it.purgeAt, locale) })}
+    </span>
+  )
+  const restoreButton = (it: TrashItem, label: string | undefined, testId: string) => (
+    <Button size="sm" onClick={() => void restore(it)} aria-label={label} data-testid={testId}>
+      {!phone && <ArchiveRestore size={14} aria-hidden />} {t('common.restore')}
+    </Button>
+  )
+  const list = (
+    // a page's main list (ListRow scale="page", docs/DECISIONS.md "Page lists: page density"): 48px rows, the icons
+    // flush with the line above, the fill reaching out past them
+    <ul data-testid="trash-list">
+      {groups.map((g) => {
+        const latest = g.items[0]!
+        const p = trashPlace(latest, place)
+        const Icon = p.kind === 'project' ? FolderKanban : ICONS[iconKind(p.name, p.kind === 'folder')]
+        const many = g.items.length > 1
+        const opened = many && open.has(g.key)
+        const meta = (
+          <>
+            <span data-testid="trash-where">{p.where}</span>
+            {/* phones: the place first; who and when are on each copy, the date in the tooltip */}
+            {!phone && <> · {deleted(latest)}</>} · {goes(latest)}
+          </>
+        )
+        return (
+          <Fragment key={g.key}>
+            <ListRow
+              scale="page"
+              icon={<Icon />}
+              name={p.name}
+              nameTitle={p.name}
+              nameTestId="trash-name"
+              meta={meta}
+              tag={many ? t('files.trashCopies', { n: g.items.length }) : undefined}
+              tagTestId="trash-copies"
+              strong
+              onClick={many ? () => toggle(g.key) : undefined}
+              expanded={many ? opened : undefined}
+              testId={many ? 'trash-copies-toggle' : undefined}
+              end={many ? <ChevronRight size={14} className={clsx('shrink-0 self-center text-faint transition-transform motion-reduce:transition-none', opened && 'rotate-90')} aria-hidden /> : undefined}
+              // a project: its row opens its page (who moved it there, Restore, Delete for good), and on a computer the
+              // owner and admins delete it for good here too
+              to={p.kind === 'project' && latest.project && !many ? `/projects/${latest.project.id}` : undefined}
+              actions={
+                p.kind === 'project' && latest.project && isAdmin(meNow) && !phone ? (
+                  <span className="flex items-center gap-1">
+                    <Button size="sm" variant="ghost-danger" onClick={() => void forGood(latest)} data-testid="trash-project-delete">
+                      {t('projects.deleteForGood')}
+                    </Button>
+                    {restoreButton(latest, undefined, 'trash-restore')}
+                  </span>
+                ) : restoreButton(latest, undefined, 'trash-restore')
+              }
+              li={{ 'data-testid': 'trash-item', 'data-path': latest.originalPath, ...(p.kind === 'project' ? { 'data-kind': 'project' } : {}) }}
+            />
+            {opened &&
+              g.items.map((it) => (
+                <ListRow
+                  key={it.id}
+                  scale="page"
+                  icon={<History />}
+                  name={deleted(it)}
+                  meta={<>{formatSize(it.size, locale)} · {goes(it)}</>}
+                  actions={restoreButton(it, t('files.trashRestoreCopy', { date: formatShortDateTime(it.deletedAt, locale) }), 'trash-copy-restore')}
+                  li={{ className: 'pl-row-indent', 'data-testid': 'trash-copy', 'data-id': it.id }}
+                />
+              ))}
+          </Fragment>
+        )
+      })}
+    </ul>
+  )
   return (
-    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
-      <p className="mb-3 text-xs text-faint" data-testid="trash-note">{t(phone ? 'files.trashNoteShort' : 'files.trashNote')}</p>
-      {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
-      {!items && !error && <Skeleton lines={5} />}
-      {items && !items.length && <EmptyState icon={<Trash2 size={28} />} title={t('files.trashEmpty')} />}
-      <ul className="divide-y divide-line" data-testid="trash-list">
-        {sorted.map((it) => (
-          <li key={it.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm max-md:flex-nowrap" data-testid="trash-item">
-            {phone && (() => {
-              const Icon = ICONS[iconKind(baseName(it.originalPath), it.type === 'folder')]
-              return <Icon size={20} className={clsx('shrink-0', it.type === 'folder' ? 'text-accent-text' : 'text-muted')} aria-hidden />
-            })()}
-            <span className="min-w-0 flex-1">
-              {phone ? (
-                <>
-                  <span className="block truncate font-medium" data-testid="trash-name">{baseName(it.originalPath)}</span>
-                  <span className="block truncate text-xs text-muted" data-testid="trash-where">{words.path(parentPath(it.originalPath), ' › ') || t('files.root')}</span>
-                </>
-              ) : (
-                <span className="block truncate font-medium">{it.originalPath}</span>
-              )}
-              <span className="block text-xs text-faint">
-                {t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: formatDateTime(it.deletedAt, locale) })} · {t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })}
-              </span>
-            </span>
-            <Button size="sm" busy={busy === it.id} onClick={() => restore(it)} className="shrink-0" data-testid="trash-restore">
-              <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {cursor && (
-        <div className="py-3 text-center">
-          <Button size="sm" onClick={() => void load(true)}>
-            {t('common.loadMore')}
-          </Button>
+    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6" data-testid="trash-view">
+      {others && (
+        <div className="mb-3 flex">
+          <Tabs
+            segmented
+            label={t('files.trashWho')}
+            panels={tabs}
+            value={who}
+            onChange={(v) => {
+              setItems(null)
+              setCursor(null)
+              setOpen(new Set())
+              setWho(v)
+            }}
+            items={[
+              { id: 'all', label: t('files.trashEveryone') },
+              { id: 'mine', label: t('files.trashMine') },
+            ]}
+          />
         </div>
       )}
+      <TabPanel base={others ? tabs : null} value={who}>
+        {days !== null && <p className="mb-2 text-meta text-faint" data-testid="trash-note">{t('files.trashNoteDays', { days })}</p>}
+        {error && <ErrorNote onRetry={() => void load(false, who)}>{error}</ErrorNote>}
+        {!items && !error && <Skeleton lines={5} />}
+        {items && !items.length && <EmptyState screen icon={<Trash2 size={28} />} title={t(who === 'mine' ? 'files.trashMineEmpty' : 'files.trashEmpty')} />}
+        {list}
+        {cursor && (
+          <div className="py-3 text-center">
+            <Button size="sm" onClick={() => void load(true, who)} data-testid="trash-more">
+              {t('common.loadMore')}
+            </Button>
+          </div>
+        )}
+      </TabPanel>
     </div>
   )
 }

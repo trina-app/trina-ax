@@ -240,9 +240,12 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
   await page.getByTestId('dialog-confirm').click()
   await expect(row(page, 'renamed.txt')).toHaveCount(0)
   await openFilesPlace(page, 'trash')
-  await expect(page.getByTestId('trash-list')).toContainText('marketing/renamed.txt')
-  await page.getByTestId('trash-list').getByRole('button', { name: '되돌리기' }).click()
-  await expect(page.getByText('marketing/renamed.txt(으)로 되돌렸어요.')).toBeVisible()
+  // the name and the folder it was in, not the storage path (QA TC-1040)
+  const trashed = page.getByTestId('trash-item').filter({ hasText: 'renamed.txt' })
+  await expect(trashed.getByTestId('trash-name')).toHaveText('renamed.txt')
+  await expect(trashed.getByTestId('trash-where')).toHaveText('marketing')
+  await trashed.getByTestId('trash-restore').click()
+  await expect(page.getByText('marketing(으)로 되돌렸어요.')).toBeVisible()
 })
 
 test('the trash has its own address: 파일 › 휴지통 sets ?view=trash, a link and a reload open it, Back returns to the folder', async ({ page }) => {
@@ -256,7 +259,9 @@ test('the trash has its own address: 파일 › 휴지통 sets ?view=trash, a li
   await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { name: '휴지통', exact: true })).toBeVisible()
-  await expect(page.getByText('삭제 예정일은', { exact: false })).toBeVisible()
+  // an empty trash: its empty state, no retention line (that line comes with items: their retention, QA TC-1040)
+  await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
+  await expect(page.getByTestId('trash-note')).toHaveCount(0)
   // the row pressed again: no second Back step. Back: the folder it was in
   await openFilesPlace(page, 'trash')
   await page.goBack()
@@ -307,7 +312,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       for (const name of names) await expect(row(page, name)).toHaveCount(0)
 
       await openFilesPlace(page, 'trash')
-      await expect(page.getByText(t['files.trashNote'], { exact: true })).toBeVisible()
+      await expect(page.getByTestId('trash-note')).toHaveText(translate(locale, 'files.trashNoteDays', { days }))
       const response = await page.request.get('/api/files/trash')
       expect(response.ok()).toBe(true)
       const { items } = await response.json() as { items: TrashItem[] }
@@ -320,21 +325,23 @@ for (const locale of ['ko', 'en', 'id'] as const) {
           expect(Math.abs(Date.parse(item.purgeAt) - Date.parse(item.deletedAt) - days * 86400_000)).toBeLessThan(1000)
           savedDates.set(item.id, item.purgeAt)
         }
-        const entry = page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: item.originalPath })
-        await expect(entry).toContainText(translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
+        // "removed in N days", the saved date in its tooltip
+        const entry = page.locator(`[data-testid="trash-item"][data-path="${item.originalPath}"]`)
+        await expect(entry.getByTestId('trash-purge')).toHaveAttribute('title', translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
       }
     }
     // Returning to the original setting must not extend the newer 10-day items either.
     expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { trashRetentionDays: 30 } })).ok()).toBe(true)
     await page.reload()
     await openFilesPlace(page, 'trash')
-    await expect(page.getByText(t['files.trashNote'], { exact: true })).toBeVisible()
+    // the line says what the latest delete was given (10 days); the items keep their own dates
+    await expect(page.getByTestId('trash-note')).toHaveText(translate(locale, 'files.trashNoteDays', { days: 10 }))
     const { items } = await (await page.request.get('/api/files/trash')).json() as { items: TrashItem[] }
     expect(items).toHaveLength(6)
     for (const item of items) {
       expect(item.purgeAt).toBe(savedDates.get(item.id))
-      await expect(page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: item.originalPath }))
-        .toContainText(translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
+      await expect(page.locator(`[data-testid="trash-item"][data-path="${item.originalPath}"]`).getByTestId('trash-purge'))
+        .toHaveAttribute('title', translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
     }
   })
 
@@ -559,10 +566,12 @@ test('no pencil on a file in a read-only folder; a writable one keeps it (QA TC-
   const panel = page.getByTestId('file-panel')
   await expect(panel.locator('table')).toContainText('q3')
   await expect(panel.getByTestId('file-edit')).toHaveCount(0)
-  // still none once the panel knows the person's access
-  await expect.poll(() => access).toContain('read')
+  // still none once the panel knows the person's access: from the folder as listed (its row's access), so the panel
+  // asks nothing more for it (docs/DECISIONS.md "Folders, project pages and file previews open at once")
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await page.waitForTimeout(300)
   await expect(panel.getByTestId('file-edit')).toHaveCount(0)
+  expect(access).toEqual([])
   await expect(page.getByText('읽기 전용 폴더')).toBeVisible()
   // the same kind of file where the person can write: the pencil is there
   await page.goto('/files?path=marketing')
@@ -604,6 +613,37 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
   await page.getByRole('button', { name: '새로 고침' }).click()
   // this save's copy (the mock also has an older copy of Bob's)
   await expect(row(page, 'plan (충돌 사본 - Olga)')).toBeVisible()
+})
+
+test('edits not saved: closing the panel or opening another file asks first; No stays in the editor', async ({ page }) => {
+  const t = DICTS.ko
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await row(page, 'plan.md').getByRole('button').first().click()
+  const panel = page.getByTestId('file-panel')
+  await panel.getByTestId('file-edit').click()
+  const editor = panel.getByTestId('file-editor')
+  await editor.fill('# Plan\n\nnot saved yet\n')
+  const question = page.getByRole('dialog', { name: t['preview.discardTitle'] })
+  // the panel's own ✕: asked; No keeps the editor and what was typed
+  await panel.getByRole('button', { name: t['common.close'], exact: true }).click()
+  await expect(question).toBeVisible()
+  await question.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(panel).toBeVisible()
+  await expect(editor).toHaveValue('# Plan\n\nnot saved yet\n')
+  // another file from the list: asked too, and the editor still holds the text after No
+  await row(page, 'data.csv').getByRole('button').first().click()
+  await expect(question).toBeVisible()
+  await question.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(editor).toHaveValue('# Plan\n\nnot saved yet\n')
+  // Yes (버리기) closes the panel; with nothing edited there is no question
+  await panel.getByRole('button', { name: t['common.close'], exact: true }).click()
+  await question.getByRole('button', { name: t['preview.discard'], exact: true }).click()
+  await expect(panel).toHaveCount(0)
+  await row(page, 'plan.md').getByRole('button').first().click()
+  await page.getByTestId('file-panel').getByRole('button', { name: t['common.close'], exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 // ---------------- several items at once (checkboxes and the selection bar) ----------------
@@ -702,8 +742,8 @@ test('move several files: one question for all that would become private, one to
   await page.goto('/files?path=users/olga')
   await page.getByTestId('select-all').click()
   await expect(bar(page)).toContainText('3개 선택됨')
-  await bar(page).getByRole('button', { name: '공유(복사)' }).click()
-  const sharePicker = page.getByRole('dialog', { name: '파일 3개 공유할 폴더 고르기' })
+  await bar(page).getByRole('button', { name: '다른 폴더에 복사…' }).click()
+  const sharePicker = page.getByRole('dialog', { name: '파일 3개 복사할 폴더 고르기' })
   await sharePicker.getByRole('button', { name: '팀 폴더' }).click()
   await sharePicker.getByRole('button', { name: 'docs' }).click()
   await sharePicker.getByTestId('folder-pick').click()
@@ -899,7 +939,7 @@ test('a file from disk through the browser\'s own drag input: refused folder row
   await expect(page.getByTestId('upload-list')).toContainText('docs/from-the-computer.txt')
   expect(await uploads()).toBe(before + 1)
   await openFilesPlace(page, 'trash')
-  await dropAt(...(await centre(page.getByText(DICTS.ko['files.trashNote']))))
+  await dropAt(...(await centre(page.getByTestId('trash-view'))))
   await expect(page).toHaveURL(/\/files\?view=trash$/)
   expect(await uploads()).toBe(before + 1)
 })

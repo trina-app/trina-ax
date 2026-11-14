@@ -45,7 +45,7 @@ const looked = (host: string) => lookups.filter((x) => x === host.toLowerCase())
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'p0-exfil-server', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p0-exfil-server', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   // the office's exit address is known (otherwise every address asks: tools/egress.ts)
   noteEgressIp(h.ctx, '198.51.100.7')
   alice = await h.ws('alice', { windowId: 'win-p0-exfil' })
@@ -234,7 +234,7 @@ describe('scheduled tasks (F1, review M4)', () => {
   test('the long-query line in five languages, on "다시 확인" too, and while the server does not know its address', () => {
     const longUrl = `https://report.example.org/save?d=${'x'.repeat(201)}`
     const input = { title: 't', prompt: `Read ${secretUrl} and ${longUrl} and ${longUrl}&more=1.`, repeat: 'daily' as const, time: '09:00' }
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const mode of ['create', 'review'] as const) {
         const c = scheduleCard(input, [], L, mode)
         expect(c.longQuery).toHaveLength(2)

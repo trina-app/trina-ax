@@ -6,6 +6,7 @@ import { createRef } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { Chat, type Me } from '@mycel/shared/api'
 import { ChatTitleMenu } from '../../src/components/chat/ChatTitleMenu'
+import { menuBoxCls, menuRowCls } from '../../src/components/rooms/MenuButton'
 import { useChatMenuItems } from '../../src/components/chat/chatMenuItems'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
@@ -61,7 +62,7 @@ for (const pinned of [false, true]) {
     try {
       await m.click('chat-menu')
       const list = items(m)
-      expect(list.map((e) => e.getAttribute('data-testid'))).toEqual([pinned ? 'chat-unpin' : 'chat-pin', 'chat-copy-link', 'chat-rename', 'chat-delete'])
+      expect(list.map((e) => e.getAttribute('data-testid'))).toEqual([pinned ? 'chat-unpin' : 'chat-pin', 'chat-copy-link', 'chat-rename', 'chat-share', 'chat-delete'])
       expect(list[0]!.textContent?.trim()).toBe(ko(pinned ? 'chat.unpin' : 'chat.pin'))
       expect(list[0]!.textContent?.trim()).toBe(row.label!)
       expect(iconOf(list[0]!)).toBe(rowIcon!)
@@ -85,12 +86,29 @@ test("someone else's shared chat: the pin is there though nothing else is mine t
   }
 })
 
-test('no call from the page: no item (the menu as before)', async () => {
+test('no call from the page: no item but the link and Share… (a chat of mine outside projects)', async () => {
   const c = chat()
   const m = await mount(<ChatTitleMenu chat={c} title={c.title} />)
   try {
     await m.click('chat-menu')
-    expect(items(m).map((e) => e.getAttribute('data-testid'))).toEqual(['chat-copy-link'])
+    expect(items(m).map((e) => e.getAttribute('data-testid'))).toEqual(['chat-copy-link', 'chat-share'])
+  } finally {
+    await m.unmount()
+  }
+})
+
+// QA TC-1083: the title menu is the app's menu box (rooms/MenuButton.tsx), as wide as its longest item, not a fixed
+// 224px in which "Share with project members" wrapped; its rows the app's menu rows
+test('the title menu uses the shared menu box and rows: its width fits the longest item', async () => {
+  const c = chat({})
+  const m = await mount(<ChatTitleMenu chat={c} title={c.title} onPin={() => {}} onRename={() => {}} onDelete={() => {}} />)
+  try {
+    await m.click('chat-menu')
+    const box = items(m)[0]!.parentElement!
+    expect(box.getAttribute('role')).toBe('menu')
+    for (const cls of menuBoxCls.split(' ')) expect(box.className).toContain(cls)
+    expect(box.className).not.toMatch(/(^| )w-56( |$)/)
+    for (const it of items(m)) for (const cls of menuRowCls.split(' ')) expect(it.className).toContain(cls)
   } finally {
     await m.unmount()
   }

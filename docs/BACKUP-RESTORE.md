@@ -55,6 +55,30 @@ Before any replacement, make a current backup, pause team use and preserve the c
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 
+## Accounts deleted after the backup
+
+A database restore brings back every account deleted after the backup was made: the backup still has the person's
+row, sign-in and private data. It also brings back deletion requests as they were at the backup time: one cancelled
+since is open again, one made since is gone. / 백업 뒤에 삭제한 계정은 DB 복원으로 되살아나고, 그 뒤의 삭제 요청·취소는 사라져요. 복원 전에 목록을 받아 두세요.
+
+1. Before the restore, list from the live database what happened since the backup's time: Admin › Activity log,
+   "Removed a member", "Requested account deletion" and "Cancelled the account deletion request" from that date on
+   (or on Linux, as the service account:
+   `sqlite3 -readonly /var/lib/mycel/data/app.db "SELECT action, target, at FROM audit_log WHERE action IN ('user.delete', 'account.deletion_request', 'account.deletion_cancel') AND at >= '<backup time, ISO>'"`).
+   Keep the list with the restore record, not in a team folder.
+2. After the restart, nobody is deleted at once: a deletion date that passed while the server was down, or that the
+   restored copy carries, moves to 24 hours after the start, and the person is told in their inbox. Within those 24
+   hours:
+   - **Removed since the backup:** delete each again in Admin › Members & invites (personal files: "Move to the owner's
+     archive", as before). They were already deleted, so doing it now breaks no promise.
+   - **Cancelled since the backup:** ask the person to open Settings › Profile › Delete account and press "Keep my
+     account" (their request is open again in the restored copy).
+   - **Asked since the backup:** do not delete them by hand; that would be earlier than the date they were shown. Ask
+     them to ask again (a new 7-day date), or delete them in Members only on or after the date in the list.
+3. Backups themselves keep a deleted person's data until they rotate out (daily backups 14 days, the weekly full
+   backup 8 weeks, update and manual backups 30 days on the hosted service). Nobody reads them for anything but a
+   restore; the account deletion page and the privacy policy say "up to 8 weeks".
+
 ## Going back to the version before an update (Linux)
 
 Use this when an update (for example 0.4.0 → 0.5.0) went wrong and the team must run the old version again. The old version cannot read a database the new version has already changed, so you put back the copy of the database from just before the update and start the old version in one go. Do not use Admin › System › Update › **Go back** or a plain server restart for this: a restart starts the new version, which changes the restored copy again.
@@ -112,6 +136,37 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    Both show the old version (`version 0.4.0`). `root files` still shows the newer version: that is expected, the root programs only move forward and work with the old version. Sign in, and open a chat and a file from before the update: they are there, and what was written after the update is not. On 0.4.0, Admin › System › Backups and the activity log do not say that a backup was put back (they do from 0.5.0 on), so this check is how you see it.
 
 6. While automatic updates are off, Admin › Home shows the newer version with an **Install now** button. Do not press it until the problem is fixed. When the problem is fixed, make a backup first. Then either install the new version once, now, with `sudo mycel-ctl update` (automatic updates stay off), or turn automatic updates back on with `sudo mycel-ctl auto-update on` (the new version is installed in the next update window).
+
+## Going back from the folder access update (reader level 7, Linux)
+
+The update that makes folder access add up like Google Drive (migration `121_a_folder_limited.sql`, docs/DECISIONS.md "Folder access adds up like Google Drive (P2)") converts every folder's rules once and raises the database's reader level to 7. An older version then refuses to start ("database needs schema reader level 7 … Restore the backup made before the update"), and Admin › System › Update › **Go back** refuses too. There is no automatic way back (M6-A). Use this runbook only when the team must run the version before that update again.
+
+Do **not** use `stage-restore` (or the section above) for this one. A staged copy is put back by whichever version starts next, and if that is the new version it migrates and converts the copy again; even when the older version puts it back, a database-only restore keeps the folder permissions as they are now, so it would get the converted rules read in the old way. Put the copy back by hand while the server is stopped.
+
+**Roll back soon.** Every later update makes its own pre-migrate copy and older copies are pruned with the backups, so the copy from before this update is not kept for ever.
+
+What you lose: everything written in Trina after the update (chats and messages, new accounts, settings, every folder permission change, Limit access, scheduled-task runs). Team files on disk stay as they are. Folders created or limited after the update have no settings of their own after the rollback: they follow the folder above, so an admin checks them in Folder permissions before people sign in again.
+
+Define `trina_admin` as in [Make a backup now](#make-a-backup-now) (default install: base `/var/lib/mycel`, service account `axserver`), then:
+
+1. Turn automatic updates off, so the new version is not installed again: `sudo mycel-ctl auto-update off`.
+2. Find the copy made just before the update: `trina_admin list-backups`. Take the newest entry with `"kind": "pre-migrate"` whose `createdAt` is the first start of the new version. Its file is `/var/lib/mycel/data/backups/<id>.db`. **Check it is from before the update** (install `sqlite3` if needed; do not go on without this check): `sqlite3 -readonly <file> "select count(*) from schema_migrations where name like '121_a_folder_limited%'"` must print `0`, and `sqlite3 -readonly <file> "pragma integrity_check"` must print `ok`. If the newest pre-migrate copy prints `1`, it was made by a later update: take the newest one that prints `0` (the newest loses the least).
+3. Check that the version you go back to is still staged: `ls /var/lib/mycel/app/versions/`. If it is not, stage its release first: `trina_admin stage-update <bundle.tar.zst>`.
+4. Stop the server: `sudo systemctl stop mycel-server`. Check that it is stopped (`systemctl is-active mycel-server` says `inactive`).
+5. Put the converted database aside (keep it until the team is sure) and the copy in its place, as the service account:
+
+   ```sh
+   cd /var/lib/mycel/data
+   for s in '' -wal -shm; do [ -e "app.db$s" ] && sudo -u axserver mv "app.db$s" "app.db.after-folder-update$s"; done
+   sudo -u axserver cp backups/<id>.db app.db && sudo -u axserver chmod 600 app.db
+   ```
+
+6. Point the app at the older version and start it: `trina_admin switch <old version>`, then `sudo systemctl start mycel-server`.
+7. Check: `curl -s http://127.0.0.1:47820/api/health` shows the older version and `"readerLevel": 6` (or lower). Sign in as an admin: Folder permissions shows the folders as they were before the update; open a folder that was closed then, as a member, and check it is still closed.
+
+When the problem is fixed, make a backup, then install the new version again (`sudo mycel-ctl update`): it converts the folder rules again from what is there then.
+
+**Rehearsed** 2026-11-14 on a copy of the QA-Acme test team (macOS, dev mode, not a Linux install): the version before the update (dev 404ccf46e) → this update (feat/folder-access-additive): converted, reader level 7, 13 folders limited, the same access for every person on all 22 team folders → the older version refused the converted database → steps 2, 4, 5 and the start with the older version → it started at reader level 6, no `limited` column and no conversion marker, and every person's access on all 22 folders equal to before the update. Not rehearsed: the Linux commands themselves (`mycel-ctl`, `systemctl`, `trina_admin switch`); they are the ones the section above uses.
 
 ## Office replacement and a new machine
 

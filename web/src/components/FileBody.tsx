@@ -13,7 +13,7 @@
 import clsx from 'clsx'
 import { Download, Loader2 } from 'lucide-react'
 import Papa from 'papaparse'
-import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { fetchFileBlob, fetchRoomFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, roomFileUrl, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
@@ -27,11 +27,12 @@ import type { PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
-import { CodeBlock, Markdown } from './Markdown'
+import { CodeBlock, Markdown } from './LazyMarkdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { useMe } from '../store/session'
+import { fileRead, keptFile, sameBytes } from '../store/teamFiles'
 import { Button, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
@@ -65,36 +66,62 @@ export interface FileBlob {
  * video 60 MB, the rest 50 MB); `truncate`: only the beginning is read, never "too large". */
 export type FileLimit = (kind: PreviewKind) => { max: number; truncate: boolean }
 
+/** Which read of a file's bytes: the same file read with other limits, or as the server's picture, is another copy. */
+const blobVariant = (limit: { max: number; truncate: boolean }, viaServer: boolean) => `${viaServer ? 'server' : 'bytes'}:${limit.max}:${limit.truncate ? 'start' : 'all'}`
+
 /** Reads a file's bytes for FileBody: `file` is where they are (a team path, a room's file, one from this computer);
  * `rev` reads them again (a retry, a save); `limits`: how much may be read of each kind. */
 export function useFileBlob(file: PreviewFile, rev = 0, limits: FileLimit = previewLimit): FileBlob {
   const t = useT()
   const locale = useLocale()
-  const [blob, setBlob] = useState<Blob | null>(file.source === 'local' ? file.blob : null)
-  const [error, setError] = useState<FileBlobError | null>(null)
-  const [downloadOnly, setDownloadOnly] = useState(false)
   const me = useMe()
   // a HEIC photo needs the server's JPEG (and a Hangul file its pages), made from team files, so a local one (not
   // uploaded yet) and a room file have no preview; but a room's Hangul file gets its pages while the HWP preview is on
   const viaServer = serverPreview(file.name)
   const kind = file.source !== 'team' && viaServer && !(file.source === 'room' && roomHwpPreview(file.name, me)) ? null : previewKind(file.name)
+  /** a small team file this window showed a moment ago (store/teamFiles.ts): drawn at once, read again behind it */
+  const kept = (): Blob | null => {
+    if (file.source !== 'team' || !kind || kind === 'hwp') return null
+    return keptFile(file.path, blobVariant(limits(kind), viaServer))
+  }
+  const [blob, setBlob] = useState<Blob | null>(() => (file.source === 'local' ? file.blob : kept()))
+  const [error, setError] = useState<FileBlobError | null>(null)
+  const [downloadOnly, setDownloadOnly] = useState(false)
+  /** the file and `rev` the last read was for: another `rev` of the same file (a retry, a save) never starts from the
+   * kept bytes */
+  const readFor = useRef<{ file: PreviewFile; rev: number } | null>(null)
 
   useEffect(() => {
     if (file.source === 'local') return
     let live = true
     const ctrl = new AbortController()
-    setBlob(null)
+    const again = readFor.current?.file === file && readFor.current.rev !== rev
+    const shown = again ? null : kept()
+    readFor.current = { file, rev }
+    setBlob(shown)
     setError(null)
     setDownloadOnly(false)
     if (!kind || kind === 'hwp') return
     const limit = limits(kind)
+    const variant = blobVariant(limit, viaServer)
+    // a team file's bytes are kept for a return (store/teamFiles.ts: not when the file changed while they were read)
+    const keep = file.source === 'team' ? fileRead(file.path, variant) : null
     const load = file.source === 'room'
       ? fetchRoomFileBlob(file.roomId, file.fileId, limit.max, ctrl.signal, { truncate: limit.truncate })
       : viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
     load.then(
-      (b) => live && setBlob(b),
-      (e: unknown) => {
+      (b) => {
+        keep?.(b)
         if (!live) return
+        // the same bytes as shown: the viewer stays as it is (no second drawing of a PDF)
+        if (shown) void sameBytes(shown, b).then((same) => live && !same && setBlob(b))
+        else setBlob(b)
+      },
+      (e: unknown) => {
+        // (a read stopped because the preview moved on is no reason to forget what was kept)
+        if (!live) return keep?.()
+        keep?.(null)
+        if (shown) setBlob(null)
         // too many conversions now, or a wait over the server's limit: "busy, try again", not "cannot preview"
         if (isApiError(e, 'unavailable') && e.body.params?.reason === 'quarantined') {
           setDownloadOnly(true)

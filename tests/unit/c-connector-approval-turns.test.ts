@@ -19,7 +19,7 @@ const published: { userId: string; ev: any }[] = []
 const fakeLines = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'c-approval-turns', askUserTimeoutMs: 6000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'c-approval-turns', askUserTimeoutMs: 6000, stallTimeoutMs: 60_000 })
   const hub = h.rt().hub
   const publish = hub.publish.bind(hub), publishTo = hub.publishTo.bind(hub)
   hub.publish = (userId, ev) => { published.push({ userId, ev: JSON.parse(JSON.stringify(ev)) }); publish(userId, ev) }

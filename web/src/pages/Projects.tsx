@@ -37,10 +37,13 @@
 // ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { scheduleName } from '../lib/scheduleText'
+import { useSessionMarkers } from '../store/sessionMarkers'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
+import type { Chat, FileEntry, Project, ProjectParticipant, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { RAIL_STATE_KEY } from '../lib/rail'
@@ -54,13 +57,19 @@ import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
 import { accessChanged, chatChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
-import { readManagedList, useProjects } from '../store/projects'
+import { hideProject, keepPendingProject, readManagedList, showProject, unhideProject, useProjects } from '../store/projects'
+import { optimistic, optimisticPending } from '../lib/optimistic'
+import { chatOrder, folderMoved, keepFaces, useProjectPage, withChatEvent } from '../store/projectPage'
+import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { isAdmin, useMe } from '../store/session'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
+import { ListRow } from '../components/list/List'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
+import { forgetPrivateAsk, usePrivateAsk } from '../components/chat/privateAsk'
+import { mayShareChat, openShareChat } from '../components/chat/ShareChat'
+import { ChatFaces, PrivateIcon, SharedIcon, otherWriters } from '../components/chat/SharedChat'
 import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -70,10 +79,12 @@ import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
+import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { isProjectsFolder } from '../lib/projectFolders'
-import { refusalKey } from '../lib/sharedChat'
+import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
+import { leaveItems, useLeaveProject } from '../components/LeaveProject'
 import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
@@ -82,27 +93,66 @@ import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
 
-/** A project's chats as its page lists them: my pinned ones first (the most recently pinned first, as the server's first
- * page has them), then the newest. */
-const chatOrder = (a: Chat, b: Chat) =>
-  a.pinnedAt || b.pinnedAt
-    ? (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
-    : a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1
-
-/** A chat of the list as it is now, with the faces of who wrote in it it had: those come with the list only, not with a
- * chat event or an action's answer. */
-const keepFaces = (old: Chat | undefined, chat: Chat): Chat =>
-  old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
-
 /** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
 
 /** Who may rename and delete it, also without reading it (Project.canManage; older servers: whoever may edit it). */
 const mayManage = (p: Project) => p.canManage ?? p.canEdit
+/** Delete is offered only where the server takes it (Project.canDelete: a member's older project on an admin's folder
+ * is an admin's to delete, QA TC-1016) */
+const mayDelete = (p: Project) => p.canDelete ?? mayManage(p)
+
+/** The menu item that deletes it says what it does (QA TC-1064): a team project in projects/ goes to the trash ("Move to
+ * trash", as its confirm asks); in the trash, or any other project, "Delete". */
+const deleteLabel = (t: ReturnType<typeof useT>, p: Project) => t(isProjectsFolder(p.folderPath) && !p.inTrash ? 'projects.moveToTrash' : 'common.delete')
 
 /** What deleting did: `gone` (deleted for good, or not found any more), the project in the trash now (a team project in
  * projects/ the caller still manages: the owner and admins), or null (cancelled, refused). */
 export type Deleted = 'gone' | Project | null
+
+/**
+ * A team project into the trash, or back out of it, at once (lib/optimistic.ts, key `project:<id>:trash`): the owner
+ * and admins keep its card and its page, saying it is in the trash; anyone else's card goes. `onShown` gets what is on
+ * screen each time it changes ('gone': not on the list any more). A refusal puts it back with the server's words.
+ * The answer: the project as the server has it now (null: not the caller's to see any more).
+ */
+function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (now: Project | 'gone') => void, failText?: false) {
+  let at = -1
+  // a member keeps its card in the trash (Project.wasMember; QA TC-1060), and so does whoever restores it
+  const shown = (inTrash: boolean): Project | 'gone' => (inTrash && !keeps ? 'gone' : { ...p, inTrash, ...(inTrash && p.member !== false ? { wasMember: true as const } : {}) })
+  return optimistic<boolean, Project | null>({
+    key: `project:${p.id}:trash`,
+    from: !!p.inTrash,
+    to: trashed,
+    show: (inTrash) => {
+      const now = shown(inTrash)
+      if (now === 'gone') at = hideProject(p.id)
+      else if (at >= 0 || !useProjects.getState().managed?.some((x) => x.id === p.id)) unhideProject(now, at)
+      else showProject(now)
+      onShown?.(now)
+    },
+    send: async () => {
+      if (trashed) await api.call(API.deleteProject, { params: { id: p.id } })
+      else return api.call(API.restoreProject, { params: { id: p.id } })
+      // in the trash with its folder: the owner and admins still have it (to restore or delete for good); its private
+      // chats keep it
+      return projectNow(p.id).catch(() => null)
+    },
+    confirmed: (r) => (r ? !!r.inTrash : trashed),
+    settle: (r) => {
+      if (r) {
+        useProjects.getState().put(r)
+        // a card taken off the list for someone the server still shows it to: back in its place
+        if (at >= 0) unhideProject(r, at)
+        onShown?.(r)
+      } else {
+        useProjects.getState().drop(p.id, true)
+        onShown?.('gone')
+      }
+    },
+    failText,
+  })
+}
 
 /**
  * Deleting a project, from its page and from its card on the list: one confirm and one call, by what the project is
@@ -115,10 +165,11 @@ export type Deleted = 'gone' | Project | null
  *   trash (said when it has any, by the count the server gives now).
  * Also gone when someone else deleted it first.
  */
-function useDeleteProject() {
+export function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
-  const days = chatTrashDays(useMe())
+  const me = useMe()
+  const days = chatTrashDays(me)
   const deleted = (id: string) => {
     useProjects.getState().drop(id, true)
     // the server took the project off its private chats (its shared chats go to the trash with their own event): the
@@ -130,7 +181,8 @@ function useDeleteProject() {
     useProjects.getState().drop(id, true)
     toast({ level: 'info', text: t('projects.missing') })
   }
-  return async (p: Project): Promise<Deleted> => {
+  /** `onShown`: the trash shows at once (a team project in projects/): what is on screen each time it changes */
+  return async (p: Project, onShown?: (now: Project | 'gone') => void): Promise<Deleted> => {
     // the menu is gone once the count below has arrived: the keyboard goes back to its button
     const opener = menuOpener() ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     let now = p
@@ -150,9 +202,36 @@ function useDeleteProject() {
     const ask = toTrash
       ? { title: t('projects.trashTitle', { name: now.name }), body: t('projects.trashBody'), confirm: t('files.moveToTrash') }
       : forGood
-        ? { title: t('projects.deleteForGoodTitle', { name: now.name }), body: t('projects.deleteForGoodBody'), confirm: t('projects.deleteForGood') }
+        ? {
+            title: t('projects.deleteForGoodTitle', { name: now.name }),
+            // its shared chats go to their creators' trash (routes/chats.ts deleteProject; QA TC-1063)
+            body: now.sharedChats ? (
+              <>
+                {t('projects.deleteForGoodBody')}
+                <span className="mt-2 block" data-testid="project-delete-shared">{t('projects.deleteForGoodShared', { days, trash: t('sidebar.trash') })}</span>
+              </>
+            ) : t('projects.deleteForGoodBody'),
+            confirm: t('projects.deleteForGood'),
+          }
         : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : now.folderPath.startsWith('users/') ? t('projects.deletePersonal') : t('projects.deleteBody'), confirm: t('common.delete') }
     if (!(await confirmDialog({ ...ask, danger: true }))) return null
+    if (toTrash) {
+      // at once (deleting for good and any other delete wait: they cannot be taken back)
+      // its members and whoever manages it keep it, In trash (the Projects list shows it to its members only)
+      const r = await trashProject(now, true, true, onShown, false)
+      if (!r.ok) {
+        if (!r.newest) return null
+        // someone else deleted it first
+        if (isApiError(r.error, 'not_found')) {
+          missing(p.id)
+          onShown?.('gone')
+          return 'gone'
+        }
+        toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
+        return null
+      }
+      return r.reply ?? 'gone'
+    }
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
     } catch (e) {
@@ -163,38 +242,36 @@ function useDeleteProject() {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       return null
     }
-    if (toTrash) {
-      // in the trash with its folder: the owner and admins still have it (to restore or delete for good); its private
-      // chats keep it
-      const after = await projectNow(p.id).catch(() => null)
-      if (after) {
-        useProjects.getState().put(after)
-        return after
-      }
-      useProjects.getState().drop(p.id, true)
-      return 'gone'
-    }
     deleted(p.id)
     return 'gone'
   }
 }
 
 /** A new name for a project: the chat rename's small prompt (name only, so also for the owner or an admin who is not a
- * member: never the edit dialog, which sends its instructions). The project as saved, or null. */
+ * member: never the edit dialog, which sends its instructions). On screen at once wherever the project is named
+ * (lib/optimistic.ts, key `project:<id>:name`; `onName`: a page's own copy), back with the server's words when it
+ * refuses. The project as saved (null: cancelled, refused, or renamed again meanwhile). */
 function useRenameProject() {
   const t = useT()
-  const locale = useLocale()
-  return async (p: Project): Promise<Project | null> => {
+  return async (p: Project, onName?: (name: string) => void): Promise<Project | null> => {
     const name = await promptDialog({ title: t('chat.rename'), label: t('projects.name'), initial: p.name, confirm: t('common.save') })
     if (!name || name === p.name) return null
-    try {
-      const r = await api.call(API.updateProject, { params: { id: p.id }, body: { name } })
-      useProjects.getState().put(r)
-      return r
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      return null
-    }
+    const r = await optimistic<string, Project>({
+      key: `project:${p.id}:name`,
+      from: p.name,
+      to: name.trim(),
+      show: (v) => {
+        showProject({ ...(useProjects.getState().byId[p.id] ?? p), name: v })
+        onName?.(v)
+      },
+      send: () => api.call(API.updateProject, { params: { id: p.id }, body: { name } }),
+      confirmed: (r) => r.name,
+      settle: (r) => {
+        useProjects.getState().put(r)
+        onName?.(r.name)
+      },
+    })
+    return r.ok && r.newest ? r.reply : null
   }
 }
 
@@ -207,6 +284,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
   const { copy } = useCopy()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
+  const leaveProject = useLeaveProject()
   // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
   // screen (none should be) gives the keyboard to its row's link instead of losing it
   const more = useRef<HTMLButtonElement>(null)
@@ -223,6 +301,16 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     const r = await renameProject(p)
     if (r) onRenamed(r)
   }
+  const del = async () => {
+    // (gone at once, then again with the answer: the keyboard moves on once)
+    let gone = false
+    const d = await remove(p, (now) => {
+      if (now !== 'gone' || gone) return
+      gone = true
+      onDeleted('gone')
+    })
+    if (d && !(d === 'gone' && gone)) onDeleted(d)
+  }
   const copyLink = async () => {
     await copy(projectLink(p.id))
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
@@ -231,7 +319,9 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     ...(mayManage(p) ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
     ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(onMembers), testId: 'project-card-members' }] : []),
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
-    ...(mayManage(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((d) => d && onDeleted(d))), testId: 'project-card-delete' }] : []),
+    ...leaveItems(t, p, select(async () => { if (await leaveProject(p)) onDeleted('gone') }), 'project-card-leave'),
+    // the trash shows at once: the card says so, or (not kept there for me) goes
+    ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
   ]
   if (row)
     return (
@@ -352,6 +442,9 @@ export function ProjectList() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
+  // a team project in the trash: its card stays for its members, "In trash" (Project.wasMember, QA TC-1060); the owner
+  // and admins who are not members restore it from Files › Trash, so no card of it for them here (QA TC-1061)
+  const shown = useMemo(() => items?.filter((p) => !p.inTrash || !!p.wasMember) ?? null, [items])
   const renamed = (r: Project) => setItems((xs) => xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -387,15 +480,15 @@ export function ProjectList() {
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
-        {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
+        {shown && !shown.length && <EmptyState screen icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
         {/* the cells of a row stretch to its tallest card, and each card fills its cell */}
         {/* the same sections as 프로젝트's list (panels/ProjectsPanel.tsx): 팀 프로젝트, 내 프로젝트, then, quieter, the team
             projects the owner or an admin only manages (not a member: their name and members only) */}
         {(() => {
           const groups: { key: string; label: string; list: Project[]; quiet?: boolean }[] = [
-            { key: 'team', label: t('projectsPanel.team'), list: (items ?? []).filter((p) => p.member !== false && !onlyMine(p)) },
-            { key: 'mine', label: t('projectsPanel.mine'), list: (items ?? []).filter((p) => p.member !== false && onlyMine(p)) },
-            { key: 'other', label: t('projects.otherTeam'), list: (items ?? []).filter((p) => p.member === false), quiet: true },
+            { key: 'team', label: t('projectsPanel.team'), list: (shown ?? []).filter((p) => (p.member !== false || p.inTrash) && !onlyMine(p)) },
+            { key: 'mine', label: t('projectsPanel.mine'), list: (shown ?? []).filter((p) => p.member !== false && onlyMine(p)) },
+            { key: 'other', label: t('projects.otherTeam'), list: (shown ?? []).filter((p) => p.member === false && !p.inTrash), quiet: true },
           ]
           return groups.filter((g) => g.list.length).map((g) => (
             <section key={g.key} aria-labelledby={`projects-${g.key}`} className="mt-6 first:mt-0" data-testid={`projects-section-${g.key}`}>
@@ -430,50 +523,121 @@ export function ProjectList() {
   )
 }
 
-/** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
- * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
- * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the history row's
- * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
- * a phone. */
-export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat: Chat; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
-  const t = useT()
+/** A project page's chat list rows (a chat, a scheduled task's runs folded into one) are the lists' rows
+ * (components/list/List.tsx ListRow) built the same way, at a page's density (`scale="page"`: 48px, the titles flush
+ * with the heading above them, docs/DECISIONS.md "Page lists: page density"), so every title starts at one x in one size, weight and colour,
+ * every row has one height, and every time ends at one x (QA TC-990): each keeps the "···" slot at its end whether it
+ * has a menu or not (`rowMenu`, `menuSpace`), so the menu showing on hover moves nothing. What a row is (pinned, shared,
+ * a scheduled task's clock) is a small mark after the title, never before it, so no mark moves a title off the list's
+ * edge; how a chat stands (who wrote in it, how a task's runs went) is before its time. */
+function projectRowName(title: string, marks?: ReactNode) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate" data-testid="project-row-title">{title}</span>
+      {marks}
+    </span>
+  )
+}
+function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
   const locale = useLocale()
+  return (
+    <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 self-center text-meta text-faint">
+      {children}
+      <time dateTime={at} className="shrink-0 tabular-nums">{formatRelative(at, locale)}</time>
+    </span>
+  )
+}
+
+/** A chat on a project's page: its title and when it last changed. A shared chat has the faces of the others who wrote
+ * in it before the time (ChatFaces: one person with the name; docs/DECISIONS.md "Faces in every chat list"), or, while
+ * nobody else wrote, the people icon after the title; a chat of mine has neither. The title gives way first: the faces
+ * and the time keep their room. Its "···" holds the history row's items by the same rules
+ * (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on a phone. */
+export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
+  const t = useT()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
   const more = useRef<HTMLButtonElement>(null)
   // the keyboard waits on "…" after an item (a dialog it opens gives it back there)
   const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
+  const name = c.title || t('chat.untitled')
+  const faces = !!c.shared && !!otherWriters(c.shared)
   return (
-    <div className="group relative">
-    <Link ref={row} to={`/c/${c.id}`} state={{ [RAIL_STATE_KEY]: 'projects' }} className="group -mx-2 flex items-center gap-4 rounded-md py-3 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-        {c.shared && <SharedIcon className="text-faint" />}
-        <span className="truncate">{c.title || t('chat.untitled')}</span>
-      </span>
-      <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
-        {c.shared && (
-          <>
-            <ChatFaces shared={c.shared} focusFrom={row} />
-            <span aria-hidden>·</span>
-          </>
-        )}
-        <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
-      </span>
-    </Link>
-    <MenuButton
-      label={t('rooms.menu.rowLabel', { name: c.title || t('chat.untitled') })}
-      tip={t('rooms.menu.label')}
-      items={items}
-      sheetTitle={c.title || t('chat.untitled')}
-      // centred by flex, not a transform: a transform here would hold the phone's fixed bottom sheet inside this box
-      className="absolute inset-y-0 right-0 flex items-center"
-      buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
-      buttonRef={more}
-      testId="project-chat-menu"
+    <ListRow
+      scale="page"
+      to={`/c/${c.id}`}
+      state={{ [RAIL_STATE_KEY]: 'projects', chat: c }}
+      rowRef={row}
+      name={projectRowName(
+        name,
+        <>
+          {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
+          {c.shared && !faces && <SharedIcon className="text-faint" />}
+          {/* my chat that only I see in a team project ("Only me", or from before): only its creator lists it */}
+          {privateInTeamProject(c, project) && <PrivateIcon />}
+        </>,
+      )}
+      end={
+        <ProjectRowEnd at={c.updatedAt}>
+          {faces && (
+            <>
+              <ChatFaces shared={c.shared!} focusFrom={row} page />
+              <span aria-hidden>·</span>
+            </>
+          )}
+        </ProjectRowEnd>
+      }
+      rowMenu={{ items, label: t('rooms.menu.rowLabel', { name }), tip: t('rooms.menu.label'), sheetTitle: name, buttonRef: more, testId: 'project-chat-menu' }}
+      testId="project-chat"
+      link={{ 'data-shared': c.shared ? 'true' : undefined }}
     />
-    </div>
   )
+}
+
+/** A scheduled task's runs started in this project as one row of its chat list (components/nav/TaskRunsRow.tsx): the
+ * task's name with its clock after it, how its newest run went and that run's time; it opens the task's page. */
+function ProjectTaskRow({ runs }: { runs: Run[] }) {
+  const t = useT()
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const unread = runsUnread(runs, here)
+  return (
+    <ListRow
+      scale="page"
+      to={taskRunsPath(runs)}
+      unread={unread}
+      menuSpace
+      name={projectRowName(scheduleName(runs[0]!.schedule, t), <TaskRunsIcon />)}
+      end={
+        <ProjectRowEnd at={runs[0]!.updatedAt}>
+          <TaskRunsMark runs={runs} />
+        </ProjectRowEnd>
+      }
+      testId="task-runs-row"
+      link={taskRunsAttrs(runs, unread)}
+    />
+  )
+}
+
+/** A project page's chats as read, with the rows a move out or a delete still on its way changed on screen (lib/
+ * optimistic.ts keys `chat:<id>:project|trash`): as on screen, there or not. */
+function keepPendingRows(items: Chat[], shown: Chat[] | null): Chat[] {
+  const pending = (id: string) => optimisticPending(`chat:${id}:project`) || optimisticPending(`chat:${id}:trash`)
+  if (!shown) return items
+  const kept = items.flatMap((c) => (!pending(c.id) ? [c] : (shown.find((x) => x.id === c.id) ?? [])))
+  const back = shown.filter((c) => pending(c.id) && !items.some((x) => x.id === c.id))
+  return back.length ? [...kept, ...back].sort(chatOrder) : kept
+}
+
+/** The files line of a project's page: its folder's first page (`failed`: it could not be read, so no count is said). */
+type PageFiles = { entries: FileEntry[]; more: boolean; failed?: boolean }
+const pageFiles = (r: TreeResponse): PageFiles => ({ entries: r.entries, more: !!r.nextCursor })
+
+/** What a project's page shows first: as it was left (store/projectPage.ts) with its folder as last listed. */
+function keptPage(id: string | undefined): { project: Project | null; chats: Chat[] | null; files: PageFiles | null } {
+  const kept = id ? useProjectPage.getState().pages[id] : undefined
+  if (!kept) return { project: null, chats: null, files: null }
+  const folder = kept.project.member === false ? null : keptFolder(kept.project.folderPath)
+  return { project: kept.project, chats: kept.chats, files: folder && pageFiles(folder) }
 }
 
 // Files from this computer dropped anywhere on a project's page go into its new-chat box, as on Home and a chat's page
@@ -491,12 +655,18 @@ function ProjectPage() {
   const locale = useLocale()
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const [p, setP] = useState<Project | null>(null)
+  // a project seen a moment ago shows as it was at once (store/projectPage.ts, its files store/teamFiles.ts) and is read
+  // again behind it
+  const [p, setP] = useState<Project | null>(() => keptPage(projectId).project)
   const [missing, setMissing] = useState(false)
+  // not found because I was taken out of it (or left): its name (QA TC-1067)
+  const [goneFrom, setGoneFrom] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [chats, setChats] = useState<Chat[] | null>(null)
+  const [chats, setChats] = useState<Chat[] | null>(() => keptPage(projectId).chats)
+  const shownChats = useRef(chats)
+  shownChats.current = chats
   // failed: the folder could not be read (a network error); the line then says no count rather than a wrong one
-  const [files, setFiles] = useState<{ entries: FileEntry[]; more: boolean; failed?: boolean } | null>(null)
+  const [files, setFiles] = useState<PageFiles | null>(() => keptPage(projectId).files)
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
   // a chat row's ⋯ 프로젝트 변경
@@ -517,10 +687,18 @@ function ProjectPage() {
   }
   const me = useMe()
   const phone = useMediaQuery(PHONE)
+  // who is in it (a team project in projects/): the faces under its name; asked again after a save
+  // in the members dialog
+  const [peopleVersion, setPeopleVersion] = useState(0)
+  const people = useProjectPeople(p, peopleVersion)
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
   // type in (with a mouse; a phone's keyboard does not jump up)
   const location = useLocation()
   const newChat = !!(location.state as { newChat?: boolean } | null)?.newChat
+  // "Continue in a chat only you see" from a shared chat (components/chat/privateAsk.ts): the box starts "Only me" with
+  // the question in it (each ask starts the box again)
+  const privateAsk = usePrivateAsk(projectId)
+  useEffect(() => () => forgetPrivateAsk(projectId), [projectId])
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
   const mine = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
@@ -528,37 +706,117 @@ function ProjectPage() {
 
   /** the latest load only may fill the page (another project's page, or a load after a change, started later) */
   const loads = useRef(0)
+  /** the project as on screen now, for a load that starts (its folder is read along with it) */
+  const shownP = useRef(p)
+  shownP.current = p
+  /** the project changed here (renamed, edited, shared, its members saved): a read started before does not show */
+  const projectEdits = useRef(0)
+  const changeP = (next: Project) => {
+    projectEdits.current++
+    setP(next)
+  }
+  /** the chats' changes made since a read started (a row's rename, an event): made again on its answer, numbered */
+  const chatEdits = useRef<{ n: number; f: (cur: Chat[]) => Chat[] }[]>([])
+  const chatEditCount = useRef(0)
+  /** chat reads on their way (no change is kept for later when none is) */
+  const chatReads = useRef(0)
+  const changeChats = (f: (cur: Chat[]) => Chat[]) => {
+    chatEditCount.current++
+    if (chatReads.current) chatEdits.current.push({ n: chatEditCount.current, f })
+    setChats((cur) => cur && f(cur))
+  }
   /**
-   * The project, its chats (mine, and the shared ones I see) and its files. manage=1 (the default): the owner and
-   * admins also get a team project they are not members of (Project.member false: no files then, and the server lists
-   * only my own chats in it); `manage` false once I am a member (after 나를 멤버로 추가).
+   * The project, its chats (mine, and the shared ones I see) and its files, all three at once: its id is in the address,
+   * and its folder is known from the page shown or the projects store (read again after the project when it was not,
+   * or was another). manage=1 (the default): the owner and admins also get a team project they are not members of
+   * (Project.member false: no files then, and the server lists only my own chats in it); `manage` false once I am a
+   * member (after 나를 멤버로 추가). `fresh`: after a change here, so a folder read on its way is not joined.
    */
-  const load = (o: { manage?: boolean } = {}) => {
+  const load = (o: { manage?: boolean; fresh?: boolean } = {}) => {
+    const id = projectId!
     const mine = ++loads.current
     const live = () => mine === loads.current
-    api.call(API.getProject, { params: { id: projectId! }, ...(o.manage === false ? {} : { query: { manage: '1' } }) }).then(
+    const pFrom = projectEdits.current
+    const chatsFrom = chatEditCount.current
+    const known = (shownP.current?.id === id ? shownP.current : null) ?? useProjectPage.getState().pages[id]?.project ?? useProjects.getState().byId[id] ?? null
+    const guess = known && (known.member !== false || o.manage === false) ? known.folderPath : null
+    const folderRead = guess ? readFolder(guess, { fresh: o.fresh }) : null
+    folderRead?.catch(() => {})
+    chatReads.current++
+    api.call(API.listChats, { query: { projectId: id, limit: 50 } }).then(
+      (r) => {
+        if (!live()) return
+        let items = r.items
+        // the changes made while it was read, on top of its answer (an older list never undoes them)
+        for (const c of chatEdits.current) if (c.n > chatsFrom) items = c.f(items)
+        // a chat moved out, or into the trash, and not answered yet: as on screen (this answer may be from before it)
+        items = keepPendingRows(items, shownChats.current)
+        setChats(items)
+      },
+      // what was shown stays (nothing shown: no chats)
+      () => live() && setChats((cur) => cur ?? []),
+    ).finally(() => {
+      if (--chatReads.current === 0) chatEdits.current = []
+    })
+    api.call(API.getProject, { params: { id }, ...(o.manage === false ? {} : { query: { manage: '1' } }) }).then(
       (x) => {
         if (!live()) return
-        setP(x)
+        // changed here while it was read: what is on screen is newer than this answer; a rename or the trash still on
+        // its way stays as on screen
+        const fresh = keepPendingProject(x, shownP.current)
+        const now = projectEdits.current === pFrom ? fresh : (shownP.current ?? fresh)
+        if (now === fresh) setP(fresh)
+        keepable.current = true
+        useProjectPage.getState().keep(id, { project: now, chats: shownChats.current })
         setMissing(false)
         setError(null)
-        useProjects.getState().put(x)
-        api.call(API.listChats, { query: { projectId: x.id, limit: 50 } }).then((r) => live() && setChats(r.items), () => live() && setChats([]))
-        if (x.member === false) setFiles(null)
-        else api.call(API.tree, { query: { path: x.folderPath, limit: 100 } }).then((r) => live() && setFiles({ entries: r.entries, more: !!r.nextCursor }), () => live() && setFiles({ entries: [], more: false, failed: true }))
+        useProjects.getState().put(now)
+        if (now.member === false) setFiles(null)
+        else {
+          const read = guess === now.folderPath && folderRead ? folderRead : readFolder(now.folderPath, { fresh: o.fresh })
+          read.then(
+            (r) => live() && setFiles(pageFiles(r)),
+            () => live() && setFiles((cur) => (cur && !cur.failed ? cur : { entries: [], more: false, failed: true })),
+          )
+        }
       },
       (e) => {
         if (!live()) return
-        if (isApiError(e, 'not_found')) setMissing(true)
-        else setError(errorText(e, locale, t('error.network')))
+        if (isApiError(e, 'not_found')) {
+          setMissing(true)
+          setGoneFrom(noLongerMemberOf(e))
+          useProjectPage.getState().drop(id)
+        } else if (shownP.current?.id !== id) setError(errorText(e, locale, t('error.network')))
+        // (a page shown from a moment ago stays as it was; the next visit reads it again)
       },
     )
   }
 
+  // the page as it is on screen is what a return to it shows first; not while an access change (or a connection that
+  // could not resume) is unanswered: what is on screen may not be mine to see any more until the project is read again
+  const keepable = useRef(true)
   useEffect(() => {
-    setP(null)
-    setChats(null)
-    setFiles(null)
+    if (keepable.current && p && p.id === projectId && !missing) useProjectPage.getState().keep(p.id, { project: p, chats })
+  }, [p, chats, projectId, missing])
+  useEffect(() => {
+    const again = () => {
+      keepable.current = false
+      load({ fresh: true })
+    }
+    const offA = accessChanged.on(again)
+    const offB = reloadAsked.on(again)
+    return () => {
+      offA()
+      offB()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+
+  useEffect(() => {
+    const kept = keptPage(projectId)
+    setP(kept.project)
+    setChats(kept.chats)
+    setFiles(kept.files)
     setMissing(false)
     setError(null)
     setPurged(false)
@@ -575,26 +833,18 @@ function ProjectPage() {
   // the list follows chat events (store/live.ts chatChanged; the server sends each person only the chats they see): a
   // chat of this project made, renamed or restored shows, one deleted, moved away or no longer visible to me goes. The
   // faces of who wrote in a shared chat come with the list only, so a row keeps the ones it had
-  useEffect(() => chatChanged.on(({ chatId, change, chat }) => {
-    setChats((cur) => {
-      if (!cur) return cur
-      const old = cur.find((c) => c.id === chatId)
-      const rest = cur.filter((c) => c.id !== chatId)
-      if (change === 'deleted' || change === 'purged' || !chat || chat.deletedAt || chat.projectId !== projectId) return old ? rest : cur
-      const next = keepFaces(old, chat)
-      return [next, ...rest].sort(chatOrder)
-    })
-  }), [projectId])
+  useEffect(() => chatChanged.on((e) => changeChats((cur) => withChatEvent(cur, projectId!, e))), [projectId])
 
   // a row's rename, pin or move, without waiting for its chat event: the row as it is now, in its place (a pin moves it
-  // up); moved to another project, it goes
-  const chatHere = (chat: Chat) => setChats((cur) => {
-    if (!cur) return cur
+  // up); moved to another project, it goes; a move out of it or a delete the server refused brings it back
+  const chatHere = (chat: Chat) => changeChats((cur) => {
     const old = cur.find((c) => c.id === chat.id)
     const rest = cur.filter((c) => c.id !== chat.id)
-    if (!old || chat.projectId !== projectId) return rest
-    const next = keepFaces(old, chat)
-    return [next, ...rest].sort(chatOrder)
+    if (chat.projectId !== projectId || chat.deletedAt) return rest
+    // gone from here while its move out or its trash is on its way: a late answer of a rename or a pin does not bring it
+    // back (a refusal of those comes after they are answered)
+    if (!old && (optimisticPending(`chat:${chat.id}:trash`) || optimisticPending(`chat:${chat.id}:project`))) return cur
+    return [keepFaces(old, chat), ...rest].sort(chatOrder)
   })
 
   // + in Trina history said "a new chat here": once the box has it (it mounts with the project, its own effect runs
@@ -615,16 +865,36 @@ function ProjectPage() {
   // in the trash with its folder, the owner and admins stay on its page (it says so); deleted for good, or no longer
   // mine to see (its creator after the trash): back to the list
   const remove = useDeleteProject()
+  const leaveProject = useLeaveProject()
+  const leaveIt = async () => {
+    if (!p || !(await leaveProject(p))) return
+    useProjectPage.getState().drop(p.id)
+    navigate('/projects')
+  }
   const del = async () => {
     if (!p) return
-    const d = await remove(p)
-    if (d === 'gone') navigate('/projects')
-    else if (d) load()
+    let left = false
+    const leave = () => {
+      if (left) return
+      left = true
+      useProjectPage.getState().drop(p.id)
+      navigate('/projects')
+    }
+    // the trash at once: its note here (the owner and admins), or back to the list (anyone else)
+    const d = await remove(p, (now) => (now === 'gone' ? leave() : live.current === p.id && changeP(now)))
+    if (d === 'gone') leave()
+    else if (d && live.current === p.id) load({ fresh: true })
   }
+  /** the project on screen now (an answer after the person went to another project's page writes nothing here) */
+  const live = useRef<string | undefined>(projectId)
+  live.current = projectId
+  useEffect(() => () => void (live.current = undefined), [])
   const renameProject = useRenameProject()
   const rename = async () => {
-    const r = p && (await renameProject(p))
-    if (r) setP(r)
+    if (!p) return
+    const id = p.id
+    const r = await renameProject(p, (name) => live.current === id && shownP.current && changeP({ ...shownP.current, name }))
+    if (r && live.current === id) changeP(r)
   }
 
   // 나를 멤버로 추가 (docs/DECISIONS.md "Project contents only for members"): the members as they are now and me, saved
@@ -638,9 +908,9 @@ function ProjectPage() {
       const a = await api.call(API.getProjectAccess, { params: { id: p.id } })
       const participants = [...chosenOf(a).filter((x) => !(x.subjectType === 'user' && x.subjectId === me.user.id)), { subjectType: 'user' as const, subjectId: me.user.id }]
       await api.call(API.putProjectParticipants, { params: { id: p.id }, body: { participants, expectedHash: a.rulesHash } })
-      load({ manage: false })
+      load({ manage: false, fresh: true })
     } catch (e) {
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') load()
+      if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') load({ fresh: true })
       const refused = refusalKey(e, 'project')
       toast({ level: 'error', text: refused ? t(refused) : errorText(e, locale, t('error.network')) })
     } finally {
@@ -650,40 +920,44 @@ function ProjectPage() {
 
   // 되돌리기: the project and its folder back from the trash (the owner and admins; its folder purged meanwhile: the
   // server's words, 409 project_folder_purged, and 되돌리기 goes)
+  // At once (the note goes, the page is the project's again), back with the server's words when it refuses
   const restore = async () => {
     if (!p || busy) return
-    setBusy('restore')
-    try {
-      const r = await api.call(API.restoreProject, { params: { id: p.id } })
-      useProjects.getState().put(r)
-      setP(r)
-      load()
-    } catch (e) {
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'project_folder_purged') setPurged(true)
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(null)
-    }
+    const id = p.id
+    const r = await trashProject(p, false, true, (now) => live.current === id && now !== 'gone' && changeP(now))
+    if (live.current !== id) return
+    if (r.ok) load({ fresh: true })
+    else if (r.newest && isApiError(r.error, 'conflict') && r.error.body.params?.reason === 'project_folder_purged') setPurged(true)
   }
 
   // the members dialog saved: an owner or admin who added or took out themselves loads the page again (its files,
   // instructions and the others' chats come or go)
   const membersSaved = (next: Project) => {
-    if ((next.member === false) !== (p?.member === false)) load({ manage: next.member === false })
-    else setP(next)
+    setPeopleVersion((v) => v + 1)
+    if ((next.member === false) !== (p?.member === false)) load({ manage: next.member === false, fresh: true })
+    else changeP(next)
   }
 
-  if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
+  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? t('projects.noLongerMember', { name: goneFrom }) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
   // name, its members, their own chats in it; nothing of its contents
   const outside = p.member === false
-  const summary = firstParagraph(p.instructions)
   const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
+  // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
+  const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
+  // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
+  // empty folder comes back (a folder with files becomes its one line). A phone: always its one row (QA TC-1072)
+  const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
   const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
+  // in the trash: may bring it back (its folder not deleted for good meanwhile)
+  const restorable = !purged && (p.canRestore ?? (p.trashed === undefined && isAdmin(me)))
+  // where nobody can ask here (the owner or an admin who is not a member, a project in the trash) there is no Trina
+  // history with "Ask here" under it either (QA TC-1066)
+  const canAsk = !outside && !p.inTrash
   // in the trash: no name menu (its note has 되돌리기 and 완전히 삭제; renaming it is not needed there)
   const menu = p.inTrash
     ? null
@@ -691,13 +965,15 @@ function ProjectPage() {
       ? mayManage(p)
         ? [
             { label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'project-rename' },
-            { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' },
+            ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
-      : p.canEdit
+      : p.canEdit || p.leave
         ? [
-            { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' },
-            { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' },
+            ...(p.canEdit ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' }] : []),
+            // a member leaves it (components/LeaveProject.tsx); delete stays last
+            ...leaveItems(t, p, () => void leaveIt(), 'project-leave'),
+            ...(p.canEdit && mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
   return (
@@ -735,28 +1011,39 @@ function ProjectPage() {
       )}
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
         {/* phones: the name is the bar's; here for screen readers only */}
-        <h1 className="text-[1.625rem] font-semibold tracking-tight break-words max-md:sr-only sm:text-[1.875rem]">{p.name}</h1>
-        {summary && (
-          <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted max-md:mt-0" data-testid="project-summary">
-            {summary}
-          </p>
+        <h1 className="text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
+        {/* who is in it, by face (a shared project only): clicking them opens the members dialog; a phone shows them
+            here too, under the bar's name */}
+        {hasMembers && people && people.people.length > 0 && (
+          <div className="mt-2 flex max-md:mt-0" data-testid="project-people-header">
+            <PeopleStack people={people.people} onOpen={() => setMembers(true)} testId="project-header" />
+          </div>
         )}
-        {/* phone: the box, then the side lines, then the chats; wide: the chats under the box, the lines beside them */}
+        {/* no copy of the instructions here: they show once, in 지침 beside the box (QA TC-980) */}
+        {/* phone: the box, then the chats right under it, then the side lines (QA TC-1072); wide: the chats under the
+            box, the lines beside them */}
         <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
           <div className="min-w-0 lg:col-start-1">
             {/* a project whose folder is in the trash takes no chat: the note says so, with what the owner and admins
                 can do; a project I manage without being a member: one quiet block in place of the box */}
             {p.inTrash ? (
+              // who moved it there and when; Restore for the owner, admins and its creator (Project.canRestore, QA
+              // TC-1062; an older server: the owner and admins), Delete for good for the owner and admins; anyone else
+              // (its other members, QA TC-1060) reads who can restore it
               <ProjectTrashNote project={p}>
-                {isAdmin(me) && !purged && (
-                  <Button size="sm" busy={busy === 'restore'} onClick={() => void restore()} data-testid="project-restore">
-                    <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
-                  </Button>
-                )}
-                {mayManage(p) && (
-                  <Button size="sm" variant="ghost-danger" onClick={() => void del()} data-testid="project-delete-for-good">
-                    {t('projects.deleteForGood')}
-                  </Button>
+                {(restorable || mayManage(p)) && (
+                  <>
+                    {restorable && (
+                      <Button size="sm" busy={busy === 'restore'} onClick={() => void restore()} data-testid="project-restore">
+                        <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
+                      </Button>
+                    )}
+                    {mayManage(p) && (
+                      <Button size="sm" variant="ghost-danger" onClick={() => void del()} data-testid="project-delete-for-good">
+                        {t('projects.deleteForGood')}
+                      </Button>
+                    )}
+                  </>
                 )}
               </ProjectTrashNote>
             ) : outside ? (
@@ -769,13 +1056,42 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
-              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.askHere', { name: aiName(t) })} autoFocus={newChat} />
+              <NewChatComposer
+                projectId={p.id}
+                project={p}
+                onMembers={() => setMembers(true)}
+                placeholder={t(phone ? 'projects.askHereShort' : 'projects.askHere', { name: aiName(t) })}
+                autoFocus={newChat || !!privateAsk}
+                {...(privateAsk ? { initialText: privateAsk.text, startPrivate: true, resetKey: privateAsk.n } : {})}
+              />
             )}
           </div>
           {(!outside || hasMembers) && (
-            <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+            <aside aria-label={t('projects.about')} className="min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <div className="divide-y divide-line">
-                {!outside && (
+                {!outside && !p.instructions?.trim() && p.canEdit && phone ? (
+                  // a phone: one line, its name and 지침 쓰기 (QA TC-1072: two empty boxes pushed the chats down)
+                  <DisclosureRow
+                    testId="project-instructions"
+                    icon={<ScrollText size={16} />}
+                    label={t('projects.instructions')}
+                    action={<button type="button" className={`${sideAction} touch-hit`} onClick={() => setEditing(true)} data-testid="project-instructions-write">{t('projects.page.writeInstructions')}</button>}
+                  />
+                ) : !outside && !p.instructions?.trim() && p.canEdit ? (
+                  // none yet, for whoever may edit: a box that says what they are for, with one clear button (filled,
+                  // it is the one quiet line below again)
+                  <EmptySideBox
+                    testId="project-instructions"
+                    icon={<ScrollText size={16} />}
+                    label={t('projects.instructions')}
+                    line={t('projects.page.instructionsEmpty', { ai: aiName(t) })}
+                    lineTestId="project-instructions-empty"
+                  >
+                    <Button size="sm" onClick={() => setEditing(true)} data-testid="project-instructions-write">
+                      <Plus size={14} aria-hidden /> {t('projects.page.writeInstructions')}
+                    </Button>
+                  </EmptySideBox>
+                ) : !outside && (
                   <DisclosureRow
                     testId="project-instructions"
                     icon={<ScrollText size={16} />}
@@ -783,34 +1099,54 @@ function ProjectPage() {
                     // phones: the same 수정 as in the name's menu above, so not a second button here
                     action={p.canEdit ? <button type="button" className={`${sideAction} max-md:hidden`} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
                   >
-                    {p.instructions ? (
+                    {p.instructions?.trim() ? (
                       <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" />
                     ) : (
-                      // none yet: what they are for, and 쓰기 for whoever may edit
+                      // none yet, for someone who cannot edit them (who may, has the box above): what they are for
                       <p className="text-faint" data-testid="project-instructions-empty">
                         {t('projects.page.instructionsEmpty', { ai: aiName(t) })}
-                        {p.canEdit && (
-                          <>
-                            {' · '}
-                            <button type="button" className="text-accent-text hover:underline" onClick={() => setEditing(true)} data-testid="project-instructions-write">{t('projects.page.write')}</button>
-                          </>
-                        )}
                       </p>
                     )}
                   </DisclosureRow>
                 )}
-                {!outside && phone && (
+                {!outside && filesBox && (
+                  // no files yet, for whoever may add them: a box that says what they are for, with one clear button
+                  // to the project's folder in 파일, where files are uploaded (a phone: the project's files screen, as
+                  // its header row, so Back comes here the same way)
+                  <EmptySideBox
+                    loading={!files}
+                    testId="project-files"
+                    icon={<Folder size={16} />}
+                    label={t('files.title')}
+                    head={
+                      phone ? (
+                        <Link to={`/projects/${p.id}/files`} className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 text-sm" data-testid="project-files-open">
+                          <Folder size={16} className="shrink-0 text-muted" aria-hidden />
+                          <span className="min-w-0 truncate font-medium">{t('files.title')}</span>
+                          <ChevronRight size={16} className="ml-auto shrink-0 text-faint" aria-hidden />
+                        </Link>
+                      ) : undefined
+                    }
+                    line={t('projects.page.filesEmptyHint', { ai: aiName(t) })}
+                    lineTestId="project-files-empty"
+                  >
+                    <Button size="sm" onClick={() => navigate(phone ? `/projects/${p.id}/files` : folderLink)} data-testid="project-files-upload">
+                      <Plus size={14} aria-hidden /> {t('projects.page.uploadFiles')}
+                    </Button>
+                  </EmptySideBox>
+                )}
+                {!outside && phone && !filesBox && (
                   // a phone: one row to the project's files, a screen of this tab (Back comes here)
                   <div data-testid="project-files">
                     <Link to={`/projects/${p.id}/files`} className="flex min-h-12 items-center gap-2.5 py-3 text-sm" data-testid="project-files-open">
                       <Folder size={16} className="shrink-0 text-muted" aria-hidden />
                       <span className="min-w-0 truncate font-medium">{t('files.title')}</span>
-                      {files && !files.failed && <span className="shrink-0 text-xs text-faint">{files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length })}</span>}
+                      {files && !files.failed && <span className="shrink-0 text-xs text-faint" data-testid={files.entries.length ? undefined : 'project-files-empty'}>{!files.entries.length ? t('projects.page.filesEmpty') : files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length })}</span>}
                       <ChevronRight size={16} className="ml-auto shrink-0 text-faint" aria-hidden />
                     </Link>
                   </div>
                 )}
-                {!outside && !phone && (
+                {!outside && !phone && !filesBox && (
                   <DisclosureRow
                     testId="project-files"
                     icon={<Folder size={16} />}
@@ -820,24 +1156,21 @@ function ProjectPage() {
                   >
                     {!files && <Skeleton lines={3} />}
                     {files && !files.failed && !files.entries.length && (
-                      // none yet: 올리기 opens its folder in 파일, where files are uploaded
+                      // none yet, for someone who cannot add them (who may, has the box above)
                       <p className="text-faint" data-testid="project-files-empty">
                         {t('projects.page.filesEmpty')}
-                        {p.canEdit && <> · <Link to={folderLink} className="text-accent-text hover:underline" data-testid="project-files-upload">{t('projects.page.upload')}</Link></>}
                       </p>
                     )}
-                    <ul className="-ml-2 space-y-0.5">
+                    {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
+                    <ul className="-mx-3">
                       {files?.entries.slice(0, 30).map((f) => (
-                        <li key={f.path}>
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-hover"
-                            onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
-                          >
-                            {f.type === 'folder' ? <Folder size={14} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={14} className="shrink-0 text-faint" aria-hidden />}
-                            <span className="truncate">{f.name}</span>
-                          </button>
-                        </li>
+                        <ListRow
+                          key={f.path}
+                          onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
+                          icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
+                          name={f.name}
+                          nameTitle={f.name}
+                        />
                       ))}
                     </ul>
                     {files && (files.more || files.entries.length > 30) && (
@@ -864,32 +1197,81 @@ function ProjectPage() {
               {/* no folder path line: people read 파일 (its 열기 opens the folder) and 멤버, not paths */}
             </aside>
           )}
+          {canAsk && (
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
-            <h2 id="pj-chats" className="mb-1 text-sm text-muted">
-              {t('sidebar.aiChats', { name: aiName(t) })}
-            </h2>
+            {/* the heading's line: the name, and at its end, on its baseline, 기존 대화 가져오기 for a member, however many
+                chats it has (QA TC-1001: a task's runs counted too, so it came and went; docs/DECISIONS.md "Making a project") */}
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <h2 id="pj-chats" className="min-w-0 truncate text-title-sm font-semibold">
+                {t('sidebar.aiChats', { name: aiName(t) })}
+              </h2>
+              {!outside && !p.inTrash && (
+                <Button size="sm" className="shrink-0" onClick={() => setImporting(true)} data-testid="project-import">
+                  <Import size={14} aria-hidden /> {t('projects.page.import')}
+                </Button>
+              )}
+            </div>
             {!chats && <Skeleton lines={3} />}
-            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t('projects.page.chatsEmpty')}</p>}
-            {/* a new or nearly empty project: my chats outside projects come in from here (docs/DECISIONS.md "Making a project") */}
-            {chats && chats.length < 3 && !outside && !p.inTrash && (
-              <button type="button" onClick={() => setImporting(true)} className="mt-1 inline-flex min-h-6 items-center text-sm text-accent-text hover:underline pointer-coarse:min-h-11" data-testid="project-import">{t('projects.page.import')}</button>
-            )}
+            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t(isTeamProject(p) && !outside && !me?.server?.allChatsConfidential ? 'projects.page.chatsEmptyTeam' : 'projects.page.chatsEmpty')}</p>}
+            {/* a team project where I have chats only I see (from before, brought in, "Only me"): once, a quiet line between
+                the heading and the list that says how many and opens the list to share them one at a time */}
+            {chats && !outside && !p.inTrash && <PrivateChatsNotice project={p} chats={chats} />}
             <ul className="divide-y divide-line">
-              {chats?.map((c) => (
-                <li key={c.id}>
-                  <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => setChats((cur) => cur && cur.filter((y) => y.id !== x.id))} />
-                </li>
-              ))}
+              {/* the runs of one scheduled task started here: one row of this list that opens the task (nav/TaskRunsRow.tsx) */}
+              {chats && foldRuns(chats, (c) => (
+                <ProjectChatRow chat={c} project={p} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
+              ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>
+          )}
         </div>
       </div>
-      {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
+      {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={changeP} />}
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
-      {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); setChats((cur) => (cur && !cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
+      {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); changeChats((cur) => (!cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
-      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
+      {sharing && <ShareProjectDialog project={p} chats={chats?.length ?? 0} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
+    </div>
+  )
+}
+
+/** An empty Instructions or Files of a project's page, for whoever may fill it: a light box with the line's name, one
+ * short line on what it is for, and one clear button (owner 2026-11-13: empty, the quiet lines were easy to miss). The
+ * filled ones stay the one-line DisclosureRows. `head`: a header of its own in place of the icon and name (a phone's
+ * files row, which is a link). `loading`: what is in it is not known yet: the same box with grey bars in place of the
+ * line and the button. */
+function EmptySideBox({ icon, label, head, line, lineTestId, testId, loading, children }: { icon: ReactNode; label: string; head?: ReactNode; line: string; lineTestId: string; testId: string; loading?: boolean; children: ReactNode }) {
+  return (
+    // no hairlines of the column around a box: its own edge is the line
+    <div className="border-b-0! py-2" data-testid={testId}>
+      <div className="rounded-xl border border-line px-3.5 pt-2 pb-3.5" data-empty={loading ? undefined : 'true'} data-loading={loading ? 'true' : undefined}>
+        {head ? (
+          <div className="flex">{head}</div>
+        ) : (
+          <div className="flex min-h-9 items-center gap-2.5 text-sm">
+            <span className="shrink-0 text-muted" aria-hidden>
+              {icon}
+            </span>
+            <span className="min-w-0 truncate font-medium">{label}</span>
+          </div>
+        )}
+        {loading ? (
+          <div aria-hidden>
+            <div className="mt-0.5 flex h-5 items-center">
+              <div className="h-3.5 w-4/5 animate-pulse rounded bg-subtle" />
+            </div>
+            <div className="mt-3 h-8 w-28 animate-pulse rounded-lg bg-subtle max-md:h-11" />
+          </div>
+        ) : (
+          <>
+            <p className="mt-0.5 text-sm leading-5 break-keep text-muted" data-testid={lineTestId}>
+              {line}
+            </p>
+            <div className="mt-3">{children}</div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -935,6 +1317,9 @@ function ImportChatsDialog({ project, onClose, onMoved }: { project: Project; on
       }
     >
       <p className="mb-2 text-xs text-faint">{t('projects.page.importNote', { ai: aiName(t) })}</p>
+      {/* a team project: what comes in stays mine until I share it (docs/DECISIONS.md "Team project chats shared by
+          default"; QA TC-960) */}
+      {isTeamProject(project) && <p className="mb-2 text-xs break-keep text-faint" data-testid="project-import-private">{t('projects.page.importPrivate')}</p>}
       {!loaded && <Skeleton lines={3} />}
       {loaded && !choices.length && <p className="py-2 text-sm text-faint">{t('projects.page.importNone')}</p>}
       <ul className="max-h-80 space-y-0.5 overflow-y-auto" data-testid="project-import-list">
@@ -951,6 +1336,18 @@ function ImportChatsDialog({ project, onClose, onMoved }: { project: Project; on
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </Modal>
   )
+}
+
+/** The project of a page, as this window knows it without asking: its page seen a moment ago, or the projects store. */
+const knownProject = (id: string | undefined): Project | null => {
+  const p = id ? useProjectPage.getState().pages[id]?.project ?? useProjects.getState().byId[id] ?? null : null
+  // its folder moved since it was read (renamed in another window): the project is asked for again
+  return p && !folderMoved(p.folderPath) ? p : null
+}
+/** A folder's first page as last listed, for a phone's project files. */
+const keptList = (path: string | null) => {
+  const r = path === null ? null : keptFolder(path)
+  return r && { entries: r.entries, cursor: r.nextCursor }
 }
 
 /** A folder of a project's files as the address says it (`?dir=`, relative to the project's folder): no leading or
@@ -974,15 +1371,21 @@ export function ProjectFiles() {
   const dir = projectDir(params.get('dir'))
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE)
-  const [p, setP] = useState<Project | null>(null)
+  // the project as this window knows it (its page a moment ago, or the projects store): a computer goes on to its
+  // folder at once, a phone lists the folder without waiting for it
+  const [p, setP] = useState<Project | null>(() => knownProject(projectId))
   const [missing, setMissing] = useState(false)
-  const [list, setList] = useState<{ entries: FileEntry[]; cursor: string | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [more, setMore] = useState(false)
   const loads = useRef(0)
+  const path = p ? [p.folderPath, dir].filter(Boolean).join('/') : null
+  /** the folder as last listed (store/teamFiles.ts), at once; the next pages (더 보기) are this screen's own */
+  const [list, setList] = useState<{ entries: FileEntry[]; cursor: string | null } | null>(() => keptList(path))
   useEffect(() => {
     let live = true
     setMissing(false)
+    // a computer that knows the project goes to its folder (below) and asks nothing here
+    if (!phone && knownProject(projectId)) return
     api.call(API.getProject, { params: { id: projectId! }, query: { manage: '1' } }).then(
       (x) => { if (!live) return; setP(x); useProjects.getState().put(x) },
       (e) => { if (!live) return; if (isApiError(e, 'not_found')) setMissing(true); else setError(errorText(e, locale, t('error.network'))) },
@@ -990,26 +1393,27 @@ export function ProjectFiles() {
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
-  const path = p ? [p.folderPath, dir].filter(Boolean).join('/') : null
   const read = (cursor?: string) => {
     if (path === null) return
     const mine = cursor ? loads.current : ++loads.current
     if (cursor) setMore(true)
-    api.call(API.tree, { query: { path, limit: 100, ...(cursor ? { cursor } : {}) } }).then(
+    const page = cursor ? api.call(API.tree, { query: { path, limit: FOLDER_PAGE, cursor } }) : readFolder(path)
+    page.then(
       (r) => { if (mine !== loads.current) return; setList((cur) => ({ entries: cursor && cur ? [...cur.entries, ...r.entries] : r.entries, cursor: r.nextCursor })); setError(null) },
       (e) => { if (mine === loads.current) setError(errorText(e, locale, t('error.network'))) },
     ).finally(() => { if (cursor) setMore(false) })
   }
   useEffect(() => {
-    setList(null)
+    setList(keptList(path))
     setError(null)
-    if (p?.member !== false) read()
+    // (a computer goes to the 파일 screen, which lists the folder itself)
+    if (phone && p?.member !== false) read()
     return () => { loads.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, p?.member])
   // a computer: the folder on the 파일 screen (the project's page for someone who is not a member: no files for them)
   if (!phone && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
-  if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
+  if (missing) return <EmptyState screen title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   const name = dir ? dir.slice(dir.lastIndexOf('/') + 1) : t('files.title')
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
   return (
@@ -1031,24 +1435,14 @@ export function ProjectFiles() {
         {p?.member === false && <p className="py-3 text-sm break-keep text-muted" data-testid="project-files-members-only">{t('projects.membersOnly')}</p>}
         {!list && !error && p?.member !== false && <Skeleton lines={4} />}
         {list && !list.entries.length && <p className="py-3 text-sm text-faint">{t('files.emptyReadOnly')}</p>}
-        <ul className="divide-y divide-line">
-          {list?.entries.map((f) => (
-            <li key={f.path}>
-              {f.type === 'folder' ? (
-                <Link to={down(f)} className="flex min-h-12 items-center gap-3 py-2 text-sm" data-testid="project-file" data-type="folder">
-                  <Folder size={18} className="shrink-0 text-accent-text" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                  <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-                </Link>
-              ) : (
-                <button type="button" onClick={() => openTeamFile(f.path)} className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-sm" data-testid="project-file" data-type="file">
-                  <FileText size={18} className="shrink-0 text-faint" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                  <span className="shrink-0 text-xs text-faint">{formatRelative(f.mtime, locale)}</span>
-                </button>
-              )}
-            </li>
-          ))}
+        <ul className="-mx-3">
+          {list?.entries.map((f) =>
+            f.type === 'folder' ? (
+              <ListRow key={f.path} to={down(f)} icon={<Folder className="text-accent-text" />} name={f.name} nameTitle={f.name} end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />} testId="project-file" link={{ 'data-type': 'folder' }} />
+            ) : (
+              <ListRow key={f.path} onClick={() => openTeamFile(f.path)} icon={<FileText />} name={f.name} nameTitle={f.name} end={<span className="shrink-0 self-center text-meta text-faint tabular-nums">{formatRelative(f.mtime, locale)}</span>} testId="project-file" link={{ 'data-type': 'file' }} />
+            ),
+          )}
         </ul>
         {list?.cursor && (
           <Button className="mt-3 w-full" busy={more} onClick={() => read(list.cursor!)} data-testid="project-files-more">
@@ -1069,7 +1463,8 @@ export function ProjectFiles() {
  * by its rules for the owner and admins ("3명", Project.audienceSplit) or the total. Whoever may change its members gets
  * 관리 (the members dialog) and nothing to open; anyone else opens the line to read who changes them: the creator by
  * name only while they can (Project.creatorChangesMembers: their account active, the folder theirs), else 관리자 (never
- * an admin's name). An admin on a project made before on another folder reads where to change it instead. */
+ * an admin's name). An admin on a project made before on another folder reads where to change it instead. The faces
+ * of who is in it are under the page's name only (ProjectPeople.tsx), not here again. */
 export function MembersRow({ project: p, sideAction, onManage }: { project: Project; sideAction: string; onManage: () => void }) {
   const t = useT()
   const me = useMe()
@@ -1108,27 +1503,21 @@ export function MembersRow({ project: p, sideAction, onManage }: { project: Proj
   )
 }
 
-/** "팀 프로젝트로 공유": a personal project becomes a team project in a new projects/<name>, seen by the people chosen
- * here (and me, the owner and admins); its files are copied there and my personal folder stays. */
-function ShareProjectDialog({ project, onClose, onShared }: { project: Project; onClose: () => void; onShared: (p: Project) => void }) {
+/** "멤버 추가" on a personal project: it becomes a team project in a new projects/<name>, seen by me and the people
+ * chosen here; its files move there (docs/DECISIONS.md "Making a project"). One dialog (QA TC-1069): the picker, the
+ * one count ("5 people", me included: QA TC-1065), and under it plainly what sharing does: they see and edit its files
+ * and instructions and the chats started from now on, my chats so far stay mine (how many), and it can't go back. No
+ * second confirm: Share is the yes. */
+function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Project; chats: number; onClose: () => void; onShared: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
   const [participants, setParticipants] = useState<ProjectParticipant[]>([])
   const options = useParticipantOptions()
-  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.whoMe')]] : []), [me, t])
+  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.youTag')]] : []), [me, t])
   const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // before sharing, plainly: who may see and edit it, the chats stay mine, and it is one way (docs/DECISIONS.md "Making
-  // a project", review M5)
-  const confirmFirst = async () => {
-    const one = participants.length === 1 && participants[0]!.subjectType === 'user' ? options.find((o) => participantKey(o) === participantKey(participants[0]!))?.name : undefined
-    // the people it adds (a group is its people): the server's count without me; before it arrives, the choices
-    const others = count ? Math.max(1, count.n - 1) : participants.length
-    const body = one ? t('projects.shareConfirmOne', { name: one }) : t('projects.shareConfirmMany', { n: others })
-    if (await confirmDialog({ title: t('projects.shareConfirmTitle'), body, confirm: t('projects.shareConfirm') })) await share()
-  }
   const share = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
@@ -1141,7 +1530,7 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
         setBusy(false)
-        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('projects.shareConfirm') })) await share(true)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('projects.shareConfirm') })) await share(true)
         return
       }
       setError(errorText(e, locale, t('error.network')))
@@ -1149,25 +1538,86 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
       setBusy(false)
     }
   }
+  const note = [t('projects.shareNote'), ...(chats ? [t('projects.shareConfirmChats', { n: chats })] : []), t('projects.shareConfirmFinal')].join(' ')
   return (
     <Modal open onClose={onClose} title={t('projects.members.add')} width={560}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!participants.length} onClick={() => void confirmFirst()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
+          <Button variant="primary" busy={busy} disabled={!participants.length} onClick={() => void share()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
         </>
       }
     >
-      <div className="space-y-4">
-        <p className="text-sm break-keep text-muted">{t('projects.shareMoveBody')}</p>
+      <div className="space-y-3">
         <MembersField label={t('projects.participants')}>
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
             <AccessSummary count={count} />
           </div>
         </MembersField>
+        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-share-note">{note}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>
+  )
+}
+
+/** Per person and project, whether the private chats line was closed (this browser only: a convenience). */
+const noticeKey = (me: string, project: string) => `mycel.privateChatsNotice.${me}.${project}`
+const noticeClosed = (k: string) => { try { return localStorage.getItem(k) === '1' } catch { return false } }
+
+/**
+ * A team project's page, for whoever has chats there only they see (from before the update, brought in, or "Only me"):
+ * one quiet line, "🔒 N chats only you see · Choose chats to share", until closed. The choice lists those chats, each with
+ * the existing share (its check and confirm: components/chat/ShareChat.tsx); no bulk share in this phase
+ * (docs/DECISIONS.md "Team project chats shared by default"; QA TC-957).
+ */
+function PrivateChatsNotice({ project, chats }: { project: Project; chats: Chat[] }) {
+  const t = useT()
+  const me = useMe()
+  const safeOps = !!me?.server?.allChatsConfidential
+  const mine = chats.filter((c) => mayShareChat(c, project, safeOps))
+  const key = noticeKey(me?.user.id ?? '', project.id)
+  const [closed, setClosed] = useState(() => noticeClosed(key))
+  const [open, setOpen] = useState(false)
+  if (!mine.length || !isTeamProject(project)) return null
+  return (
+    <>
+      {!closed && (
+        <p className="mb-1 flex items-center gap-1.5 py-1 text-sm text-faint" data-testid="private-chats-notice">
+          <Lock size={13} className="shrink-0" aria-hidden />
+          <span className="min-w-0 break-keep">
+            {t('projects.privateChats', { n: mine.length })}
+            {' · '}
+            <button type="button" className="touch-hit text-accent-text hover:underline" onClick={() => setOpen(true)} data-testid="private-chats-choose">{t('projects.privateChatsChoose')}</button>
+          </span>
+          <Tooltip label={t('projects.privateChatsDismiss')}>
+            <button
+              type="button"
+              className="touch-hit ml-auto shrink-0 rounded p-1 hover:bg-hover hover:text-ink"
+              aria-label={t('projects.privateChatsDismiss')}
+              onClick={() => { try { localStorage.setItem(key, '1') } catch { /* this browser keeps nothing: it shows again */ } setClosed(true) }}
+              data-testid="private-chats-dismiss"
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        </p>
+      )}
+      {open && (
+        <Modal open onClose={() => setOpen(false)} title={t('projects.privateChatsTitle')} width={480} footer={<Button variant="ghost" onClick={() => setOpen(false)}>{t('common.close')}</Button>}>
+          <p className="mb-2 text-xs break-keep text-faint">{t('projects.privateChatsHint')}</p>
+          <ul className="max-h-80 divide-y divide-line overflow-y-auto" data-testid="private-chats-list">
+            {mine.map((c) => (
+              <li key={c.id} className="flex items-center gap-2 py-2 text-sm max-md:min-h-11">
+                <Lock size={12} className="shrink-0 text-faint" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
+                <Button size="sm" onClick={() => { setOpen(false); openShareChat(c.id) }} data-testid="private-chats-share">{t('projects.privateChatsShare')}</Button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+    </>
   )
 }

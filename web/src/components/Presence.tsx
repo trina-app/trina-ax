@@ -19,14 +19,15 @@ export function PresenceDot({ state, size = 8, className }: { state: Exclude<Pre
   return <span aria-hidden className={clsx('presence-dot block shrink-0 rounded-full', className)} data-presence-dot={state} style={{ width: size, height: size }} data-testid="presence-dot" />
 }
 
-/** A person's picture with their dot; a tooltip with the state on a computer. */
-export function PresenceFace({ user, size, className }: { user: AvatarUser; size: number; className?: string }) {
+/** A person's picture with their dot; a tooltip with the state on a computer. `size="fill"`: the picture fills its box
+ * (a list row's face box, ListIcon face: 28px on a computer, 32px on a phone), with the small dot */
+export function PresenceFace({ user, size, className }: { user: AvatarUser; size: number | 'fill'; className?: string }) {
   const t = useT()
   const state = usePresenceOf(user.id)
   const face = (
-    <span aria-hidden className={clsx('relative inline-flex shrink-0', className)} data-testid="presence-face" data-presence={state}>
+    <span aria-hidden className={clsx('relative inline-flex shrink-0', size === 'fill' && 'size-full', className)} data-testid="presence-face" data-presence={state}>
       <Avatar user={user} size={size} />
-      {state !== 'offline' && <PresenceDot state={state} size={presenceDotSize(size)} className="absolute -right-px -bottom-px" />}
+      {state !== 'offline' && <PresenceDot state={state} size={size === 'fill' ? 8 : presenceDotSize(size)} className="absolute -right-px -bottom-px" />}
     </span>
   )
   return state === 'offline' ? face : <Tooltip label={t(state === 'online' ? 'presence.online' : 'presence.away')}>{face}</Tooltip>

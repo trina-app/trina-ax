@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { AVATAR_MAX_BYTES } from '@mycel/shared'
 import { prepareAvatar } from '../../server/src/auth/avatar'
 import { AVATAR_TEXT } from '../../server/src/auth/profiles'
+import { getChatRuntime } from '../../server/src/chat/runtime'
+import { labelName } from '../../server/src/chat/shared'
 import { makeJpeg, makePng, makeWebp, SVG } from '../lib/images'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -225,5 +227,23 @@ describe('what a photo must be', () => {
     const img = new Uint8Array(await (await get(ben, `/api/people/${miaId}/avatar?v=${avatarVersion}`)).arrayBuffer())
     expect(hasSecret(img)).toBe(false)
     await mia.try('DELETE', '/api/me/avatar')
+  })
+})
+
+// QA TC-1410: shared chats and the AI's transcript labels name a person through ChatStore.userRef, which keeps the names
+// it read. A rename (own profile, own account, an admin's) shows at once, not after a restart.
+describe('a rename reaches the names chats show', () => {
+  const nameInChats = () => getChatRuntime(h.ctx).store.userRef(benId)?.name
+  test('own profile, own account and an admin: the next read has the new name', async () => {
+    expect(nameInChats()).toBe('BEN') // read once: kept
+    await ben.call('PATCH', '/api/me/profile', { name: 'Ben Kim' })
+    expect(nameInChats()).toBe('Ben Kim')
+    expect(labelName(getChatRuntime(h.ctx).store, benId)).toContain('Ben Kim')
+    await ben.call('PATCH', '/api/me', { name: 'Ben K.' })
+    expect(nameInChats()).toBe('Ben K.')
+    await owner.call('PATCH', `/api/admin/users/${benId}`, { name: 'Benjamin' })
+    expect(nameInChats()).toBe('Benjamin')
+    await owner.call('PATCH', `/api/admin/users/${benId}`, { name: 'BEN' })
+    expect(nameInChats()).toBe('BEN')
   })
 })

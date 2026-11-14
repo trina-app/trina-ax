@@ -5,11 +5,11 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import type { Chat, Schedule } from '@mycel/shared/api'
+import type { Chat, Schedule, ScheduleRun } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { cardLine, nextDueRead, onceDate, outcomeLabel, outcomeReason, outcomeTone, RUN_AT_DUE, scheduleState } from '../../src/lib/scheduleText'
 import { snippetAround, titleFirst } from '../../src/components/SearchDialog'
-import { ScheduleView } from '../../src/pages/Scheduled'
+import { ScheduleView, type RunsState } from '../../src/pages/Scheduled'
 
 const base: Schedule = { id: 'once-1', title: 'Team rule', prompt: 'Write today', repeat: 'once', time: '04:18', date: '2026-10-29', weekday: null, day: null,
   projectId: null, enabled: true, nextRunAt: '2026-10-28T19:18:00Z', lastRunAt: null, lastChatId: null, resumeBlockedReason: null }
@@ -50,8 +50,8 @@ describe('scheduled task page', () => {
     expect(html).toContain('data-testid="schedule-status-outcome"')
     expect(html).toContain(t('scheduleTemplates.outcome.error'))
     expect(html).toContain(t('scheduled.reason.error'))
-    expect(html).toContain(t('scheduled.lastRunTitle'))
-    expect(html).toContain(t('scheduled.openResult'))
+    expect(html).toContain(t('scheduled.runsTitle'))
+    expect(html).toContain(t('scheduled.openRun'))
     expect(html).toContain('href="/c/chat-9"')
     // a success stays quiet: no outcome in the status line, no reason
     const ok = decode(render({ ...base, lastRunAt: '2026-10-28T19:18:15Z', lastOutcome: 'done' }))
@@ -61,7 +61,7 @@ describe('scheduled task page', () => {
 
   test('every failed outcome has a reason in every language', () => {
     for (const o of ['problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable'] as const)
-      for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
         const r = outcomeReason({ ...base, lastOutcome: o }, (key, params) => translate(locale, key, params))
         expect(r).not.toBe(`scheduled.reason.${o}`)
         expect(r.length).toBeGreaterThan(0)
@@ -71,7 +71,7 @@ describe('scheduled task page', () => {
 
   test('a task paused for a project only its members use now says so, not "Project gone" (QA TC-360)', () => {
     const paused = { ...base, repeat: 'daily' as const, date: null, enabled: false, lastOutcome: 'project_gone' as const, lastMembersOnly: true }
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       const tl = (key: MessageKey, params?: Params) => translate(locale, key, params)
       expect(outcomeLabel(paused, tl)).toBe(tl('scheduleTemplates.outcome.members_only'))
       expect(outcomeReason(paused, tl)).toBe(tl('scheduled.reason.members_only'))
@@ -136,8 +136,8 @@ describe('scheduled task page', () => {
   })
 
   test('the texts exist in every language', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
-      for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.switch', 'scheduled.openResult', 'scheduled.emptyBody', 'scheduled.expiredRunHint', 'search.inInstruction', 'search.fileNamesFailed'] as const)
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
+      for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.switch', 'scheduled.openRun', 'scheduled.emptyBody', 'scheduled.expiredRunHint', 'search.inInstruction', 'search.fileNamesFailed'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })
 
@@ -148,45 +148,79 @@ describe('scheduled task page', () => {
     expect(decode(render({ ...base, lastOutcome: 'done', lastChatId: 'c' }))).toContain(t('scheduled.run.done'))
   })
 
-  // the "Last run" block: one heading, then the state and when (QA: it said "Last run / Last run / Last run succeeded")
+  // the "Runs" list: one heading, then a row per run (the history the page reads; without it, the one last run the
+  // task itself knows)
   const history = (html: string) => /data-testid="schedule-history"[\s\S]*?<\/section>/.exec(html)?.[0] ?? ''
   const count = (s: string, part: string) => s.split(part).length - 1
   const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+  const run = (o: Partial<ScheduleRun>): ScheduleRun => ({ id: 'r', status: 'done', startedAt: ago(3600_000), endedAt: ago(3600_000 - 125_000), chatId: 'chat-r', error: null, ...o })
+  const runs = (items: ScheduleRun[], more = false): RunsState => ({ items, more, busy: false, failed: false, onMore: () => {} })
+  const withRuns = (s: Schedule, r: RunsState) =>
+    decode(renderToStaticMarkup(<MemoryRouter><ScheduleView s={s} tz="Asia/Seoul" onToggle={() => {}} onRunNow={() => {}} runs={r} /></MemoryRouter>))
+  const daily = { ...base, repeat: 'daily' as const, date: null }
 
-  test('the Last run block: one heading, then "Succeeded · 2 minutes ago" linked to the run', () => {
-    // a "Run now" run: only lastChatId moved (lastRunAt is the last run at its time, here none)
-    const block = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: null, lastChatId: 'chat-3', lastOutcome: 'done', lastOutcomeAt: ago(2 * 60_000), running: false })))
-    expect(count(block, t('scheduled.lastRunTitle'))).toBe(1)
-    expect(block).not.toContain(t('scheduleTemplates.outcome.done'))
-    expect(block).toContain(t('scheduled.run.done'))
-    expect(block).toContain('2 minutes ago')
-    expect(block).toContain('data-outcome="done"')
-    expect(block).toContain('href="/c/chat-3"')
-    expect(block).toContain(t('scheduled.openResult'))
+  test('every run is a row, newest first: its time, its result and how long it took, linked to its chat', () => {
+    const block = history(withRuns({ ...daily, lastOutcome: 'done', lastChatId: 'chat-1' }, runs([
+      run({ id: 'a', chatId: 'chat-1' }),
+      run({ id: 'b', status: 'error', chatId: 'chat-2', error: 'The AI could not answer just now.', endedAt: ago(3600_000 - 30_000) }),
+      run({ id: 'c', status: 'problems', chatId: 'chat-3' }),
+      run({ id: 'd', status: 'budget_exceeded', chatId: null, endedAt: null }),
+    ], true)))
+    expect(count(block, t('scheduled.runsTitle'))).toBe(1)
+    expect(block.indexOf('href="/c/chat-1"')).toBeLessThan(block.indexOf('href="/c/chat-2"'))
+    expect(block).toContain(`${t('scheduled.run.done')} · 2 min`)
+    // a failed run: its own error line; problems and a skip: their short reason; a skip has no chat to open
+    expect(block).toContain(`${t('scheduled.run.error')} · 30 sec<span data-testid="schedule-outcome-reason"> · The AI could not answer just now.</span>`)
+    expect(block).toContain(t('scheduled.runReason.problems'))
+    expect(block).toContain(`${t('scheduled.run.skipped')}<span data-testid="schedule-outcome-reason"> · ${t('scheduled.runReason.budget_exceeded')}</span>`)
+    expect(count(block, 'data-testid="schedule-run-link"')).toBe(3)
+    expect(count(block, 'data-testid="schedule-run"')).toBe(1)
+    expect(count(block, `>${t('scheduled.openRun')}<`)).toBe(3)
+    expect(block).toContain('data-testid="schedule-runs-more"')
+    // the newest succeeded: no "what to do next" line
+    expect(block).not.toContain('data-testid="schedule-next-step"')
   })
 
-  test('a run on its way: "Running", linked to its chat; the run before it is not shown as its result', () => {
-    const html = decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(86400_000), lastChatId: 'chat-4', lastOutcome: 'error', lastOutcomeAt: ago(86400_000), running: true }))
-    const block = history(html)
-    expect(count(block, t('scheduled.lastRunTitle'))).toBe(1)
+  test('a run on its way is the live first row, before the history has it', () => {
+    const block = history(withRuns({ ...daily, lastChatId: 'chat-4', lastOutcome: 'error', running: true }, runs([run({ id: 'old', status: 'error', chatId: 'chat-0' })])))
+    expect(block.indexOf('data-outcome="running"')).toBeLessThan(block.indexOf('data-outcome="error"'))
     expect(block).toContain(t('scheduled.run.running'))
-    expect(block).toContain('data-outcome="running"')
-    expect(block).not.toContain(t('scheduled.run.error'))
-    expect(block).not.toContain('data-testid="schedule-outcome-reason"')
-    expect(block).toContain(t('schedules.openRun'))
-    // nor under the title
-    expect(html).not.toContain('data-testid="schedule-status-outcome"')
+    expect(block).toContain('href="/c/chat-4"')
+    // the run before it is history: no next step for it while a new one runs
+    expect(block).not.toContain('data-testid="schedule-next-step"')
   })
 
-  test('a failure says what and when, then why; an older server (no lastOutcomeAt) uses the last run at its time', () => {
-    const block = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(3 * 3600_000), lastChatId: 'chat-5', lastOutcome: 'error' })))
-    expect(count(block, t('scheduled.lastRunTitle'))).toBe(1)
-    expect(block).toContain(`${t('scheduled.run.error')}</span><span class="text-muted" aria-hidden="true"> · </span>`)
-    expect(block).toContain('3 hours ago')
+  test('the next step sits right under the newest run, and only when that run failed', () => {
+    const failed = history(withRuns({ ...daily, lastOutcome: 'error', lastChatId: 'chat-1' }, runs([
+      run({ id: 'a', status: 'error', chatId: 'chat-1' }), run({ id: 'b', chatId: 'chat-2' }),
+    ], true)))
+    const step = failed.indexOf('data-testid="schedule-next-step"')
+    expect(step).toBeGreaterThan(failed.indexOf('href="/c/chat-1"'))
+    expect(step).toBeLessThan(failed.indexOf('href="/c/chat-2"'))
+    expect(failed).toContain(t('scheduled.reason.error'))
+    // in line with the rows' dots: no inset of its own
+    expect(failed).toMatch(/<button[^>]*class="mt-2 inline-flex[^"]*"[^>]*data-testid="schedule-runs-more"/)
+    // finished with problems is not failed: no next step
+    const problems = history(withRuns({ ...daily, lastOutcome: 'problems', lastChatId: 'chat-1' }, runs([run({ id: 'a', status: 'problems', chatId: 'chat-1' })])))
+    expect(problems).not.toContain('data-testid="schedule-next-step"')
+  })
+
+  test('the newest failed: its next step once, under it; a key it needed links to connect it', () => {
+    const block = history(withRuns({ ...daily, lastOutcome: 'needs_key', lastNeed: { templateId: 'tpl', name: 'Demo Wiki' } }, runs([run({ id: 'k', status: 'needs_key', chatId: null, needName: 'Demo Wiki', endedAt: null })])))
+    expect(block).toContain(t('scheduled.runReason.needs_keyNamed', { name: 'Demo Wiki' }))
+    expect(count(block, 'data-testid="schedule-next-step"')).toBe(1)
+    expect(block).toContain(t('scheduled.reason.needs_keyNamed', { name: 'Demo Wiki' }))
+    expect(block).toContain('data-testid="schedule-connect-template"')
+  })
+
+  test('without the history (an older server, a test): the one last run the task knows; none yet says so', () => {
+    const block = history(decode(render({ ...daily, lastRunAt: ago(3 * 3600_000), lastChatId: 'chat-5', lastOutcome: 'error' })))
+    expect(count(block, 'data-testid="schedule-run-link"')).toBe(1)
+    expect(block).toContain('href="/c/chat-5"')
+    // "Failed" says it; the next step says what to do
+    expect(block).toContain(t('scheduled.run.error'))
     expect(block).toContain(t('scheduled.reason.error'))
-    // an occurrence that did not run keeps its own words (they never said "last run")
-    const skipped = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(60_000), lastOutcome: 'budget_exceeded', lastOutcomeAt: ago(60_000) })))
-    expect(skipped).toContain(t('scheduleTemplates.outcome.budget_exceeded'))
+    expect(history(decode(render(daily)))).toContain(t('scheduled.noRuns'))
   })
 
   test('a run at its time is looked for when it is due (no chat event names it before the list knows its chat)', () => {
@@ -206,8 +240,8 @@ describe('scheduled task page', () => {
   })
 
   test('the block\'s words exist in every language', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
-      for (const key of ['scheduled.run.running', 'scheduled.run.done', 'scheduled.run.problems', 'scheduled.run.error', 'scheduled.run.stopped', 'scheduled.run.interrupted', 'rooms.roomNotIn'] as const)
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
+      for (const key of ['scheduled.run.running', 'scheduled.run.done', 'scheduled.run.problems', 'scheduled.run.error', 'scheduled.run.stopped', 'scheduled.run.interrupted', 'scheduled.run.skipped', 'scheduled.runsTitle', 'scheduled.openRun', 'scheduled.runReason.problems', 'rooms.roomNotIn'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })
 })

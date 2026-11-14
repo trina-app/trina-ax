@@ -70,16 +70,18 @@ describe('a new project', () => {
     // me, always (no × to take me out), and the count
     await m.until(() => m.find('participant-user-mia'), 'me in the list', 2000)
     expect(m.get('participant-user-mia').getAttribute('data-state')).toBe('fixed')
-    expect(m.get('participant-user-mia').textContent).toContain(en('projects.whoMe'))
+    // one "You" for me, on my name's line (QA TC-1084)
+    expect(m.get('participant-tags-user-mia').textContent).toBe(en('projects.youTag'))
     expect(m.find('participant-remove-user-mia')).toBeNull()
     // "1 member": nothing about the owner and admins, who see it only as members
     await m.until(() => m.get('project-access-summary').textContent === members(1), 'the line with the count', 2000)
     expect(m.find('project-access-summary-role')).toBeNull()
-    // the search lists everyone who can be added (my group and the people, not me); typing narrows it, titles too
+    // the search lists everyone (my group, said as mine, and the people; me as added); typing narrows it, titles too
     await m.click('project-participants-search')
     await m.until(() => m.find('participant-add-user-bob'), 'the people to add', 2000)
-    expect(m.find(`participant-add-group-${SALES}`)).not.toBeNull()
-    expect(m.find('participant-add-user-mia')).toBeNull()
+    expect(m.get(`participant-add-group-${SALES}`).textContent).toContain(en('projects.groupMine'))
+    expect(m.get('participant-add-user-mia').hasAttribute('disabled')).toBe(true)
+    expect(m.get('participant-add-user-mia').textContent).toContain(en('projects.added'))
     await m.type('project-participants-search', 'design')
     await m.until(() => !m.find('participant-add-user-bob'), 'narrowed', 2000)
     expect(m.get('participant-add-user-sora').textContent).toContain('Designer')
@@ -126,6 +128,36 @@ describe('a new project', () => {
     await m.unmount()
   })
 
+  test('the rows show who it is: a photo and title; for an admin a group\'s size and up to 3 faces; added ones stay, marked', async () => {
+    signedIn('admin')
+    const LEADS = '01900000-0000-7000-8000-0000000000b2'
+    routes = {
+      'GET /api/people': () => json(200, { people: [...PEOPLE.people, { id: 'jiwoo', name: 'Jiwoo', avatarVersion: 3 }, { id: 'olga', name: 'Olga' }] }),
+      // a switched-off member ('gone') is not in the directory: not counted, no face
+      'GET /api/admin/groups': () => json(200, { items: [{ id: LEADS, name: 'Leads', description: null, memberIds: ['bob', 'sora', 'jiwoo', 'olga', 'gone'] }, { id: SALES, name: 'Sales', description: null, memberIds: ['mia'] }] }),
+      'POST /api/projects/access-preview': () => json(200, { people: 1, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }),
+    }
+    const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.click(await m.until(() => m.find('project-participants-search'), 'the search', 2000))
+    const leads = await m.until(() => m.find(`participant-add-group-${LEADS}`), 'the group', 2000)
+    await m.until(() => m.get(`participant-add-group-${LEADS}`).textContent!.includes(en('projects.groupCount', { n: 4 })), 'its size', 2000)
+    expect(leads.textContent).not.toContain(en('projects.groupMine'))
+    // 3 faces and "+1" (a phone: 2 and "+2")
+    expect(m.get(`participant-faces-${LEADS}-more`).textContent).toBe('+1')
+    expect(m.get(`participant-faces-${LEADS}-more-phone`).textContent).toBe('+2')
+    // a person's photo fills the row's icon box; the title is the second line
+    expect(m.get('participant-add-user-jiwoo').querySelector('img')!.getAttribute('src')).toContain('/api/people/jiwoo/avatar')
+    expect(m.get('participant-add-user-bob').textContent).toContain('Sales lead')
+    // me: already in, marked added, cannot be added again
+    expect(m.get('participant-add-user-mia').hasAttribute('disabled')).toBe(true)
+    expect(m.get('participant-add-user-mia').textContent).toContain(en('projects.added'))
+    await m.click('participant-add-user-bob')
+    await m.click('project-participants-search')
+    expect(await m.until(() => m.find('participant-add-user-bob'), 'bob again', 2000)).toBeTruthy()
+    expect(m.get('participant-add-user-bob').hasAttribute('disabled')).toBe(true)
+    await m.unmount()
+  })
+
   test('a team that lets only admins: a member makes a personal project, and is told why', async () => {
     signedIn('member', 'admins')
     routes = { 'POST /api/projects': () => json(201, project('users/mia/projects/Notes')) }
@@ -143,7 +175,7 @@ describe('a new project', () => {
 })
 
 describe('editing a project', () => {
-  test('one PATCH saves the name, the instructions and sharing; the members are not in this dialog', async () => {
+  test('one PATCH saves the name and the instructions; the members and a sharing switch are not in this dialog', async () => {
     signedIn('member')
     routes = { [`PATCH /api/projects/${P1}`]: () => json(200, project('projects/acme', { name: 'Acme 2027' })) }
     let saved: Project | null = null
@@ -151,31 +183,43 @@ describe('editing a project', () => {
     await m.settle(50)
     expect(m.find('project-participants')).toBeNull()
     expect(m.find('project-access-summary')).toBeNull()
-    expect(m.find('project-share-chats')).not.toBeNull()
+    // a team project always shares its new chats (docs/DECISIONS.md "Team project chats shared by default")
+    expect(m.find('project-share-chats')).toBeNull()
     await m.type('project-name', 'Acme 2027')
     await m.click('project-save')
     await m.until(() => saved, 'the save', 2000)
     // nothing about who sees it: no access read, no dry run, no participants save
     expect(sent.map((x) => x.key).filter((k) => k !== 'GET /api/people')).toEqual([`PATCH /api/projects/${P1}`])
-    expect(calls(`PATCH /api/projects/${P1}`)[0]!.body).toEqual({ name: 'Acme 2027', instructions: '' })
+    // with what the form started from: someone else's save in between is a 409, not lost (QA TC-1013)
+    expect(calls(`PATCH /api/projects/${P1}`)[0]!.body).toEqual({ name: 'Acme 2027', instructions: '', base: { name: 'Acme launch', instructions: '' } })
     await m.unmount()
   })
 
-  test('the sharing switch: a project in projects/ says its members, for everyone; one made before outside projects/ keeps the owner and admins apart', async () => {
-    signedIn('admin')
-    const m = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { audience: 3, audienceSplit: { direct: 3, byRole: 0 } })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await m.settle(20)
-    expect(m.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOff', { n: 3 }))
-    expect(m.get('project-share-chats-hint').textContent).not.toContain('admins')
-    await m.unmount()
-    const legacy = await mount(<MemoryRouter><ProjectForm project={project('shared/acme', { audience: 5, audienceSplit: { direct: 3, byRole: 2 } })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await legacy.settle(20)
-    expect(legacy.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOffApart', { n: 3, m: 2 }))
-    await legacy.unmount()
+  test('someone else saved first: their version shows under the person\'s own text, which stays; Save again keeps it', async () => {
     signedIn('member')
-    const b = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { audience: 5 })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await b.settle(20)
-    expect(b.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOff', { n: 5 }))
-    await b.unmount()
+    let first = true
+    routes = {
+      [`PATCH /api/projects/${P1}`]: () => {
+        if (!first) return json(200, project('projects/acme', { name: 'Acme mine' }))
+        first = false
+        return json(409, { error: { code: 'conflict', message: 'x', params: { reason: 'project_changed', name: 'Acme launch', instructions: 'Bob wrote this' } } })
+      },
+    }
+    let saved: Project | null = null
+    const m = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { instructions: 'v1' })} onClose={() => {}} onSaved={(p) => { saved = p }} /><DialogHost /></MemoryRouter>)
+    await m.settle(50)
+    await m.type('project-name', 'Acme mine')
+    await m.click('project-save')
+    await m.until(() => m.find('project-latest'), 'the latest version', 2000)
+    expect(saved).toBeNull()
+    expect(m.get('project-latest').textContent).toContain('Bob wrote this')
+    expect(document.body.textContent).toContain(en('projects.changedMeanwhile'))
+    // the person's text is still in the box
+    expect((m.get('project-name') as unknown as { value: string }).value).toBe('Acme mine')
+    await m.click('project-save')
+    await m.until(() => saved, 'the second save', 2000)
+    // from the version they were shown now
+    expect(calls(`PATCH /api/projects/${P1}`)[1]!.body).toEqual({ name: 'Acme mine', instructions: 'v1', base: { name: 'Acme launch', instructions: 'Bob wrote this' } })
+    await m.unmount()
   })
 })

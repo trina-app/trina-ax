@@ -56,6 +56,9 @@ mock.module('zustand', () => ({ ...real, create }))
 installDom()
 await import('react-dom/client')
 removeDom()
+// The formatted-text code (components/LazyMarkdown.tsx) is loaded here, as in a page that has shown an answer already:
+// every file draws Markdown at once, as before it was its own file; lazy-markdown.test.tsx checks the step before
+await (await import('../../src/components/LazyMarkdown')).loadMarkdown()
 
 /** the globals tests replace, as they are with no fake document */
 const GLOBALS = [

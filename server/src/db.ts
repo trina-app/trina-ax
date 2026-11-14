@@ -29,11 +29,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { uuidv7 } from '@mycel/shared'
 import type { Logger } from './log'
+import { runPostMigrationSteps, stepsPending } from './db-steps'
 
 export const MIGRATIONS_DIR = path.join(import.meta.dir, '..', 'migrations')
 /** Raise when this build stops understanding DBs written by older releases' assumptions (see header). 5: group chats
- * and event lines in rooms (250_b_group_rooms.sql). 6: thread replies in rooms (251_b_room_threads.sql). */
-export const SCHEMA_READER_LEVEL = 6
+ * and event lines in rooms (250_b_group_rooms.sql). 6: thread replies in rooms (251_b_room_threads.sql). 7: folder
+ * access adds up like Google Drive (121_a_folder_limited.sql; an older build reads the converted rules deepest-wins). */
+export const SCHEMA_READER_LEVEL = 7
 
 export class SchemaTooNewError extends Error {
   constructor(public needed: number, public have: number, public migration: string) {
@@ -92,7 +94,9 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
   const before = appliedVersions(db)
   // before applying anything: when a pending migration then fails ("duplicate column"), the reason is in the log
   if (before && o.log) for (const r of renamedMigrations(db, all)) o.log.warn(renamedMessage(r, before), { ...r })
-  if (before && before.size && o.backupDir && all.some((m) => !before.has(m.version))) {
+  // (a post-migration step with work to do counts as pending too: a restored or hand-copied database that an older
+  // build wrote is converted once, and the copy comes first as for a file)
+  if (before && before.size && o.backupDir && (all.some((m) => !before.has(m.version)) || stepsPending(db))) {
     checkReadable(db, readerLevel)
     backupBeforeMigrate(db, o.backupDir, before)
   }
@@ -112,6 +116,9 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
         .run(m.version, m.name, new Date().toISOString(), m.minCompatibleReader)
     }
     checkReadable(db, readerLevel)
+    // after every pending file, in the same transaction: the steps that read or rewrite tables of several components
+    // (db-steps.ts: the one-time folder access conversion). A step that throws rolls the files back with it
+    runPostMigrationSteps(db)
   })
 }
 

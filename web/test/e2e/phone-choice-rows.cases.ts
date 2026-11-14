@@ -88,7 +88,7 @@ export function phoneCases() {
     await noSelect(page)
     await expect(page.getByTestId('team-default-locale')).toContainText(t['teamSettings.defaultLocale'])
     await expect(page.getByTestId('team-default-locale-value')).toHaveText('English')
-    await expect(page.getByTestId('team-time-zone-value')).toHaveText('Asia/Seoul')
+    await expect(page.getByTestId('team-time-zone-value')).toHaveText('Seoul (UTC+9)')
     expect(Math.round((await page.getByTestId('team-default-locale').boundingBox())!.height)).toBeGreaterThanOrEqual(48)
     await shot(page, 'general.png')
 
@@ -107,11 +107,17 @@ export function phoneCases() {
     await expect(page.getByTestId('team-default-locale-value')).toHaveText('日本語')
 
     // the time zones (about 400): the sheet opens at the current one
-    const zones = await openChoices(page, 'team-time-zone', 'Asia/Seoul')
+    const zones = await openChoices(page, 'team-time-zone', 'ソウル (UTC+9)')
     await expect(zones.getByRole('menuitemradio', { checked: true })).toBeInViewport()
     await shot(page, 'general-time-zone-sheet.png')
-    await zones.getByRole('menuitemradio', { name: 'Asia/Tokyo', exact: true }).click()
-    await expect(page.getByTestId('team-time-zone-value')).toHaveText('Asia/Tokyo')
+    // city and offset, not the IANA name; the search narrows the sheet, the saved value stays the IANA name
+    await expect(zones.getByRole('menuitemradio', { name: 'ソウル (UTC+9)', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByTestId('team-time-zone-search').fill('tokyo')
+    const narrowed = await openChoices(page, 'team-time-zone', 'ソウル (UTC+9)')
+    await expect(narrowed.getByRole('menuitemradio')).toHaveText(['ソウル (UTC+9)', '東京 (UTC+9)'])
+    await narrowed.getByRole('menuitemradio', { name: '東京 (UTC+9)', exact: true }).click()
+    await expect(page.getByTestId('team-time-zone-value')).toHaveText('東京 (UTC+9)')
     await expect(page.getByTestId('team-settings-savebar')).toBeVisible()
   })
 

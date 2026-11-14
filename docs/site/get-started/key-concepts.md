@@ -35,6 +35,8 @@ A **chat** is a conversation with the AI. Only its owner sees it.
 
 A **project** is a folder with instructions, for work that keeps coming back to the same files. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
 
+![The bar on the left: Trina, Chats, Projects, Files and Activity, with the Trina list beside it](../images/concepts/rail.webp "The bar on the left")
+
 ## Skills
 
 A **skill** is a `SKILL.md` file with a name, a description and a procedure. It tells the AI how your team does a task. It never grants extra access. [Read about team skills](../use/team-skills.md).

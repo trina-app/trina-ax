@@ -84,7 +84,7 @@ const fetched: string[] = []
 let savedTools: TurnTool[] | undefined
 beforeAll(async () => {
   const u = `http://127.0.0.1:${up.port}`
-  h = await startHarness({ name: 'b-hosted-trial', turnTimeoutMs: 60_000, upstreams: { anthropic: u, openai: u + '/v1', openrouter: `http://127.0.0.1:${or.port}/api/v1` }, credentials: [] })
+  h = await startHarness({ name: 'b-hosted-trial', stallTimeoutMs: 60_000, upstreams: { anthropic: u, openai: u + '/v1', openrouter: `http://127.0.0.1:${or.port}/api/v1` }, credentials: [] })
   alice = await h.ws('alice', { windowId: 'win-alice-trial' }); await alice.next('hello')
   const launcher = (await h.ctx.core()).launcher!
   const orig = launcher.launch.bind(launcher)

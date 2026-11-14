@@ -7,23 +7,28 @@ import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { useInboxUnread, useNoticeUnread } from '../../store/inbox'
 import { ErrorNote, Skeleton, Switch, useMediaQuery } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
 import { isDesktop } from '../../lib/desktop'
-import { deletionNoticeText } from './AccountDeletion'
+import { deletionDueText, deletionNoticeText } from './AccountDeletion'
 import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
+import { PhoneGatewayRow } from './PhoneGatewayRow'
+import { isAdmin, useMe } from '../../store/session'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
- * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
-const workKeys = ['chatAnswers', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+ * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림"); chatShares: a push
+ * when someone shares a chat with me by name (docs/DECISIONS.md "Chats shared with me: a push that names the sharer";
+ * a server from before it leaves it out: no row) */
+const workKeys = ['chatAnswers', 'chatShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -113,8 +118,12 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
   if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
+  // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
+  // there; one I no longer see says so (no title, no link)
+  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
-  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
+  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
+  if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
   if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
@@ -164,26 +173,33 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
+  // my own account's deletion date while the request is open: the page where I can keep the account
+  if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
   return null
 }
 
+const PREFERENCES_KEY = 'settings:notificationPreferences'
+
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
+  const admin = isAdmin(useMe())
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
   // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole
-  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
+  // as the server last said them here (store/listCache.ts): a visit after the first shows the switches at once and
+  // reads them again behind it
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(() => peekCached<NotificationPreferences>(PREFERENCES_KEY) ?? null)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
   /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
   const queued = useRef<Partial<NotificationPreferences> | null>(null)
   /** what the server has, as its last answer said (a read, or a save's answer): what a failed save goes back to */
-  const saved = useRef<NotificationPreferences | null>(null)
+  const saved = useRef<NotificationPreferences | null>(preferences)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
   /** `keepError`: the read after a failed save, which leaves that save's message up */
   const load = useCallback(async (keepError = false) => {
@@ -192,7 +208,7 @@ export function Notifications() {
       const prefs = await api.call(API.getNotificationPreferences)
       if (generation !== life.current || seq !== sequence.current) return
       // while my changes are being saved, the switches show them, not a read from before the last one landed
-      if (!writing.current) { saved.current = prefs; setPreferences(prefs) }
+      if (!writing.current) { saved.current = prefs; setPreferences(prefs); rememberCached(PREFERENCES_KEY, prefs) }
       if (!keepError) setError(null)
     } catch (e) { if (!keepError && generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
@@ -213,6 +229,7 @@ export function Notifications() {
     try {
       for (let body: Partial<NotificationPreferences> | null = patch; body; body = queued.current, queued.current = null) {
         saved.current = await api.call(API.updateNotificationPreferences, { body })
+        rememberCached(PREFERENCES_KEY, saved.current)
       }
     } catch (e) {
       queued.current = null; writing.current = false
@@ -231,7 +248,7 @@ export function Notifications() {
   // 이 기기 (docs/DECISIONS.md "대화방 알림 설정"). No frames; the title is in the bar above on a phone
   // (SettingsDialog.tsx), so here it is for screen readers only.
   return <section className="flex flex-col gap-5" data-testid="notifications">
-    <div><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
+    <div><h2 className="text-title font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!preferences && !error && <Skeleton lines={3} />}
     {/* the notices themselves are on their own page, Activity (pages/Activity.tsx); a phone's 나 list has its row with
@@ -248,10 +265,12 @@ export function Notifications() {
         control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
     </PrefSection>}
     {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
-        device; a server from before it leaves it out (no row) */}
-    {preferences?.phoneWhen && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
-      <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
-        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />
+        device; a server from before it leaves it out (no row). Owners and admins also choose where the whole team's
+        phone notifications go (docs/DECISIONS.md "Owners and admins choose where phone notifications go") */}
+    {(preferences?.phoneWhen || admin) && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+      {preferences?.phoneWhen && <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
+        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />}
+      {admin && <PhoneGatewayRow />}
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

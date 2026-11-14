@@ -18,7 +18,7 @@ import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
 import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
 
-type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es'
+type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 
 export const RG_BASE = ['--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--max-filesize', '50M',
   '--regex-size-limit', '20M', '--dfa-size-limit', '50M', '--max-columns', '2000', '--max-columns-preview', '--no-messages']
@@ -34,7 +34,7 @@ export function allowedRoots(fx: FsCtx, rules: RuleSet, user: Principal, base: s
   // projects/<name> (the members-only zone, policy/zone.ts) — collect those under base
   const pts = new Map<string, string[]>()
   const add = (s: string[]) => { if (under(base, s)) pts.set(s.join('/'), s) }
-  for (const f of rules.ruleFolders()) if (f !== '') add(f.split('/'))
+  for (const f of rules.boundaryFolders()) if (f !== '') add(f.split('/'))
   add(['users', user.id])
   add(['.system'])
   try { for (const n of fs.readdirSync(path.join(fx.root, 'users'))) add(['users', n]) } catch {}

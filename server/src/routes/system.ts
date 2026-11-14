@@ -8,6 +8,7 @@ import { withheldFrom } from '../chat/shared-answers'
 import { API, type Health, type Locale } from '@mycel/shared/api'
 import { PRODUCT, sourceCodeOffer } from '@mycel/shared'
 import type { AppContext } from '../context'
+import { audit } from '../admin/audit'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
 import { DownloadStalled } from '../http/download-deadline'
@@ -22,6 +23,7 @@ import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { runUpdate } from '../system/update-job'
+import { skipUpdateWait, updateWaitingFor } from '../system/update-wait'
 import { teamDefaultLocale } from '../admin/settings'
 import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
@@ -62,29 +64,31 @@ function scheduleRestart(ctx: AppContext, why: string) {
 }
 
 export const T = {
-  devOnly: { ko: '업데이트는 설치된 서버에서만 할 수 있어요(개발 모드).', en: 'Updates are only possible on an installed server (development mode).', id: 'Pembaruan hanya bisa di server yang terpasang (mode pengembangan).', ja: "更新できるのはインストール済みサーバーのみです（現在は開発モード）。", es: "Solo se puede actualizar un servidor instalado (actualmente en modo de desarrollo)." },
-  noUpdate: { ko: '설치할 새 버전이 없어요.', en: 'There is no new version to install.', id: 'Tidak ada versi baru untuk dipasang.', ja: "インストールする新しいバージョンはありません。", es: "No hay ninguna versión nueva para instalar." },
+  devOnly: { ko: '업데이트는 설치된 서버에서만 할 수 있어요(개발 모드).', en: 'Updates are only possible on an installed server (development mode).', id: 'Pembaruan hanya bisa di server yang terpasang (mode pengembangan).', ja: "更新できるのはインストール済みサーバーのみです（現在は開発モード）。", es: "Solo se puede actualizar un servidor instalado (actualmente en modo de desarrollo).", zh: "只有已安装的服务器才能更新（开发模式）。" },
+  noUpdate: { ko: '설치할 새 버전이 없어요.', en: 'There is no new version to install.', id: 'Tidak ada versi baru untuk dipasang.', ja: "インストールする新しいバージョンはありません。", es: "No hay ninguna versión nueva para instalar.", zh: "没有可安装的新版本。" },
   /** QA TC-336: the kept version cannot open the database the running one migrated */
-  previousNeedsRestore: (prev: string, cur: string) => ({ ko: `${prev}(으)로는 되돌릴 수 없어요. ${cur}이(가) 이미 바꾼 데이터베이스를 ${prev}은(는) 읽지 못해요. 되돌리려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `Going back to ${prev} is not possible: ${prev} cannot read the database that ${cur} has already updated. To return to ${prev}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `Tidak bisa kembali ke ${prev}: ${prev} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Untuk kembali ke ${prev}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${prev}には戻せません。${cur}がすでに更新したデータベースを${prev}は読み込めません。${prev}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `No es posible volver a ${prev}: ${prev} no puede leer la base de datos que ${cur} ya actualizó. Para volver a ${prev}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).` }),
+  previousNeedsRestore: (prev: string, cur: string) => ({ ko: `${prev}(으)로는 되돌릴 수 없어요. ${cur}이(가) 이미 바꾼 데이터베이스를 ${prev}은(는) 읽지 못해요. 되돌리려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `Going back to ${prev} is not possible: ${prev} cannot read the database that ${cur} has already updated. To return to ${prev}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `Tidak bisa kembali ke ${prev}: ${prev} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Untuk kembali ke ${prev}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${prev}には戻せません。${cur}がすでに更新したデータベースを${prev}は読み込めません。${prev}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `No es posible volver a ${prev}: ${prev} no puede leer la base de datos que ${cur} ya actualizó. Para volver a ${prev}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).`, zh: `无法回退到${prev}：${prev}无法读取已被${cur}更新过的数据库。要回到${prev}，需要恢复更新前创建的备份（见备份与恢复指南）。` }),
+  /** the release cannot open the database as it is now (UpdateManager.releaseCanRead) */
+  cannotRead: (v: string) => ({ ko: `${v}은(는) 이 서버의 데이터를 아직 열 수 없어요. 더 새로운 버전을 기다리는 중이에요.`, en: `${v} can't open this server's data yet. Waiting for a newer version.`, id: `${v} belum bisa membuka data server ini. Menunggu versi yang lebih baru.`, ja: `${v}はこのサーバーのデータをまだ開けません。より新しいバージョンを待っています。`, es: `${v} todavía no puede abrir los datos de este servidor. Esperando una versión más nueva.`, zh: `${v} 还无法打开此服务器的数据。正在等待更新的版本。` }),
   /** the publisher paused the release (system/rollout.ts hold): not installed until it resumes */
-  paused: { ko: `${PRODUCT.displayName}에서 이 버전의 업데이트를 잠시 멈췄어요. 이 서버는 지금 버전 그대로 쓸 수 있어요.`, en: `${PRODUCT.displayName} has paused updates to this version for now. This server can stay on its current version.`, id: `${PRODUCT.displayName} sedang menjeda pembaruan ke versi ini. Server ini bisa tetap memakai versinya sekarang.`, ja: `${PRODUCT.displayName}がこのバージョンへの更新を一時停止しています。このサーバーは現在のバージョンのまま使えます。`, es: `${PRODUCT.displayName} ha pausado por ahora las actualizaciones a esta versión. Este servidor puede seguir con su versión actual.` },
-  noPrevious: { ko: '되돌릴 이전 버전이 없어요.', en: 'There is no previous version to go back to.', id: 'Tidak ada versi sebelumnya.', ja: "戻せる以前のバージョンはありません。", es: "No hay una versión anterior a la que volver." },
-  busy: { ko: '이미 진행 중인 작업이 있어요.', en: 'Another operation is already running.', id: 'Operasi lain sedang berjalan.', ja: "別の操作がすでに実行中です。", es: "Ya hay otra operación en curso." },
-  busyPrune: { ko: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'The server is removing old versions. Try again in a moment.', id: 'Server sedang menghapus versi lama. Coba lagi sebentar lagi.', ja: "サーバーが古いバージョンを削除しています。しばらくしてからもう一度お試しください。", es: "El servidor está borrando versiones antiguas. Vuelva a intentarlo en un momento." },
-  waitingTurns: (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai`, ja: `${String(n) + "件の実行中の回答"}の完了を待機中`, es: `Esperando a que termine ${enPlural(n, "respuesta en curso", "respuestas en curso")}` }),
-  restartNeeded: { ko: '복원할 데이터를 준비했어요. 서버를 다시 시작하면 적용돼요.', en: 'The restore is prepared and applies when the server restarts.', id: 'Pemulihan disiapkan dan berlaku saat server dimulai ulang.', ja: "復元の準備ができました。サーバーの再起動時に適用されます。", es: "La restauración está preparada y se aplicará al reiniciar el servidor." },
-  restarting: { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor." },
-  afterRestart: { ko: '서버를 다시 시작한 뒤 적용돼요.', en: 'Applies after the server restarts.', id: 'Berlaku setelah server dimulai ulang.', ja: "サーバーの再起動後に適用されます。", es: "Se aplica después de reiniciar el servidor." },
-  officeMode: { ko: '사무실 모드는 사무실 네트워크로만 접속해요. 연결 방식은 바꿀 수 없어요(docs/OFFICE.md).', en: 'Office mode connects over the office network only; the connection mode cannot be changed (docs/OFFICE.md).', id: 'Mode kantor hanya terhubung lewat jaringan kantor; mode koneksi tidak bisa diubah (docs/OFFICE.md).', ja: "オフィスモードは社内ネットワークからのみ接続するため、接続モードは変更できません（docs/OFFICE.md）。", es: "El modo oficina solo se conecta por la red interna; no se puede cambiar el modo de conexión (docs/OFFICE.md)." },
-  unsupportedMode: { ko: '이 연결 방식은 이번 버전에서 아직 쓸 수 없어요.', en: 'This connection mode is not available in this version yet.', id: 'Mode koneksi ini belum tersedia di versi ini.', ja: "この接続モードは、このバージョンではまだ利用できません。", es: "Este modo de conexión aún no está disponible en esta versión." },
-  noConfigFile: { ko: '개발 모드 서버는 설정 파일 없이 실행 중이라 연결 방식을 바꿀 수 없어요(.dev/server.json의 relay.url).', en: 'This development server runs without a config file, so the connection mode cannot be changed here (relay.url in .dev/server.json).', id: 'Server pengembangan ini berjalan tanpa berkas konfigurasi, jadi mode koneksi tidak bisa diubah di sini (relay.url di .dev/server.json).', ja: "この開発サーバーは設定ファイルなしで動作しているため、ここでは接続モードを変更できません（.dev/server.jsonのrelay.url）。", es: "Este servidor de desarrollo funciona sin archivo de configuración, por lo que no se puede cambiar aquí el modo de conexión (relay.url en .dev/server.json)." },
-  relayUnavailable: { ko: `${PRODUCT.displayName} 중계 서버는 아직 운영되지 않아 고를 수 없어요. 자체 중계 서버나 사무실 안 연결을 써 주세요.`, en: `The ${PRODUCT.displayName} relay is not running yet, so it cannot be chosen. Use your own relay server or the office network only.`, id: `Relay ${PRODUCT.displayName} belum berjalan, jadi belum bisa dipilih. Gunakan server relay sendiri atau jaringan kantor saja.`, ja: `${PRODUCT.displayName}の中継サービスはまだ稼働していないため選択できません。独自の中継サーバーか、社内ネットワークのみを使用してください。`, es: `El servicio de retransmisión de ${PRODUCT.displayName} aún no está activo y no se puede elegir. Use su propio servidor de retransmisión o solo la red interna.` },
-  teamNameMissing: { ko: '중계 서버에 등록할 팀 이름을 입력해 주세요(영문 소문자·숫자·하이픈).', en: 'Enter the team name to register at the relay (lowercase letters, digits and hyphens).', id: 'Masukkan nama tim untuk didaftarkan di relay (huruf kecil, angka, dan tanda hubung).', ja: "中継サーバーに登録するチーム名を入力してください（小文字の英字、数字、ハイフン）。", es: "Introduzca el nombre del equipo que registrará en el servidor de retransmisión (letras minúsculas, números y guiones)." },
-  badRelayUrl: { ko: '자체 중계 서버 주소는 wss://로 시작하는 주소여야 해요.', en: 'The self-hosted relay address must be a wss:// address.', id: 'Alamat relay sendiri harus berupa alamat wss://.', ja: "独自の中継サーバーのアドレスはwss://で始まる必要があります。", es: "La dirección del servidor de retransmisión propio debe empezar por wss://." },
+  paused: { ko: `${PRODUCT.displayName}에서 이 버전의 업데이트를 잠시 멈췄어요. 이 서버는 지금 버전 그대로 쓸 수 있어요.`, en: `${PRODUCT.displayName} has paused updates to this version for now. This server can stay on its current version.`, id: `${PRODUCT.displayName} sedang menjeda pembaruan ke versi ini. Server ini bisa tetap memakai versinya sekarang.`, ja: `${PRODUCT.displayName}がこのバージョンへの更新を一時停止しています。このサーバーは現在のバージョンのまま使えます。`, es: `${PRODUCT.displayName} ha pausado por ahora las actualizaciones a esta versión. Este servidor puede seguir con su versión actual.`, zh: `${PRODUCT.displayName}暂时停止了到这个版本的更新。这台服务器可以继续使用当前版本。` },
+  noPrevious: { ko: '되돌릴 이전 버전이 없어요.', en: 'There is no previous version to go back to.', id: 'Tidak ada versi sebelumnya.', ja: "戻せる以前のバージョンはありません。", es: "No hay una versión anterior a la que volver.", zh: "没有可以回退的旧版本。" },
+  busy: { ko: '이미 진행 중인 작업이 있어요.', en: 'Another operation is already running.', id: 'Operasi lain sedang berjalan.', ja: "別の操作がすでに実行中です。", es: "Ya hay otra operación en curso.", zh: "已有其他操作正在进行。" },
+  busyPrune: { ko: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'The server is removing old versions. Try again in a moment.', id: 'Server sedang menghapus versi lama. Coba lagi sebentar lagi.', ja: "サーバーが古いバージョンを削除しています。しばらくしてからもう一度お試しください。", es: "El servidor está borrando versiones antiguas. Vuelva a intentarlo en un momento.", zh: "服务器正在删除旧版本。请稍后重试。" },
+  waitingTurns: (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai`, ja: `${String(n) + "件の実行中の回答"}の完了を待機中`, es: `Esperando a que termine ${enPlural(n, "respuesta en curso", "respuestas en curso")}`, zh: `正在等待${n}个进行中的回答完成` }),
+  restartNeeded: { ko: '복원할 데이터를 준비했어요. 서버를 다시 시작하면 적용돼요.', en: 'The restore is prepared and applies when the server restarts.', id: 'Pemulihan disiapkan dan berlaku saat server dimulai ulang.', ja: "復元の準備ができました。サーバーの再起動時に適用されます。", es: "La restauración está preparada y se aplicará al reiniciar el servidor.", zh: "恢复已准备好，将在服务器重启时生效。" },
+  restarting: { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor.", zh: "正在重启服务器。" },
+  afterRestart: { ko: '서버를 다시 시작한 뒤 적용돼요.', en: 'Applies after the server restarts.', id: 'Berlaku setelah server dimulai ulang.', ja: "サーバーの再起動後に適用されます。", es: "Se aplica después de reiniciar el servidor.", zh: "服务器重启后生效。" },
+  officeMode: { ko: '사무실 모드는 사무실 네트워크로만 접속해요. 연결 방식은 바꿀 수 없어요(docs/OFFICE.md).', en: 'Office mode connects over the office network only; the connection mode cannot be changed (docs/OFFICE.md).', id: 'Mode kantor hanya terhubung lewat jaringan kantor; mode koneksi tidak bisa diubah (docs/OFFICE.md).', ja: "オフィスモードは社内ネットワークからのみ接続するため、接続モードは変更できません（docs/OFFICE.md）。", es: "El modo oficina solo se conecta por la red interna; no se puede cambiar el modo de conexión (docs/OFFICE.md).", zh: "办公室模式只通过办公室网络连接；无法更改连接方式（docs/OFFICE.md）。" },
+  unsupportedMode: { ko: '이 연결 방식은 이번 버전에서 아직 쓸 수 없어요.', en: 'This connection mode is not available in this version yet.', id: 'Mode koneksi ini belum tersedia di versi ini.', ja: "この接続モードは、このバージョンではまだ利用できません。", es: "Este modo de conexión aún no está disponible en esta versión.", zh: "这个版本暂不支持此连接方式。" },
+  noConfigFile: { ko: '개발 모드 서버는 설정 파일 없이 실행 중이라 연결 방식을 바꿀 수 없어요(.dev/server.json의 relay.url).', en: 'This development server runs without a config file, so the connection mode cannot be changed here (relay.url in .dev/server.json).', id: 'Server pengembangan ini berjalan tanpa berkas konfigurasi, jadi mode koneksi tidak bisa diubah di sini (relay.url di .dev/server.json).', ja: "この開発サーバーは設定ファイルなしで動作しているため、ここでは接続モードを変更できません（.dev/server.jsonのrelay.url）。", es: "Este servidor de desarrollo funciona sin archivo de configuración, por lo que no se puede cambiar aquí el modo de conexión (relay.url en .dev/server.json).", zh: "这台开发服务器没有配置文件，所以无法在这里更改连接方式（.dev/server.json 中的 relay.url）。" },
+  relayUnavailable: { ko: `${PRODUCT.displayName} 중계 서버는 아직 운영되지 않아 고를 수 없어요. 자체 중계 서버나 사무실 안 연결을 써 주세요.`, en: `The ${PRODUCT.displayName} relay is not running yet, so it cannot be chosen. Use your own relay server or the office network only.`, id: `Relay ${PRODUCT.displayName} belum berjalan, jadi belum bisa dipilih. Gunakan server relay sendiri atau jaringan kantor saja.`, ja: `${PRODUCT.displayName}の中継サービスはまだ稼働していないため選択できません。独自の中継サーバーか、社内ネットワークのみを使用してください。`, es: `El servicio de retransmisión de ${PRODUCT.displayName} aún no está activo y no se puede elegir. Use su propio servidor de retransmisión o solo la red interna.`, zh: `${PRODUCT.displayName}中继尚未运行，所以无法选择。请使用你自己的中继服务器，或只使用办公室网络。` },
+  teamNameMissing: { ko: '중계 서버에 등록할 팀 이름을 입력해 주세요(영문 소문자·숫자·하이픈).', en: 'Enter the team name to register at the relay (lowercase letters, digits and hyphens).', id: 'Masukkan nama tim untuk didaftarkan di relay (huruf kecil, angka, dan tanda hubung).', ja: "中継サーバーに登録するチーム名を入力してください（小文字の英字、数字、ハイフン）。", es: "Introduzca el nombre del equipo que registrará en el servidor de retransmisión (letras minúsculas, números y guiones).", zh: "请输入要在中继上注册的团队名称（小写字母、数字和连字符）。" },
+  badRelayUrl: { ko: '자체 중계 서버 주소는 wss://로 시작하는 주소여야 해요.', en: 'The self-hosted relay address must be a wss:// address.', id: 'Alamat relay sendiri harus berupa alamat wss://.', ja: "独自の中継サーバーのアドレスはwss://で始まる必要があります。", es: "La dirección del servidor de retransmisión propio debe empezar por wss://.", zh: "自托管中继地址必须是 wss:// 地址。" },
   // the hosted cloud (server/src/system/deployment.ts): the operator owns server.json, the relay registration and the updates
-  cloudConnection: { ko: `${PRODUCT.displayName} Cloud에서는 연결 방식을 바꿀 수 없어요. 팀 주소는 호스팅 운영자가 관리해요.`, en: `The connection cannot be changed on ${PRODUCT.displayName} Cloud. The hosting provider manages the team address.`, id: `Koneksi tidak bisa diubah di ${PRODUCT.displayName} Cloud. pengelola layanan mengelola alamat tim.`, ja: `${PRODUCT.displayName} Cloudでは接続を変更できません。チームアドレスはホスティング事業者が管理します。`, es: `No se puede cambiar la conexión en ${PRODUCT.displayName} Cloud. El proveedor de alojamiento administra la dirección del equipo.` },
-  needsRoot: { ko: '이 업데이트는 서버의 관리자 권한이 필요해요. 서버에서 `sudo mycel-ctl update`를 실행해 주세요(docs/INSTALL-LINUX.md).', en: 'This update needs administrator rights on the server. Run `sudo mycel-ctl update` there (docs/INSTALL-LINUX.md).', id: 'Pembaruan ini memerlukan hak administrator di server. Jalankan `sudo mycel-ctl update` di sana (docs/INSTALL-LINUX.md).', ja: "この更新にはサーバーの管理者権限が必要です。サーバーで`sudo mycel-ctl update`を実行してください（docs/INSTALL-LINUX.md）。", es: "Esta actualización requiere permisos de administrador en el servidor. Ejecute allí `sudo mycel-ctl update` (docs/INSTALL-LINUX.md)." },
-  cloudUpdate: { ko: `${PRODUCT.displayName} Cloud의 업데이트와 되돌리기는 호스팅 운영자가 점검 시간에 해요.`, en: `On ${PRODUCT.displayName} Cloud, the hosting provider installs updates (and rolls them back) during the maintenance window.`, id: `Di ${PRODUCT.displayName} Cloud, pengelola layanan memasang pembaruan (dan mengembalikannya) saat jendela pemeliharaan.`, ja: `${PRODUCT.displayName} Cloudでは、ホスティング事業者がメンテナンス時間帯に更新とロールバックを行います。`, es: `En ${PRODUCT.displayName} Cloud, el proveedor de alojamiento instala actualizaciones y revierte versiones durante el horario de mantenimiento.` },
+  cloudConnection: { ko: `${PRODUCT.displayName} Cloud에서는 연결 방식을 바꿀 수 없어요. 팀 주소는 호스팅 운영자가 관리해요.`, en: `The connection cannot be changed on ${PRODUCT.displayName} Cloud. The hosting provider manages the team address.`, id: `Koneksi tidak bisa diubah di ${PRODUCT.displayName} Cloud. pengelola layanan mengelola alamat tim.`, ja: `${PRODUCT.displayName} Cloudでは接続を変更できません。チームアドレスはホスティング事業者が管理します。`, es: `No se puede cambiar la conexión en ${PRODUCT.displayName} Cloud. El proveedor de alojamiento administra la dirección del equipo.`, zh: `在${PRODUCT.displayName} Cloud 上无法更改连接。团队地址由托管服务商管理。` },
+  needsRoot: { ko: '이 업데이트는 서버의 관리자 권한이 필요해요. 서버에서 `sudo mycel-ctl update`를 실행해 주세요(docs/INSTALL-LINUX.md).', en: 'This update needs administrator rights on the server. Run `sudo mycel-ctl update` there (docs/INSTALL-LINUX.md).', id: 'Pembaruan ini memerlukan hak administrator di server. Jalankan `sudo mycel-ctl update` di sana (docs/INSTALL-LINUX.md).', ja: "この更新にはサーバーの管理者権限が必要です。サーバーで`sudo mycel-ctl update`を実行してください（docs/INSTALL-LINUX.md）。", es: "Esta actualización requiere permisos de administrador en el servidor. Ejecute allí `sudo mycel-ctl update` (docs/INSTALL-LINUX.md).", zh: "这次更新需要服务器上的管理员权限。请在服务器上运行 `sudo mycel-ctl update`（docs/INSTALL-LINUX.md）。" },
+  cloudUpdate: { ko: `${PRODUCT.displayName} Cloud의 업데이트와 되돌리기는 호스팅 운영자가 점검 시간에 해요.`, en: `On ${PRODUCT.displayName} Cloud, the hosting provider installs updates (and rolls them back) during the maintenance window.`, id: `Di ${PRODUCT.displayName} Cloud, pengelola layanan memasang pembaruan (dan mengembalikannya) saat jendela pemeliharaan.`, ja: `${PRODUCT.displayName} Cloudでは、ホスティング事業者がメンテナンス時間帯に更新とロールバックを行います。`, es: `En ${PRODUCT.displayName} Cloud, el proveedor de alojamiento instala actualizaciones y revierte versiones durante el horario de mantenimiento.`, zh: `在${PRODUCT.displayName} Cloud 上，托管服务商会在维护时段内安装更新（以及回滚）。` },
 }
 
 export const systemRoutes: RouteModule = {
@@ -110,6 +114,8 @@ export const systemRoutes: RouteModule = {
       try { return fn() } catch (e) { ops().unlock(); throw e }
     }
     const release = () => { ops().unlock() }
+    /** the update job of "Update now" while it runs (its wait can be ended by "Update now anyway") */
+    let updateJobId: string | null = null
 
     kit.handle(API.health, ({ c, auth }): Health => {
       let dbOk = true
@@ -152,7 +158,8 @@ export const systemRoutes: RouteModule = {
       }
       // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
       const turnAt = ops().rolloutTurnAt()
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}) }
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}),
+        running: ops().queue().running, waiting: updateWaitingFor(ctx.config) }
     })
 
     // what a release left for an admin to do (system/after-update.ts)
@@ -165,6 +172,9 @@ export const systemRoutes: RouteModule = {
       const u = ops().updates
       if (!u.installed) fail('conflict', tr(locale, T.devOnly))
       const st = u.status()
+      // "Update now anyway" while this server's own update waits for running tasks: that update stops waiting and goes
+      // on (its job is the one to follow); a second update would only be refused as busy
+      if (body.force && updateJobId && skipUpdateWait()) return { jobId: updateJobId }
       const target = body.rollback ? st.previous : body.version ?? st.available?.version ?? null
       if (!target) fail('conflict', tr(locale, body.rollback ? T.noPrevious : T.noUpdate))
       // a version that cannot open the database the running one migrated only exits 75 and bounces back (QA TC-336)
@@ -174,18 +184,21 @@ export const systemRoutes: RouteModule = {
       // either; one already staged here, or a roll-back, still goes
       const held = u.lastFeed()
       if (!staged && !body.rollback && held?.version === target && held.rollout?.hold) fail('conflict', tr(locale, T.paused))
+      // a version that cannot open the database as it is now (a dev build migrated it to a higher reader level) only
+      // exits 75 and bounces back: not installed, from the feed or staged
+      if (!body.rollback && !u.releaseCanRead(held?.version === target ? held : { version: target! })) fail('conflict', tr(locale, T.cannotRead(target!)))
       // a release that also changes root-owned parts is installed by `sudo mycel-ctl update` (Linux), not from here
       if (!staged && !body.rollback && u.status().needsRoot) fail('conflict', tr(locale, T.needsRoot))
-      const jobId = exclusive('update', locale, () => jobs().start({
+      const jobId = exclusive('update', locale, () => updateJobId = jobs().start({
         kind: 'update', userId: auth.user.id,
         run: async (h) => {
           try {
-            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m) },
+            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m), force: !!body.force },
               target!, { staged, rollback: !!body.rollback })
           } catch (e) {
             if (e instanceof DownloadStalled) throw new JobFailure('unavailable', M.updateStalled)
             throw e
-          } finally { release() }
+          } finally { updateJobId = null; release() }
         },
       }))
       return { jobId }
@@ -242,6 +255,8 @@ export const systemRoutes: RouteModule = {
           try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide, readable: exportReadable(ctx, auth.user.id), sharedVisible: (id) => !!visibleSharedChat(ctx.db, ctx.files, auth.user.id, id), sharedWithheld: (id) => withheldFrom(ctx.db, ctx.files.rules(), id, auth.user.id) }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
+      // who took a copy of the team's data out, and what (never the password): the activity log shows it
+      audit(ctx.db, { actor: auth.user.id, action: 'export.start', detail: { what: body.what, encrypted: !!body.password } })
       return { jobId }
     })
 

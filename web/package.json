@@ -1,13 +1,13 @@
 {
   "name": "@mycel/web",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
   "description": "Web client (React + Vite). Component D. Built to web/dist and served by the team server.",
   "scripts": {
     "dev": "vite --port 19140 --strictPort",
-    "build": "vite build && bun scripts/build-vendor.ts && bun scripts/build-notices.ts",
+    "build": "vite build && bun scripts/build-vendor.ts && bun scripts/compress-dist.ts && bun scripts/build-notices.ts",
     "build:app": "vite build",
     "build:vendor": "bun scripts/build-vendor.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -21,9 +21,9 @@
 // delete in ⋯, its tools, and Team settings with who may use it). Members' personal connections are not listed (nobody but the owner can use
 // those).
 import { Check, Plus, Send } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
+import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type GoogleOwnAppStatus, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
@@ -46,11 +46,14 @@ import { Loadable, SettingRow, SettingsSection, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
 import AdminSlack from './Slack'
+import { slackView, useSlackRecheck } from '../../lib/slackState'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'slack' } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
 
-/** Slack's row on the right: added (on, off, a problem), or removed in Slack (Reconnect: Add to Slack again) */
-export const slackRowStatus = (s: SlackAdmin): RowStatus => (!s.tokens ? 'reconnect' : !s.enabled ? 'off' : s.state === 'error' ? 'attention' : 'on')
+/** Slack's row on the right: added (on, connecting, off, a problem or a connection that does not come), or removed in
+ * Slack (Reconnect: Add to Slack again). The same reading as Slack's page (lib/slackState.ts). */
+export const slackRowStatus = (s: SlackAdmin): RowStatus => slackView(s).row
 /** Slack is in Connected (else a card in Discover): added, or removed in Slack and not added again */
 export const slackAdded = (s: SlackAdmin) => s.tokens || s.lastError === 'removed'
 
@@ -58,8 +61,8 @@ export default function AdminIntegrations() {
   const t = useT()
   const me = useMeStrict()
   const state = useLoad(async () => (await api.call(API.listTeamIntegrations)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   // an older server has no templates: the page works without them
   const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
   // toList: opened from Discover or while a connector's page is open; once added, the page shows the list with it
@@ -77,11 +80,21 @@ export default function AdminIntegrations() {
   const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
   // the admin's own view of them (Connectors'), for each page's tools
   const views = useLoad(async () => { try { return (await api.call(API.myGoogleApps)).apps } catch { return [] as GoogleAppView[] } })
+  // the company's own Google app for all five Google pages (an older server has none: no row). After a change every
+  // Google status is read again: the shared rows ask to reconnect, the cards follow the new app
+  const ownApp = useLoad(async () => { try { return await api.call(API.googleOwnApp) } catch { return null as GoogleOwnAppStatus | null } })
+  const reloadDrive = drive.reload, reloadGapps = gapps.reload, reloadViews = views.reload, setOwnApp = ownApp.setData
+  const ownAppProps = useMemo(() => ({
+    status: ownApp.data,
+    onChange: (st: GoogleOwnAppStatus) => { setOwnApp(st); void reloadDrive(); void reloadGapps(); void reloadViews() },
+  }), [ownApp.data, setOwnApp, reloadDrive, reloadGapps, reloadViews])
   const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
   const setGapp = (st: GoogleAppAdminStatus) => gapps.setData((a) => a?.map((x) => (x.id === st.id ? st : x)) ?? a)
   // a page: /admin/connectors/<id> (a Google connector, a listed service) or /admin/connectors/mcp/<id> (a team
   // connection), in place of the list; the way back returns to the list
   const { sub, item } = useParams()
+  // connecting: read again until it is connected (or a problem), as Slack's page does
+  useSlackRecheck(sub ? null : slack.data, slack.reload)
   const navigate = useNavigate()
   const upTo = useUpTo()
   const open: Open | null = !sub ? null
@@ -165,9 +178,9 @@ export default function AdminIntegrations() {
         {(list) => {
           const tpls = templates.data ?? []
           const d = drive.data
-          if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} />
+          if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} ownApp={ownAppProps} />
           const gs = open?.kind === 'gapp' ? gapps.data?.find((x) => x.id === open.id) : undefined
-          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} />
+          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} ownApp={ownAppProps} />
           /** a team connection's page: ⋯ (check again, edit, delete), its tools, and Team settings with who may use it */
           const teamPage = (i: Integration) => (
             <ConnectionPage list={adminList} i={i} actions={actions} onEdit={() => setDialog({ existing: i })}

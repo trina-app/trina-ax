@@ -29,7 +29,7 @@ import type { z } from 'zod'
 import { cleanLeadFor, type CreatedInvite as CreatedInviteSchema, type Group, type Invite, type Locale, type Me, type User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { formatDateTime, formatShortDateTime } from '../../lib/format'
+import { formatDate, formatDateTime, formatMonthDay, formatShortDateTime } from '../../lib/format'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
@@ -45,7 +45,7 @@ import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, Sea
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
-import { NewPersonPreview, personViewLink } from './AccessResults'
+import { NewPersonPreview, personViewLink } from './FolderLists'
 import { TeamLinkDialog, joinsText } from '../../components/onboarding/TeamLinkPanel'
 import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'
@@ -55,6 +55,8 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
+import { confirmOriginKept } from './originKept'
+import { loadAdminInvites, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -75,9 +77,9 @@ export default function Members() {
   const act = useAction()
   const actOk = useActionOk()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
-  const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
-  const invites = useLoad(async () => (await api.call(API.listInvites)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsersNoAi()
+  const invites = useAdminRead('invites', loadAdminInvites)
+  const groups = useAdminGroups()
   // the team's AI connections: the delete confirmation names those only the person may use (ai-assignees.ts)
   const connections = useLoad(loadConnections)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -87,7 +89,7 @@ export default function Members() {
   const [secret, setSecret] = useState<HandoverInfo | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
   /** an admin removing a member: asked for their password first (`off`: the AI connections the delete switches off) */
-  const [removing, setRemoving] = useState<{ user: User; off: string[] } | null>(null)
+  const [removing, setRemoving] = useState<{ user: User; off: string[]; sharedChats: number } | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
   /** 팀장 넘기기: the person the confirm is for */
@@ -138,15 +140,27 @@ export default function Members() {
   const canRemove = (u: User) => isOwner(me) || u.role === 'member'
   // personal files are archived for the owner either way; the text only says that this person asked. AI connections
   // only this person may use are switched off by the delete (never given to the whole team): named in one more line
-  const removeBody = (u: User, off: string[]) => {
-    const text = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
-    return off.length ? <><p>{text}</p><p className="mt-2" data-testid="member-delete-ai-off">{t('members.removeAiOff', { names: off.join(', ') })}</p></> : text
+  // the chats this person shared with people and groups that others wrote in are deleted with the account (docs/DECISIONS.md
+  // "Chats shared with people and groups", Drive's rule): how many, and that disabling keeps them
+  const removeBody = (u: User, off: string[], sharedChats = 0) => {
+    const due = users.data?.deletionDue?.[u.id]
+    const text = requested(u) ? (due ? t('accountDeletion.removeBodyDue', { name: u.name, date: formatDate(due, locale) }) : t('accountDeletion.removeBody', { name: u.name })) : t('members.removeBody', { days: chatTrashDays(me) })
+    if (!off.length && !sharedChats) return text
+    return (
+      <>
+        <p>{text}</p>
+        {sharedChats > 0 && <p className="mt-2" data-testid="member-delete-shared-chats">{t('members.removeSharedChats', { n: sharedChats })}</p>}
+        {off.length > 0 && <p className="mt-2" data-testid="member-delete-ai-off">{t('members.removeAiOff', { names: off.join(', ') })}</p>}
+      </>
+    )
   }
   const remove = async (u: User) => {
     const off = connectionsOnlyFor(connections.data, { subjectType: 'user', subjectId: u.id })
+    // (a count that can't be read leaves its line out: the delete itself is unchanged)
+    const sharedChats = await api.call(API.userSharedChats, { params: { id: u.id } }).then((r) => r.sharedChats, () => 0)
     // an admin types their password again in the dialog below
-    if (!isOwner(me)) return setRemoving({ user: u, off })
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u, off), confirm: t('common.delete'), danger: true }))) return
+    if (!isOwner(me)) return setRemoving({ user: u, off, sharedChats })
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u, off, sharedChats), confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, body: {} }))) { if (off.length) void connections.reload(); await users.reload() }
   }
   /** The actions used less often, for the rows this viewer manages (canManage): on a phone in the card's "…" menu with
@@ -241,10 +255,10 @@ export default function Members() {
     return (
       <div className="-mx-4" data-testid="member-page" data-user={u.username}>
         <div className="px-4">
-          <h2 className="text-lg font-semibold break-words text-ink">{u.name}</h2>
+          <h2 className="text-title font-semibold break-words text-ink">{u.name}</h2>
           <p className="mt-0.5 text-sm break-all text-muted">{[u.username, u.email].filter(Boolean).join(' · ')}</p>
           {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi) && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} /></div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} /></div>
           )}
         </div>
         <PhoneListGroup>
@@ -369,7 +383,7 @@ export default function Members() {
                         <>
                           {username && <span className="truncate">{u.username}</span>}
                           {byEmail && <span className="truncate" data-testid={`member-email-${u.username}`}>{u.email}</span>}
-                          <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
+                          <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
                         </>
                       )}
                       menu={<MemberMenu name={u.name} items={menuItems(u)} />}
@@ -397,7 +411,7 @@ export default function Members() {
                         <td className="py-3.5 pr-4">
                           <span className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium text-ink">{u.name}</span>
-                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
+                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
                           </span>
                           {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
                         </td>
@@ -426,7 +440,7 @@ export default function Members() {
           popup) and the single-use links (revoke at once). Making a link happens in the popups of the header buttons. */}
       {(!!teamLink.data?.link || !!invites.data?.length) && (
         <section className="mb-8" aria-labelledby="invite-links-title" data-testid="invite-links">
-          <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-sm font-semibold">
+          <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-title-sm font-semibold">
             {t('members.invites')}
           </h2>
           <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('members.invitesDesc')}</OneLine>
@@ -536,7 +550,7 @@ export default function Members() {
         <ReauthDialog
           danger
           title={t('members.removeTitle', { name: removing.user.name })}
-          body={removeBody(removing.user, removing.off)}
+          body={removeBody(removing.user, removing.off, removing.sharedChats)}
           confirm={t('common.delete')}
           onClose={() => setRemoving(null)}
           onConfirm={async (password) => {
@@ -567,12 +581,13 @@ type RoleFilter = 'all' | User['role']
 
 /** What needs the admin's eye, next to the name: disabled, a temporary password, no AI (until when, when only a limit
  * keeps them from it). (The role has its own column.) */
-function AttentionBadges({ user: u, noAi, noAiUntil, requested = false }: { user: User; noAi: boolean; noAiUntil?: string; requested?: boolean }) {
+function AttentionBadges({ user: u, noAi, noAiUntil, requested = false, deletionDue }: { user: User; noAi: boolean; noAiUntil?: string; requested?: boolean; deletionDue?: string }) {
   const t = useT()
+  const locale = useLocale()
   return (
     <>
       {u.status === 'disabled' && <Badge tone="danger">{t('members.disabled')}</Badge>}
-      {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
+      {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{deletionDue ? t('accountDeletion.badgeDue', { date: formatMonthDay(deletionDue, locale) }) : t('accountDeletion.badge')}</Badge></span>}
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
       {noAi && <NoAiBadge until={noAiUntil} />}
     </>
@@ -1022,6 +1037,9 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
             busy={busy}
             onClick={async () => {
               setBusy(true)
+              // groups taken off where the folder conversion added this person by name: that access stays, said first
+              const leaving = user.groupIds.filter((g) => !groupIds.includes(g)).map((groupId) => ({ userId: user.id, groupId }))
+              if (!(await confirmOriginKept(leaving, { title: t('groups.originTitle'), confirm: t('common.save') }))) { setBusy(false); return }
               const r = await act(() => api.call(API.updateUser, { params: { id: user.id }, body: { name: name.trim(), groupIds, ...(canChangeRole ? { role } : {}), ...(language !== (user.localeChoice ?? '') ? { locale: language || null } : {}) } }))
               setBusy(false)
               // an admin made a member could see the team invite link: suggest replacing it

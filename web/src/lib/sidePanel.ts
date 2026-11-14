@@ -34,10 +34,52 @@ const subscribe = (l: () => void) => {
 /** A file or an artifact can be shown big; the Browser pane cannot. */
 export const expandable = (p: SidePanel | null) => !!p && p.kind !== 'browser'
 
-export function setSidePanel(next: SidePanel | null) {
+/** A panel with work in it that closing would lose (a file being edited with unsaved changes, components/FilePanel.tsx)
+ * says so here. While it is set, anything that would take the panel's place (✕, Back on a phone, another file, a page
+ * that does not keep it) asks first and only goes on when the answer is yes; the person who says no stays in the editor. */
+let panelGuard: (() => Promise<boolean>) | null = null
+let asking = false
+/** How many times the person said no: a phone's Back that was refused has used up its history entry, so the panel holds
+ * a new one (components/Layout.tsx useOverlayEntry) and the next Back asks again instead of leaving the page. */
+let refusals = 0
+export const getPanelRefusals = () => refusals
+export const usePanelRefusals = () => useSyncExternalStore(subscribe, getPanelRefusals)
+/** A guard is set: the panel holds work. Things that open a panel by themselves (an artifact the AI made) leave it be. */
+export const panelGuarded = () => panelGuard !== null
+export const setPanelGuard = (g: (() => Promise<boolean>) | null) => {
+  panelGuard = g
+  asking = false
+}
+
+function applyPanel(next: SidePanel | null) {
   current = next
   if (!expandable(next)) expanded = false
   notify()
+}
+
+export function setSidePanel(next: SidePanel | null) {
+  if (panelGuard && current && next !== current) {
+    // one question at a time: a second click while it is open waits for it
+    if (asking) return
+    asking = true
+    void panelGuard().then(
+      (ok) => {
+        asking = false
+        if (ok) {
+          panelGuard = null
+          applyPanel(next)
+        } else {
+          refusals++
+          notify()
+        }
+      },
+      () => {
+        asking = false
+      },
+    )
+    return
+  }
+  applyPanel(next)
 }
 
 export const getSidePanel = () => current

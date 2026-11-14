@@ -1,5 +1,5 @@
 // The "…" on each card of the Projects list (이름 바꾸기, 링크 복사, 삭제 with the project page's own confirm), and
-// "프로젝트로 옮기기…" in a chat row's "…" in the sidebar (the phone's drawer), which a shared project chat never offers.
+// "프로젝트로 옮기기" in a chat row's "…" in the sidebar (the phone's drawer), which a shared project chat never offers.
 // The cards' "…" at 1440 px (a phone's 프로젝트 tab has plain rows without one); the chat row's move at 1440 and 390
 // px (a touch phone: a bottom sheet), with axe on each screen.
 import AxeBuilder from '@axe-core/playwright'
@@ -242,7 +242,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       return { row, menu }
     }
 
-    test('"프로젝트로 옮기기…" opens the move dialog; the chat moves, and its row then says "프로젝트 바꾸기…"', async ({ page }) => {
+    test('"프로젝트로 옮기기" opens the move dialog; the chat moves, and its row then says "프로젝트 바꾸기"', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const id = await project(page, 'Launch', 'marketing')
@@ -253,7 +253,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
       await audit(page, 'chat row menu open')
       await menu.getByRole('menuitem', { name: t['chat.project.add'] }).click()
-      const dialog = page.getByRole('dialog', { name: t['chat.project.title'] })
+      // the dialog is named by the item that opened it (QA TC-1086)
+      const dialog = page.getByRole('dialog', { name: t['chat.project.add'] })
       await expect(dialog).toBeVisible()
       await dialog.getByRole('radio', { name: /Launch/ }).check()
       await audit(page, 'move dialog')
@@ -291,14 +292,14 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
 // docs/DECISIONS.md "Project contents only for members": the owner's card of a team project she is not in has Rename,
 // Members and Delete; deleting moves it to the trash (the card stays and says so), deleting again is for good; a team
-// project nobody active is in says "남은 멤버 없음"; its instructions do not come, so the card says "멤버만 내용을 볼 수
+// project nobody active is in says "남은 멤버 없음" (a trashed one says only "휴지통에 있음", QA TC-1012); its instructions do not come, so the card says "멤버만 내용을 볼 수
 // 있어요." with a lock, never "지침이 없어요.". SHOTS_DIR set: the list as an admin who is not in it, as a picture.
 // (a computer's cards only: a phone's 프로젝트 tab lists plain rows without a "…", see above)
 for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }]) {
   test.describe(`a project the owner is not in, on the list at ${vp.name}`, () => {
     test.use(vp.use)
 
-    test('Rename, Members, Delete to the trash and then for good; no active members said on the card', async ({ page }) => {
+    test('Rename, Members, Move to trash; then no card (Files › Trash has it, where it goes for good); no active members said on the card', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const falcon = ((await (await post(page, '/__test/project', { name: 'Falcon', by: 'bob' })).json()) as { id: string }).id
@@ -314,32 +315,36 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.reload()
       await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveCount(0)
       let menu = await openCard(page, 'Falcon', vp.phone)
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['projects.participants'], t['rooms.menu.copyLink'], t['common.delete']])
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['projects.participants'], t['rooms.menu.copyLink'], t['projects.moveToTrash']])
       await audit(page, 'card menu of a project the owner is not in')
       // Members: the dialog over the list
       await menu.getByRole('menuitem', { name: t['projects.participants'] }).click()
       await expect(page.getByTestId('project-members-dialog')).toBeVisible()
+      // one count (no second list of the same people for whoever changes them: QA TC-1065)
       await expect(page.getByTestId('project-access-summary')).toHaveText(translate('ko', 'projects.whoMembers', { n: 1 }))
+      await expect(page.getByTestId('project-people-count')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
-      // Delete: to the trash with its files and chats; the card stays and says so
+      // Move to trash: with its files and chats; she is not a member, so its card goes (QA TC-1061)
       menu = await openCard(page, 'Falcon', vp.phone)
-      await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
+      await menu.getByRole('menuitem', { name: t['projects.moveToTrash'] }).click()
       let dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.trashTitle', { name: 'Falcon' }))
       await expect(dialog).toContainText(t['projects.trashBody'])
       await expect(dialog.getByTestId('project-delete-trash-folder')).toHaveCount(0)
       await audit(page, 'move to the trash confirm')
       await dialog.getByTestId('dialog-confirm').click()
-      await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveText(` · ${t['chat.project.inTrash']}`)
-      await expect(items(page)).toHaveCount(2)
-      // again: for good, the card goes
-      menu = await openCard(page, 'Falcon', vp.phone)
-      await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
+      await expect(card(page, 'Falcon')).toHaveCount(0)
+      await expect(items(page)).toHaveCount(1)
+      // Files › Trash: one row, the project; for good from there
+      await page.goto('/files?view=trash')
+      const row = page.locator('[data-testid="trash-item"][data-kind="project"]').filter({ hasText: 'Falcon' })
+      await expect(row.getByTestId('trash-where')).toHaveText(t['projects.title'])
+      await row.getByTestId('trash-project-delete').click()
       dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.deleteForGoodTitle', { name: 'Falcon' }))
       await expect(dialog.getByTestId('dialog-confirm')).toHaveText(t['projects.deleteForGood'])
       await dialog.getByTestId('dialog-confirm').click()
-      await expect(card(page, 'Falcon')).toHaveCount(0)
+      await expect(row).toHaveCount(0)
       expect((await page.request.get(`/api/projects/${falcon}?manage=1`)).status()).toBe(404)
     })
 

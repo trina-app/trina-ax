@@ -3,8 +3,9 @@
 // udp/53: the internet, the office LAN's chart server or NAS, DNS names as a channel. Fixed: office mode starts the
 // local proxy (CONNECT only, no Claude credential in it), every Claude turn gets HTTPS_PROXY with a per-turn token,
 // and with PROXY_PORT set the profile allows no network but that port (no :443, no DNS, no mDNSResponder / trustd).
-// The proxy opens tunnels for a running Claude turn's own processes to api.anthropic.com:443 and platform.claude.com:443
-// only (the API and the OAuth refresh of Claude Code 2.1.306; WebSearch runs at Anthropic). Dev (no proxy) unchanged.
+// The proxy opens tunnels for a running Claude turn's own processes to platform.claude.com:443 only (the OAuth refresh
+// of Claude Code; WebSearch runs at Anthropic). Since TC-359 api.anthropic.com is not tunnelled: model requests go to the
+// proxy's HTTP path, which checks every body (r4b-office-body-check.test.ts). Dev (no proxy) unchanged.
 // Part 3 drives the real office engine core (startLocalCore: sandboxed launcher + proxy) with the scripted engine on a
 // fake HOME (the after-turn ~/.claude.json cleanup runs on it, never on the real one).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
@@ -18,6 +19,7 @@ import { issueProxyToken, startModelProxy } from '../../server/src/proxy/model-p
 import { CLAUDE_CONNECT_HOSTS } from '../../server/src/proxy/connect'
 import { ask, FAKE_ENGINE_TS, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { officeLoginProxy } from '../../server/src/context'
+import { resolveLayout } from '../../server/src/system/layout'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -77,36 +79,53 @@ describe('2. the proxy\'s CONNECT for Claude turns: the Claude hosts only', () =
   })
   afterAll(async () => { await office?.stop(); await prod?.stop(); echo.close() })
 
-  test('a running Claude turn reaches api.anthropic.com:443 and platform.claude.com:443', async () => {
+  test('a running Claude turn reaches platform.claude.com:443 (the login refresh) and no longer api.anthropic.com', async () => {
     const tok = issueProxyToken(db, 'cl1', 'alice')
-    expect(CLAUDE_CONNECT_HOSTS).toEqual(['api.anthropic.com:443', 'platform.claude.com:443'])
-    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${tok}`)).toBe('HTTP/1.1 200 Connection Established') // was 403
+    expect(CLAUDE_CONNECT_HOSTS).toEqual(['platform.claude.com:443'])
     expect(await connect(office.port, 'platform.claude.com:443', `turn:${tok}`)).toBe('HTTP/1.1 200 Connection Established')
-    expect(dialed).toEqual(['api.anthropic.com:443', 'platform.claude.com:443'])
+    // TC-359: a tunnel to the API stays TLS end to end and would skip the body check
+    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${tok}`)).toBe('HTTP/1.1 403 Forbidden') // was 200
+    expect(dialed).toEqual(['platform.claude.com:443'])
   })
 
   test('nothing else: other hosts, ports, the office LAN, Codex hosts, a finished turn, another process', async () => {
     const tok = issueProxyToken(db, 'cl1', 'alice')
     for (const h of ['evil.example:443', 'api.anthropic.com:80', '10.0.0.5:443', '192.168.1.10:443', '127.0.0.1:47830', 'chatgpt.com:443', 'claude.ai:443', 'API.ANTHROPIC.COM:443', 'api.anthropic.com:443.evil'])
       expect([h, await connect(office.port, h, `turn:${tok}`)]).toEqual([h, 'HTTP/1.1 403 Forbidden'])
-    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${issueProxyToken(db, 'cl2', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
-    expect(await connect(office.port, 'api.anthropic.com:443', null)).toMatch(/^HTTP\/1\.1 407/)
+    expect(await connect(office.port, 'platform.claude.com:443', `turn:${issueProxyToken(db, 'cl2', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect(await connect(office.port, 'platform.claude.com:443', null)).toMatch(/^HTTP\/1\.1 407/)
     peer = 9999 // a process outside the turn's engine session that read the token from the turn's environment
-    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${tok}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect(await connect(office.port, 'platform.claude.com:443', `turn:${tok}`)).toBe('HTTP/1.1 403 Forbidden')
     peer = 4343
     // a Codex turn keeps its own list (not the Claude hosts)
-    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${issueProxyToken(db, 'cx1', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect(await connect(office.port, 'platform.claude.com:443', `turn:${issueProxyToken(db, 'cx1', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
     peer = 4242
-    expect(dialed).toEqual(['api.anthropic.com:443', 'platform.claude.com:443'])
+    expect(dialed).toEqual(['platform.claude.com:443'])
+  })
+
+  test('the turn\'s own refused API lookups leave no Activity line; anyone else\'s do', async () => {
+    const tok = issueProxyToken(db, 'cl1', 'alice')
+    const n = () => (db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'proxy.connect_refused' AND detail LIKE '%api.anthropic.com:443%'").get() as { n: number }).n
+    const before = n()
+    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${tok}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect(n()).toBe(before)
+    peer = 9999
+    expect(await connect(office.port, 'api.anthropic.com:443', `turn:${tok}`)).toBe('HTTP/1.1 403 Forbidden')
+    peer = 4242
+    expect(n()).toBe(before + 1)
+    // other hosts are always recorded
+    const m = (db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'proxy.connect_refused' AND detail LIKE '%evil.example%'").get() as { n: number }).n
+    expect(await connect(office.port, 'evil.example:443', `turn:${tok}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect((db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'proxy.connect_refused' AND detail LIKE '%evil.example%'").get() as { n: number }).n).toBe(m + 1)
   })
 
   test('production (no claudeHosts): Claude turns get no tunnel, as before', async () => {
-    expect(await connect(prod.port, 'api.anthropic.com:443', `turn:${issueProxyToken(db, 'cl1', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect(await connect(prod.port, 'platform.claude.com:443', `turn:${issueProxyToken(db, 'cl1', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
   })
 })
 
 // ---------------------------------------------------------------------------------------------------------------
-describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_PROXY and only the Claude hosts', () => {
+describe.skipIf(!sbAvailable)('3. office engine core: model requests through the checked HTTP path, only the refresh tunnels', () => {
   const ENGINE_DIR = path.join(WORK, 'r4b-office-engine')
   const FAKE_HOME = path.join(WORK, 'r4b-office-home')
   const realHome = process.env.HOME
@@ -114,7 +133,10 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
   let alice: TestSocket
   let upstream: net.Server
   let connectSpy: ReturnType<typeof spyOn>
+  let fetchSpy: ReturnType<typeof spyOn>
   const dialed: string[] = []
+  /** what reached the stand-in for api.anthropic.com through the proxy's HTTP path */
+  const upstreamSeen: { url: string; auth: string | null; turnHeader: string | null; body: any }[] = []
   async function freePort(): Promise<number> {
     return new Promise((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)) }) })
   }
@@ -126,12 +148,24 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
     const localPort = (upstream.address() as net.AddressInfo).port
     const connectOriginal = net.connect.bind(net)
     connectSpy = spyOn(net, 'connect').mockImplementation(((...args: any[]) => {
-      if (args[0] === 443 && args[1] === 'api.anthropic.com') {
-        dialed.push('api.anthropic.com:443')
+      if (args[0] === 443 && (args[1] === 'api.anthropic.com' || args[1] === 'platform.claude.com')) {
+        dialed.push(`${args[1]}:443`)
         return connectOriginal(localPort, '127.0.0.1')
       }
       return (connectOriginal as (...args: any[]) => net.Socket)(...args)
     }) as typeof net.connect)
+    // the proxy's HTTP path forwards to https://api.anthropic.com: answered here, never the real one
+    const fetchOriginal = globalThis.fetch
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: any, init?: any) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (!url.startsWith('https://api.anthropic.com/')) return fetchOriginal(input, init)
+      const hd = new Headers(init?.headers)
+      upstreamSeen.push({ url, auth: hd.get('authorization'), turnHeader: hd.get('x-mycel-turn'), body: JSON.parse(String(init?.body)) })
+      const sse = ['event: message_start', 'data: {"type":"message_start","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":3}}}', '',
+        'event: content_block_delta', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"checked hello"}}', '',
+        'event: message_stop', 'data: {"type":"message_stop"}', '', ''].join('\n')
+      return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch)
     // a fake HOME for the server side of the turn (session folder, the after-turn ~/.claude.json cleanup)
     fs.rmSync(FAKE_HOME, { recursive: true, force: true })
     fs.mkdirSync(path.join(FAKE_HOME, '.claude', 'projects'), { recursive: true })
@@ -144,14 +178,14 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
     fs.copyFileSync(FAKE_ENGINE_TS, path.join(ENGINE_DIR, 'fake-engine.ts'))
     fs.writeFileSync(path.join(ENGINE_DIR, 'claude'), `#!${path.join(ENGINE_DIR, 'bun')}\nimport './fake-engine.ts'\n`, { mode: 0o755 })
     h = await startHarness({
-      name: 'r4b-office-net', turnTimeoutMs: 60_000,
+      name: 'r4b-office-net', stallTimeoutMs: 60_000,
       realCore: { office: true, engine: { authMode: 'local-login', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '/nonexistent/codex', proxyPort: await freePort() } },
     })
     alice = await h.ws('alice', { windowId: 'win-r4b-net' })
     await alice.next('hello')
   })
   afterAll(async () => {
-    alice?.close(); await h?.close(); connectSpy?.mockRestore(); upstream?.close(); process.env.HOME = realHome
+    alice?.close(); await h?.close(); connectSpy?.mockRestore(); fetchSpy?.mockRestore(); upstream?.close(); process.env.HOME = realHome
   })
 
   test('office local-login starts the CONNECT proxy; other modes do not', async () => {
@@ -168,13 +202,62 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
     const chat2 = await h.api('alice').call(API.createChat, { body: {} })
     const r2 = await ask(h, alice, 'alice', chat2.id, fake({ connect: '10.0.0.5:443' }), { ms: 30_000 })
     expect(r2.done.content).toBe('HTTP/1.1 403 Forbidden')
-    // The allow-list passes, and the accepted tunnel reaches only the local stand-in.
+    // TC-359: the API host is no longer tunnelled (TLS end to end = no body check)
     const chat3 = await h.api('alice').call(API.createChat, { body: {} })
     const r3 = await ask(h, alice, 'alice', chat3.id, fake({ connect: 'api.anthropic.com:443' }), { ms: 30_000 })
-    expect(String(r3.done.content)).toBe('HTTP/1.1 200 Connection Established')
-    expect(dialed).toEqual(['api.anthropic.com:443'])
+    expect(String(r3.done.content)).toBe('HTTP/1.1 403 Forbidden') // was 200
+    // the login refresh host passes the list, and its tunnel ends at the proxy's refresh terminator: nothing is dialled
+    // out (the host also answers the Messages API, TC-359)
+    const chat4 = await h.api('alice').call(API.createChat, { body: {} })
+    const r4 = await ask(h, alice, 'alice', chat4.id, fake({ connect: 'platform.claude.com:443' }), { ms: 30_000 })
+    expect(String(r4.done.content)).toBe('HTTP/1.1 200 Connection Established')
+    expect(dialed).toEqual([])
     // the turn's token died with the turn
     const toks = h.ctx.db.query('SELECT revoked_at FROM proxy_tokens WHERE turn_id = ?').all(r.started.turnId) as { revoked_at: string | null }[]
     expect(toks.length).toBe(1); expect(toks[0]!.revoked_at).not.toBeNull()
+  })
+
+  test('TC-359: a normal model request passes the body check with the engine\'s own login; the proxy token stays here', async () => {
+    upstreamSeen.length = 0
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await ask(h, alice, 'alice', chat.id, fake({ model: 'hi' }), { ms: 30_000 })
+    expect(String(r.done.content)).toBe('checked hello')
+    expect(upstreamSeen.length).toBe(1)
+    expect(upstreamSeen[0]!.url).toBe('https://api.anthropic.com/v1/messages?beta=true')
+    expect(upstreamSeen[0]!.auth).toBe('Bearer sk-ant-oat01-fake-mac-login') // the engine's login, unchanged
+    expect(upstreamSeen[0]!.turnHeader).toBeNull() // the turn's proxy token is not sent on
+  })
+
+  test('TC-359: what a taken-over engine asks Anthropic to fetch, run or connect to is refused before it leaves', async () => {
+    upstreamSeen.length = 0
+    const refused: [string, unknown][] = [
+      ['mcp_servers', { mcp_servers: [{ type: 'url', url: 'http://10.0.0.5/mcp', name: 'lan' }] }],
+      ['container', { container: 'c1' }],
+      ['web_fetch', { tools: [{ type: 'web_fetch_20250910', name: 'web_fetch' }] }],
+      ['code execution', { tools: [{ type: 'code_execution_20250825', name: 'code_execution' }] }],
+      ['url image', { messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'http://192.168.1.10/x.png' } }] }] }],
+    ]
+    for (const [what, extra] of refused) {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await ask(h, alice, 'alice', chat.id, fake({ model: 'hi', modelExtra: extra }), { ms: 30_000 })
+      expect([what, r.done.status, r.done.content]).toEqual([what, 'error', ''])
+    }
+    expect(upstreamSeen).toEqual([]) // nothing reached Anthropic
+    // each one refused by the body check, recorded with its reason (was: a TLS tunnel nobody could read)
+    const reasons = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' ORDER BY id").all() as { detail: string }[]).map((r) => JSON.parse(r.detail).reason as string)
+    expect(reasons).toEqual(['mcp_servers is not allowed', 'container is not allowed', 'tool type web_fetch_20250910 is not allowed',
+      'tool type code_execution_20250825 is not allowed', 'image blocks must carry their data inline (no url / file sources)'])
+  })
+
+  test('TC-359: the turn trusts the refresh terminator\'s CA from its own folder; the certificate key stays out of reach', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await ask(h, alice, 'alice', chat.id, fake({ exists: '.turn/refresh-ca.pem' }), { ms: 30_000 })
+    expect(String(r.done.content)).toContain('true')
+    const key = path.join(resolveLayout(h.ctx.config).secretsDir, 'claude-refresh-ca', 'leaf.key')
+    expect(fs.existsSync(key)).toBe(true)
+    expect(fs.statSync(key).mode & 0o077).toBe(0)
+    const chat2 = await h.api('alice').call(API.createChat, { body: {} })
+    const r2 = await ask(h, alice, 'alice', chat2.id, fake({ readAbs: key }), { ms: 30_000 })
+    expect(String(r2.done.content)).toBe('read=blocked')
   })
 })

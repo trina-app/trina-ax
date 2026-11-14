@@ -20,6 +20,7 @@ import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { useMediaQuery } from '../ui'
 import { ConnectAiButton } from './ConnectAi'
+import { panelRow } from '../panels/PanelFrame'
 import { Tooltip } from '../Tooltip'
 
 /** a phone: the same query as the steps' own */
@@ -27,7 +28,8 @@ const PHONE = '(max-width: 767.98px)'
 /** the progress is read again on a page change at most this often (another tab, a share applied on its own page) */
 const FRESH_MS = 5000
 
-const row = 'flex h-row pointer-coarse:min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-row font-medium text-ink hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent max-sm:h-10'
+// a panel's fixed row (PanelFrame panelRow: the lists' height and 15px words), in medium
+const row = `${panelRow} min-w-0 flex-1 font-medium focus-visible:outline-2 focus-visible:outline-accent`
 
 export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT()

@@ -174,7 +174,7 @@ export function AdminPageHeader({ title, desc, actions, children, controls, test
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="flex items-center text-title font-semibold tracking-tight">{title}</h2>
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
@@ -271,7 +271,7 @@ export function Card({ title, actions, children, desc, headingRef, testId, flat,
         {head && (
           <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1 max-sm:basis-full">
-              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium', inBar && 'sr-only')}>{title}</h2>}
+              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-title-sm font-semibold', inBar && 'sr-only')}>{title}</h2>}
               {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
             </div>
             {actions}
@@ -288,7 +288,7 @@ export function Card({ title, actions, children, desc, headingRef, testId, flat,
           {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
               to a few words */}
           <div className="min-w-0 flex-1 max-sm:basis-full">
-            {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>}
+            {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-title-sm font-semibold">{title}</h2>}
             {desc && <OneLine className="mt-0.5 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
           </div>
           {actions}
@@ -381,12 +381,24 @@ export function useReauthCall() {
  * words for a refused password (passwordRefusal): they show under the field, the dialog stays open and the field is
  * selected for another try (QA TC-221: restore closed the dialog and the owner started over).
  */
-export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
+/** `alt`: a second way to go on with the same password (the update's "Update now anyway" beside "Wait, then update") */
+export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (password: string) => Promise<string | null | void> }; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
   const t = useT()
   const [pw, setPw] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'main' | 'alt' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  const go = async (confirmWith: (password: string) => Promise<string | null | void>, which: 'main' | 'alt') => {
+    setBusy(which)
+    setError(null)
+    const refused = await confirmWith(pw)
+    setBusy(null)
+    if (refused) {
+      setError(refused)
+      input.current?.focus()
+      input.current?.select()
+    }
+  }
   return (
     <Modal
       open
@@ -397,22 +409,17 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
+          {alt && (
+            <Button variant="secondary" busy={busy === 'alt'} disabled={!pw || !!busy} data-testid={alt.testId} onClick={() => void go(alt.onConfirm, 'alt')}>
+              {alt.label}
+            </Button>
+          )}
           <Button
             variant={danger ? 'danger' : 'primary'}
-            busy={busy}
-            disabled={!pw}
+            busy={busy === 'main'}
+            disabled={!pw || !!busy}
             data-testid="reauth-confirm"
-            onClick={async () => {
-              setBusy(true)
-              setError(null)
-              const refused = await onConfirm(pw)
-              setBusy(false)
-              if (refused) {
-                setError(refused)
-                input.current?.focus()
-                input.current?.select()
-              }
-            }}
+            onClick={() => void go(onConfirm, 'main')}
           >
             {confirm}
           </Button>
@@ -436,7 +443,7 @@ export function SettingsSection({ title, desc, actions, children, testId, id, he
     <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium focus:outline-none', inBar && 'sr-only')}>{title}</h2>
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-title-sm font-semibold focus:outline-none', inBar && 'sr-only')}>{title}</h2>
           {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
         </div>
         {actions}
@@ -446,39 +453,5 @@ export function SettingsSection({ title, desc, actions, children, testId, id, he
   )
 }
 
-/**
- * One setting as one row: its name, a short line on what it does under it, and the control on the right. Below 768 px
- * a wide control (a select, a text field, the logo's buttons) goes under the line; an `inline` one (a switch, a short
- * number) stays on the right of the name, as on a phone's Settings, with the line under the name. `id` is the control's
- * id: the name labels it and the line describes it. `more`: the longer details, behind "Learn more" (kept in the page,
- * hidden, so the row reads short). `heading`: the name is a heading, for a row whose control is not one field (the team
- * logo). `below`: under the line, always shown (an error, a state).
- */
-export function SettingRow({ id, title, desc, more, control, below, heading, inline, testId, attrs }: {
-  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; inline?: boolean; testId?: string; attrs?: Record<string, string>
-}) {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const descId = id ? `${id}-desc` : undefined
-  return (
-    <div className={clsx('flex py-4 md:flex-row md:items-start md:gap-8', inline ? 'items-start gap-4' : 'flex-col gap-3')} data-testid={testId} {...attrs}>
-      <div className="min-w-0 flex-1">
-        {heading ? <h3 className="text-sm font-medium text-ink">{title}</h3> : <label htmlFor={id} className="text-sm font-medium text-ink">{title}</label>}
-        {(desc || more) && (
-          <div className="mt-1 text-sm text-muted">
-            {desc && <span id={descId}>{desc}</span>}
-            {desc && more && ' '}
-            {more && (
-              <button type="button" aria-expanded={open} className="touch-hit font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
-                {t(open ? 'common.less' : 'teamSettings.learnMore')}
-              </button>
-            )}
-          </div>
-        )}
-        {more && <div hidden={!open} className="mt-2 max-w-prose text-xs leading-relaxed text-faint">{more}</div>}
-        {below}
-      </div>
-      {control && <div className={clsx('flex shrink-0 md:justify-end md:pt-0.5', inline ? 'pt-0.5 max-md:items-center max-md:gap-2' : 'justify-start')}>{control}</div>}
-    </div>
-  )
-}
+/** One setting as one row: the shared settings row (components/settings/SettingRow.tsx), kept importable from here. */
+export { SettingRow } from '../../components/settings/SettingRow'

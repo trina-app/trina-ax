@@ -8,10 +8,12 @@ import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from '../tools/web-allow-all'
 import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
+import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
+import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
 import { reachedAt } from '../system/connection'
@@ -24,6 +26,7 @@ export const authRoutes: RouteModule = {
   owner: 'A',
   init(ctx) {
     installAuth(ctx)
+    registerAccountsCleanup(ctx)
     startSweeper(ctx)
   },
   register(kit, ctx) {
@@ -41,6 +44,9 @@ export const authRoutes: RouteModule = {
     kit.handle(API.logout, ({ c, auth }) => {
       a().revokeSession(auth.session.id, 'logout')
       if (auth.via === 'cookie') a().clearCookie(c)
+      // a shared computer: the browser forgets what it kept of this person (room pictures of this sign-in, the bodies
+      // of private answers it stored to check again), so nothing of it is left for the next person (auth/media-key.ts)
+      c.header('Clear-Site-Data', '"cache"')
     })
 
     kit.handle(API.changePassword, async ({ c, body }) => {
@@ -90,6 +96,7 @@ export const authRoutes: RouteModule = {
         if (body.locale !== undefined) setUserLocale(ctx.db, auth.user.id, body.locale)
       })()
       if (renamed) {
+        forgetUserName(ctx, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: ['name'], name: { from: u!.name, to: body.name } } })
         ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
       }

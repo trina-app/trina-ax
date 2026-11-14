@@ -146,7 +146,7 @@ describe('a new team', () => {
     expect(templatesFolder(h.ctx.files, me)).toEqual({ path: 'shared/Templates', locale: 'en' })
     expect(buildTurnPrompt(h.ctx.files, input(mia.id, 'ko'))).toContain(filePlacementRule(true, 'Archive'))
     // hidden from mia by an admin's rule: not hers to start from
-    await owner.call('POST', '/api/admin/folders', { path: 'shared/Templates', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] })
+    await owner.call('POST', '/api/admin/folders', { path: 'shared/Templates', limited: true, rules: [] })
     expect(templatesFolder(h.ctx.files, me)).toBeNull()
     const hidden = buildTurnPrompt(h.ctx.files, input(mia.id, 'ko'))
     expect(hidden).not.toContain('Forms and templates are in')

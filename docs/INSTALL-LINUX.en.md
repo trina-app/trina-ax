@@ -4,6 +4,35 @@
 
 Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be available. A plain Docker container is not supported by this production installer.** Do not bypass those checks. For Docker, use the image and compose file in [INSTALL-DOCKER.md](INSTALL-DOCKER.md) instead (fewer limits than this install). A local demo is a separate development environment.
 
+## Steps at a glance
+
+Do these in order. Each one names the machine it runs on.
+
+1. **Server:** check the [Requirements](#requirements).
+2. **Server:** run the [Download, verify, check](#download-verify-check) block in a new, empty folder. It ends inside the
+   extracted kit folder (`TrinaAX-server-<version>-linux-<arch>`).
+3. **Server, in that kit folder:** run [Install](#install).
+4. **Your computer:** open the SSH tunnel and the setup page ([First run](#first-run)). Then create the owner and the team.
+
+Skip [Build a kit from source](#build-a-kit-from-source-developers): it is for developers only.
+
+## Install with your AI agent
+
+You can let an AI coding agent (Claude Code, Codex) do steps 1 to 3. Run the agent on the server, or on your computer
+when it can reach the server over SSH. Copy this prompt:
+
+```text
+Install Trina AX on this Linux server. Follow https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL-LINUX.en.md
+- Use the latest signed release kit: run "Download, verify, check" in a new, empty folder, then "Install" inside the extracted kit folder.
+- Do not build from source. Never use --allow-unsigned.
+- Before each sudo command, tell me in one line what it does. If a check fails, stop and ask me.
+- Do not create the owner account. Do not show the setup code in this chat.
+- At the end, run "sudo mycel-ctl status" and summarize it. Then tell me the SSH tunnel command to run on my computer, the setup page address, and the command that shows the setup code.
+```
+
+You create the owner and the team yourself on the setup page. The agent reads the same guide as you, so check what it
+did before you invite people.
+
 ## Requirements
 
 | Item | Requirement |
@@ -33,7 +62,7 @@ People join by pasting the invite link (or the team link) into the app's first s
 
 - **Desktop app**: needs a certificate the computer trusts. A self-signed certificate fails the first check.
 - **Phone app**: needs https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
-- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **Phone notifications** go through Trina's push service (`https://push.trina.app`) by default. To turn them off, set `MYCEL_PUSH_GATEWAY=off` (or `''`); to use a gateway of your own, set it to that `https://` address. Without the variable, an owner or admin can also choose this in Settings › Notifications › Phone.
 - **The team address** is in Settings › Apps for everyone signed in, with a copy button.
 - **Tapped links**: the apps open `*.trina.app` invite links directly (universal links, app links). On a domain of your own a tapped link opens the browser; the join page's **Open in the app** (`trina-ax://open?url=…`) opens the desktop or phone app. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 
@@ -65,29 +94,9 @@ sudo ./install-linux.sh check --from .
 
 A checksum detects download corruption; it is not independent proof of authenticity. The bundle verifier checks the embedded release signature, and the installer checks again. Do not use `--allow-unsigned` for published releases. Inspect the release/source and trust path before running downloaded programs.
 
-### Build a kit from source (development)
-
-On a Linux machine of the server's architecture with git, curl, unzip, xz-utils, zstd, build-essential, cmake, Go
-(`native/go.mod`) and Bun 1.3.12; Node.js is not needed:
-
-```sh
-git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
-bun install --frozen-lockfile --ignore-scripts   # the server kit needs no package install scripts
-ARCHS=amd64 bash native/build.sh                  # ARCHS=arm64 on ARM
-bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper
-bun run build:web
-bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whisper-dir dist/whisper --out dist/linux
-cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
-```
-
-Without `--ignore-scripts`, `bun install` runs install scripts with bun's stand-in for `node`
-(`/tmp/bun-node-*/node`); if that points to a bun that was deleted, it stops with `node: command not found`
-(`electron-winstaller` exited with 127). Use `--ignore-scripts` or delete that folder. A self-built kit is unsigned,
-hence `--allow-unsigned`. Repair and update keep that setting: after moving to signed releases, turn it off with
-`sudo mycel-ctl allow-unsigned off` (installer: `--require-signed`). `sudo mycel-ctl status` and Admin › Diagnostics warn
-while it is on.
-
 ## Install
+
+Run this on the server, inside the extracted kit folder from the last step (`TrinaAX-server-<version>-linux-<arch>`, where `install-linux.sh` is):
 
 ```sh
 sudo ./install-linux.sh install --from . --engine claude --engine codex
@@ -109,7 +118,17 @@ The installer takes its system packages from one list in the kit (`app/<version>
 
 ## First run
 
-On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <server>`. Read the setup code locally on the server from `/var/lib/mycel/setup/code` with administrative access; keep it private. Open the loopback setup page and enter the code. Create the owner, team name and language; verify the team timezone. Once the owner exists the code is spent: the server deletes `data/setup-token`, and the next repair or update (or an uninstall that keeps the data) deletes `setup/code`.
+The server has no screen, so you open the setup page from your own computer through an SSH tunnel:
+
+```sh
+# On the server: show the setup code (keep it private)
+sudo cat /var/lib/mycel/setup/code
+# On your computer: open the tunnel and leave this window open
+ssh -L 47820:127.0.0.1:47820 <server>
+# On your computer, in a browser: http://127.0.0.1:47820/setup?token=<setup code>
+```
+
+Then create the owner, team name and language; verify the team timezone. Once the owner exists the code is spent: the server deletes `data/setup-token`, and the next repair or update (or an uninstall that keeps the data) deletes `setup/code`.
 
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
@@ -208,3 +227,27 @@ This removes services/app components while retaining data, and the `MYCEL_SAFE_O
 Use Admin → System → Diagnostics and `sudo mycel-ctl status`. Locally inspect `journalctl -u mycel-server -u mycel-launcher -n 100`; redact before sharing. If there is no systemd, use a suitable VM. Ubuntu sandbox/AppArmor problems should be repaired with the installer, not by disabling isolation. [Troubleshooting](TROUBLESHOOTING.md) · [FAQ](FAQ.md) · [Configuration](CONFIGURATION.md).
 
 Source-built unsigned kits are an advanced development path: derive a unique `-dev` version from the source version, review the bundle and explicitly accept its unsigned status on a disposable host. They are not the normal update path. [Developer guide](DEVELOPMENT.md).
+
+## Build a kit from source (developers)
+
+For developers only. To install a published release, use [Download, verify, check](#download-verify-check) and [Install](#install) instead.
+
+On a Linux machine of the server's architecture with git, curl, unzip, xz-utils, zstd, build-essential, cmake, Go
+(`native/go.mod`) and Bun 1.3.12; Node.js is not needed:
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile --ignore-scripts   # the server kit needs no package install scripts
+ARCHS=amd64 bash native/build.sh                  # ARCHS=arm64 on ARM
+bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper
+bun run build:web
+bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whisper-dir dist/whisper --out dist/linux
+cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
+```
+
+Without `--ignore-scripts`, `bun install` runs install scripts with bun's stand-in for `node`
+(`/tmp/bun-node-*/node`); if that points to a bun that was deleted, it stops with `node: command not found`
+(`electron-winstaller` exited with 127). Use `--ignore-scripts` or delete that folder. A self-built kit is unsigned,
+hence `--allow-unsigned`. Repair and update keep that setting: after moving to signed releases, turn it off with
+`sudo mycel-ctl allow-unsigned off` (installer: `--require-signed`). `sudo mycel-ctl status` and Admin › Diagnostics warn
+while it is on.

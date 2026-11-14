@@ -7,7 +7,7 @@
 // stays in the page's other tabs. Each project the person sees that has skills of its own has a section, "{project}
 // 프로젝트 스킬", with the line "이 프로젝트 채팅에서만" (docs/DECISIONS.md "Project skills"): its rows open the project, and
 // one whose name a wider skill of the person's already has carries a small "같은 이름: 팀 전체" (a project only adds
-// names). "옮기기…" in a row's menu moves a skill to another level (skills/MoveSkillDialog.tsx).
+// names). "옮기기" in a row's menu moves a skill to another level (skills/MoveSkillDialog.tsx).
 // A chat starts from the skill's name, so of two skills with one name the server picks
 // (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
 // the row, its run button and its menu.
@@ -32,6 +32,7 @@ import { namedProduct } from '../lib/tabs'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useT } from '../i18n'
+import { useCachedRead } from '../store/listCache'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
@@ -40,6 +41,7 @@ import { ContributeSheet } from './skills/ContributeSheet'
 import { MoveSkillDialog } from './skills/MoveSkillDialog'
 import { installPacks, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from './skills/PackRows'
 import { SkillFormDialog } from './skills/SkillForm'
+import { ListHeading, ListRow } from './list/List'
 import { MenuButton } from './rooms/MenuButton'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from './ui'
 
@@ -68,37 +70,33 @@ export const skillSubfolder = (path: string) => {
  * menu shows the same). Never the folder name turned into words. */
 const skillShown = (s: Pick<SkillInfo, 'name' | 'title'>) => { const title = s.title?.trim(); return title && title !== s.name ? title : null }
 
+/** The skills the person can use, the most used first (the counts are a bonus: the list still shows when they don't
+ * load). */
+export const AVAILABLE_KEY = 'skills:available'
+export const readAvailable = (): Promise<Skill[]> =>
+  Promise.all([api.call(API.listSkills, { query: { shadowed: '1', projects: '1' } }), api.call(API.popularSkills).catch(() => null)]).then(([list, popular]) => {
+    const uses = new Map(popular?.items.map((p) => [p.path, p.uses]))
+    return list.items.map((s) => ({ ...s, uses: uses.get(s.path) ?? 0 })).sort((a, b) => b.uses - a.uses)
+  })
+
 /** `query`: the page's search box, matched against the name and the description. `catalogOpen`: the ready-made skills'
  * fold starts open ("스킬 넣기" led here). */
 export function AvailableSkills({ query, catalogOpen }: { query: string; catalogOpen?: boolean }) {
   const t = useT()
-  const [items, setItems] = useState<Skill[] | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [attempt, setAttempt] = useState(0)
+  // as this window last read it (store/listCache.ts): a visit after the first shows it at once and reads it behind it
+  // (not when 팀 스킬 read it a moment ago: it asks for it beside its own lists)
+  const { data, failed, reload } = useCachedRead<Skill[]>(AVAILABLE_KEY, readAvailable, { minAgeMs: 10_000 })
+  const items = data ?? null
   useEffect(() => {
-    let active = true, generation = 0
-    const load = () => {
-      const g = ++generation
-      // the counts are a bonus: the list still shows when they don't load
-      Promise.all([api.call(API.listSkills, { query: { shadowed: '1', projects: '1' } }), api.call(API.popularSkills).catch(() => null)]).then(
-        ([list, popular]) => {
-          if (!active || g !== generation) return
-          const uses = new Map(popular?.items.map((p) => [p.path, p.uses]))
-          setItems(list.items.map((s) => ({ ...s, uses: uses.get(s.path) ?? 0 })).sort((a, b) => b.uses - a.uses))
-          setFailed(false)
-        },
-        () => { if (active && g === generation) setFailed(true) },
-      )
-    }
-    load()
+    const load = () => void reload()
     const offs = [
       accessChanged.on(load), skillsChanged.on(load), reloadAsked.on(load),
       filesChanged.on((changes) => { if (changes.some((c) => isSkillsPath(c.path) || (c.from && isSkillsPath(c.from)))) load() }),
     ]
-    return () => { active = false; for (const off of offs) off() }
-  }, [attempt])
+    return () => { for (const off of offs) off() }
+  }, [reload])
   // never "no skills" for a list that did not load
-  if (failed && !items) return <ErrorNote onRetry={() => { setFailed(false); setAttempt((n) => n + 1) }}>{t('error.network')}</ErrorNote>
+  if (failed && !items) return <ErrorNote onRetry={() => void reload()}>{t('error.network')}</ErrorNote>
   return <AvailableSkillsList items={items} query={query} catalogOpen={catalogOpen} />
 }
 
@@ -267,13 +265,14 @@ function SkillSection({ title, hint, items, folders, onRun, onMove, testId }: { 
   if (!items.length) return null
   return (
     <section aria-label={title} data-testid={testId}>
-      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium">
+      <ListHeading as="h2" className="mb-1 flex items-center gap-2">
         {title}
         {/* phones: the count as plain text, no pill */}
         <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums max-md:bg-transparent max-md:px-0 max-md:font-normal" data-testid="skill-count">{items.length}</span>
-      </h2>
+      </ListHeading>
       {hint && <p className="-mt-0.5 mb-1 text-xs text-muted" data-testid="skill-section-hint">{hint}</p>}
-      <ul className="-mx-2 divide-y divide-line">
+      {/* a page's list (ListRow scale="page"): its rows' words flush with the heading, their fill reaching out past them */}
+      <ul>
         {items.map((s) => <SkillRow key={s.path} skill={s} folder={folders} onRun={onRun} onMove={onMove} />)}
       </ul>
     </section>
@@ -303,38 +302,45 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
   // its row opens the project, where the "/" menu has it
   const use = () => (s.shadowedBy ? navigateTo(skillFileLink(s.path)) : s.project ? navigateTo(`/projects/${s.project.id}`) : s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
-    <li className={clsx('flex items-center gap-1 py-1', s.shadowedBy && 'opacity-70')} data-testid="skill-row" data-path={s.path} data-shadowed={s.shadowedBy ? s.shadowedBy.tier : undefined}>
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
-        title={s.description || shown}
-        onClick={use}
-        data-testid="skill-use"
-      >
-        {/* phones: the icon alone, no framed tile on every row */}
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted max-md:size-5 max-md:border-0 max-md:bg-transparent">
-          <ScrollText size={16} aria-hidden />
+    // the lists' row (components/list/List.tsx): the icon, the name (at medium weight, as the "/" menu's: `strong`) and its
+    // line, the uses at its end; 실행 and "…" beside it, outside its button
+    <ListRow
+      scale="page"
+      onClick={use}
+      strong
+      icon={<ScrollText aria-hidden />}
+      rowTitle={s.description || shown}
+      name={
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate" data-testid="skill-name">{shown}</span>
+          {title && <span className="shrink-0 font-mono text-meta font-normal text-faint" data-testid="skill-command">{command}</span>}
+          {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}
+          {where && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro font-normal text-muted" title={t('skills.sameNameTip', { where })} data-testid="skill-same-name">{t('skills.sameName', { where })}</span>}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium">
-            <span className="truncate" data-testid="skill-name">{shown}</span>
-            {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
-            {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}
-            {where && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro font-normal text-muted" title={t('skills.sameNameTip', { where })} data-testid="skill-same-name">{t('skills.sameName', { where })}</span>}
-          </span>
-          {shadow && <span className="mt-0.5 block truncate text-xs text-faint" data-testid="skill-shadow-note">{shadow}</span>}
-          {line && <span className="mt-0.5 block truncate text-xs text-muted">{line}</span>}
-        </span>
-        {!!s.uses && <span className="shrink-0 text-xs text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
-        {!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
-      </button>
-      {!!s.inputs?.length && !s.shadowedBy && !s.project && (
-        <IconButton label={t('skillForm.runNamed', { name: shown })} onClick={() => onRun(s)} data-testid="skill-run">
-          <Play size={16} aria-hidden />
-        </IconButton>
-      )}
-      <SkillMenu skill={s} onUse={s.shadowedBy ? null : use} onMove={() => onMove(s)} />
-    </li>
+      }
+      meta={
+        (shadow || line) && (
+          <>
+            {shadow && <span className="block truncate" data-testid="skill-shadow-note">{shadow}</span>}
+            {line && <span className="block truncate">{line}</span>}
+          </>
+        )
+      }
+      tag={s.uses ? <span title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span> : undefined}
+      end={!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
+      testId="skill-use"
+      li={{ className: clsx(s.shadowedBy && 'opacity-70'), 'data-testid': 'skill-row', 'data-path': s.path, 'data-shadowed': s.shadowedBy ? s.shadowedBy.tier : undefined }}
+      actions={
+        <>
+          {!!s.inputs?.length && !s.shadowedBy && !s.project && (
+            <IconButton label={t('skillForm.runNamed', { name: shown })} onClick={() => onRun(s)} data-testid="skill-run">
+              <Play size={16} aria-hidden />
+            </IconButton>
+          )}
+          <SkillMenu skill={s} onUse={s.shadowedBy ? null : use} onMove={() => onMove(s)} />
+        </>
+      }
+    />
   )
 }
 

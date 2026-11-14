@@ -15,8 +15,8 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 // Every column is deliberately classified. Adding a schema field requires an audit.
 const policy: Record<string, string> = {
   users: 'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
-  groups: 'id folder_id', group_members: 'group_id user_id', folders: 'id path',
-  folder_rules: 'id folder_id subject_type subject_id access',
+  groups: 'id folder_id', group_members: 'group_id user_id', folders: 'id path limited',
+  folder_rules: 'id folder_id subject_type subject_id access origin',
   integrations: 'id scope owner_user_id kind slug url auth auth_header account write_policy tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',
   integration_access: 'integration_id subject_type subject_id', connected_folders: 'id name source',
   // connection templates (336): where a member's key goes, and who the template is for
@@ -112,8 +112,9 @@ test('R2-2: actual permission API revoke/restore during approval refuses publica
     const folder = a.ctx.db.query("SELECT id FROM folders WHERE path='shared'").get() as {id:string}
     const before = policyGeneration(a.ctx.db)
     await expect(withWorkflow(a.ctx.files,c,() => publishArtifact(a.ctx,componentC(a.ctx).files,c,'shared/output.pptx',Buffer.from('new deck'),[source],async () => {
-      for (const access of ['none','write']) {
-        const r = await a.json(`/api/admin/folders/${folder.id}/rules`, {as:'carol',method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({rules:[{subjectType:'everyone',subjectId:null,access}]})})
+      // (revoke = Limit access with no rules since access adds up; restore = everyone edits again, not limited)
+      for (const body of [{rules:[],limited:true},{rules:[{subjectType:'everyone',subjectId:null,access:'write'}],limited:false}]) {
+        const r = await a.json(`/api/admin/folders/${folder.id}/rules`, {as:'carol',method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
         expect(r.status).toBe(200)
       }
     }))).rejects.toThrow()

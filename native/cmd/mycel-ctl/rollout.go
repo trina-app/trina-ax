@@ -52,18 +52,21 @@ type rolloutHold struct {
 	Reason string `json:"reason"`
 }
 
-// UnmarshalJSON reads the feed with its rollout read leniently (readRollout): never an error because of it.
+// UnmarshalJSON reads the feed with its rollout (readRollout) and minReaderRequired (readMinReader) read leniently:
+// never an error because of them.
 func (f *ReleaseFeed) UnmarshalJSON(b []byte) error {
 	type plain ReleaseFeed
 	var x struct {
 		plain
-		RolloutRaw json.RawMessage `json:"rollout"`
+		RolloutRaw   json.RawMessage `json:"rollout"`
+		MinReaderRaw json.RawMessage `json:"minReaderRequired"`
 	}
 	if err := json.Unmarshal(b, &x); err != nil {
 		return err
 	}
 	*f = ReleaseFeed(x.plain)
 	f.Rollout = readRollout(x.RolloutRaw)
+	f.MinReaderRequired = readMinReader(x.MinReaderRaw)
 	return nil
 }
 

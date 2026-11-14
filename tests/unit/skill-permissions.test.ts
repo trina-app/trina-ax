@@ -38,10 +38,10 @@ function layout(team: string, db: import('bun:sqlite').Database) {
   put('users/alice/skills/draft-mail/references/tone.md', '---\nname: Not a skill\n---\nresource\n')
   put('users/alice/skills/broken.md', '---\nname: a/b\n---\nbroken header\n')
   put('users/alice/skills/my-rule.md', `${MINE_RULE}\n`)
-  // skills/finance: everyone none + finance read (a group rule wins over everyone; without the none rule the
-  // folder would fall back to the everyone-read rule of skills/)
+  // skills/finance: limited + finance read (without the limit the folder would add the everyone-read rule of skills/);
+  // the legacy marker everyone: none goes with a limited folder that has no everyone rule
   const folder = 'f_skills_finance_' + newId()
-  db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, 'skills/finance')
+  db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(folder, 'skills/finance')
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(newId(), folder)
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'read')").run(newId(), folder)
 }
@@ -176,8 +176,10 @@ describe('project skills by folder rules (docs/DECISIONS.md "Project skills")', 
 
   test('a rule on projects/<name>/skills narrows who gets them, within the project', () => {
     const folder = 'f_falcon_skills_' + newId()
-    e.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, 'projects/falcon/skills')
-    e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'none')").run(newId(), folder)
+    // (access adds up: narrowing is Limit access, with the people who keep it named; before: "finance: none")
+    e.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(folder, 'projects/falcon/skills')
+    e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(newId(), folder)
+    e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', 'write')").run(newId(), folder)
     try {
       expect(has('bob')).toBe(false)
       expect(has('alice')).toBe(true)

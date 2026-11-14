@@ -90,10 +90,10 @@ describe('server and relay texts', () => {
   })
   test('relay pages', () => {
     const kinds: PageKind[] = ['team_offline', 'team_unknown', 'team_suspended', 'team_busy', 'team_timeout', 'team_connection_lost', 'bad_gateway', 'bad_request', 'request_timeout']
-    for (const k of kinds) for (const l of ['en', 'id', 'ja', 'es'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
+    for (const k of kinds) for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
   })
   test('language pickers name each language in its own language', () => {
-    expect(LOCALE_NAMES).toEqual({ en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: '日本語', es: 'Español' })
+    expect(LOCALE_NAMES).toEqual({ en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: '日本語', es: 'Español', zh: '简体中文' })
   })
 })
 
@@ -136,6 +136,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
   'server/src/devenv/messages.ts': { why: 'dev environment refusals in the team settings (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
+  'server/src/rooms/apps/text.ts': { why: 'the cards and lines of apps posting in rooms (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
   'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
   'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
@@ -195,7 +196,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
   'shared/src/folder-labels.ts': { why: 'the top folders\' words on screen and the templates and archive folder names (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-packs.ts': { why: 'the kept skills\' one line in the catalog (ko next to en/id/ja/es)' },
-  'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
+  'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^(export )?const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
   'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
   'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },
@@ -326,6 +327,7 @@ describe('stored chat error reasons', () => {
     expect(new Set(reasons.map(reason => engineError(reason, 'id').message)).size).toBe(reasons.length)
     expect(chatErrorReason(engineError('wall_timeout', 'ko'))).toBe('wall_timeout')
     expect(chatErrorReason(engineError('timeout', 'ko'))).toBe('timeout')
+    expect(chatErrorReason(engineError('stalled', 'ko'))).toBe('stalled')
   })
 })
 
@@ -340,7 +342,7 @@ test('storage diagnostics use Spanish decimal separators on Mac and Linux', () =
 
 describe('address card "Allow all websites" (QA TC-512)', () => {
   test('names no Browser row: a phone has none (its switch is under Allowed for Trina), and the server cannot tell a phone', () => {
-    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador' } as const
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
+    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador', zh: '浏览器' } as const
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
   })
 })

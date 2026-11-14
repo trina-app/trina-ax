@@ -43,7 +43,7 @@ const read = (f: string) => (f ? fs.readFileSync(f, 'utf8').trim() : '')
 const OWNER = { user: opt('user', 'kim'), password: process.env.TYPE_AUDIT_PASSWORD ?? read(opt('password-file')) }
 const MEMBER = opt('member') ? { user: opt('member'), password: process.env.TYPE_AUDIT_MEMBER_PASSWORD ?? read(opt('member-password-file')) } : null
 
-interface Text { size: number; lh: string; weight: string; family: string; tag: string; cls: string; ctx: string; testid: string; text: string; kind: string }
+interface Text { size: number; lh: string; weight: string; family: string; tag: string; cls: string; ctx: string; testid: string; text: string; kind: string; token: string }
 interface Row extends Text { width: number; view: string; route: string; count: number; flag: string }
 
 /** In the page: every visible text node under `scope` with its computed style and a guess of what kind of text it is. */
@@ -81,18 +81,19 @@ function collect(scope: string | null): Text[] {
     // (--c-ink is primary text; any other colour is secondary: meta, hints, times)
     let token = ''
     for (let e: Element | null = el, i = 0; e && i < 4 && !token; e = e.parentElement, i++)
-      token = / text-(nano|micro|xs|label|sm|base|reading|lg|xl|2xl|code(?:-sm|-file)?)\b/.exec(` ${clsOf(e)}`)?.[1] ?? ''
+      token = / text-(nano|micro|xs|label|sm|base|reading|lg|xl|2xl|row|meta|list-head|code(?:-sm|-file)?)(?=\s|$)/.exec(` ${clsOf(e)} `)?.[1] ?? ''
     let kind = 'body'
     if (family === 'mono') kind = 'code'
     else if (el.closest('[aria-hidden="true"]') && text.length <= 2) kind = 'glyph'
     // a badge is a known kind of element, never "any text-nano": [data-badge], or a count or tag by its test id
     else if (el.closest('[data-badge], [data-testid$="-unread"], [data-testid$="-badge"], [data-testid="inbox-unread"], [data-testid="skills-pending"]')) kind = 'badge'
-    else if (token === 'micro' || token === 'xs' || el.closest('time,kbd')) kind = 'meta'
+    else if (token === 'row' || el.closest('[data-setting-name]')) kind = 'row'
+    else if (token === 'micro' || token === 'xs' || token === 'meta' || el.closest('time,kbd')) kind = 'meta'
     else if (token === 'label') kind = 'label'
     else if (el.closest('button,a,[role="tab"],[role="menuitem"],[role="option"],label,legend,summary,th,select')) kind = 'control'
     else if (cs.color !== ink) kind = 'meta'
     const testid = el.closest('[data-testid]')?.getAttribute('data-testid') ?? ''
-    out.push({ size: Number.parseFloat(cs.fontSize), lh: cs.lineHeight, weight: cs.fontWeight, family, tag: el.tagName.toLowerCase(), cls: clsOf(el), ctx: ctx[0] ?? '', testid, text: text.slice(0, 48), kind })
+    out.push({ size: Number.parseFloat(cs.fontSize), lh: cs.lineHeight, weight: cs.fontWeight, family, tag: el.tagName.toLowerCase(), cls: clsOf(el), ctx: ctx[0] ?? '', testid, text: text.slice(0, 48), kind, token })
   }
   return out
 }
@@ -100,10 +101,14 @@ function collect(scope: string | null): Text[] {
 // the floors (docs/DESIGN-SYSTEM.md): on phones body and rows 15, labels 14, meta (times, hints, captions, secondary
 // text) and controls 13, code 13, badges 11; on computers body and rows 15, labels, meta and controls 13, code and
 // badges 12. A glyph (an avatar's initial, aria-hidden beside the name) is not text to read.
-const PHONE_FLOOR: Record<string, number> = { body: 15, label: 14, meta: 13, control: 13, code: 13, badge: 11, glyph: 0 }
-const COMPUTER_FLOOR: Record<string, number> = { body: 15, label: 13, meta: 13, control: 13, code: 12, badge: 12, glyph: 0 }
+const PHONE_FLOOR: Record<string, number> = { row: 16, body: 15, label: 14, meta: 13, control: 13, code: 13, badge: 11, glyph: 0 }
+const COMPUTER_FLOOR: Record<string, number> = { row: 15, body: 15, label: 13, meta: 13, control: 13, code: 12, badge: 12, glyph: 0 }
 function flagOf(t: Text): string {
   if (t.kind === 'glyph') return ''
+  // the scale, not only the floor: a list row's name (text-row, a setting's name) is 15px on a computer and 16px on a
+  // phone in every list; meta (text-xs, text-micro, text-meta: a row's second line, a setting's line, hints, times) is 13px
+  if (t.kind === 'row' && t.size !== (phone() ? 16 : 15)) return `row-not-${phone() ? 16 : 15}`
+  if (t.kind === 'meta' && /^(xs|micro|meta)$/.test(t.token) && t.size !== 13) return 'meta-not-13'
   const floor = phone() ? PHONE_FLOOR : COMPUTER_FLOOR
   if (t.size < 11) return 'under-11'
   if (t.size < 12 && t.kind !== 'badge') return 'under-12'

@@ -151,7 +151,7 @@ describe('the suggestion under a result', () => {
       await m.click('result-suggestion-act')
       await m.until(() => called('POST /api/onboarding/skill-draft').length === 2, 'a new draft')
     } finally { await m.unmount() }
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([translate(l, 'resultTip.teamSkill.text'), translate(l, 'resultTip.teamSkill.act')].every((x) => x && !x.startsWith('resultTip'))).toBe(true)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([translate(l, 'resultTip.teamSkill.text'), translate(l, 'resultTip.teamSkill.act')].every((x) => x && !x.startsWith('resultTip'))).toBe(true)
   })
 
   test('nothing while the answer runs or failed, and nothing when the server has none', async () => {
