@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { API, type GoogleAppId, type GoogleAppView } from '@mycel/shared/api'
 import { api } from '../../lib/api'
-import { mobileApp, openExternal } from '../../lib/mobile'
+import { mobileApp } from '../../lib/mobile'
 import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords, unavailableKeys, developerKey } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
@@ -20,6 +20,8 @@ import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, Modal, confirmDialog } from '../ui'
 import { useSignInFlow, type SignInOps } from '../settings/DriveConnection'
 import { CardMenu } from './AppConnectorCard'
+import { BrowserWait } from './BrowserWait'
+import { googleLink } from './googleLink'
 import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
 
@@ -110,16 +112,8 @@ export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; test
   return (
     <>
       {flow && flow.state !== 'ready' && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm" role="status" data-testid={`${testId}-waiting`}>
-          <span className="text-muted">{t('drive.waitingShort')}</span>
-          {d.authorizationUrl && (
-            <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline"
-              onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>
-              {t('drive.openGoogle')}
-            </a>
-          )}
-          <Button size="sm" variant="ghost" className="ml-auto" disabled={d.busy} onClick={d.cancel} data-testid={`${testId}-cancel`}>{t('common.cancel')}</Button>
-        </div>
+        <BrowserWait framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
+          onRetry={() => void d.start()} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft/40 px-3 py-2 text-sm" data-testid={`${testId}-confirm-step`}>
@@ -128,7 +122,7 @@ export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; test
           <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid={`${testId}-cancel`}>{t('common.cancel')}</Button>
         </div>
       )}
-      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid={`${testId}-error`}>{failed}</p>}
+      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid={`${testId}-error`}>{d.reason === 'timeout' ? t('connect.wait.timedOut') : failed}</p>}
     </>
   )
 }

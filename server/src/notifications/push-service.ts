@@ -20,8 +20,9 @@ import { chatAnswerWanted } from './chat-answers'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
+import { readNativePushConfig } from './push-gateway-setting'
 import { phoneDecision, type PhoneDecision } from './away'
-import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
+import { createNativeTransport, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null

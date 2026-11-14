@@ -114,8 +114,8 @@ export function InitialTile({ name, className }: { name: string; className?: str
 }
 
 /** What one row of "Your connectors" says on its right: one status or one button, nothing else. `off`: set up and
- * turned off (Admin › Connected apps › Slack). */
-export type RowStatus = 'connected' | 'on' | 'off' | 'signin' | 'reconnect' | 'attention' | 'connect'
+ * turned off (Admin › Connected apps › Slack); `connecting`: on and not connected yet (Slack, lib/slackState.ts). */
+export type RowStatus = 'connected' | 'on' | 'off' | 'connecting' | 'signin' | 'reconnect' | 'attention' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
@@ -145,6 +145,8 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
           </span>
         ) : status === 'off' ? (
           <span className="text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
+        ) : status === 'connecting' ? (
+          <span className="text-xs text-warn" data-testid="connector-row-status">{t('slack.state.connecting')}</span>
         ) : status === 'signin' ? (
           <button type="button" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
         ) : status === 'reconnect' ? (

@@ -351,6 +351,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `DELETE` | `/api/integrations/:id/always-allow` | Signed in | Ask again before the AI changes something at a team connection: ends my own Always allow there (never the team's rule). |
 | `POST` | `/api/integrations/:id/tools` | Signed in | Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on. |
 | `GET` | `/api/integrations/flows/:id` | Signed in | Poll a sign-in started by this same session. |
+| `DELETE` | `/api/integrations/flows/:id` | Signed in | Cancel a sign-in started by this same session that is still waiting: the service's answer to it is refused afterwards. |
 | `GET` | `/api/admin/integrations` | Admin | Every team connection, with who may use it. |
 | `POST` | `/api/admin/integrations` | Admin | A team connection; access says who may use it (default: nobody until set). |
 | `GET` | `/api/integration-requests` | Signed in | Requests from admins to connect a service as my own connection, still waiting for me. |
@@ -391,6 +392,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/push/devices/:id/remove` | Anyone | The phone app removes its device when the person switches team, with the key it got at registration (no session needed; always 204). |
 | `POST` | `/api/push/devices/:id/label` | Anyone | The iPhone app's notification extension asks for the title of a room push it received (who and where, never the text), with the label key whose hash came with its registration (no session; an empty answer for every failure). |
 | `DELETE` | `/api/push/devices/:id` | Signed in | Remove this session's phone app device. |
+| `GET` | `/api/admin/push-gateway` | Admin | Where phone notifications go: the default gateway, off or the team's own, and whether the server's config sets it (read-only then). |
+| `PUT` | `/api/admin/push-gateway` | Admin | Choose where phone notifications go; an own address is saved only when its /health answers {"ok":true}. Refused while the server's config sets it. Audited. |
 
 ## MCP connector (app connections)
 
@@ -596,6 +599,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/slack/signin` | Signed in | Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only). |
 | `POST` | `/api/admin/slack/read-scopes/recheck` | Admin | "I updated them": asks Slack again now which permissions the Slack app's bot has (reading threads and channels). |
 | `POST` | `/api/admin/slack/official/install` | Admin | "Add to Slack": Slack's install page of the hosting service's official app (10 minutes, this owner or admin only). `origin`: the address the page is open at, where links in Slack open. |
+| `DELETE` | `/api/slack/signin/flow` | Signed in | Cancel my "Sign in with Slack" of this session that is still waiting: a window left open cannot finish it afterwards. |
+| `DELETE` | `/api/admin/slack/install/flow` | Admin | Cancel my "Add to Slack" of this session that is still waiting: a window left open cannot finish it afterwards. |
 | `POST` | `/api/slack/link/cancel` | Signed in | Throw this one-time link away without linking. |
 
 ## Promo video and its MP4

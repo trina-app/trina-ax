@@ -6,6 +6,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import { ROOT, loadPages, navSlugs, readNav, siteMarkdownFiles } from '../../scripts/docs/site'
+
+// the Simplified Chinese pages (docs/site/zh/): the user guide; the other tabs link to the English pages
+const ZH_SLUGS = ['index', 'get-started/quickstart', 'get-started/team-setup', 'get-started/key-concepts', 'use/chats-and-projects', 'use/team-skills', 'use/mcp', 'use/google-own-app', 'use/slack', 'use/scheduled-tasks', 'use/files-and-permissions', 'use/usage-and-limits', 'use/admin', 'use/settings-and-search']
 import { API_REFERENCE_FILE, apiReferenceMarkdown } from '../../scripts/docs/api-reference'
 import { localLinkProblems } from '../../scripts/check-onboarding-docs'
 
@@ -15,11 +18,26 @@ describe('docs site', () => {
     const slugs = navSlugs(nav)
     for (const t of nav.tabs) expect(t.groups.length, t.title).toBeGreaterThan(0)
     expect(new Set(slugs).size).toBe(slugs.length)
-    expect(siteMarkdownFiles()).toEqual(slugs.map((s) => `docs/site/${s}.md`).sort())
+    expect(siteMarkdownFiles().filter((f) => !f.startsWith('docs/site/zh/'))).toEqual(slugs.map((s) => `docs/site/${s}.md`).sort())
     for (const p of loadPages(nav)) {
       expect(p.title, p.file).toBeTruthy()
       expect(p.description, p.file).toBeTruthy()
       expect(p.body.trimStart().startsWith('# '), `${p.file}: the title comes from the front matter`).toBe(false)
+    }
+  })
+
+  test('the Chinese nav has the same tabs, groups and pages as the English one, and each zh page has its front matter', () => {
+    const en = readNav(), zh = readNav('zh')
+    expect(zh.tabs.map((t) => t.groups.map((g) => g.pages))).toEqual(en.tabs.map((t) => t.groups.map((g) => g.pages)))
+    expect(siteMarkdownFiles().filter((f) => f.startsWith('docs/site/zh/'))).toEqual(ZH_SLUGS.map((s) => `docs/site/zh/${s}.md`).sort())
+    const enPages = loadPages(en)
+    for (const p of loadPages(zh, 'zh')) {
+      expect(p.title, p.file).toBeTruthy() // may be a product name alone ("Slack")
+      expect(p.description, p.file).toMatch(/\p{Script=Han}/u)
+      expect(p.body.trimStart().startsWith('# '), p.file).toBe(false)
+      // the same components as the English page: callouts, steps, cards and tabs survive the translation
+      const shape = (t: string) => (t.replace(/```[\s\S]*?```/g, '').match(/^(:::\w*|@tab |####|!\[)/gm) ?? []).join(',')
+      expect(shape(p.body), p.file).toBe(shape(enPages.find((e) => e.slug === p.slug)!.body))
     }
   })
 
@@ -143,6 +161,77 @@ describe('docs site', () => {
       expect(() => build(['--out', out, '--site-nav', path.join(kit, 'bad.json')])).toThrow(/<header>/)
       fs.writeFileSync(path.join(kit, 'bad.json'), JSON.stringify({ html: '<div onclick="x()"><!--docs-tools--></div>' }))
       expect(() => build(['--out', out, '--site-nav', path.join(kit, 'bad.json')])).toThrow(/inline/)
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true })
+      fs.rmSync(kit, { recursive: true, force: true })
+    }
+  })
+
+  test.skipIf(!hasMarkdown)('Chinese pages are built under /docs/zh/ with lang zh-CN, hreflang (zh-Hans) twins and a language switch', async () => {
+    const { build } = await import('../../scripts/docs/build')
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-site-'))
+    try {
+      build(['--out', out, '--base', '/docs', '--site-url', 'https://ax.trina.app'])
+      for (const slug of ZH_SLUGS) {
+        const dir = slug === 'index' ? '' : `${slug}/`
+        const zh = fs.readFileSync(path.join(out, 'zh', dir, 'index.html'), 'utf8')
+        const en = fs.readFileSync(path.join(out, dir, 'index.html'), 'utf8')
+        expect(zh, slug).toContain('<html lang="zh-CN">')
+        expect(zh).toContain(`<link rel="canonical" href="https://ax.trina.app/docs/zh/${dir}">`)
+        for (const html of [zh, en]) {
+          expect(html, slug).toContain(`<link rel="alternate" hreflang="en" href="https://ax.trina.app/docs/${dir}">`)
+          expect(html, slug).toContain(`<link rel="alternate" hreflang="zh-Hans" href="https://ax.trina.app/docs/zh/${dir}">`)
+          expect(html, slug).toContain(`<link rel="alternate" hreflang="x-default" href="https://ax.trina.app/docs/${dir}">`)
+        }
+        expect(zh).toContain(`class="lang-switch quiet-link" href="/docs/${dir}" hreflang="en"`)
+        expect(en).toContain(`class="lang-switch quiet-link" href="/docs/zh/${dir}" hreflang="zh-Hans"`)
+        // shared assets and images come from /docs/, not /docs/zh/
+        expect(zh).toContain('<link rel="stylesheet" href="/docs/assets/site.css">')
+        expect(zh).not.toMatch(/(?:src|data-src)="\/docs\/zh\/(?:images|assets)\//)
+        expect(zh).not.toMatch(/On this page|Copy page|Skip to content|>Previous<|>Next</)
+        expect(fs.existsSync(path.join(out, 'zh', `${slug}.md`))).toBe(true)
+      }
+      // a page that is not translated has no twin; the zh nav links to it, marked as English
+      const install = fs.readFileSync(path.join(out, 'operate/install/index.html'), 'utf8')
+      expect(install).not.toContain('hreflang=')
+      expect(install).toContain('<html lang="en">')
+      const zhIndex = fs.readFileSync(path.join(out, 'zh/index.html'), 'utf8')
+      expect(zhIndex).toContain('<a href="/docs/operate/install/">')
+      expect(zhIndex).toMatch(/<a href="\/docs\/operate\/install\/">[^<]+（英文）<\/a>/)
+      // Chinese headings get Chinese ids, so "On this page" works
+      expect(zhIndex).not.toMatch(/<h[23] id="(?:-\d*)?"/)
+      const llms = fs.readFileSync(path.join(out, 'zh/llms.txt'), 'utf8')
+      expect(llms).toContain('https://ax.trina.app/docs/zh/\n')
+      for (const slug of ZH_SLUGS) expect(llms).toContain(`(https://ax.trina.app/docs/zh/${slug}.md)`)
+      expect(llms).toContain('（英文）](https://ax.trina.app/docs/operate/install.md)')
+      const search = JSON.parse(fs.readFileSync(path.join(out, 'zh/search-index.json'), 'utf8')) as { u: string }[]
+      expect(search.map((d) => d.u).sort()).toEqual(ZH_SLUGS.map((s) => (s === 'index' ? '/docs/zh/' : `/docs/zh/${s}/`)).sort())
+      expect(fs.readFileSync(path.join(out, 'zh/404.html'), 'utf8')).toContain('<html lang="zh-CN">')
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true })
+    }
+  })
+
+  test.skipIf(!hasMarkdown)('a <!--docs-lang--> marker in the website bar places the language switch', async () => {
+    const { build } = await import('../../scripts/docs/build')
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-site-'))
+    const kit = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-sitenav-'))
+    try {
+      fs.writeFileSync(path.join(kit, 'nav.json'), JSON.stringify({
+        html: '<div class="nav"><!--docs-tools--><span class="slot"><!--docs-lang--></span></div>',
+        htmlByLang: { zh: '<div class="nav zh"><!--docs-tools--><span class="slot"><!--docs-lang--></span></div>' },
+      }))
+      build(['--out', out, '--base', '/docs', '--site-nav', path.join(kit, 'nav.json')])
+      const zhMcp = fs.readFileSync(path.join(out, 'zh/use/mcp/index.html'), 'utf8')
+      // the Chinese pages get the website's Chinese bar
+      expect(zhMcp).toContain('<div class="sitenav"><div class="nav zh">')
+      expect(zhMcp).toMatch(/<span class="slot"><a class="lang-switch" href="\/docs\/use\/mcp\/" hreflang="en"/)
+      expect(fs.readFileSync(path.join(out, 'use/mcp/index.html'), 'utf8')).toContain('<div class="sitenav"><div class="nav">')
+      expect(fs.readFileSync(path.join(out, 'use/mcp/index.html'), 'utf8')).toMatch(/<span class="slot"><a class="lang-switch" href="\/docs\/zh\/use\/mcp\/" hreflang="zh-Hans"/)
+      // no twin: the marker is simply removed
+      const install = fs.readFileSync(path.join(out, 'operate/install/index.html'), 'utf8')
+      expect(install).toContain('<span class="slot"></span>')
+      expect(install).not.toContain('<!--docs-lang-->')
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
       fs.rmSync(kit, { recursive: true, force: true })

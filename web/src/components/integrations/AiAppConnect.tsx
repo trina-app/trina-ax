@@ -117,10 +117,15 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
   const t = useT()
   const name = appName(app, t)
   const [connected, setConnected] = useState<RemoteConnectionInfo | null>(null)
+  // the list was asked for POLL_FOR_MS and the app never appeared: the line says so, with Check again (QA TC-1417: it
+  // span on for ever); each Check again asks for another while
+  const [round, setRound] = useState(0)
+  const [stopped, setStopped] = useState(false)
   const done = useRef(onConnected)
   done.current = onConnected
   useEffect(() => {
     if (connected) return
+    setStopped(false)
     let live = true
     const started = Date.now()
     const before = new Set(known)
@@ -131,11 +136,13 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
         if (live && added) { setConnected(added); done.current?.() }
       } catch { /* try again on the next tick */ }
     }
-    const id = setInterval(() => { if (Date.now() - started > POLL_FOR_MS) clearInterval(id); else void tick() }, POLL_MS)
+    const id = setInterval(() => { if (Date.now() - started > POLL_FOR_MS) { clearInterval(id); if (live) setStopped(true) } else void tick() }, POLL_MS)
+    // a check at once on Check again (not only after the first interval)
+    if (round > 0) void tick()
     return () => { live = false; clearInterval(id) }
     // the known list is read once, when the dialog opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected])
+  }, [connected, round])
   const command = `claude mcp add --transport http ${CONNECTOR_NAME} ${resource}`
   const codexCommand = `codex mcp add ${CONNECTOR_NAME} --url ${resource}`
   const codexLogin = `codex mcp login ${CONNECTOR_NAME}`
@@ -176,10 +183,12 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
             </>
           )}
         </ol>
-        <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="ai-app-status" data-state={connected ? 'connected' : 'waiting'}>
+        <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="ai-app-status" data-state={connected ? 'connected' : stopped ? 'stopped' : 'waiting'}>
           {connected
             ? <><Check size={15} className="shrink-0 text-ok" aria-hidden />{t('aiApps.connected', { name: connected.clientName })}</>
-            : <><Loader2 size={15} className="shrink-0 animate-spin text-muted motion-reduce:animate-none" aria-hidden /><span className="text-muted">{t('aiApps.waiting')}</span></>}
+            : stopped
+              ? <><span className="min-w-0 flex-1 text-muted">{t('aiApps.notYet')}</span><Button size="sm" variant="secondary" className="shrink-0 max-md:h-11" onClick={() => setRound((n) => n + 1)} data-testid="ai-app-check-again">{t('aiApps.checkAgain')}</Button></>
+              : <><Loader2 size={15} className="shrink-0 animate-spin text-muted motion-reduce:animate-none" aria-hidden /><span className="text-muted">{t('aiApps.waiting')}</span></>}
         </p>
       </div>
     </Modal>
