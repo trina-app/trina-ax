@@ -1,4 +1,4 @@
-// One search for a person or a group, shared by Admin › Folder permissions' edit panel (AccessEdit.tsx) and the Team
+// One search for a person or a group, shared by the Share dialog (FolderSharing.tsx) and the Team
 // skills page's "who can edit" dialog (SkillManagers.tsx), and for one member in Admin › Connectors' "Ask a member to
 // connect" (RequestDialog.tsx: no groups, its own label and words).
 import clsx from 'clsx'

@@ -36,6 +36,8 @@ import { accessErrorText } from './AccessResults'
 import { People, useFolderAnswer } from './FolderPeople'
 import { RemoveRulesButton, isSkillsFolder, useRemoveRules } from './Folders'
 import { FolderAccessPanel } from '../../components/FolderAccess'
+import { projectsByFolder } from '../../lib/projectFolders'
+import { readProjectList, useProjects } from '../../store/projects'
 import { useFolderPeople } from './SkillManagers'
 import { useFocusAfterRemove, useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
@@ -380,13 +382,18 @@ export default function AccessTree() {
   /** below the width where the tree and the folder sit side by side: the folder replaces the tree until Back */
   const [showDetail, setShowDetail] = useState(false)
   const [ruledOnly, setRuledOnly] = useState(false)
-  /** the folder whose rules are being changed (the edit panel replaces its part of the screen); `back`: opened from By
+  /** the folder whose Share dialog is open (over the page); `back`: opened from By
    * person, whose address closing it goes back to */
   const [editing, setEditing] = useState<{ path: string; back?: string } | null>(null)
   const [picking, setPicking] = useState(false)
   /** By person asked for a folder that the tree could not find (or ask for): its card offers the way back there */
   const [stranded, setStranded] = useState<{ path: string; back: string } | null>(null)
   /** the panel's: resolves true when it may close (nothing changed, or the admin dropped the changes) */
+  // team projects by their folder: rows a project's folder gives show as its members in the Share dialog
+  const listedProjects = useProjects((st) => st.listed)
+  const projectsById = useProjects((st) => st.byId)
+  const projectFolders = useMemo(() => projectsByFolder(listedProjects ? [...listedProjects].flatMap((id) => projectsById[id] ?? []) : []), [listedProjects, projectsById])
+  useEffect(() => { void readProjectList().catch(() => {}) }, [])
   const editGuard = useRef<() => Promise<boolean>>(async () => true)
   /** the folder picked with "Add folder" (or named by By person): its rules open once the tree has found and chosen it */
   const pendingEdit = useRef<string | null>(null)
@@ -410,9 +417,9 @@ export default function AccessTree() {
   const rootName = t('accessView.rootFolder')
   const removal = useRemoveRules(rootName)
   const wanted = params.get('folder')
-  // a phone (below 768 px): a folder and its rule editor are pages of their own, each a history entry pushed over the
-  // one before (`?folder=<path>`, then `&rules=<path>`), so ‹ and the swipe go editor → folder → tree
-  // (adminScreens.ts); the bar names them. Computers keep one address that is replaced
+  // a phone (below 768 px): a folder is a page of its own, a history entry pushed over the tree (`?folder=<path>`), so ‹
+  // and the swipe go folder → tree (adminScreens.ts); its Share dialog is the bottom sheet, which Back closes. Computers
+  // keep one address that is replaced
   const phone = useMediaQuery('(max-width: 767.98px)')
 
   // the first answer opens the way down to rule, group, project and connected folders
@@ -456,7 +463,7 @@ export default function AccessTree() {
       : back === FROM_FILES ? navigate(`/files?path=${encodeURIComponent(path)}&access=1`, { replace: phone }) : setParams(new URLSearchParams(back), { state: { refocus: path }, replace: phone })
   /** the words of the way back: to By person, or to Files */
   const backLabel = (back: string) => t(back === FROM_FILES ? 'accessEdit.backToFiles' : 'accessEdit.backToPeople')
-  /** Leave the edit panel, asking first when something was changed there: false when the admin stays. */
+  /** Leave the Share dialog, asking first when something was changed there: false when the admin stays. */
   const leaveEdit = async () => {
     if (!editing) return true
     if (!(await editGuard.current())) return false
@@ -560,7 +567,7 @@ export default function AccessTree() {
   // tree never shows (Folder.hidden)
   const outside = (ruleRows ?? []).filter((f) => f.path !== '' && (!f.exists || f.hidden || isPersonalPath(f.path))).sort((a, b) => a.path.localeCompare(b.path))
   const node = selected !== null ? tree.data?.nodes.get(selected) : undefined
-  // narrow: the chosen folder, or the edit panel, takes the place of the tree
+  // narrow: the chosen folder takes the place of the tree
   const treeHidden = showDetail && selected !== null
 
   /** back from the folder to its row (narrow); from a folder that is not there, to the tree with nothing chosen. The
@@ -679,6 +686,7 @@ export default function AccessTree() {
         key={path}
         target={{ path, access: 'write' }}
         project={null}
+        projectOf={(p) => projectFolders.get(p.normalize('NFC')) ?? null}
         fromAdmin
         guard={editGuard}
         onClose={() => {
@@ -1309,7 +1317,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, reloadKey, head
         </div>
       ) : (
         <>
-          {/* a team project's folder: members only, changed on the project's page (no edit panel here) */}
+          {/* a team project's folder: members only, changed on the project's page (no Share here) */}
           {membersOnly && (
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
               <span data-testid="folder-detail-members-only"><Badge>{t('accessTree.membersOnly')}</Badge></span>
@@ -1320,7 +1328,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, reloadKey, head
               )}
             </div>
           )}
-          {/* the rules: change them in the edit panel (rows the server keeps say why under the rules) */}
+          {/* Share: the same dialog as the Files page's (rows the server keeps say why below) */}
           {!membersOnly && <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={onEdit} disabled={!rowsReady} data-testid="folder-detail-edit" data-row-focus>
               <UserPlus size={14} aria-hidden /> {t('accessTree.share')}

@@ -163,7 +163,7 @@ describe('the panel shows who can open it, like Drive\'s list', () => {
     expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.staffRow'))
     expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.fullAccess'))
     // the role menu holds Remove access (Drive), no ✕
-    expect(rowsOf(m, 'sharing-row')[0]!.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['read', 'write', null, 'remove'])
+    expect(rowsOf(m, 'sharing-row')[0]!.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['read', 'write', 'remove'])
     expect(m.find('sharing-remove')).toBeNull()
     // nothing changed: Done, no Save
     expect(m.find('sharing-done')).not.toBeNull()
@@ -176,6 +176,15 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
   test('Remove access is in the role menu: the row goes, and what will happen names who loses it', async () => {
     const m = await open()
     await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'remove')
+    // asked first (a native menu's arrow keys would remove on the way); Cancel keeps the row
+    const ask = await m.until(() => m.find('dialog-confirm'), 'the remove question')
+    expect(m.html()).toContain(en('folderAccess.removeTitle', { name: 'Alice' }))
+    await m.click((ask.parentNode as FakeElement).querySelectorAll('button')[0]!)
+    await m.until(() => !m.find('dialog-confirm'), 'the question closed')
+    expect(rowsOf(m, 'sharing-row')).toHaveLength(2)
+    await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'remove')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the remove question'))
+    await m.until(() => rowsOf(m, 'sharing-row').length === 1, 'the row gone')
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
     await ready(m)
     // Alice is in Sales, which can edit here: without her own row she can edit
@@ -217,6 +226,42 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     // nothing changed: the line is there without a draft
     expect(m.find('sharing-save')).toBeNull()
     await m.unmount()
+  })
+})
+
+describe('review of #779: the owner\'s row, and General access before the first answer', () => {
+  test('the owner listed here: Full access with Remove access only; kept out (an old row): no Add, only off the list', async () => {
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'read' }])
+    const m = await open()
+    const olga = rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:olga')!
+    expect(olga.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['staff', 'remove'])
+    await m.unmount()
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'none' }])
+    const m2 = await open()
+    expect(m2.find('sharing-add-back')).toBeNull()
+    await m2.click('sharing-removed-drop')
+    expect(m2.find('sharing-removed')).toBeNull()
+    await m2.unmount()
+  })
+
+  test('General access waits for the first answer (what the folder above gives is not known before)', async () => {
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    const before = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/admin/access/edit-preview')) await held
+      return before(input, init)
+    }) as typeof fetch
+    try {
+      const m = await mountHost('shared/Sales/Quotes')
+      const sel = await m.until(() => m.find('sharing-general-select'), 'the select')
+      expect(sel.hasAttribute('disabled')).toBe(true)
+      release()
+      await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'enabled after the answer')
+      await m.unmount()
+    } finally {
+      globalThis.fetch = before
+    }
   })
 })
 

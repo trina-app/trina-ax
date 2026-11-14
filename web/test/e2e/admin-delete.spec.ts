@@ -312,7 +312,10 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await page.getByTestId('folder-detail-edit').click()
   // Remove access, in each row's role menu
   await expect(panel.getByTestId('sharing-row').first()).toBeVisible()
-  while (await panel.getByTestId('sharing-level').count()) await panel.getByTestId('sharing-level').first().selectOption('remove')
+  while (await panel.getByTestId('sharing-level').count()) {
+    await panel.getByTestId('sharing-level').first().selectOption('remove')
+    await page.getByTestId('dialog-confirm').click()
+  }
   await settled()
   const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/rules'))
   await save()

@@ -26565,18 +26565,30 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   **General access**: **Restricted** or the team, and for the team a **Viewer / Editor** select. The breadcrumb chip
   stays the count.
 - **No "Same as …" choice.** Drive has none: a folder with no setting of its own shows what it gets from above, with
-  `From "Company-wide" · Change there ›`. Picking that same value stores nothing (the folder keeps following its
-  parent); picking the value the folder started with keeps its stored form; anything else is stored. `shared/`,
-  `skills/` and the team root keep a setting of their own (they never become "no setting here").
+  `From "Company-wide" · Change there ›`. **Restricted is always stored** ("everyone: no access"): only the people
+  listed here open it, and whoever the folders above let in is cut off, Drive's Limit access meaning (review H1: a
+  Restricted folder above can still list Sales, so "Restricted = follow it" let Sales in). Where a folder follows a
+  Restricted folder that lists people, one link under General access, **Only people listed here**, does the same. A
+  team role equal to what a folder with no setting already gets stores nothing; any other role is stored. Back to
+  "no setting here" is one link, **Use the access of "<parent>"** (not at the team root, `shared/` or `skills/`, which
+  keep a setting of their own; there a team pick is always stored, review H2). General access waits for the server's
+  first answer (what the folder above gives is not known before it, review M1). P2 replaces the link pair with
+  Drive's own Limit access switch.
 - **Deepest rule still wins (until P2), said truthfully in Drive's words** (review A1). Drive readers expect access to
   add up, so wherever a listed Viewer gives less than the person would get otherwise, the row says why, in the warning
   colour and never cut: "Can only view here, though anyone at Acme can edit "Company-wide"" (the team above), "…though
   Sales can edit "Plans"" (a group above, or for a group row a member's own row above, by name), "…though anyone at
   Acme can edit it" (General access Editor on the same folder: a group beats everyone there), "In Sales, but can only
-  view here" (a person below their group on the same folder). General access lower than the folder above keeps a line
-  for as long as it is so, not only before Save: "Lower than "Company-wide", where anyone at Acme can edit…", "Anyone at
+  view here" (a person below their group on the same folder). The caption names the rule that decides (the deepest
+  folder with a rule for them), so a deeper group with Viewer is not overstated by a group above with Editor. General
+  access lower than the folders above (the team, or a person or group there: "Sales can edit "Plans", but can only view
+  here.") keeps a line for as long as it is so, not only before Save: "Lower than "Company-wide", where anyone at Acme can edit…", "Anyone at
   Acme can open "Company-wide", but not this folder." The captions come from the server's `above` / `everyoneAbove`
   answer; unit tests check each against the permission function. "What will happen" and the confirm are unchanged.
+- **Remove access asks first** ("Remove access for Bob?"): it is an item of a native select, whose arrow keys would
+  otherwise remove a row on the way. The owner's and admins' rows say **Full access** and offer only Remove access
+  (they open it anyway); an owner or admin under Access removed has no Add (it would change nothing), only **Remove
+  from list**. The add field takes the focus on a computer (not on a touch screen).
 - **Access removed** (Drive's own section): existing "No access" rows (set in Admin before P1) are listed apart with
   "Can't open it here" and Drive's **Add**, which brings them back as Viewer (asked before Save like any more access).
   Not "Remove from list": in Trina that deletes a deny row, which grants access (review A3). Rows from a folder above
@@ -26589,6 +26601,8 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   back to where it came from. The draft, preview, hash, 409 and save are the same hook as before (`useRulesDraft`).
 - **File ⋯ "Share (copy)" is "Copy to…"** (`Copy "<name>" to: pick a folder`), so "Share" means one thing.
 - **Phones:** the same dialog in the app's bottom sheet, in Files and Admin; Back closes it.
+- **Left as it is (said in review):** Admin's tree and By person keep their own words (Can view / Can edit, "Everyone")
+  for now; they are the overview, and their wording is shared with other admin screens.
 - **Words:** English first, then ko with Google Drive's own Korean labels where it has them (공유, 사용자 및 그룹 추가,
   액세스 권한이 있는 사용자, 뷰어, 편집자, 액세스 권한 삭제, 일반 액세스, 제한됨, 액세스 권한이 삭제됨). This differs
   from the house style ("keep the idea, not the wording"); the owner's "the same as Drive" overrides it for this

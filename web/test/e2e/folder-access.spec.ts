@@ -235,6 +235,8 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
 
   // remove Carol (Remove access, in her role menu): only less access, saved without a question
   await sharingRow(page, 'user:carol').getByTestId('sharing-level').selectOption('remove')
+  await expect(page.getByRole('dialog', { name: en('folderAccess.removeTitle', { name: 'Carol' }) })).toBeVisible()
+  await confirm(page).click()
   await expect(outcome(page)).toHaveText(en('folderAccess.willLose', { names: 'Carol' }))
   await page.getByTestId('sharing-save').click()
   await expect(page.getByTestId('sharing-done')).toBeVisible()
@@ -334,6 +336,14 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   // no setting of its own: General access shows what marketing gives, and where from
   await expect(page.getByTestId('sharing-general-select')).toHaveValue('restricted')
   await expect(page.getByTestId('sharing-general-inherited')).toHaveText(en('folderAccess.fromFolder', { folder: 'marketing' }))
+  // following a Restricted folder still lets in who it lists (Bob): "Only people listed here" cuts them off (review H1),
+  // and "Use the access of" brings the folder back to following
+  await page.getByTestId('sharing-general-limit').click()
+  await expect(outcome(page)).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
+  await expect(page.getByTestId('sharing-general-limit')).toHaveCount(0)
+  await page.getByTestId('sharing-general-follow').click()
+  await expect(page.getByTestId('sharing-save')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-general-limit')).toBeVisible()
 
   // the group Sales set to "Can view" here: Bob is in it, so here he can only view; Carol gets in. Both named
   await page.getByTestId('edit-add').fill('Sal')
