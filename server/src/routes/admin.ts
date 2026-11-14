@@ -7,7 +7,8 @@ import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { createInvite, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
+import { createGuestInviteFor, createInvite, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
+import { convertGuest } from '../admin/guests'
 import { msg } from '../auth/messages'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
@@ -104,6 +105,8 @@ export const adminRoutes: RouteModule = {
     // ---------------- invites ----------------
     kit.handle(API.listInvites, () => ({ items: listInvites(ctx) }))
     kit.handle(API.createInvite, ({ c, body }) => createInvite(c, ctx, body))
+    kit.handle(API.createGuestInvite, ({ c, body }) => createGuestInviteFor(c, ctx, body))
+    kit.handle(API.convertGuest, ({ c, params }) => convertGuest(c, ctx, params.id))
     kit.handle(API.revokeInvite, ({ c, params }) => revokeInvite(c, ctx, params.id))
 
     // ---------------- groups ----------------

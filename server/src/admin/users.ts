@@ -40,6 +40,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
+import { GUEST_ONE_PLACE_MSG, assertGuestFree, inPlace } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -135,6 +136,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   const target = liveUser(ctx, id)
   const changesAccount = b.role !== undefined || b.status !== undefined
   guard(c, target, { self: !changesAccount, newRole: b.role })
+  // a guest: no role and no groups (only "convert to member" makes them a member, POST .../convert-guest); switched on
+  // again only while they are still in their one place, and within the plan's guests, not its seats
+  if (target.role === 'guest' && (b.role !== undefined || b.groupIds !== undefined)) fail('forbidden', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
   const groups = b.groupIds ? checkGroups(ctx, b.groupIds, locale) : undefined
   // a disabled account that stays off joins no new group (admin/groups.ts checkMembers: its access is not counted while
   // it is off); one enabled in the same change may
@@ -149,7 +153,12 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // made owner meanwhile is out of reach)
     guard(c, liveUser(ctx, id), { self: !changesAccount, newRole: b.role, actor: actorNow(ctx, auth.user.id) })
     // enabling a disabled account takes a seat again (system/limits.ts; disabled accounts do not count)
-    if (b.status === 'active' && target.status !== 'active') assertSeatFree(ctx.db, locale)
+    if (b.status === 'active' && target.status !== 'active') {
+      if (target.role === 'guest') {
+        if (!inPlace(ctx.db, id)) fail('conflict', undefined, { params: { reason: 'guest_no_place' } })
+        assertGuestFree(ctx.db, locale)
+      } else assertSeatFree(ctx.db, locale)
+    }
     const sets: string[] = []
     const args: (string | null)[] = []
     const set = (col: string, v: string | null, key: string) => { sets.push(`${col} = ?`); args.push(v); changed[key] = v }
@@ -547,6 +556,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   const ready = (t: UserRow) => {
     if (t.status !== 'active') fail('conflict', msg('accountDisabled', locale))
     if (t.role === 'owner') changedMeanwhile()
+    // a guest never becomes the owner: they would have to be a member first (POST /api/admin/users/:id/convert-guest)
+    if (t.role === 'guest') fail('forbidden')
     if (t.must_change_password || !t.last_seen_at) fail('conflict', handoverText('targetNotReady', locale), { params: { reason: 'target_not_ready' } })
   }
   ready(liveUser(ctx, b.userId))
@@ -565,7 +576,7 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // AFTER UPDATE triggers (safe_ops_policy), and Bun 1.3 counts their rows too (2 here), Bun 1.4 does not. So none
     // means someone changed it meanwhile, and the end state is checked directly: exactly one owner, the target.
     if (ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL").run(me).changes < 1) changedMeanwhile()
-    if (ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ? AND role != 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").run(b.userId).changes < 1) changedMeanwhile()
+    if (ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ? AND role != 'owner' AND guest = 0 AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").run(b.userId).changes < 1) changedMeanwhile()
     const owners = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL").all() as { id: string }[]
     if (owners.length !== 1 || owners[0]!.id !== b.userId) changedMeanwhile()
     // the ex-owner is now an admin, who may not make admin invites: the ones made while owner die with that power
@@ -605,4 +616,31 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   try { ended = toEnd.length ? await endConnections(ctx, me, toEnd) : [] } catch (err) { c.get('log').error('ending connections after a handover failed', { err }) }
   recordEnded(ctx, t, ended)
   return { ok: true, ended }
+}
+
+/**
+ * Switch an account off from the server side (a guest who is no longer in their one place: auth/guests.ts
+ * disableGuestIfPlaceless): what PATCH status 'disabled' does, without a caller. Returns false when it was not active.
+ */
+export function disableAccount(ctx: AppContext, id: string, actorId: string | null, why: string): boolean {
+  let done = false
+  ctx.db.transaction(() => {
+    if (ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ? AND status = 'active' AND deleted_at IS NULL").run(id).changes !== 1) return
+    revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
+    ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
+    audit(ctx.db, { actor: actorId, action: 'user.update', target: id, detail: { status: 'disabled', why } })
+    done = true
+  }).immediate()
+  if (!done) return false
+  ctx.services.realtime.forgetReplay(id)
+  statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true))
+  accountDeactivated(ctx.db, id, actorId)
+  authOf(ctx).endUserSessions(id, 'disabled')
+  stopTurnsOf(ctx, id)
+  resetEngineSessions(ctx, id)
+  const cc = existingCredentialsOf(ctx)
+  if (cc) cancelLoginsOf(cc, id, { teamOnly: false })
+  revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id)
+  syncRoomsNow(ctx)
+  return true
 }

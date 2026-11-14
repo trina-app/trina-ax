@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/shared'
 import { SETUP_TOKEN_HEADER } from '@mycel/shared/api'
 import {
-  type AcceptInviteBody, type ChangePasswordBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
+  type AcceptInviteBody, type ChangePasswordBody, type CreateGuestInviteBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
   type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
 } from '@mycel/shared/api'
 import type { z } from 'zod'
@@ -17,7 +17,9 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
-import { captureState, createDefaultFolders } from '../admin/folders'
+import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
+import { createGuestInvite, inviteMakerOk, parseGuestAi, guestPlaceOf, type GuestInviteFields } from './guest-invites'
+import { assertGuestFree, guestLimit, guestsUsed, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
@@ -278,8 +280,8 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
 
 // ---------------- invites ----------------
 /** lead_hint / lead_for / lead_hint_by: "이 사람이 팀장이에요" (admin/handover.ts, migration 270) */
-interface InviteRow { id: string; role: Exclude<Role, 'owner'>; group_ids: string; created_by: string | null; created_at: string | null; expires_at: string; used_at: string | null; used_by: string | null; revoked_at: string | null; lead_hint: number; lead_for: string | null; lead_hint_by: string | null }
-const INVITE_COLS = 'id, role, group_ids, created_by, created_at, expires_at, used_at, used_by, revoked_at, lead_hint, lead_for, lead_hint_by'
+interface InviteRow extends GuestInviteFields { id: string; role: Exclude<Role, 'owner'>; group_ids: string; created_by: string | null; created_at: string | null; expires_at: string; used_at: string | null; used_by: string | null; revoked_at: string | null; lead_hint: number; lead_for: string | null; lead_hint_by: string | null }
+const INVITE_COLS = 'id, role, group_ids, created_by, created_at, expires_at, used_at, used_by, revoked_at, lead_hint, lead_for, lead_hint_by, guest_place_kind, guest_place_id, guest_ai'
 
 function parseIds(s: string): string[] { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [] } catch { return [] } }
 
@@ -288,7 +290,14 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     id: r.id, role: r.role, groupIds: parseIds(r.group_ids), createdBy: userRef(db, r.created_by), createdAt: r.created_at ?? r.expires_at,
     expiresAt: r.expires_at, usedAt: r.used_at, usedBy: userRef(db, r.used_by),
     leadFor: r.lead_hint ? r.lead_for : null,
+    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: guestPlaceOf(r)! } : {}),
   }
+}
+const inviteById = (db: Database, id: string) => db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(id) as InviteRow
+
+/** POST /api/guest-invites (a member, the owner or an admin): a guest invite into one place (auth/guest-invites.ts). */
+export function createGuestInviteFor(c: Context<AppEnv>, ctx: AppContext, b: In<typeof CreateGuestInviteBody>) {
+  return createGuestInvite(c, ctx, b, linkBase(c, ctx), (id) => toInvite(ctx.db, inviteById(ctx.db, id)))
 }
 
 export function listInvites(ctx: AppContext): Invite[] {
@@ -298,6 +307,12 @@ export function listInvites(ctx: AppContext): Invite[] {
 export function createInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof CreateInviteBody>) {
   const auth = c.get('auth')!
   const locale = c.get('locale')
+  // a guest invite: one place and an AI choice, no groups, no lead flag (auth/guest-invites.ts)
+  if (b.role === 'guest') {
+    if (!b.guestPlace || b.leadFor !== undefined || (b.groupIds?.length ?? 0) > 0) fail('validation', undefined, { fields: { 'body.guestPlace': 'a guest invite has one place and no groups' } })
+    return createGuestInviteFor(c, ctx, { place: b.guestPlace!, ai: b.guestAi ?? { mode: 'none' }, expiresInHours: b.expiresInHours })
+  }
+  if (b.guestPlace || b.guestAi) fail('validation', undefined, { fields: { 'body.guestPlace': 'only for role guest' } })
   if (b.role === 'admin' && auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyAdmins', locale))
   // a lead invite ("이 사람이 팀장이에요"): the owner only, and what it carries is decided on the server (admin/handover.ts)
   const lead = b.leadFor !== undefined ? leadInviteShape(c, ctx, b) : null
@@ -310,7 +325,7 @@ export function createInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof C
   const now = authOf(ctx).now()
   const hours = lead ? lead.hours : b.expiresInHours
   const row: InviteRow = { id: newId(), role: lead ? 'member' : b.role, group_ids: JSON.stringify(groups), created_by: auth.user.id, created_at: new Date(now).toISOString(), expires_at: new Date(now + hours * 3600_000).toISOString(), used_at: null, used_by: null, revoked_at: null,
-    lead_hint: lead ? 1 : 0, lead_for: lead ? b.leadFor! : null, lead_hint_by: lead ? auth.user.id : null }
+    lead_hint: lead ? 1 : 0, lead_for: lead ? b.leadFor! : null, lead_hint_by: lead ? auth.user.id : null, guest_place_kind: null, guest_place_id: null, guest_ai: null }
   let replaced = 0
   ctx.db.transaction(() => {
     // one open lead invite: the one before stops in the same write (two creates at once cannot leave two; the partial
@@ -347,10 +362,13 @@ function inviteByToken(db: Database, token: string): InviteRow | null {
 function inviteValid(db: Database, r: InviteRow, now: number): boolean {
   if (r.used_at || r.revoked_at || Date.parse(r.expires_at) <= now) return false
   if (r.created_by === null) return false
+  // a guest invite: its maker may still open that place now (a member who left the group chat, a creator who lost the
+  // project, an admin demoted while the AI choice is 'team': the link stops)
+  if (r.role === 'guest') { const place = guestPlaceOf(r); return !!place && inviteMakerOk(db, r.created_by, place, parseGuestAi(r.guest_ai)) }
   const by = getUser(db, r.created_by)
   if (!by || by.status !== 'active') return false
   if (by.role === 'owner') return true
-  if (by.role === 'admin') return r.role === 'member' || r.role === 'guest'
+  if (by.role === 'admin') return r.role === 'member'
   return false
 }
 
@@ -361,7 +379,7 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const valid = inviteValid(ctx.db, r!, authOf(ctx).now())
   // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
   // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
-  const full = valid && seatsFull(ctx.db)
+  const full = valid && (r!.role === 'guest' ? guestsFull(ctx.db) : seatsFull(ctx.db))
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full }
 }
@@ -373,6 +391,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
   if (!inviteValid(ctx.db, r!, a.now())) fail('gone', msg('linkInvalid', locale))
+  if (r!.role === 'guest') return acceptGuestInvite(c, ctx, r!, b)
   if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   checkNewPassword(b.password, b.username, locale, 'body.password')
   const passwordHash = await hashPassword(b.password)
@@ -420,6 +439,70 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}
+
+/** The plan's guests are all taken (no plan file: never). */
+function guestsFull(db: Database): boolean {
+  const max = guestLimit()
+  return max !== null && guestsUsed(db) >= max
+}
+
+/**
+ * Accept a guest invite: one write (tx.immediate) re-checks the invite, its maker's right to that place now, that the
+ * place is still open, the team connection for AI 'team', and the plan's guest cap (409 plan_limit, reason
+ * guest_limit), then makes the account (role 'member' + users.guest = 1, no groups), its guests row, and puts them into
+ * the place: a group chat member row (with the "added" line), or a person rule 'write' on the project's folder. With AI
+ * 'team' a 'block' budget of their own a month (the limit) and guests.team_credential_id; never an
+ * engine_credential_assignments row (one would make a team-wide connection assigned-only for every member). Events,
+ * the access change and notices go after the commit. No welcome card, no everyone-room line, no template offers.
+ */
+async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteRow, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
+  const a = authOf(ctx)
+  const locale = c.get('locale')
+  const place = guestPlaceOf(r)
+  if (!place) fail('gone', msg('linkInvalid', locale))
+  if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  checkNewPassword(b.password, b.username, locale, 'body.password')
+  const passwordHash = await hashPassword(b.password)
+  const ai = parseGuestAi(r.guest_ai)
+  const before = place!.kind === 'project' ? captureState(ctx.db) : null
+  let id = ''
+  let line: string | null = null
+  const tx = ctx.db.transaction(() => {
+    const now = new Date(a.now()).toISOString()
+    if (usernameTaken(ctx.db, b.username)) throw new UsernameTaken()
+    id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
+    const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r.id) as InviteRow | null
+    if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
+    assertGuestFree(ctx.db, locale)
+    const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r.id, now)
+    if (res.changes !== 1) return 'gone'
+    insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })
+    ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(id)
+    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, place!.kind, place!.id, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
+    if (ai.mode === 'team') ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+    if (place!.kind === 'room') line = roomsOf(ctx).addInTx(place!.id, r.created_by ?? id, [id])
+    else {
+      const folder = ensureFolderRow(ctx.db, projectFolder(ctx.db, place!.id)!)
+      writeFolderAccess(ctx.db, folder.id, { rules: [...rulesOf(ctx.db, folder.id).filter((x) => !(x.subjectType === 'user' && x.subjectId === id)), { subjectType: 'user', subjectId: id, access: 'write' }] }, r.created_by)
+    }
+    audit(ctx.db, { actor: id, action: 'invite.accept', target: r.id, detail: { userId: id, role: 'guest', place, ai: ai.mode } })
+    return 'ok'
+  })
+  let ok: string
+  try { ok = tx.immediate() } catch (e) {
+    if (e instanceof UsernameTaken) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+    throw e
+  }
+  if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
+  ensurePersonalFolder(ctx.files.fx.root, id)
+  if (line) roomsOf(ctx).announceAdded(place!.id, [id], line)
+  if (before) afterAccessChange(ctx, before, { actor: r.created_by, target: projectFolder(ctx.db, place!.id), via: 'guest' })
+  // the owners and whoever invited them are told (Activity); nobody else: the rest of the team is not their audience
+  const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+  notifyTeamJoined(ctx, r.created_by ? [...owners, r.created_by] : owners, id)
+  return a.signIn(c, id, b.client, b.tokenMode)
+}
 /** every seat of the plan is taken (no plan file: never) */
 function seatsFull(db: Database): boolean {
   const max = seatLimit()

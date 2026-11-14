@@ -57,6 +57,7 @@ import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal } from '../policy/access'
+import { assertGuestMayJoin, guestsAmong } from '../auth/guests'
 import { authorize, visiblePath } from '../policy/authorize'
 
 const services = new WeakMap<AppContext, Rooms>()
@@ -407,7 +408,7 @@ export class Rooms {
   // ---------------- group chats: who is in one ----------------
   /** Add people to a group chat I am in (any member). Those already in it are skipped; the others see the room from
    * now on (visible_from_seq = the room's last seq, as in a team room) and the line that says they were invited. */
-  invite(userId: string, roomId: string, userIds: readonly string[]): Room {
+  invite(userId: string, roomId: string, userIds: readonly string[], locale: Locale = DEFAULT_LOCALE): Room {
     const { room } = this.mine(userId, roomId)
     // a team room follows its group and the everyone room the team; a DM keeps its two (the app makes a new group chat)
     if (room.kind !== 'group') fail('forbidden')
@@ -419,18 +420,30 @@ export class Rooms {
     if (!fresh.length) return this.get(userId, roomId)
     if (inRoom.size + fresh.length > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.takeSendToken(userId)
-    const now = nowIso()
     const line = this.db.transaction(() => {
-      const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
-      for (const u of fresh) add.run(u, now, roomId)
-      return this.eventLine(roomId, userId, { type: 'added', userIds: fresh }, now)
-    })()
-    const added = new Set(fresh)
+      // a guest is in one place only (auth/guests.ts): this group chat is theirs, or they are refused (409
+      // guest_one_place), checked in the same write as the insert
+      for (const g of guestsAmong(this.db, fresh)) assertGuestMayJoin(this.db, g, { kind: 'room', id: roomId }, locale)
+      return this.addInTx(roomId, userId, fresh)
+    }).immediate()
+    this.announceAdded(roomId, fresh, line)
+    return this.get(userId, roomId)
+  }
+  /** Put people into a group chat inside the caller's write (no events): their member rows and the "added" line by
+   * `actorId`. The caller sends announceAdded after the commit. */
+  addInTx(roomId: string, actorId: string, ids: readonly string[]): string {
+    const now = nowIso()
+    const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
+    for (const u of ids) add.run(u, now, roomId)
+    return this.eventLine(roomId, actorId, { type: 'added', userIds: [...ids] }, now)
+  }
+  /** After addInTx's commit: the room for the new people, the new members for the others, the line for everyone. */
+  announceAdded(roomId: string, ids: readonly string[], line: string): void {
+    const added = new Set(ids)
     this.roomEvent(roomId, 'added', added)
     const r = roomRow(this.db, roomId)!
     this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m) } }))
     this.messageEvent('room.message', messageRow(this.db, roomId, line)!)
-    return this.get(userId, roomId)
   }
 
   /** Leave a group chat (team rooms and the everyone room follow the groups, a DM keeps its two: 403). */
