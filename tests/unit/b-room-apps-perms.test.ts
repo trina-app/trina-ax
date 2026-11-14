@@ -1,6 +1,6 @@
 // Apps posting in rooms: who manages them (owner decisions 4 and 5), who sees their messages, the audit, the AI's view,
 // rekeying, no public address, and the /in/ exemption from the country list (docs/DECISIONS.md "Apps posting in
-// rooms"; QA TC-1410, TC-1411, TC-1412).
+// rooms"; QA TC-1546, TC-1547, TC-1412).
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { ROOM_APPS_MAX } from '@mycel/shared/api'

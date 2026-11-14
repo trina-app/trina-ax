@@ -27138,7 +27138,7 @@ the recommended design after an independent security and UX review.
   and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
   (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
 
-## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1410, TC-1411, TC-1412)
+## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
 
 Plan: docs/AGENTS/plan/20261114-0900-room-apps.md (revision 2 and the owner's decisions of 2026-11-14). Phase 1 is the
 server: the rows, the public address, the cards, the API, the AI's view. The screens (room menu "Add an app", the

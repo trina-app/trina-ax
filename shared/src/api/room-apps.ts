@@ -178,7 +178,7 @@ export type SetRoomAppSecretBody = z.infer<typeof SetRoomAppSecretBody>
 export const RoomAppSecretResult = z.object({ app: RoomApp, secret: z.string().optional() })
 export type RoomAppSecretResult = z.infer<typeof RoomAppSecretResult>
 
-/** Sentry's Client Secret as Sentry shows it (checked in TC-1410): 64 hex characters. */
+/** Sentry's Client Secret as Sentry shows it (checked in TC-1546): 64 hex characters. */
 export const SENTRY_SECRET_RE = /^[0-9a-f]{64}$/i
 
 /** The Google Forms Apps Script (Copy code), with the address filled in. `sendEmail`: the form's respondent email is

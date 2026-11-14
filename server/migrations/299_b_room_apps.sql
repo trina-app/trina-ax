@@ -1,6 +1,6 @@
 -- min_compatible_reader: 1
 -- Component B: apps that post into a room (docs/DECISIONS.md "Apps posting in rooms", plan
--- docs/AGENTS/plan/20261114-0900-room-apps.md, QA TC-1410/1411/1412). Sentry, GitHub, Google Forms or any other service
+-- docs/AGENTS/plan/20261114-0900-room-apps.md, QA TC-1546/1547/1412). Sentry, GitHub, Google Forms or any other service
 -- posts to POST /in/<token>; the server turns each event into a card from that app in the room. Additive only: an older
 -- build ignores the tables and the columns (it shows an app's messages as messages of an account that is gone, with
 -- their plain text: everyone in the room sees them anyway).

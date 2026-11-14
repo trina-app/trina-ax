@@ -1,5 +1,5 @@
 // Apps posting in rooms, the public address (docs/DECISIONS.md "Apps posting in rooms", server/src/rooms/apps/inbound.ts;
-// QA TC-1411): the vendors' sample payloads, signatures over the raw bytes, content types, size, limits charged before
+// QA TC-1547): the vendors' sample payloads, signatures over the raw bytes, content types, size, limits charged before
 // the body, switches, a retry posting once, Sentry's delivery key without the timestamp, threads and their expiry,
 // "came back" in the room, quiet, the cap / pause / resume at the team's midnight, the team cap, uniform 404s.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
