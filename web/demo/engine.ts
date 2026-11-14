@@ -32,6 +32,9 @@ export class StoryEngine {
   answers: Id[] = []
   endShown = false
   endClosed = false
+  /** when the story started and when the end card came (the card's real elapsed time) */
+  startedAt = Date.now()
+  endedAt: number | null = null
   private listeners = new Set<() => void>()
   private timers: ReturnType<typeof setTimeout>[] = []
 
@@ -49,6 +52,7 @@ export class StoryEngine {
     const key = keyOf(h)
     if (this.happened.has(key)) return
     this.happened.add(key)
+    if (key === 'start') this.startedAt = Date.now()
     for (const ev of this.script.events) {
       if (this.due.has(ev.id) || !keysOf(ev.after).includes(key)) continue
       this.due.add(ev.id)
@@ -56,7 +60,7 @@ export class StoryEngine {
     }
     const end = this.script.end
     if (!this.endShown && keysOf(end.after).includes(key)) {
-      this.wait(() => { this.endShown = true; this.changed() }, end.delayMs ?? 2500)
+      this.wait(() => { this.endShown = true; this.endedAt = Date.now(); this.changed() }, end.delayMs ?? 2500)
     }
     this.changed()
   }

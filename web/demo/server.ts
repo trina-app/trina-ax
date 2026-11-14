@@ -5,9 +5,9 @@
 // - the AI: the story's canned answers (steps, streamed text, files, cards) instead of the mock's keywords;
 // - the rooms: the messages the mock does not keep (the visitor's own, the story's people's, their files).
 // The visitor is always signed in (a member, so the admin pages and permission settings are not offered).
-import { Room, RoomMessage, RoomTypingFrame, uuidv7, type Chat, type Message, type RoomFile, type ServerEventInput, type Step, type TurnRequest, type User } from '@mycel/shared/api'
+import { CSRF_HEADER, Room, RoomMessage, RoomTypingFrame, uuidv7, type Chat, type Message, type RoomFile, type ServerEventInput, type Step, type TurnRequest, type User } from '@mycel/shared/api'
 import { MockServer } from '../test/mock/server'
-import type { DemoAsk, DemoEvent, DemoFile, DemoReply, DemoScript, DemoStep } from './script'
+import type { DemoAnswer, DemoAsk, DemoEvent, DemoFile, DemoGo, DemoReply, DemoScript, DemoStep, Id } from './script'
 import { StoryEngine, type Place } from './engine'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -20,6 +20,15 @@ const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 const PIECE = 6
 const PIECE_MS = 22
 
+/** what shows under an answer, by its message id (web/demo/overlay.tsx) */
+export interface Extras extends Pick<DemoAnswer, 'sources' | 'people' | 'compare' | 'deliverables' | 'sendTo'> {
+  chatId: string
+  answerId: Id | null
+  attachments?: string[]
+}
+/** a message toast: who, what, and where a click takes the visitor */
+export interface Toast { id: Id; from: Id; text: string; open: DemoGo | null }
+
 export class DemoServer extends MockServer {
   script!: DemoScript
   assets!: Record<string, Uint8Array>
@@ -29,6 +38,11 @@ export class DemoServer extends MockServer {
   /** a room file's bytes by its id (the story's attachments and what the visitor sends) */
   roomFiles = new Map<string, Uint8Array>()
   avatars = new Map<string, Uint8Array>()
+  /** what shows under an answer (v2: sources, people, before/after, deliverables, the send button, attachments), by
+   * the answer's message id; web/demo/overlay.tsx reads it once the answer is done */
+  extras = new Map<string, Extras>()
+  /** a toast to show (web/demo/overlay.tsx sets it) */
+  onToast: ((t: Toast) => void) | null = null
 
   constructor(script: DemoScript, assets: Record<string, Uint8Array>) {
     // no e2e team first (setup: the mock's own seed is skipped), then the story's
@@ -54,17 +68,22 @@ export class DemoServer extends MockServer {
     this.avatars = new Map()
     for (const p of ['shared', 'groups', 'projects', 'skills', 'users']) this.folder(p)
     this.groups = s.groups.map((g) => ({ id: this.idOf('group', g.id), name: g.name, description: '', memberIds: g.members }))
+    this.extras = new Map()
+    this.presence = new Map()
     for (const p of s.people) {
-      this.addUser({ id: p.id, username: p.id, name: p.name, role: 'member', groupIds: s.groups.filter((g) => g.members.includes(p.id)).map((g) => this.idOf('group', g.id)), localeChoice: null }, uuidv7())
-      this.folder(`users/${p.id}`)
       const pic = p.avatar && this.assets[p.avatar]
       if (pic) this.avatars.set(p.id, pic)
+      // someone outside the team only appears in toasts
+      if (p.outside) continue
+      if (p.online !== false && p.id !== s.visitor) this.presence.set(p.id, 'online')
+      this.addUser({ id: p.id, username: p.id, name: p.name, role: 'member', groupIds: s.groups.filter((g) => g.members.includes(p.id)).map((g) => this.idOf('group', g.id)), localeChoice: null }, uuidv7())
+      this.folder(`users/${p.id}`)
     }
     for (const g of s.groups) this.folder(`groups/${g.name}`)
     for (const f of s.files) this.putDemoFile(f)
     for (const pr of s.projects) this.seedProject(pr)
     for (const r of s.rooms) this.seedRoom(r)
-    const lead = s.events[0] ? s.events[0].from : null
+    const lead = s.home.inviter ?? (s.events[0] ? s.events[0].from : null)
     const inviter = lead ? this.users.find((u) => u.id === lead) : undefined
     this.memberWelcome = {
       team: s.company.name, inviter: inviter ? { id: inviter.id, name: inviter.name } : null, people: s.people.length,
@@ -195,25 +214,65 @@ export class DemoServer extends MockServer {
     return message
   }
 
-  /** a story person's message, when its trigger happened: "typing…" for a moment, then the message */
+  /** a story person's message, when its trigger happened: "typing…" for a moment, then the message, its toast and the
+   * reactions that pile up; then the event counts as happened (what is chained on it follows) */
   async postEvent(ev: DemoEvent) {
-    const room = this.rooms.find((r) => r.id === this.idOf('room', ev.room ?? ''))
-    // a script error, loud: every step chained on this message would wait for good
-    if (!room) throw new Error(`demo: event ${ev.id} names no room ${ev.room}`)
     const gen = this.generation
+    const room = ev.room ? this.rooms.find((r) => r.id === this.idOf('room', ev.room!)) : undefined
+    // a script error, loud: every step chained on this message would wait for good
+    if (ev.room && !room) throw new Error(`demo: event ${ev.id} names no room ${ev.room}`)
     for (const f of ev.newFiles ?? []) this.putDemoFile(f)
-    const typing = (on: boolean) => {
-      const frame = JSON.stringify(RoomTypingFrame.parse({ type: 'room.typing', roomId: room.id, threadRootId: null, userId: ev.from, typing: on }))
-      for (const ws of this.sockets) ws.send(frame)
+    let message: RoomMessage | undefined
+    if (room && ev.text) {
+      const typingMs = ev.typingMs ?? 1100
+      if (typingMs > 0) {
+        this.typing(room.id, ev.from, true)
+        await sleep(typingMs)
+        this.typing(room.id, ev.from, false)
+        if (gen !== this.generation) return
+      }
+      message = this.addRoomMessage(room, ev.from, ev.text, ev.files ?? [], now(), false)
+      this.publish({ type: 'room.message', data: { roomId: room.id, message } })
+      this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
     }
-    typing(true)
-    await sleep(1100)
-    if (gen !== this.generation) return
-    typing(false)
-    const message = this.addRoomMessage(room, ev.from, ev.text ?? '', ev.files ?? [], now(), false)
-    this.publish({ type: 'room.message', data: { roomId: room.id, message } })
-    this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
+    if (ev.toast) {
+      const t = typeof ev.toast === 'object' ? ev.toast : {}
+      const text = t.text ?? ev.text ?? ''
+      this.onToast?.({ id: ev.id, from: ev.from, text: this.resolve(text).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'), open: t.open ?? (ev.room ? { room: ev.room } : null) })
+    }
+    if (room && ev.reactions?.length) {
+      const target = ev.on === 'visitor'
+        ? [...(this.roomMessages.get(room.id) ?? [])].reverse().find((m) => m.author?.id === this.script.visitor)
+        : message
+      for (const r of ev.reactions) {
+        await sleep(r.afterMs ?? 2500)
+        if (gen !== this.generation) return
+        if (target) this.react(room.id, target, r.from, r.emoji, true)
+      }
+    }
     this.engine.fire({ event: ev.id })
+  }
+
+  typing(roomId: string, userId: string, on: boolean) {
+    const frame = JSON.stringify(RoomTypingFrame.parse({ type: 'room.typing', roomId, threadRootId: null, userId, typing: on }))
+    for (const ws of this.sockets) ws.send(frame)
+  }
+
+  /** put (or take off) someone's reaction on a room message and tell the windows */
+  react(roomId: string, m: RoomMessage, userId: string, emoji: string, on: boolean) {
+    const user = this.users.find((u) => u.id === userId)
+    if (!user) return
+    const list = (m.reactions ?? []).map((r) => ({ ...r, users: [...r.users] }))
+    let r = list.find((x) => x.emoji === emoji)
+    if (on && !r) list.push((r = { emoji, count: 0, mine: false, users: [] }))
+    if (!r) return
+    const had = r.users.some((u) => u.id === userId)
+    if (on && !had) r.users.push({ id: user.id, name: user.name })
+    if (!on && had) r.users = r.users.filter((u) => u.id !== userId)
+    r.count = r.users.length
+    r.mine = r.users.some((u) => u.id === this.script.visitor)
+    m.reactions = list.filter((x) => x.count > 0)
+    this.publish({ type: 'room.reactions', data: { roomId, messageId: m.id, reactions: m.reactions } })
   }
 
   private installDemoHandlers() {
@@ -227,6 +286,12 @@ export class DemoServer extends MockServer {
       this.publish({ type: 'room.message', data: { roomId: room.id, message } })
       this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
       return { status: 201, body: message }
+    }
+    h.reactRoomMessage = (c) => {
+      const m = (this.roomMessages.get(c.params.id!) ?? []).find((x) => x.id === c.params.messageId) ?? this.notFound()
+      const on = !(m.reactions ?? []).some((r) => r.emoji === c.body.emoji && r.mine)
+      this.react(c.params.id!, m, c.user.id, c.body.emoji, c.body.on ?? on)
+      return { reactions: m.reactions ?? [] }
     }
     // Stop while a card waits: the card closes and the answer ends stopped (the mock's stop only marks the turn)
     const stop = h.stop!
@@ -336,6 +401,7 @@ export class DemoServer extends MockServer {
     const place = this.placeOf(chat)
     const answer = this.engine.answerFor(prompt, place)
     if (answer) {
+      this.noteExtras(assistant.id, chat, answer)
       await this.playReply(chat, assistant, answer, pub)
       // a stopped answer does not move the story on
       if (!this.stopped.has(assistant.turnId!)) this.engine.answered(answer.id)
@@ -348,8 +414,30 @@ export class DemoServer extends MockServer {
     const i = await this.askCard(chat, assistant, { question: this.script.fallback.question ?? this.script.fallback.text, options: offered.map((a) => ({ label: a.label ?? a.prompt, reply: a })) }, pub)
     const picked = i === null ? undefined : offered[i]
     if (!picked) return
+    this.noteExtras(assistant.id, chat, picked)
     await this.playReply(chat, assistant, picked, pub)
     if (!this.stopped.has(assistant.turnId!)) this.engine.answered(picked.id)
+  }
+
+  noteExtras(messageId: string, chat: Chat, a: DemoAnswer) {
+    this.extras.set(messageId, { chatId: chat.id, answerId: a.id, sources: a.sources, people: a.people, compare: a.compare, deliverables: a.deliverables, sendTo: a.sendTo })
+  }
+
+  /** the answer's big button: post it to the room in one click (the app's own share, no dialog); null when refused */
+  async sendToRoom(messageId: string): Promise<string | null> {
+    const x = this.extras.get(messageId)
+    if (!x?.sendTo) return null
+    const roomId = this.idOf('room', x.sendTo.room)
+    const call = async (extra: Record<string, unknown>) => {
+      const res = await this.handle(new Request(`${location.origin}/api/chats/${x.chatId}/messages/${messageId}/share-to-room`, {
+        method: 'POST', headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+        body: JSON.stringify({ roomId, clientMessageId: uuidv7(), ...extra }),
+      }), '')
+      return res.ok ? (await res.json()) as { status: string; confirmKey?: string } : null
+    }
+    let out = await call({})
+    if (out?.status === 'confirm') out = await call({ confirmKey: out.confirmKey })
+    return out?.status === 'sent' ? roomId : null
   }
 
   /** steps, the text, its files, then its card and the chosen option's reply */
@@ -361,6 +449,10 @@ export class DemoServer extends MockServer {
       await this.playStep(chatId, assistant, st, pub)
     }
     for (const f of reply.files ?? []) this.putDemoFile(f)
+    if (reply.attachments?.length) {
+      const x = this.extras.get(assistant.id) ?? { chatId: chat.id, answerId: null }
+      this.extras.set(assistant.id, { ...x, attachments: reply.attachments })
+    }
     if (reply.files?.length) {
       const saved = reply.files.map((f) => ({ path: f.path, action: 'create' as const }))
       assistant.files = { saved: [...(assistant.files?.saved ?? []), ...saved], conflicts: [], rejected: [] }
