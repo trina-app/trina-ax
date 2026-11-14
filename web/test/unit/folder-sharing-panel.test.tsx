@@ -222,6 +222,8 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     const m = await open()
     expect(valueOf(m.get('sharing-general-select'))).toBe('team')
     expect(valueOf(m.get('sharing-general-role'))).toBe('read')
+    // Erin is listed as Editor: the team's line says "everyone else" (review of #783)
+    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.teamHintViewElse', { team: 'Acme' }))
     expect(m.get('sharing-general-lower').textContent).toBe(en('folderAccess.generalLowerView', { team: 'Acme', folder: 'Sales' }))
     // nothing changed: the line is there without a draft
     expect(m.find('sharing-save')).toBeNull()
@@ -232,7 +234,8 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
 describe('review of #779: the owner\'s row, and General access before the first answer', () => {
   test('Restricted that cuts off who the folder above lets in asks first, by name (re-review of #779)', async () => {
     const m = await open()
-    // Quotes has no General access of its own; Sales (above) lets Leads in: Carol
+    // Quotes has no General access of its own; Sales (above) lets Leads in: Carol. The link names that folder
+    expect(m.get('sharing-general-limit').textContent).toBe(en('folderAccess.limitHere', { folder: 'Sales' }))
     await m.click('sharing-general-limit')
     await ready(m)
     expect(m.get('sharing-outcome').textContent).toContain('Carol will no longer be able to open it')
