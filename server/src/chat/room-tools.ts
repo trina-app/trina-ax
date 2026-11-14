@@ -81,9 +81,12 @@ export function roomReadTools(exec: TurnExec): Tool[] {
    * itself goes by the member rows as they are. */
   const syncMine = () => { try { roomsOf(rt.ctx).syncFor(spec.userId) } catch (e) { rt.log.warn('room sync before a read failed', { err: e }) } }
   /** what a result showed: the rooms join the chat's read scope (their members see it) */
-  const record = (r: Pick<ReadResult, 'seen'>) => {
+  const record = (r: Pick<ReadResult, 'seen' | 'outside'>) => {
     const add: ReadSource[] = r.seen.map((s) => ({ type: 'room', id: s.roomId, ...(s.fromSeq !== undefined ? { fromSeq: s.fromSeq } : {}) }))
     addSources(rt.db, spec.chatId, add)
+    // messages apps posted (rooms/apps) are outside content, like a web page: no room card is skipped after them
+    // (chats.room_outside; "Always allow" keeps its existing rule, owner decision 11)
+    if (r.outside) exec.markOutside()
   }
   /** The step of this call names what it read as the person sees it, or nothing (the verb alone: an id or a name the AI
    * passed that was not found). Every call patches its step exactly once, found or not, so the steps of batched calls

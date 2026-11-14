@@ -40,6 +40,7 @@ import { copiedMessages } from '../../lib/messageCopy'
 import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
+import { AppCardText } from './AppCard'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
@@ -416,6 +417,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} onAgain={onEditAgain} />
       ) : deleted ? (
         <p className={clsx('text-reading leading-reading text-faint', WORDS)}>{t('rooms.deleted')}</p>
+      ) : m.app ? (
+        // a message an app posted: plain text, no links but the card's one (components/rooms/AppCard.tsx)
+        <AppCardText m={m} className={clsx('min-w-0 text-reading leading-reading', WORDS)} />
       ) : (
         <>
           {text && <PersonMarkdown text={text} mentions={marks} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} after={meta} />}
