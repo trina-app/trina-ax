@@ -155,6 +155,25 @@ describe('what stops it', () => {
     } finally { await prefs('bob', { chatShares: true }); await ph.p.stop() }
   })
 
+  test('a switched-off sharer is named nowhere: not in Activity (the browser push reads it), not in the iPhone label', async () => {
+    const ph = phone('bob')
+    try {
+      await new Promise((r) => setTimeout(r, 5))
+      const id = await newChat('switched off sharer')
+      await share(id, [bob])
+      await ph.tick()
+      const n = noticeOf('bob', id)!
+      const named = async () => (await h.api('bob').call(API.getNotification, { params: { id: n.id } })).chatShared?.name ?? null
+      expect(await named()).toBe('Alice Kim')
+      db().query("UPDATE users SET status = 'disabled' WHERE id = 'alice'").run()
+      try {
+        expect(await named()).toBeNull()
+        expect(ph.label(n.id)).toEqual({})
+      } finally { db().query("UPDATE users SET status = 'active' WHERE id = 'alice'").run() }
+      expect(await named()).toBe('Alice Kim')
+    } finally { await ph.p.stop() }
+  })
+
   test('quiet hours, a removed share and a read notice: not wanted', async () => {
     const id = await newChat('stops')
     await share(id, [bob])

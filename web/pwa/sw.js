@@ -185,7 +185,8 @@ self.addEventListener('push', event => {
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
       // (the person's "show message preview" is on, a message the whole room sees), else the generic line
-      const sharer = payload.code === 'chat.shared' ? roomTitle(item.chatShared?.name) : ''
+      // no longer shared with me (gone): the generic line, no name
+      const sharer = payload.code === 'chat.shared' && item.chatShared?.gone !== true ? roomTitle(item.chatShared?.name) : ''
       const sharedBy = sharer && typeof settings.messages?.chatSharedBy === 'string' ? settings.messages.chatSharedBy.slice(0, 200) : ''
       const shownTitle = (roomId && roomTitle(item.room?.label)) || (sharedBy && sharer) || title
       const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
