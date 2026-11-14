@@ -546,6 +546,7 @@ export const ko = {
   'steps.postViewLabel': '대화방에서 보기',
   'devEnvQueue.waiting': '개발 환경을 기다리는 중… 대기 {n}번째',
   'devEnvQueue.waitingNoPlace': '개발 환경을 기다리는 중…',
+  'devEnvQueue.waitingProject': '이 프로젝트의 다른 명령이 끝나기를 기다리는 중…',
   'devEnvQueue.cancel': '취소',
   'devEnvQueue.full': '개발 환경이 가득 찼어요. 나중에 다시 해 주세요.',
   'devEnvQueue.cancelled': '취소했어요. 실행하지 않았어요.',

@@ -393,6 +393,24 @@ async function withRootLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Does a command or a change of this project folder run now? Commands of one project run one at a time (withRootLock). */
+export const projectBusy = (root: string) => rootLocks.has(root)
+
+/** Wait until no command runs in this project folder. False: the call was stopped while it waited. A command that waits
+ * here holds no slot of the team's queue: it takes a ticket after this (tool.ts waitForSlot). */
+export async function waitProjectFree(root: string, signal?: AbortSignal): Promise<boolean> {
+  while (rootLocks.has(root)) {
+    if (signal?.aborted) return false
+    const chain = rootLocks.get(root)!
+    await new Promise<void>((resolve) => {
+      const done = () => { signal?.removeEventListener('abort', done); resolve() }
+      signal?.addEventListener('abort', done, { once: true })
+      void chain.then(done, done)
+    })
+  }
+  return !signal?.aborted
+}
+
 /** Is there a command slot on the server? (maxRunning + 1 commands at the same time). The tool asks before the change
  * window, so a call over the limit is refused at once and does not wait. */
 export function commandSlotFree(ctx: AppContext): { ok: true } | { ok: false; message: string } {

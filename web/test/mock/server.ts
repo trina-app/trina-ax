@@ -1517,6 +1517,15 @@ export class MockServer {
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: j } })
       return
     }
+    if (/devqueueproject/i.test(prompt)) {
+      // a command that waits for another command of the same project: a plain line, no place in line, no Cancel; it is not in the runs list
+      const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: null, why: 'project' } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== q.id), q]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: q } })
+      await sleep(3000)
+      const done = { ...q, status: 'ok' as const, endedAt: now(), devEnvRun: { id, kind: 'command' as const, state: 'started' as const, position: null } }
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== q.id), done]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: done } })
+      return
+    }
     srt.waiting = [...srt.waiting.filter((r) => r.id !== id), { id, kind: 'command', name: 'npm run build', by, startedAt: now(), runAt: null, position: 2, memoryMiB: null, lastLine: '', chatId, projectId: null }]
     const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
     const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: 2 } })

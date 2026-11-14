@@ -372,6 +372,8 @@ export const Step = z.object({
     kind: z.enum(['command', 'job', 'server']),
     state: z.enum(['waiting', 'started', 'expired', 'cancelled']),
     position: z.number().int().min(1).nullable(),
+    /** project: the command waits for another command in the same project (no place in line, no Cancel; it holds no slot) */
+    why: z.literal('project').optional(),
     port: z.number().int().min(1).max(65535).optional(),
   }).optional(),
 })

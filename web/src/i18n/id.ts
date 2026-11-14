@@ -547,6 +547,7 @@ export const id: Record<MessageKey, string> = {
   'steps.postViewLabel': 'Lihat di ruang',
   'devEnvQueue.waiting': 'Menunggu lingkungan pengembangan… antrean ke-{n}',
   'devEnvQueue.waitingNoPlace': 'Menunggu lingkungan pengembangan…',
+  'devEnvQueue.waitingProject': 'Menunggu perintah lain di proyek ini selesai…',
   'devEnvQueue.cancel': 'Batal',
   'devEnvQueue.full': 'Lingkungan pengembangan penuh. Coba lagi nanti.',
   'devEnvQueue.cancelled': 'Dibatalkan. Tidak dijalankan.',

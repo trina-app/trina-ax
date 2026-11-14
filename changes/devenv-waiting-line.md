@@ -1,0 +1,1 @@
+- A dev environment command that has to wait for another command in the same project now says "Waiting for another command in this project to finish" and no longer holds a place in the team's dev environment queue while it waits.
