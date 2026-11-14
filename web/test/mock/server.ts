@@ -448,6 +448,9 @@ export class MockServer {
   /** an admin chose the speech provider (stored); false: like server/src/admin/settings.ts, it reads OpenRouter while the
    * team's key is set and off without it (speechNow) */
   speechChosen = true
+  /** where phone notifications go (server/src/notifications/push-gateway-setting.ts); /__test/push-gateway sets it,
+   * e.g. { lockedBy: 'MYCEL_PUSH_GATEWAY', choice: 'custom', url } for a server whose config sets it */
+  pushGateway: import('@mycel/shared/api').PushGatewaySetting = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
@@ -709,6 +712,7 @@ export class MockServer {
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.speechChosen = true
+    this.pushGateway = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
     this.transcribeChats = []
     this.transcribeProgress = null
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
@@ -4822,6 +4826,20 @@ export class MockServer {
       return this.notifyPrefs
     },
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
+    // like server/src/routes/push.ts: locked by the server's config; a custom address is saved only when it answers as a
+    // gateway (here: any https://<host> whose name does not start with "not-"; "down." answers nothing)
+    getPushGateway: () => this.pushGateway,
+    setPushGateway: (c) => {
+      if (this.pushGateway.lockedBy) fail('conflict', 409, undefined, undefined, { reason: 'locked' })
+      if (c.body.choice === 'custom') {
+        const m = /^https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)+)\/?$/.exec((c.body.url ?? '').trim())
+        if (!m) fail('validation', 400, undefined, { 'body.url': 'address' }, { reason: 'address' })
+        if (m![1]!.startsWith('down.')) fail('validation', 400, undefined, { 'body.url': 'unreachable' }, { reason: 'unreachable' })
+        if (m![1]!.startsWith('not-')) fail('validation', 400, undefined, { 'body.url': 'not_gateway' }, { reason: 'not_gateway' })
+        this.pushGateway = { ...this.pushGateway, choice: 'custom', url: `https://${m![1]}` }
+      } else this.pushGateway = { ...this.pushGateway, choice: c.body.choice, url: null }
+      return this.pushGateway
+    },
     // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "SK") ----------------
     // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
     // step shows its Claude Code line. A share proposal is a fixed, realistic one whatever was sent (the server's
@@ -5494,6 +5512,7 @@ export class MockServer {
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
+    else if (p === '/__test/push-gateway') this.pushGateway = { ...this.pushGateway, ...(body as Partial<import('@mycel/shared/api').PushGatewaySetting>) }
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/google-own-app') {
       const b = body as Partial<ReturnType<typeof MockServer.freshGoogleOwn>>
