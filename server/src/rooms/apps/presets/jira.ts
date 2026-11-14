@@ -63,7 +63,8 @@ function parse(a: Arrival): Parsed {
     delivery: `body:${sha(a.raw)}`, alsoDelivery: `issue:${key}:${sha(JSON.stringify([event, statusWord, title, assignee, comment]))}`, deliveryMinutes: 10,
     key: `issue:${key}`,
     // a comment leaves the status line as it is
-    ...(statusWord && event !== 'commented' ? { state: statusWord.toLowerCase(), status } : {}),
+    // once it moves, the card is no longer "New work item" (QA TC-2483)
+    ...(statusWord && event !== 'commented' ? { state: statusWord.toLowerCase(), status, rootKind: appText('jiraItem', L, { key }) } : {}),
     ...(t && !a.pin ? { pin: t.site } : {}),
     card: { kind: appText(event === 'created' ? 'jiraNew' : 'jiraItem', L, { key }), title, details, status, link, unverified: !a.signed && (details.length > 0 || !!by) },
     reply: { ...reply, unverified: !a.signed && !!by },

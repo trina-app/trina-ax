@@ -95,7 +95,8 @@ function parse(a: Arrival): Parsed {
     switch: updated ? 'updated' : 'new_ticket',
     // the same change (two triggers sending it): everything the card shows, not which trigger
     delivery: `body:${sha(a.raw)}`, alsoDelivery: `ticket:${id}:${sha(JSON.stringify([state, title, update, assignee, priority]))}`, deliveryMinutes: 10,
-    key: `ticket:${id}`, ...(state ? { state, status } : {}), backFrom: CLOSED,
+    // a ticket that changed is no longer "New ticket" (QA TC-2483)
+    key: `ticket:${id}`, ...(state ? { state, status, rootKind: [appText('ticketOf', L, { id }), priority].filter(Boolean).join(' · ') } : {}), backFrom: CLOSED,
     ...(t && !a.pin ? { pin: t.sub } : {}),
     card: { kind: [appText('newTicket', L, { id }), priority].filter(Boolean).join(' · '), title, details, status, link, unverified: !a.signed && details.length > 0 },
     reply: { title: appText('ticketUpdated', L, { id }), details: [...(status ? [status] : []), ...replyLines(update, status ? 2 : 3)] },

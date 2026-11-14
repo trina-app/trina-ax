@@ -154,6 +154,8 @@ test('Sentry: a new issue is a card; resolved goes to its thread and the card\'s
   ms = await messages()
   expect(ms).toHaveLength(1)
   expect(ms[0].appCard.status).toBe(appText('status', 'ko', { status: appText('sentryResolved', 'ko') }))
+  // QA TC-2483: the headline says it was resolved, not "New issue"
+  expect(ms[0].appCard.kind).toBe(`${appText('sentryResolvedBy', 'ko', { actor: 'Jun' })} · checkout-web · error`)
   expect(ms[0].thread.replyCount).toBe(1)
   const thread = await owner.call('GET', `/api/rooms/${all}/messages/${root.id}/thread`)
   expect(thread.items[0].appCard.title).toBe(appText('sentryResolvedBy', 'ko', { actor: 'Jun' }))
@@ -208,6 +210,8 @@ test('signatures are optional for GitHub and Sentry; once a secret is set, a mis
   const ms = await messages()
   expect(ms).toHaveLength(1)
   expect(ms[0].appCard.status).toBe(appText('status', 'ko', { status: appText('statusMerged', 'ko') }))
+  // QA TC-2483: the headline follows too (not "Pull request opened" over "Merged")
+  expect(ms[0].appCard.kind).toBe(`${appText('prMerged', 'ko')} · acme/web#7`)
   const thread = await owner.call('GET', `/api/rooms/${all}/messages/${ms[0].id}/thread`)
   expect(thread.items[0].appCard.title).toBe(`${appText('prMerged', 'ko')} · ${appText('byActor', 'ko', { actor: 'jun' })}`)
   // ping: connected, no card

@@ -77,9 +77,10 @@ function parse(a: Arrival): Parsed {
   switch (topic) {
     case 'orders/create': return { event: { ...base, ...pin, switch: 'order', key, state, status, card, reply: { title: appText('newOrder', L, { order: number }) } } }
     // payment: the order's card changes its status line (no reply of its own)
-    case 'orders/paid': return { event: { ...base, ...pin, switch: 'paid', key, state: 'paid', status: statusOf('statusPaid'), onlyStatus: true, card: { ...card, status: statusOf('statusPaid') }, reply: { title: appText('orderPaid', L) } } }
-    case 'orders/cancelled': return { event: { ...base, ...pin, switch: 'cancelled', key, state: 'cancelled', status: statusOf('statusCancelled'), card: { ...card, status: statusOf('statusCancelled') }, reply: { title: appText('orderCancelled', L) } } }
-    case 'orders/fulfilled': return { event: { ...base, ...pin, switch: 'fulfilled', key, state: 'fulfilled', status: statusOf('statusFulfilled'), card: { ...card, status: statusOf('statusFulfilled') }, reply: { title: appText('orderFulfilled', L) } } }
+    // after it was made, the order's card is "Order #1042" (not "New order"; QA TC-2483)
+    case 'orders/paid': return { event: { ...base, ...pin, switch: 'paid', key, state: 'paid', status: statusOf('statusPaid'), rootKind: appText('orderOf', L, { order: number }), onlyStatus: true, card: { ...card, status: statusOf('statusPaid') }, reply: { title: appText('orderPaid', L) } } }
+    case 'orders/cancelled': return { event: { ...base, ...pin, switch: 'cancelled', key, state: 'cancelled', status: statusOf('statusCancelled'), rootKind: appText('orderOf', L, { order: number }), card: { ...card, status: statusOf('statusCancelled') }, reply: { title: appText('orderCancelled', L) } } }
+    case 'orders/fulfilled': return { event: { ...base, ...pin, switch: 'fulfilled', key, state: 'fulfilled', status: statusOf('statusFulfilled'), rootKind: appText('orderOf', L, { order: number }), card: { ...card, status: statusOf('statusFulfilled') }, reply: { title: appText('orderFulfilled', L) } } }
     default: return { skip: true }
   }
 }

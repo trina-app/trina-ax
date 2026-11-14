@@ -35,6 +35,9 @@ export interface AppEvent {
   reply?: { title: string; details?: string[]; unverified?: boolean }
   state?: string
   status?: string
+  /** the thing's card headline in that state, when the first card's no longer fits (QA TC-2483: "Pull request opened"
+   * over "Status: Merged"): it changes with the status line. Unset: the headline stays */
+  rootKind?: string
   back?: boolean
   backFrom?: readonly string[]
   /** when the thing's card is there already, only its status line changes (no reply): the second event of one payment
@@ -124,15 +127,15 @@ function sentry(a: Arrival): Parsed {
       case 'created': return { event: { switch: 'new_issue', delivery, key, card: card(appText('sentryNew', L), appText('statusUnresolved', L)), state: 'unresolved', status: statusOf(appText('statusUnresolved', L)) } }
       case 'resolved': {
         const r = who ? appText('sentryResolvedBy', L, { actor: actor(who) }) : appText('sentryResolved', L)
-        return { event: { switch: 'resolved', delivery, key, card: card(r, appText('sentryResolved', L), !!who && !a.signed), reply: { title: r, unverified: !!who && !a.signed }, state: 'resolved', status: statusOf(appText('sentryResolved', L)) } }
+        return { event: { switch: 'resolved', delivery, key, card: card(r, appText('sentryResolved', L), !!who && !a.signed), reply: { title: r, unverified: !!who && !a.signed }, state: 'resolved', status: statusOf(appText('sentryResolved', L)), rootKind: head(r) } }
       }
       case 'archived': {
         const r = appText('sentryArchived', L)
-        return { event: { switch: 'resolved', delivery, key, card: card(r, r), reply: { title: r }, state: 'archived', status: statusOf(r) } }
+        return { event: { switch: 'resolved', delivery, key, card: card(r, r), reply: { title: r }, state: 'archived', status: statusOf(r), rootKind: head(r) } }
       }
       case 'unresolved': {
         const r = appText('sentryBack', L)
-        return { event: { switch: 'came_back', delivery, key, card: card(r, appText('statusUnresolved', L)), reply: { title: r }, state: 'unresolved', status: statusOf(appText('statusUnresolved', L)), back: true } }
+        return { event: { switch: 'came_back', delivery, key, card: card(r, appText('statusUnresolved', L)), reply: { title: r }, state: 'unresolved', status: statusOf(appText('statusUnresolved', L)), back: true, rootKind: head(r) } }
       }
       case 'assigned': {
         const to = line(str(issue, 'assignedTo', 'name') || str(body, 'data', 'assignee', 'name'), 80)
@@ -195,6 +198,7 @@ function github(a: Arrival): Parsed {
       event: {
         switch: pr ? 'pull_request' : 'issue', delivery, alsoDelivery, key, state, status: statusOf(status), back,
         card: { kind: `${k} · ${where}`, title, details: who ? [by(who)] : [], status: statusOf(status), link, unverified: unverified && !!who },
+        rootKind: `${k} · ${where}`,
         reply: { title: [k, by(who)].filter(Boolean).join(' · '), unverified: unverified && !!who },
       },
     })

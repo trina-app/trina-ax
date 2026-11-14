@@ -607,11 +607,14 @@ export class RoomApps {
         // `extra` (a Jira comment, a Zendesk update, a Channel Talk message in full): in the reply's text too, not only
         // the lines its card shows (QA TC-2413)
         id = ev.onlyStatus ? null : this.insert(row, { card, root, alsoInRoom: back, quiet: !!row.quiet, at, extra: ev.extra })
-        // the root's status line follows the thing's state
-        if (ev.status && ev.state && ev.state !== thread!.state) {
+        // the root's status line follows the thing's state, and its headline too where the event names one (QA TC-2483:
+        // a merged pull request's card no longer reads "Pull request opened")
+        if ((ev.status || ev.rootKind) && ev.state && ev.state !== thread!.state) {
           const stored = JSON.parse(root.app_card ?? '{}') as StoredCard
-          if (stored && typeof stored.title === 'string' && stored.status !== ev.status) {
-            const next: StoredCard = { ...stored, status: line(ev.status) }
+          const status = ev.status ? line(ev.status) : stored?.status
+          const kind = ev.rootKind ? line(ev.rootKind) : stored?.kind
+          if (stored && typeof stored.title === 'string' && (status !== stored.status || kind !== stored.kind)) {
+            const next: StoredCard = { ...stored, ...(status ? { status } : {}), ...(kind ? { kind } : {}) }
             db.query('UPDATE room_messages SET app_card = ?, body = ? WHERE id = ?').run(JSON.stringify(next), bodyOf(next.app.name, cleanCard({ ...next, link: next.link?.url })), root.id)
             rootChanged = true
           }

@@ -74,6 +74,8 @@ test('Jira: the Copy body escapes what people write and is valid JSON once fille
   ms = await messages()
   expect(ms).toHaveLength(1)
   expect(ms[0].appCard.status).toBe(status('In Progress'))
+  // QA TC-2483: once it moved it is no longer "New work item"
+  expect(ms[0].appCard.kind).toBe(appText('jiraItem', L, { key: 'OPS-142' }))
   let replies = await thread(ms[0].id)
   expect(replies.at(-1).appCard.title).toBe(appText('jiraMoved', L, { status: 'In Progress' }))
   // commented: off by default (skipped); on: a reply with its first line, the whole comment in the text
@@ -280,7 +282,8 @@ test('PortOne: Standard Webhooks (whsec_ or not), the payment id and state witho
   const ms = await messages()
   expect(ms).toHaveLength(2)
   const p = ms.find((m) => m.appCard.title === appText('paymentOf', L, { id: 'example-payment-id' }))
-  expect(p.appCard).toMatchObject({ kind: appText('paymentReceived', L), details: [], status: status(appText('statusCancelled', L)) })
+  // the headline follows the payment (QA TC-2483): cancelled, not "Payment received"
+  expect(p.appCard).toMatchObject({ kind: appText('paymentCancelled', L), details: [], status: status(appText('statusCancelled', L)) })
   expect((await thread(p.id)).at(-1).appCard.title).toBe(appText('paymentCancelled', L))
   expect(ms.find((m) => m.appCard.title === appText('paymentOf', L, { id: 'legacy-payment-id' })).appCard.kind).toBe(appText('paymentFailed', L))
   for (const b of ['{"type":"Transaction.Paid","data":{}}', '{"type":"Transaction.Paid","data":{"paymentId":"has space"}}', '{"status":"Paid"}', '"x"']) expect((await post(token, b)).status).toBe(400)
