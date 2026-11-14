@@ -28,6 +28,7 @@ import { memberWelcomeRoutes } from './member-welcome'
 import { skillSharesRoutes } from './skill-shares'
 import { demoRoutes } from './demo'
 import { roomsRoutes } from './rooms'
+import { roomAppsRoutes } from './room-apps'
 import { slackRoutes } from './slack'
 import { appLinksRoutes } from './app-links'
 import { oftenAskedRoutes } from './often-asked'
@@ -44,6 +45,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   chatsRoutes, // B
   memoriesRoutes, // B
   roomsRoutes, // B (team chat rooms, docs/DECISIONS.md "대화방 v1")
+  roomAppsRoutes, // B (apps posting in rooms and their public /in/ address, docs/DECISIONS.md "Apps posting in rooms")
   navFoldersRoutes, // B (a person's own list folders, docs/DECISIONS.md "List folders"); after chats and rooms
   wsRoutes, // B
   browserRoutes, // B

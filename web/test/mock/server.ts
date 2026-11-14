@@ -70,6 +70,7 @@ import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder 
 import type { LocalSpeechTool } from '@mycel/shared/api'
 import type { FileListStatus } from '@mycel/shared/api'
 import { WideningAnswer } from '@mycel/shared/api'
+import type { ChatAudience } from '@mycel/shared/api'
 import { ACCOUNT_DELETION_GRACE_DAYS } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
@@ -320,6 +321,8 @@ export class MockServer {
     | { kind: 'service_ready'; service: RequestableService; requestId: string }
     // someone started to see a project I am in (an owner or admin who added themselves: server/src/chat/project-joins.ts)
     | { kind: 'project_joined'; joinerId: string; projectId: string }
+    // someone shared a chat with me (server/src/chat/people-share.ts): by name or through a group
+    | { kind: 'chat_shared'; chatId: string; byId: string; named: boolean }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -1367,6 +1370,13 @@ export class MockServer {
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
     if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'chat_shared') {
+      // who shared it while the account is there; the chat while the reader still sees it (link 'chat' then), else gone
+      const who = this.users.find((x) => x.id === n.byId)
+      const chat = this.chats.find((x) => x.id === n.chatId && !x.deletedAt)
+      const sees = !!chat && !!viewer && this.peopleAudience(chat.id).includes(viewer.id)
+      return { id: n.id, eventType: 'chat.shared', sourceId: n.id, code: 'chat.shared', createdAt: n.createdAt, readAt: n.readAt, chatId: sees ? chat!.id : null, link: sees ? 'chat' : null, chatShared: { name: who?.name ?? null, title: sees ? chat!.title || null : null, ...(sees ? {} : { gone: true as const }) } }
+    }
     if (n.kind === 'project_joined') {
       // who, while the account is there; the project while the reader still sees it (link 'project' then)
       const who = this.users.find((x) => x.id === n.joinerId)
@@ -5717,6 +5727,249 @@ export class MockServer {
   /** `${userId}:${chat or room id}` → the folder it is in, for that person */
   navItems = new Map<string, string>()
   readonly navFoldersInstalled = this.installNavFolders()
+
+  // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
+  // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
+  // (sharedChats with no project, so turns, authors and the 404 of everyone else work as there), with who it is shared
+  // with here. Test-only: POST /__test/chat-share {confirm?: {hiddenAnswers?, memories?, people?, places?} | null (adds
+  // that bring in new people answer "confirm" with these until the next reset; the key is "ok:<the picks>"), fail?: n
+  // (the next n saves answer 500)}. A saved add leaves a "chat.shared" notice for each person who starts to see it.
+  peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
+  /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
+  peopleHidden = new Set<string>()
+  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[] } | null = null
+  peopleFail = 0
+  readonly peopleSharedInstalled = this.installPeopleShared()
+
+  /** everyone who sees a people-shared chat now: its creator, the active people listed and the active members of the
+   * groups listed */
+  peopleAudience(chatId: string): string[] {
+    const ps = this.peopleShared.get(chatId)
+    const s = this.sharedChats.get(chatId)
+    if (!ps || !s) return []
+    const out = new Set([s.by.id])
+    for (const x of ps.subjects) {
+      if (x.subjectType === 'user') { if (this.users.some((u) => u.id === x.subjectId && u.status === 'active')) out.add(x.subjectId) }
+      else for (const id of this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []) if (this.users.some((u) => u.id === id && u.status === 'active')) out.add(id)
+    }
+    return [...out]
+  }
+
+  private installPeopleShared() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const key = (s: readonly { subjectType: string; subjectId: string }[]) => s.map((x) => `${x.subjectType}:${x.subjectId}`).sort().join(',')
+    const chatOf = (id: string) => this.chats.find((x) => x.id === id) ?? fail('not_found', 404)
+    const inIt = (chatId: string, u: User) => this.peopleAudience(chatId).includes(u.id)
+
+    const baseView = this.sharedView.bind(this)
+    this.sharedView = (chat, viewer) => {
+      const ps = this.peopleShared.get(chat.id)
+      if (!ps) return baseView(chat, viewer)
+      const s = this.sharedChats.get(chat.id)!
+      const aud = this.peopleAudience(chat.id)
+      if (!aud.includes(viewer.id)) return null
+      const creator = s.by.id === viewer.id
+      // a group in it: how many see it only for its creator and admins (S8)
+      const hidden = ps.subjects.some((x) => x.subjectType === 'group') && !creator && viewer.role === 'member'
+      const { waiting: _w, unseen: _u, shared: _s, ...rest } = chat
+      const runner = s.runner && s.runner !== viewer.id ? this.users.find((u) => u.id === s.runner) : undefined
+      return {
+        ...rest,
+        ...(s.runner === viewer.id && s.waiting ? { waiting: true as const } : {}),
+        ...(chat.unseen && creator ? { unseen: true as const } : {}),
+        shared: {
+          kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
+          answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+          mine: true, canDelete: creator, canUpload: false,
+        },
+      }
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.peopleShared = new Map()
+      this.peopleHidden = new Set()
+      this.peopleConfirm = null
+      this.peopleFail = 0
+      baseReset(o)
+    }
+    // a people-shared chat's chat.updated without the chat (deleted, purged): to everyone who sees it
+    const basePublish = this.publish.bind(this)
+    this.publish = (ev) => {
+      const chatId = (ev.data as { chatId?: unknown }).chatId
+      if (ev.type === 'chat.updated' && typeof chatId === 'string' && this.peopleShared.has(chatId) && !ev.data.chat) {
+        const aud = this.peopleAudience(chatId)
+        return this.sharedSend((uid) => (aud.includes(uid) ? ev : null))
+      }
+      return basePublish(ev)
+    }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      if (p !== '/__test/chat-share') return baseControl(p, req)
+      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number }
+      if (body.confirm !== undefined) this.peopleConfirm = body.confirm
+      if (body.fail !== undefined) this.peopleFail = body.fail
+      return Response.json({ ok: true })
+    }
+
+    // my lists leave out what I hid (a search still finds it)
+    over('listChats', (c, base) => {
+      const out = base(c) as { items: Chat[]; nextCursor: string | null }
+      if (c.query.q?.trim()) return out
+      return { ...out, items: out.items.filter((x) => !this.peopleHidden.has(`${c.user.id}:${x.id}`)) }
+    })
+    // opening it brings it back (POST /api/chats/:id/seen)
+    over('markChatSeen', (c, base) => {
+      const out = base(c)
+      const k = `${c.user.id}:${c.params.id}`
+      if (this.peopleShared.has(c.params.id!) && this.peopleHidden.delete(k)) {
+        const v = this.sharedView(chatOf(c.params.id!), c.user)
+        if (v) this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: v.id, change: 'updated', chat: { ...v, shared: { ...v.shared!, ...this.sharedPeople(v.id, uid) } } } } : null))
+      }
+      return out
+    })
+    // never into a project (409 shared_chat_move, in its own words)
+    over('updateChat', (c, base) => {
+      if (this.peopleShared.has(c.params.id!) && c.body.projectId !== undefined && c.body.projectId !== chatOf(c.params.id!).projectId) {
+        if (!inIt(c.params.id!, c.user)) fail('not_found', 404)
+        fail('conflict', 409, CHAT_TEXT.chatShareMovePeople?.ko ?? '공유한 채팅은 프로젝트로 옮길 수 없어요.', { 'body.projectId': 'shared_chat_move' }, { reason: 'shared_chat_move' })
+      }
+      return base(c)
+    })
+
+    const rowsOf = (chatId: string, viewer: User) => {
+      const ps = this.peopleShared.get(chatId)!
+      const s = this.sharedChats.get(chatId)!
+      const full = s.by.id === viewer.id || viewer.role !== 'member'
+      return ps.subjects.flatMap((x): ChatAudience['subjects'] => {
+        if (x.subjectType === 'user') {
+          const u = this.users.find((y) => y.id === x.subjectId)
+          return u ? [{ subjectType: 'user' as const, subjectId: u.id, name: u.name }] : []
+        }
+        const g = this.groups.find((y) => y.id === x.subjectId)
+        if (!g) return []
+        const members = g.memberIds.filter((id) => this.users.some((u) => u.id === id && u.status === 'active')).length
+        return [{ subjectType: 'group' as const, subjectId: g.id, name: g.name, ...(full ? { members } : {}), ...(g.memberIds.includes(viewer.id) ? { mine: true as const } : {}) }]
+      })
+    }
+    const audienceOf = (chat: Chat, viewer: User): ChatAudience => {
+      const s = this.sharedChats.get(chat.id)
+      const ownerId = s?.by.id ?? this.chatOwners.get(chat.id) ?? viewer.id
+      const owner = this.users.find((u) => u.id === ownerId)
+      const by = { id: ownerId, name: owner?.name ?? ownerId }
+      if (!this.peopleShared.has(chat.id)) {
+        if (s) return { kind: 'project', canEdit: false, by, subjects: [] }
+        return { kind: 'private', canEdit: ownerId === viewer.id && !chat.projectId && !chat.sideRoomId, by, subjects: [] }
+      }
+      const groups = this.peopleShared.get(chat.id)!.subjects.some((x) => x.subjectType === 'group')
+      const full = ownerId === viewer.id || viewer.role !== 'member'
+      return { kind: 'people', canEdit: ownerId === viewer.id, by, subjects: rowsOf(chat.id, viewer), ...(!groups || full ? { count: this.peopleAudience(chat.id).length } : {}) }
+    }
+    /** the chat as `u` may see it here: anyone else gets the 404 of a missing chat */
+    const sees = (chatId: string, u: User): Chat => {
+      const chat = chatOf(chatId)
+      if (chat.deletedAt) fail('not_found', 404)
+      if (this.peopleShared.has(chatId)) { if (!inIt(chatId, u)) fail('not_found', 404); return chat }
+      const s = this.sharedChats.get(chatId)
+      if (s) { if (!this.sharedView(chat, u)) fail('not_found', 404); return chat }
+      if ((this.chatOwners.get(chatId) ?? u.id) !== u.id) fail('not_found', 404)
+      return chat
+    }
+    h.getChatAudience = (c) => audienceOf(sees(c.params.id!, c.user), c.user)
+    h.putChatAudience = (c) => {
+      const chat = sees(c.params.id!, c.user)
+      const no = (status: number, reason: string, message: string): never => fail(status === 400 ? 'validation' : 'conflict', status, message, undefined, { reason })
+      const s = this.sharedChats.get(chat.id)
+      const ownerId = s?.by.id ?? this.chatOwners.get(chat.id) ?? c.user.id
+      if (ownerId !== c.user.id) fail('forbidden', 403, '이 채팅을 볼 수 있는 사람은 채팅을 시작한 사람만 바꿀 수 있어요.', undefined, { reason: 'chat_share_creator_only' })
+      if (chat.projectId) {
+        const p = this.projects.find((x) => x.id === chat.projectId)
+        if (p?.folderPath.startsWith('users/')) no(409, 'project_personal', '개인 프로젝트의 채팅은 나만 봐요. 다른 사람과 공유하려면 채팅을 프로젝트 밖으로 옮겨 주세요.')
+        no(409, 'share_people_in_project', '프로젝트에 있는 채팅은 프로젝트 멤버와 공유돼요.')
+      }
+      if (chat.sideRoomId) no(409, 'side_chat', '대화방의 사이드 채팅은 공유할 수 없어요.')
+      const wanted = (c.body.subjects as { subjectType: 'user' | 'group'; subjectId: string }[]).filter((x, i, all) => !(x.subjectType === 'user' && x.subjectId === c.user.id) && all.findIndex((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId) === i)
+      if (wanted.length > 100) no(400, 'audience_full', '채팅 하나는 사람과 그룹을 합쳐 100개까지 공유할 수 있어요. 먼저 몇 개를 빼 주세요.')
+      const ps = this.peopleShared.get(chat.id)
+      const before = ps?.subjects ?? []
+      const added = wanted.filter((x) => !before.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
+      const removed = before.filter((x) => !wanted.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
+      if (!added.length && !removed.length) {
+        if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 그룹을 한 명 이상 골라 주세요.')
+        return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
+      }
+      if (added.length && (this.allConfidential || chat.confidential)) no(409, 'safe_ops', '팀의 보안 설정 때문에 지금은 채팅을 새로 공유할 수 없어요.')
+      if (added.length && chat.runState !== 'idle') no(409, 'chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
+      for (const x of added) {
+        const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active') : this.groups.some((g) => g.id === x.subjectId && (c.user.role !== 'member' || g.memberIds.includes(c.user.id)))
+        if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 그룹이 있어요. 다시 골라 주세요.')
+      }
+      if (this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
+      const was = new Set(ps ? this.peopleAudience(chat.id) : [c.user.id])
+      const resolve = (subjects: typeof wanted) => {
+        const out = new Set([c.user.id])
+        for (const x of subjects) {
+          if (x.subjectType === 'user') out.add(x.subjectId)
+          else for (const id of this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []) out.add(id)
+        }
+        return [...out].filter((id) => this.users.some((u) => u.id === id && u.status === 'active'))
+      }
+      const after = resolve(wanted)
+      const gained = after.filter((id) => !was.has(id))
+      const lost = [...was].filter((id) => !after.includes(id))
+      const k = `ok:${key(wanted)}`
+      const ask = this.peopleConfirm
+      if (gained.length && ask && c.body.confirmKey !== k) {
+        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, confirmKey: k,
+          provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
+      }
+      // the people who lose it hear it is gone (its id alone), before the rows change
+      for (const id of lost) this.sharedSend((uid) => (uid === id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
+      if (!wanted.length) {
+        this.peopleShared.delete(chat.id)
+        this.sharedChats.delete(chat.id)
+        for (const k2 of [...this.peopleHidden]) if (k2.endsWith(`:${chat.id}`)) this.peopleHidden.delete(k2)
+        this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } } : null))
+        return { status: 'saved', chat, audience: audienceOf(chat, c.user) }
+      }
+      if (!ps) this.sharedChats.set(chat.id, { by: { id: c.user.id, name: c.user.name }, projectId: '', runner: null, waiting: false })
+      this.peopleShared.set(chat.id, { subjects: wanted })
+      for (const id of lost) this.peopleHidden.delete(`${id}:${chat.id}`)
+      const named = new Set(added.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
+      for (const id of gained) this.note(id, { kind: 'chat_shared', chatId: chat.id, byId: c.user.id, named: named.has(id) })
+      this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
+    }
+    const hide = (c: Ctx, on: boolean) => {
+      const chat = sees(c.params.id!, c.user)
+      const s = this.sharedChats.get(chat.id)
+      if (!this.peopleShared.has(chat.id) || s?.by.id === c.user.id) fail('validation', 400, '내가 시작한 채팅은 목록에서 숨길 수 없어요.', undefined, { reason: 'chat_hide_creator' })
+      const k = `${c.user.id}:${chat.id}`
+      if (on) this.peopleHidden.add(k)
+      else this.peopleHidden.delete(k)
+      const v = this.sharedView(chat, c.user)!
+      this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: on ? 'deleted' : 'updated', chat: on ? null : { ...v, shared: { ...v.shared!, ...this.sharedPeople(v.id, uid) } } } } : null))
+      return v
+    }
+    h.hideChat = (c) => hide(c, true)
+    h.unhideChat = (c) => hide(c, false)
+    // the delete-account dialog's count: the person's people-shared chats someone else wrote in
+    h.userSharedChats = (c) => ({ sharedChats: [...this.peopleShared.keys()].filter((id) => this.sharedChats.get(id)?.by.id === c.params.id && this.messages.some((m) => m.chatId === id && m.role === 'user' && m.author && m.author.id !== c.params.id)).length })
+    // the widening list with a chat as its target: its creator only; POST /__test/widening's items
+    over('wideningAnswers', (c, base) => {
+      const target = c.body.target as { kind: string; chatId?: string }
+      if (target.kind !== 'chat') return base(c)
+      const chat = sees(target.chatId!, c.user)
+      if ((this.sharedChats.get(chat.id)?.by.id ?? this.chatOwners.get(chat.id)) !== c.user.id) fail('forbidden', 403, undefined, undefined, { reason: 'widening_not_allowed' })
+      const all = this.widening ?? []
+      const at = c.body.cursor ? Number(c.body.cursor) : 0
+      const n = c.body.limit ?? 20
+      return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
+    })
+  }
 
   private installNavFolders() {
     const h = this.handlers

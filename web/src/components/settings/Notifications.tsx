@@ -25,8 +25,10 @@ import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
- * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
-const workKeys = ['chatAnswers', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+ * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림"); chatShares: a push
+ * when someone shares a chat with me by name (docs/DECISIONS.md "Chats shared with me: a push that names the sharer";
+ * a server from before it leaves it out: no row) */
+const workKeys = ['chatAnswers', 'chatShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -116,6 +118,9 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
   if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
+  // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
+  // there; one I no longer see says so (no title, no link)
+  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)

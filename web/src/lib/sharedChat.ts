@@ -29,6 +29,32 @@ export function sharedRights(chat: Pick<Chat, 'shared'> & Partial<Pick<Chat, 'si
   return { shared: true, creator: s.by.id === me, canDelete: s.canDelete, canMove: false }
 }
 
+/** A chat outside projects its creator shared with chosen people and groups (Chat.shared.kind 'people'; docs/DECISIONS.md
+ * "Chats shared with people and groups"). */
+export const isPeopleShared = (chat: Partial<Pick<Chat, 'shared'>> | null | undefined): boolean => chat?.shared?.kind === 'people'
+
+/** "Hide from my list": a chat someone else shared with me by name or through a group (its creator never hides it). */
+export const mayHideChat = (chat: Partial<Pick<Chat, 'shared' | 'deletedAt'>> | null | undefined, me: string): boolean =>
+  !!chat && isPeopleShared(chat) && chat.shared!.by.id !== me && !chat.deletedAt
+
+/**
+ * What "Share…" opens for a chat (docs/DECISIONS.md "Chats shared with people and groups"; plan
+ * 20261114-shared-chats-everywhere UX 1):
+ * - 'people': a chat outside projects that is mine (private, or already shared with people): the Share dialog;
+ * - 'personal': a private chat of mine in a personal project: the dialog explains it and offers Move…;
+ * - 'project': my private chat in a team project: the check, then shared with the project's members (ShareChat.tsx);
+ * - null: no item (a shared project chat, someone else's chat, a room's side chat, a confidential or scheduled task's
+ *   chat, one in the trash, or any chat while safe operations are on). The server checks all of it again.
+ */
+export type ShareKind = 'people' | 'personal' | 'project'
+export function shareKindOf(chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt' | 'sideRoomId' | 'projectId' | 'schedule'>>, project: Pick<Project, 'folderPath' | 'inTrash'> | null | undefined, me: string, safeOps: boolean): ShareKind | null {
+  if (safeOps || chat.confidential || chat.sideRoomId || chat.deletedAt || chat.schedule) return null
+  if (chat.shared) return isPeopleShared(chat) && chat.shared.by.id === me && !chat.projectId ? 'people' : null
+  if (!chat.projectId) return 'people'
+  if (project && !isTeamProject(project)) return 'personal'
+  return privateInTeamProject(chat, project) ? 'project' : null
+}
+
 /** A chat started now in this project is a shared chat unless it starts "Only me" (server/src/chat/shared.ts
  * sharesNewChats; docs/DECISIONS.md "Team project chats shared by default"): a team project (every one shares its
  * chats; the server never says so for a personal project), its folder not in the trash, and safe operations off. */

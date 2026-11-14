@@ -200,6 +200,7 @@ test('the extension reads what the app writes, only for its device and team, and
   expect(swift).toContain('kSecAttrAccessGroup as String: group')
   // room notices of this device only; the stored team origin only, https, no redirects, no cookies, 5 s
   expect(swift).toContain('code.hasPrefix("room.")')
+  expect(swift).toContain('code == "chat.shared"')
   expect(swift).toContain('access.deviceId == device')
   expect(swift).toContain('relativeTo: access.origin')
   expect(swift).toContain('c.scheme == "https"')

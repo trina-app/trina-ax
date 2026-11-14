@@ -15,6 +15,7 @@ import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 import { ROOM_SPECS } from './rooms-cases'
+import { ROOM_APP_SPECS } from './room-apps-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
@@ -45,6 +46,7 @@ type Scope =
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
+  | 'room-all-admins' // the everyone room's apps: its owners and admins (everyone is in it; members are refused)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
@@ -92,6 +94,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
+    case 'room-all-admins': return who === 'owner' || who === 'admin'
     case 'nobody': return false
   }
 }
@@ -106,6 +109,8 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   if (['preview', 'hwpPreview', 'saveHtmlPdf', 'downloadHtmlPdf'].includes(route) && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
   // the room HWP preview probe uses the DM's picture: its two people pass the room checks and get 503 unsupported
   if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
+  // "Resume now" on an app that is not paused: the owner and an admin pass the checks and get 409 not_paused
+  if (route === 'resumeRoomApp' && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }
@@ -119,6 +124,7 @@ export const SPECS: Record<string, Spec> = {
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
   ...ROOM_SPECS,
+  ...ROOM_APP_SPECS,
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,
@@ -230,6 +236,34 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
       if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
     } },
+  // Share… for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
+  // admins and the owner too, the 404 of a missing chat); her own empty list is refused (her chat is in her personal project:
+  // project_personal) and nothing is shared; a hide on her own chat is refused (chat_hide_creator)
+  getChatAudience: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/audience`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      if (who === 'memberIn' && r.json?.kind !== 'private') throw new Error('alice\'s private chat did not read as private')
+    } },
+  putChatAudience: { build: (c, w) => c.put(`/api/chats/${w.ids.chatA}/audience`, { subjects: [] }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who}: an empty list was saved for alice's private chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      // (her chat is in her personal project: refused for that before the empty list is looked at)
+      if (who === 'memberIn' && !['needs_people', 'project_personal'].includes(r.json?.error?.params?.reason)) throw new Error(`alice was refused for another reason: ${r.text}`)
+    } },
+  hideChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} hid alice's own chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
+  unhideChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} unhid alice's own chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
+  // the delete-account dialog's count: the owner and admins only, a number and nothing else
+  userSharedChats: { build: (c) => c.get('/api/admin/users/alice/shared-chats'), scope: 'byLevel',
+    check: (r) => { if (r.status < 300 && (typeof r.json?.sharedChats !== 'number' || Object.keys(r.json).length !== 1)) throw new Error(`more than a count: ${r.text}`) } },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },

@@ -24187,6 +24187,15 @@ An update with about 1 GB free stopped both units, ran out of space while copyin
 - Diagnostics follow the `/etc/os-release` link (the system's own root-owned file; the target must be a regular file of
   at most 64 KB); `root/` files and machine-id still use lstat.
 
+## Phones: a room's box is a frame; a row's note goes under its name (fix/phone-row-and-room-box, 2026-11-14, QA TC-1549, TC-1550)
+
+- A room's message box on a phone had been a flat bar under a hairline since the room screen was first built; #795 (one
+  frame for every box) only changed the computer's box, so the phone's was left behind, not decided. It now has the
+  same frame (`rounded-2xl border`) at every width, one line inside it with only + and send.
+- A connection row's note (`ConnectorRow` `note`: "Not in your chats", "Nobody can use it yet") sits under the name on a
+  phone (`more`); at the row's right it left the name one letter. Other admin lists' chips sit beside fixed short
+  labels (Admin's rows, System), so they keep their place.
+
 ## Phones: a room's message box within about 35 % of the screen (fix/phone-composer-height, 2026-11-12, QA TC-252)
 
 With the keyboard up, the text field's cap is 35 % of the app height minus the box's other rows (about 6rem with the
@@ -27050,6 +27059,115 @@ the recommended design after an independent security and UX review.
   connections, shared Drives) and when a shared chat of the project is deleted, restored or no longer shared.
 - Version impact: **minor**.
 
+## Chats shared with people and groups (feat/shared-chats-p3, 2026-11-14, product owner)
+
+Where: Team AX core (`server/src/chat/{chat-audience,people-share,people-guard,shared,turn,prompt,tools,share-chat,widening,chat-groups,nav-folders}.ts`,
+`server/src/routes/chats.ts`, `server/src/admin/{folders,groups,users}.ts`, `server/src/notifications/*`, migration
+`298_b_chat_audience.sql`, `shared/src/api/{entities,chats,notifications}.ts`). Plan:
+`docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 3 (QA TC-1405). The owner's decision: a chat outside
+projects can be shared with chosen people and/or groups (no whole-team option), and then works like a shared project
+chat. This phase is the server and API; the Share dialog, the Activity row's words and "Hide from my list" in menus are
+phase 4.
+
+- **Stored.** `chats.people_shared_at` (project_id NULL, `shared_at` stays NULL so an older build sees an ordinary
+  private chat of its creator: its lists and search never show it to anyone else, and it never becomes a shared project
+  chat); `chat_audience` (people by name, groups); `chat_list_hidden` ("Hide from my list"); `chat_share_notices`;
+  `turns.people_checked`. Who sees it is read per request: the creator and the active people listed or in a listed
+  group (`chat/chat-audience.ts`). `isSharedRow` covers both kinds; `Audiences.ofChat`, `chatFor`, `visibleSharedChat`,
+  `publishChat`, the lists, the Trina list, search, the badge and answer notices all use the same predicate. Admins and
+  the owner are not in it by role: outside it they get the 404 of a missing chat.
+- **Save (`PUT /api/chats/:id/audience`).** Its creator only (403 `chat_share_creator_only` to others in it, 404 to
+  everyone else); Drive's model, the whole list per save. Only newly added entries are checked (an active person; a
+  group that exists, and for a member one of their own groups). Adds that bring in new people run the existing-chat
+  check (`share-chat.ts chatUse`, provenance, memories) for those people only, plus the recorded places through phase
+  1's `wideningAnswers` with a chat target (`hiddenAnswers` = the widening list's `total`), and answer `confirm` with a
+  key over the chat, the list, the new people, the sources, memories and every message. Adds wait while a turn runs or
+  waits (`chat_busy`) and are refused while 1A is on; removals always save, after the removed people's running and queued
+  turns there are stopped (S7). Removing everyone makes it its creator's chat again. First share: the engine session is
+  forgotten, earlier turns are marked (`people_checked = 2`, `shared_checked = SHARED_LATER`: their steps are their
+  runner's) and every earlier answer gets a `shared_answer_reads` record with the people who see it now. Audited
+  (`chat.share {kind: 'people'}` on the first share, `chat.audience` with counts only).
+- **Turns (S4).** `TurnExec.shared` is `{kind: 'project'} | {kind: 'people'}`; every gate stays on `exec.shared`
+  (SHARED_TOOLS, no browser or dev environment, no memories, the read card, the instructions' allowlist). A search
+  without a path searches the one folder everyone in the chat may read (top folders but users/ and skills/, and the
+  folders under groups/ and projects/); none or several: refused, naming the candidates so the AI names one. It never
+  falls back to the sender's whole access. A safe-ops workflow is refused in such a chat.
+- **Who loses it.** Leaving a listed group (or the group deleted, its row removed in the same transaction), a disabled
+  or deleted account (a deleted one's rows go): `afterAccessChange` compares group membership directly
+  (`peopleChatsLost`), stops their turns there and tells their windows by id. A creator's purge deletes their
+  people-shared chats with their other chats (Drive's rule); `GET /api/admin/users/:id/shared-chats` counts the ones with
+  other people's messages for the delete dialog.
+- **S8.** A group's size and the count of people only for the creator and admins when a group is in it
+  (`Chat.shared.audienceHidden` for the others; `GET /api/chats/:id/audience` leaves `members`/`count` out).
+- **Notices.** "{name} shared a chat with you" in the Inbox (`chat.shared`, by name or through a group, at most one per
+  chat and person a day); the chat's title only while the reader still sees it, else "no longer shared" with no link.
+- **Refused.** Side chats, scheduled runs' chats, chats in a project (`share_people_in_project`, `project_personal`),
+  `PATCH {projectId}` on a people-shared chat (`shared_chat_move`), recipients' list folders, POST /share for anyone but
+  the creator of a people-shared chat (404).
+- **Rollback (B2, B3).** At start (`chat/people-guard.ts`): a people-shared chat with a turn an older build ran
+  (`people_checked = 0`) stops being shared, others' queued turns stopped; one an older build moved into a project loses
+  the mark and its rows. Audited `chat.unshared_rollback`.
+- **Not in this phase (follow-ups).** S6 chat-scoped storage of computer uploads (`chat_files`): until it exists a file
+  from the computer is refused in a people-shared chat (`Chat.shared.canUpload` false) and earlier uploads stay their
+  sender's alone, as in a shared project chat; no folder-rule exception anywhere. Push for adds by name and the
+  `chatShared` preference: the push gateway and the phone extension need the new code first, so this phase records the
+  Inbox notice only (nothing is pushed). Done in feat/shared-chats-push: "Chats shared with me: a push that names the
+  sharer".
+- Version impact: **minor**.
+
+## Chats shared with people and groups: the Share dialog (feat/shared-chats-p4, 2026-11-14, product owner)
+
+Where: Team AX core (`web/src/components/chat/{ChatShareDialog,ChatTitleMenu,chatMenuItems,chatActions,WhoSees,SharedChat,copyChatLink}.tsx`,
+`web/src/components/{ProjectParticipants,WideningDraftHost}.tsx`, `web/src/pages/{Chat,Activity}.tsx`,
+`web/src/pages/admin/Members.tsx`, `web/src/lib/sharedChat.ts`, `web/src/store/wideningDraft.ts`, `web/src/i18n/*`).
+Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 4 (QA TC-1405), with the UX review's decisions
+written there. Builds on "Chats shared with people and groups" (phase 3, the server).
+
+- **One item.** "Share…" in the chat title menu and every row's "⋯" (`lib/sharedChat.ts shareKindOf`): a chat outside
+  projects that is mine opens the Share dialog; my private chat in a team project the project members' share as before;
+  my chat in a personal project the dialog that explains it and offers Move… (after the move the Share item's dialog
+  opens again on the moved chat). No item on a shared project chat, someone else's chat, a side chat, a confidential or
+  scheduled task's chat, a chat in the trash, or while safe operations are on. The old "Share with project members"
+  label is gone (one word for both kinds; the project page's import note says "Share…").
+- **The dialog (Drive's model).** The project dialogs' people-and-groups search (`ParticipantPicker`, now with a
+  placeholder, keys it never offers, and a read-only form) with the creator's row "Started this chat" (no ✕); a pick is
+  "new", a saved row taken out is struck through with Undo (its accessible name now starts with the word it shows:
+  "Undo · Keep Bob", axe's label-content rule). Save (Share while not shared) is off with no change. ✕, Esc, the scrim
+  and a phone's Back with unsaved changes ask "Discard changes?" [Keep editing] [Discard] (`confirmDialog` got a
+  `cancel` label); after a phone's Back answered Keep editing the sheet is made again, so it holds a Back entry again. A
+  failed or offline save keeps the picks and says so above the button; a refusal shows the server's words. A quiet
+  Cancel beside Save runs the same discard check. On a phone my own row's tag is "You" (the whole "You · Started this
+  chat" in its tooltip and accessible name), never cut.
+- **The check comes on Save, not while picking.** The server's check of what new people would see is rate-limited
+  (a room-send token, no free probe), so the dialog does not call it per pick: Save answers `confirm` and its lines show
+  in place as ONE warning ("{n} answers here used places {names} can't open (My files). Adding {names} shows those
+  answers too. Show answers ›"; place names only where I may open them; the check's own provenance line only when no
+  recorded answer applies) and a quiet memories line; the fixed note shortens while a warning shows (coordinator review,
+  no stacked boxes); the button reads "Share anyway" and sends the key back; changing the picks drops the confirm and asks again. The
+  widening list is phase 1's component with the chat as its target, in place of the body (‹ back to the picks).
+- **A phone's answer of the list.** The draft (store/wideningDraft.ts, now with `chatId`) is kept first. Opened from
+  the chat's own dialog the answer is on the same screen, which a phone's screen history replaces, so "‹ Back to
+  sharing" goes back to the chat's address (not a step back) and the dialog opens again on the list with the picks.
+  Dialogs held by the app rather than a page (`ChatShareHost`, `WideningDraftHost`) close when the address changes
+  after the page took their history entry.
+- **Recipients.** Their list and Activity show the chat ("{name} shared a chat with you" with its title under it; "This
+  chat is no longer shared with you" with no link once gone). "Hide from my list" in the row and title menus (the title
+  menu goes to Home first: the chat on screen would be seen, which brings it back), with Undo in the toast; opening it
+  brings it back. Taken out while it is open: "This chat is no longer shared with you" with Go to Home (known on the
+  screen that showed it as someone else's shared chat; the server's 404 stays the same for everyone).
+  "Continue in a chat only you see" opens Home's box with my last question (no project).
+- **The line under the box.** "{n} people can see this chat."; for its creator a button to the Share dialog ("Change
+  who sees it"). Someone not told how many (a group in it, S8) reads "Shared with {names}" (the creator and the rows by
+  name) and the header's mark says "Shared chat"; the copy-link toast says "the people it's shared with can open it".
+- **Admin.** The delete-account dialog counts the person's shared chats with others' messages and says to disable the
+  account instead to keep them (`GET /api/admin/users/:id/shared-chats`; a count that can't be read leaves the line out).
+- **Audit screen.** `chat.share` reads "Shared a chat" for both kinds, its details say with whom ("The project's
+  members" or "People and groups chosen by its creator", from `detail.kind`; an older entry is a project's).
+- **Not in this phase.** No "Chats shared with me" preference: it governs the push, which waits for the push gateway
+  (phase 3's follow-up). No upload line under the chips: computer files stay refused in a people-shared chat until
+  chat-scoped storage (S6).
+- Version impact: **minor**.
+
 ## Admin › Folder permissions as two lists, like Drive — 폴더 권한은 목록 두 개 (feat/admin-folder-lists, 2026-11-14, product owner)
 
 넣을 곳: Team AX core (`web/src/pages/admin/Folders.tsx`, `web/src/pages/admin/FolderLists.tsx`), 이유: files and permissions are core. Plan: `docs/AGENTS/plan/20261114-0420-admin-folder-lists.md`. Goes with "Folder access adds up like Google Drive (P2)" (#787, which owns the Share dialog, Limit access, Access removed, the group warning and the Admin notice). The owner: the rule tree and rule words are "too unfamiliar and hard"; sharing should feel like Google Drive shared drives, and Drive has no admin table of rules (its admins change a folder in its own Share dialog).
@@ -27327,3 +27445,118 @@ commit for its own reports (no SDK, same allowlist), and every new shape of repo
   most 1 GB per person: about 3 GB on a 20 GB disk before the team's own files. The 3 × 483 MB / 0.5 GB engine /
   0.7 GB models are fixed costs of the product, not growth.
 - Tests: `tests/unit/g-disk-retention.test.ts`, `tests/unit/system-packages.test.ts` (apt-get clean after install).
+
+## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
+
+Plan: docs/AGENTS/plan/20261114-0900-room-apps.md (revision 2 and the owner's decisions of 2026-11-14). Phase 1 is the
+server: the rows, the public address, the cards, the API, the AI's view. The screens (room menu "Add an app", the
+guides, "Apps posting here") are phase 2.
+
+- **What.** Sentry, GitHub, Google Forms or any other service ("Other": a Slack-shaped `{"text": …}`, Discord's
+  `content`, a few simple fields, form-encoded `payload`, plain text) posts to a room's secret address
+  `POST https://<team address>/in/<token>`. Each event becomes a card from the app (author NULL, `room_messages.app_id`
+  / `app_card` / `app_quiet`, migration 299), never a person. Repeats of one thing (a Sentry issue, a pull request or
+  issue, a failed workflow on a branch, an edited form response, the same Other text within an hour or an Other
+  `thread`) go into one thread under the first card for 30 days; the root's status line changes in place; "came back"
+  (Sentry `unresolved`, a reopened issue or pull request) goes to the room too.
+- **Words (owner decision 6).** "Add an app", "Apps posting here", the sender tag "App", scoped to the room menu and its
+  sheet; Trina never says "webhook" (vendor labels quoted). Code: `room_apps`, `RoomApp`, `room_app.*`.
+- **Any room (owner decision 4).** Team rooms, the everyone room, 1:1s and group chats. Who manages (owner decision 5):
+  in a team room or the everyone room its owners and admins who are in it; in a 1:1 or a group chat any of its members
+  (there are no admins there). A member without the right gets 403, anyone not in the room 404 (admins too). Members
+  see, reply, react and ask the AI; no per-person mute in v1. Deleting an app's message: whoever manages the apps
+  (audited `room_app.message_delete`). Visibility follows the room: an app's message has no `source_scope`, so a team
+  room's later member sees it (rooms/history.ts never makes it a candidate) and a group chat's from their join on.
+- **The address.** `tax_in_` + 43 base64url characters (256 bits), stored as its sha256 for the lookup and sealed with
+  the credentials vault (kinds `room_app_token` / `room_app_secret`, the app id in the AAD) so owners/admins can copy
+  it again (owner decision 10); `credentials/rekey.ts` seals them again with the other secrets. "Get a new address"
+  stops the old one at once. Unknown, rotated, removed and archived-room tokens answer the same `404 not_found`; any
+  other method on `/in/*` too (never the web app's page). `loggablePath` hides the token.
+- **Order of work at /in/** (rooms/apps/inbound.ts): token lookup first (a live token is not counted with anonymous
+  traffic); a browser `Origin` → 403; the app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
+  for unknown tokens 30 a minute per client address (and 4× per /24 or IPv6 /48); content type (415); the raw body,
+  256 KiB (GitHub 1 MiB, 413) within 10 s (408); the signature when a secret is set (401); parse (400); the switch
+  (200, skipped); the caps (429); then one transaction writes the delivery row, the card or reply, the root's status,
+  the counters. Answer `200 ok`; the room hears of it after the answer. The limiter is in memory per process (minute
+  buckets need no history; nothing shared with the external apps' limits), not the plan's `room_app_limits` table.
+- **Signatures optional for both (owner decision 9).** "Make it safer": GitHub gets a secret Trina makes (`tax_whs_…`,
+  shown on the address again); Sentry takes its Client Secret (64 hex). Once set, a request without the right
+  signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)".
+- **Delivery keys.** GitHub `X-GitHub-Delivery`; Sentry sha256(resource + body), never the unsigned timestamp; Forms
+  `id + at`; Other `Idempotency-Key`, else the body's hash within 10 minutes. Written with the post, so a retry after a
+  429 posts once.
+- **Caps (owner decision 3).** 500 shown per app and team day; past it the app pauses until the team's midnight: a quiet
+  line from the app in the room, a `room_app.paused` notice (table `room_app_notices`, Activity only in phase 1) to the
+  people who manage it and the person who added it, an audit row; 429 meanwhile. "Resume now" once a day allows as many
+  again. 5,000 per team a day pauses every app the same way (no resume). 10 apps a room, 10 added per person an hour,
+  5 examples an app an hour.
+- **Quiet.** Short lines that count nowhere: no unread, no notice, not the rooms list's line, no activity bump
+  (`app_quiet`; unreadCount, threadsUnread, lastMessage, recordNotices, unhideFor). Otherwise an app's message counts
+  and alerts like any message by the room's level; it never mentions (mentions '[]').
+- **Text.** Card fields are plain one-line text, bounded, without control, bidi or zero-width characters; one https link
+  without credentials, with its host; a Slack label that looks like another address shows the real one. `body` holds
+  the plain text with Markdown marks (and "@") escaped, so older apps and the Markdown renderer show text; the rooms
+  list, search, push and the AI read it unescaped. Push: "<app> · App" as who, one line of at most 120 characters.
+- **Google Forms (owner decision 12).** The respondent's email is sent and shown by default; the app's `email` switch
+  turns it off (the server drops it then either way). Everyone in the room, later members too, sees it.
+- **AI (owner decision 11).** An app's message reaches the AI as `<room_message from="<app>" who="an app (automated,
+  not a person)" app="<kind>">` with its plain text (never the card JSON); `reader.ts` DATA_NOTE and the MCP rooms'
+  DATA carry `APP_DATA_NOTE`. A read that returns app messages marks the chat as having seen outside content
+  (`ReadResult.outside` → `markOutside()`, chats.room_outside): no room card is skipped after it. "Always allow" keeps
+  its existing web-page rule. The AI never runs by itself on an app's message.
+- **Country and IP lists (owner decision 8).** `POST /in/<well-formed token>` is exempt from `tunnel.countries` /
+  `allowFrom` while the team has at least one app; https is still required, and unknown tokens there get 10 a minute.
+- **Not in phase 1:** the web screens and their i18n (phase 2), the paused notice's push, the "Admin › Connection" line
+  about the exemption, email in and the mailbox (phase 5), a daily digest (owner decision 2).
+- **After the security review of #826.**
+  - The web app renders an app's message as plain text (`web/src/components/rooms/AppCard.tsx`): no Markdown, no link
+    detection, only the card's one checked link. In `body`, outside addresses are unlinked (`:\/\/`, `www\.`) and
+    the card's link is written as an autolink `<url>`, so its brackets make no second link.
+  - Day counters (`room_app_days`) carry the room and kind and have no foreign key: removing and adding an app again
+    counts the removed one's day (same room and kind), "Resume now" is remembered there, and the team's cap sums every
+    row. Pruned after 30 days.
+  - **Leavers: marked, not rotated by itself** (rotation would silently stop a working Sentry or GitHub setup, and an
+    app's message is always tagged as an app, never a person). `room_app_viewers` records who was shown the address
+    (or a secret Trina made); when one of them can no longer manage the app (left the room or the team, an admin of a
+    team room made a member), `RoomApp.leaverKnows` drives "Someone who left knows this address · Get a new address".
+    A new address keeps only its caller.
+  - Requests the limits turn away are counted in memory and written at most once a minute per app. GitHub deliveries
+    are also deduplicated by the body's hash (a replay under a new `X-GitHub-Delivery`). App names: lookalikes of a
+    person's name (NFKC, lookalike letters, Latin mixed with Cyrillic or Greek) and the AI's or the product's name are
+    refused. An app's messages keep the name it had when it posted. "Ask Trina about this" on an app's message (a quote
+    naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
+- Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
+  tests/security/lib/room-apps-cases.ts.
+
+## Chats shared with me: a push that names the sharer — 나에게 공유된 채팅 알림 (feat/shared-chats-push, 2026-11-14, product owner)
+
+QA TC-1414; follows "Chats shared with people and groups" (#821). 넣을 곳: Team AX core (`server/src/notifications/`,
+`push-gateway/`, the iPhone notification extension, `web/pwa/sw.js`, Settings › Notifications), 이유: notifications
+and the phone push are core.
+
+- **Who gets a push.** A person a chat is shared with **by name** (`chat_share_notices.named = 1`). A group's people get
+  the Activity row alone. The notice is the Inbox's (still at most one a day per chat and person), so a person gets at
+  most one push a day per chat. Someone first reached through a group, taken out, then named on the same day: that
+  day's unread row becomes a share by name (its sharer the one who named them) and is pushed once.
+- **When.** Like every push: only while the notice is unread, the person still sees the chat
+  (`chat-answers.ts chatOpenFor`), outside their quiet hours at send time (a push that waits or retries into them is
+  dropped, as a room notice's), "Phone notifications only when I'm away" for the phone app, and push turned on.
+- **Setting.** Settings › Notifications "Chats shared with me" (`chatShares`, `notification_preferences.chat_shares`,
+  default on). Off: no push, and what waits is cancelled; the Activity row stays (`eventEnabled('chat.shared')` stays
+  true; the push asks `pushEventEnabled`). A server from before it leaves the field out, so the page shows no row.
+- **Event code `chat.shared`** (already the Inbox's), its own deliveries table `chat_share_push_deliveries`
+  (migration 351, additive). The push carries ids and the code only; a tap opens `/c/<chatId>` while the person still
+  sees the chat, else the app's start page.
+- **The name.** The gateway never sees a name. Its generic line for `chat.shared` is "Someone shared a chat with you."
+  and the APNs payload is mutable for this code too, so the iPhone notification extension asks its own team
+  (`POST /api/push/devices/:id/label`, same key and checks as a room push) and shows the sharer's name as the title and
+  "Shared a chat with you." under it. Never the chat's title. A browser push names the sharer from the signed-in fetch
+  of the notice (`/api/push` `messages.chatSharedBy`).
+- **Older parts.** An older gateway shows its `chat.*` fallback ("You have a new message") with no mutable flag; an
+  older iPhone build's extension ignores the code and shows the gateway's line; Android always shows the gateway's
+  line (it has no extension; the same as room pushes); an older browser service worker drops the code (no
+  notification). A tap works on every phone build (the path is ids only). Nothing in the gateway's contract changed,
+  so the team server and the gateway deploy independently.
+- Tests: tests/unit/b-chat-share-push.test.ts (by name, group, same-day, setting, quiet hours, removed share, read,
+  label words), push-gateway.test.ts (text, mutable), mobile-labels.test.ts, push-locale.test.ts, b-rooms-notify.test.ts.
+- Version impact: **minor**.

@@ -13,7 +13,7 @@
 // text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
 // voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
 // The round send button is the screen's one primary action. Computers: the text on top and one row under it inside the
-// frame, the clip on the left and the mic and send on the right (chat/ComposerToolbar.tsx, as every message box). Phones: a flat bar under a hairline, no frame; the clip is the
+// frame, the clip on the left and the mic and send on the right (chat/ComposerToolbar.tsx, as every message box). Phones: the same frame (QA TC-1550), but one line inside it with only the clip and send; the clip is the
 // attach sheet every message box has there (components/chat/AttachSheet.tsx: 사진 보관함, 사진 찍기, 파일, 팀 파일). A team
 // file is copied as my upload in the room (POST /api/rooms/:id/team-file, the copy "대화방에 보내기" makes) and sent by
 // id like any upload; a line under the files says how many more people it reaches (members who cannot open the team
@@ -407,13 +407,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   )
 
   return (
-    <div ref={root} className="relative shrink-0 pb-[var(--box-bottom)] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className="relative shrink-0 px-3 pb-[var(--box-bottom)] sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
       {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
       <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
       {above}
       <div
-        className={clsx('relative mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
+        className={clsx('relative mx-auto max-w-[780px] rounded-2xl border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="room-composer"
       >

@@ -23,19 +23,25 @@ export function whoSeesText(t: ReturnType<typeof useT>, shared: { audience?: num
   return t(place === 'new' ? 'projects.sharedNewChat' : place === 'chat' ? 'chat.sharedSeen' : 'projects.membersCount', { n: who.n })
 }
 
-export function WhoSeesLine({ shared, place, onOpen }: {
+export function WhoSeesLine({ shared, place, onOpen, text: words, openLabel }: {
   /** a shared chat's count with its project's `alone`, or the project whose new chat will be shared; null: a chat of
    * one person */
   shared: { audience?: number; alone?: boolean } | null
   /** the box of a chat not made yet ("새 채팅은 …") or an open chat ("… 이 채팅을 …") */
   place: 'new' | 'chat'
-  /** opens the members dialog: only for a shared chat whose members the person may change */
+  /** opens the members dialog: only for a shared chat whose members the person may change (a chat shared with people
+   * and groups: its Share dialog, for its creator) */
   onOpen?: () => void
+  /** the words in place of the count (a chat shared with a group, to someone who may not know how many: "Shared with
+   * Sam and Sales") */
+  text?: string
+  /** the button's tooltip ("Manage members" by default; a chat's Share dialog: "Change who sees it") */
+  openLabel?: string
 }) {
   const t = useT()
   const who = whoSees(shared)
-  const text = whoSeesText(t, shared, place)
-  const Icon = who.kind === 'me' ? Lock : Users
+  const text = words ?? whoSeesText(t, shared, place)
+  const Icon = who.kind === 'me' && !words ? Lock : Users
   const body = (
     <>
       <Icon size={12} className="mr-1 inline-block align-[-1px]" aria-hidden />
@@ -53,7 +59,7 @@ export function WhoSeesLine({ shared, place, onOpen }: {
       type="button"
       onClick={onOpen}
       aria-haspopup="dialog"
-      title={t('chat.whoOpens')}
+      title={openLabel ?? t('chat.whoOpens')}
       className="touch-hit rounded-sm underline decoration-dotted underline-offset-2 hover:text-ink hover:decoration-solid"
       data-testid="who-sees"
       data-who={who.kind}

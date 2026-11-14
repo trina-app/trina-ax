@@ -239,6 +239,8 @@ describe('route registry', () => {
       'GET /mcp', 'POST /mcp', 'DELETE /mcp', 'PUT /connector-uploads/:token',
       // the platforms' own formats for the phone app's links (tests/unit/app-links.test.ts)
       'GET /.well-known/apple-app-site-association', 'GET /.well-known/assetlinks.json',
+      // an app's room address, its token the auth, and anything else under /in/ (tests/unit/b-room-apps-*.test.ts; matrix: ROOM_APPS_RAW_COVERED)
+      'POST /in/:token', 'ALL /in/*', 'ALL /in',
     ])
     for (const [k, mod] of ctx.implemented) if (mod !== 'test') expect(contract.has(k) || offContract.has(k), `${k} (${mod})`).toBe(true)
   })

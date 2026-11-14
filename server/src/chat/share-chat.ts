@@ -122,6 +122,9 @@ function stateOf(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: strin
 /** POST /api/chats/:id/share. `a`: the caller's chat as chatFor found it ('view'). */
 export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { confirmKey?: string; ask?: boolean }, locale: Locale): Promise<ShareChatResult> {
   const db = ctx.db
+  // a chat shared with people and groups: anyone but its creator gets the 404 of a missing chat (the plan's matrix; a
+  // shared project chat keeps its "already shared" for its audience)
+  if (a.kind === 'people' && !a.creator) fail('not_found')
   if (a.shared) fail('conflict', tr('chatShareAlready', locale), { params: { reason: 'already_shared' } })
   shareable(ctx, rt, userId, a.row, locale)
   // from the room-send budget first (429): asking who could not read what is no free probe
