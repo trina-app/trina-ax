@@ -1878,6 +1878,7 @@ export const zh: Record<MessageKey, string> = {
   "adminHome.update.rootFailed": "版本{version} · 服务器更新失败。请查看“管理 › 系统”",
   "adminHome.update.rootManual": "版本{version} · 请在服务器上运行 `sudo mycel-ctl update`",
   "adminHome.update.paused": "版本{version} · {product}暂时暂停了更新。此服务器保持当前版本。",
+  "adminHome.update.cannotRead": "版本 {version} 还无法打开此服务器的数据。正在等待更新的版本。",
   "adminHome.update.rollout": "版本{version} · 轮到此服务器时自动安装",
   "adminHome.update.rolloutAt": "版本{version} · 轮到此服务器时，将于{when}自动安装",
   "adminHome.update.rolloutNever": "版本{version} · 不会在此服务器上自动安装；你可以现在安装",

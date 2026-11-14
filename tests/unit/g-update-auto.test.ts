@@ -17,6 +17,7 @@ import { resolveLayout } from '../../server/src/system/layout'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
 import { M } from '../../server/src/system/messages'
 import { OWNER_PW, addMember, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
+import { SCHEMA_READER_LEVEL } from '../../server/src/db'
 import { WORK } from '../lib/env'
 
 const W = path.join(WORK, 'g-update-auto')
@@ -437,6 +438,26 @@ describe('through the app', () => {
       expect((await owner.call('GET', '/api/admin/update')).hold).toBeNull()
     } finally {
       fs.rmSync(auto, { force: true })
+      h.ctx.config.update = { ...h.ctx.config.update, auto: false }
+    }
+  })
+  test('a release that cannot open this database (a dev build migrated it further): hold cannot_read, not installed by hand (409)', async () => {
+    const check = (f: Partial<ReleaseFeed>) => fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0', ...f }) }))
+    h.ctx.config.update = { ...h.ctx.config.update, auto: true }
+    try {
+      // the test database has every migration of this build: it needs SCHEMA_READER_LEVEL
+      check({ minReaderRequired: SCHEMA_READER_LEVEL - 1 })
+      expect(await owner.call('GET', '/api/admin/update')).toMatchObject({ available: { version: '99.0.0' }, hold: 'cannot_read' })
+      const r = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
+      expect(r.status).toBe(409)
+      expect(r.body.error.message).toBe('99.0.0은(는) 이 서버의 데이터를 아직 열 수 없어요. 더 새로운 버전을 기다리는 중이에요.') // the owner's language (ko)
+      expect(getOps(h.ctx)!.busyWith).toBeNull()
+      // one that reads the level (or says nothing about it): nothing holds it
+      for (const f of [{ minReaderRequired: SCHEMA_READER_LEVEL }, {}]) {
+        check(f)
+        expect((await owner.call('GET', '/api/admin/update')).hold).toBeNull()
+      }
+    } finally {
       h.ctx.config.update = { ...h.ctx.config.update, auto: false }
     }
   })

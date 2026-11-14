@@ -1881,6 +1881,7 @@ export const es: Record<MessageKey, string> = {
   "adminHome.update.rootFailed": "Versión {version} · falló la actualización del servidor. Mire Admin › Sistema",
   "adminHome.update.rootManual": "Versión {version} · ejecute `sudo mycel-ctl update` en el servidor",
   "adminHome.update.paused": "Versión {version} · {product} ha pausado las actualizaciones por ahora. Este servidor sigue con su versión actual.",
+  "adminHome.update.cannotRead": "La versión {version} todavía no puede abrir los datos de este servidor. Esperando una versión más nueva.",
   "adminHome.update.rollout": "Versión {version} · se instalará automáticamente cuando le toque a este servidor",
   "adminHome.update.rolloutAt": "Versión {version} · se instalará automáticamente {when}, cuando le toque a este servidor",
   "adminHome.update.rolloutNever": "Versión {version} · no se instala sola en este servidor; puede instalarla ahora",

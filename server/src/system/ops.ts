@@ -154,18 +154,22 @@ export class OpsService {
 
   /** What holds the available release back from installing by itself, from the very decision the automatic update makes
    * (autoUpdateDecision), the window and running answers aside. null: nothing (or nothing to install). */
-  updateHold(): 'paused' | 'rollout' | 'failed' | 'root_failed' | null {
+  updateHold(): 'cannot_read' | 'paused' | 'rollout' | 'failed' | 'root_failed' | null {
     try {
       const feed = this.updates.lastFeed()
       if (!feed || !this.updates.installed) return null
+      // a release that cannot open this database says so before any failure it caused (root's tries of it, before
+      // mycel-ctl checked the reader level, ended in a roll-back and a hold)
+      const canRead = this.updates.releaseCanRead(feed)
+      if (!canRead && compareVersions(feed.version, this.ctx.version) > 0) return 'cannot_read'
       const rootHold = this.rootUpdateFailure()?.version ?? null
       if (rootHold && rootHold === feed.version) return 'root_failed'
       let last: { version: string; at: string } | null = null
       try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
       const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
-        channel: this.ctx.config.update.channel })
-      return d.go ? null : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+        channel: this.ctx.config.update.channel, canRead })
+      return d.go ? null : d.why === 'cannot_read' ? 'cannot_read' : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
     } catch { return null }
   }
 
@@ -184,7 +188,7 @@ export class OpsService {
       const s = getTeamSettings(this.ctx.db)
       return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(),
-        rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel })
+        rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel, canRead: !feed || this.updates.releaseCanRead(feed) })
     }
     const first = decide()
     const log = this.ctx.log.child({ c: 'update' })

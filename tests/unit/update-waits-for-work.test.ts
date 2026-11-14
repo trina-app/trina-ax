@@ -16,7 +16,7 @@ function deps(running: number[]) {
   const did: string[] = []
   const progress: (string | null)[] = []
   const waitingSeen: boolean[] = []
-  const updates = { switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } } } as unknown as UpdateManager
+  const updates = { canRead: () => true, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } } } as unknown as UpdateManager
   const backups = { run: async () => { did.push('backup') } } as unknown as BackupManager
   let clock = 0
   return {

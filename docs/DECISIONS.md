@@ -27560,3 +27560,39 @@ and the phone push are core.
 - Tests: tests/unit/b-chat-share-push.test.ts (by name, group, same-day, setting, quiet hours, removed share, read,
   label words), push-gateway.test.ts (text, mutable), mobile-labels.test.ts, push-locale.test.ts, b-rooms-notify.test.ts.
 - Version impact: **minor**.
+
+## Updates skip a release that cannot open the database (fix/update-skip-unreadable-db, 2026-11-14, the owner, QA TC-1513)
+
+- **Gap:** a server on a dev build (0.5.3-dev.x) whose database is at reader level 7 (since #787, 121_a_folder_limited)
+  and that is on the stable channel with automatic updates took stable 0.5.3 (level 6): by semver 0.5.3 is newer than
+  0.5.3-dev.x. Neither updater compared levels: mycel-ctl (native/cmd/mycel-ctl/update.go `gate` and `run`) went from
+  `notNewer` straight to the download and `updateRoot`; the app's `autoUpdateDecision` (server/src/system/update-job.ts)
+  had no such check, and its zod `ReleaseFeed` dropped `minReaderRequired`. 0.5.3 then refused the database (exit 75,
+  nothing written), the bootstrap rolled back after 3 tries, and every hold (20 h, 44 h, 92 h, 7 d) ended in another try.
+- **Rule (both updaters):** a release whose reader level is below the database's is not installed. Its level is the
+  feed's `minReaderRequired` (publish-server.ts writes the build's highest `min_compatible_reader`, which is its
+  `SCHEMA_READER_LEVEL`), else the bundle's own migrations (mycel-ctl after the download, before any root file; the app
+  for a staged copy, `canRead`). Unknown level: no check (old feeds, as before). Read leniently: a value that does not
+  read is unknown, never a reason to refuse the feed.
+- **The database's level:** the app reads it from the database (`requiredReaderLevel`). mycel-ctl has no SQLite, so it
+  reads the running version's migrations (app/versions/<app/current>/server/migrations, the same 400-byte head as
+  `bundleReaderLevel` and install-linux.sh `reader_level`, no link followed): a running build has applied all of its
+  migrations and would have refused a database that needs more, so the two are equal while the server runs.
+- **Skip, not failure:** the timer (`--scheduled`, `--only-if-needs-root`) and a plain `mycel-ctl update` answer "ok,
+  skipped" with the reason, write no root/update-failed.json, and do not download when the feed says the level. A
+  `--version` or `--bundle` an administrator asked for is refused with the same reason, nothing replaced. The app's
+  automatic update returns `cannot_read` (before the hold and roll-out checks); "Update now" is refused (409) and
+  `runUpdate` refuses before the download and again before the switch. A newer release that can read the database ends
+  it by itself; same-level dev → stable (0.5.3-dev.x at 7 → a 0.5.3 at 7) and real upgrades are unchanged.
+- **What people see:** the update status's `hold` gets `cannot_read`; Admin › Home and Admin › System say "Version
+  0.5.3 can't open this server's data yet. Waiting for a newer version." with no install button. A staged copy that
+  cannot open the database (left by a try that rolled back) is no longer offered as `available` (independent review).
+- **Known limit:** the updaters and publish-server.ts read a migration's declaration in its first 400 bytes, db.ts in its
+  first 10 lines. They agree for every migration today; a declaration past 400 bytes would make a release's level read
+  too low and the release be skipped (safe side), so declarations stay at the top of the file.
+- **Version order left as it is:** dev builds of a plain package version are `<v>-dev.<time>`, which semver sorts
+  before `<v>` (the comment in .github/workflows/dev-build.yml says "newer than the package version's release", true
+  only for a pre-release package version). Changing the order would touch every updater and the dev server's timer; the
+  reader-level check is what keeps data safe whatever the order, so the naming is a separate decision.
+- Tests: native/cmd/mycel-ctl/readerlevel_test.go (Linux Docker); tests/unit/update-reader-gate.test.ts;
+  tests/unit/g-update-auto.test.ts (hold and 409 through the app); web/test/unit/update-outcome.test.ts.
