@@ -307,7 +307,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
-  | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
+  | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean; resolve: (ok: boolean) => void }
   | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number; resolve: (v: string | null) => void }
 )
 
@@ -321,7 +321,8 @@ export function menuOpener(): HTMLElement | null {
   return [...btns].find((b) => !menu!.contains(b)) ?? null
 }
 
-export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; danger?: boolean }): Promise<boolean> {
+/** `cancel`: the words of the button that keeps things as they are (Cancel by default; "Keep editing" for a discard). */
+export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean }): Promise<boolean> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
@@ -366,8 +367,8 @@ export function DialogHost() {
       returnTo={req.returnTo}
       footer={
         <>
-          <Button variant="ghost" onClick={() => close(false)}>
-            {t('common.cancel')}
+          <Button variant="ghost" onClick={() => close(false)} data-testid="dialog-cancel">
+            {(req.kind === 'confirm' && req.cancel) || t('common.cancel')}
           </Button>
           <Button variant={req.kind === 'confirm' && req.danger ? 'danger' : 'primary'} disabled={req.kind === 'prompt' && ((!req.allowEmpty && !value.trim()) || !!problem)} onClick={() => close(true)} data-testid="dialog-confirm">
             {req.confirm}

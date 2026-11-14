@@ -1,6 +1,6 @@
 // The way back to a sharing dialog on a phone (docs/DECISIONS.md "People who see a shared chat later: nothing new is
 // hidden", the widening list): an answer of the list opens on the same screen there, so before it leaves, the dialog's
-// draft (which project, the picks, the list's scroll, where it was opened) is kept here and in sessionStorage (this tab
+// draft (which project or chat, the picks, the list's scroll, where it was opened) is kept here and in sessionStorage (this tab
 // only; storage may be blocked: then the app's memory alone). The chat page then shows "‹ Back to sharing"; that bar and
 // the system Back return to the screen that opened the dialog, and WideningDraftHost opens it again on the list with the
 // picks. A draft older than 30 minutes, or one whose project's members were saved meanwhile (its rules hash changed),
@@ -12,11 +12,17 @@ import type { RuleRef } from '../components/ProjectParticipants'
 export const DRAFT_MAX_AGE_MS = 30 * 60_000
 const KEY = 'trina.wideningDraft'
 
+/** One of two dialogs: a project's Members dialog (`projectId`, its rules hash and the rules taken out) or a chat's Share
+ * dialog (`chatId`, components/chat/ChatShareDialog.tsx: `audienceKey`, who it was shared with when the picks were made). */
 export interface WideningDraft {
+  /** the Members dialog's project ('' for a chat's Share dialog) */
   projectId: string
+  /** the Share dialog's chat */
+  chatId?: string
   participants: ProjectParticipant[]
   removeRules: RuleRef[]
-  /** the members' rules hash the picks were made on: a save meanwhile drops the draft */
+  /** the members' rules hash the picks were made on (the Share dialog: who the chat was shared with, audienceKey): a
+   * save meanwhile drops the draft */
   rulesHash: string
   /** the list's scroll (px) */
   scroll: number

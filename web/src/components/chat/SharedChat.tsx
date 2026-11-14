@@ -29,9 +29,10 @@ export function SharedIcon({ className }: { className?: string }) {
 
 /** The chat header's mark: the icon, and on a computer how many people see the chat as its tooltip (the line under the
  * message box says the same on every screen). */
-export function SharedChatMark({ audience }: { audience: number }) {
+export function SharedChatMark({ audience, hidden = false }: { audience: number; hidden?: boolean }) {
   const t = useT()
-  const label = t('chat.shared', { n: audience })
+  // (a chat shared with a group, to someone who is not told how many: "Shared chat")
+  const label = hidden ? t('chat.sharedLabel') : t('chat.shared', { n: audience })
   return (
     <Tooltip label={label}>
       <span role="img" aria-label={label} className="inline-flex shrink-0 items-center rounded-md p-1 text-muted" data-testid="chat-shared">
