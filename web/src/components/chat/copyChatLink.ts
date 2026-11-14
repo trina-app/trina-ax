@@ -28,7 +28,8 @@ export function useCopyChatLink() {
   const { copy } = useCopy()
   return async (chat: LinkChat) => {
     await copy(chatLink(chat.id))
-    if (chat.shared) return void toast({ level: 'success', text: t('chat.linkCopiedShared', { n: chat.shared.audience }) })
+    // (a chat shared with a group, to anyone but its creator and admins: how many is not told)
+    if (chat.shared) return void toast({ level: 'success', text: chat.shared.audienceHidden ? t('chat.share.linkCopied') : t('chat.linkCopiedShared', { n: chat.shared.audience }) })
     // a private chat in a team project (the project as this window knows it)
     const project = chat.projectId ? useProjects.getState().byId[chat.projectId] : undefined
     const st = useSession.getState().status

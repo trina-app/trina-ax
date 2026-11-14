@@ -37,6 +37,7 @@ import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type RoomFi
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { myRooms, type Mine } from './reader'
+import { unescapeMarkdown } from './apps/card'
 import { canSee, fileOut, hiddenAmong, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
 /** hits a page gives by default */
@@ -91,7 +92,8 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
       shown.set(msg.id, {
         id: msg.id, roomId: msg.roomId, threadRootId: msg.threadRootId ?? null, authorKind: msg.authorKind,
         author: msg.authorKind === 'ai' ? null : msg.author, askedBy: msg.authorKind === 'ai' ? msg.askedBy : null,
-        markdown: msg.authorKind === 'ai' || !!msg.sharedAnswer, snippet: snippetOf(msg.body, words), createdAt: msg.createdAt,
+        markdown: msg.authorKind === 'ai' || !!msg.sharedAnswer, snippet: snippetOf(msg.app ? unescapeMarkdown(msg.body) : msg.body, words), createdAt: msg.createdAt,
+        ...(msg.app ? { app: msg.app } : {}),
       })
     }
     named.push({ id: m.room.id, kind: m.room.kind, ...roomNaming(db, m.room, userId) })

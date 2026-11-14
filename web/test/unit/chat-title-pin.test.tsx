@@ -62,7 +62,7 @@ for (const pinned of [false, true]) {
     try {
       await m.click('chat-menu')
       const list = items(m)
-      expect(list.map((e) => e.getAttribute('data-testid'))).toEqual([pinned ? 'chat-unpin' : 'chat-pin', 'chat-copy-link', 'chat-rename', 'chat-delete'])
+      expect(list.map((e) => e.getAttribute('data-testid'))).toEqual([pinned ? 'chat-unpin' : 'chat-pin', 'chat-copy-link', 'chat-rename', 'chat-share', 'chat-delete'])
       expect(list[0]!.textContent?.trim()).toBe(ko(pinned ? 'chat.unpin' : 'chat.pin'))
       expect(list[0]!.textContent?.trim()).toBe(row.label!)
       expect(iconOf(list[0]!)).toBe(rowIcon!)
@@ -86,12 +86,12 @@ test("someone else's shared chat: the pin is there though nothing else is mine t
   }
 })
 
-test('no call from the page: no item (the menu as before)', async () => {
+test('no call from the page: no item but the link and Share… (a chat of mine outside projects)', async () => {
   const c = chat()
   const m = await mount(<ChatTitleMenu chat={c} title={c.title} />)
   try {
     await m.click('chat-menu')
-    expect(items(m).map((e) => e.getAttribute('data-testid'))).toEqual(['chat-copy-link'])
+    expect(items(m).map((e) => e.getAttribute('data-testid'))).toEqual(['chat-copy-link', 'chat-share'])
   } finally {
     await m.unmount()
   }

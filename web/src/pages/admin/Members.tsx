@@ -89,7 +89,7 @@ export default function Members() {
   const [secret, setSecret] = useState<HandoverInfo | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
   /** an admin removing a member: asked for their password first (`off`: the AI connections the delete switches off) */
-  const [removing, setRemoving] = useState<{ user: User; off: string[] } | null>(null)
+  const [removing, setRemoving] = useState<{ user: User; off: string[]; sharedChats: number } | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
   /** 팀장 넘기기: the person the confirm is for */
@@ -140,16 +140,27 @@ export default function Members() {
   const canRemove = (u: User) => isOwner(me) || u.role === 'member'
   // personal files are archived for the owner either way; the text only says that this person asked. AI connections
   // only this person may use are switched off by the delete (never given to the whole team): named in one more line
-  const removeBody = (u: User, off: string[]) => {
+  // the chats this person shared with people and groups that others wrote in are deleted with the account (docs/DECISIONS.md
+  // "Chats shared with people and groups", Drive's rule): how many, and that disabling keeps them
+  const removeBody = (u: User, off: string[], sharedChats = 0) => {
     const due = users.data?.deletionDue?.[u.id]
     const text = requested(u) ? (due ? t('accountDeletion.removeBodyDue', { name: u.name, date: formatDate(due, locale) }) : t('accountDeletion.removeBody', { name: u.name })) : t('members.removeBody', { days: chatTrashDays(me) })
-    return off.length ? <><p>{text}</p><p className="mt-2" data-testid="member-delete-ai-off">{t('members.removeAiOff', { names: off.join(', ') })}</p></> : text
+    if (!off.length && !sharedChats) return text
+    return (
+      <>
+        <p>{text}</p>
+        {sharedChats > 0 && <p className="mt-2" data-testid="member-delete-shared-chats">{t('members.removeSharedChats', { n: sharedChats })}</p>}
+        {off.length > 0 && <p className="mt-2" data-testid="member-delete-ai-off">{t('members.removeAiOff', { names: off.join(', ') })}</p>}
+      </>
+    )
   }
   const remove = async (u: User) => {
     const off = connectionsOnlyFor(connections.data, { subjectType: 'user', subjectId: u.id })
+    // (a count that can't be read leaves its line out: the delete itself is unchanged)
+    const sharedChats = await api.call(API.userSharedChats, { params: { id: u.id } }).then((r) => r.sharedChats, () => 0)
     // an admin types their password again in the dialog below
-    if (!isOwner(me)) return setRemoving({ user: u, off })
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u, off), confirm: t('common.delete'), danger: true }))) return
+    if (!isOwner(me)) return setRemoving({ user: u, off, sharedChats })
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u, off, sharedChats), confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, body: {} }))) { if (off.length) void connections.reload(); await users.reload() }
   }
   /** The actions used less often, for the rows this viewer manages (canManage): on a phone in the card's "…" menu with
@@ -539,7 +550,7 @@ export default function Members() {
         <ReauthDialog
           danger
           title={t('members.removeTitle', { name: removing.user.name })}
-          body={removeBody(removing.user, removing.off)}
+          body={removeBody(removing.user, removing.off, removing.sharedChats)}
           confirm={t('common.delete')}
           onClose={() => setRemoving(null)}
           onConfirm={async (password) => {

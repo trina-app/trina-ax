@@ -344,7 +344,8 @@ describe('a chat row\'s "…"', () => {
     const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
       // no 폴더로 옮기기: the Trina list has no folders (the owner, 2026-11-13); a project keeps chats together
-      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      // a chat of mine outside projects: Share… (docs/DECISIONS.md "Chats shared with people and groups")
+      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
       expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
       expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
@@ -419,7 +420,7 @@ describe('a chat row\'s "…"', () => {
       await m.settle(0)
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       link.dispatchEvent(e)
-      await m.until(() => shown() === 5, 'the menu')
+      await m.until(() => shown() === 6, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
       expect(shown()).toBe(0)
@@ -427,7 +428,7 @@ describe('a chat row\'s "…"', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => shown() === 5, 'the sheet')
+      await m.until(() => shown() === 6, 'the sheet')
       expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
       // the click that follows the finger lifting is no tap on the row
       await m.click(link)
@@ -444,9 +445,9 @@ describe('a chat row\'s "…"', () => {
       hold('pointerdown')
       await m.settle(600)
       hold('pointerup')
-      await m.until(() => shown() === 5, 'the sheet again')
+      await m.until(() => shown() === 6, 'the sheet again')
       await m.click(more)
-      expect(shown()).toBe(5)
+      expect(shown()).toBe(6)
     } finally {
       await m.unmount()
     }

@@ -94,6 +94,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_reactions.user_id': 'reactions in shared rooms, as messages',
   'room_ai_turns.user_id': 'usage of the room AI, as turns',
   'rooms.created_by': 'SET NULL; the room stays for its members',
+  'room_apps.created_by': 'SET NULL; an app belongs to its room and goes on ("Set up by someone who left")',
   'skill_shares.created_by': 'a team skill they shared stays for the team',
   'skill_share_merges.user_id': 'team skill history',
   'skill_suggestions.suggester_id': 'team skill history',

@@ -395,6 +395,9 @@ function Details({ e, times }: { e: AuditEntry; times?: string[] }) {
     const denied = failed && !!summary && /-> denied\b/.test(summary)
     rows.push([t('adminux.audit.key.result'), t(denied ? 'audit.denied' : failed ? 'audit.failed' : 'adminux.audit.done')])
   }
+  // a chat shared: with its project's members, or with people and groups its creator chose (detail.kind 'people'; an
+  // older entry has no kind: a project's)
+  if (e.action === 'chat.share') rows.push([t('audit.key.sharedWith'), t(take('kind') === 'people' ? 'audit.shareKind.people' : 'audit.shareKind.project')])
   if (typeof detail.ip === 'string') rows.push([t('adminux.audit.key.ip'), take('ip') as string])
   if (detail.via === 'internet') {
     take('via')

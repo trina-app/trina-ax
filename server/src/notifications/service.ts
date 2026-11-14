@@ -18,6 +18,7 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { contributionOf } from '../skills/suggestions'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
+import { roomAppNoticeOut } from '../rooms/apps/notice'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
@@ -62,7 +63,7 @@ export type ServiceRequestEvent = Extract<NotificationEventType, 'service.reques
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -72,9 +73,10 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
- * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120)
+ * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), and an
+ * app in a room that paused for the day (migration 299)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'chat_answer_notices', 'chat_share_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'chat_answer_notices', 'chat_share_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -287,6 +289,12 @@ export class Notifications {
     const again = this.ctx.db.query("UPDATE account_deletion_due_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_due' AND source_id=?").run(createdAt, userId, userId)
     if (again.changes) { if (this.active(userId)) this.signal(userId); return }
     this.record(userId, 'account.deletion_due', userId, createdAt, true)
+  }
+  /** An app in a room this person manages (or added) reached the day's cap and paused (rooms/apps/service.ts). The source
+   * is "<app id>.<team day>": one notice per app, person and day. Shown always: there is no setting for it, and the
+   * room's messages from that app stop until midnight or "Resume now". */
+  roomAppPaused(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'room_app.paused', sourceId, createdAt, true)
   }
   /** A role changed: what an owner or admin no longer handles leaves their inbox. A person who became a member is no
    * longer told of anyone's request; a member who became an admin is now the owner's business only, so the admins'
@@ -636,6 +644,12 @@ export class Notifications {
     // a reset link made for me: by the server or by whom (a name while the account is there), and whether it still works
     // (unused, not replaced, not expired: read now, so the advice to change the password goes once it no longer helps)
     // the hosting service's copy of the team's key or data, or the team address moved away: the words say it all, no link
+    // an app that paused in a room: what it is now, read when the notice is read (rooms/apps/notice.ts)
+    if (row.event_type === 'room_app.paused') {
+      const roomApp = roomAppNoticeOut(this.ctx, row.user_id, row.source_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: roomApp?.roomId ? 'room' : null, outcome: null,
+        ...(roomApp ? { roomApp } : {}) }
+    }
     if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
       const r = this.ctx.db.query('SELECT created_by, expires_at, used_at FROM password_resets WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { created_by: string | null; expires_at: string; used_at: string | null } | null
