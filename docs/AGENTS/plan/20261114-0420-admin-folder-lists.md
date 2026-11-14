@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 04:20
 - Branch: `feat/admin-folder-lists`
-- Status: in progress (waits for #787, "Folder access adds up like Google Drive (P2)", to reach dev)
+- Status: done
 - Where: Team AX core (`web/src/pages/admin/`). Why: files and permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, Admin › Folder permissions changes; no data, API or access change
 
@@ -49,4 +49,11 @@ shards that run them.
 
 ## Result
 
-Filled in at the end.
+Built as planned on top of #787 (merged as 727dcfcf). Differences: the Share dialog, Limit access, Access removed, the
+group warning and the conversion notice are #787's (the notice is shown on the Folders tab); a team project's folder
+opened here shows the project's lines (from the manage=1 project list), never its rules. An independent (opus) review
+asked for limited folders with nobody added and limited group folders to be listed, the container folders and other
+projects' folders out of "Can't open" (projects as one count line), "Limited" with its own word in ko/id, and dead words
+removed; all done (DECISIONS). Tests: web unit, e2e admin-folders (new), access-people, admin-delete, admin, team-skills,
+a11y, phone-admin*, phone-back-parent, phone-list-pages, phone-menus-tabs, people-console, and the four feature-map
+shards locally. The PR: see the branch's pull request to dev.
