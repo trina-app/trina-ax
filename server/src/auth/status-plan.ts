@@ -7,16 +7,16 @@ import { fail } from '../http/errors'
 import { zonedDay, zonedParts, zonedToUtc } from '../system/time-zone'
 
 type T = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
 /** Refusals of a status, in the person's language. */
 export const STATUS_TEXT: Record<'empty' | 'noDay' | 'order' | 'far' | 'gone' | 'tooOften', T> = {
-  empty: t('상태를 적거나 이모지를 골라 주세요.', 'Write a status or choose an emoji.', 'Tulis status atau pilih emoji.', 'ステータスを入力するか、絵文字を選んでください。', 'Escriba un estado o elija un emoji.'),
-  noDay: t('마지막 날을 골라 주세요.', 'Choose the last day.', 'Pilih hari terakhir.', '最終日を選んでください。', 'Elija el último día.'),
-  order: t('마지막 날은 시작일과 같거나 그 뒤여야 해요.', 'The last day must be the first day or after it.', 'Hari terakhir harus sama dengan atau setelah hari pertama.', '最終日は開始日と同じか、それより後にしてください。', 'El último día debe ser el primero o posterior.'),
-  far: t('1년 안의 날짜를 골라 주세요.', 'Choose days within a year.', 'Pilih tanggal dalam satu tahun.', '1年以内の日付を選んでください。', 'Elija días dentro de un año.'),
-  gone: t('상태가 이미 지워졌어요. 삭제 시간을 다시 골라 주세요.', 'The status has already cleared. Choose when it clears again.', 'Status sudah terhapus. Pilih lagi kapan dihapus.', 'ステータスはすでに消えています。削除する時間を選び直してください。', 'El estado ya se borró. Vuelva a elegir cuándo se borra.'),
-  tooOften: t('상태를 너무 자주 바꿨어요. 잠시 뒤 다시 해 주세요.', 'You changed your status too often. Try again in a moment.', 'Status terlalu sering diubah. Coba lagi sebentar lagi.', 'ステータスの変更が多すぎます。しばらくしてからもう一度お試しください。', 'Cambió su estado demasiadas veces. Vuelva a intentarlo en un momento.'),
+  empty: t('상태를 적거나 이모지를 골라 주세요.', 'Write a status or choose an emoji.', 'Tulis status atau pilih emoji.', 'ステータスを入力するか、絵文字を選んでください。', 'Escriba un estado o elija un emoji.', '请填写状态或选择一个表情。'),
+  noDay: t('마지막 날을 골라 주세요.', 'Choose the last day.', 'Pilih hari terakhir.', '最終日を選んでください。', 'Elija el último día.', '请选择最后一天。'),
+  order: t('마지막 날은 시작일과 같거나 그 뒤여야 해요.', 'The last day must be the first day or after it.', 'Hari terakhir harus sama dengan atau setelah hari pertama.', '最終日は開始日と同じか、それより後にしてください。', 'El último día debe ser el primero o posterior.', '最后一天必须是第一天或之后。'),
+  far: t('1년 안의 날짜를 골라 주세요.', 'Choose days within a year.', 'Pilih tanggal dalam satu tahun.', '1年以内の日付を選んでください。', 'Elija días dentro de un año.', '请选择一年以内的日期。'),
+  gone: t('상태가 이미 지워졌어요. 삭제 시간을 다시 골라 주세요.', 'The status has already cleared. Choose when it clears again.', 'Status sudah terhapus. Pilih lagi kapan dihapus.', 'ステータスはすでに消えています。削除する時間を選び直してください。', 'El estado ya se borró. Vuelva a elegir cuándo se borra.', '状态已经清除了。请选择下次清除的时间。'),
+  tooOften: t('상태를 너무 자주 바꿨어요. 잠시 뒤 다시 해 주세요.', 'You changed your status too often. Try again in a moment.', 'Status terlalu sering diubah. Coba lagi sebentar lagi.', 'ステータスの変更が多すぎます。しばらくしてからもう一度お試しください。', 'Cambió su estado demasiadas veces. Vuelva a intentarlo en un momento.', '你更改状态的次数过多。请稍后再试。'),
 }
 const refuse = (k: keyof typeof STATUS_TEXT, locale: Locale, field: string): never =>
   fail('validation', STATUS_TEXT[k][locale] ?? STATUS_TEXT[k].en, { fields: { [field]: k } })

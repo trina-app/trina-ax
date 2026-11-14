@@ -97,7 +97,7 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
 }
 
 type T3 = Record<Locale, string>
-export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini', ja: "今日", es: "de hoy" }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini', ja: "今月", es: "de este mes" } }
+export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini', ja: "今日", es: "de hoy", zh: "今天的" }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini', ja: "今月", es: "de este mes", zh: "本月的" } }
 
 /** When the period of a budget starts again (midnight / the 1st in the team's time zone). */
 export function periodEnd(period: Budget['period'], now: Date, tz: string): Date {
@@ -122,6 +122,7 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,
     id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は管理者にご相談ください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Consulte a un administrador si necesita más.`,
+    zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请联系管理员。`,
   }[locale]
   return { budget: hit.budget, message }
 }

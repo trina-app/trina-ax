@@ -1,6 +1,6 @@
 # Frequently asked questions
 
-[한국어](FAQ.ko.md) · [Support](../SUPPORT.md)
+[한국어](FAQ.ko.md) · [简体中文](FAQ.zh.md) · [Support](../SUPPORT.md)
 
 ## Is Trina for developers?
 
@@ -30,7 +30,7 @@ Your chats with Trina are visible only to you. A room is visible to its members;
 
 Text/Markdown and supported Office/PDF extraction and generation depend on installed converters. HWP/HWPX text extraction, search and original downloads are available to every team. With the optional HWP Preview plugin installed and turned on (Admin > Plugins), the AI can also make new .hwpx documents (headings as outline levels, paragraphs, bold, italic, lists, simple tables, page breaks; a team template from skills/) and fill in an existing .hwp or .hwpx (edit_hwp: placeholders, exact text, empty table cells, table rows copied from a row), changing only those parts and saving a new version or a new file in the same format. Without the plugin the AI is not offered either. Writing does not use the preview renderer, so it works while the plugin is on even where previews cannot run. It cannot make a new .hwp, and it adds no new styles, pictures or tables. Distribution-only, password-protected or signed documents, and documents with macros (scripts) or OLE objects, are not changed. Visual previews come with the same plugin (installed from the official list); its runtime is not in default release bundles. The plugin cannot be installed on Debian 12 (glibc 2.36; the pinned renderer needs 2.39), so Debian 12 has neither visual previews nor Hangul writing and filling. Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md). Complex layout fidelity is not guaranteed.
 
-Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. The iPhone app is on the [App Store](https://apps.apple.com/app/id6829192435); it opens your team's server, so it has what that server's version has. The Android app is in review. This source supports EN/KO/ID/JA/ES throughout the app; check published builds’ release notes for availability.
+Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. The iPhone app is on the [App Store](https://apps.apple.com/app/id6829192435); it opens your team's server, so it has what that server's version has. The Android app is in review. This source supports EN/KO/ID/JA/ES/ZH (简体中文) throughout the app; check published builds’ release notes for availability.
 
 ## How do we get large media into a project?
 

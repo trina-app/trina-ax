@@ -13,6 +13,7 @@ const expected = {
   ko: ['예약 작업이 완료됐어요.', '예약 작업에 확인할 일이 있어요. 앱에서 확인해 주세요.', '연결에 다시 로그인이 필요해요.', '새 메시지가 왔어요.', '대화방에서 나를 언급한 메시지가 있어요.', '팀장 링크로 누군가 들어왔어요. 앱에서 확인해 주세요.', '비밀번호 확인이 여러 번 틀렸어요. 앱에서 확인해 주세요.', '트리나가 대화에 답했어요.'],
   en: ['A scheduled task completed.', 'A scheduled task needs your attention.', 'A connection needs you to sign in again.', 'You have a new message.', 'Someone mentioned you in a room.', 'Someone joined with your team lead link. Check it in the app.', 'Your password was entered wrong several times. Check it in the app.', 'Trina replied in your chat.'],
   id: ['Tugas terjadwal selesai.', 'Tugas terjadwal perlu perhatian Anda.', 'Koneksi perlu login ulang.', 'Ada pesan baru untuk Anda.', 'Seseorang menyebut Anda di ruang obrolan.', 'Seseorang bergabung lewat tautan ketua tim. Periksa di aplikasi.', 'Kata sandi Anda beberapa kali salah dimasukkan. Periksa di aplikasi.', 'Trina membalas di obrolan Anda.'],
+  zh: ['定时任务已完成。', '有一个定时任务需要你查看。', '有一个连接需要你重新登录。', '你有一条新消息。', '有人在群聊中提到了你。', '有人通过你的团队负责人链接加入。请在应用中查看。', '你的密码多次输入错误。请在应用中查看。', 'Trina在你的对话中回复了。'],
 }
 function check(settings: unknown, locale: Locale) {
   const messages = PushSettings.parse(settings).messages!

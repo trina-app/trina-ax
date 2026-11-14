@@ -1500,7 +1500,7 @@ export const id: Record<MessageKey, string> = {
   'push.denied': "Notifikasi untuk situs ini diblokir oleh browser. Izinkan di pengaturan situs browser, lalu coba lagi. Jendela pribadi tidak bisa mengaktifkan notifikasi.",
   'push.deniedApp': 'Notifikasi untuk aplikasi ini mati. Izinkan di Pengaturan ponsel, lalu coba lagi.',
   'push.phoneGateway': 'Push aplikasi ponsel: aktif. Notifikasi lewat {host} ke Apple dan Google, hanya teks umum.',
-  'push.phoneOff': 'Notifikasi aplikasi ponsel mati: alamat notifikasi belum diatur di server tim. Notifikasi menyala setelah pengelola server menambahkannya di pengaturan server.',
+  'push.phoneOff': 'Notifikasi aplikasi ponsel mati di server tim ini. Pengelola server bisa menyalakannya di pengaturan server.',
   'push.failed': 'Pengaturan push gagal disimpan. Periksa koneksi dan coba lagi.',
   'push.ask': "Terima notifikasi untuk pesan baru dan jawaban @Trina?",
   'push.turnOn': "Aktifkan notifikasi",

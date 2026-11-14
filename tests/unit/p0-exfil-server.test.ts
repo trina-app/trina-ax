@@ -234,7 +234,7 @@ describe('scheduled tasks (F1, review M4)', () => {
   test('the long-query line in five languages, on "다시 확인" too, and while the server does not know its address', () => {
     const longUrl = `https://report.example.org/save?d=${'x'.repeat(201)}`
     const input = { title: 't', prompt: `Read ${secretUrl} and ${longUrl} and ${longUrl}&more=1.`, repeat: 'daily' as const, time: '09:00' }
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const mode of ['create', 'review'] as const) {
         const c = scheduleCard(input, [], L, mode)
         expect(c.longQuery).toHaveLength(2)

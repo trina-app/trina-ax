@@ -42,11 +42,12 @@ export const UPLOAD_MS = 24 * 60 * 60_000
 const READ_MAX_BYTES = 30 * 1024 * 1024
 
 const TEXT = {
-  title: { ko: '팀 파일 정리', en: 'Sorting team files', id: 'Merapikan file tim', ja: 'チームのファイルを整理', es: 'Ordenando archivos del equipo' },
+  title: { ko: '팀 파일 정리', en: 'Sorting team files', id: 'Merapikan file tim', ja: 'チームのファイルを整理', es: 'Ordenando archivos del equipo', zh: '正在整理团队文件' },
   ask: {
     ko: '올린 파일을 전사 공유 안의 폴더로 정리해 주세요.', en: 'Sort the uploaded files into folders in the company-wide folder.',
     id: 'Rapikan file yang diunggah ke dalam folder di folder seluruh perusahaan.', ja: 'アップロードしたファイルを全社共有のフォルダーに整理してください。',
     es: 'Ordene los archivos subidos en carpetas dentro de la carpeta de toda la empresa.',
+    zh: '请把上传的文件整理到全公司文件夹中的各个文件夹里。',
   },
 } satisfies Record<string, Record<Locale, string>>
 

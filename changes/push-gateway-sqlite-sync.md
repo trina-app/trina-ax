@@ -1,0 +1,1 @@
+- **Push gateway**: its state file no longer waits for the disk on every write, so it keeps up when many teams send phone notifications at the same moment (about 75 → 400+ a second on the same server).

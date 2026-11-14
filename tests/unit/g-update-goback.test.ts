@@ -134,9 +134,9 @@ describe('an update job whose version did not stay is failed at the next start',
   })
 })
 
-test('Diagnostics: a Go back that bounced is said plainly, in five languages', () => {
+test('Diagnostics: a Go back that bounced is said plainly, in six languages', () => {
   const m = M.goBackBounced('0.4.0', '0.5.0', true, '')
   expect(m.en).toBe('Going back to 0.4.0 did not work: 0.4.0 cannot read the database that 0.5.0 has already updated, so the server runs 0.5.0 again. Nothing was lost. To return to 0.4.0, the backup made before the update has to be restored.')
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(m[l]).toContain('0.4.0')
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(m[l]).toContain('0.4.0')
   expect(M.goBackBounced('0.4.0', '0.5.0', false, 'not healthy within 2m0s').en).toBe('Going back to 0.4.0 did not work, so the server runs 0.5.0 again: not healthy within 2m0s')
 })

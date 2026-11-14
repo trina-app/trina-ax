@@ -1,4 +1,4 @@
-// The web build loads one language, not five (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"):
+// The web build loads one language, not six (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"):
 // src/i18n/index.ts imports `./bundled`, which has every dictionary for Bun (tests, scripts); in the build and the dev
 // server that import is src/i18n/bundled.web.ts instead (no dictionary), and index.ts loads each language's own file
 // when it is shown (loadLocale).
