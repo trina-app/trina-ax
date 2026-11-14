@@ -199,6 +199,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 /* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
    overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
+/* Chinese takes the Simplified Chinese system face first: Apple SD Gothic Neo and Noto Sans KR draw Han characters in
+   their Korean shapes and lack many simplified ones (PingFang SC on Apple devices, Microsoft YaHei on Windows) */
+:root:lang(zh) { --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Segoe UI", Roboto, system-ui, sans-serif; }
 ::selection { background: var(--c-accent-soft); }
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
@@ -412,3 +415,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 /* docx-preview pages on a neutral background */
 .docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
 .docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
+
+/* an answer opened from the widening list (pages/Chat.tsx ?answer=): lit for a moment, then it fades */
+[data-message-id] { transition: box-shadow 600ms ease, background-color 600ms ease, outline-color 600ms ease; border-radius: 0.75rem; outline: 1.5px solid transparent; outline-offset: 8px; }
+[data-message-id][data-focused] { background-color: color-mix(in srgb, var(--c-accent) 8%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-accent) 8%, transparent); outline-color: var(--c-accent); }
+@media (prefers-reduced-motion: reduce) { [data-message-id] { transition: none; } }

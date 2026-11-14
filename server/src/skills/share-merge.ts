@@ -37,11 +37,12 @@ const TEXT_MAX = 32_000
 export const SHARE_MERGE_REFUSAL = 'This chat only merges the lead\'s skills into the team skills named in your instructions: only read, write and edit of those team skill files are available here. Use the material in your instructions.'
 
 const TEXT = {
-  title: { ko: '스킬 합치기', en: 'Merge skills', id: 'Gabungkan skill', ja: 'スキルをまとめる', es: 'Combinar habilidades' },
+  title: { ko: '스킬 합치기', en: 'Merge skills', id: 'Gabungkan skill', ja: 'スキルをまとめる', es: 'Combinar habilidades', zh: '合并技能' },
   ask: {
     ko: '가져온 내 스킬을 팀 스킬에 합쳐 주세요: {list}', en: 'Merge the skills I brought into the team skills: {list}',
     id: 'Gabungkan skill yang saya bawa ke skill tim: {list}', ja: '持ってきた自分のスキルをチームのスキルにまとめてください: {list}',
     es: 'Combine las habilidades que traje con las del equipo: {list}',
+    zh: '请把我带来的技能合并到团队技能中：{list}',
   },
 } satisfies Record<string, Record<Locale, string>>
 

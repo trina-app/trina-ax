@@ -134,7 +134,7 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 
 **Your own team.** Open the `http://127.0.0.1:19100/setup?token=…` link from the log. The setup token field is
 hidden when the token is in the URL. "Create your team" has two groups:
-- **Team**: the team name and the **Team language** (English, 한국어, Bahasa Indonesia, 日本語 or Español). The
+- **Team**: the team name and the **Team language** (English, 한국어, Bahasa Indonesia, 日本語, Español or 简体中文). The
   initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
 - **Your account · Owner**: your name, username (letters, digits and `. _ @ -`, 2–64 characters) and password (at
   least 8 characters). There is one password field; **Show password** shows what you typed.

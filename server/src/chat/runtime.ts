@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
@@ -33,7 +34,7 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
-import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
 
 export const DEFAULT_CONCURRENCY = 3
@@ -63,6 +64,20 @@ const UPDATE_HOLD_MS = 120_000
 const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
 /** settings key: the server stopped answers for an update (shutdown); the next start's recovery reads and clears it */
 export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
+
+/** An answer a stop left streaming: its steps still running become stopped (Step.stopped; status 'error' for older
+ * apps). Returns how many of them were work (not the AI's thinking). A stored list that does not read is left as it is. */
+export function stopRunningSteps(db: Database, messageId: string, now: string): number {
+  const row = db.query("SELECT steps FROM messages WHERE id = ? AND status = 'streaming'").get(messageId) as { steps: string | null } | null
+  if (!row?.steps) return 0
+  let steps: { kind?: string; status?: string; stopped?: true; endedAt?: string | null }[]
+  try { steps = JSON.parse(row.steps) } catch { return 0 }
+  if (!Array.isArray(steps)) return 0
+  let n = 0, work = 0
+  for (const st of steps) if (st && st.status === 'running') { st.status = 'error'; st.stopped = true; st.endedAt = now; n++; if (st.kind !== 'thinking') work++ }
+  if (n) db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
+  return work
+}
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
@@ -92,7 +107,7 @@ export type ChatNotify = 'card' | 'answer'
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
-  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." },
+  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." }, zh: { queue_full: '现在请求较多，请稍后再发送。', queue_full_user: '你已经有3个问题在等待。请等之前的回答结束后再发送。' },
 }
 
 export interface ChatRuntimeOptions {
@@ -1049,9 +1064,13 @@ export class ChatRuntime {
       const project = this.store.projectRow(r.project_id!)
       const aud = new Audiences(this.db, this.files)
       const hide = redactorFor(this.ctx, r.user_id).hide
+      // the rows' faces (Chat.shared.people, as the lists give them): who wrote in it, read once, each person's own
+      // view leaving them out; none for a chat in the trash (the trash list has none either)
+      const writers = change === 'deleted' || r.deleted_at ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
       for (const uid of project ? aud.of(project) : []) {
         if (o.window && uid !== userId) continue
-        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
+        const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined
+        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
         if (o.window) this.hub.publishTo(uid, o.window, ev)
         else this.hub.publish(uid, ev)
       }
@@ -1105,7 +1124,12 @@ export class ChatRuntime {
     this.db.transaction(() => { for (const t of running) {
       const locale = this.userLocale(t.user_id)
       this.db.query("UPDATE turns SET status = 'interrupted', ended_at = ?, error = 'interrupted' WHERE id = ?").run(now, t.id)
-      if (t.message_id) this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(why, locale)), now, t.message_id)
+      if (t.message_id) {
+        // a step still running when the process went (a command, a render): stopped, not failed, and the line says so
+        const cutSteps = stopRunningSteps(this.db, t.message_id, now)
+        const reason = why === 'updating' && cutSteps ? 'updating_step' : why
+        this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(reason, locale)), now, t.message_id)
+      }
       this.db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ? AND revoked_at IS NULL').run(now, t.id)
     } })()
     // Invalid users/chats/messages never survive a restart as runnable work.
@@ -1190,7 +1214,7 @@ export class ChatRuntime {
     let answer: unknown
     try { answer = JSON.parse(r?.prefs ?? '{}')?.answerLocale } catch {}
     const l = (answer ?? r?.locale) as string | undefined
-    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' ? l : DEFAULT_LOCALE
+    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' || l === 'zh' ? l : DEFAULT_LOCALE
   }
 
   /** The launcher's answers for the last purge run (tests wait on it; chat/forget.ts never rejects). */

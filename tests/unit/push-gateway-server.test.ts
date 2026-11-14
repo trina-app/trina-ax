@@ -124,6 +124,18 @@ describe('push gateway server: APNs over HTTP/2, SQLite state', () => {
     expect(gw.store.db.query('SELECT shard, k FROM shard').all()).toEqual([{ shard: `k:${team.keyId}`, k: 'seen' }])
   })
 
+  test('the SQLite file runs in WAL mode with synchronous NORMAL (no disk wait on every write)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'push-gateway-'))
+    try {
+      const store = openSqlite(path.join(dir, 'state.sqlite'))
+      expect(store.db.query('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+      expect(store.db.query('PRAGMA synchronous').get()).toEqual({ synchronous: 1 }) // 1 = NORMAL, 2 = FULL
+      store.db.close()
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('the CLI: key-id prints the key id; block and unblock write the blocklist table', () => {
     const cli = path.resolve(import.meta.dir, '../../push-gateway/src/bun.ts')
     const p = Bun.spawnSync(['bun', cli, 'key-id', team.pub])

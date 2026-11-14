@@ -98,7 +98,7 @@ for (const shared of [true, false]) {
     const c = chat(shared)
     const m = await mount(<MemoryRouter><ProjectChatRow chat={c} /></MemoryRouter>)
     try {
-      if (shared) await m.until(() => usePeople.getState().loaded, 'the people directory')
+      if (c.shared?.people?.length) await m.until(() => usePeople.getState().loaded, 'the people directory')
       const more = m.get('project-chat-menu')
       // beside the row's link, not inside it
       expect(more.closest('a')).toBeNull()

@@ -29,7 +29,7 @@ import type { z } from 'zod'
 import { cleanLeadFor, type CreatedInvite as CreatedInviteSchema, type Group, type Invite, type Locale, type Me, type User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { formatDateTime, formatShortDateTime } from '../../lib/format'
+import { formatDate, formatDateTime, formatMonthDay, formatShortDateTime } from '../../lib/format'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
@@ -45,7 +45,7 @@ import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, Sea
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
-import { NewPersonPreview, personViewLink } from './AccessResults'
+import { NewPersonPreview, personViewLink } from './FolderLists'
 import { TeamLinkDialog, joinsText } from '../../components/onboarding/TeamLinkPanel'
 import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'
@@ -141,7 +141,8 @@ export default function Members() {
   // personal files are archived for the owner either way; the text only says that this person asked. AI connections
   // only this person may use are switched off by the delete (never given to the whole team): named in one more line
   const removeBody = (u: User, off: string[]) => {
-    const text = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
+    const due = users.data?.deletionDue?.[u.id]
+    const text = requested(u) ? (due ? t('accountDeletion.removeBodyDue', { name: u.name, date: formatDate(due, locale) }) : t('accountDeletion.removeBody', { name: u.name })) : t('members.removeBody', { days: chatTrashDays(me) })
     return off.length ? <><p>{text}</p><p className="mt-2" data-testid="member-delete-ai-off">{t('members.removeAiOff', { names: off.join(', ') })}</p></> : text
   }
   const remove = async (u: User) => {
@@ -246,7 +247,7 @@ export default function Members() {
           <h2 className="text-title font-semibold break-words text-ink">{u.name}</h2>
           <p className="mt-0.5 text-sm break-all text-muted">{[u.username, u.email].filter(Boolean).join(' · ')}</p>
           {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi) && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} /></div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} /></div>
           )}
         </div>
         <PhoneListGroup>
@@ -371,7 +372,7 @@ export default function Members() {
                         <>
                           {username && <span className="truncate">{u.username}</span>}
                           {byEmail && <span className="truncate" data-testid={`member-email-${u.username}`}>{u.email}</span>}
-                          <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
+                          <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
                         </>
                       )}
                       menu={<MemberMenu name={u.name} items={menuItems(u)} />}
@@ -399,7 +400,7 @@ export default function Members() {
                         <td className="py-3.5 pr-4">
                           <span className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium text-ink">{u.name}</span>
-                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
+                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
                           </span>
                           {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
                         </td>
@@ -569,12 +570,13 @@ type RoleFilter = 'all' | User['role']
 
 /** What needs the admin's eye, next to the name: disabled, a temporary password, no AI (until when, when only a limit
  * keeps them from it). (The role has its own column.) */
-function AttentionBadges({ user: u, noAi, noAiUntil, requested = false }: { user: User; noAi: boolean; noAiUntil?: string; requested?: boolean }) {
+function AttentionBadges({ user: u, noAi, noAiUntil, requested = false, deletionDue }: { user: User; noAi: boolean; noAiUntil?: string; requested?: boolean; deletionDue?: string }) {
   const t = useT()
+  const locale = useLocale()
   return (
     <>
       {u.status === 'disabled' && <Badge tone="danger">{t('members.disabled')}</Badge>}
-      {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
+      {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{deletionDue ? t('accountDeletion.badgeDue', { date: formatMonthDay(deletionDue, locale) }) : t('accountDeletion.badge')}</Badge></span>}
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
       {noAi && <NoAiBadge until={noAiUntil} />}
     </>

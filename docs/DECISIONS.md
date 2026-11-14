@@ -8963,7 +8963,8 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
   `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
   the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
-  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  is no built-in default (superseded on 2026-11-14 for the Trina edition: "Trina team servers use push.trina.app by
+  default" below): phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
   gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
   Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
   nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
@@ -26859,6 +26860,33 @@ connect_service are unchanged.
 - `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
   title as the second line, 추가 / 추가됨).
 
+## Faces in every chat list (feat/shared-chats-p2, 2026-11-14, TC-1406)
+
+- **Ask:** the owner (2026-11-14, plan `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 2): a shared chat
+  shows who is in it in every chat list, not only on its project's page. Amends "The faces on the project page".
+- **Now:** a shared chat's row shows the faces of the **other** people who wrote in it (never mine), the most recent
+  first, `FaceStack` at its existing 20 px, at most 3 then "+N" on a computer, 2 on a phone: in the Trina list and its
+  history (`nav/ChatItem.tsx` through `ListRow`'s new `faces` slot), the phone drawer's lists (the same row), a
+  project's page (`ProjectChatRow`) and ⌘K search's chat rows. Where faces show they replace the people icon
+  (`SharedIcon`); a shared chat nobody else wrote in keeps the icon (on the project page too: the creator's face and
+  name for "nobody wrote yet" are gone); the chat header keeps its mark. Panel rows and search show no name: the names
+  are in the tooltip (hover and the row's keyboard focus) and in the row's accessible name ("Shared chat · Sam, Jun and
+  2 more", `chat.share.facesLabel`). A project page row with one other writer keeps that face and name on a computer.
+  The faces replace the row's project tag when both would show (`ListRow` draws `faces` in the tag's place), on a
+  computer too: the plan said so for phones, but the computer's list panel is only 240-300 px wide, and faces plus the
+  tag left the title about a quarter of the row (measured at 1440); the project is said after the names in the tooltip
+  and the label instead ("Sam, Jun · Launch"). Private chats show nothing new. Row heights unchanged.
+- **Data:** `Chat.shared.people` / `peopleCount` are now the other writers only (the viewer left out) and come with
+  every list but the trash (`GET /api/chats` in all its forms, `GET /api/chats/groups`) and with `chat.updated` (so a
+  new writer's face shows live). One grouped query per response (`chat/shared.ts chatWriters` over the covering
+  `messages_author_chat` index; `chatPeople` per viewer, `peopleFor` per recipient of `chat.updated`), only for the
+  chats that response already lists for the viewer (its own visibility filter, `chatFor` 'view'), so nobody learns of a
+  chat, or a name, they could not open: the names are the authors they see in the chat anyway. The web keeps a row's
+  faces when an action's answer (no `people`) replaces it (`lib/sharedChat.ts keepFaces`).
+- Tests: `tests/unit/b-shared-chat-people.test.ts` (every list, other writers only, one query per list, outsiders),
+  `web/test/unit/project-chat-faces.test.tsx` (project page and `ChatItem`), `list-row-source`, e2e
+  `shared-project-chats.spec.ts`. No migration. Version impact: minor.
+
 ## Office Mac turns get the model-request body check (fix/office-model-proxy-tc359, 2026-11-14, owner, QA TC-359, TC-358)
 
 - **Office turns with the Mac's own Claude sign-in now use the proxy's checked HTTP path, like Linux.** Before, they
@@ -26908,3 +26936,308 @@ connect_service are unchanged.
 - **TC-358 (session folder of shared project chats): accepted, no change** (owner 2026-11-14: "거기서는 어쩔 수 없는거").
   A shared project chat is shared by design, so what one member's turn leaves in the AI session can be read by the next
   member's turn.
+
+## Updates wait for running work (fix/update-waits-for-work, 2026-11-14, the owner, QA TC-1509, FL-016)
+
+- **Ask:** on potenlab.trina.app a dev build installed while a chat rendered a video, and the restart killed the
+  render ("this kind of case happens quite a lot"). The dev server's timer runs `mycel-ctl update` without
+  `--scheduled`, and an app-only update then switched and restarted at once (native/cmd/mycel-ctl/update.go
+  `updateApp`: `if u.scheduled && !u.waitForTurns()`); only root files waited. The answer said "stopped because Trina
+  was updating" (TC-338), but the render step showed as failed and nothing said it was cut.
+- **Every update path now waits for running answers before the server restarts.** `mycel-ctl update` without
+  `--scheduled` (an administrator's run, the dev server's timer) waits before the app switch too, with one deadline
+  for root files and the app together. The default `--max-wait` is 1800 s on a self-installed server (was 600) and
+  stays 600 s on a hosted one, whose control plane gives the whole command 1800 s
+  (shared/src/cloud-protocol/tenant-commands.ts). The server's own run (Update now, the Linux automatic update) waits
+  up to 30 minutes (was 10). The update timer's `--scheduled` run is unchanged: it waits for a quiet moment and never
+  cuts an answer, except its last resort.
+  Running work means the turns: answers and scheduled runs, and the commands and renders inside them.
+  Dev-environment jobs and dev servers are not waited for. They run in their own systemd units, and the tracker
+  finds them again after the restart.
+- **Mark from the wait to the restart.** `mycel-ctl` writes root/update-waiting.json {since, until} (root-owned, the
+  server only reads it, lstat + size cap) when it starts waiting, sets `until` to now when the wait is over and removes
+  it when the run ends. The server counts it at most 15 minutes past `until` (a killed run). The server's own run keeps
+  the same in memory from its start until its restart; a failed run clears it (system/update-wait.ts). Meanwhile no
+  scheduled run starts (`runDue` writes nothing, so it runs once after the restart). box_shell also refuses a
+  foreground command whose time limit would run past `until`, telling the AI to use job=true (a job keeps running
+  through the restart) or a shorter time limit. A skill that needs the output in the same answer may stop there. That
+  is accepted for the short window. New messages are still taken: blocking chat for up to 30 minutes is worse than a
+  cut answer with Try again.
+- **What people see.** Admin › System shows "An update is waiting for N running tasks to finish", and the update
+  job's progress line says the same. With tasks running, Install update offers "Wait, then update" (default) or
+  "Update now anyway" (`force`, no wait). While this server's own update waits, "Update now anyway" on the waiting
+  line ends the wait: the second request returns the waiting job instead of being refused as busy.
+- **Work cut anyway** (cap, force, crash): a step still running when the server stopped is `stopped`, not failed.
+  This holds both for the orderly stop in `finishState` and for the next start's recovery (`stopRunningSteps`). When a
+  tool step (not the AI's thinking) was cut, the answer's line is `updating_step`: "... A step that was still running
+  (a command or a render) was stopped before it finished. Send it again.", with Try again. Zero-downtime switching,
+  the health check and roll-back are unchanged.
+- Left as it was: `retireNow` (the one-time box runner retirement) still restarts at once. The dev server's own update
+  unit is not in this repository, so its systemd timeout must allow the 30-minute wait.
+- Tests:
+  - native/cmd/mycel-ctl update_test.go: the app switch waits, the mark is there at the switch, one shared deadline,
+    and the defaults (self-installed and hosted). Run in Linux Docker.
+  - tests/unit/update-waits-for-work.test.ts.
+  - update-interrupts-answers.test.ts: a cut step, recovery, and schedules during a wait.
+  - dev-env-srt.test.ts: a command that cannot finish before the restart is refused, and a job is accepted.
+
+## People who see a shared chat later: nothing new is hidden (feat/shared-chats-p1, 2026-11-14, product owner)
+
+Supersedes "People who see a shared chat later — 나중에 보는 사람" (2026-11-08) and amends "지난 대화" for answers made
+from now on. Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` (phase 1, QA TC-1404); the owner decided
+the recommended design after an independent security and UX review.
+
+- **The rule.** From the cutover (settings `hidden_answers_cutover`, written once by migration 296 when this build
+  first runs) no answer is hidden from anyone who sees a shared project chat or a team room / the everyone room. The
+  read card before reading stays and now says so: "If it reads it, what it finds stays in this chat for everyone who
+  sees the chat, including people who get access later." "Send to a chat room" and the AI's post-to-room card add, for
+  a team room or the everyone room, "Everyone in this room will see it, including people who join later." People
+  removed from a chat's audience still lose the whole chat.
+- **Older answers keep the old hiding only where no card covered them** (rule b): a shared project chat's answer from
+  before the cutover is judged by the 11-08 walk, but a read group a card's yes covered (`y: 1`) never hides; `x: 1`
+  groups and silent groups keep hiding. Migration 296 marks `y` on the groups of every turn whose audit row
+  `chat.shared_read` says `shared`; the card writes it from now on. In rooms, an older message is hidden from a later
+  member only when its scope is closed or not kept, or holds a person's own folder, browser or connection (`user`), a
+  team connection or a shared Drive the member may not read, or the room itself where an older answer hidden from them
+  is (the chain). An older answer that used team folders only becomes visible. The walk only ever shows more than
+  before. Rollback: an older build ignores the cutover and `y` and hides as before (more, never less).
+- **Deviation from the plan (safer):** the plan let an older room answer that "used rooms" become visible. A room
+  source may carry an older answer that used a person's own folder (alice's personal notes summarised from the room
+  by someone else's AI), so a source that is this room is still judged by the older answers hidden in it.
+- **Still written:** `shared_answer_reads` for every answer (and `room_messages.source_scope`); they hide nothing new
+  but feed the warning below. A new answer built on an older hidden one its runner could see is visible (like copying
+  it by hand); a later reader's own AI still gets `WITHHELD_ANSWER` for the older hidden ones.
+- **Explicit widening warns, with the answers.** The project Members dialog, when adding people, says "{n} answers
+  here used places {names} can't open. Adding them shows those answers too." with **Show answers ›**: the list of
+  those answers replaces the dialog's body (chat, who asked, when, the first line, the places by name only where the
+  adder may open them, else "a place you can't open"; with several picks which of them miss it). One function
+  (`chat/widening.ts`) serves the dry run's `hiddenAnswers` and `POST /api/sharing/widening-answers` (whoever may
+  change the members; 403 `widening_not_allowed` to another viewer, 404 to anyone else; the first page takes a
+  room-send token; pages of 20 behind a cursor signed over the target, the picks, the people who gain it and the
+  position, 409 `changed` otherwise). Only answers the adder sees; answers that stay hidden from the new people anyway
+  are not listed. An item opens `/c/<chatId>?answer=<messageId>` (the branch holding it for this view only, scrolled
+  to and lit; gone: "That answer is no longer here."): a new tab on a computer; on a phone the same screen, with the
+  dialog's draft kept (memory and sessionStorage, 30 minutes) and a bar "‹ Back to sharing" that, like the system
+  Back, returns to the opener and reopens the dialog on the list with the picks.
+- **Silent widening is accepted:** joining a group, an admin's rule or role change, or an account enabled again shows
+  the history from the cutover on without a warning, as a Slack channel's history.
+- **Budget:** the count plus the first page under 300 ms for 10,000 shared answers in 50 chats, at most 3 queries and
+  one rule check per place and person set (`tests/unit/b-widening-answers-bench.test.ts`, fails over budget; 10x by
+  hand: `scripts/bench/widening-answers.ts`). New index `shared_answer_reads_chat_msg`.
+- **Security review of #813 (2026-11-14), what changed:**
+  - Migration 296 marks `y` on a group only when its people (`c`) are as many as the card's audit row says (`audience`)
+    in the same turn. A silent read in the same turn by the same set of people lands in the same group and cannot be
+    told apart from the card's: it counts as covered (written down, accepted). "Always allow" (`askAlways`: decision
+    `shared` with no card shown) counts as covered too: the owner's rule "always allow means done".
+  - An answer is new ("late") only when made from the cutover on and not before its chat was shared: a chat shared after
+    the cutover keeps the older rule for the answers its share recorded. A late answer with an `x` group (what it read is
+    not all known: memories, a scope the share's check could not tell) stays with that group's people; the widening list
+    counts an `x` group as missed by anyone outside it.
+  - Rooms: another room as a source is judged when it is a 1:1 or a group chat (its members only); another team room or
+    the everyone room is a team place and shows.
+  - The widening walk: the same caller's same question (project, rules hash, newest record, picks, page) is answered from
+    a 20-second cache, so the dialog's dry run on every pick does not walk again; every list page (the cursor's too)
+    takes a room-send token; the cursor is signed over the caller as well. Side chats (`room_id`) are never listed, an
+    answer still being written is not listed, and a failed or stopped answer has no preview for anyone but its runner.
+  - Places in the list are in the Files screen's words (`chat/place-words.ts`, as the read card: "Groups › Finance"),
+    never the disk path, in every language.
+  - Tests: `tests/security/shared-chats-cutover.test.ts` (the cutover in the past: search, export, the AI transcript;
+    a late `x` answer; `?through=` with another chat's answer, an answer hidden from the caller and a person's message).
+- **QA TC-1408 (fix/widening-count-limits):** the Members dialog asks the dry run (whose widening count walks the
+  project's shared answers) 400 ms after the last pick, not 300; the dry run takes at most 60 a minute per person (429,
+  the dialog keeps its last count); the 20-second kept answer is asked again after any access change anywhere
+  (`safe_ops_policy.generation`, which its triggers bump for users and roles, groups and members, folders and rules,
+  connections, shared Drives) and when a shared chat of the project is deleted, restored or no longer shared.
+- Version impact: **minor**.
+
+## Admin › Folder permissions as two lists, like Drive — 폴더 권한은 목록 두 개 (feat/admin-folder-lists, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`web/src/pages/admin/Folders.tsx`, `web/src/pages/admin/FolderLists.tsx`), 이유: files and permissions are core. Plan: `docs/AGENTS/plan/20261114-0420-admin-folder-lists.md`. Goes with "Folder access adds up like Google Drive (P2)" (#787, which owns the Share dialog, Limit access, Access removed, the group warning and the Admin notice). The owner: the rule tree and rule words are "too unfamiliar and hard"; sharing should feel like Google Drive shared drives, and Drive has no admin table of rules (its admins change a folder in its own Share dialog).
+
+- **Two tabs.** **Folders**: only folders with their own sharing, in the Files page's names (Company-wide › …), **Limited** marked (Limit access; the second plan review cut "Shared with more" and "Whole team"), who in one line, [Share] opening the folder's Share dialog (`?edit=<path>`; old `?folder=<path>` links open it too). A group's own folder as it was made (only its group, Editor) is not listed; project folders are one line to Projects (their members are changed there); rule rows on folders Files does not show stay reachable by path. Empty: "Every folder is shared like the folder it is in." **What <person> can open**: read only, the server's own answer (`GET /api/admin/access/people/:id`) put in words: each folder with Viewer / Editor and why (Everyone at <team>, In <group>, Added by name, Project member, "from "X""), then Can't open (Limited · not added, Not a project member, Not added), other groups' folders as one count line; the owner and admins one line ("Admins open every team folder, except projects they aren't in"). The invite dialog's "What they'll be able to open" uses the same list.
+- **Removed:** the rule tree (`AccessTree.tsx`), By person with its prefix narrowing and "someone new" (`AccessPeople.tsx`, `AccessResults.tsx`), `FolderPeople.tsx`, "Only folders with rules", "How this works", "Add folder", the rule words and raw `shared`/`groups`/`projects` names, `rules.keepTeam`, `rules.removeBody` and the other unused `accessTree.*`, `accessView.*`, `rules.*` words, the tree-only parts of `lib/access-view.ts`. One group count everywhere: active members.
+- **Independent review (opus), fixed:** a limited folder with nobody added is listed ("Owner and admins only"; its rules are empty in the API); a group's own folder is hidden only while it is as made *and not limited*; on the person page `groups/`, `projects/` and `connected/` (containers everyone passes through in Files) are never "Can't open", and project folders the person is not in fold into one count line like other groups' folders; "Limited" has its own word in ko/id (액세스 제한됨, Akses dibatasi) apart from General access "Restricted" (제한됨, Dibatasi); a folder that is not limited says "+ the folder above" (access adds up); the invite preview of an admin is the one line; the empty states no longer contradict the hidden list or a search; 15 more dead `rules.*`/`accessTree.*`/`accessEdit.*` words removed (`accessView.summaryNone` stays: the honorific tests use it). Known and accepted: the team root, `groups/` and `connected/` with no sharing of their own get none from here (Files has no Share dialog on them, as before for members); deleting a folder's whole rule row is no longer a button (clearing it in the Share dialog does the same for access).
+- **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
+- Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
+
+## Simplified Chinese app language (feat/locale-zh, 2026-11-14, the owner)
+
+- Add Simplified Chinese (`zh`, 简体中文) as the sixth app language, so a Trina Cloud sign-up can make a team whose
+  default language is `zh`. Same coverage as Japanese and Spanish (2026-10-29): the web dictionary
+  (`web/src/i18n/zh.ts`), every server table and positional text helper, step labels, chat errors, push lock-screen
+  lines, relay pages, the generated offline page, the desktop shell and the macOS menu bar. The phone app's native
+  setup screens stay Korean and English, as they are for the other languages.
+- **Every Chinese tag is `zh`**: `zh`, `zh-CN`, `zh-Hans`, `zh-SG`, and also `zh-TW`, `zh-HK`, `zh-Hant`
+  (`asLocale`). Simplified Chinese is the only Chinese we have, and a Traditional Chinese reader reads it better than
+  English. A Traditional Chinese dictionary would get its own code then. Precedence is unchanged: account choice,
+  team default, English; browser or OS language only before a team language exists.
+- Wording: plain mainland Chinese for office workers, 你 rather than 您, full-width punctuation, no space between a
+  Chinese word and a filled-in value. ICU messages keep English's `one` and `other` branches (Chinese selects
+  `other`), and `check:i18n` checks zh's placeholders and plural forms as for ja/es. Skill names are quoted “…”.
+- Dates and numbers use `Intl` with `zh-CN`. Chinese screens take the Simplified Chinese system face first
+  (PingFang SC, Microsoft YaHei, Noto Sans SC): the default stack starts with Korean faces, which draw Han
+  characters in their Korean shapes.
+- No migration: language columns are text checked by the shared `Locale` schema.
+
+## Trina team servers use push.trina.app by default — 트리나 팀 서버는 기본으로 push.trina.app (feat/push-gateway-default, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `scripts/edition-service.ts`, `shared/src/service-hosts.ts`) and the
+Trina edition's `editions/trina/branding/service.json`, 이유: the server reads its config in the core, and an edition's
+hosted-service addresses go through service.json (docs/EDITION-BRANDING.md). Plan:
+`docs/AGENTS/plan/20261114-0826-push-gateway-default.md`. The owner, on hardening push.trina.app so self-hosted teams
+with the store app get phone pushes: "저거 해보자" (2026-11-14).
+
+- **Why.** The store app's APNs and FCM keys live only on push.trina.app. A self-hosted Trina team server sent no phone
+  push until its operator found and set `MYCEL_PUSH_GATEWAY`, so most self-hosted teams had none.
+- **The default is an edition value.** `service.json` gets an optional `pushGatewayUrl` (`https://<host>`; `""` or
+  missing = none), written into `SERVICE_HOSTS.pushGatewayUrl` by `bun scripts/edition-service.ts … --apply`. Trina:
+  `https://push.trina.app`; the neutral core keeps none, so phone push stays off there until the operator sets one.
+- **Order** (`resolvePushGateway`): `MYCEL_PUSH_GATEWAY` when it is set at all, else `push.gatewayUrl` in server.json
+  when the key is there, else the edition default. An unset variable is not an empty one: `''` or `off` (any case) turns
+  phone push off, as do `null`, `""` and `"off"` in server.json. The address check is unchanged (`https://<host>` or
+  `http://127.0.0.1:<port>`).
+- **Installed servers and office Macs only.** The default applies with `mode: "prod"` or `office: true`. A developer's
+  dev server and the tests keep none, so local runs never register phones with the real gateway.
+- **What people see.** Owners and admins still see one line in Settings › Notifications. The "off" line no longer says
+  that no address is set (it may have been turned off on purpose): "Phone app notifications are off on this team
+  server. Whoever runs the server can turn them on in its settings."
+- **Not changed:** the gateway, the request contract and its limits; hosted servers (their server.json already names
+  the gateway). A changed gateway address leaves old device rows unused as before (`nativeConfigKey`), so phones
+  register again at the next sign-in or app start.
+- Tests: tests/unit/push-native.test.ts (Trina default, neutral none, `''`/`off`/`null`, explicit address, dev vs
+  prod/office), tests/unit/edition-service.test.ts (optional field, applied value matches the edition file).
+- Version impact: **minor** (phone push turns on by itself on Trina team servers; no API or data change).
+
+## Self-service account deletion — 내 계정 삭제 (feat/self-account-deletion, 2026-11-14, the owner, QA TC-1524..1532)
+
+- **Ask:** Apple 5.1.1(v) and Google Play want a person to delete their account inside the app without waiting for a
+  person; privacy law wants it done in days and the retention stated. Before, Settings › Profile › Delete account only
+  asked the team owner (2026-11-05, "계정 삭제 요청"), and nothing happened if nobody acted.
+- **The request deletes the account by itself 7 days later** (`ACCOUNT_DELETION_GRACE_DAYS`, owner decision). Until
+  then the account works and the person can press "Keep my account". The page shows the date before and after asking.
+  The owner and the admins (an admin: members only) get the inbox entry with the date and a Members badge "Deleted on
+  <date>", and can delete sooner in Admin › Members. They cannot stop it.
+- **Password every time.** Asking needs the person's password, checked by `sessions.verifyPassword` (the re-check
+  limit: 5 wrong tries per 15 minutes per person, audited `auth.reauth_failed`). A stolen session cannot delete the
+  account or guess the password faster than the other re-checks. Every live account has a password
+  (`insertUser`), so there is no "no password" branch.
+- **The owner never.** The owner still cannot ask (409: hand the team over first). Becoming the owner cancels an open
+  request (`account.deletion_cancel`, detail `{by: 'ownership'}`, actor the old owner). The sweep cancels a leftover
+  one instead of deleting. On a hosted team the owner's page adds one line: the whole team can be deleted on the
+  account page where they signed up (the console, not this repo).
+- **removeAccount** (admin/users.ts): the body of the members screen's delete, callable with no actor. `actorId` null
+  means the server. Folder floors, AI assignment pruning, access-change notices and the audit take null. The
+  personal folder's move into the owner's archive is recorded as the owner's (`archiveFolder(owner)`). The audit
+  `user.delete` gets `why: 'self_request', automatic: true`, actor NULL, and counts only.
+- **The sweep** (auth/sweeper.ts, hourly, one run at a time): `deleteDueAccounts` deletes each person whose date
+  passed, re-reading the request inside the write, so a cancel or a transfer a moment before wins. A failure stays
+  open and is tried at the next run.
+- **Requests open before this build** (migration 297 adds `due_at` and `due_for`): a date counts only while `due_for`
+  (the `requested_at` it was set for) equals `requested_at`. A request with no date, or one re-opened by an older build
+  after a rollback (it changes `requested_at` and keeps the old date), never counts as due. The sweep first
+  gives it a date 7 days from then (audit `account.deletion_dated`) and tells the person in their inbox
+  (`account.deletion_due`, its own notice table like the other notice kinds, link to the page). Nobody is deleted at
+  the first sweep without a warning. The review recommended migration time + 7 days; the first sweep runs 5 s after
+  the start, so it is the same date, and the rollback case is covered too.
+- **A date that passed while the server was down** (stopped over the date, or a restored copy whose dates passed): the
+  sweep does not delete at its first run. The date moves to 24 hours after this process started its sweeps
+  (`markSweepStart`) and the person is told (audit `account.deletion_dated` with `late`). A restore also undoes cancels
+  made after the backup; the 24 hours give the person and the operator time (docs/BACKUP-RESTORE.md).
+- **Owners' leftover requests** are cancelled by the sweep before any dating, never announced or deleted.
+- **Disabled during the 7 days:** still deleted on the date, because they asked. They get no inbox notice they cannot
+  read; the Members badge still shows the date. Re-enabling them lets them press Keep my account.
+- **A crash between the write and the rest.** The `user.delete` audit row is written in the same write as the tombstone
+  and completed afterwards (`unfinished` until then). Once after every start, `finishRemovals` finishes what a cut-off
+  deletion left: a personal folder still at `users/<id>` goes where its record says (the owner's archive, or removed),
+  and for a person who asked, private chats and trashed files go too (`finishedAtStart` in the record). A transfer with
+  no owner to take it keeps the files and their history (the history purge is skipped while the folder is there), and
+  the next start moves them once there is an owner.
+- **What a self-requested deletion removes at once** (and an early delete by the owner or an admin of someone who
+  asked): private chats and memories (not after `chatTrashRetentionDays`), the files they had put in the trash from
+  their personal folder (before the folder moves, or they would follow it into the archive), and the file history and
+  folder records left under `users/<id>/`. The standard guideline wants data destroyed within 5 days once no longer
+  needed; the 7 days to change one's mind come before. A deletion the person did not ask for keeps the old timing.
+- **Personal folder → the owner's archive** (owner decision), as before. The page says so: "Delete them before then if
+  you want them gone."
+- **Cleanup hooks** (auth/account-removal.ts): the users row stays as a tombstone, so ON DELETE CASCADE never runs.
+  Each area registers in its route module's init the rows it keeps per person: A (accounts), sessions (and through
+  them external-app grants and sign-in flows), sign-in networks, own notices, card choices, web access. B (chat),
+  inbox, phone devices, push and notification settings, schedules, site grants, dev-environment rows, room follows,
+  onboarding drafts. C (connections), Drive sign-in revoked at Google (`forgetAccount`: Disconnect without the
+  active-account check; not revoked while the same grant serves something else), sign-in flows, Slack link. The hooks
+  run after the account is gone and once 5 s after every start for accounts deleted earlier (a delete by user id;
+  twice is once). `tests/unit/a-account-removal-coverage.test.ts` reads every column that points at users(id); each
+  is removed or in `KEPT_WITH_ACCOUNT` with its reason (shared chats and room messages under the tombstone name, team
+  history, usage). A new table with a user column fails there until someone decides. `file_versions`, `trash_items`
+  and `folders` have no user column; the due test checks them by path.
+- **What the page lists** (plain lines, no new card): who is told; deleted (sign-in, profile, private chats and
+  memories, own AI and app connections, schedules, notifications); the personal folder to the owner; stays with the
+  team (team-folder files, shared chats, messages in rooms under their name: the tombstone keeps the name); kept for a
+  while (the deletion record in the activity log for `auditRetentionDays`, copies in backups up to 8 weeks).
+- **Backups and restores.** Backups keep a deleted person's data until they rotate out (hosted: daily 14 days, weekly
+  full 8 weeks, update and manual 30 days). The page and the privacy policy say "up to 8 weeks". A database restore
+  brings back accounts deleted after the backup. docs/BACKUP-RESTORE.md "Accounts deleted after the backup" says to
+  list them first (Activity log, or the audit rows) and delete them again; the restore dialog says it too.
+- **App Review account.** Reviewers try Delete account, so the reviewer member deletes itself 7 days later.
+  mobile/STORE-SUBMISSION.md: after each review, keep or recreate it; the reviewer note describes the new flow.
+- Not here: the Trina Cloud console account and the public Play web page (trina-cloud), deleting backups early,
+  e-mail to the person (in-app only).
+- Tests: tests/unit/a-account-deletion-due.test.ts (password, lock, date, nothing before it, the sweep with no actor,
+  what goes at once, the archive with its history, cancel, ownership, early delete, undated and rolled-back requests
+  and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
+  (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
+
+## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/notifications/push-gateway-setting.ts`, `server/src/routes/push.ts`,
+`shared/src/api/push.ts`, `web/src/components/settings/PhoneGatewayRow.tsx`), 이유: phone push and team settings are
+core features; the edition default stays in `editions/trina/branding/service.json`. Plan:
+`docs/AGENTS/plan/20261114-0957-push-gateway-admin.md`. The owner, after "Trina team servers use push.trina.app by
+default" above: self-hosted operators may want to change the phone push address, so open it in the admin page
+(2026-11-14).
+
+- **One row.** Settings › Notifications › Phone gets "Phone notifications" for owners and admins (members see no row and
+  the page never asks for it). Three choices: **Trina push (default)**, phones with the store app get notifications;
+  **Off**; **Custom**, which shows an address field with one line under it: "Works only with your own build of the app.
+  The store app can't receive these." Default and Off save at once; Custom saves with its button. A neutral build with no
+  edition default shows Off and Custom only.
+- **Checked before it is saved.** Custom is saved only when `GET <address>/health` answers `{"ok":true}` (the gateway's
+  own health answer). Otherwise nothing is saved and the row says why: not an address of the rule, a private or local
+  address, no answer, or an answer that is not a gateway's. The address rule is app-config's (`https://<host>`, or
+  `http://127.0.0.1:<port>` for a gateway on the same machine, never on a hosted server). The check is a GET to an address
+  an admin typed, so every address the name resolves to must be public (web_fetch's rule), no redirect is followed, at
+  most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
+  (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
+- **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
+  shows the value, has no control, and one line says where it is set ("Set in the server's settings
+  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
+  set it as `push.setBy`.
+- **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
+  the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
+  change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):
+  phones register again at their next sign-in or app start. A developer's server still gets no edition default.
+- **Audit:** `push.gateway` with the new choice, the custom host and the choice before; the same choice again writes
+  nothing.
+- **Removed:** the one-line gateway note under "Device push notifications" and in the desktop app's row ("Phone app
+  push: on…" / "…off on this team server"): the new row says it, in one place.
+- **Browser and phone told apart (QA TC-1537).** In a browser the row under "This device" is now "Browser
+  notifications", and its not-set-up line says so ("Browser notifications aren't set up on this team server yet. Phone
+  notifications are a separate setting."), so it is not read as phone push being off. The phone app keeps "Device push
+  notifications" for its own device.
+- API: `GET`/`PUT /api/admin/push-gateway` (admin). Tests: tests/unit/push-gateway-setting.test.ts (setBy, resolution,
+  lock, health reasons, routes, audit, no restart), web/test/unit/phone-gateway-row.test.tsx (choices, Custom refused
+  then saved, lock, member).
+- Version impact: **minor** (a new admin setting and endpoint; no migration).
+
+## Connected apps: one Slack state, rows that look clickable, a connect wait that can always be left; Slack lines in the person's language; other apps' messages read (fix/connected-apps-state, 2026-11-14, QA)
+
+넣을 곳: Team AX core (`web/src/lib/slackState.ts`, `web/src/lib/signInWait.ts`, `web/src/lib/browserHandoff.ts`, `web/src/components/integrations/BrowserWait.tsx`, `ConnectionRow.tsx`, `server/src/integrations/slack/`, `server/src/integrations/connections/service.ts`), 이유: the owner hit three rough edges in Admin › Connected apps on potenlab.trina.app (QA TC-1415, TC-1416, TC-1417), Slack's status lines in English in a Korean Slack (TC-1418), and other apps' alerts read empty (TC-1419).
+
+- **Slack: one state for the list and the page (TC-1415).** The row said "On" for every state but `error` (`connecting` included) while Slack's page said "Connecting"; both now read `slackView` (`lib/slackState.ts`): the row's status (On, Connecting, Off, Needs attention, Reconnect) and the page's badge come from one function. The server sends `connectingFor` (seconds in `connecting`, its own clock, memory only; optional for older servers). Connecting for `SLACK_CONNECTING_SLOW_S` (120 s) is a problem, not a wait: the row says Needs attention, the page "Not answering" with "Slack hasn't answered for N minutes. Turn it off and on again. If it still doesn't connect, check that this server can reach the internet." While it connects, the list and the page read the state again (every 4 s, every 30 s once slow), so a page opened during a reconnect moves on to Connected by itself instead of keeping its first answer.
+- **Why potenlab showed "Connecting".** The official app's long-poll feed (`broker.ts SlackBrokerFeed`) starts in `connecting` and said `connected` only when its first poll came back, which with no Slack event is the whole 25 s long-poll wait. Every restart (the dev server installs each dev build, several an hour), Turn off / on and Add to Slack started a new feed, and Slack's page read its state once: opened inside those 25 s it kept "Connecting" for good, while the list mapped it to "On". The connection itself was fine (the hosting service saw this server poll every ~25 s; answers were posted). The feed's first poll (and the first after a failure) now asks with `waitMs: 0`, answered at once, so `connected` comes within a round trip.
+- **Rows that look clickable (TC-1416).** `ConnectionRow` with `onOpen` (Connected and Discover rows): the list rows' hover fill (`List.tsx rowOpenHover`, bleeding out as a page list's does, `pageBleed`), a pointer, a trailing › like the other admin lists, and the open button's area stretched over the whole row (its `::after`; `end`'s own controls stay above it), with the keyboard's ring drawn on that area.
+- **A connect wait can always be left (TC-1417).** Every wait for a sign-in in a browser window has Try again and Cancel from its start (`BrowserWait`; MCP sign-in's Try again no longer waits for a focus event the desktop app may not send) and ends by itself after `SIGN_IN_WAIT_MS` (5 minutes, shorter than the server's 10-minute flows): Connect is back with "Signing in didn't finish, so this stopped waiting." Google (Drive, Gmail, Calendar, Docs, Sheets, the team account, shared Drives) cancels its flow on the server, as Cancel does. MCP sign-in gets `DELETE /api/integrations/flows/:id` (this session's own flow, still pending): its secrets go and the service's late answer is refused, its window saying it was cancelled in the app, so a window left open cannot connect it afterwards. A sign-in the service had already answered (`exchanging`) is not stopped by it: after Cancel or the timeout the screen reads the flow again, and one that ended connected is shown connected, never as cancelled. Add to Slack, "Update Slack permissions" and Sign in with Slack used to leave the button spinning in the desktop app (the navigation goes to the system browser and the page stays): they now wait with Try again / Cancel, read the state again when the window is used again, stop waiting on a page brought back from history, and end by themselves. Their Cancel and their timeout end the flow on the server too (security review of #822): `DELETE /api/admin/slack/install/flow` (admin) and `DELETE /api/slack/signin/flow` (user) mark this person's waiting flow of this session `failed`/`cancelled_here`, and the window that comes back later is told "This was cancelled in the app" (`install_cancelled_here`, `signin_cancelled_here`) and changes nothing. Without it a window left open could finish within its 10 minutes after the app said it was cancelled, and an install of another workspace would have dropped everyone's links. AI apps: when the 10 minutes of looking for the new app end, the dialog says "Not connected yet" with Check again instead of spinning on.
+- **Slack's own lines in the person's language (TC-1418).** What the app says in Slack for a person ("Working on it…", "Answering as …", "Open in …", link prompts, notices) came from `chat/runtime userLocale`, which takes the person's answer language (`prefs.answerLocale`) first: someone with Korean screens and answers in English got English status lines in a Korean Slack. `SlackConnector.localeOf` now reads the person's Trina language (`users.locale`, which is the team's default for someone who follows it), then the team's default, then English. The answer itself still follows the answer language. That covers every line the app writes for a question: working…, "Answering as", "Open in", "Posted to the thread.", "Asked by" (all read `localeOf` of the asker; an unlinked person gets the team's default).
+- **Other apps' messages are read in full (TC-1419).** `slack_read_channel` / `slack_read_thread` (and the asked thread) read a message's `text` only, so another app's alert (a contact form's "새 문의가 접수되었습니다" with its details in Block Kit, a monitor's legacy attachment) reached the AI empty. `read.ts messageRaw` adds what the message's blocks say (section text and fields, header, context, rich_text with links, mentions and emoji, markdown) and its attachments (pretext, author, title with its link, text, "title: value" fields, footer, their blocks; the fallback when nothing else), leaving out what only repeats the text (Slack's rich_text copy of a typed message) and what carries no words (buttons, images, inputs). At most 4,000 characters, 100 parts and 6 levels deep before the message's own 1,500-character cut; the same slackPlain reading (markup in words, every `<` made harmless) and indent as the text, inside the data block.
+- Tests: `tests/unit/c-slack-broker.test.ts` (connected within a round trip), `tests/unit/c-slack.test.ts` (`connectingFor`; the Slack lines' language), `tests/unit/c-integrations-oauth.test.ts` (cancel: own session only, late answer refused), `tests/unit/c-slack-read.test.ts` (blocks and attachments of real-shaped alerts; cut, depth, markup), the security route matrix (`cancelIntegrationFlow`), `web/test/unit/slack-screens.test.tsx` (one state; re-read; slow line; Add to Slack wait), `web/test/e2e/connected-apps-state.spec.ts`.
+- Version impact: **minor** (three new routes; a new optional field on `GET /api/admin/slack`).

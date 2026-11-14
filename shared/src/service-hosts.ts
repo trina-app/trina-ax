@@ -1,5 +1,5 @@
-// The hosted service's addresses: where hosted team addresses live, the official relay, and the pages the relay links
-// to. They live here and only here. An edition with its own hosted service (editions/<name>/branding/service.json)
+// The hosted service's addresses: where hosted team addresses live, the official relay, the pages the relay links
+// to, and the default phone push gateway. They live here and only here. An edition with its own hosted service (editions/<name>/branding/service.json)
 // writes its values into this file with `bun scripts/edition-service.ts editions/<name>/branding/service.json --apply`.
 // Contract test vectors (shared/src/cloud-protocol/vectors*) keep their own example hosts on purpose.
 export const SERVICE_HOSTS = {
@@ -11,6 +11,9 @@ export const SERVICE_HOSTS = {
   accountHost: 'account.trina.app',
   /** the service status page */
   statusHost: 'status.trina.app',
+  /** the phone push gateway a team server uses when its operator sets none (MYCEL_PUSH_GATEWAY, push.gatewayUrl);
+   *  '' = no default, phone push stays off until the operator sets one (server/src/app-config.ts) */
+  pushGatewayUrl: 'https://push.trina.app',
 } as const
 
 /** Is this host the hosted service's own (the official relay, a hosted team address)? */

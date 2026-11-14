@@ -307,7 +307,7 @@ export class TurnExec {
   private sharedSkipped = new Set<string>()
   /** a shared chat: what this answer read, by the people who saw the chat then (chat/shared-answers.ts; one group per
    * set of people, its places by sourceKey) */
-  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource> }>()
+  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource>; y?: boolean }>()
   /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
   sharedWithheld: ReadonlySet<string> = new Set()
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
@@ -2596,18 +2596,20 @@ export class TurnExec {
     return everyoneMayUse(this.rt.db, this.rt.files.rules(), people)
   }
 
-  /** What this answer read joins its record, with the people who saw the chat when it did (chat/shared-answers.ts).
-   * false: the record could not be written (the caller does not read: fails closed). */
-  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[]): boolean {
+  /** What this answer read joins its record, with the people who saw the chat when it did (chat/shared-answers.ts);
+   * `yes`: after a read card's yes (the group gets y: nothing hides by it, it tells a later widening warning and an
+   * older build's walk apart from a silent read). false: the record could not be written (the caller does not read:
+   * fails closed). */
+  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false): boolean {
     if (!this.shared || !sources.length) return true
     const c = [...new Set(audience)].sort()
-    const k = c.join(',')
+    const k = `${yes ? 'y' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
-    if (!g) this.sharedReads.set(k, (g = { c, s: new Map() }))
+    if (!g) this.sharedReads.set(k, (g = { c, s: new Map(), ...(yes ? { y: true } : {}) }))
     let changed = false
     for (const src of sources) { const sk = sourceKey(src); if (!g.s.has(sk)) { g.s.set(sk, src); changed = true } }
     if (!changed) return true
-    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()] }))
+    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}) }))
     try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
@@ -2782,8 +2784,8 @@ export class TurnExec {
     const yes = decision === 'shared'
     for (const k of keys) { if (yes) this.sharedAllowed.add(k); else this.sharedRefused.set(k, decision) }
     if (!yes) return refuse(decision)
-    // the card covered the people who saw the chat when it asked
-    return this.noteSharedReads(sources, audience) ? null : refuse('failed')
+    // the card covered the people who saw the chat when it asked (y: a yes covered it)
+    return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
   }
 
   /** The card itself and its audit row: 'shared' = "읽고 공유하기", else why not. */
@@ -3558,7 +3560,10 @@ export class TurnExec {
     // kept. Not a pause: nothing reached a limit, the engine stopped answering. (One answer has no time limit since
     // 2026-11-14; answers paused at the old one keep their 'time_limit' and their "continue".)
     if (this.stopReason === 'timeout' && !this.error) this.error = engineError('stalled', this.spec.locale)
-    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? 'updating' : 'interrupted', this.spec.locale)
+    // an update that cut a step off (a command, a render mid-way; not the AI's thinking, not one that ended by itself)
+    // says so: the step did not finish, it was stopped
+    const cutWork = this.steps.some((s) => cut.has(s.id) && s.kind !== 'thinking' && s.status === 'error')
+    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? (cutWork ? 'updating_step' : 'updating') : 'interrupted', this.spec.locale)
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
@@ -3570,7 +3575,8 @@ export class TurnExec {
     // fail: it shows as paused, and "continue" picks it up. Its status stays 'error' for apps without Step.paused.
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)
-    if (status === 'stopped') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
+    // and for a step a server stop cut off (an update, a restart): stopped, not failed; the answer's line says why
+    if (status === 'stopped' || this.stopReason === 'shutdown') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
     /** the answer's end state was not written (message.done then says error, as endAfterFailure saved it) */
     let messageSaved = false
     let files: ReturnType<TurnExec['fileSummary']> = null

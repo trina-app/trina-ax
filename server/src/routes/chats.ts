@@ -2,6 +2,7 @@
 // Implements: CHATS (chats, messages, stop, regenerate, edit, branch, turn cards, projects)
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
+import { registerChatAccountCleanup } from '../chat/account-cleanup'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
@@ -22,7 +23,7 @@ import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
 import { projectsRestored } from '../chat/project-restore'
 import { leaveProject, leaveState } from '../chat/project-leave'
-import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
+import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, planAccess, previewAccess, projectAccess, projectWidening, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
@@ -36,6 +37,8 @@ import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
 import { roomsOf } from '../rooms/service'
+import { confirmMac } from '../chat/confirm-key'
+import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -84,6 +87,25 @@ const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProjec
 /** Manage without reading (docs/DECISIONS.md "Project contents only for members"): see it, its members, rename,
  * delete, restore. The owner and admins for every team project; its creator while they may edit it. */
 const mayManage = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayManageProject(ctx.files, p, r)
+
+/** POST /api/projects/access-preview: at most this many per person per minute (QA TC-1408). The Members dialog asks
+ * 400 ms after the last pick, so a person picking fast stays far below it. */
+export const PREVIEW_PER_MINUTE = 60
+const previewsOf = new WeakMap<AppContext, Map<string, number[]>>()
+/** One dry run of `userId`, or 429 past PREVIEW_PER_MINUTE in the last minute (in memory, per server: a restart forgets
+ * it). */
+export function previewLimit(ctx: AppContext, userId: string, now = Date.now()): void {
+  const previews = previewsOf.get(ctx) ?? new Map<string, number[]>()
+  previewsOf.set(ctx, previews)
+  const recent = (previews.get(userId) ?? []).filter((t) => now - t < 60_000)
+  if (recent.length >= PREVIEW_PER_MINUTE) {
+    previews.set(userId, recent)
+    fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (now - recent[0]!)) / 1000)) })
+  }
+  recent.push(now)
+  previews.set(userId, recent)
+  if (previews.size > 10_000) for (const [k, ts] of previews) if (!ts.some((t) => now - t < 60_000)) previews.delete(k)
+}
 
 /** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
  * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
@@ -134,8 +156,18 @@ function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: strin
 }
 
 /** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first, as `viewer` sees them. */
-function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale): { items: Message[]; nextCursor: string | null } {
-  const pathRows = rt.store.pathTo(chat.active_leaf_id)
+function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale, through?: string): { items: Message[]; nextCursor: string | null } {
+  // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
+  const view = messageView(rt, chat, viewer, locale)
+  // `through` (a widening list item: ?answer=): the branch holding that answer, for this read only; an answer not in
+  // the chat or hidden from the viewer: the active branch (the page then says "That answer is no longer here")
+  let leaf = chat.active_leaf_id
+  if (through) {
+    const m = rt.store.messageRow(through)
+    const mine = !!m?.turn_id && rt.store.turnUser(m.turn_id) === viewer
+    if (m && m.chat_id === chat.id && m.role === 'assistant' && (mine || !view?.withheld?.(m.id))) leaf = rt.store.newestLeafUnder(chat.id, m.id)
+  }
+  const pathRows = rt.store.pathTo(leaf)
   let end = pathRows.length
   if (cursor) {
     const c = decodeCursor(cursor, ['before'])
@@ -146,8 +178,6 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   }
   const start = Math.max(0, end - limit)
   const slice = pathRows.slice(start, end)
-  // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
-  const view = messageView(rt, chat, viewer, locale)
   return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale, view)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
@@ -191,6 +221,8 @@ export const chatsRoutes: RouteModule = {
   name: 'chats',
   owner: 'B',
   async init(ctx) {
+    // what a deleted account leaves of this component goes with it (auth/account-removal.ts)
+    registerChatAccountCleanup(ctx)
     const rt = installChatRuntime(ctx)
     ctx.services.realtime = rt.hub
     await rt.recover()
@@ -405,10 +437,10 @@ export const chatsRoutes: RouteModule = {
         }
       }
       const hide = redactorFor(ctx, me).hide
-      // a project's page: who wrote in each of its shared chats listed here (all of them visible to me, above), in one
-      // query for the page
+      // every list but the trash: the other people who wrote in each shared chat listed here (all of them visible to me,
+      // above), in one query for the page (docs/DECISIONS.md "Faces in every chat list")
       const page = [...pinned, ...items]
-      const people = query.projectId && !query.trash ? chatPeople(ctx.db, page.filter(isSharedRow).map((r) => r.id)) : undefined
+      const people = !query.trash ? chatPeople(ctx.db, page.filter(isSharedRow).map((r) => r.id), me) : undefined
       return { items: page.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
     })
 
@@ -569,7 +601,7 @@ export const chatsRoutes: RouteModule = {
     // ---------------- messages ----------------
     kit.handle(API.listMessages, ({ c, params, query, auth }) => {
       const chat = chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row
-      return messagesPage(rt, chat, query.cursor, query.limit ?? 50, auth.user.id, c.get('locale'))
+      return messagesPage(rt, chat, query.cursor, query.limit ?? 50, auth.user.id, c.get('locale'), query.through)
     })
 
     // "참고한 파일" under an answer: each file checked again for this person now (files/sources.ts); a file they cannot
@@ -800,6 +832,9 @@ export const chatsRoutes: RouteModule = {
     // change of an existing one's participants (its creator or an admin)
     kit.handle(API.previewProjectAccess, ({ c, body, auth }) => {
       const locale = c.get('locale')
+      // a light limit per person (QA TC-1408): the dialog asks again on every pick, the widening count walks the
+      // project's shared answers; a burst beyond it is 429 (the dialog keeps its last count)
+      previewLimit(ctx, auth.user.id)
       const p = principal(ctx, auth)
       if (!body.projectId) {
         assertMayCreateTeamProject(ctx.db, p, locale)
@@ -808,6 +843,31 @@ export const chatsRoutes: RouteModule = {
       const r = projectFor(p, body.projectId, true)
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
       return previewAccess(ctx, p, body, r, locale)
+    })
+
+    // the widening list (chat/widening.ts): the answers of a project's shared chats the people the Members dialog would add
+    // start seeing although they miss a place one used. Whoever may change its members; another viewer of it 403, anyone
+    // else 404. The first page takes a room-send token (no free probe of who may read what, as the share check); next
+    // pages carry a cursor signed over the target, the participants, the people who gain it and the position
+    kit.handle(API.wideningAnswers, ({ c, body, auth }) => {
+      const locale = c.get('locale')
+      const p = principal(ctx, auth)
+      const r = projectFor(p, body.target.projectId, true)
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('wideningNotAllowed', locale), { params: { reason: 'widening_not_allowed' } })
+      const plan = planAccess(ctx, p, r, body.add, locale)
+      // the cursor is signed over who asked too: another person's cursor is "changed"
+      const state = (at: number) => ({ kind: 'widening', caller: auth.user.id, target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained: plan.gained, at })
+      let before: number | null = null
+      if (body.cursor) {
+        const cur = decodeCursor(body.cursor, ['r', 'm'])
+        const at = Number(cur?.r)
+        if (!cur || !Number.isSafeInteger(at) || confirmMac(ctx, state(at)) !== cur.m) fail('conflict', tr('wideningChanged', locale), { params: { reason: 'changed' } })
+        before = at
+      }
+      // every page from the room-send budget (429): who may read what is no free probe
+      roomsOf(ctx).takeSendToken(auth.user.id)
+      const res = projectWidening(ctx, p, r, body.add, plan, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
+      return { total: res.total, totalCapped: res.totalCapped, items: res.items, nextCursor: res.nextRowid === null ? null : encodeCursor({ r: String(res.nextRowid), m: confirmMac(ctx, state(res.nextRowid)) }) }
     })
 
     // who sees a team project, for its edit screen (its creator and admins)

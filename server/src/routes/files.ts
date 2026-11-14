@@ -1,6 +1,7 @@
 // Route module "files" — owner: component C (docs/WORKPLAN.md).
 // Implements: FILES (tree, content, save, download, upload, mkdir, move, delete, history, restore, trash, attachments,
 // team-file references and the picker's find / recent, upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
+import { registerConnectionsAccountCleanup } from '../integrations/account-cleanup'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
@@ -41,6 +42,8 @@ export const filesRoutes: RouteModule = {
   owner: 'C',
   init(ctx) {
     componentC(ctx)
+    // a deleted account's Drive sign-in, sign-in flows and Slack link go with it (auth/account-removal.ts)
+    registerConnectionsAccountCleanup(ctx)
     // plugins before the tools: hwp_render asks it whether the HWP plugin is usable; it also installs the team-folder
     // write guard for skill-pack files. A broken plugin store never stops the server here.
     try { pluginsOf(ctx) } catch (e) { ctx.log.error('plugin manager failed to start; plugins stay off', { err: e }) }

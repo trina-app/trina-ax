@@ -64,7 +64,10 @@ export const headBox = 'flex h-row items-center gap-1 pointer-coarse:min-h-11 ma
  * 768px) bleeds on the left only: its right keeps the page's gutter, so a row's "···" and `actions` end where the
  * content above them ends (a page's switch, a heading's action), 16px from the screen's edge, not on it (QA TC-1040) */
 export const pageRowBox = 'min-h-row-page'
-const pageBleed = '-mx-3 w-[calc(100%+1.5rem)] max-md:mr-0 max-md:w-[calc(100%+0.75rem)]'
+export const pageBleed = '-mx-3 w-[calc(100%+1.5rem)] max-md:mr-0 max-md:w-[calc(100%+0.75rem)]'
+/** A row that opens something: its hover fill and keyboard ring, the same on every list (ListRow's; a connection's row,
+ * integrations/ConnectionRow.tsx) */
+export const rowOpenHover = 'rounded-lg hover:bg-hover'
 
 export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-normal text-faint tabular-nums'
 
@@ -75,6 +78,8 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * `wrap`: the name may take two lines. `nameTitle`: the whole name on hover when it is cut. `disabled`: a button row
  * that does nothing now (a picker's row already added): no hover fill. `face`: the icon box of a list of people (ListIcon).
  * `lead`: small marks right before the name (a chat's pin, its shared icon). `tag`: the row's trailing tag (rowTag).
+ * `faces`: who else wrote in a shared chat (chat/SharedChat.tsx ChatFaces), at the row's end in the tag's place: a
+ * list is 240-390px wide on every screen, so faces and a tag together would leave the name too little room.
  * `menu`: the row's "···", beside the link in the <li> (it places itself at the row's right); the row's words keep
  * clear of it. `menuSpace`: the same clearance for a row with no menu in a list whose rows have one (a task's runs among
  * chats), so every tag ends at the same edge. `li`: the <li>'s ref, handlers and data-*; `rowClass`: more classes
@@ -87,12 +92,13 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
  * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ expanded, to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
   icon?: ReactNode
   lead?: ReactNode
+  faces?: ReactNode
   name: ReactNode
   nameTitle?: string
   meta?: ReactNode
@@ -134,7 +140,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, name, nameTi
     'flex gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2',
     // a page's list: the row's inset outside the column (with `actions`, only on the left: they take the right's)
     page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [rowBox, 'w-full'],
-    (to || onClick || choice) && !disabled && 'hover:bg-hover',
+    (to || onClick || choice) && !disabled && rowOpenHover,
     choice && 'cursor-pointer has-[:disabled]:opacity-60',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
     selected && 'bg-hover',
@@ -157,7 +163,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, name, nameTi
           </span>
         )}
       </span>
-      {tag && <span className={clsx(rowTag, 'self-center')} title={tagTitle} data-testid={tagTestId}>{tag}</span>}
+      {faces ? <span className="ml-auto flex shrink-0 items-center self-center">{faces}</span> : tag && <span className={clsx(rowTag, 'self-center')} title={tagTitle} data-testid={tagTestId}>{tag}</span>}
       {end}
     </>
   )

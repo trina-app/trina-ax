@@ -6,7 +6,7 @@ import { expect, test } from 'bun:test'
 import { CHAT_ERROR_MESSAGES, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type ChatErrorReason } from '../../shared/src/api'
 import { engineError, tr } from '../../server/src/chat/i18n'
 
-const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const JARGON = /\b(engine|proxy|API|HTTP|endpoint)\b|엔진|프록시|エンジン|プロキシ|mesin AI|motor de IA|\(HTTP|관리 ›|Admin ›|Admin >|관리자 >/i
 
 test('no engine, proxy, API, HTTP code or admin menu in any chat error, in any language', () => {

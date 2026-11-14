@@ -55,8 +55,8 @@ describe('refusal()', () => {
   })
 
   test('screens by the names the app shows, in every app language', () => {
-    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es'])
-    const trash = { ko: '파일 › 휴지통', en: 'Files › Trash', id: 'File › Sampah', ja: 'ファイル › ゴミ箱', es: 'Archivos › Papelera' }
+    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es', 'zh'])
+    const trash = { ko: '파일 › 휴지통', en: 'Files › Trash', id: 'File › Sampah', ja: 'ファイル › ゴミ箱', es: 'Archivos › Papelera', zh: '文件 › 回收站' }
     for (const L of Locale.options) {
       expect(SCREEN.trash(L)).toContain(`"${trash[L]}"`)
       for (const s of Object.values(SCREEN)) expect(s(L).length).toBeGreaterThan(5)
@@ -166,7 +166,7 @@ describe('the instructions say what each kind of chat cannot do, and where to do
   })
 
   test('"Continue in a chat only you see": the AI names the menu item by the app\'s own words, in every language', () => {
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(SCREEN.continuePrivately(L)).toBe(DICTS[L]['chat.continuePrivately'])
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(SCREEN.continuePrivately(L)).toBe(DICTS[L]['chat.continuePrivately'])
   })
 
   test('a shared chat: what is missing there, and an own chat instead', () => {

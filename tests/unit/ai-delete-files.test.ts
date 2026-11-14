@@ -821,7 +821,7 @@ describe('the card, the answer, the audit and the restore', () => {
       // the owner and admins see who can write it in Admin › Folder permissions: their card keeps the number
       expect(deleteCard({ ...plan, writersShown: true }, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z')).question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 그중 1명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
       expect(ko.details).toEqual([{ label: '휴지통으로 옮길 항목', text: 'projects/falcon/old-draft.md', noSize: true }])
-      for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const writersShown of [false, true]) {
+      for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) for (const writersShown of [false, true]) {
         const c = deleteCard({ ...plan, writersShown }, L, 'Asia/Seoul')
         expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
         for (const k of Object.keys(DELETE_TEXT) as (keyof typeof DELETE_TEXT)[]) expect({ L, k, empty: !DELETE_TEXT[k][L].trim() }).toEqual({ L, k, empty: false })
@@ -885,7 +885,7 @@ describe('the card, the answer, the audit and the restore', () => {
       const falcon = planOf('alice', ['projects/falcon/count-draft.md'])
       const shared = planOf('alice', ['shared/count-draft.md'])
       expect([falcon.lost, falcon.noRestore, falcon.writersShown, shared.noRestore, shared.writersShown]).toEqual([3, 1, false, 0, false])
-      for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
         // the same card whether one, none or all of them can write it: only how many lose it differs
         const card = (p: AiTrashPlan) => deleteCard(p, L, 'UTC', Date.parse('2026-11-10T03:00:00Z')).question
         expect({ L, same: card(falcon) === card({ ...falcon, noRestore: 0 }) && card(falcon) === card({ ...falcon, noRestore: 3 }) }).toEqual({ L, same: true })

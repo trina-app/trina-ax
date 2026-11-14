@@ -14,6 +14,7 @@
 // Before each command the rule of the AI's writes applies (assertStorageRoomForAI). A long command runs as a job: it
 // has an exit status and a log, the person gets a notice when it ends, and each later call gives the AI the results it
 // did not get yet. The AI does not go on by itself when a job ends.
+import { updateWaitingFor } from '../system/update-wait'
 import { z } from 'zod'
 import type { AppContext } from '../context'
 import type { McpContent } from '../turns'
@@ -291,6 +292,15 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     if (!data.background || data.job) return { ...text('Invalid input: port goes only with background=true (a dev server).', true), summary: `${what} -> bad port` }
     const why = previewPortProblem(data.port)
     if (why) return { ...text(`Invalid input: port ${data.port}: ${why}. Use the port of the dev server (for example 3000 or 5173).`, true), summary: `${what} -> bad port` }
+  }
+  // an update waits for running work before the server restarts (system/update-wait.ts): a long foreground command
+  // started now could be cut off at the end of that wait, and a job keeps running through the restart
+  // (a command that can end before the wait does is fine: the update waits for it)
+  const upd = background ? null : updateWaitingFor(ctx.config)
+  const leftSec = upd ? Math.floor((Date.parse(upd.until) - Date.now()) / 1000) - 30 : 0
+  if (upd && (data.timeout_sec ?? 120) > leftSec) {
+    const fits = leftSec >= 10 ? ` or keep timeout_sec at ${leftSec} or less` : ''
+    return { ...text(`Not started: a Trina update is waiting for running tasks to finish and restarts the server soon, which would stop this command. Run it with job=true (a job keeps running through the update, and the person gets a notice when it ends)${fits}, or tell the person to try again after the update.`, true), summary: `${what} -> update waiting` }
   }
   const jobName = data.job ? (data.log_name ?? newJobName()) : null
   // the log is per person: a job or dev server with the same name would write over it

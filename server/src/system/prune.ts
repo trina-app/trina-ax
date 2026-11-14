@@ -14,7 +14,7 @@
 //             team's update window; a manual `stage-update`), and a version folder OLDER than (or the same as) the
 //             current one changed in the last hour (a switch back to it in progress: `admin.js switch <older>` and
 //             Roll back touch it and switch within seconds; `mycel-ctl update --version <older>` copies or touches it
-//             and waits at most --max-wait, 10 minutes, for running turns). Only an hour for the older ones: a server
+//             and waits at most --max-wait, 30 minutes, for running turns). Only an hour for the older ones: a server
 //             that updates many times a day (the dev server: about 40) kept every version of the last day, about 22 GB
 //   removed   every other folder directly under app/versions whose name is a version; .staging-* and *.partial left
 //             by an update that died, once they are a day old; app/engines/<name>/<sha12> folders that
@@ -368,13 +368,14 @@ export function lastPrune(dataDir: string): PruneResult | null {
 type T = Record<Locale, string>
 const gb = (n: number, l: Locale) => `${new Intl.NumberFormat(l, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }).format(n / 1024 ** 3)} GB`
 export const PRUNE_TEXT = {
-  label: { ko: '보관 중인 버전', en: 'Kept versions', id: 'Versi yang disimpan', ja: '保存中のバージョン', es: 'Versiones guardadas' } as T,
+  label: { ko: '보관 중인 버전', en: 'Kept versions', id: 'Versi yang disimpan', ja: '保存中のバージョン', es: 'Versiones guardadas', zh: "保留的版本" } as T,
   ok: (list: string, bytes: number): T => ({
     ko: `${list} · ${gb(bytes, 'ko')}. 더 오래된 버전은 서버가 알아서 지워요.`,
     en: `${list} · ${gb(bytes, 'en')}. The server removes older versions by itself.`,
     id: `${list} · ${gb(bytes, 'id')}. Server menghapus versi yang lebih lama dengan sendirinya.`,
     ja: `${list}・${gb(bytes, 'ja')}。古いバージョンはサーバーが自動で削除します。`,
     es: `${list} · ${gb(bytes, 'es')}. El servidor borra solo las versiones más antiguas.`,
+    zh: `${list} · ${gb(bytes, 'zh')}。服务器会自动删除较旧的版本。`,
   }),
   failed: (list: string, bytes: number, error: string): T => ({
     ko: `${list} · ${gb(bytes, 'ko')}. 오래된 버전을 지우지 못했어요: ${error}`,
@@ -382,5 +383,6 @@ export const PRUNE_TEXT = {
     id: `${list} · ${gb(bytes, 'id')}. Versi lama tidak dapat dihapus: ${error}`,
     ja: `${list}・${gb(bytes, 'ja')}。古いバージョンを削除できませんでした: ${error}`,
     es: `${list} · ${gb(bytes, 'es')}. No se pudieron borrar las versiones antiguas: ${error}`,
+    zh: `${list} · ${gb(bytes, 'zh')}。无法删除旧版本：${error}`,
   }),
 }

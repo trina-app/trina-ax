@@ -14,9 +14,11 @@ import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
 import { isDesktop } from '../../lib/desktop'
-import { deletionNoticeText } from './AccountDeletion'
+import { deletionDueText, deletionNoticeText } from './AccountDeletion'
 import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
+import { PhoneGatewayRow } from './PhoneGatewayRow'
+import { isAdmin, useMe } from '../../store/session'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
@@ -115,7 +117,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
-  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
+  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
+  if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
   if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
@@ -165,6 +168,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
+  // my own account's deletion date while the request is open: the page where I can keep the account
+  if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
   return null
@@ -175,6 +180,7 @@ const PREFERENCES_KEY = 'settings:notificationPreferences'
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
+  const admin = isAdmin(useMe())
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
   // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -254,10 +260,12 @@ export function Notifications() {
         control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
     </PrefSection>}
     {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
-        device; a server from before it leaves it out (no row) */}
-    {preferences?.phoneWhen && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
-      <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
-        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />
+        device; a server from before it leaves it out (no row). Owners and admins also choose where the whole team's
+        phone notifications go (docs/DECISIONS.md "Owners and admins choose where phone notifications go") */}
+    {(preferences?.phoneWhen || admin) && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+      {preferences?.phoneWhen && <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
+        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />}
+      {admin && <PhoneGatewayRow />}
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

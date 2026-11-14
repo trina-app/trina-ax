@@ -13,6 +13,7 @@ import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
+import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
 import { reachedAt } from '../system/connection'
@@ -25,6 +26,7 @@ export const authRoutes: RouteModule = {
   owner: 'A',
   init(ctx) {
     installAuth(ctx)
+    registerAccountsCleanup(ctx)
     startSweeper(ctx)
   },
   register(kit, ctx) {

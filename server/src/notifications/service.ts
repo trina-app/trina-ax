@@ -24,6 +24,7 @@ import { teamDefaultLocale } from '../admin/settings'
 import { activityTabHas, AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 import { serviceRequestOut } from '../integrations/service-request-notices'
+import { datedSql } from '../auth/deletion-requests'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -59,7 +60,7 @@ export type ServiceRequestEvent = Extract<NotificationEventType, 'service.reques
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -71,7 +72,7 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
  * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'chat_answer_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'chat_answer_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -266,6 +267,14 @@ export class Notifications {
     const again = this.ctx.db.query("UPDATE account_deletion_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, requesterId)
     if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'account.deletion_request', requesterId, createdAt, true)
+  }
+  /** The person's own request got its automatic date (auth/deletion-requests.ts deleteDueAccounts: a request open when
+   * this build first ran, or re-opened by an older build). One row per person, re-armed if it was read. Shown always: the
+   * account goes on that date. The date is read from the request when the inbox is shown. */
+  deletionDue(userId: string, createdAt = new Date().toISOString()) {
+    const again = this.ctx.db.query("UPDATE account_deletion_due_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_due' AND source_id=?").run(createdAt, userId, userId)
+    if (again.changes) { if (this.active(userId)) this.signal(userId); return }
+    this.record(userId, 'account.deletion_due', userId, createdAt, true)
   }
   /** A role changed: what an owner or admin no longer handles leaves their inbox. A person who became a member is no
    * longer told of anyone's request; a member who became an admin is now the owner's business only, so the admins'
@@ -575,10 +584,16 @@ export class Notifications {
     // waits, the link opens that person in Admin › Members, where the account is deleted
     if (row.event_type === 'account.deletion_request') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
-      const q = this.ctx.db.query('SELECT cancelled_at, handled_at FROM account_deletion_requests WHERE user_id=?').get(row.source_id) as { cancelled_at: string | null; handled_at: string | null } | null
+      const q = this.ctx.db.query(`SELECT cancelled_at, handled_at, CASE WHEN ${datedSql()} THEN due_at END AS due_at FROM account_deletion_requests WHERE user_id=?`).get(row.source_id) as { cancelled_at: string | null; handled_at: string | null; due_at: string | null } | null
       const state = !q ? null : q.handled_at || !u ? 'handled' as const : q.cancelled_at ? 'cancelled' as const : 'open' as const
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: state === 'open' ? 'admin_members' : null, outcome: null,
-        ...(state ? { deletionRequest: { name: u?.name ?? null, state } } : {}) }
+        ...(state ? { deletionRequest: { name: u?.name ?? null, state, dueAt: state === 'open' ? q!.due_at : null } } : {}) }
+    }
+    // my own account's deletion date (while the request is open; the link opens the page where I can cancel it)
+    if (row.event_type === 'account.deletion_due') {
+      const q = this.ctx.db.query(`SELECT due_at FROM account_deletion_requests WHERE user_id=? AND cancelled_at IS NULL AND handled_at IS NULL AND ${datedSql()}`).get(row.user_id) as { due_at: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: q ? 'account_deletion' : null, outcome: null,
+        deletionDue: { dueAt: q?.due_at ?? null } }
     }
     // who ran which skill first (a name while the account is there) and the count then; no link
     if (row.event_type === 'onboarding.first_run') {

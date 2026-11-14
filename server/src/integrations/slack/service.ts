@@ -28,7 +28,7 @@
 // last listed for the bot token). Nothing of Slack's messages is stored here: read in real time for one turn.
 import crypto from 'node:crypto'
 import path from 'node:path'
-import { DEFAULT_LOCALE, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, Locale as LocaleSchema, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
@@ -84,8 +84,8 @@ interface ConfigRow {
 /** sealed together: the two tokens and, for Sign in with Slack, the app's client secret (own app); the bot token alone
  * (the official app: the app-level token and the client secret stay at the hosting service) */
 interface Tokens { bot: string; app?: string; clientSecret?: string }
-interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null }
-interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string }
+interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null; reason: string | null }
+interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string; reason: string | null }
 /** test deps: also the hosting service's broker (null: none; left out: from the environment, broker.ts) */
 export interface SlackConnectorDeps extends SlackDeps {
   broker?: SlackBrokerOptions | null; pollWaitMs?: number
@@ -150,6 +150,9 @@ export const SIGNIN_CODE = /^[A-Za-z0-9._-]{8,512}$/
 const CODE = SIGNIN_CODE
 const APP_TOKEN = /^xapp-[A-Za-z0-9-]{10,250}$/
 
+/** a flow's reason once it was cancelled in the app (cancelFlows) */
+const CANCELLED_HERE = 'cancelled_here'
+
 export class SlackConnector {
   readonly api: SlackApi
   readonly box: SecretBox
@@ -185,6 +188,9 @@ export class SlackConnector {
   readonly shared = new Map<string, { ids: Set<string>; at: number }>()
   /** the bot's scopes were asked of Slack (checkBotScopes): at most every 10 minutes from refresh */
   private scopesCheckedAt = 0
+  /** the live connection's state and when it began (this server's clock): how long "connecting" has lasted
+   * (adminView connectingFor). Memory only: a restart starts connecting again. */
+  private liveSince: { state: SlackState; at: number } | null = null
 
   constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
@@ -274,6 +280,7 @@ export class SlackConnector {
       // the variable was taken away: nothing comes in (the status line says not served)
       if (!this.broker) { this.noteState('error', 'not_served'); this.stopPoller(); return }
       if (!this.feed) {
+        this.liveSince = { state: 'connecting', at: this.now() }
         this.feed = new SlackBrokerFeed({
           client: this.broker, log: this.log, retryMs: this.deps.retryMs, ...(this.deps.pollWaitMs !== undefined ? { waitMs: this.deps.pollWaitMs } : {}),
           onEvent: (e) => this.onBrokerEvent(e),
@@ -286,6 +293,7 @@ export class SlackConnector {
       return
     }
     if (!this.socket) {
+      this.liveSince = { state: 'connecting', at: this.now() }
       this.socket = new SlackSocket({
         api: this.api, log: this.log, retryMs: this.deps.retryMs, expectedAppId: cfg!.app_id,
         appToken: () => this.tokens()?.app ?? null,
@@ -298,6 +306,7 @@ export class SlackConnector {
   }
 
   private noteState(s: SlackState, err: SlackErrorCode | null) {
+    if (this.liveSince?.state !== s) this.liveSince = { state: s, at: this.now() }
     // the official app removed from the workspace: that stays the reason until it is added again
     const now = this.config()
     if (now?.last_error === 'removed' && !now.secret_enc) return
@@ -352,7 +361,10 @@ export class SlackConnector {
       mode: official ? 'official' : 'own', official: !!this.broker && this.brokerOk,
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
       workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
-      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
+      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state,
+      // how long it has been connecting: the screens turn a long wait into a problem with a next step
+      connectingFor: state === 'connecting' ? Math.max(0, Math.floor((this.now() - (this.liveSince?.state === 'connecting' ? this.liveSince.at : this.now())) / 1000)) : null,
+      lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
       signIn: official ? !!cfg?.secret_enc && !!this.broker : !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
       // reading needs the bot's two history scopes: missing (an app from before them: "Update Slack permissions"), ok,
@@ -744,6 +756,8 @@ export class SlackConnector {
   async finishSignIn(input: { state?: string; code?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'signin_expired', client: 'web' }
     const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as SigninFlowRow | null
+    // cancelled in the app (cancelFlows): nothing is linked, and the window says so
+    if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'signin_cancelled_here', client: f.client }
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'signin_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
@@ -901,6 +915,14 @@ export class SlackConnector {
     }
   }
 
+  /** Cancel (or the screen stopped waiting, QA TC-1417): this person's sign-in or install of this session that still
+   * waits is ended, so a browser window left open cannot finish it afterwards (an install of another workspace would drop
+   * everyone's links). One already being finished is not stopped. */
+  cancelFlows(kind: 'signin' | 'install', userId: string, session: string) {
+    const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+    this.db.query(`UPDATE ${table} SET state = 'failed', reason = ? WHERE user_id = ? AND session_id = ? AND state = 'pending'`).run(CANCELLED_HERE, userId, session)
+  }
+
   /** The hosting service sent the browser back after Slack's "Add to Slack": only a browser signed in as the owner
    * or admin who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
    * The handoff is redeemed with this flow's verifier for the install and its bot token (sealed to a key made for
@@ -908,6 +930,8 @@ export class SlackConnector {
   async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'install_expired', client: 'web' }
     const f = this.db.query('SELECT * FROM slack_install_flows WHERE state_hash = ?').get(sha(input.state)) as InstallFlowRow | null
+    // cancelled in the app (cancelFlows): nothing is added (no other workspace replaces this one), and the window says so
+    if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'install_cancelled_here', client: f.client }
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'install_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
@@ -1095,8 +1119,16 @@ export class SlackConnector {
     }
   }
 
-  private localeOf(userId: string | null): Locale {
-    if (userId) try { return getChatRuntime(this.ctx).userLocale(userId) } catch {}
+  /** The language of what the app says in Slack for a person (working…, "Answering as", Open in, links, notices): their
+   * Trina language, which users.locale keeps (the team's default for someone who follows it); else the team's default,
+   * then English. Not the language they asked the AI to answer in (prefs.answerLocale): that is for the answer itself,
+   * and with it a Korean person who has answers in English got English status lines in a Korean Slack (QA TC-1418). */
+  localeOf(userId: string | null): Locale {
+    if (userId) {
+      const r = this.db.query('SELECT locale FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as { locale: string | null } | null
+      const l = LocaleSchema.safeParse(r?.locale)
+      if (l.success) return l.data
+    }
     try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE }
   }
 

@@ -2245,6 +2245,40 @@ export class TeamFiles {
     return null
   }
 
+  // ---------------- a deleted account ----------------
+  /** A person who asked for their account to be deleted (admin/users.ts removeAccount): what they had put in the trash
+   * from their personal folder goes for good now, before the folder moves to the owner's archive (a trashed item would
+   * follow it there). Returns how many trash items went. */
+  forgetTrashUnder(prefix: string): number {
+    if (!/^users\/[^/]+$/.test(prefix)) throw new Error(`not a personal folder: ${prefix}`)
+    const rows = this.ctx.db.query("SELECT id, storage_path, kind FROM trash_items WHERE restored_at IS NULL AND (original_path = ? OR substr(original_path, 1, length(?) + 1) = ? || '/')")
+      .all(prefix, prefix, prefix) as Pick<TrashRow, 'id' | 'storage_path' | 'kind'>[]
+    let n = 0
+    for (const t of rows) {
+      // a folder purged earlier in this loop took its inner items with it
+      if (!this.ctx.db.query('SELECT 1 FROM trash_items WHERE id = ?').get(t.id)) continue
+      this.purgeRow(t); n++
+    }
+    return n
+  }
+
+  /** After the personal folder of a deleted account moved or was removed: file history (with its stored copies) and
+   * folder records still under users/<id>/ belong to no file anyone can open, and go now. */
+  forgetRecordsUnder(prefix: string): { versions: number; folders: number } {
+    if (!/^users\/[^/]+$/.test(prefix)) throw new Error(`not a personal folder: ${prefix}`)
+    const db = this.ctx.db
+    const under = "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')"
+    let versions = 0
+    for (const v of db.query(`SELECT id, storage_path FROM file_versions WHERE ${under}`).all(prefix, prefix, prefix) as { id: string; storage_path: string | null }[]) {
+      if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })
+      db.query('DELETE FROM file_versions WHERE id = ?').run(v.id)
+      versions++
+    }
+    // a folder record still used by a trashed item (someone else's, in theory) stays for that item
+    const folders = db.query(`DELETE FROM folders WHERE ${under} AND id NOT IN (SELECT folder_id FROM trash_items WHERE folder_id IS NOT NULL AND restored_at IS NULL) AND id NOT IN (SELECT folder_id FROM file_versions WHERE folder_id IS NOT NULL)`).run(prefix, prefix, prefix).changes
+    return { versions, folders }
+  }
+
   // ---------------- retention ----------------
   /** Purge expired trash and old versions (settings trashRetentionDays via purge_at, fileHistoryRetentionDays). */
   sweep(now = Date.now()) {

@@ -625,7 +625,7 @@ describe('Admin › System diagnostics in office mode', () => {
   test('"Updates" says the Mac updates itself, not that it needs a newer zip, in every language', async () => {
     const { M } = await import('../../server/src/system/messages')
     const t = M.updateOffice('0.2.18')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(t[l]).toContain('0.2.18')
       expect(t[l]).not.toContain('office-install.sh')
     }

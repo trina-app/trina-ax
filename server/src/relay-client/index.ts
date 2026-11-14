@@ -30,17 +30,17 @@ export const NOTICES: Record<string, Record<Locale, string>> = {
   relay_took_over: {
     ko: '이 서버가 다른 서버를 대신해 팀 주소에 연결됐어요. 예전 서버를 쓰고 있지 않다면 팀 키가 복사되었는지 확인해 주세요.',
     en: 'This server took over the team address from another server. If you did not move the server, check whether the team key was copied.',
-    id: 'Server ini mengambil alih alamat tim dari server lain. Jika Anda tidak memindahkan server, periksa apakah kunci tim telah disalin.', ja: "このサーバーが別のサーバーからチームアドレスを引き継ぎました。移転していない場合は、チームキーがコピーされていないか確認してください。", es: "Este servidor tomó la dirección del equipo de otro servidor. Si no trasladó el servidor, compruebe si se copió la clave del equipo.",
+    id: 'Server ini mengambil alih alamat tim dari server lain. Jika Anda tidak memindahkan server, periksa apakah kunci tim telah disalin.', ja: "このサーバーが別のサーバーからチームアドレスを引き継ぎました。移転していない場合は、チームキーがコピーされていないか確認してください。", es: "Este servidor tomó la dirección del equipo de otro servidor. Si no trasladó el servidor, compruebe si se copió la clave del equipo.", zh: "这台服务器从另一台服务器接管了团队地址。如果你没有迁移服务器，请检查团队密钥是否被复制。",
   },
   relay_replaced: {
     ko: '다른 서버가 같은 팀 키로 팀 주소에 연결해서 이 서버의 원격 접속이 멈췄어요.',
     en: 'Another server connected to the team address with the same team key, so remote access on this server stopped.',
-    id: 'Server lain terhubung ke alamat tim dengan kunci tim yang sama, sehingga akses jarak jauh di server ini berhenti.', ja: "別のサーバーが同じチームキーでチームアドレスに接続したため、このサーバーのリモートアクセスを停止しました。", es: "Otro servidor se conectó a la dirección del equipo con la misma clave, por lo que se detuvo el acceso remoto de este servidor.",
+    id: 'Server lain terhubung ke alamat tim dengan kunci tim yang sama, sehingga akses jarak jauh di server ini berhenti.', ja: "別のサーバーが同じチームキーでチームアドレスに接続したため、このサーバーのリモートアクセスを停止しました。", es: "Otro servidor se conectó a la dirección del equipo con la misma clave, por lo que se detuvo el acceso remoto de este servidor.", zh: "另一台服务器用同一个团队密钥连接了团队地址，所以这台服务器的远程访问已停止。",
   },
   relay_key_rejected: {
     ko: '등록되지 않은 키로 팀 주소에 연결하려는 시도가 있었고 거부됐어요.',
     en: 'Someone tried to connect to the team address with an unregistered key; it was rejected.',
-    id: 'Ada upaya terhubung ke alamat tim dengan kunci yang tidak terdaftar; upaya itu ditolak.', ja: "未登録のキーでチームアドレスへの接続が試みられたため、拒否しました。", es: "Se rechazó un intento de conexión a la dirección del equipo con una clave no registrada.",
+    id: 'Ada upaya terhubung ke alamat tim dengan kunci yang tidak terdaftar; upaya itu ditolak.', ja: "未登録のキーでチームアドレスへの接続が試みられたため、拒否しました。", es: "Se rechazó un intento de conexión a la dirección del equipo con una clave no registrada.", zh: "有人尝试用未登记的密钥连接团队地址，已被拒绝。",
   },
 }
 

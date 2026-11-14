@@ -97,7 +97,7 @@ function slidePictures(s: DeckSlide): { where: string; path: string; frame: 'cov
   return []
 }
 
-const LABEL: Record<Locale, string> = { ko: '출처', en: 'Source', id: 'Sumber', ja: '出典', es: 'Fuente' }
+const LABEL: Record<Locale, string> = { ko: '출처', en: 'Source', id: 'Sumber', ja: '出典', es: 'Fuente', zh: '来源' }
 
 /** The speaker notes of a slide: where each of its numbers and names stands in the sources, quoted. */
 export function notesFor(s: DeckSlide, parts: { path: string; text: string }[], lang: Locale): string[] {

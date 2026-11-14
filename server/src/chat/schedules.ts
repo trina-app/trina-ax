@@ -35,6 +35,7 @@ import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type Scop
 import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
 import { canRead, membersOnlyNow } from './projects'
+import { updateWaitingFor } from '../system/update-wait'
 
 /** One entry of a task's run history (Schedules.runs; shared/src/api/schedules.ts ScheduleRun). */
 export type ScheduleRunItem = { id: string; status: 'running' | LastOutcome; startedAt: string; endedAt: string | null; chatId: string | null; error: string | null; needName?: string }
@@ -387,6 +388,9 @@ export class Schedules {
   /** One pending occurrence per schedule. A retry never changes its original due key. */
   runDue(now = new Date()): string[] {
     if (!this.rt.acceptingTurns) return []
+    // an update waits for running work before the server restarts (system/update-wait.ts): no new run meanwhile.
+    // Nothing is written, so the due run starts once the update is in (a missed run happens after the restart)
+    if (updateWaitingFor(this.rt.ctx.config, now)) return []
     const due = this.db.query(`SELECT * FROM schedules WHERE enabled=1 AND
       ((pending_due_at IS NOT NULL AND (retry_at IS NULL OR retry_at <= ?)) OR
        (pending_due_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?))

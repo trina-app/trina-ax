@@ -4,7 +4,7 @@ import { Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, Message, MessageSources, Project, SubjectType } from './entities'
+import { AudienceSplit, Chat, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerShareProvenance, ROOM_FILES_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -175,7 +175,10 @@ export type OftenAsked = z.infer<typeof OftenAsked>
  * GET /api/chats/:id/messages returns the active branch, oldest first. Without a cursor: the newest `limit`
  * messages; nextCursor fetches older ones (prepend). Streaming answers come back with the content saved so far.
  */
-export const ListMessagesQuery = PageQuery
+/** `through`: show the branch holding this answer, for this read only (the chat's active branch is not changed for anyone:
+ * a widening list item opens /c/<chatId>?answer=<messageId>); an id not in the chat, or an answer hidden from the viewer,
+ * is ignored (the active branch). Older pages of that view pass it too. */
+export const ListMessagesQuery = PageQuery.extend({ through: Uuid7.optional() })
 export const MessagesPage = page(Message)
 
 export const SendMessageBody = z.object({
@@ -439,6 +442,10 @@ export const ProjectAccessPreview = z.object({
   /** those project skills by name (their folder's name, at most 10, sorted): the confirm names them, since the people
    * who gain the project start using them in its chats */
   skillNames: z.array(z.string()).max(10).optional(),
+  /** an existing project: the answers of its shared chats the people who gain it would start seeing although they used
+   * places some of them can't open (the widening warning, docs/DECISIONS.md "People who see a shared chat later: nothing
+   * new is hidden"; the list: POST /api/sharing/widening-answers). Only answers the caller sees. Absent: none */
+  hiddenAnswers: z.number().int().nonnegative().optional(),
   /** an existing project: saving also writes the floor rule ("everyone: none"), which a folder older builds made does not
    * have, so anyone who saw it only through a rule above it stops seeing it; the screen asks first. Absent: false */
   addsFloor: z.boolean().optional(),
@@ -451,12 +458,40 @@ export type ProjectAccessPreview = z.infer<typeof ProjectAccessPreview>
  * everyone rule other than "everyone else: none"), taken out by whoever manages the members (docs/DECISIONS.md
  * "Project contents only for members"). Taking one out only narrows who sees it: the floor stays or comes back. */
 export const ProjectRuleRef = z.object({ subjectType: SubjectType, subjectId: z.string().nullable() })
+/** A person or group someone shares with (the Members dialog's participants; a chat's audience later). */
+export const ChatAudienceSubject = ProjectParticipant
+export type ChatAudienceSubject = z.infer<typeof ChatAudienceSubject>
+/** The widening list (docs/DECISIONS.md "People who see a shared chat later: nothing new is hidden"): a team project and
+ * the participants its Members dialog would save (`add`: the whole list, as for the dry run); `cursor` from the page
+ * before; `limit` 1..50 (20). */
+export const WideningAnswersBody = z.object({
+  target: z.discriminatedUnion('kind', [z.object({ kind: z.literal('project'), projectId: Uuid7 })]),
+  add: z.array(ChatAudienceSubject).min(1).max(200),
+  cursor: z.string().max(500).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+})
+export type WideningAnswersBody = z.infer<typeof WideningAnswersBody>
+/** One answer the new people would start seeing: its chat, when, who asked, its first line (plain text, at most 120
+ * characters), the places it used that some of them miss (by name only where the caller may open it now; several
+ * others: one `hidden`), and which of the picked people and groups miss them (names the caller chose, never anyone
+ * else). */
+export const WideningAnswer = z.object({
+  chatId: Uuid7, chatTitle: z.string(), messageId: Uuid7, at: z.string(),
+  askedBy: UserRef.extend({ avatarVersion: z.number().int().positive().optional() }).nullable(),
+  preview: z.string(),
+  places: z.array(z.union([z.object({ name: z.string() }), z.object({ hidden: z.literal(true) })])),
+  missedBy: z.array(z.string()),
+})
+export type WideningAnswer = z.infer<typeof WideningAnswer>
+/** `total`: how many there are (`totalCapped`: it stopped counting at 50,000); `nextCursor`: the next page, or null. */
+export const WideningAnswers = z.object({ total: z.number().int().nonnegative(), totalCapped: z.boolean(), items: z.array(WideningAnswer), nextCursor: z.string().nullable() })
+export type WideningAnswers = z.infer<typeof WideningAnswers>
 export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64), removeRules: z.array(ProjectRuleRef).max(50).optional() })
 
 export const CHATS = {
   oftenAsked: endpoint({ method: 'GET', path: '/api/questions/often-asked', auth: 'user', owner: 'B', response: OftenAsked, summary: 'Home’s "what my group often asks": generic sentences that 3 or more people of the caller’s group (else the team) asked in a similar way, rewritten once a day; never who asked, how many or when. Empty while the team setting is off or there is too little data.' }),
-  listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
-  listChatGroups: endpoint({ method: 'GET', path: '/api/chats/groups', auth: 'user', owner: 'B', response: ChatGroups, summary: 'My Trina list in one read: my pinned chats, my chat folders, the projects I can see with my activity in the last 14 days (at most 8, the most recent first; projectsMore counts the rest I can see), each folder and project with how many of its chats I can open now, its first 3 and the ones that show a marker now, and page 1 of my other chats (next pages: GET /api/chats?other=1); projectActivity: for every project I can see, how many chats in it I can open (mine and its shared chats, never another person\'s private chat) and when the latest was active. Only what my own chat list holds and only projects I can see now; nobody else\'s folders.' }),
+  listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see. Every list but the trash gives each shared chat the other people who wrote in it (shared.people: the 3 most recent, never me; shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
+  listChatGroups: endpoint({ method: 'GET', path: '/api/chats/groups', auth: 'user', owner: 'B', response: ChatGroups, summary: 'My Trina list in one read: my pinned chats, my chat folders, the projects I can see with my activity in the last 14 days (at most 8, the most recent first; projectsMore counts the rest I can see), each folder and project with how many of its chats I can open now, its first 3 and the ones that show a marker now, and page 1 of my other chats (next pages: GET /api/chats?other=1); each shared chat with the other people who wrote in it (shared.people, shared.peopleCount); projectActivity: for every project I can see, how many chats in it I can open (mine and its shared chats, never another person\'s private chat) and when the latest was active. Only what my own chat list holds and only projects I can see now; nobody else\'s folders.' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a team project it is a shared chat, seen and continued by the project\'s members, unless `private` is true ("Only me"); never in a personal project or while safe operations are on.' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat, or a shared project chat I can see.' }),
@@ -487,7 +522,8 @@ export const CHATS = {
   joinProjectsUpdateNotice: endpoint({ method: 'POST', path: '/api/projects/update-notice/join', auth: 'user', owner: 'B', response: ProjectsUpdateJoined, summary: '"Add me to these": the caller becomes a member of every project on their card, each saved as Add me on the project saves it (audited per project with self, its members told), plus one audit row. Projects not on the card are never touched; one that cannot be saved is skipped and counted.' }),
   dismissProjectsUpdateNotice: endpoint({ method: 'POST', path: '/api/projects/update-notice/dismiss', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Hide the card for good, for the caller (every device).' }),
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else.' }),
-  previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants (for the owner and admins also apart: by its rules, by role only), or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved.' }),
+  previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants (for the owner and admins also apart: by its rules, by role only), or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved. At most 60 a minute per person (429).' }),
+  wideningAnswers: endpoint({ method: 'POST', path: '/api/sharing/widening-answers', auth: 'user', owner: 'B', body: WideningAnswersBody, response: WideningAnswers, summary: 'The widening list: the answers of a team project\'s shared chats that the people its Members dialog would add start seeing although they used places some of them can\'t open, newest first, 20 a page (the caller\'s own view: answers hidden from them left out, a place by name only when they may open it, "missed by" only the people and groups they picked). Whoever may change its members (403 widening_not_allowed to another viewer, 404 to anyone else). The first page takes a room-send token (429); a cursor of a list whose people or position changed answers 409 changed. Nothing is saved.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', query: ProjectsQuery, response: Project, summary: 'One project (manage=1: also one the owner or an admin manages without being a member, without its contents, or one in the trash the caller is a member of: name and state only).' }),
   restoreProject: endpoint({ method: 'POST', path: '/api/projects/:id/restore', auth: 'user', owner: 'B', response: Project, summary: 'Put a team project whose folder is in the trash back, with its folder (the owner or an admin, or its creator while a member; audited).' }),
   getProjectPeople: endpoint({ method: 'GET', path: '/api/projects/:id/people', auth: 'user', owner: 'B', response: ProjectPeople, summary: 'Who is in a team project in projects/<name>, each person once with their photo, groups expanded (the groups only for whoever manages it). Its members, and the owner and admins who manage it; anyone else 404. 409 project_personal for a personal project, project_legacy for one made before outside projects/.' }),

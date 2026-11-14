@@ -17,7 +17,7 @@ here as `@mycel/shared/cloud-protocol` and only adds what the control plane and 
 | File | What | Spec |
 |---|---|---|
 | `enroll.ts` | `/run/ax/enroll.json`, `POST /enroll` request and answer (modes `new`, `restore`, `verify`, `reattach`), `/run/ax/enroll-status.json` | control-plane 3.5.2, isolation §5.4 |
-| `tenant-commands.ts` | the `mycel-ctl` commands ax-hostd may run for the control plane (`tenantCommand`), their args, stdin and output, `TenantStatus`, the gate `tenantCommandProblem()` | control-plane 3.5.3 |
+| `tenant-commands.ts` | the `mycel-ctl` commands ax-hostd may run for the control plane (`tenantCommand`), their args, stdin and output, `TenantStatus`, the gate `tenantCommandProblem()`, `FRESH_TEAM_FAILING_CHECKS` (checks that fail on a fresh hosted team; the update gate does not roll back on them) | control-plane 3.5.3 |
 | `common.ts` | shared field rules: `TenantId` (ULID), `TeamSlug`, `RelayTeamId`, `PlanId`, `TimeZoneName`, `AccountUsername` (= the team server's username rule), `HttpsUrl` (https, http only to this machine), `CredentialKind`, `CLOUD_DEFAULT_CREDENTIAL_KINDS` | — |
 | `files.ts` | `plan.json` (runtime field names + the control plane's `maxActiveMembers`, `display`, `links`, `speechFreeHours`; the team server reads plan.json with this schema), `notices.json`, `<data>/relay/registration.json`, `PlanResources` (ax-hostd's VM resources), `PlanLimits` | control-plane 3.5.6, linux-runtime 3.8.5 |
 | `release.ts` | `server/<channel>.json` and `server/<version>/release.json` (the server's `ReleaseFeed` + optional fields) | control-plane 3.7.1, linux-runtime 3.6.3 |

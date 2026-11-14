@@ -13,5 +13,5 @@ test('chat actions: team files only, never a missing or download-only file', () 
 })
 
 test('the download-only reason exists in every language', () => {
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect((DICTS[l] as Record<string, string>)['files.askAiDownloadOnly']?.length).toBeGreaterThan(20)
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect((DICTS[l] as Record<string, string>)['files.askAiDownloadOnly']?.length).toBeGreaterThan(20)
 })
