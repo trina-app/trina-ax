@@ -26682,3 +26682,34 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   engine's request ends at a stall), `fair-queue*.test.ts` (no deadline written), `proxy-codex.test.ts`,
   `chat-errors-plain.test.ts`; the harness option `turnTimeoutMs` is now `stallTimeoutMs`.
 - Version impact: **patch** (a limit removed, one error text added; no API or database change).
+
+## Always allow also in side chats, rooms and scheduled runs (fix/rec4, 2026-11-14, owner, QA TC-1292, TC-320)
+
+Owner, 2026-11-14: "거기서도 그냥 항상 허용 넣자" — Always allow goes into rooms, ✦ side chats and scheduled runs too, not
+only a personal chat. This supersedes the places that still said "never": TC-320 / "Always allow never applies in a
+room, a ✦ side chat or a scheduled run", the "Review of #678" line that the combined room + wider-save card never
+offers it, "a scheduled run still sends only what its task's card allowed" and the "Where it never applies" entry for a
+scheduled run. A Slack question, a company profile draft, a confidential chat, an address that may carry data out and
+connect_service are unchanged.
+
+- **Side chats and rooms.** The ✦ side chat and any chat that read a room already offered it (11-13, `room_change`). The
+  one card that asks for a room change and a wider save together (`askWidening` with `room`) now offers "Always allow"
+  too: picking it keeps both kinds for the person (`room_change` and `save_wider`), and it is offered while the room kind is off
+  (with both on there is no card). There is no room session that answers for the room (since 11-09 the AI is the ✦
+  side chat, a personal chat), so nothing else is room-wide.
+- **Scheduled runs.** Nobody is there to answer a card, so Always allow is never offered in a run; a choice the
+  task's own person already made holds (`alwaysHere` answers `on` for `clientKind: 'schedule'`, `null` otherwise): the
+  generic cards, delete_files, post_to_room, skill_files and move_skill no longer refuse the run when their kind is on, and
+  a connection send goes without the card when the person has their own Always allow for it (their own connection set to
+  allow, or `integration_user_allow`, only while the team's switch is on). A task that pinned recipients is still held to
+  them (`pinnedRefusal`); a team connection set to send without asking still needs the task's own card (`scheduleMayWrite`).
+  The accepted cost, as since 11-13: an instruction planted in a mail or a room message can make a run that has the
+  person's Always allow send or change what the choice covers.
+- **Scoped to the person who chose it.** `alwaysOn` reads only the turn's own person (`AlwaysPlace.userId`), so one member's
+  choice never applies to another member's side chat, to a room-wide action or to a run of someone else's task; the
+  team's switch (`roomAlwaysAllow`) off still ignores every row; the wording of the card (what it covers, "will not ask
+  again, even after reading web pages or files") is unchanged and still honest.
+- **Why:** the owner's 11-11 rule ("always allow means done"): one rule for every place, not a list of exceptions.
+- Tests: `b-chat-rooms-save.test.ts` (the combined card offers it; picking it keeps both kinds), `b-always-allow.test.ts`
+  (a scheduled run: `on` only for its own person's kind, never offered), `b-chat-rooms-fewer-cards.test.ts`.
+- Version impact: **patch**.

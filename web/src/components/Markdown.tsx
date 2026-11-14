@@ -31,6 +31,7 @@ import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 import { teamImageItem } from '../lib/imageViewer'
 import { useDarkTheme } from '../lib/theme'
+import { keepPunctuation } from '../lib/keepPunctuation'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -508,8 +509,8 @@ export function labelQuotes() {
   }
 }
 
-const REHYPE = [hideHtmlComments, mathRehype as never]
-const REHYPE_ANSWER = [hideHtmlComments, labelQuotes, mathRehype as never]
+const REHYPE = [hideHtmlComments, keepPunctuation, mathRehype as never]
+const REHYPE_ANSWER = [hideHtmlComments, labelQuotes, keepPunctuation, mathRehype as never]
 
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
 export function urlTransform(url: string): string {

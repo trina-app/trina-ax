@@ -20,6 +20,13 @@ describe('Markdown rendering', () => {
     for (const c of ['text-xs', 'leading-5']) expect(small).toContain(c)
     for (const c of ['text-reading', 'leading-7']) expect(small).not.toContain(c)
   })
+  test('punctuation right after a link stays with it (a file link is a button: the comma must not start the next line, TC-1294)', () => {
+    const html = answer('Open [the report](/files/shared/report.pdf), and then [that](https://example.com/x). Done.')
+    expect(html).toMatch(/<span class="whitespace-nowrap [^"]*">.*?<\/a>,<\/span> and then/)
+    expect(html).toMatch(/<\/a>\.<\/span> Done\./)
+    // no punctuation after it, or a space before it: nothing wrapped
+    expect(render('Open [the report](/files/shared/report.pdf) now ,x')).not.toContain('whitespace-nowrap')
+  })
   test('plain English emphasis is unchanged', () => {
     expect(render('a **bold** word and *italic*')).toContain('<strong>bold</strong>')
     expect(render('a **bold** word and *italic*')).toContain('<em>italic</em>')

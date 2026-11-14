@@ -83,10 +83,11 @@ export type DeleteRefusal = keyof typeof DELETE_REFUSAL
 export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why delete_files is refused in this turn whatever is asked, or null: only the person's own chat, with them there. */
-export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'>): DeleteRefusal | null {
+export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): DeleteRefusal | null {
   if (exec.restricted) return 'restricted'
   if (exec.templateRun) return 'template'
-  if (exec.spec.clientKind === 'schedule') return 'scheduled'
+  // a scheduled run has nobody to answer the card: only the person's own "Always allow" for deletes lets it go on (owner 2026-11-14)
+  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
   if (exec.shared) return 'shared'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.otherAuthors) return 'others'

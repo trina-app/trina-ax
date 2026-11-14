@@ -404,6 +404,11 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
     if (no) throw new CallError(no, 'refused (scheduled run: not a pinned recipient)')
     return false
   }
+  // a scheduled run with the task's person's own Always allow for this connection (their own row or their own
+  // connection's rule, never another member's): it goes without the card nobody could answer (owner 2026-11-14, QA
+  // TC-320). A task that pinned recipients is held to them above; a team connection set to send without asking keeps
+  // needing the task's own card (scheduleMayWrite above, also after a room read).
+  if (b.scheduled && teamOn && !(row.scope === 'team' && row.write_policy === 'allow') && ((row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow') || memberAllows(ctx.db, row, b.userId))) return false
   const person = b.scheduled ? null : tc.files.person
   if (!person || person.unattended) {
     throw new CallError(refusal({

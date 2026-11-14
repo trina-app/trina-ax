@@ -23,7 +23,7 @@ import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -640,7 +640,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       const copy = a.data.keep === true
       const verb = copy ? 'copied' : 'moved'
       if (a.data.name !== undefined && !copy) return bad('Not moved: name is only for a copy (keep: true). A moved skill keeps its name; to rename one, edit its SKILL.md and folder (the user confirms on a card).', 'refused: name without keep')
-      if (spec.clientKind === 'schedule') return bad(`Not ${verb}: a scheduled run has nobody to confirm the card. Tell the user to ${copy ? 'ask for the copy' : 'move the skill'} in a chat${copy ? '' : ' or with the Move item in the skill\'s menu on the Skills page (shown in their screen language)'}.`, 'refused: scheduled run')
+      if (spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'skill_files') !== 'on') return bad(`Not ${verb}: a scheduled run has nobody to confirm the card. Tell the user to ${copy ? 'ask for the copy' : 'move the skill'} in a chat${copy ? '' : ' or with the Move item in the skill\'s menu on the Skills page (shown in their screen language)'}.`, 'refused: scheduled run')
       if (exec.shared || exec.restricted || exec.templateRun) return bad(`Not ${verb}: a skill is moved or copied only from the user's own chat, where they answer the card (not from a shared chat or a run limited to one task). Tell the user to ask in one of their own chats.${copy ? '' : ' ' + toPage}`, 'refused: not here')
       let user: Principal
       try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }
