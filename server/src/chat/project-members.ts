@@ -571,7 +571,7 @@ export function projectMembersTool(exec: MembersExec): Tool {
    */
   function planFor(user: Principal, r: ProjectRow, add: readonly Entry[], remove: readonly Entry[], o: { ids?: boolean } = {}): { plan: MembersPlan } | { reason: string; text: string; audit?: Record<string, unknown> } {
     const access = projectAccess(ctx, r, user)
-    const people: Subject[] = listPeople(db).map((x) => ({ subjectType: 'user' as const, subjectId: x.id, name: x.name, ...(x.title ? { title: x.title } : {}) }))
+    const people: Subject[] = listPeople(db, new Date(), user.id).map((x) => ({ subjectType: 'user' as const, subjectId: x.id, name: x.name, ...(x.title ? { title: x.title } : {}) }))
     const allGroups = (db.query('SELECT g.id, g.name, (SELECT COUNT(*) FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = g.id AND u.status = \'active\' AND u.deleted_at IS NULL) AS n FROM groups g ORDER BY g.name').all() as { id: string; name: string; n: number }[])
       .map((g) => groupSubject({ id: g.id, name: g.name, people: g.n }))
     // a member names their own groups only (checkParticipants); a group they are not in is "not found" (its name is not

@@ -188,7 +188,7 @@ export class Notifications {
     const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL AND substr(source_id, 1, ${NOT_READY_SOURCE.length}) != '${NOT_READY_SOURCE}' ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
     const now = new Date().toISOString(), touched = new Set<string>()
     for (const r of rows) {
-      const m = this.ctx.db.query("SELECT id, role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
+      const m = this.ctx.db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
       if (m && !canUseAi(this.ctx, m)) continue
       this.ctx.db.query('UPDATE onboarding_notices SET read_at=? WHERE id=? AND read_at IS NULL').run(now, r.id)
       touched.add(r.user_id)
@@ -332,7 +332,7 @@ export class Notifications {
       WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND u.role != 'owner'`).all() as { user_id: string }[]
     if (!open.length) return
     const now = new Date().toISOString()
-    for (const r of open) for (const id of deletionHandlers(this.ctx, (db.query('SELECT role FROM users WHERE id=?').get(r.user_id) as { role: string }).role)) {
+    for (const r of open) for (const id of deletionHandlers(this.ctx, (db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id=?`).get(r.user_id) as { role: string }).role)) {
       const o = { id }
       if (!db.query("SELECT 1 FROM account_deletion_notices WHERE user_id=? AND event_type='account.deletion_request' AND source_id=?").get(o.id, r.user_id)) this.record(o.id, 'account.deletion_request', r.user_id, now, true)
     }
@@ -422,7 +422,7 @@ export class Notifications {
     args.push(new Date(Date.now() - MEMBER_WELCOME_DAYS * 86_400_000).toISOString())
     args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
     const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
-      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
+      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 AND (t.created_by IS NULL OR u.id <> t.created_by)
       WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
         NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM member_welcome w WHERE w.user_id = u.id AND w.apps_seen_at IS NULL AND w.joined_at >= ? AND t.created_at <= w.joined_at)
@@ -897,9 +897,11 @@ export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joi
     catch { ctx.log.warn('team join notification recording failed') }
   }
 }
-/** Who is told about, and handles, a request from someone with this role: the owners, and the admins when a member asks. */
+/** Who is told about, and handles, a request from someone with this role: the owners, and the admins when a member asks.
+ * A guest's request is handled as a member's (owner decision 2026-11-14). The filter reads the stored role: a guest is
+ * stored as 'member' (users.guest = 1), and only owners and admins are selected, so no guest is ever a handler. */
 export function deletionHandlers(ctx: AppContext, requesterRole: string): string[] {
-  const roles = requesterRole === 'member' ? "'owner', 'admin'" : "'owner'"
+  const roles = requesterRole === 'member' || requesterRole === 'guest' ? "'owner', 'admin'" : "'owner'"
   return (ctx.db.query(`SELECT id FROM users WHERE role IN (${roles}) AND status = 'active' AND deleted_at IS NULL`).all() as { id: string }[]).map((u) => u.id)
 }
 

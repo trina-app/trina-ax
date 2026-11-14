@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
+import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
@@ -18,6 +18,8 @@ export const PersonName = z.string().trim().min(1).max(100).refine((s) => !NAME_
 
 /** GET /api/me */
 export const Me = z.object({
+  /** only for a guest: their one place and AI choice */
+  guest: GuestDetail.optional(),
   user: z.object({
     id: UserId,
     username: z.string(),
@@ -153,6 +155,8 @@ export const InviteInfo = z.object({
   /** true while every seat of the plan is taken: accepting is refused until a seat is free (the page says so instead
    * of the form). Absent from an older server */
   full: z.boolean().optional(),
+  /** a guest invite: the one place the guest joins, by kind and name */
+  guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string() }).optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

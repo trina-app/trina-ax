@@ -29,15 +29,17 @@ export function resolveSubjects(db: Database, subjects: readonly AudienceSubject
   const users = subjects.filter((s) => s.type === 'user').map((s) => s.id)
   const groups = subjects.filter((s) => s.type === 'group').map((s) => s.id)
   if (!users.length && !groups.length) return []
-  return (db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND (id IN (SELECT value FROM json_each(?1))
+  // never a guest (docs/DECISIONS.md "Guests: only what they were invited to": a chat shared with people is no place of theirs)
+  return (db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 AND (id IN (SELECT value FROM json_each(?1))
     OR id IN (SELECT user_id FROM group_members WHERE group_id IN (SELECT value FROM json_each(?2)))) ORDER BY id`).all(JSON.stringify(users), JSON.stringify(groups)) as { id: string }[]).map((r) => r.id)
 }
 
 /** The people who see this people-shared chat now: its creator (while active) and the active people it names or who are
  * in a group it names. Sorted. */
 export function peopleAudience(db: Database, chat: { id: string; user_id: string }): string[] {
+  // a guest is never in someone else's people-shared chat (only its creator could be one, and guests cannot share)
   return (db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND (id = ?1
-    OR id IN (SELECT subject_id FROM chat_audience WHERE chat_id = ?2 AND subject_type = 'user')
+    OR (guest = 0 AND id IN (SELECT subject_id FROM chat_audience WHERE chat_id = ?2 AND subject_type = 'user'))
     OR id IN (SELECT g.user_id FROM group_members g JOIN chat_audience a ON a.subject_type = 'group' AND a.subject_id = g.group_id WHERE a.chat_id = ?2))
     ORDER BY id`).all(chat.user_id, chat.id) as { id: string }[]).map((r) => r.id)
 }
@@ -45,8 +47,10 @@ export function peopleAudience(db: Database, chat: { id: string; user_id: string
 /** Is `userId` in this people-shared chat now (its creator, or an active person it names or who is in a group it
  * names)? */
 export function inPeopleAudience(db: Database, chat: { id: string; user_id: string }, userId: string): boolean {
-  if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId)) return false
+  const u = db.query("SELECT guest FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId) as { guest: number } | null
+  if (!u) return false
   if (chat.user_id === userId) return true
+  if (u.guest === 1) return false
   return !!db.query(`SELECT 1 FROM chat_audience a WHERE a.chat_id = ?1 AND ((a.subject_type = 'user' AND a.subject_id = ?2)
     OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?2))) LIMIT 1`).get(chat.id, userId)
 }

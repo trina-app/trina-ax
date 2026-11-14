@@ -277,7 +277,8 @@ async function signed<T>(o: { relayApi: string; teamId: string; key: KeyObject }
 
 /** Daily liveness signal: version and member count only (no chats, no files). */
 export async function heartbeat(o: { db: Database; relayApi: string; teamId: string; key: KeyObject; version: string }): Promise<TeamInfo> {
-  const members = (o.db.query(`SELECT COUNT(*) AS n FROM users WHERE status = 'active'`).get() as { n: number }).n
+  // guests take no seats (docs/DECISIONS.md "Guests: only what they were invited to")
+  const members = (o.db.query(`SELECT COUNT(*) AS n FROM users WHERE status = 'active' AND guest = 0`).get() as { n: number }).n
   const info = await signed<TeamInfo>(o, 'POST', `/teams/${o.teamId}/heartbeat`, { version: o.version, members })
   o.db.query('UPDATE relay_registrations SET last_heartbeat_at = ? WHERE relay_api = ?').run(new Date().toISOString(), o.relayApi)
   return info

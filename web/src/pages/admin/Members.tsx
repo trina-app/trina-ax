@@ -1016,7 +1016,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
   const t = useT()
   const act = useAction()
   const [name, setName] = useState(user.name)
-  const [role, setRole] = useState<MemberRole>(user.role === 'owner' ? 'admin' : user.role)
+  const [role, setRole] = useState<MemberRole>(user.role === 'owner' ? 'admin' : user.role === 'guest' ? 'member' : user.role)
   const [groupIds, setGroupIds] = useState(user.groupIds)
   // '' = follows the team default (null on the wire)
   const [language, setLanguage] = useState<Locale | ''>(user.localeChoice ?? '')

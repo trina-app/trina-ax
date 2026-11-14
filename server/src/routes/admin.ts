@@ -7,7 +7,8 @@ import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { createInvite, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
+import { createGuestInviteFor, createInvite, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
+import { convertGuest, disablePlacelessGuests, updateGuestAi } from '../admin/guests'
 import { msg } from '../auth/messages'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
@@ -68,6 +69,9 @@ export const adminRoutes: RouteModule = {
   name: 'admin',
   owner: 'A',
   register(kit, ctx) {
+    // at start: a guest whose one place went away without an access change (a backup restored, a folder removed on
+    // disk) is switched off (admin/guests.ts)
+    try { disablePlacelessGuests(ctx, null) } catch (e) { ctx.log.warn('placeless guests check failed at start', { err: e }) }
     const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------
@@ -104,6 +108,9 @@ export const adminRoutes: RouteModule = {
     // ---------------- invites ----------------
     kit.handle(API.listInvites, () => ({ items: listInvites(ctx) }))
     kit.handle(API.createInvite, ({ c, body }) => createInvite(c, ctx, body))
+    kit.handle(API.createGuestInvite, ({ c, body }) => createGuestInviteFor(c, ctx, body))
+    kit.handle(API.convertGuest, ({ c, params }) => convertGuest(c, ctx, params.id))
+    kit.handle(API.updateGuestAi, ({ c, params, body }) => updateGuestAi(c, ctx, params.id, body))
     kit.handle(API.revokeInvite, ({ c, params }) => revokeInvite(c, ctx, params.id))
 
     // ---------------- groups ----------------
@@ -297,7 +304,7 @@ export const adminRoutes: RouteModule = {
       // who is asking, read again every time it matters (the checks below wait for DNS): an owner demoted, or an admin
       // disabled or deleted, meanwhile is who they are now
       const actorNow = (): 'owner' | 'admin' => {
-        const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { role: string; status: string; deleted_at: string | null } | null
+        const u = ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(auth.user.id) as { role: string; status: string; deleted_at: string | null } | null
         if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
         return u!.role as 'owner' | 'admin'
       }

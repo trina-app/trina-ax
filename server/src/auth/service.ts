@@ -20,7 +20,8 @@ import { myStatusOf } from './status-messages'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
-import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
+import { guestDetail } from './guests'
+import { USER_COLS_U, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconOfMe } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
@@ -112,7 +113,7 @@ export class AuthService implements SessionService {
   async resolve(req: Request, _info: RequestInfo): Promise<AuthInfo | null> {
     const t = readToken(req)
     if (!t) return null
-    const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at AS s_expires, s.last_seen_at AS s_seen, s.temp_login, u.${USER_COLS.split(', ').join(', u.')}
+    const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at AS s_expires, s.last_seen_at AS s_seen, s.temp_login, ${USER_COLS_U}
       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hashToken(t.token)) as (UserRow & { sid: string; client: ClientKind; s_expires: string; s_seen: string; temp_login: number }) | null
     if (!row) return null
     const now = this.now()
@@ -263,7 +264,9 @@ export class AuthService implements SessionService {
     const address = teamAddressOf(this.ctx, at)
     // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
     const status = myStatusOf(this.db, u.id)
+    const guest = u.role === 'guest' ? guestDetail(this.db, u.id) : undefined
     return {
+      ...(guest ? { guest } : {}),
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,

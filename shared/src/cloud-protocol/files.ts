@@ -78,6 +78,13 @@ export const PlanFile = z.object({
    * 0.4.0-beta.10: TenantStatus.rootVersion for apply-plan, EnrollRequest.kitVersion for the enroll answer's plan
    * ("unknown" counts as older). */
   speechFreeHours: z.number().int().min(1).max(1000).nullish(),
+  /** guests the team may have (owner decision 2026-11-14: Free 3, Starter/basic 10, Team 30, Business/pro 100); they
+   * take no seat. Absent or null on a plan file: the server allows 3 (the smallest plan) until the control plane writes
+   * it; a self-hosted server without a plan has no cap. The server refuses a guest invite or join over it (409
+   * plan_limit, reason guest_limit). 0–10000: the Go reader's range (native/internal/plan).
+   * ORDER: as speechFreeHours, an older mycel-ctl refuses a plan.json with this key: leave it out (no default here)
+   * unless the tenant's kit knows it. */
+  maxGuests: z.number().int().min(0).max(10_000).nullish(),
 })
 export type PlanFile = z.infer<typeof PlanFile>
 export type PlanFileInput = z.input<typeof PlanFile>

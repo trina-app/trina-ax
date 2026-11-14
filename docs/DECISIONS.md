@@ -27305,6 +27305,51 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
   (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
 
+## Guests: only what they were invited to — 게스트 (feat/guest-invites-p1, 2026-11-14, the owner; phase 1, server only)
+
+- **Ask:** a team brings an outside person (a client, a freelancer) into one conversation or one project without that
+  person seeing the rest of the team. Phase 1 is the security core and the server side of the invite; the screens are
+  phase 2. Plan: docs/AGENTS/plan/20261114-1016-guest-invites-p1.md.
+- **Exactly one place** (owner, final): one group chat (`rooms.kind 'group'`) or one team project. Never several.
+  Putting a guest into a second place (another group chat, a new group chat with them, another project's people, a
+  group, a second invite) is 409 `conflict` with `params.reason: 'guest_one_place'` and the message "A guest can be in
+  one room or project only. To add them to more, make them a team member." (ko "게스트는 방이나 프로젝트 한 곳에만 들어갈
+  수 있어요. 여러 곳에 넣으려면 팀원으로 초대해 주세요."). The way out is "convert to member"
+  (`POST /api/admin/users/:id/convert-guest`, takes a seat: 409 seat_limit). No "move place" endpoint (owner: lean).
+  DMs never count as a place: a guest may DM only the people of their place. Removed from the place (taken out of the
+  chat, left it, the chat archived, out of the project's people, the project trashed): the account is switched off.
+- **Deny by default.** A guest may call only the endpoints in `server/src/auth/guest-endpoints.ts` (built from the
+  `API.*` objects; `enforceAuth` answers 403 to every other one, so a new endpoint is closed to guests until added on
+  purpose). Raw routes check themselves (the realtime socket, the remote MCP connector: refused). Inside the allowed
+  endpoints everything is narrowed: folders (below), people, presence, rooms, DMs, projects, project chats, AI.
+- **Folders:** for a guest only person rules inside `projects/<name>` count; everyone, role and group rules never
+  apply; nothing outside the members-only zone opens (shared/, skills/, connected/, any team folder); a folder deeper
+  than `projects/<name>` only once they read `projects/<name>` itself. Their own `users/<id>/` stays write. The policy
+  keys off the guest ids it loads with the rules (`users.guest = 1`), not only the Principal's role, so a Principal
+  built anywhere with role 'member' still fails closed (review must-fix 1).
+- **Stored as role 'member' + `users.guest = 1`** (migration `122_a_guests.sql`, reader level 8): `users.role` has a
+  CHECK that cannot be widened without rebuilding `users` (104 foreign keys, `foreign_keys = ON` inside the migration;
+  `writable_schema` is refused in defensive mode), and tables are never rebuilt. Every read of the role goes through
+  the guest-aware `CASE` (USER_COLS, USER_COLS_U, loadPrincipal, every raw `SELECT role`); a test keeps a reviewed list
+  of the SQL that reads `role`. An older build would read a guest as a member, so it refuses the database.
+- **AI is off by default:** `guests.ai` `none | team | own`. `team` = the one team connection in
+  `guests.team_credential_id` under a `block` budget of their own (the limit), never an
+  `engine_credential_assignments` row (one would make a team-wide connection assigned-only for every member). `own` =
+  their own Claude/Codex sign-in, whatever the member-own switch says. Never the hosted trial credit, the team's API
+  key, group or team-wide connections. A self-hosted server whose engines use the host's own sign-in never answers a
+  guest. Only the owner or an admin may give the `team` choice.
+- **Invites:** `POST /api/guest-invites` (or the admin invite with role guest) carries one place and the AI choice. A
+  member invites into a group chat they are in; into a project only its creator (while they read it) or an admin;
+  the owner and admins into a group chat only when they are in it. The same rule is checked again at accept, with the
+  place still open and the team connection still a team one; accept is one write. Guests take no seats. The plan's cap
+  (`PlanFile.maxGuests`, owner: Free 3, Starter 10, Team 30, Business 100; set by the control plane later, a plan file
+  without it allows 3; no plan = self-hosted = no cap) is 409 `plan_limit` reason `guest_limit` at create and accept.
+- **Other choices:** one guest type, no expiry, a member is never made a guest, guests join no groups and never the
+  everyone room (no joined line), other members' project chats stay hidden from a guest while the guest's own project
+  chats follow the team default (visible to the project's members; phase 2 tells the guest), connectors stay off,
+  deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
+  and skills/.
+
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
 
 넣을 곳: Team AX core (`server/src/notifications/push-gateway-setting.ts`, `server/src/routes/push.ts`,

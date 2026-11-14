@@ -11,6 +11,7 @@
 //  - Members connect their own Drive once Google Drive is set up. The team switch that could turn that off
 //    (`integrations.driveMembers`, migrations 337 and 341) is gone (docs/DECISIONS.md "No members' switch for
 //    connectors"); a stored "false" is ignored.
+
 import type { Database } from 'bun:sqlite'
 import type { DriveShare, DriveShareFolder, DriveTeamShare, IntegrationAccess } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
@@ -51,7 +52,8 @@ export function setShareAccess(db: Database, id: string, a: IntegrationAccess) {
 
 /** Is this active person in the share's rule? Being an admin is not a rule. */
 export function shareCovers(db: Database, id: string, user: string): boolean {
-  if (!db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND must_change_password=0").get(user)) return false
+  // a guest: no shared Drive, whatever its rule says (connectors stay off for guests)
+  if (!db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND must_change_password=0 AND guest=0").get(user)) return false
   return !!db.query(`SELECT 1 FROM drive_team_share_access a WHERE a.share_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
     OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) LIMIT 1`).get(id, user, user)

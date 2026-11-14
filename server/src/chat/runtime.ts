@@ -954,7 +954,8 @@ export class ChatRuntime {
     // Conservatively include an in-memory item until reconciliation, including after a failed DB write.
     const team = Math.max(counts.team, this.queued.length)
     const mine = Math.max(counts.mine, this.queued.filter((s) => s.userId === userId).length)
-    const people = (this.db.query("SELECT COUNT(*) n FROM users WHERE status='active' AND deleted_at IS NULL").get() as { n: number }).n
+    // the team's people (guests take no seat, so they add no room to the team's queue)
+    const people = (this.db.query("SELECT COUNT(*) n FROM users WHERE status='active' AND deleted_at IS NULL AND guest = 0").get() as { n: number }).n
     const teamMax = Math.max(QUEUE_TEAM_MIN, 4 * this.concurrency(), QUEUE_PER_USER * Math.min(people, 100))
     if (team < teamMax && mine < QUEUE_PER_USER) return
     const reason = team >= teamMax ? 'queue_full' : 'queue_full_user'

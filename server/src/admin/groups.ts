@@ -10,6 +10,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
+import { failOnePlace, guestsAmong } from '../auth/guests'
 import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
@@ -54,6 +55,9 @@ function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale, k
   const found = ctx.db.query(`SELECT id, status FROM users WHERE deleted_at IS NULL AND id IN (${uniq.map(() => '?').join(',')})`).all(...uniq) as { id: string; status: string }[]
   if (found.length !== uniq.length) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberIds': 'unknown person' } })
   if (found.some((u) => u.status !== 'active' && !keep.has(u.id))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.memberIds': 'disabled account' }, params: { reason: 'account_disabled' } })
+  // guests join no group (docs/DECISIONS.md "Guests: only what they were invited to"): 409 guest_one_place, which
+  // points to making them a team member
+  if (guestsAmong(ctx.db, uniq).length) failOnePlace(locale)
   return uniq
 }
 

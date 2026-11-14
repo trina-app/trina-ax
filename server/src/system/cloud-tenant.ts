@@ -53,7 +53,8 @@ export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: strin
     const p = StatusFile.safeParse(JSON.parse(fs.readFileSync(path.join(o.statusDir, 'status.json'), 'utf8')))
     if (p.success && now - Date.parse(p.data.writtenAt) < STATUS_FRESH_MS) st = p.data
   } catch {}
-  const users = (o.db.query('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
+  // guests take no seats and are not the team's people (docs/DECISIONS.md "Guests: only what they were invited to")
+  const users = (o.db.query('SELECT COUNT(*) AS n FROM users WHERE guest = 0').get() as { n: number }).n
   const allowed = allowedCredentialKinds(o.config)
   const ai = (family: 'anthropic' | 'openai'): 'none' | 'ok' | 'problem' => {
     const s = teamCredentialSummary(o.db, family, allowed, new Date(now))

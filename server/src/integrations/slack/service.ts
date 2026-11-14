@@ -596,7 +596,7 @@ export class SlackConnector {
 
   /** an account that may use the app now (no password change pending) */
   private person(userId: string) {
-    return this.db.query("SELECT id, name, username, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
+    return this.db.query("SELECT id, name, username, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
   }
 
   /** The Slack account as Slack says it now (users.info): of this workspace, a person (no bot, not deactivated), and its

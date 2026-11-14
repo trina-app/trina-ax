@@ -345,8 +345,8 @@ export async function main(argv: string[]): Promise<number> {
       try {
         const u = arg(args, '--username')
         const row = (u
-          ? ctx.db.query("SELECT id, status, role FROM users WHERE username = ? AND deleted_at IS NULL").get(u)
-          : ctx.db.query("SELECT id, status, role FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1").get()) as { id: string; status: string; role: string } | null
+          ? ctx.db.query("SELECT id, status, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE username = ? AND deleted_at IS NULL").get(u)
+          : ctx.db.query("SELECT id, status, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1").get()) as { id: string; status: string; role: string } | null
         if (!row) throw new Error(u ? `no account "${u}"` : 'no owner yet')
         if (row.status !== 'active') throw new Error('that account is disabled')
         // 팀장 넘기기 (admin/handover.ts): after a transfer on a hosted team with handoverSafe, no link for an owner or an

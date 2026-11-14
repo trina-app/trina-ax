@@ -28,6 +28,7 @@ import { redactorFor } from '../integrations/connections/redact'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
 import { inPeopleAudience, isPeopleRow, peopleAudience, hiddenByMe } from './chat-audience'
+import { isGuest } from '../auth/guests'
 
 /** A chat row that is a shared project chat (made shared and still in a project) or a chat outside projects shared with
  * chosen people and groups (chat/chat-audience.ts): seen by more people than its creator, each turn its sender's. */
@@ -101,6 +102,11 @@ export class Audiences {
    * the active people it names or who are in a group it names (chat/chat-audience.ts). A chat of one person: [] (its
    * creator alone is not an audience). Kept for the request. */
   ofChat(r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>): string[] {
+    // a guest sees no shared chat but their own (docs/DECISIONS.md "Guests: only what they were invited to"); a guest's
+    // own chat in their project stays visible to its members (owner decision 2026-11-14)
+    return this.ofChatAll(r).filter((id) => id === r.user_id || !this.isGuest(id))
+  }
+  private ofChatAll(r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>): string[] {
     if (isPeopleRow(r)) {
       let ids = this.byChat.get(r.id)
       if (!ids) this.byChat.set(r.id, (ids = peopleAudience(this.db, r)))
@@ -112,6 +118,12 @@ export class Audiences {
   }
   /** Does `userId` see this shared chat now (ofChat)? */
   seesChat(userId: string, r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>): boolean { return this.ofChat(r).includes(userId) }
+  /** The guests (users.guest = 1), read once. */
+  private guests: Set<string> | null = null
+  isGuest(userId: string): boolean {
+    this.guests ??= new Set((this.db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id))
+    return this.guests.has(userId)
+  }
   /**
    * Nobody but `viewer` sees the project by a rule of its folder (a person, group, role or everyone rule): anyone else of
    * its audience sees it only as the owner or an admin, who see a project outside projects/ by their role (inside it
@@ -132,7 +144,7 @@ export class Audiences {
       if (id === viewer) return true
       const x = byId.get(id)
       // a member of the audience is there by a rule; the owner or an admin only when a member would be too
-      return !!x && x.role !== 'member' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
+      return !!x && x.role !== 'member' && x.role !== 'guest' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
     })
   }
   /**
@@ -153,6 +165,8 @@ export class Audiences {
 
 /** The audience of one project now. */
 export const audienceOf = (db: Database, files: FileService, p: ProjectRow): string[] => new Audiences(db, files).of(p)
+/** Who sees a shared chat of this project made by `owner` now (Audiences.ofChat: no guest but its own). */
+export const chatAudienceOf = (db: Database, files: FileService, p: ProjectRow, owner: string): string[] => { const a = new Audiences(db, files); return a.of(p).filter((id) => id === owner || !a.isGuest(id)) }
 
 /** canSeeProject's rule for one person under a rule set: read on its folder; while its folder is in the trash, nobody. */
 const seesUnder = (rules: RuleSet, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, x: Principal): boolean =>
@@ -178,7 +192,7 @@ export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRo
  * rulesInPlace). For a deleted project's shared chats (routes/chats.ts deleteProject): one goes to its creator's trash
  * only when they would see it. */
 export function accountSeesProject(db: Database, rules: RuleSet | null, p: Pick<ProjectRow, 'folder_path'>, userId: string): boolean {
-  const u = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
+  const u = db.query(`SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND deleted_at IS NULL`).get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
   if (!u) return false
   // its folder was purged: its own rules are gone, so nobody is known to see it (the owner and admins neither)
   if (!rules) return false
@@ -349,6 +363,8 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
     if (gone && r.shared_at! <= gone.at) return fail('not_found', tr('projectNoLongerMember', L, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
     return fail('not_found')
   }
+  // a guest opens no shared chat but their own: other people's project chats are never theirs (the same 404)
+  if (r.user_id !== userId && isGuest(rt.db, userId)) return fail('not_found')
   const creator = r.user_id === userId
   const editor = mayEditProject(rt.files, me, project)
   if (r.deleted_at && (!o.deleted || mode === 'continue' || !(creator || editor))) return fail('not_found')
@@ -456,8 +472,10 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
 export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
-  const n = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(p.id) as { n: number }).n
   const a = aud ?? new Audiences(db, files)
+  // a guest counts only their own shared chats (the others' are never theirs to know of)
+  const mine = !!viewer && a.isGuest(viewer)
+  const n = (db.query(`SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL${mine ? ' AND user_id = ?' : ''}`).get(...(mine ? [p.id, viewer!] : [p.id])) as { n: number }).n
   // every team project (docs/DECISIONS.md "Team project chats shared by default")
   const shareChats = projectCanShare(p)
   // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
@@ -565,6 +583,8 @@ function sharedChatRow(db: Database, chatId: string): { row: ChatRow; project: P
 export function visibleSharedChat(db: Database, files: FileService, userId: string, chatId: string): ChatRow | null {
   const c = sharedChatRow(db, chatId)
   if (!c) return null
+  // a guest opens no shared chat but their own (Audiences.ofChat)
+  if (c.row.user_id !== userId && isGuest(db, userId)) return null
   if (!c.project) return inPeopleAudience(db, c.row, userId) ? c.row : null
   return projectSeenByAll(db, files, c.project, [userId]) ? c.row : null
 }

@@ -54,8 +54,31 @@ export const RelPath = z.string().max(1024).refine((p) => {
 }, 'path must be relative to the team folder, without "..", "\\\\" or a leading "/"')
 export type RelPath = z.infer<typeof RelPath>
 
-export const Role = z.enum(['owner', 'admin', 'member'])
+/** `guest`: an outside person who reaches only the group chats and projects they were invited to (docs/DECISIONS.md
+ * "Guests: only what they were invited to"). Never a folder rule subject, never set by a role change. */
+export const Role = z.enum(['owner', 'admin', 'member', 'guest'])
 export type Role = z.infer<typeof Role>
+/** A role the members screen can give (a guest comes only from a guest invite). */
+export const TeamRole = Role.exclude(['owner', 'guest'])
+export type TeamRole = z.infer<typeof TeamRole>
+/** How a guest's AI runs: off (default), team connections assigned to them under a limit, or their own sign-in. */
+export const GuestAi = z.enum(['none', 'team', 'own'])
+export type GuestAi = z.infer<typeof GuestAi>
+/** A guest's one place (owner, 2026-11-14): one group chat (`room`) or one project, never several. */
+export const GuestPlace = z.object({ kind: z.enum(['room', 'project']), id: z.string().min(1).max(64) })
+export type GuestPlace = z.infer<typeof GuestPlace>
+/** The AI choice a guest invite carries: `team` needs a team connection and a usage limit (USD a month, a 'block'
+ * budget of the guest's own); `own` = the guest's own Claude/Codex sign-in; `none` (default) = no AI. */
+export const GuestAiChoice = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('none') }),
+  z.object({ mode: z.literal('own') }),
+  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitUsd: z.number().positive().max(100_000) }),
+])
+export type GuestAiChoice = z.infer<typeof GuestAiChoice>
+/** A guest's place with its name, as screens show it (Me.guest, User.guest). */
+export const GuestPlaceNamed = GuestPlace.extend({ name: z.string() })
+/** A guest's details: their one place and their AI (Me.guest for the guest, User.guest for admins). */
+export const GuestDetail = z.object({ place: GuestPlaceNamed, ai: GuestAiChoice })
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>
 export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es', 'zh'])

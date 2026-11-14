@@ -51,6 +51,7 @@
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
+import { instructionFiles } from './prompt'
 import type { Database } from 'bun:sqlite'
 import { createHmac } from 'node:crypto'
 import path from 'node:path'
@@ -86,6 +87,24 @@ export const DECIDE_HISTORY_MS = 100
 /** Paths of an answer's list that are not content of a place people read (the receipt's isTeamFilePath, but a person's
  * own folder stays: it is theirs alone). */
 const notCounted = (p: string) => !p || /^(skills|\.system)(\/|$)/.test(p)
+
+/**
+ * A use with the skills/ files its answers read put back (filesRead leaves them out as material everyone reads). For an
+ * audience with a guest in it (docs/DECISIONS.md "Guests: only what they were invited to"): a guest never reads
+ * skills/, so what an answer took from a team skill counts as "can't see" for them; members still read it, so for
+ * them it stays left out by the "every member can read it" rule of the check.
+ */
+export function withSkillReads(db: Database, use: BranchUse, audience: readonly string[], instructions: readonly string[] = []): BranchUse {
+  if (!use.answers.length || !audience.length) return use
+  if (!db.query(`SELECT 1 FROM users WHERE guest = 1 AND id IN (${audience.map(() => '?').join(',')}) LIMIT 1`).get(...audience)) return use
+  const skills = (db.query(`SELECT path, sha256 FROM message_sources WHERE message_id IN (${use.answers.map(() => '?').join(',')}) ORDER BY message_id, ord`).all(...use.answers) as { path: string; sha256: string | null }[])
+    .filter((r) => /^skills(\/|$)/.test(r.path))
+  // the team rules (skills/*.md) and the company profile every turn's instructions carry (chat/prompt.ts
+  // instructionFiles): never recorded as sources, so counted here as the sender has them now (security review)
+  const seen = new Set(skills.map((r) => r.path))
+  const carried = instructions.filter((p) => !seen.has(p)).map((path) => ({ path, sha256: null }))
+  return skills.length || carried.length ? { ...use, files: [...use.files, ...skills, ...carried] } : use
+}
 
 /** The line that ends an answer cut to fit one room message, in the sender's language: "…(이하 생략) 전체는 내 트리나
  * 기록에서" (the web app's name for the AI chats, with the AI's name there: tabs.ts aiName). */
@@ -331,7 +350,9 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   const audience = typeof to === 'string'
     ? (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY user_id').all(to, userId) as { user_id: string }[]).map((r) => r.user_id)
     : [...new Set(to.people)].filter((id) => id !== userId).sort()
-  const use = branchUse(db, chatId, messageId)
+  // a guest in the audience: what the answers read from skills/ counts too (withSkillReads)
+  const sender = loadPrincipal(db, userId)
+  const use = withSkillReads(db, branchUse(db, chatId, messageId), audience, sender ? instructionFiles(ctx.files, sender) : [])
   const onBranch = new Set(use.answers)
   // the hash rule looks at what turns on this branch saved
   const pc = provenanceChecker(ctx, userId, audience, use.answers)

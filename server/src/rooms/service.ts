@@ -57,6 +57,8 @@ import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal } from '../policy/access'
+import { assertGuestMayJoin, guestsAmong, isGuest, placePeople, sharesPlace } from '../auth/guests'
+import { afterGuestsLeft, dmPairOk } from './guest-reach'
 import { authorize, visiblePath } from '../policy/authorize'
 
 const services = new WeakMap<AppContext, Rooms>()
@@ -107,6 +109,8 @@ export class Rooms {
     const room = roomRow(this.db, roomId)
     let me = room && !room.archived_at ? memberRow(this.db, roomId, userId) : null
     if (!room || !me) return fail('not_found')
+    // a DM whose two no longer share a guest's place: closed to both, as if it were not there (rooms/guest-reach.ts)
+    if (!dmPairOk(this.db, room.kind, room.dm_key)) return fail('not_found')
     // a team room or the everyone room whose history is not open to me yet (rooms/history.ts): now, before anything is
     // read; a failure leaves me seeing it from my join on
     if ((me.history_from_seq === null || me.history_recheck) && historyKinds(room.kind)) {
@@ -201,7 +205,7 @@ export class Rooms {
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
     const prefs = getPreferences(this.db, userId)
-    const out = rows.map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
+    const out = rows.filter((r) => dmPairOk(this.db, r.kind, r.dm_key)).map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
     const rank = (k: Room['kind']) => (k === 'all' ? 0 : k === 'team' ? 1 : 2)
     return out.sort((a, b) => (b.activityAt.localeCompare(a.activityAt)) || rank(a.kind) - rank(b.kind) || a.id.localeCompare(b.id))
   }
@@ -216,6 +220,8 @@ export class Rooms {
     if (otherId === userId) fail('validation', undefined, { fields: { 'body.userId': 'yourself' } })
     const other = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(otherId)
     if (!other) fail('not_found')
+    // a guest and the people of their one place only, both ways (auth/guests.ts): anyone else reads as unknown
+    if (!sharesPlace(this.db, userId, otherId)) fail('not_found')
     const key = [userId, otherId].sort().join('|')
     const find = () => this.db.query("SELECT id FROM rooms WHERE kind = 'dm' AND dm_key = ?").get(key) as { id: string } | null
     let found = find()
@@ -248,6 +254,8 @@ export class Rooms {
   /** A group chat of me and `userIds` (at least two others, active people of this team; not audited). Its name is
    * optional: without one the app shows the other members' names. Everyone in it sees it from its first line. */
   createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en'): Room {
+    // a guest makes no group chat: their one place is the one they were invited to
+    if (isGuest(this.db, userId)) fail('forbidden')
     const others = [...new Set(userIds)].filter((id) => id !== userId)
     if (others.length < 2) fail('validation', undefined, { fields: { 'body.userIds': 'at least two other people' } })
     if (others.length + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
@@ -264,6 +272,8 @@ export class Rooms {
     this.groupsMade.set(userId, made)
     const id = newId(), now = nowIso()
     this.db.transaction(() => {
+      // a new group chat is a second place for any guest in it (409 guest_one_place), checked in this write
+      for (const g of guestsAmong(this.db, others)) assertGuestMayJoin(this.db, g, { kind: 'room', id }, locale)
       this.db.query("INSERT INTO rooms (id, kind, created_by, created_at, activity_at, name) VALUES (?, 'group', ?, ?, ?, ?)").run(id, userId, now, now, name?.trim() || null)
       const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)')
       for (const u of [userId, ...others]) add.run(id, u, now)
@@ -283,6 +293,8 @@ export class Rooms {
    * to my default) and the room's own name (mayRename: else 403). A name change is an event line. */
   update(userId: string, roomId: string, b: { muted?: boolean; notifyLevel?: RoomNotifyLevel | null; name?: string | null }): Room {
     const { room, me } = this.mine(userId, roomId)
+    // a guest changes only their own level, never the room's name
+    if (b.name !== undefined && isGuest(this.db, userId)) fail('forbidden')
     if (b.name !== undefined) this.rename(userId, room, b.name)
     const level = b.notifyLevel !== undefined ? b.notifyLevel : b.muted === true ? 'off' : b.muted === false ? (ownLevel(me) === 'off' ? null : ownLevel(me)) : undefined
     if (level !== undefined) {
@@ -395,6 +407,8 @@ export class Rooms {
    * they see their own line. Never throws: the join itself has worked.
    */
   memberJoined(userId: string): void {
+    // a guest is not in the everyone room: no line there about them
+    if (isGuest(this.db, userId)) return
     try {
       this.syncFor(userId)
       const room = this.db.query("SELECT id FROM rooms WHERE kind = 'all' AND archived_at IS NULL").get() as { id: string } | null
@@ -407,30 +421,44 @@ export class Rooms {
   // ---------------- group chats: who is in one ----------------
   /** Add people to a group chat I am in (any member). Those already in it are skipped; the others see the room from
    * now on (visible_from_seq = the room's last seq, as in a team room) and the line that says they were invited. */
-  invite(userId: string, roomId: string, userIds: readonly string[]): Room {
+  invite(userId: string, roomId: string, userIds: readonly string[], locale: Locale = DEFAULT_LOCALE): Room {
     const { room } = this.mine(userId, roomId)
     // a team room follows its group and the everyone room the team; a DM keeps its two (the app makes a new group chat)
     if (room.kind !== 'group') fail('forbidden')
     const ids = [...new Set(userIds)].filter((id) => id !== userId)
     if (!ids.length) fail('validation', undefined, { fields: { 'body.userIds': 'nobody to add' } })
     this.assertActive(ids)
+    // a guest adds only people of their one place (this group chat is it, or they are not in it)
+    if (isGuest(this.db, userId)) { const mine = placePeople(this.db, userId); if (ids.some((id) => !mine.has(id))) fail('forbidden') }
     const inRoom = new Set(members(this.db, roomId).map((m) => m.user_id))
     const fresh = ids.filter((id) => !inRoom.has(id))
     if (!fresh.length) return this.get(userId, roomId)
     if (inRoom.size + fresh.length > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.takeSendToken(userId)
-    const now = nowIso()
     const line = this.db.transaction(() => {
-      const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
-      for (const u of fresh) add.run(u, now, roomId)
-      return this.eventLine(roomId, userId, { type: 'added', userIds: fresh }, now)
-    })()
-    const added = new Set(fresh)
+      // a guest is in one place only (auth/guests.ts): this group chat is theirs, or they are refused (409
+      // guest_one_place), checked in the same write as the insert
+      for (const g of guestsAmong(this.db, fresh)) assertGuestMayJoin(this.db, g, { kind: 'room', id: roomId }, locale)
+      return this.addInTx(roomId, userId, fresh)
+    }).immediate()
+    this.announceAdded(roomId, fresh, line)
+    return this.get(userId, roomId)
+  }
+  /** Put people into a group chat inside the caller's write (no events): their member rows and the "added" line by
+   * `actorId`. The caller sends announceAdded after the commit. */
+  addInTx(roomId: string, actorId: string, ids: readonly string[]): string {
+    const now = nowIso()
+    const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
+    for (const u of ids) add.run(u, now, roomId)
+    return this.eventLine(roomId, actorId, { type: 'added', userIds: [...ids] }, now)
+  }
+  /** After addInTx's commit: the room for the new people, the new members for the others, the line for everyone. */
+  announceAdded(roomId: string, ids: readonly string[], line: string): void {
+    const added = new Set(ids)
     this.roomEvent(roomId, 'added', added)
     const r = roomRow(this.db, roomId)!
     this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m) } }))
     this.messageEvent('room.message', messageRow(this.db, roomId, line)!)
-    return this.get(userId, roomId)
   }
 
   /** Leave a group chat (team rooms and the everyone room follow the groups, a DM keeps its two: 403). */
@@ -473,14 +501,16 @@ export class Rooms {
       return { lines, archived: false }
     }
     const r = inTx ? run() : this.db.transaction(run)()
-    if (!inTx) this.afterDrop(roomId, out.map((o) => o.userId), r)
+    if (!inTx) this.afterDrop(roomId, out.map((o) => o.userId), r, out[0]?.actor ?? null)
     return r
   }
-  private afterDrop(roomId: string, gone: readonly string[], r: { lines: string[]; archived: boolean }) {
+  private afterDrop(roomId: string, gone: readonly string[], r: { lines: string[]; archived: boolean }, actorId: string | null = null) {
     for (const u of new Set(gone)) {
       this.ctx.services.realtime.forgetReplay(u)
       this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
     }
+    // a guest out of their one place is switched off (owner decision 2026-11-14)
+    afterGuestsLeft(this.ctx, gone, actorId)
     if (r.archived) return
     const room = roomRow(this.db, roomId)
     if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m) } }))
@@ -603,6 +633,8 @@ export class Rooms {
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
     if (dmPeerGone(this.db, room)) fail('conflict', tr('roomPeerGone', o.locale ?? DEFAULT_LOCALE))
+    // a DM with a guest goes on only while both are in that guest's one place
+    if (!dmPairOk(this.db, room.kind, room.dm_key)) fail('forbidden')
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
@@ -861,7 +893,7 @@ export class Rooms {
     if (m && m.author_kind !== 'ai' && m.author_id === userId) return this.own(roomId, messageId, userId, me, true)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
     if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId, me, true)
-    const role = (this.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
+    const role = (this.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(userId) as { role: string } | null)?.role
     if (m.asked_by !== userId && role !== 'owner' && role !== 'admin') return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
     return m
@@ -1035,7 +1067,8 @@ export class Rooms {
   }
   /** Are this person's team rooms and everyone room not what their groups and account say? */
   private outOfStep(userId: string): boolean {
-    const active = !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId)
+    // a guest is in neither the everyone room nor a team room (no groups)
+    const active = !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(userId)
     const want = active ? `SELECT r.id FROM rooms r WHERE r.archived_at IS NULL AND (r.kind = 'all' OR (r.kind = 'team' AND r.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)))` : 'SELECT NULL WHERE 0'
     const have = "SELECT m.room_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ?1 AND r.kind IN ('team', 'all')"
     if (!this.db.query("SELECT 1 FROM rooms WHERE kind = 'all'").get()) return true
@@ -1088,8 +1121,9 @@ export class Rooms {
         db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(now, r.id)
         audit(db, { actor: null, action: 'room.archive', target: r.id, detail: { kind: 'team', reason: 'group_deleted' } })
       }
-      const want = `SELECT r.id room_id, u.id user_id FROM rooms r JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL WHERE r.kind = 'all' AND r.archived_at IS NULL
-        UNION SELECT r.id, g.user_id FROM rooms r JOIN group_members g ON g.group_id = r.group_id JOIN users u ON u.id = g.user_id AND u.status = 'active' AND u.deleted_at IS NULL
+      // guests (users.guest = 1) are in neither: they reach only their one place (auth/guests.ts)
+      const want = `SELECT r.id room_id, u.id user_id FROM rooms r JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 WHERE r.kind = 'all' AND r.archived_at IS NULL
+        UNION SELECT r.id, g.user_id FROM rooms r JOIN group_members g ON g.group_id = r.group_id JOIN users u ON u.id = g.user_id AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0
           WHERE r.kind = 'team' AND r.archived_at IS NULL`
       const have = "SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE r.kind IN ('team', 'all')"
       // each side in its own sub-select: compound SELECTs bind left to right (A EXCEPT B UNION C is (A EXCEPT B) UNION C)

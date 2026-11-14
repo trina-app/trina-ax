@@ -75,7 +75,7 @@ export function explainFolder(ctx: AppContext, q: { path?: string; cursor?: stri
   }
   const inactive: FolderAccessResponse['inactive'] = []
   for (const [id, rules] of off) {
-    const u = ctx.db.query('SELECT id, name, role FROM users WHERE id = ?').get(id) as { id: string; name: string; role: Role } | null
+    const u = ctx.db.query(`SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(id) as { id: string; name: string; role: Role } | null
     const p: Principal = { id, name: u?.name ?? id, role: u?.role ?? 'member', groups: u ? groupsOf(ctx, id) : [] }
     const e = state.rules.explain(p, at)
     inactive.push({ user: { id, name: p.name }, role: p.role, access: e.access, reason: e.reason, rules })
@@ -162,7 +162,7 @@ function personAccess(ctx: AppContext, p: Principal, who: { user: { id: string; 
 }
 
 export function explainPerson(ctx: AppContext, id: string, q: PageQ): PersonAccessResponse {
-  const u = ctx.db.query('SELECT id, name, role, status FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string; role: Role; status: UserStatus } | null
+  const u = ctx.db.query(`SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE id = ? AND deleted_at IS NULL`).get(id) as { id: string; name: string; role: Role; status: UserStatus } | null
   if (!u) return fail('not_found')
   // a person who is switched off is shown as they would be when switched back on (status says so)
   return personAccess(ctx, { id: u.id, name: u.name, role: u.role, groups: groupsOf(ctx, id) }, { user: { id: u.id, name: u.name }, status: u.status }, q)
@@ -281,7 +281,7 @@ export function explainEdit(ctx: AppContext, body: { path: string; rules: Folder
   const segs = segsOf(p)
   const connected = segs.length >= 2 && segs[0] === 'connected' && !!db.query('SELECT 1 FROM connected_folders WHERE name = ?').get(segs[1]!)
   // people switched off: not counted, but what they would get when switched back on is (latentMore)
-  const uncounted = (db.query("SELECT id, name, role FROM users WHERE status != 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Role }[])
+  const uncounted = (db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status != 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Role }[])
     .map((u) => ({ ...u, groups: groupsOf(ctx, u.id) }))
   const out = editPreview(
     { rules: state.rules, people: state.principals, uncounted, groupName: (id) => groupNames.get(id) ?? null, personName: (id) => userNames.get(id) ?? null },
