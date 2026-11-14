@@ -238,6 +238,13 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
 .bar-links .lang-switch, .sitenav .lang-switch { padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
 .bar-links .lang-switch:hover, .sitenav .lang-switch:hover { background: var(--hover); }
 .drawer-links .lang-switch { gap: 4px; text-decoration: underline; }
+/* in a website's bar the switch takes room from the search, so the bar's own buttons keep theirs */
+.sitenav .lang-switch { padding: 6px 8px; }
+.sitenav:has(.lang-switch) .docs-tools .search { width: 170px; }
+@media (max-width: 1280px) {
+  .sitenav:has(.lang-switch) .docs-tools .search { width: 150px; }
+  .sitenav .lang-switch span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 
 /* ---------- smaller screens ---------- */
 @media (max-width: 1280px) {
