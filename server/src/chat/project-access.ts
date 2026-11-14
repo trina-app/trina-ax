@@ -24,6 +24,7 @@ import { activePrincipals, Audiences } from './shared'
 import { mayEditProject, projectFolderName, takenProjectPaths } from './projects'
 import type { ProjectRow } from './store'
 import { tr } from './i18n'
+import { wideningAnswers, type WideningResult, type WideningSubject } from './widening'
 import { skillsUnder } from '../skills/switch-on'
 
 const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role === 'admin'
@@ -352,8 +353,34 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
   // choose it (review M4)
   const extra = { ...(plan.addsFloor ? { addsFloor: true } : {}), ...(plan.restoresCreator ? { restoresCreator: true } : {}), ...(lostNames.length ? { removedNames: lostNames } : {}) }
   const { files, othersFiles, skills, skillNames } = plan.seen
+  // the answers of its shared chats the people who gain it would start seeing although they miss a place they used (the
+  // widening warning, chat/widening.ts; its list: POST /api/sharing/widening-answers)
+  const hiddenAnswers = plan.gained.length && plan.sharedChats ? projectWidening(ctx, p, r, body.participants, plan, { limit: 0 }, locale).total : 0
   // the count apart for the owner and admins only (a member who manages the project reads the total, as before)
-  return { people: plan.after.length, added: plan.gained.length, removed: plan.lost.length, files, othersFiles, sharedChats: plan.sharedChats, skills, skillNames: skillNames.slice(0, 10), ...extra, ...(isAdminRole(p) ? { split: plan.afterSplit } : {}), ...(plan.contentsHidden ? { contentsHidden: true } : {}) }
+  return { people: plan.after.length, added: plan.gained.length, removed: plan.lost.length, files, othersFiles, sharedChats: plan.sharedChats, skills, skillNames: skillNames.slice(0, 10), ...extra, ...(hiddenAnswers ? { hiddenAnswers } : {}), ...(isAdminRole(p) ? { split: plan.afterSplit } : {}), ...(plan.contentsHidden ? { contentsHidden: true } : {}) }
+}
+
+/**
+ * The widening list of a change of a project's participants (chat/widening.ts): the answers of its shared chats the
+ * people who gain it (`plan.gained`) would start seeing although they miss a place one used, as `p` may see them. The
+ * picked people and groups (`participants` that bring someone who gains it) name who misses what. Nothing when nobody
+ * gains it or `p` does not see its chats (`contentsHidden`).
+ */
+export function projectWidening(ctx: AppContext, p: Principal, r: ProjectRow, participants: readonly ProjectParticipant[], plan: AccessPlan, page: { before?: number | null; limit: number }, locale: Locale): WideningResult & { subjects: WideningSubject[] } {
+  const db = ctx.db
+  if (!plan.gained.length || plan.contentsHidden) return { total: 0, totalCapped: false, items: [], nextRowid: null, subjects: [] }
+  const gained = plan.gained.map((id) => loadPrincipal(db, id)).filter((x): x is Principal => !!x)
+  const subjects: WideningSubject[] = []
+  for (const x of participants) {
+    const people = x.subjectType === 'user' ? gained.filter((g) => g.id === x.subjectId).map((g) => g.id) : gained.filter((g) => g.groups.includes(x.subjectId)).map((g) => g.id)
+    if (!people.length) continue
+    const name = x.subjectType === 'user'
+      ? (db.query('SELECT name FROM users WHERE id = ?').get(x.subjectId) as { name: string } | null)?.name
+      : (db.query('SELECT name FROM groups WHERE id = ?').get(x.subjectId) as { name: string } | null)?.name
+    if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
+  }
+  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
+  return { ...wideningAnswers(db, { now: plan.rulesNow, after: plan.rulesAfter }, { kind: 'project', projectId: r.id }, gained, p, page, { subjects, words }), subjects }
 }
 
 /** What a change of a project's participants does (the dry run's answer, and the AI's members card: chat/project-members.ts). */
@@ -378,6 +405,9 @@ export interface AccessPlan {
   restoresCreator: boolean
   /** the caller manages it without reading it: `seen` and `sharedChats` are not counted (0) */
   contentsHidden: boolean
+  /** the folder rules now and after the save (the widening list judges the people who gain it by the latter: chat/widening.ts) */
+  rulesNow: RuleSet
+  rulesAfter: RuleSet
 }
 
 /** The plan of a change of participants (checked: editable for `p`, the participants), nothing saved. */
@@ -399,7 +429,7 @@ export function planAccess(ctx: AppContext, p: Principal, r: ProjectRow, partici
   // contents only for members"); whatTheySee counts only what the caller reads anyway
   const contentsHidden = !atLeast(rules.access(p, segs), 'read')
   const sharedChats = added.length && !contentsHidden ? (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n : 0
-  return { current, next, rulesHash: rulesHash(current), before, after: now, afterSplit: splitOf(after, nowReaders, segs), gained, lost, seen: contentsHidden ? none : seen, sharedChats, addsFloor: !getFolderByPath(db, r.folder_path)?.limited, restoresCreator: restoresCreator(current, next, creatorOf(db, r)), contentsHidden }
+  return { current, next, rulesHash: rulesHash(current), before, after: now, afterSplit: splitOf(after, nowReaders, segs), gained, lost, seen: contentsHidden ? none : seen, sharedChats, addsFloor: !getFolderByPath(db, r.folder_path)?.limited, restoresCreator: restoresCreator(current, next, creatorOf(db, r)), contentsHidden, rulesNow: rules, rulesAfter: after }
 }
 
 /** The save limits a project folder that is not limited now (only an older build's, before the conversion). Kept for

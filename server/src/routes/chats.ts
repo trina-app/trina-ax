@@ -22,7 +22,7 @@ import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
 import { projectsRestored } from '../chat/project-restore'
 import { leaveProject, leaveState } from '../chat/project-leave'
-import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
+import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, planAccess, previewAccess, projectAccess, projectWidening, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
@@ -36,6 +36,8 @@ import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
 import { roomsOf } from '../rooms/service'
+import { confirmMac } from '../chat/confirm-key'
+import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -134,8 +136,18 @@ function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: strin
 }
 
 /** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first, as `viewer` sees them. */
-function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale): { items: Message[]; nextCursor: string | null } {
-  const pathRows = rt.store.pathTo(chat.active_leaf_id)
+function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale, through?: string): { items: Message[]; nextCursor: string | null } {
+  // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
+  const view = messageView(rt, chat, viewer, locale)
+  // `through` (a widening list item: ?answer=): the branch holding that answer, for this read only; an answer not in
+  // the chat or hidden from the viewer: the active branch (the page then says "That answer is no longer here")
+  let leaf = chat.active_leaf_id
+  if (through) {
+    const m = rt.store.messageRow(through)
+    const mine = !!m?.turn_id && rt.store.turnUser(m.turn_id) === viewer
+    if (m && m.chat_id === chat.id && m.role === 'assistant' && (mine || !view?.withheld?.(m.id))) leaf = rt.store.newestLeafUnder(chat.id, m.id)
+  }
+  const pathRows = rt.store.pathTo(leaf)
   let end = pathRows.length
   if (cursor) {
     const c = decodeCursor(cursor, ['before'])
@@ -146,8 +158,6 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   }
   const start = Math.max(0, end - limit)
   const slice = pathRows.slice(start, end)
-  // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
-  const view = messageView(rt, chat, viewer, locale)
   return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale, view)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
@@ -569,7 +579,7 @@ export const chatsRoutes: RouteModule = {
     // ---------------- messages ----------------
     kit.handle(API.listMessages, ({ c, params, query, auth }) => {
       const chat = chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row
-      return messagesPage(rt, chat, query.cursor, query.limit ?? 50, auth.user.id, c.get('locale'))
+      return messagesPage(rt, chat, query.cursor, query.limit ?? 50, auth.user.id, c.get('locale'), query.through)
     })
 
     // "참고한 파일" under an answer: each file checked again for this person now (files/sources.ts); a file they cannot
@@ -808,6 +818,28 @@ export const chatsRoutes: RouteModule = {
       const r = projectFor(p, body.projectId, true)
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
       return previewAccess(ctx, p, body, r, locale)
+    })
+
+    // the widening list (chat/widening.ts): the answers of a project's shared chats the people the Members dialog would add
+    // start seeing although they miss a place one used. Whoever may change its members; another viewer of it 403, anyone
+    // else 404. The first page takes a room-send token (no free probe of who may read what, as the share check); next
+    // pages carry a cursor signed over the target, the participants, the people who gain it and the position
+    kit.handle(API.wideningAnswers, ({ c, body, auth }) => {
+      const locale = c.get('locale')
+      const p = principal(ctx, auth)
+      const r = projectFor(p, body.target.projectId, true)
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('wideningNotAllowed', locale), { params: { reason: 'widening_not_allowed' } })
+      const plan = planAccess(ctx, p, r, body.add, locale)
+      const state = (at: number) => ({ kind: 'widening', target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained: plan.gained, at })
+      let before: number | null = null
+      if (body.cursor) {
+        const cur = decodeCursor(body.cursor, ['r', 'm'])
+        const at = Number(cur?.r)
+        if (!cur || !Number.isSafeInteger(at) || confirmMac(ctx, state(at)) !== cur.m) fail('conflict', tr('wideningChanged', locale), { params: { reason: 'changed' } })
+        before = at
+      } else roomsOf(ctx).takeSendToken(auth.user.id)
+      const res = projectWidening(ctx, p, r, body.add, plan, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
+      return { total: res.total, totalCapped: res.totalCapped, items: res.items, nextCursor: res.nextRowid === null ? null : encodeCursor({ r: String(res.nextRowid), m: confirmMac(ctx, state(res.nextRowid)) }) }
     })
 
     // who sees a team project, for its edit screen (its creator and admins)

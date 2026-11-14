@@ -47,7 +47,8 @@ import { HttpError } from '../http/errors'
 import { redactorFor } from '../integrations/connections/redact'
 import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } from '../rooms/reader'
 import { roomsOf } from '../rooms/service'
-import { groupName, type MemberRow, type RoomRow } from '../rooms/store'
+import { groupName, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
+import { historyKinds } from '../rooms/history'
 import { confidentialChat } from '../safe-ops/confidential'
 import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
 import { tr } from './i18n'
@@ -102,14 +103,15 @@ function placeName(p: AnswerSharePlace, L: Locale): string {
   }
 }
 
-/** The card's lines for one choice: who cannot see some sources, who cannot open a linked file that does not go; none
- * when nothing applies. */
-function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, L: Locale): string[] {
+/** The card's lines for one choice: who cannot see some sources (and, `later`: a team room or the everyone room, that
+ * people who join later see it too), who cannot open a linked file that does not go; none when nothing applies. */
+function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, L: Locale, later = false): string[] {
   const out: string[] = []
   const p = c.confirm.provenance
   if (p) {
     const places = p.places.map((x) => placeName(x, L))
     out.push(p.unknown ? tr('postRoomUnknown', L) : places.length ? tr('postRoomProvenance', L, { n: String(p.people), places: places.join(', ') }) : tr('postRoomProvenanceNoPlace', L, { n: String(p.people) }))
+    if (later) out.push(tr('postRoomLater', L))
   }
   if (c.unableFiles > 0) out.push(tr('postRoomFiles', L, { files: String(c.unableFiles), n: String(c.unableFilePeople) }))
   return out
@@ -264,8 +266,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const ask = root
           ? quote ? tr('postRoomAskThread', L, { room: title, n: String(people), quote }) : tr('postRoomAskThreadNoQuote', L, { room: title, n: String(people) })
           : pendingTo ? tr('postRoomAskNewDm', L, { name: oneLine(pendingTo.name, 40) }) : tr('postRoomAsk', L, { room: title, n: String(people) })
-        const linesNone = linesOf(none, L)
-        const linesAll = all ? linesOf(all, L) : []
+        // a team room or the everyone room: a later member sees its history, this message included (rooms/history.ts)
+        const later = !pendingTo && historyKinds(roomRow(db, roomId)?.kind ?? 'dm')
+        const linesNone = linesOf(none, L, later)
+        const linesAll = all ? linesOf(all, L, later) : []
         const extra = all && linesAll.join('\n') !== linesNone.join('\n') ? (linesAll.length ? tr('postRoomWithFiles', L, { line: linesAll.join(' ') }) : tr('postRoomWithFilesAll', L)) : ''
         // after a room read (the side chat reads its room) this card is the call's only one (no room card before it,
         // rooms/ai-tools.ts): it leads with the room card's line, as the tools with their own card do (chat/turn.ts ownCard)

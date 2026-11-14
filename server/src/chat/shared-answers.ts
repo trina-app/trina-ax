@@ -1,30 +1,60 @@
 // Who sees an answer of a shared project chat (docs/DECISIONS.md "Shared project chats", "People who see a shared chat
-// later"; migration 273). The chat is seen by whoever sees its project now (chat/shared.ts); an answer in it is judged
-// like an old answer of a team room for a member who joined later (rooms/history.ts "지난 대화"): it stays visible to the
-// person whose turn it was, to the people who saw the chat when it read what it used (the read card's audience, or
-// everyone then when nobody missed a place), and to anyone who may read every one of those places themselves now.
-// Everyone else gets one line in its place (Message.withheld) and nothing of it anywhere: not in the app or the API, a
-// search, an export, a room's AI, or the engine of their own turns in the chat.
+// later: nothing new is hidden"; migrations 273, 351). The chat is seen by whoever sees its project now (chat/shared.ts).
+// From the cutover (settings 'hidden_answers_cutover', written once by migration 351) on, no answer is hidden from
+// anyone who sees the chat: the read card before reading says that what it finds stays in the chat for everyone who sees
+// it, people who get access later included (QA TC-1404). An answer made before the cutover keeps the old rule where no
+// card covered it: it stays visible to the person whose turn it was, to the people who saw the chat when it read what it
+// used (the read card's audience, or everyone then when nobody missed a place), to anyone who may read every one of
+// those places themselves now, and for a group a card's yes covered (y) to everyone. Everyone else gets one line in its
+// place (Message.withheld) and nothing of it anywhere: not in the app or the API, a search, an export, a room's AI, or
+// the engine of their own turns in the chat. The rule only ever shows more than before, never less.
 //
-//   shared_answer_reads.reads     groups {c, s, x?}: the people who saw the chat (c) when the places (s) were read; x:
-//                                 what it read is not all known, so only c (an answer from before the table, a chat
-//                                 shared later whose check could not tell)
+//   shared_answer_reads.reads     groups {c, s, x?, y?}: the people who saw the chat (c) when the places (s) were read;
+//                                 x: what it read is not all known, so only c (an answer from before the table, a chat
+//                                 shared later whose check could not tell); y: a read card's yes covered it (written by
+//                                 the card from now on, and by migration 351 for the groups of a turn whose audit row
+//                                 chat.shared_read says 'shared'). Still written for every answer: nothing is hidden by
+//                                 a new one, but explicit widening warns from them (chat/widening.ts)
 //   shared_answer_reads.left_out  the answers above it on its branch that its runner did not see: they were not in its
 //                                 context (a fresh session gets the transcript as its runner sees it), so they keep
 //                                 nothing of it hidden from anyone
 //
-// The walk goes down each branch, so an answer built on one hidden from a viewer is hidden from them too, unless that
-// one was left out of its context. An answer without a row (or with one that cannot be read) is hidden from everyone but
-// its runner (fails closed): every answer this build makes in a shared chat has one from the moment it is made
-// (ChatRuntime.createTurn), every answer of a chat shared later gets one from the share (chat/share-chat.ts), and every
-// older one gets one at this build's first start (recordOlderAnswers).
+// For an older answer the walk goes down each branch, so an answer built on one hidden from a viewer is hidden from them
+// too, unless that one was left out of its context. An older answer without a row (or with one that cannot be read) is
+// hidden from everyone but its runner (fails closed). An answer from the cutover on is never hidden, also one built on an
+// older hidden answer its runner could see (as if they had copied it by hand: written down, accepted).
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { sourceKey, viewersOf, type ReadSource } from './read-scope'
 
-/** What an answer read while these people saw the chat. `x`: not all of it is known (only `c` may see it). */
-export interface ReadGroup { c: string[]; s: ReadSource[]; x?: 1 }
+/** What an answer read while these people saw the chat. `x`: not all of it is known (only `c` may see it); `y`: a read
+ * card's yes covered it (an answer from before the cutover is not hidden for it). */
+export interface ReadGroup { c: string[]; s: ReadSource[]; x?: 1; y?: 1 }
+
+/** The settings key of the cutover (migration 351). */
+export const CUTOVER_KEY = 'hidden_answers_cutover'
+const cutovers = new WeakMap<Database, string>()
+
+/** The time from which no answer is hidden (ISO, as messages.created_at and room_messages.created_at), read once per
+ * database; null when it is not there (then the old rule applies to every answer: hides more, never less). */
+export function hiddenAnswersCutover(db: Database): string | null {
+  const kept = cutovers.get(db)
+  if (kept !== undefined) return kept
+  let v: string | null = null
+  try { v = (db.query('SELECT value FROM settings WHERE key = ?').get(CUTOVER_KEY) as { value: string } | null)?.value ?? null } catch { v = null }
+  if (v) cutovers.set(db, v)
+  return v
+}
+
+/** Set the cutover (tests): the stored value and the one kept in memory. */
+export function setHiddenAnswersCutover(db: Database, at: string): void {
+  db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(CUTOVER_KEY, at)
+  cutovers.set(db, at)
+}
+
+/** Made from the cutover on (never hidden)? `createdAt`: the message's created_at. */
+export const afterCutover = (cutover: string | null, createdAt: string | null | undefined): boolean => !!cutover && !!createdAt && createdAt >= cutover
 
 /** One answer's record, as read back. */
 export interface AnswerRecord { reads: ReadGroup[]; left: string[] }
@@ -42,9 +72,9 @@ export function parseRecord(reads: string | null, left: string | null): AnswerRe
     const groups: ReadGroup[] = []
     for (const g of r) {
       if (!g || typeof g !== 'object') return null
-      const { c, s, x } = g as { c?: unknown; s?: unknown; x?: unknown }
+      const { c, s, x, y } = g as { c?: unknown; s?: unknown; x?: unknown; y?: unknown }
       if (!isStrings(c) || !Array.isArray(s) || !s.every(isSource)) return null
-      groups.push({ c, s, ...(x ? { x: 1 as const } : {}) })
+      groups.push({ c, s, ...(x ? { x: 1 as const } : {}), ...(y ? { y: 1 as const } : {}) })
     }
     return { reads: groups, left: l }
   } catch { return null }
@@ -83,25 +113,38 @@ export function answerRecords(db: Database, chatId: string): Map<string, AnswerR
   return out
 }
 
-type Row = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null }
-/** One message of a chat as the walk needs it: an answer's record parsed once (`c` as a set; null: none or unreadable). */
-interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; rec: { reads: { c: ReadonlySet<string>; s: ReadSource[]; x: boolean }[]; left: ReadonlySet<string> } | null }
+export type NodeRow = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null; created_at: string | null }
+/** One message of a chat as the walk needs it: an answer's record parsed once (`c` as a set; null: none or unreadable);
+ * `late`: made from the cutover on (never hidden). */
+export interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; late: boolean; rec: { reads: ParsedGroup[]; left: ReadonlySet<string> } | null }
+export interface ParsedGroup { c: ReadonlySet<string>; s: ReadSource[]; x: boolean; y: boolean }
 const NONE: readonly string[] = []
+
+/** A message row (with its turn's person and record) as the walk needs it; `cutover`: hiddenAnswersCutover. */
+export function nodeOf(m: NodeRow, cutover: string | null): Node {
+  const answer = m.role === 'assistant'
+  const late = answer && afterCutover(cutover, m.created_at)
+  const rec = answer ? parseRecord(m.reads, m.left_out) : null
+  return { id: m.id, parent: m.parent_id, answer, runner: m.runner, late, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x, y: !!g.y })), left: new Set(rec.left) } }
+}
 
 /** A chat's messages with their turns' person and records, read and parsed once (any number of viewers then). */
 export function chatNodes(db: Database, chatId: string): Node[] {
-  const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out FROM messages m
+  const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at FROM messages m
     LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
-    WHERE m.chat_id = ? ORDER BY m.rowid`).all(chatId) as Row[]
-  return rows.map((m) => {
-    const answer = m.role === 'assistant'
-    const rec = answer ? parseRecord(m.reads, m.left_out) : null
-    return { id: m.id, parent: m.parent_id, answer, runner: m.runner, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x })), left: new Set(rec.left) } }
-  })
+    WHERE m.chat_id = ? ORDER BY m.rowid`).all(chatId) as NodeRow[]
+  const cutover = hiddenAnswersCutover(db)
+  return rows.map((m) => nodeOf(m, cutover))
 }
 
-/** One viewer as the walk judges them: their account and what they may read, by place (kept across chats). */
-export interface ViewerJudge { me: Principal | null; verdicts: Map<string, boolean> }
+/** An older answer's verdict for one person by its record alone (rule b, without what is above it): hidden unless every
+ * group has them in `c`, was covered by a card's yes, or has every place readable by them (`reads`). */
+export const groupsHide = (groups: readonly ParsedGroup[], who: string, reads: (s: ReadSource) => boolean): boolean =>
+  !groups.every((g) => g.c.has(who) || (!g.x && (g.y || g.s.every(reads))))
+
+/** One viewer as the walk judges them: their account and what they may read, by place (kept across chats). `check`:
+ * the rule check of one place, when the caller has its own (chat/widening.ts: folder paths read once); else viewersOf. */
+export interface ViewerJudge { me: Principal | null; verdicts: Map<string, boolean>; check?: (s: ReadSource) => boolean }
 
 /** The answers among `nodes` (chatNodes) hidden from `viewer`, on every branch; one rule check per place (`judge`: one
  * kept for the request, AnswerSight). */
@@ -112,15 +155,19 @@ export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node
     const k = sourceKey(s)
     let ok = verdicts.get(k)
     if (ok === undefined) {
-      try { ok = !!me && viewersOf(db, rules, s, [me], viewer).has(viewer) } catch { ok = false }
+      try { ok = !!me && (judge.check ? judge.check(s) : viewersOf(db, rules, s, [me], viewer).has(viewer)) } catch { ok = false }
       verdicts.set(k, ok)
     }
     return ok
   }
   const hiddenHere = (m: Node, above: readonly string[]): boolean => {
     if (!m.answer || (m.runner !== null && m.runner === viewer)) return false
+    // from the cutover on nothing is hidden (rule a)
+    if (m.late) return false
     if (!m.rec) return true
-    if (!m.rec.reads.every((g) => g.c.has(viewer) || (!g.x && g.s.every(reads)))) return true
+    // an older answer: a group the viewer was in, one a card's yes covered (not x), or one whose every place the viewer
+    // may read now (rule b)
+    if (groupsHide(m.rec.reads, viewer, reads)) return true
     // built on an answer hidden from them that was in its context
     const left = m.rec.left
     return above.some((id) => !left.has(id))
