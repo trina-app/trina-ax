@@ -355,6 +355,14 @@ test('the day\'s cap pauses the app until the team\'s midnight: a quiet line, a 
   expect(teamNotice.roomApp).toMatchObject({ cap: ROOM_APP_TEAM_DAILY_CAP, team: true, canResume: false, timeZone: expect.any(String) })
   const refused = await owner.try('POST', `/api/rooms/${all}/apps/${other.app.id}/resume`)
   expect(refused.status).toBe(409)
+  // a second app of the room paused by the team's cap the same day: no second line (QA TC-2067), still its notice
+  const third = await add('other', all, owner, 'Other three')
+  const before = (await messages()).length
+  expect((await post(third.token, JSON.stringify({ text: 'team still full' }))).status).toBe(429)
+  await settle()
+  expect((await messages()).length).toBe(before)
+  expect((await owner.call('GET', `/api/rooms/${all}/apps`)).items.find((a: any) => a.id === third.app.id)).toMatchObject({ pausedBy: 'team' })
+  expect(((await owner.call('GET', '/api/notifications')).items as any[]).some((n) => n.code === 'room_app.paused' && n.roomApp?.appId === third.app.id)).toBe(true)
 })
 
 test('Regenerate: the status waits for the service to use the new Webhook URL until a message arrives on it (QA TC-2086)', async () => {

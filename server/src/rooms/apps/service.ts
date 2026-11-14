@@ -547,7 +547,12 @@ export class RoomApps {
     if (!room) return
     audit(this.db, { actor: null, action: 'room_app.paused', target: row.id, detail: { ...roomAuditRef(room), cap, team } })
     const L = this.locale()
-    try { this.postLine(row, team ? this.teamCapText(L, until) : appText('pausedLine', L, { app: row.name, cap: appNumber(cap, L) })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    // the team's cap pauses every app at once: its line is said once per room that day, by the first app paused there
+    // (10 apps must not post 10 equal lines; QA TC-2067); an app's own cap keeps its own line
+    const saidInRoom = team && !!this.db.query("SELECT 1 FROM room_app_days WHERE room_id = ? AND day = ? AND paused_by = 'team' AND app_id <> ? LIMIT 1").get(row.room_id, day, row.id)
+    if (!saidInRoom) {
+      try { this.postLine(row, team ? this.teamCapText(L, until) : appText('pausedLine', L, { app: row.name, cap: appNumber(cap, L) })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    }
     // who is told: the people in the room who manage it, and the person who added it while they are in it
     const members = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id) as { user_id: string }[]).map((m) => m.user_id)
     const to = members.filter((u) => u === row.created_by || mayManageApps(this.db, room, u))

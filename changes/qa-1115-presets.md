@@ -8,3 +8,5 @@
 - Apps in rooms: **Copy secret** for GitHub, Typeform and Tally no longer starts signing straight away. Unsigned messages still show until the first message signed with the secret arrives. After that, only signed messages show.
 - Apps in rooms: before the first Copy, the guide says that nothing is set up yet, and the "keep it private" line appears only once there is a URL. When the hourly limit is reached, the message gives the minutes to wait instead of "shortly". The "didn't match" line goes away when the secret is changed or removed. Toss Payments and PortOne refusals use the field's own name. Channel Talk says "only messages with the token are shown".
 - Admin > System: **Turn on connection** in the apps dialog (and any /admin/system/<part> link on a computer) now scrolls to that part of the page.
+- Apps in rooms: when the team's daily limit pauses every app, a room now shows one pause line instead of one per app.
+- Sharing a chat: when one earlier file could not go with it, the note now says "Only you can open it" ("them" for more than one).
