@@ -186,8 +186,17 @@ test('signatures are optional for GitHub and Sentry; once a secret is set, a mis
   // "Make it safer": a secret Trina makes, shown once here and on the address
   const s = await owner.call('PUT', `/api/rooms/${all}/apps/${g.app.id}/secret`, { generate: true })
   expect(s.secret).toMatch(/^tax_whs_[A-Za-z0-9_-]{43}$/)
-  expect(s.app.signed).toBe(true)
+  // it waits for GitHub: until a request signed with it comes, unsigned ones are still shown (copying the secret must
+  // not drop what GitHub sends before it is pasted there)
+  expect(s.app.signed).toBe(false)
+  expect(s.app.signingPending).toBe(true)
   expect((await owner.call('GET', `/api/rooms/${all}/apps/${g.app.id}/address`)).secret).toBe(s.secret)
+  expect((await post(g.token, pr('labeled'), { 'x-github-event': 'pull_request', 'x-github-delivery': 'd1b' })).status).toBe(200)
+  // the first signed request (GitHub's ping) turns the check on
+  expect((await post(g.token, '{"zen":"y","hook_id":1}', { 'x-github-event': 'ping', 'x-hub-signature-256': `sha256=${hmac(s.secret, '{"zen":"y","hook_id":1}')}` })).status).toBe(200)
+  const on = (await owner.call('GET', `/api/rooms/${all}/apps`)).items.find((x: { id: string }) => x.id === g.app.id)
+  expect(on.signed).toBe(true)
+  expect(on.signingPending).toBeUndefined()
   // now unsigned and wrongly signed requests are refused; the status line says so
   expect((await post(g.token, pr('closed', { merged: true }), { 'x-github-event': 'pull_request', 'x-github-delivery': 'd2' })).status).toBe(401)
   expect((await post(g.token, pr('closed', { merged: true }), { 'x-github-event': 'pull_request', 'x-github-delivery': 'd2', 'x-hub-signature-256': `sha256=${hmac('other', pr('closed', { merged: true }))}` })).status).toBe(401)
@@ -420,4 +429,50 @@ test('addresses in outside text never link; lengths fit the contract; a deleted 
   const r = await h.fetch(`/in/${o.token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half' } as never)
   expect(r.status).toBe(408)
   expect(Date.now() - t0).toBeLessThan(15_000)
+})
+
+test('Other: a plain form post (text=…, no payload field) is read like JSON, with the same limits (QA TC-2405)', async () => {
+  const { add, post, messages } = await setup()
+  const o = await add('other', undefined, undefined, 'Feeds')
+  const form = { 'content-type': 'application/x-www-form-urlencoded' }
+  expect((await post(o.token, 'text=Hello form', form)).status).toBe(200)
+  expect((await post(o.token, `title=Nightly&text=${encodeURIComponent('line one\nline two')}&url=${encodeURIComponent('https://ci.example.com/run/1')}&thread=n1`, form)).status).toBe(200)
+  // Slack's payload field as before; a form with none of the fields is unreadable (400)
+  expect((await post(o.token, `payload=${encodeURIComponent(JSON.stringify({ text: 'From payload' }))}`, form)).status).toBe(200)
+  expect((await post(o.token, 'foo=bar', form)).status).toBe(400)
+  // mentions stay plain words, as in JSON
+  expect((await post(o.token, `text=${encodeURIComponent('Heads up <!here>')}`, form)).status).toBe(200)
+  await settle()
+  const ms = (await messages()).sort((a, b) => a.seq - b.seq)
+  expect(ms.map((m) => m.appCard.title)).toEqual(['Hello form', 'Nightly', 'From payload', 'Heads up here'])
+  expect(ms[1].appCard.details).toEqual(['line one', 'line two'])
+  expect(ms[1].appCard.link).toEqual({ url: 'https://ci.example.com/run/1', host: 'ci.example.com' })
+  expect(ms[3].mentions).toEqual([])
+})
+
+test('a secret changed or taken away clears its old "didn\'t match" line; Toss Payments and PortOne name their own field; the hourly add limit says how long to wait', async () => {
+  const { owner, add, post, all } = await setup()
+  const s = await add('sentry')
+  await owner.call('PUT', `/api/rooms/${all}/apps/${s.app.id}/secret`, { secret: 'cd'.repeat(32) })
+  expect((await post(s.token, sentryIssue('created', '91'), { 'sentry-hook-resource': 'issue' })).status).toBe(401)
+  const app = async () => ((await owner.call('GET', `/api/rooms/${all}/apps`)).items as any[]).find((x) => x.id === s.app.id)
+  expect((await app()).lastRefusal.reason).toBe('signature')
+  await owner.call('PUT', `/api/rooms/${all}/apps/${s.app.id}/secret`, { secret: null })
+  expect((await app()).lastRefusal).toBeNull()
+  // the field's own name in the refusal
+  const toss = await owner.call('POST', `/api/rooms/${all}/apps`, { kind: 'other', preset: 'toss_payments' })
+  const bad = await owner.try('PUT', `/api/rooms/${all}/apps/${toss.app.id}/secret`, { secret: 'not-hex-not-hex-not-hex-not-hex-' })
+  expect(bad.status).toBe(400)
+  expect([appText('tossKeyShape', 'ko'), appText('tossKeyShape', 'en')]).toContain(bad.body.error.message)
+  const portone = await owner.call('POST', `/api/rooms/${all}/apps`, { kind: 'other', preset: 'portone' })
+  const bad2 = await owner.try('PUT', `/api/rooms/${all}/apps/${portone.app.id}/secret`, { secret: 'hello-not-a-secret-at-all' })
+  expect([appText('portoneSecretShape', 'ko'), appText('portoneSecretShape', 'en')]).toContain(bad2.body.error.message)
+  // ten an hour per person (three added above; the room holds ten, so one is removed first): the eleventh says the
+  // minutes to wait, not "shortly"
+  for (let i = 0; i < 7; i++) await owner.call('POST', `/api/rooms/${all}/apps`, { kind: 'other', name: `Feed ${i}` })
+  await owner.call('DELETE', `/api/rooms/${all}/apps/${portone.app.id}`)
+  const r = await owner.try('POST', `/api/rooms/${all}/apps`, { kind: 'other', name: 'One too many' })
+  expect(r.status).toBe(429)
+  expect(r.body.error.retryAfter).toBeGreaterThan(3000)
+  expect(r.body.error.message).toMatch(/60/)
 })

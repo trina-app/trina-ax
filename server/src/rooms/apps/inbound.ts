@@ -17,7 +17,8 @@
 //   5. the signature when a secret is set (signatures.ts: GitHub X-Hub-Signature-256 "sha256=<hex>", Sentry
 //      Sentry-Hook-Signature "<hex>", a preset its service's scheme (Channel Talk: its ?token= on the URL); constant
 //      time; 401; Tally's signed createdAt older
-//      than 2 days: 401). Jotform's form post is read into fields here. Without a secret the token alone authenticates and the
+//      than 2 days: 401). A secret Trina made (GitHub, Typeform, Tally) that no request has carried yet lets unsigned
+//      requests through until the first one signed with it. Jotform's form post is read into fields here. Without a secret the token alone authenticates and the
 //      card carries `unverified` when it names someone; the app's settings say "Not signed" once (owner decision 9:
 //      optional for both; no "(unverified)" after each name since the 2026-11-14 review).
 //   6. parse (400 unreadable), the app's switch (off: 200, skipped), the day's caps (pause: 429), then one transaction
@@ -156,13 +157,20 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     // that has it anyway is refused. Part 1's kinds as before: GitHub's header, else Sentry's
     const sig = preset ? preset.signature : row.kind === 'github' ? { scheme: 'hex-body' as const, header: 'x-hub-signature-256', prefix: 'sha256=' } : { scheme: 'hex-body' as const, header: 'sentry-hook-signature' }
     const r = secret !== 'broken' && sig ? verifySignature(sig.scheme, { secret: secret.secret, raw, headers: req.headers, now, header: sig.header, prefix: sig.prefix, query: queryOf(req) }) : { ok: false as const }
-    if (!r.ok) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
-    if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
-    if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    verified = r.json
-    signed = true
+    // a secret Trina made that no request has carried yet (secret_pending): a request without its signature is read as
+    // if no secret were set (the person may not have pasted it in the service yet); the first one that matches turns
+    // the check on for good
+    const pending = !!now_.secret_pending && secret !== 'broken'
+    if (!r.ok && !pending) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    if (r.ok) {
+      // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
+      if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+      // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
+      if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+      if (pending) apps.signingSeen(row.id)
+      verified = r.json
+      signed = true
+    }
   }
   let form: [string, string][] | undefined
   if (p === 'jotform') {

@@ -51,7 +51,7 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
     case 'shopify': return <>
       <Step n={1}><p>{t('roomApps.shopify1', { path: v('shopifyPath'), create: v('shopifyCreate') })}</p></Step>
       <Step n={2}><p>{t('roomApps.shopify2', { event: v('shopifyOrder'), json: v('shopifyJson'), save: v('shopifySave') })}</p></Step>
-      <Step n={3} optional><p>{t('roomApps.shopify3', { paid: v('shopifyPaid'), cancelled: v('shopifyCancelled'), refund: v('shopifyRefund') })}</p></Step>
+      <Step n={3} optional events={['paid', 'cancelled', 'refund', 'fulfilled']}><p>{t('roomApps.shopify3', { paid: v('shopifyPaid'), cancelled: v('shopifyCancelled'), refund: v('shopifyRefund') })}</p></Step>
     </>
     case 'zendesk': return <>
       <Step n={1}><p>{t('roomApps.zendesk1', { path: v('zendeskPath'), create: v('zendeskCreate'), trigger: v('zendeskTrigger'), next: v('zendeskNext') })}</p></Step>
@@ -61,7 +61,7 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
         <CopyBody body={roomAppZendeskBody('created')} testId="apps-copy-body" />
         <p className="text-xs text-muted">{t('roomApps.zendeskBodyNote')}</p>
       </Step>
-      <Step n={4} optional>
+      <Step n={4} optional events={['updated']}>
         <p>{t('roomApps.zendesk4', { updated: v('zendeskUpdated') })}</p>
         {/* its own body: "event":"updated" tells Trina which trigger sent it */}
         <CopyBody body={roomAppZendeskBody('updated')} testId="apps-copy-body-updated" />
@@ -76,11 +76,11 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
         <p className="text-xs text-muted">{t('roomApps.zendeskBodyNote')}</p>
       </Step>
       <Step n={4}><p>{t('roomApps.jira4', { turnOn: v('jiraTurnOn') })}</p></Step>
-      <Step n={5} optional>
+      <Step n={5} optional events={['transitioned']}>
         <p>{t('roomApps.jira5', { transitioned: v('jiraTransitioned') })}</p>
         <CopyBody body={roomAppJiraBody('transitioned')} testId="apps-copy-body-transitioned" />
       </Step>
-      <Step n={6} optional>
+      <Step n={6} optional events={['commented']}>
         <p>{t('roomApps.jira6', { commented: v('jiraCommented') })}</p>
         <CopyBody body={roomAppJiraBody('commented')} testId="apps-copy-body-commented" />
       </Step>
@@ -94,11 +94,11 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
         <p className="text-xs text-muted">{t('roomApps.hubspotPrivacy')}</p>
       </Step>
       <Step n={4}><p>{t('roomApps.hubspot4', { turnOn: v('hubspotTurnOn') })}</p></Step>
-      <Step n={5} optional>
+      <Step n={5} optional events={['contact']}>
         <p>{t('roomApps.hubspot5', { contact: v('hubspotContactBased') })}</p>
         <KeyRows rows={HUBSPOT_ROWS.contact} testId="apps-hubspot-contact" />
       </Step>
-      <Step n={6} optional>
+      <Step n={6} optional events={['ticket']}>
         <p>{t('roomApps.hubspot6', { ticket: v('hubspotTicketBased') })}</p>
         <KeyRows rows={HUBSPOT_ROWS.ticket} testId="apps-hubspot-ticket" />
       </Step>

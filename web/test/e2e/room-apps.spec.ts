@@ -79,6 +79,9 @@ for (const vp of SIZES) {
       await page.getByTestId('apps-pick-other').click()
       await expect(page.getByTestId('apps-title')).toHaveText('Connect another app')
       await expect(page.getByTestId('apps-address')).toHaveText("Copying makes this room's own Webhook URL")
+      // before the first Copy: nothing to wait for and no URL to keep private yet
+      await expect(page.getByTestId('apps-status')).toHaveText('Nothing is added yet. Copy the Webhook URL to start.')
+      await expect(page.getByTestId('apps-address-private')).toHaveCount(0)
       // ‹ goes back to the picker, still nothing added
       await page.getByTestId('apps-back').click()
       await expect(page.getByTestId('apps-picker')).toBeVisible()
@@ -95,6 +98,7 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-steps')).toContainText('Paste this Webhook URL there.')
       await expect(page.getByTestId('apps-how-to-send')).toContainText('"text"')
       await expect(page.getByTestId('apps-status')).toHaveText('Waiting for the first message. You can close this.')
+      await expect(page.getByTestId('apps-address-private')).toHaveText('Anyone with this Webhook URL can post here. Keep it private.')
       // a second copy adds no second app
       await page.getByTestId('apps-copy-address').click()
       expect(apps.calls.filter((c) => c.startsWith('create'))).toHaveLength(1)
@@ -124,6 +128,10 @@ for (const vp of SIZES) {
       await expect.poll(() => apps.calls).toEqual(['create:github', expect.stringMatching(/^secret:.*:generate$/)])
       await expect(page.getByTestId('apps-copy-secret')).toHaveText('Copied')
       expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^tax_whs_/)
+      // copying the secret turns nothing off yet: it waits for GitHub's first signed message
+      await expect(page.getByTestId('apps-signed')).toHaveAttribute('data-state', 'pending')
+      await expect(page.getByTestId('apps-signed')).toContainText('Waiting for a signed message from GitHub')
+      await expect(page.getByTestId('apps-unsigned')).toHaveCount(0)
       await page.getByTestId('apps-back').click()
       await page.getByTestId('apps-pick-sentry').click()
       await page.getByTestId('apps-safer').locator('summary').click()
@@ -382,7 +390,7 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-sentry-secret')).toHaveAttribute('placeholder', 'Security key')
       await page.getByTestId('apps-sentry-secret').fill('not-the-key')
       await page.getByTestId('apps-sentry-secret-save').click()
-      await expect(page.getByTestId('apps-secret-error')).toHaveText("That doesn't look like Toss Payments's signing secret.")
+      await expect(page.getByTestId('apps-secret-error')).toHaveText("That doesn't look like a Toss Payments security key.")
       await page.getByTestId('apps-sentry-secret').fill('ab'.repeat(32))
       await page.getByTestId('apps-sentry-secret-save').click()
       await expect(page.getByTestId('apps-signed')).toBeVisible()
@@ -445,7 +453,7 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-switch-refund-not-set-up')).toContainText('Not set up in Shopify')
       await page.getByTestId('apps-switch-refund-not-set-up').getByRole('button', { name: 'Show the step' }).click()
       await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', 'shopify')
-      await expect(page.getByTestId('apps-step-optional')).toBeInViewport()
+      await expect(page.locator('[data-step-for~="refund"]')).toBeInViewport()
       await page.getByTestId('apps-back').click()
       await page.getByTestId('apps-back').click()
       // Notion can't sign: no "Not signed" warning, one switch (none shown), no How to send
@@ -455,6 +463,112 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-how-to-send')).toHaveCount(0)
       await page.getByTestId('apps-how-to-connect').click()
       await expect(page.getByTestId('apps-needs')).toHaveText('Needs: a paid Notion plan')
+    })
+
+    test('Show the step goes to that event\'s own step: Jira comments step 6, HubSpot tickets step 6 (QA TC-2416, TC-2421)', async ({ page }) => {
+      const jira = mockPreset('jira', { eventsSeen: ['created'] })
+      const hubspot = mockPreset('hubspot', { eventsSeen: ['deal', 'contact'] })
+      await open(page, { size: vp.size, apps: [jira, hubspot], messages: MESSAGES.slice(0, 1) })
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-list-row').first().click()
+      await page.getByTestId('apps-switch-commented-show-step').click()
+      const six = page.locator('[data-step-for~="commented"]')
+      await expect(six).toContainText('6')
+      await expect(six).toBeInViewport()
+      // at the top of the guide's body (or as far as it scrolls), not the first optional step (5) in the middle
+      const body = page.getByRole('dialog').locator('.overflow-y-auto')
+      const atTop = (step: string) => body.evaluate((el, step) => {
+        const s = el.querySelector(`[data-step-for~="${step}"]`)!.getBoundingClientRect().top - el.getBoundingClientRect().top
+        return Math.abs(s) < 40 || Math.abs(el.scrollTop - (el.scrollHeight - el.clientHeight)) < 2
+      }, step)
+      await expect.poll(() => atTop('commented')).toBe(true)
+      await expect(six).toBeInViewport({ ratio: 0.9 })
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(1).click()
+      await expect(page.getByTestId('apps-switch-contact-not-set-up')).toHaveCount(0)
+      await page.getByTestId('apps-switch-ticket-show-step').click()
+      await expect(page.locator('[data-step-for~="ticket"]')).toBeInViewport()
+      await expect.poll(() => atTop('ticket')).toBe(true)
+    })
+
+    test('Back from a guide keeps the picker as it was: scrolled, More services open (QA TC-2386)', async ({ page }) => {
+      await open(page, { size: { width: vp.size.width, height: 640 }, messages: MESSAGES.slice(0, 1) })
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-show-more').click()
+      const body = page.getByRole('dialog').locator('.overflow-y-auto')
+      await page.getByTestId('apps-pick-channel_talk').scrollIntoViewIfNeeded()
+      const before = await body.evaluate((el) => el.scrollTop)
+      expect(before).toBeGreaterThan(50)
+      await page.getByTestId('apps-pick-channel_talk').click()
+      await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', 'channel_talk')
+      // the guide starts at its top
+      expect(await body.evaluate((el) => el.scrollTop)).toBe(0)
+      await page.getByTestId('apps-back').click()
+      await expect(page.getByTestId('apps-more-list')).toBeVisible()
+      await expect(page.getByTestId('apps-show-more')).toHaveCount(0)
+      await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(before)
+    })
+
+    test('the clipboard refused: the whole Webhook URL in a real read-only field, selected; settings never show it (QA TC-2388)', async ({ page }) => {
+      const { apps } = await open(page, { size: vp.size, messages: MESSAGES.slice(0, 1) })
+      await page.evaluate(() => {
+        const no = () => Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'))
+        Object.defineProperty(navigator, 'clipboard', { value: { write: no, writeText: no, readText: no }, configurable: true })
+      })
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-pick-typeform').click()
+      await page.getByTestId('apps-copy-address').click()
+      const full = page.getByTestId('apps-address-full')
+      await expect(full).toHaveValue(ADDRESS(1))
+      await expect(full).toHaveAttribute('readonly', '')
+      await expect(full).toBeFocused()
+      expect(await full.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0))).toBe(ADDRESS(1))
+      await expect(page.getByTestId('apps-address')).toHaveCount(0)
+      await expect(page.getByTestId('apps-copy-failed')).toContainText('The whole Webhook URL is in the field above')
+      expect(apps.calls).toEqual(['create:other+typeform'])
+      // settings: Copy refused says where to go, the URL is not on the page
+      await page.getByTestId('apps-done').click()
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-list-row').first().click()
+      await page.getByTestId('apps-settings-copy').click()
+      await expect(page.getByText("Couldn't copy here. Open “How to connect” and press Copy there.")).toBeVisible()
+      expect(await page.getByRole('dialog').innerText()).not.toContain('tax_in_')
+    })
+
+    test('"Nothing yet?" for a preset after the wait, with that service\'s checks (QA TC-2389); a token said as a token', async ({ page }) => {
+      const jira = mockPreset('jira', { createdAt: new Date(Date.now() - 5 * 60_000).toISOString(), firstOkAt: null, lastOkAt: null })
+      const channel = mockPreset('channel_talk', { signed: true })
+      await open(page, { size: vp.size, apps: [jira, channel], messages: MESSAGES.slice(0, 1) })
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-list-row').first().click()
+      await page.getByTestId('apps-how-to-connect').click()
+      await page.getByTestId('apps-nothing-yet').locator('summary').click()
+      await expect(page.getByTestId('apps-nothing-yet')).toContainText('Is the whole Webhook URL pasted?')
+      await expect(page.getByTestId('apps-nothing-yet')).toContainText('Did you press “Turn on” on the rule?')
+      await expect(page.getByTestId('apps-nothing-yet')).toContainText('Create a test work item.')
+      await expect(page.getByTestId('apps-for-developers')).toHaveCount(0)
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(1).click()
+      await page.getByTestId('apps-how-to-connect').click()
+      await page.getByTestId('apps-safer').locator('summary').click()
+      await expect(page.getByTestId('apps-signed')).toContainText('On: only messages with the token are shown.')
+    })
+
+    test('settings controls are real tap targets: 44 px on a phone, 24 px on a computer (QA TC-2435)', async ({ page }) => {
+      const jira = mockPreset('jira', { eventsSeen: ['created'], signed: false })
+      const toss = mockPreset('toss_payments', { lastRefusal: { at: new Date().toISOString(), reason: 'signature' }, signed: true })
+      await open(page, { size: vp.size, apps: [jira, toss], messages: MESSAGES.slice(0, 1) })
+      const min = vp.name === '390' ? 44 : 24
+      const tall = async (testId: string) => expect.poll(async () => Math.round((await page.getByTestId(testId).boundingBox())?.height ?? 0)).toBeGreaterThanOrEqual(min)
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-list-row').first().click()
+      for (const id of ['apps-how-to-connect', 'apps-switch-commented-show-step', 'apps-new-address', 'apps-remove']) await tall(id)
+      for (const label of await page.getByTestId('apps-settings').locator('li label[for]').all()) expect(Math.round((await label.boundingBox())!.height)).toBeGreaterThanOrEqual(min)
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(1).click()
+      await tall('apps-set-up-again')
     })
 
     test('a member sees cards, no ⋯ item, and who to ask', async ({ page }) => {
@@ -478,6 +592,12 @@ for (const vp of SIZES) {
         else await expect(page.getByTestId('apps-no-address-who')).toHaveText('Ask the team owner to turn on the connection.')
         await expect(page.getByTestId('apps-open-connection')).toHaveCount(role === 'owner' ? 1 : 0)
         await expect(page.getByTestId('apps-how-it-works')).toHaveAttribute('href', 'https://ax.trina.app/docs/use/room-apps/')
+        // the owner's link lands on the Connection part, in view (a computer's one page scrolls to it)
+        if (role === 'owner') {
+          await page.getByTestId('apps-open-connection').click()
+          await expect(page).toHaveURL(vp.name === '390' ? /\/admin\/system\/connection$/ : /\/admin\/system#system-connection$/)
+          await expect(page.locator('#system-connection').first()).toBeInViewport()
+        }
       })
     }
   })

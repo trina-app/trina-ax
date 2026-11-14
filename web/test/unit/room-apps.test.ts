@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { DICTS } from '../../src/i18n'
 import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, RoomAppPreset } from '@mycel/shared/api'
-import { appChip, appPlainText, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
+import { appChip, appPlainText, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
 import { mayManageApps } from '../../src/store/roomApps'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
 import { pausedNoticeText, startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
@@ -164,4 +164,24 @@ test('the pause ends "tomorrow" at the reader\'s midnight, else at a time; the a
   const a = `https://acme.trina.app/in/tax_in_${'A'.repeat(43)}`
   expect(middleCut(a)).toBe(`${a.slice(0, 34)}…${a.slice(-6)}`)
   expect(middleCut('https://x/in/short')).toBe('https://x/in/short')
+})
+
+test('"Nothing yet?" has its lines for every service (QA TC-2389), each with the service\'s labels it quotes, in every language', () => {
+  const services = [...PICKER_GROUPS.flatMap((g) => g.items), ...MORE_SERVICES].filter((s) => s !== 'github')
+  for (const s of services) {
+    const lines = NOTHING_YET[s] ?? []
+    expect({ s, enough: lines.length >= 2 }).toEqual({ s, enough: true })
+    for (const [locale, dict] of Object.entries(DICTS)) {
+      const d = dict as Record<string, string>
+      lines.forEach((vars, i) => {
+        const text = d[`roomApps.nothingYetCheck.${s}.${i + 1}`] ?? ''
+        expect({ locale, s, i, has: !!text }).toEqual({ locale, s, i, has: true })
+        // every placeholder in the line is a label of the service that the guide quotes
+        for (const m of text.matchAll(/\{(\w+)\}/g)) {
+          const label = vars?.[m[1]!]
+          expect({ s, k: m[1], label: !!label && !!d[`roomApps.vendorLabel.${label}`] }).toEqual({ s, k: m[1], label: true })
+        }
+      })
+    }
+  }
 })

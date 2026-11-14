@@ -17,20 +17,20 @@
 // serviceOf): the picker's groups with "Needs: …", their guides (PresetSteps), switches, signing and warnings.
 import clsx from 'clsx'
 import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, Info, PauseCircle, Plus } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { limitResetText } from '@mycel/shared'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
 import { dateBucket, formatNumber, formatShortDateTime, intlTag } from '../../../lib/format'
-import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, waitsForEvent, type AppService } from '../../../lib/roomApps'
+import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
 import { useRooms } from '../../../store/rooms'
 import { useRoomApps, type AppsStart } from '../../../store/roomApps'
 import { isOwner, useMe } from '../../../store/session'
 import { toast } from '../../../store/ui'
 import { ListRow } from '../../list/List'
-import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch } from '../../ui'
+import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch, TextAction } from '../../ui'
 import { AppCardText } from '../AppCard'
 import { useRoomTitle } from '../RoomIcon'
 import { AppTile, SenderTag } from './AppParts'
@@ -81,7 +81,14 @@ function usePausedText() {
     : t(forms ? 'roomApps.statusPausedForms' : 'roomApps.statusPaused', { cap: formatNumber(s.cap, locale) })
 }
 
-type View = { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; service: AppService; appId?: string; step?: 'optional' }
+/** `step` (a guide): the switch whose optional step "Show the step" scrolls to (that step, not the first optional one) */
+type View = { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; service: AppService; appId?: string; step?: string }
+
+/** The picker as it was left (a guide and Back must not lose it; QA TC-2386): "Show more services" open, and how far the
+ * dialog's body was scrolled. */
+type PickerPlace = { more: boolean | null; scroll: number }
+/** The dialog body that scrolls (Modal's), from an element inside it. */
+const scrollerOf = (el: Element | null): HTMLElement | null => el?.closest<HTMLElement>('.overflow-y-auto') ?? null
 
 export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart }) {
   const t = useT()
@@ -91,6 +98,7 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const roomTitle = useRoomTitle()
   const [error, setError] = useState<string | null>(null)
   const [stack, setStack] = useState<View[]>(start.view === 'auto' ? [] : [start])
+  const pickerPlace = useRef<PickerPlace>({ more: null, scroll: 0 })
   const close = () => useRoomApps.getState().close()
   const reload = useCallback(() => useRoomApps.getState().load(roomId).then(() => setError(null), (e) => setError(errorText(e, locale, t('error.network')))), [roomId, locale, t])
   useEffect(() => { void reload() }, [reload])
@@ -99,6 +107,15 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const go = (v: View) => setStack((s) => [...(s.length || !view ? s : [view]), v])
   const back = stack.length > 1 ? () => setStack((s) => s.slice(0, -1)) : view?.view !== 'list' && view?.view !== 'pick' && list?.items.length ? () => setStack([{ view: 'list' }]) : null
   const name = room ? roomTitle(room) : ''
+  // another screen starts at its top (the body is one scrolling box for all of them); the picker puts itself back
+  const body = useRef<HTMLDivElement>(null)
+  const screen = view ? `${stack.length}:${view.view}` : ''
+  useLayoutEffect(() => {
+    if (view?.view === 'pick') return
+    const box = scrollerOf(body.current)
+    if (box) box.scrollTop = 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen])
   const app = view && 'appId' in view && view.appId ? list?.items.find((a) => a.id === view.appId) ?? null : null
   const kindLabel = (s: AppService) => t(`roomApps.kind.${s}`)
   const title: ReactNode = !view ? t('roomApps.listTitle')
@@ -129,12 +146,12 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
         </span>
       }
     >
-      <div data-testid="apps-dialog" data-view={blocked ? 'no-address' : view?.view}>
+      <div ref={body} data-testid="apps-dialog" data-view={blocked ? 'no-address' : view?.view}>
         {error && !list ? <p className="text-sm text-danger" role="alert">{error}</p>
           : !list || !view ? <Skeleton lines={4} />
           : blocked ? <NoAddress />
-          : view.view === 'pick' ? <Picker list={list} roomName={name} onPick={(service) => go({ view: 'guide', service })} />
-          : view.view === 'list' ? <AppList list={list} onOpen={(id) => go({ view: 'settings', appId: id })} onAdd={() => go({ view: 'pick' })} />
+          : view.view === 'pick' ? <Picker list={list} roomName={name} place={pickerPlace.current} onPick={(service) => go({ view: 'guide', service })} />
+          : view.view === 'list' ? <AppList list={list} onOpen={(id) => go({ view: 'settings', appId: id })} onAdd={() => { pickerPlace.current = { more: null, scroll: 0 }; go({ view: 'pick' }) }} />
           : view.view === 'guide' ? <Guide roomId={roomId} service={view.service} app={app} step={view.step} onAdded={(a) => setStack((s) => [...s.slice(0, -1), { view: 'guide', service: view.service, appId: a.id }])} onDone={close} />
           : app ? <Settings roomId={roomId} roomName={name} app={app} available={list.available} onGuide={(step) => go({ view: 'guide', service: svc(app), appId: app.id, ...(step ? { step } : {}) })} onRemoved={() => setStack([{ view: list.items.length > 1 ? 'list' : 'pick' }])} />
           : <p className="text-sm text-muted">{t('rooms.notFound')}</p>}
@@ -174,13 +191,24 @@ function GroupHeading({ id, children }: { id: string; children: ReactNode }) {
   return <h3 id={id} className="px-3 pt-3 pb-1 text-xs font-medium tracking-wide text-muted uppercase max-sm:px-3" data-testid="apps-pick-group">{children}</h3>
 }
 
-function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: string; onPick: (s: AppService) => void }) {
+function Picker({ list, roomName, place, onPick }: { list: RoomAppList; roomName: string; place: PickerPlace; onPick: (s: AppService) => void }) {
   const t = useT()
   const gid = useId()
   const left = list.max - list.items.length
   const full = left <= 0
-  // "Show more services": open from the start when the room has one of them already
-  const [more, setMore] = useState(() => list.items.some((a) => MORE_SERVICES.includes(svc(a))))
+  // "Show more services": open from the start when the room has one of them already; as it was left after a guide
+  const [more, setMoreState] = useState(() => place.more ?? list.items.some((a) => MORE_SERVICES.includes(svc(a))))
+  const setMore = (v: boolean) => { place.more = v; setMoreState(v) }
+  // back from a guide: the list where it was (the dialog's body is the one scrolling), and where it is now kept
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const box = scrollerOf(ref.current)
+    if (!box) return
+    if (place.scroll) box.scrollTop = place.scroll
+    const keep = () => { place.scroll = box.scrollTop }
+    box.addEventListener('scroll', keep, { passive: true })
+    return () => box.removeEventListener('scroll', keep)
+  }, [place])
   // the second line: what the service posts, then what it needs ("Needs: …") so nobody finds out after setup
   const row = (s: AppService) => {
     const needs = needsOf(s)
@@ -200,7 +228,7 @@ function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: strin
     )
   }
   return (
-    <div className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-picker">
+    <div ref={ref} className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-picker">
       <p className="px-5 pt-4 pb-1 text-sm text-muted max-sm:px-4">{t('roomApps.pickLead', { room: roomName })}</p>
       <div className="px-2 pb-1 max-sm:px-1">
         {PICKER_GROUPS.map((g) => (
@@ -283,13 +311,9 @@ function Warnings({ items, className }: { items: Warning[]; className?: string }
   return (
     <ul className={clsx('space-y-1.5 border-l-2 border-warn py-0.5 pl-3 text-sm text-ink', className)} role="status" data-testid="apps-warnings">
       {items.map((w) => (
-        <li key={w.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5" data-testid={`apps-warning-${w.key}`}>
+        <li key={w.key} className="flex flex-wrap items-center gap-x-2" data-testid={`apps-warning-${w.key}`}>
           <span className="min-w-0">{w.text}</span>
-          {w.action && (
-            <button type="button" onClick={w.action.onClick} disabled={w.action.disabled} className="touch-hit shrink-0 font-medium text-accent-text hover:underline disabled:opacity-40" data-testid={w.action.testId}>
-              {w.action.label}
-            </button>
-          )}
+          {w.action && <TextAction onClick={w.action.onClick} disabled={w.action.disabled} data-testid={w.action.testId}>{w.action.label}</TextAction>}
         </li>
       ))}
     </ul>
@@ -319,8 +343,9 @@ function useRefusedText() {
 }
 
 /** The one status line: last message, a refusal with its reason (the guide; settings list it with the warnings), paused,
- * or waiting for the first message (one way for every kind). */
-function StatusLine({ app, place, onAgain, onResume }: { app: RoomApp | null; place: 'guide' | 'settings'; onAgain?: () => void; onResume?: () => void }) {
+ * or waiting for the first message (one way for every kind); a guide before its first Copy says what Copy does
+ * (`beforeCopy`: the Webhook URL, or Forms' code). */
+function StatusLine({ app, place, beforeCopy = 'address', onAgain, onResume }: { app: RoomApp | null; place: 'guide' | 'settings'; beforeCopy?: 'address' | 'code'; onAgain?: () => void; onResume?: () => void }) {
   const t = useT()
   const when = useWhen()
   const raw = app ? appStatus(app) : { kind: 'none' as const }
@@ -335,14 +360,16 @@ function StatusLine({ app, place, onAgain, onResume }: { app: RoomApp | null; pl
     : s.kind === 'paused' ? [<PauseCircle key="i" size={15} aria-hidden />, paused(s, forms), 'text-warn']
     : s.kind === 'moved' && app ? [<WaitingDot key="i" />, `${moved(app, 'wait')} ${moved(app, 'paste')}`, '']
     : s.kind === 'ok' ? [<Check key="i" size={15} aria-hidden />, place === 'guide' ? t('roomApps.connected', { time: when(s.first) }) : t('roomApps.statusOk', { when: when(s.last) }), 'text-ok']
+    // a guide before its first Copy: nothing is added yet, so nothing is waited for (no breathing dot)
+    : !app ? [<Info key="i" size={15} aria-hidden />, t(beforeCopy === 'code' ? 'roomApps.beforeCopyCode' : 'roomApps.beforeCopy'), 'text-muted']
     : [<WaitingDot key="i" />, t('roomApps.waiting'), '']
   return (
-    <div className="flex items-start gap-2 text-sm" role="status" aria-live="polite" data-testid="apps-status" data-state={s.kind}>
+    <div className="flex items-start gap-2 text-sm" role="status" aria-live="polite" data-testid="apps-status" data-state={!app && s.kind === 'none' ? 'before' : s.kind}>
       <span className={clsx('mt-0.5 flex shrink-0', tone)}>{icon}</span>
       <span className="min-w-0 flex-1 text-ink">
         {text}
         {s.kind === 'refused' && s.reason === 'signature' && onAgain && (
-          <> <button type="button" onClick={onAgain} className="touch-hit font-medium text-accent-text hover:underline" data-testid="apps-set-up-again">{t('roomApps.checkSecretAction')}</button></>
+          <> <TextAction onClick={onAgain} className="align-middle" data-testid="apps-set-up-again">{t('roomApps.checkSecretAction')}</TextAction></>
         )}
       </span>
       {s.kind === 'paused' && app?.canResume && onResume && <Button size="sm" onClick={onResume} data-testid="apps-resume">{t('roomApps.resumeNow')}</Button>}
@@ -470,7 +497,7 @@ function ExamplePreview({ service, name }: { service: AppService; name: string }
 }
 
 // ---------------- 2. the guide ----------------
-function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string; service: AppService; app: RoomApp | null; step?: 'optional'; onAdded: (a: RoomApp) => void; onDone: () => void }) {
+function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string; service: AppService; app: RoomApp | null; step?: string; onAdded: (a: RoomApp) => void; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
   const v = useVendor()
@@ -480,7 +507,11 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
   const [copied, flash] = useFlash()
   // copied in this guide: Copy turns to an outline "✓ Copied", Done becomes the next step
   const [used, setUsed] = useState(false)
-  const [manual, setManual] = useState<string | null>(null)
+  // the browser refused the clipboard: what to copy by hand, where it was asked for (the Webhook URL in its own field, in
+  // full; Forms' code and a secret in a box under their Copy)
+  const [manual, setManual] = useState<{ what: 'address' | 'code' | 'secret'; text: string } | null>(null)
+  const manualRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
+  useEffect(() => { if (manual) { manualRef.current?.focus(); manualRef.current?.select() } }, [manual])
   const [preview, setPreview] = useState(false)
   const kind = kindOf(service)
   const preset = isPreset(service) ? service : null
@@ -494,10 +525,17 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
     api.call(API.getRoomAppAddress, { params: { id: roomId, appId: app.id } }).then((a) => { setAddress(a.address); if (a.secret) setSecret(a.secret) }, () => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app?.id])
-  // "Not set up in Shopify › Show the step": the optional step in view
+  // "Not set up in Jira › Show the step": the step that sets up that switch's event in view, at the top (Jira's comments
+  // flow is step 6, not the first optional one; QA TC-2416, TC-2421)
+  const stepsRef = useRef<HTMLOListElement>(null)
   useEffect(() => {
-    if (step !== 'optional') return
-    const id = requestAnimationFrame(() => document.querySelector('[data-testid="apps-step-optional"]')?.scrollIntoView({ block: 'center' }))
+    if (!step) return
+    const id = requestAnimationFrame(() => {
+      const list = stepsRef.current
+      const el = Array.from(list?.querySelectorAll<HTMLElement>('[data-step-for]') ?? []).find((x) => (x.dataset.stepFor ?? '').split(' ').includes(step))
+        ?? list?.querySelector<HTMLElement>('[data-testid="apps-step-optional"]')
+      el?.scrollIntoView({ block: 'start' })
+    })
     return () => cancelAnimationFrame(id)
   }, [step])
   /** the address, adding the app on the first Copy (with the name typed for an Other app; a preset's own) */
@@ -528,7 +566,7 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
     } catch (e) {
       // the app may be there with its address: show it to copy by hand
       const text = await made.catch(() => null)
-      if (text) setManual(text)
+      if (text) setManual({ what: kind === 'google_forms' ? 'code' : 'address', text })
       else fail(e)
     } finally {
       setBusy(false)
@@ -544,12 +582,13 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
       setSecret(s.secret ?? null)
       return s.secret ?? ''
     })()
+    setManual(null)
     try {
       await copyFrom(made)
       flash('secret')
     } catch (e) {
       const text = await made.catch(() => null)
-      if (text) setManual(text)
+      if (text) setManual({ what: 'secret', text })
       else fail(e)
     } finally {
       setBusy(false)
@@ -559,14 +598,14 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
   const signing = signingOf(service)
   const needs = needsOf(service)
   const s = app ? appStatus(app).kind : 'none'
-  // GitHub and Other can send a test at once: after two minutes without one, a short checklist
+  // after two minutes without a first message, a short checklist of that service's likely mistakes (every service)
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (waitsForEvent(service) || !app || s !== 'none') return
+    if (!app || s !== 'none') return
     const id = setInterval(() => setNow(Date.now()), 10_000)
     return () => clearInterval(id)
-  }, [service, app, s])
-  const nothingYet = !waitsForEvent(service) && !!app && s === 'none' && now - Date.parse(app.createdAt) >= NOTHING_YET_MS
+  }, [app, s])
+  const nothingYet = !!app && s === 'none' && now - Date.parse(app.createdAt) >= NOTHING_YET_MS
   const curl = useMemo(() => `curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hi"}' ${address ?? '<address>'}`, [address])
   return (
     <div className="space-y-4" data-testid="apps-guide" data-kind={service}>
@@ -581,28 +620,29 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
       {service === 'other' && (
         <NameField value={name} onChange={(x) => { setName(x); rename.setError(null) }} onCommit={app ? () => void rename.save(name) : undefined} error={rename.error} testId="apps-guide-name" />
       )}
-      {/* the address: read-only, cut in its middle, the whole one copied; Forms: only the code to paste */}
+      {/* the address: read-only, cut in its middle, the whole one copied; Forms: only the code to paste. When the browser
+          refused the clipboard, the whole Webhook URL in a real read-only field instead, selected (QA TC-2388): the
+          cut one would copy a URL that cannot work. Only here, after Copy: settings never show it */}
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted" id="apps-address-label">{forms ? t('roomApps.codeLabel') : t('roomApps.addressLabel')}</p>
         <div className="flex gap-2 max-sm:flex-col">
-          {!forms && (
-            <div aria-labelledby="apps-address-label" title={address ?? undefined} className={clsx(inputCls, 'flex min-w-0 flex-1 items-center truncate font-mono text-code-sm select-all', !address && 'font-sans text-faint!')} data-testid="apps-address">
+          {!forms && (manual?.what === 'address' ? (
+            <input ref={manualRef} readOnly value={manual.text} aria-labelledby="apps-address-label" onFocus={(e) => e.currentTarget.select()} spellCheck={false} className={clsx(inputCls, 'min-w-0 flex-1 font-mono text-code-sm')} data-testid="apps-address-full" />
+          ) : (
+            <div aria-labelledby="apps-address-label" title={address ?? undefined} className={clsx(inputCls, 'flex min-w-0 flex-1 items-center truncate font-mono text-code-sm', !address && 'font-sans text-faint!')} data-testid="apps-address">
               {address ? middleCut(address) : t('roomApps.addressPlaceholder')}
             </div>
-          )}
+          ))}
           <CopyButton label={forms ? t('roomApps.copyCode') : t('roomApps.copyAddress')} copied={copied === 'address' || used} primary busy={busy && copied === null} onClick={() => void copyAddress()} className="max-sm:w-full" testId="apps-copy-address" />
         </div>
-        <p className="text-xs text-muted">{t(forms ? 'roomApps.addressPrivateForms' : 'roomApps.addressPrivate')}</p>
+        {manual && manual.what !== 'secret' && <p className="text-xs text-danger" role="alert" data-testid="apps-copy-failed">{t(manual.what === 'address' ? 'roomApps.copyFailedAddress' : 'roomApps.copyFailed')}</p>}
+        {manual?.what === 'code' && <textarea ref={manualRef} readOnly value={manual.text} rows={3} onFocus={(e) => e.currentTarget.select()} className={clsx(inputCls, 'h-auto font-mono text-code-sm')} data-testid="apps-manual-copy" />}
+        {/* before the first Copy there is no URL yet: nothing to keep private, nothing to wait for (the status says so) */}
+        {address && <p className="text-xs text-muted" data-testid="apps-address-private">{t(forms ? 'roomApps.addressPrivateForms' : 'roomApps.addressPrivate')}</p>}
         {service === 'other' && <p className="text-xs text-ink" data-testid="apps-other-where">{t('roomApps.otherWhere')}</p>}
-        {manual && (
-          <div className="space-y-1">
-            <p className="text-xs text-danger" role="alert">{t('roomApps.copyFailed')}</p>
-            <textarea readOnly value={manual} rows={3} onFocus={(e) => e.currentTarget.select()} className={clsx(inputCls, 'h-auto font-mono text-code-sm')} data-testid="apps-manual-copy" />
-          </div>
-        )}
       </div>
 
-      <ol className="space-y-3" data-testid="apps-steps">
+      <ol ref={stepsRef} className="space-y-3" data-testid="apps-steps">
         {kind === 'sentry' && <>
           <Step n={1}>
             <p>{t('roomApps.sentry1', { path: v('sentryPath'), create: v('sentryCreate') })}</p>
@@ -659,14 +699,19 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
           {app?.signed && !secret ? (
             <SignedLine roomId={roomId} app={app} />
           ) : signing === 'trina_makes' ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="space-y-2">
               <CopyButton label={t('roomApps.copySecret')} copied={copied === 'secret'} disabled={busy} onClick={() => void copySecret()} testId="apps-copy-secret" />
-              {app?.signed && <SignedLine roomId={roomId} app={app} />}
+              {manual?.what === 'secret' && <>
+                <p className="text-xs text-danger" role="alert" data-testid="apps-copy-failed">{t('roomApps.copyFailed')}</p>
+                <textarea ref={manualRef} readOnly value={manual.text} rows={2} onFocus={(e) => e.currentTarget.select()} className={clsx(inputCls, 'h-auto font-mono text-code-sm')} data-testid="apps-manual-copy" />
+              </>}
+              {/* copying it turns nothing off: signing starts with the first message signed with it (the server) */}
+              {(app?.signed || app?.signingPending) && <SignedLine roomId={roomId} app={app} />}
             </div>
           ) : (
             <PasteSecret roomId={roomId} app={app} ensure={ensure} placeholder={service === 'sentry' ? t('roomApps.secretPlaceholder') : t(`roomApps.secretName.${service as 'stripe'}`)} />
           )}
-          {!app?.signed && <p className="text-xs text-muted" data-testid="apps-unsigned">{t('roomApps.unsigned')}</p>}
+          {!app?.signed && !app?.signingPending && <p className="text-xs text-muted" data-testid="apps-unsigned">{t('roomApps.unsigned')}</p>}
         </Fold>
       )}
       {kind === 'sentry' && (
@@ -676,7 +721,7 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
       )}
 
       <div className="border-t border-line pt-3">
-        <StatusLine app={app} place="guide" />
+        <StatusLine app={app} place="guide" beforeCopy={forms ? 'code' : 'address'} />
         {nothingYet && (
           <Fold summary={t('roomApps.nothingYet')} testId="apps-nothing-yet" className="mt-2">
             <ul className="list-disc space-y-1 pl-5">
@@ -684,13 +729,20 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
                 <li>{t('roomApps.checkJson', { json: v('githubJson') })}</li>
                 <li>{t('roomApps.checkSecret')}</li>
                 <li>{t('roomApps.checkDeliveries', { deliveries: v('githubDeliveries') })}</li>
-              </> : <>
+              </> : service === 'other' ? <>
                 <li>{t('roomApps.checkAddress')}</li>
                 <li>{t('roomApps.checkText')}</li>
+              </> : <>
+                {/* the services that post only when something happens there: was it pasted whole, what to check there,
+                    and how to make something happen */}
+                <li>{t(forms ? 'roomApps.checkCode' : 'roomApps.checkAddress')}</li>
+                {(NOTHING_YET[service] ?? []).map((vars, i) => (
+                  <li key={i}>{t(`roomApps.nothingYetCheck.${service}.${i + 1}` as never, Object.fromEntries(Object.entries(vars ?? {}).map(([k, label]) => [k, v(label)])))}</li>
+                ))}
               </>}
             </ul>
             {/* a terminal is a computer's, and for developers: folded once more */}
-            {kind !== 'github' && (
+            {service === 'other' && (
               <details className="max-md:hidden" data-testid="apps-for-developers">
                 <summary className="cursor-pointer text-xs font-medium text-muted">{t('roomApps.forDevelopers')}</summary>
                 <p className="mt-1 text-xs text-muted">{t('roomApps.checkCurl')}</p>
@@ -709,7 +761,9 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
   )
 }
 
-/** A secret is set: only signed messages are shown; "Turn off" takes it away (unsigned ones are shown again). */
+/** A secret is set: only signed messages are shown (Channel Talk's token: only messages that carry it); "Turn off" takes
+ * it away (unsigned ones are shown again). A secret Trina made that the service has not used yet (signingPending): it
+ * says signing starts with the first signed message and that until then messages without it still show. */
 function SignedLine({ roomId, app }: { roomId: string; app: RoomApp }) {
   const t = useT()
   const locale = useLocale()
@@ -720,10 +774,10 @@ function SignedLine({ roomId, app }: { roomId: string; app: RoomApp }) {
     } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
   }
   return (
-    <p className="flex flex-wrap items-center gap-2 text-sm" data-testid="apps-signed">
-      <Check size={14} className="text-ok" aria-hidden />
-      <span>{t('roomApps.saferOn')}</span>
-      <button type="button" onClick={() => void off()} className="touch-hit font-medium text-accent-text hover:underline" data-testid="apps-secret-off">{t('roomApps.saferOff')}</button>
+    <p className="flex flex-wrap items-center gap-x-2 text-sm" data-testid="apps-signed" data-state={app.signingPending ? 'pending' : 'on'}>
+      {app.signingPending ? <span className="-mt-1.5 flex shrink-0"><WaitingDot /></span> : <Check size={14} className="shrink-0 text-ok" aria-hidden />}
+      <span className="min-w-0 flex-1">{app.signingPending ? t('roomApps.saferPending', { app: t(`roomApps.kind.${svc(app)}`) }) : t(svc(app) === 'channel_talk' ? 'roomApps.saferOnToken' : 'roomApps.saferOn')}</span>
+      <TextAction onClick={() => void off()} data-testid="apps-secret-off">{t('roomApps.saferOff')}</TextAction>
     </p>
   )
 }
@@ -761,7 +815,7 @@ function PasteSecret({ roomId, app, ensure, placeholder }: { roomId: string; app
 }
 
 // ---------------- 5. one app's settings ----------------
-function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { roomId: string; roomName: string; app: RoomApp; available: boolean; onGuide: (step?: 'optional') => void; onRemoved: () => void }) {
+function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { roomId: string; roomName: string; app: RoomApp; available: boolean; onGuide: (step?: string) => void; onRemoved: () => void }) {
   const t = useT()
   const locale = useLocale()
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -784,7 +838,11 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
     try {
       await copyFrom(made)
       flash('address')
-    } catch (e) { fail(e) }
+    } catch (e) {
+      // the browser refused the clipboard: settings never show the URL; its guide does, in full, after Copy there
+      if (await made.then(() => true, () => false)) toast({ level: 'error', text: t('roomApps.copyFailedSettings') })
+      else fail(e)
+    }
   }
   const rotate = async () => {
     // what the service does with the old URL, where it does something (plan "States")
@@ -831,16 +889,18 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
       ...(status.reason === 'signature' ? { action: { label: t('roomApps.checkSecretAction'), onClick: () => onGuide(), testId: 'apps-set-up-again' } } : {}),
     }] : []),
     ...(leaver ? [{ key: 'leaver', text: t('roomApps.leaverKnows'), action: { label: t('roomApps.newAddress'), onClick: () => void rotate(), disabled: !available, testId: 'apps-leaver-new-address' } }] : []),
-    ...(signingOf(service) !== 'none' && !app.signed ? [{ key: 'unsigned', text: t('roomApps.unsigned'), action: { label: t('roomApps.makeSafer'), onClick: () => onGuide(), testId: 'apps-make-safer' } }] : []),
+    ...(signingOf(service) !== 'none' && !app.signed && !app.signingPending ? [{ key: 'unsigned', text: t('roomApps.unsigned'), action: { label: t('roomApps.makeSafer'), onClick: () => onGuide(), testId: 'apps-make-safer' } }] : []),
+    // a secret Trina made, not used by the service yet: unsigned messages still show until the first signed one
+    ...(app.signingPending ? [{ key: 'signing-pending', text: t('roomApps.saferPending', { app: t(`roomApps.kind.${service}`) }), action: { label: t('roomApps.howToConnect'), onClick: () => onGuide(), testId: 'apps-pending-how' } }] : []),
   ]
   return (
     <div className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-settings" data-kind={service}>
       <div className="space-y-3 px-5 pt-4 pb-3 max-sm:px-4">
         {/* who set it up, and the way back to its steps */}
-        <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted" data-testid="apps-set-up-by">
+        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted" data-testid="apps-set-up-by">
           <span>{app.createdBy ? t('roomApps.setUpBy', { name: app.createdBy.name }) : t('roomApps.setUpByGone')}</span>
           <span aria-hidden className="text-faint">·</span>
-          <button type="button" onClick={() => onGuide()} className="touch-hit font-medium text-accent-text hover:underline" data-testid="apps-how-to-connect">{t('roomApps.howToConnect')}</button>
+          <TextAction onClick={() => onGuide()} data-testid="apps-how-to-connect">{t('roomApps.howToConnect')}</TextAction>
         </p>
         <StatusLine app={app} place="settings" onResume={() => void resume()} />
         {status.kind === 'none' && service === 'other' &&<p className="-mt-1 pl-4 text-xs text-muted" data-testid="apps-waiting-hint">{t('roomApps.waitingOther')}</p>}
@@ -859,7 +919,7 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
               <SwitchRow
                 key={sw.key} id={`${quietId}-${sw.key}`} label={t(`roomApps.switch.${service}.${sw.key}` as never)} checked={app.events[sw.key] ?? sw.on}
                 onChange={(v) => void set({ events: { [sw.key]: v } })} testId={`apps-switch-${sw.key}`}
-                note={missing.has(sw.key) ? { text: t('roomApps.notSetUp', { app: t(`roomApps.kind.${service}`) }), action: t('roomApps.notSetUpShow'), onClick: () => onGuide('optional') } : undefined}
+                note={missing.has(sw.key) ? { text: t('roomApps.notSetUp', { app: t(`roomApps.kind.${service}`) }), action: t('roomApps.notSetUpShow'), onClick: () => onGuide(sw.key) } : undefined}
               />
             ))}
           </ul>
@@ -881,12 +941,12 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
           <span className="mr-auto text-sm text-ink">{app.kind === 'google_forms' ? t('roomApps.codeLabel') : t('roomApps.address')}</span>
           <CopyButton label={app.kind === 'google_forms' ? t('roomApps.copyCode') : t('roomApps.copyAddress')} copied={copied === 'address'} disabled={!available} onClick={() => void copy()} testId="apps-settings-copy" />
           {/* while the warning above offers it, not twice */}
-          {!leaver && <button type="button" onClick={() => void rotate()} disabled={!available} className="touch-hit text-sm font-medium text-accent-text hover:underline disabled:opacity-40" data-testid="apps-new-address">{t('roomApps.newAddress')}</button>}
+          {!leaver && <TextAction onClick={() => void rotate()} disabled={!available} className="px-1 text-sm" data-testid="apps-new-address">{t('roomApps.newAddress')}</TextAction>}
         </div>
         {fresh && <p className="text-xs text-muted" role="status" data-testid="apps-new-address-done">{service === 'other' ? t('roomApps.newAddressDoneOther') : service === 'google_forms' ? t('roomApps.newAddressDoneForms') : t('roomApps.newAddressDone', { app: t(`roomApps.kind.${service}`) })}</p>}
       </section>
       <div className="border-t border-line px-5 py-3 max-sm:px-4">
-        <button type="button" onClick={() => void remove()} className="touch-hit text-sm font-medium text-danger hover:underline" data-testid="apps-remove">{t('roomApps.remove')}</button>
+        <TextAction tone="danger" onClick={() => void remove()} className="text-sm" data-testid="apps-remove">{t('roomApps.remove')}</TextAction>
       </div>
     </div>
   )
@@ -896,17 +956,17 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
  * never arrived says so under its words, with the way back to its step ("Not set up in Shopify · Show the step"). */
 function SwitchRow({ id, label, hint, note, checked, onChange, testId }: { id: string; label: string; hint?: string; note?: { text: string; action: string; onClick: () => void }; checked: boolean; onChange: (v: boolean) => void; testId: string }) {
   return (
-    <li className="flex min-h-11 items-center gap-3 py-1 md:min-h-9">
+    <li className="flex min-h-11 items-center gap-3 py-0.5 md:min-h-9">
       <div className="min-w-0 flex-1">
-        <label htmlFor={id} className="block cursor-pointer text-sm text-ink">
+        <label htmlFor={id} className="flex min-h-6 cursor-pointer flex-col justify-center text-sm text-ink max-md:min-h-11">
           {label}
           {hint && <span className="block text-xs text-muted">{hint}</span>}
         </label>
         {note && (
-          <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted" data-testid={`${testId}-not-set-up`}>
+          <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted" data-testid={`${testId}-not-set-up`}>
             <span>{note.text}</span>
             <span aria-hidden className="text-faint">·</span>
-            <button type="button" onClick={note.onClick} className="touch-hit font-medium text-accent-text hover:underline">{note.action}</button>
+            <TextAction onClick={note.onClick} data-testid={`${testId}-show-step`}>{note.action}</TextAction>
           </p>
         )}
       </div>

@@ -18,7 +18,7 @@ import { line, lines, safeLink } from '../card'
 import type { Arrival, Parsed } from '../parse'
 import { jsonOf, obj, sha, str, textOf } from '../read'
 import { appText } from '../text'
-import type { PresetDef } from './common'
+import { replyLines, type PresetDef } from './common'
 
 const KEYS = ['trina', 'event', 'id', 'title', 'status', 'priority', 'requester', 'assignee', 'url', 'update'] as const
 type Body = Partial<Record<(typeof KEYS)[number], string>>
@@ -98,7 +98,7 @@ function parse(a: Arrival): Parsed {
     key: `ticket:${id}`, ...(state ? { state, status } : {}), backFrom: CLOSED,
     ...(t && !a.pin ? { pin: t.sub } : {}),
     card: { kind: [appText('newTicket', L, { id }), priority].filter(Boolean).join(' · '), title, details, status, link, unverified: !a.signed && details.length > 0 },
-    reply: { title: appText('ticketUpdated', L, { id }), details: [status ?? '', update.split('\n')[0] ?? ''].filter(Boolean).slice(0, 2) },
+    reply: { title: appText('ticketUpdated', L, { id }), details: [...(status ? [status] : []), ...replyLines(update, status ? 2 : 3)] },
     ...(update ? { extra: update } : {}),
   } }
 }

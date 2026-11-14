@@ -85,7 +85,17 @@ test('Jira: the Copy body escapes what people write and is valid JSON once fille
   expect((await post(token, c2)).status).toBe(200)
   await settle()
   replies = await thread(ms[0].id)
-  expect(replies.at(-1).appCard).toMatchObject({ title: appText('jiraCommentBy', L, { name: 'Jamie Rivera' }), details: ['Found it: rounding in the tax step.'] })
+  // the reply shows the comment's lines (QA TC-2413: only the first one was there) and its text holds all of it
+  expect(replies.at(-1).appCard).toMatchObject({ title: appText('jiraCommentBy', L, { name: 'Jamie Rivera' }), details: ['Found it: rounding in the tax step.', 'Fix coming tonight.'] })
+  expect(replies.at(-1).body).toContain('Fix coming tonight')
+  // a longer comment: three lines on the reply, the last one marked as cut, every line in its text
+  const long = fixture('jira/commented.json').replace('Fix coming today.', 'Line two.\\nLine three.\\nLine four.\\nLine five.')
+  expect((await post(token, long)).status).toBe(200)
+  await settle()
+  replies = await thread(ms[0].id)
+  expect(replies.at(-1).appCard.details).toEqual(['Found it: rounding in the tax step.', 'Line two.', 'Line three. …'])
+  expect(replies.at(-1).body).toContain('Line five')
+  expect(replies.at(-1).body.match(/Found it/g)).toHaveLength(1)
   // a summary that closed its quote and added keys (a flow without .jsonEncode): refused, nothing posted
   expect((await post(token, fixture('jira/injection.json'))).status).toBe(400)
   const esc = JSON.stringify({ trina: 'jira', event: 'created', key: 'OPS-150', title: 't', status: 'To Do', assignee: '', url: '' }).replace('}', ',"\\u006bey":"OPS-1"}')

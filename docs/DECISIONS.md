@@ -27586,7 +27586,12 @@ guides, "Apps posting here") are phase 2.
   buckets need no history; nothing shared with the external apps' limits), not the plan's `room_app_limits` table.
 - **Signatures optional for both (owner decision 9).** "Make it safer": GitHub gets a secret Trina makes (`tax_whs_…`,
   shown on the address again); Sentry takes its Client Secret (64 hex). Once set, a request without the right
-  signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)".
+  signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)". A secret
+  Trina makes (GitHub, Typeform, Tally) waits for the service (migration 404 `room_apps.secret_pending`, QA
+  2026-11-15): until the first request signed with it, unsigned ones are still taken (Copy secret must not drop what
+  the service sends before the person pastes it there; the safer of "after the first signed delivery" and "I've pasted
+  it", which drops deliveries when pressed too early); the app's `signingPending` says so. Changing or removing the
+  secret clears an old "didn't match" refusal.
 - **Delivery keys.** GitHub `X-GitHub-Delivery`; Sentry sha256(resource + body), never the unsigned timestamp; Forms
   `id + at`; Other `Idempotency-Key`, else the body's hash within 10 minutes. Written with the post, so a retry after a
   429 posts once.

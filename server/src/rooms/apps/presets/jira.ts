@@ -17,7 +17,7 @@ import { line, lines, safeLink } from '../card'
 import type { Arrival, Parsed } from '../parse'
 import { jsonOf, obj, sha, str, textOf } from '../read'
 import { appText } from '../text'
-import { duplicateKey, type PresetDef } from './common'
+import { duplicateKey, replyLines, type PresetDef } from './common'
 
 export const JIRA_KEYS = ['trina', 'event', 'key', 'title', 'status', 'assignee', 'url', 'comment', 'by'] as const
 const EVENTS = ['created', 'transitioned', 'commented'] as const
@@ -54,7 +54,7 @@ function parse(a: Arrival): Parsed {
   const status = statusWord ? appText('status', L, { status: statusWord }) : undefined
   const details = [assignee ? appText('sentryAssigned', L, { name: assignee }) : ''].filter(Boolean)
   const reply = event === 'commented'
-    ? { title: by ? appText('jiraCommentBy', L, { name: by }) : appText('jiraComment', L), details: [comment.split('\n')[0] ?? ''].filter(Boolean) }
+    ? { title: by ? appText('jiraCommentBy', L, { name: by }) : appText('jiraComment', L), details: replyLines(comment) }
     : event === 'transitioned'
       ? { title: statusWord ? appText('jiraMoved', L, { status: statusWord }) : appText('jiraUpdated', L), details: [] }
       : { title: appText('jiraNew', L, { key }), details: [] }

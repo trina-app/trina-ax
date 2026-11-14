@@ -13,7 +13,7 @@ export interface MockApp {
   id: string; roomId: string; kind: Kind; preset?: RoomAppPreset; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
   lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true; eventsSeen?: string[]
-  pausedBy?: 'app' | 'team'; pausedCap?: number; timeZone?: string; rotatedAt?: string | null
+  pausedBy?: 'app' | 'team'; pausedCap?: number; timeZone?: string; rotatedAt?: string | null; signingPending?: true
 }
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },
@@ -82,7 +82,7 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
     const app = m && state.apps.find((a) => a.id === m[1])
     if (!m || !app) return route.fulfill(json({ error: { code: 'not_found', message: 'not found' } }, 404))
     const what = m[2]
-    if (what === 'address' && method === 'GET') { state.calls.push(`address:${app.id}`); return route.fulfill(json({ address: ADDRESS(state.apps.indexOf(app) + 1), ...(app.signed && (app.kind === 'github' || (app.preset && ROOM_APP_PRESET_SIGNING[app.preset].signing === 'trina_makes')) ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) })) }
+    if (what === 'address' && method === 'GET') { state.calls.push(`address:${app.id}`); return route.fulfill(json({ address: ADDRESS(state.apps.indexOf(app) + 1), ...((app.signed || app.signingPending) && (app.kind === 'github' || (app.preset && ROOM_APP_PRESET_SIGNING[app.preset].signing === 'trina_makes')) ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) })) }
     if (what === 'secret' && method === 'PUT') {
       const b = req.postDataJSON() as { generate?: true; secret?: string | null }
       state.calls.push(`secret:${app.id}:${b.generate ? 'generate' : b.secret === null ? 'off' : 'set'}`)
@@ -90,8 +90,15 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       if (signing?.signing === 'none') return route.fulfill(json({ error: { code: 'validation', message: 'This service cannot sign.', params: { reason: 'no_signing' } } }, 400))
       if (b.secret && !app.preset && !/^[0-9a-f]{64}$/i.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: "That doesn't look like a Sentry Client Secret." } }, 400))
       // the shape the server checks (shared ROOM_APP_PRESET_SIGNING), with its words
-      if (b.secret && signing?.signing === 'paste' && signing.shape && !signing.shape.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: `That doesn't look like ${PRESET_NAMES[app.preset!]}'s signing secret.` } }, 400))
-      app.signed = b.secret !== null
+      // (Toss Payments and PortOne name their own field)
+      const shapeText = app.preset === 'toss_payments' ? "That doesn't look like a Toss Payments security key." : app.preset === 'portone' ? "That doesn't look like a PortOne webhook secret." : `That doesn't look like ${PRESET_NAMES[app.preset!]}'s signing secret.`
+      if (b.secret && signing?.signing === 'paste' && signing.shape && !signing.shape.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: shapeText } }, 400))
+      // a secret Trina makes waits for the first signed message (signingPending); a pasted one is on at once
+      app.signed = !!b.secret
+      if (b.generate) app.signingPending = true
+      else delete app.signingPending
+      // the old "didn't match" line goes with the old secret
+      if (app.lastRefusal?.reason === 'signature') app.lastRefusal = null
       return route.fulfill(json({ app, ...(b.generate ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) }))
     }
     if (what === 'rotate' && method === 'POST') { state.calls.push(`rotate:${app.id}`); app.rotatedAt = new Date().toISOString(); return route.fulfill(json({ app, address: ADDRESS(90 + ++n) })) }

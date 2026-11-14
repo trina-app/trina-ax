@@ -1,7 +1,7 @@
 // What arrived at an app's address, as an event for the room (docs/DECISIONS.md "Apps posting in rooms"). One reader per
 // kind: Sentry's integration-platform resources, GitHub's repository events, our Google Forms script's JSON, and for
 // "Other" a Slack-shaped {"text": …} (also Discord's "content", JANDI's "body", a few simple fields, form-encoded
-// `payload`, plain text). An Other app set up as a named service (a preset: Notion, Typeform, …) is read by its own
+// `payload` or the plain form fields text/title/url/link/thread, plain text). An Other app set up as a named service (a preset: Notion, Typeform, …) is read by its own
 // reader in presets/*. Every field used is read by type and bounded (card.ts); everything else in the body is ignored.
 // A body that is not one of these is a 'format' refusal; an event no switch covers is skipped (200, nothing shown).
 //
@@ -317,6 +317,18 @@ export function slackText(s: string): { text: string; link?: string } {
   return { text, ...(link ? { link } : {}) }
 }
 
+/** The fields an Other app reads from a plain form post (curl -d 'text=Hello'), when it has no `payload` field. */
+const OTHER_FORM_FIELDS = ['text', 'title', 'url', 'link', 'thread'] as const
+/** A form-encoded body: Slack's `payload` JSON when it is there (as before), else the plain fields above as one object
+ * (the first value of each; read with the same rules and limits as JSON after this). undefined: neither. */
+function otherForm(a: Arrival): unknown {
+  const q = new URLSearchParams(new TextDecoder('utf-8', { fatal: false }).decode(a.raw))
+  if (q.has('payload')) return json(a)
+  const out: Record<string, string> = {}
+  for (const k of OTHER_FORM_FIELDS) { const v = q.get(k); if (v !== null) out[k] = v }
+  return Object.keys(out).length ? out : undefined
+}
+
 function other(a: Arrival): Parsed {
   let text = '', title = '', link = '', thread = ''
   let jandi: { text: string; link?: string } | null = null
@@ -324,7 +336,7 @@ function other(a: Arrival): Parsed {
   if (a.contentType === 'text/plain') {
     text = new TextDecoder('utf-8', { fatal: false }).decode(a.raw)
   } else {
-    const body = obj(json(a))
+    const body = obj(a.contentType === 'application/x-www-form-urlencoded' ? otherForm(a) : json(a))
     if (!body) return { refuse: 'format' }
     text = str(body, 'text') || str(body, 'content')
     // JANDI: `body`, its links [label](url), and connectInfo as detail lines; imageUrl is never fetched or shown (no

@@ -54,11 +54,12 @@ export function useFlash(): [string | null, (what: string) => void] {
   return [copied, (w) => { setCopied(w); setTimeout(() => setCopied((c) => (c === w ? null : c)), 1500) }]
 }
 
-/** A numbered step; `optional` ones say so above their words (and are where "Not set up in …" leads). */
-export function Step({ n, optional = false, children }: { n: number; optional?: boolean; children: ReactNode }) {
+/** A numbered step; `optional` ones say so above their words (and are where "Not set up in …" leads). `events`: the
+ * switches whose events this step sets up in the service ("Show the step" under that switch scrolls to this one). */
+export function Step({ n, optional = false, events, children }: { n: number; optional?: boolean; events?: readonly string[]; children: ReactNode }) {
   const t = useT()
   return (
-    <li className="flex gap-3 text-sm text-ink" data-testid={optional ? 'apps-step-optional' : 'apps-step'}>
+    <li className="flex scroll-mt-3 gap-3 text-sm text-ink" data-testid={optional ? 'apps-step-optional' : 'apps-step'} data-step-for={events?.join(' ')}>
       <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-semibold text-muted">{n}</span>
       <div className="min-w-0 flex-1 space-y-2 pt-0.5">
         {optional && <p className="text-xs font-medium text-muted">{t('roomApps.optionalStep')}</p>}

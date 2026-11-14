@@ -4,7 +4,7 @@
 // is the only one: "Open in Sentry ↗" ("Open link ↗" for Other), a link on the status line on every screen, its host
 // as its tooltip. One component for the timeline, the thread
 // and every other place a card shows. `variant`: 'card' (the whole card), 'reply' (a reply in its thread: short lines,
-// the title and the first detail), 'quiet' (a Quiet app's message and the paused / turned-back-on lines: one short line
+// the title and its detail lines), 'quiet' (a Quiet app's message and the paused / turned-back-on lines: one short line
 // in the style of an event line). Names in it are the vendor's text, never a link to anyone's profile ("Resolved by Jun
 // (unverified)" when the request was not signed: the server writes it).
 import clsx from 'clsx'
@@ -53,7 +53,8 @@ export function AppCardText({ m, variant = 'card', className }: { m: Pick<RoomMe
     return (
       <div className={clsx('min-w-0 text-sm break-words', className)} data-testid="app-reply">
         <p className="text-ink">{c.title}</p>
-        {c.details[0] && <p className="text-muted">{c.details[0]}</p>}
+        {/* a comment's first lines (the server sends at most three; the whole one is in the message's text) */}
+        {c.details.map((d, i) => <p key={i} className="text-muted">{d}</p>)}
       </div>
     )
   }

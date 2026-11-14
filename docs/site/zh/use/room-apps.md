@@ -18,7 +18,7 @@ description: 让 Sentry、GitHub、Google Forms 或其他任何服务把更新�
 3. 按 Webhook URL 旁边的 **复制**（Google 表单为 **复制代码**），然后按照该服务中的编号步骤操作。在你复制之前，群聊里不会
    添加任何东西，所以你可以先看看，再关闭指南。
 4. 指南会实时显示进展：*正在等待第一条消息*、*已连接*，或者上一次为什么没有显示。**看个示例** 会在指南里显示它的消息会是
-   什么样子，不会真的发布。
+   什么样子，不会真的发布。两分钟后仍没有消息时，**还没有收到？** 会列出该服务常见的问题以及如何发送测试。
 
 ![添加应用：它的消息会显示在群聊中给每个人看，然后是 Google Forms、其他应用、GitHub 和 Sentry](../../images/room-apps/picker.webp "添加应用")
 
@@ -69,7 +69,8 @@ Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubS
 从不显示邮箱、电话或银行卡。
 
 Stripe、Shopify、Zendesk、Typeform 和 Tally 可以为发送的内容签名。指南中的 **可选：提高安全性** 用来填入该服务的签名密钥
-（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。Jira 和 HubSpot 无法签名，Webhook URL 是唯一的钥匙，请妥善保管。
+（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。Trina 给你的密钥（Typeform、Tally、GitHub）从第一条用它签名的消息
+开始生效：在那之前，没有签名的消息仍会显示，所以在你把它粘贴到服务里之前不会丢失消息。Jira 和 HubSpot 无法签名，Webhook URL 是唯一的钥匙，请妥善保管。
 
 ### 更多服务
 
@@ -97,7 +98,7 @@ Stripe、Shopify、Zendesk、Typeform 和 Tally 可以为发送的内容签名�
 
 - `text` 是消息内容，也是唯一必需的字段（也可以用 `content`）。
 - `title` 会成为标题，`url` 会成为一个链接，`thread` 相同的消息会归入同一个话题。
-- 也接受 Slack 格式的消息（`blocks`、`attachments`）和纯文本。加上 `Idempotency-Key` 请求头，重试时只会发布一次。
+- 也接受 Slack 格式的消息（`blocks`、`attachments`）、纯文本和普通表单提交（`text=…`，字段相同；或 Slack 的 `payload` 字段）。加上 `Idempotency-Key` 请求头，重试时只会发布一次。
 
 ```bash
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
@@ -110,7 +111,7 @@ curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"
 - 在仓库中打开 **Settings › Webhooks › Add webhook**。
 - 把 Webhook URL 粘贴到 **Payload URL**，并选择 **application/json**。
 - 选择 **Send me everything**，然后点 **Add webhook**。Trina 只显示你在应用设置中打开的内容。
-- *可选，更安全：* 在指南中按 **复制密钥**，粘贴到 **Secret**。之后 Trina 只显示 GitHub 签名过的内容
+- *可选，更安全：* 在指南中按 **复制密钥**，粘贴到 **Secret**。从第一条用它签名的投递起（保存时 GitHub 发送的 ping），Trina 只显示 GitHub 签名过的内容
   （[验证投递](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)）。
 
 如果什么都没收到，GitHub 中该 webhook 页面上的 **Recent Deliveries** 会显示发送了什么。

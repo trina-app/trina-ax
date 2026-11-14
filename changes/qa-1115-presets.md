@@ -1,0 +1,10 @@
+- Apps in rooms: an Other app now takes a plain form post (`text=Hello`, with `title`, `url`, `link` and `thread`), as well as Slack's `payload` field.
+- Apps in rooms: a Jira comment, a Zendesk update and a Channel Talk message in a thread now show their first three lines, and the message's text holds all of it. Before, only the first line was there.
+- Apps in rooms: when the browser blocks the clipboard, the guide now puts the whole Webhook URL in a read-only field, selected, so copying it by hand works. Before, the field showed a shortened URL. Settings never show the URL. If Copy fails there, a message says to copy it from **How to connect**.
+- Apps in rooms: every service's guide now shows **Nothing yet?** after two minutes without a message, with the usual mistakes for that service and how to send a test.
+- Apps in rooms: **Show the step** opens the step for that event (Jira comments: step 6, HubSpot tickets: step 6). Before, it opened the first optional step.
+- Apps in rooms: **Back** from a guide keeps the picker's scroll position, and **Show more services** stays open.
+- Apps in rooms: links in an app's settings (**How to connect**, **Show the step**, **Regenerate**, **Remove app**, **Check the secret**) and the switch labels are now at least 44 px tall on a phone.
+- Apps in rooms: **Copy secret** for GitHub, Typeform and Tally no longer starts signing straight away. Unsigned messages still show until the first message signed with the secret arrives. After that, only signed messages show.
+- Apps in rooms: before the first Copy, the guide says that nothing is set up yet, and the "keep it private" line appears only once there is a URL. When the hourly limit is reached, the message gives the minutes to wait instead of "shortly". The "didn't match" line goes away when the secret is changed or removed. Toss Payments and PortOne refusals use the field's own name. Channel Talk says "only messages with the token are shown".
+- Admin > System: **Turn on connection** in the apps dialog (and any /admin/system/<part> link on a computer) now scrolls to that part of the page.

@@ -34,10 +34,27 @@ export function appStatus(a: Pick<RoomApp, 'lastRefusal' | 'firstOkAt' | 'lastOk
   return { kind: 'none' }
 }
 
-/** GitHub and Other can be tested at once, so their guides say "Nothing yet?" after this long; Sentry, the forms and the
- * presets post only when something happens there. */
+/** A guide waiting this long for an app's first message folds out "Nothing yet?" with that service's likely mistakes
+ * (every service; the ones that post only when something happens there say how to make that happen; QA TC-2389). */
 export const NOTHING_YET_MS = 120_000
-export const waitsForEvent = (s: AppService) => s !== 'github' && s !== 'other'
+/** "Nothing yet?" per service: one entry per line (roomApps.nothingYetCheck.<service>.<n>, from 1), each with the
+ * service's screen labels it quotes (placeholder → roomApps.vendorLabel.*). GitHub and Other keep their own lines. */
+export const NOTHING_YET: Partial<Record<AppService, readonly (Readonly<Record<string, string>> | null)[]>> = {
+  sentry: [{ issue: 'sentryIssue' }, null],
+  google_forms: [{ run: 'formsRun' }, null],
+  typeform: [null, null],
+  tally: [{ connect: 'tallyConnect' }, null],
+  jotform: [{ hooks: 'jotformHooks' }, null],
+  stripe: [null, null, null],
+  shopify: [{ json: 'shopifyJson' }, null],
+  notion: [null, null],
+  zendesk: [null, null, null],
+  jira: [{ turnOn: 'jiraTurnOn' }, null, null],
+  hubspot: [{ turnOn: 'hubspotTurnOn' }, null, null],
+  toss_payments: [null, null],
+  channel_talk: [{ chat: 'channelTypeChat' }, null],
+  portone: [{ version: 'portoneVersion' }, { test: 'portoneTest' }],
+}
 
 /** The side chat's chip in a room with apps (owner decision: one chip chosen by the apps there): "Summarise today's
  * responses" when the room's apps are forms only, else "What happened today?". Null: no app has posted here. Read from

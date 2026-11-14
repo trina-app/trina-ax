@@ -20,12 +20,12 @@ describe('systemGroups', () => {
   })
 })
 
-test('systemRedirect: a phone keeps a group it has; a computer opens the one page; anything else, the list', () => {
+test('systemRedirect: a phone keeps a group it has; a computer opens the one page at that part; anything else, the list', () => {
   const owner = { owner: true, features: undefined }
   expect(systemRedirect({ sub: undefined, phone: true, ...owner })).toBeNull()
   expect(systemRedirect({ sub: undefined, phone: false, ...owner })).toBeNull()
   expect(systemRedirect({ sub: 'backups', phone: true, ...owner })).toBeNull()
-  expect(systemRedirect({ sub: 'backups', phone: false, ...owner })).toBe('/admin/system')
+  expect(systemRedirect({ sub: 'backups', phone: false, ...owner })).toBe('/admin/system#system-backups')
   expect(systemRedirect({ sub: 'nope', phone: true, ...owner })).toBe('/admin/system')
   expect(systemRedirect({ sub: 'backups', phone: true, owner: false, features: undefined })).toBe('/admin/system')
   expect(systemRedirect({ sub: 'connected', phone: true, owner: true, features: { connectedFolders: false } })).toBe('/admin/system')

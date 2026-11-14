@@ -74,7 +74,10 @@ export function plainText(app: string, card: RoomAppCard, extra?: string): strin
 }
 function textPart(app: string, card: RoomAppCard, extra?: string): string {
   const head = [card.kind, card.title].filter(Boolean).join(' · ')
-  const parts = [`${app}: ${head}`, ...card.details, ...(extra ? [extra] : []), ...(card.status ? [card.status] : [])]
+  // a detail line that `extra` holds in full (a reply's first lines of a comment) is not said twice
+  const inExtra = new Set((extra ?? '').split('\n').map((x) => x.trim()).filter(Boolean))
+  const details = card.details.filter((d) => !inExtra.has(d.replace(/ …$/, '')))
+  const parts = [`${app}: ${head}`, ...details, ...(extra ? [extra] : []), ...(card.status ? [card.status] : [])]
   const text = parts.join('\n')
   const chars = [...text]
   return chars.length > ROOM_APP_TEXT_MAX + 600 ? chars.slice(0, ROOM_APP_TEXT_MAX + 599).join('') + '…' : text
