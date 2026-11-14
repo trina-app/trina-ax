@@ -32,6 +32,8 @@ const order = (p: string) => {
 }
 export const byFilesOrder = (a: string, b: string) => order(a) - order(b) || (a < b ? -1 : a > b ? 1 : 0)
 const isPersonal = (p: string) => p === 'users' || p.startsWith('users/')
+/** top folders that only hold others (Files lets everyone pass through them) */
+const CONTAINERS = new Set(['groups', 'projects', 'connected'])
 /** the word for a role */
 const ROLE_WORD = { read: 'folderAccess.canView', write: 'folderAccess.canEdit' } as const
 /** Limit access: nothing from the folders above reaches it, only its own rules (`Folder.limited`; docs/DECISIONS.md
@@ -80,9 +82,10 @@ export function FolderList({ query, onShare }: { query: string; onShare: (path: 
     const groupById = new Map(groups.data.map((g) => [g.id, g]))
     const out: { folder: Folder; limited: boolean; who: string }[] = []
     for (const f of folders.data) {
-      if (!f.rules.length || f.hidden || isPersonal(f.path) || inProjects(f.path)) continue
-      // a group's own folder as it was made (only that group, Editor): not shared differently, so not listed
-      if (f.groupId && f.rules.length === 1 && f.rules[0]!.subjectType === 'group' && f.rules[0]!.subjectId === f.groupId && f.rules[0]!.access === 'write') continue
+      // a limited folder with nobody added has no rules, and is listed too ("Owner and admins only")
+      if ((!f.rules.length && !f.limited) || f.hidden || isPersonal(f.path) || inProjects(f.path)) continue
+      // a group's own folder as it was made (only that group, Editor, not limited): not shared differently, so not listed
+      if (f.groupId && !f.limited && f.rules.length === 1 && f.rules[0]!.subjectType === 'group' && f.rules[0]!.subjectId === f.groupId && f.rules[0]!.access === 'write') continue
       const rules = f.rules.map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
       const limited = isLimited(f)
       out.push({ folder: f, limited, who: whoLine(t, locale, { rules, team, limited, path: f.path, userById, groupById }) })
@@ -91,7 +94,7 @@ export function FolderList({ query, onShare }: { query: string; onShare: (path: 
   }, [folders.data, users.data, groups.data, t, locale, team])
   // rule rows on folders Files does not show (a name it refuses, a temp or .system name; independent review, finding 5):
   // their rules still apply, so they stay reachable here, by their path. Personal folders' rows apply to nobody.
-  const hiddenRows = folders.data?.filter((f) => f.hidden && f.rules.length && !isPersonal(f.path)) ?? []
+  const hiddenRows = folders.data?.filter((f) => f.hidden && (f.rules.length || f.limited) && !isPersonal(f.path)) ?? []
   const projectCount = folders.data?.filter((f) => /^projects\/[^/]+$/i.test(f.path) && f.rules.length).length ?? 0
   const err = folders.error ?? users.error ?? groups.error
   if (err && !rows) return <ErrorNote onRetry={() => { void folders.reload(); void users.reload(); void groups.reload() }}>{err}</ErrorNote>
@@ -104,7 +107,7 @@ export function FolderList({ query, onShare }: { query: string; onShare: (path: 
     <section aria-labelledby="folders-list-title" data-testid="folders-list">
       <h3 id="folders-list-title" className="sr-only">{t('folders.tabFolders')}</h3>
       {!shown.length && !(projectCount && !q) ? (
-        <EmptyState title={t(q ? 'folders.noMatch' : 'folders.none')} />
+        shownHidden.length ? null : <EmptyState title={t(q ? 'folders.noMatch' : 'folders.none')} />
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {shown.map((r) => (
@@ -165,7 +168,8 @@ function whoLine(t: ReturnType<typeof useT>, locale: string, o: { rules: { subje
       .map((r) => (r.subjectType === 'group' ? o.groupById.get(r.subjectId!)?.name : o.userById.get(r.subjectId!)?.name) ?? r.subjectId!)
     if (names.length) parts.push(`${namesText(t, locale, names, names.length)} · ${t(ROLE_WORD[a])}`)
   }
-  if (parts.length) return parts.join(', ')
+  // access adds up (P2): a folder that is not limited also lets in who the folders above let in
+  if (parts.length) return !o.limited && o.path !== '' ? `${parts.join(', ')} ${t('folders.plusAbove')}` : parts.join(', ')
   return o.limited || o.path === '' ? t('folders.whoStaff') : t('folders.whoAbove')
 }
 
@@ -270,17 +274,25 @@ function PersonAnswer({ who: user, load, groupName, compact }: { who: Who; load:
   const rows = answer.folders.filter((f) => !isPersonal(f.path) && f.exists !== false).sort((a, b) => byFilesOrder(a.path, b.path))
   const open = rows.filter((f) => f.access !== 'none')
   // the group folders of groups they are not in are one count line (the list would grow with every group)
-  const notInGroup = rows.filter((f) => f.access === 'none' && f.group && !user.groupIds.includes(f.group.id)).length
-  const closed = rows.filter((f) => f.access === 'none' && !(f.group && !user.groupIds.includes(f.group.id)))
+  const otherGroup = (f: PersonFolderAccess) => !!f.group && !user.groupIds.includes(f.group.id)
+  // a team project's folder they are not in: one count line too (the list would grow with every project)
+  const otherProject = (f: PersonFolderAccess) => /^projects\/[^/]+$/i.test(f.path)
+  // groups/, projects/ and connected/ only hold folders: everyone passes through them in Files, never "can't open"
+  const container = (f: PersonFolderAccess) => CONTAINERS.has(f.path)
+  const notInGroup = rows.filter((f) => f.access === 'none' && otherGroup(f)).length
+  const notInProject = rows.filter((f) => f.access === 'none' && !otherGroup(f) && otherProject(f)).length
+  const closed = rows.filter((f) => f.access === 'none' && !otherGroup(f) && !otherProject(f) && !container(f))
   // the owner and admins open every team folder but projects they are not in: one line, not a list
-  if (user.role !== 'member' && !compact) {
+  if (user.role !== 'member') {
     return (
       <div data-testid="access-person">
-        <div className="mb-3 flex items-center gap-2.5">
-          <Avatar user={faceOf({ id: user.id ?? '', name: user.name })} size={32} />
-          <h4 className="min-w-0 text-title-sm font-semibold break-words text-ink" data-testid="access-person-title">{t('folders.whatCanOpen', { name: user.name })}</h4>
-        </div>
-        <p className="text-sm text-muted" data-testid="access-staff-line">{t('folders.staffLine', { role: t(`role.${user.role}`) })}</p>
+        {!compact && (
+          <div className="mb-3 flex items-center gap-2.5">
+            <Avatar user={faceOf({ id: user.id ?? '', name: user.name })} size={32} />
+            <h4 className="min-w-0 text-title-sm font-semibold break-words text-ink" data-testid="access-person-title">{t('folders.whatCanOpen', { name: user.name })}</h4>
+          </div>
+        )}
+        <p className="text-sm text-muted" data-testid="access-staff-line">{t('folders.staffLine')}</p>
       </div>
     )
   }
@@ -329,13 +341,14 @@ function PersonAnswer({ who: user, load, groupName, compact }: { who: Who; load:
           {open.map((f) => row(f, <span className="shrink-0 text-xs font-medium text-ink">{t(ROLE_WORD[f.access === 'write' ? 'write' : 'read'])}</span>, reason(f)))}
         </ul>
       ) : <p className="text-sm text-muted">{t('folders.opensNothing')}</p>}
-      {(closed.length > 0 || notInGroup > 0) && (
+      {(closed.length > 0 || notInGroup > 0 || notInProject > 0) && (
         <>
           <h5 className="mt-5 mb-1 text-xs font-semibold text-muted">{t('folders.cantOpen')}</h5>
           <ul className="divide-y divide-line border-y border-line" data-testid="access-closed">
             {closed.map((f) => row(f, <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted"><Lock size={12} aria-hidden /> {t('folders.cantOpenShort')}</span>, why(f)))}
           </ul>
           {notInGroup > 0 && <p className="mt-1.5 text-xs text-muted" data-testid="access-closed-groups">{t('folders.cantGroups', { n: notInGroup })}</p>}
+          {notInProject > 0 && <p className="mt-1 text-xs text-muted" data-testid="access-closed-projects">{t('folders.cantProjects', { n: notInProject })}</p>}
         </>
       )}
 
