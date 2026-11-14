@@ -155,6 +155,9 @@ export function parseTeamInput(raw: string, o: TeamInputOptions): TeamInput {
   // ASCII only (the URL parser makes an internationalized name punycode; a parser that cannot is refused)
   if (!hostname || hostname.endsWith('.') || hostname.includes('..') || !/^[a-z0-9.\-[\]:]+$/i.test(hostname)) return { ok: false, error: 'invalid' }
   const loopback = isLoopbackHost(hostname)
+  // a name with no dot (Chinese or other letters typed in an IME, an intranet word) is no team's address: say it is not
+  // an address instead of trying to connect to it (QA TC-1839). This machine and IP literals stay allowed.
+  if (!loopback && !isIpHost(hostname) && !hostname.includes('.')) return { ok: false, error: 'invalid' }
   if (u.protocol === 'http:' && !(loopback && o.loopbackHttp)) return { ok: false, error: 'insecure' }
   const hostedLabel = isIpHost(hostname) ? null : hostedName(hostname, o.teamDomain)
   // a development relay's team (acme.localhost) has a name too, for "'acme' 팀을 찾지 못했어요"; it is not hosted
