@@ -8,7 +8,9 @@
 // (FormSkills.tsx: "견적서 양식 … 스킬로 만들어둘까요?"), asks once "이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" when the AI saw such a group (a team project
 // with the setup's team group as participant, its files moved into its folder; "나중에" drops the question) and goes on
 // with the step's next button. Nothing to sort, no answer: the run's own end screen (TeamFilesStep RunView) as before.
-// The state lives in this tab (another page and back: no second plan), keyed by the run; sign-out forgets it.
+// The state lives in this tab (another page and back: no second plan), keyed by the run; sign-out forgets it. The proposal's
+// id is also kept in this browser (per person, not cleared by an expired session) while it waits: after a reload, or coming back later (the server keeps a plan for an
+// hour), the same plan shows again on the step (resumeOrganize) instead of leaving the files loose in 전사 공유.
 import clsx from 'clsx'
 import { Check, ChevronRight, FolderPlus, Loader2, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
@@ -45,6 +47,36 @@ export const useOrganize = create<OrgState>(() => ({ runId: null, org: { s: 'idl
 const set = (org: Org) => useOrganize.setState({ org })
 let generation = 0
 
+/** The waiting proposal's id, per person, in this browser (the plan itself is on the server). */
+const SAVED_KEY = 'mycel.organizePlan'
+const savePlan = (userId: string, id: string) => { try { localStorage.setItem(SAVED_KEY, JSON.stringify({ userId, id })) } catch { /* this tab only */ } }
+const savedPlan = (userId: string): string | null => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SAVED_KEY) ?? 'null') as { userId?: string; id?: string } | null
+    return v && v.userId === userId && typeof v.id === 'string' ? v.id : null
+  } catch { return null }
+}
+const clearSaved = () => { try { localStorage.removeItem(SAVED_KEY) } catch { /* nothing kept */ } }
+/** The run id of a proposal brought back from the server (no run of this tab behind it). */
+export const RESUMED = -1
+
+/** A plan this tab does not have but the browser remembers: ask the server and show it again. */
+export async function resumeOrganize(userId: string): Promise<void> {
+  const id = savedPlan(userId)
+  if (!id || useOrganize.getState().org.s !== 'idle') return
+  const g = generation
+  try {
+    const st = await api.call(API.organizeStatus, { params: { id } })
+    if (g !== generation || useOrganize.getState().org.s !== 'idle') return
+    const edit = st.state === 'done' && st.plan ? editFromPlan(st.plan) : null
+    if (st.plan && edit?.rows.length) useOrganize.setState({ runId: RESUMED, org: { s: 'proposal', id, plan: st.plan, edit } })
+    else clearSaved()
+  } catch {
+    // forgotten by the server (an hour) or not this person's: nothing to bring back
+    clearSaved()
+  }
+}
+
 /** The paths each run of the step landed (TeamFilesStep's run reports every landed file). */
 const landedOf = new Map<number, string[]>()
 export function rememberLanded(runId: number, paths: string[]) { landedOf.set(runId, paths) }
@@ -57,7 +89,7 @@ export function organizeWanted(run: Run | null): boolean {
 }
 
 /** Start the plan for a run's landed files and follow it to the proposal (or to "none"). */
-export async function beginOrganize(run: Run): Promise<void> {
+export async function beginOrganize(run: Run, userId: string): Promise<void> {
   const g = ++generation
   const paths = [...new Set(landedOf.get(run.view.id) ?? [])].slice(0, ORGANIZE_LIMITS.files)
   useOrganize.setState({ runId: run.view.id, org: { s: 'reading', read: 0, total: Math.min(paths.length, ORGANIZE_LIMITS.read) } })
@@ -73,6 +105,7 @@ export async function beginOrganize(run: Run): Promise<void> {
       if (g !== generation) return
       if (st.state === 'done' && st.plan) {
         const edit = editFromPlan(st.plan)
+        if (edit.rows.length) savePlan(userId, started.id); else clearSaved()
         set(edit.rows.length ? { s: 'proposal', id: started.id, plan: st.plan, edit } : { s: 'none' })
         return
       }
@@ -144,19 +177,20 @@ function Proposal({ id, plan, edit, applying, error, uploaded, teamGroupId, busy
   }
   const apply = async () => {
     const moves = movesOf(edit)
-    if (!moves.length) return onDone(uploaded)
+    if (!moves.length) { clearSaved(); return onDone(uploaded) }
     useOrganize.setState({ org: { s: 'proposal', id, plan, edit, busy: true } })
     try {
       const applied = await api.call(API.applyOrganize, { body: { id, moves } })
       // a project question only with the setup's team group (a project without it would be the owner's alone, while the
       // question says the whole team works on it)
       const project = teamGroupId && plan.project && plan.project.paths.length >= ORGANIZE_LIMITS.projectMin ? 'ask' : 'later'
+      clearSaved()
       useOrganize.setState({ org: { s: 'result', plan, applied, project } })
     } catch (e) {
       useOrganize.setState({ org: { s: 'proposal', id, plan, edit, error: errorText(e, locale, t('error.network')) } })
     }
   }
-  const later = () => { set({ s: 'none' }); onDone(uploaded) }
+  const later = () => { clearSaved(); set({ s: 'none' }); onDone(uploaded) }
   const removed = edit.removed.length
   return (
     <div className="space-y-4" data-testid="organize-proposal" data-ai={plan.ai}>

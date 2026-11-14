@@ -233,7 +233,7 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
   const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
   const cm = () => 'cm-' + crypto.randomUUID()
   beforeAll(async () => {
-    h = await startHarness({ name: 'project-skills-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'project-skills-app', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
     // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
     // project uses, when they run (after the start, in their own time): the fixture's falcon and atlas are this suite's own
     // projects (made below, as before that build), so the ones the steps made for them go, once the steps are done

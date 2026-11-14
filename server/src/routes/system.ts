@@ -8,6 +8,7 @@ import { withheldFrom } from '../chat/shared-answers'
 import { API, type Health, type Locale } from '@mycel/shared/api'
 import { PRODUCT, sourceCodeOffer } from '@mycel/shared'
 import type { AppContext } from '../context'
+import { audit } from '../admin/audit'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
 import { DownloadStalled } from '../http/download-deadline'
@@ -242,6 +243,8 @@ export const systemRoutes: RouteModule = {
           try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide, readable: exportReadable(ctx, auth.user.id), sharedVisible: (id) => !!visibleSharedChat(ctx.db, ctx.files, auth.user.id, id), sharedWithheld: (id) => withheldFrom(ctx.db, ctx.files.rules(), id, auth.user.id) }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
+      // who took a copy of the team's data out, and what (never the password): the activity log shows it
+      audit(ctx.db, { actor: auth.user.id, action: 'export.start', detail: { what: body.what, encrypted: !!body.password } })
       return { jobId }
     })
 

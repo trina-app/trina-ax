@@ -25,7 +25,7 @@ const CANARY_FIN = 'SKILL-SUGGESTION-CANARY-FIN-9b2'
 let h: Harness
 const socks: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'skill-managers', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'skill-managers', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) {
     socks[u] = await h.ws(u, { windowId: `win-sm-${u}` })
     await socks[u]!.next('hello')

@@ -223,7 +223,7 @@ if (SANDBOX) {
   let h: Awaited<ReturnType<typeof startHarness>> | null = null
   try {
     h = await startHarness({
-      name: 'linux-managed', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000,
+      name: 'linux-managed', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000,
       externalLauncher: { sock: '/run/mycel-launcher/launcher.sock', proxyPort: PROXY, toolsSockMode: '0666' },
       engineConfig: { runDir: '/run/mycel', agentRoot: '/srv/agent', agentUid: AG },
       engineBins: { claude: '/opt/fake-engine/claude', codex: '/opt/fake-engine/codex' },

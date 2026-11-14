@@ -1,0 +1,2 @@
+- A direct chat with someone who was deleted from the team now says "<name> left the team" and has no message box (also not in its threads); the history stays readable.
+- Opening a team link while someone else is signed in on that computer: the "You're already in the team" notice now has "Sign out to join", which signs out and opens the same link.

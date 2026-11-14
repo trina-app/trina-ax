@@ -326,6 +326,7 @@ describe('stored chat error reasons', () => {
     expect(new Set(reasons.map(reason => engineError(reason, 'id').message)).size).toBe(reasons.length)
     expect(chatErrorReason(engineError('wall_timeout', 'ko'))).toBe('wall_timeout')
     expect(chatErrorReason(engineError('timeout', 'ko'))).toBe('timeout')
+    expect(chatErrorReason(engineError('stalled', 'ko'))).toBe('stalled')
   })
 })
 

@@ -615,6 +615,37 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
   await expect(row(page, 'plan (충돌 사본 - Olga)')).toBeVisible()
 })
 
+test('edits not saved: closing the panel or opening another file asks first; No stays in the editor', async ({ page }) => {
+  const t = DICTS.ko
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await row(page, 'plan.md').getByRole('button').first().click()
+  const panel = page.getByTestId('file-panel')
+  await panel.getByTestId('file-edit').click()
+  const editor = panel.getByTestId('file-editor')
+  await editor.fill('# Plan\n\nnot saved yet\n')
+  const question = page.getByRole('dialog', { name: t['preview.discardTitle'] })
+  // the panel's own ✕: asked; No keeps the editor and what was typed
+  await panel.getByRole('button', { name: t['common.close'], exact: true }).click()
+  await expect(question).toBeVisible()
+  await question.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(panel).toBeVisible()
+  await expect(editor).toHaveValue('# Plan\n\nnot saved yet\n')
+  // another file from the list: asked too, and the editor still holds the text after No
+  await row(page, 'data.csv').getByRole('button').first().click()
+  await expect(question).toBeVisible()
+  await question.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(editor).toHaveValue('# Plan\n\nnot saved yet\n')
+  // Yes (버리기) closes the panel; with nothing edited there is no question
+  await panel.getByRole('button', { name: t['common.close'], exact: true }).click()
+  await question.getByRole('button', { name: t['preview.discard'], exact: true }).click()
+  await expect(panel).toHaveCount(0)
+  await row(page, 'plan.md').getByRole('button').first().click()
+  await page.getByTestId('file-panel').getByRole('button', { name: t['common.close'], exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
 // ---------------- several items at once (checkboxes and the selection bar) ----------------
 const check = (page: Page, name: string) => row(page, name).getByTestId('file-check')
 const bar = (page: Page) => page.getByTestId('bulk-bar')

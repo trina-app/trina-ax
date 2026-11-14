@@ -215,7 +215,7 @@ export async function runInstalledSmoke(i: InstalledSmokeInput): Promise<SmokeRe
     requireFreshCredential(); ownsFixture = true
     ctx = createContext({ config: i.cfg, db: i.db, log: silentLogger })
     ctx.engineConfig.nativeBin = `${P2_SMOKE_BASE}/app/current/native`
-    configureChat(ctx, { maxEngineTurns: i.limits.toolTurns, turnTimeoutMs: i.limits.turnTimeoutMs, askUserTimeoutMs: Math.min(5000, i.limits.turnTimeoutMs) })
+    configureChat(ctx, { maxEngineTurns: i.limits.toolTurns, stallTimeoutMs: i.limits.turnTimeoutMs, askUserTimeoutMs: Math.min(5000, i.limits.turnTimeoutMs) })
     guardBroker(brokerOf(ctx), gate, bind)
     const app = await bounded(() => buildApp(ctx!, [authRoutes, chatsRoutes, memoriesRoutes, filesRoutes, artifactsRoutes, jobsRoutes]))
     rt = getChatRuntime(ctx)

@@ -144,7 +144,7 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
     fs.copyFileSync(FAKE_ENGINE_TS, path.join(ENGINE_DIR, 'fake-engine.ts'))
     fs.writeFileSync(path.join(ENGINE_DIR, 'claude'), `#!${path.join(ENGINE_DIR, 'bun')}\nimport './fake-engine.ts'\n`, { mode: 0o755 })
     h = await startHarness({
-      name: 'r4b-office-net', turnTimeoutMs: 60_000,
+      name: 'r4b-office-net', stallTimeoutMs: 60_000,
       realCore: { office: true, engine: { authMode: 'local-login', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '/nonexistent/codex', proxyPort: await freePort() } },
     })
     alice = await h.ws('alice', { windowId: 'win-r4b-net' })

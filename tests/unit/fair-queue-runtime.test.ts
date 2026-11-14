@@ -72,8 +72,10 @@ test('active occupancy, dynamic capacity and late completion preserve slots exac
   expect(starts[3]!.spec.userId).toBe('u1')
   finish(starts[1]!); expect(starts[4]!.spec.userId).toBe('u2')
   const count = rt.runningCount(); rt.turnFinished(starts[1]!); expect(rt.runningCount()).toBe(count)
+  // one answer has no time limit: a dispatch time, no deadline
   const first = h.ctx.db.query('SELECT dispatched_at,wall_deadline_at FROM turns WHERE id=?').get(starts[0]!.id) as any
-  expect(Date.parse(first.wall_deadline_at) - Date.parse(first.dispatched_at)).toBe(45 * 60_000)
+  expect(Number.isFinite(Date.parse(first.dispatched_at))).toBe(true)
+  expect(first.wall_deadline_at).toBeNull()
 })
 
 test('1000 requests by one person cannot exclude the other 59 first requests', async () => {
@@ -169,7 +171,7 @@ test('restart preserves rotated tickets/FIFO; a committed running claim is inter
   await setup('restart')
   const pause = spyOn(rt, 'schedule').mockImplementation(() => {})
   const a1 = send('olga'), a2 = send('olga'), b1 = send('u1')
-  rt.queueStore.claim(a1.turnId, 'olga', 2700000)
+  rt.queueStore.claim(a1.turnId, 'olga')
   const before = rt.queueStore.tickets(), epoch = rt.queueEpoch
   await h.close(); pause.mockRestore()
   h = await harness('fair-restart', {}, { reuse: true }); rt = getChatRuntime(h.ctx)

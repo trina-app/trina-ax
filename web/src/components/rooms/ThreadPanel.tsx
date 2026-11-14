@@ -39,6 +39,8 @@ const ALONE_GONE = new ApiError(404, { code: 'not_found', message: '' })
 export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, onAskFile, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
   const t = useT()
   const locale = useLocale()
+  // a DM whose other person left the team: the thread reads, nobody writes in it (pages/Room.tsx says so under the room)
+  const gone = useRooms((s) => !!s.rooms.find((r) => r.id === roomId)?.gone)
   const key = placeKey(roomId, rootId)
   const threaded = useRooms((s) => (alone ? null : s.threadViews[key] ?? null))
   // alone: the message as this window has it (the timeline), never asked for as a thread (the server has none for it)
@@ -160,7 +162,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
           )}
         </div>
       </div>
-      {!notFound && root && !root.deletedAt && !alone && (
+      {!notFound && root && !root.deletedAt && !alone && !gone && (
         <RoomComposer roomId={roomId} threadRootId={rootId} members={members} meId={meId} autoFocus={focusBox} onSent={() => { stick.current = true }} />
       )}
     </FileDropZone>

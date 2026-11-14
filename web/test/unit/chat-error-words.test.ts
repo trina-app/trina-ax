@@ -40,7 +40,7 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
   // an admin cannot open the health page: the member's words ("let the team owner know")
   expect(say('en', 'proxy_down', 'admin')).toBe(CHAT_ERROR_MESSAGES.proxy_down.en)
   // nothing to fix in the admin menu: the same words for everyone
-  for (const r of ['rate_limit', 'context', 'timeout', 'wall_timeout', 'refused', 'crash', 'interrupted', 'user_disabled', 'output_limit', 'provider_error'] as const) {
+  for (const r of ['rate_limit', 'context', 'timeout', 'wall_timeout', 'stalled', 'refused', 'crash', 'interrupted', 'user_disabled', 'output_limit', 'provider_error'] as const) {
     expect(say('en', r, 'owner')).toBe(CHAT_ERROR_MESSAGES[r].en)
   }
   // every language names the same menu in its own words, and none keeps an engine or an HTTP code

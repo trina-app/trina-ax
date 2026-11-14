@@ -37,7 +37,7 @@ const MINE: ScopeSource = { type: 'user', id: 'alice' }
 let h: Harness, svc: FakeServices
 let notes: { id: string; slug: string }
 beforeAll(async () => {
-  h = await startHarness({ name: 'schedule-save-scope', timeZone: 'Asia/Seoul', askUserTimeoutMs: 2000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'schedule-save-scope', timeZone: 'Asia/Seoul', askUserTimeoutMs: 2000, stallTimeoutMs: 60_000 })
   noteEgressIp(h.ctx, '198.51.100.7')
   svc = new FakeServices()
   integrationsOf(h.ctx, { net: svc.net() })

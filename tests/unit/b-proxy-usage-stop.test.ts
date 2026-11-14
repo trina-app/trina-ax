@@ -86,7 +86,7 @@ let K = ''
 beforeAll(async () => {
   const u = `http://127.0.0.1:${up.port}`
   h = await startHarness({
-    name: 'b-proxy-usage-stop', turnTimeoutMs: 60_000, upstreams: { anthropic: u, chatgpt: u + '/backend-api/codex' },
+    name: 'b-proxy-usage-stop', stallTimeoutMs: 60_000, upstreams: { anthropic: u, chatgpt: u + '/backend-api/codex' },
     credentials: [{ kind: 'anthropic-api-key', secret: KEY, label: 'Team key' }],
     log: createLogger({ level: 'debug', sink: (l) => { try { lines.push(JSON.parse(l)) } catch {} } }),
   })

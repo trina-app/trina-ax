@@ -17,7 +17,7 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 let h: Harness
 const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-project-restore', turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-project-restore', stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })

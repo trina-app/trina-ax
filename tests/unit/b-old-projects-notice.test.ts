@@ -44,7 +44,7 @@ const reads = async (who: string, dir: string) => (await raw(who, 'GET', `/api/f
 const opens = async (who: string, id: string) => (await raw(who, 'GET', `/api/projects/${id}`)).status === 200
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-old-projects-notice', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-old-projects-notice', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   const db = h.ctx.db
   // (henry is a member at the update, made an admin after it)
   for (const [id, name, role] of [['frank', 'Frank Admin', 'admin'], ['henry', 'Henry Admin', 'member']] as const) {

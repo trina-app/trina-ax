@@ -540,7 +540,7 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
   const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
   const cm = () => 'cm-' + crypto.randomUUID()
   beforeAll(async () => {
-    h = await startHarness({ name: 'skill-files-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'skill-files-app', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
     // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
     // project uses, when they run (after the start, in their own time): the fixture's falcon is this suite's own
     // project (made below, as before that build), so the one the steps made for it goes, once the steps are done

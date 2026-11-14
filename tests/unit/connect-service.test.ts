@@ -43,7 +43,7 @@ const logs: string[] = []
 const sealedSent: SealedSecret[] = []
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'connect-service', askUserTimeoutMs: 6000, turnTimeoutMs: 60_000, log: createLogger({ level: 'debug', name: 'test', sink: (l) => logs.push(l) }) })
+  h = await startHarness({ name: 'connect-service', askUserTimeoutMs: 6000, stallTimeoutMs: 60_000, log: createLogger({ level: 'debug', name: 'test', sink: (l) => logs.push(l) }) })
   h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'true') ON CONFLICT(key) DO UPDATE SET value='true'").run()
   const hub = h.rt().hub
   const publish = hub.publish.bind(hub), publishTo = hub.publishTo.bind(hub)

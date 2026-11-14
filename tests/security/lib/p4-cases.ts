@@ -69,7 +69,7 @@ export const P4_SPECS: Record<string, Spec> = {
   listDriveShares: { build: c => c.get('/api/admin/google-drive/shares'), scope: 'byLevel' },
   authorizeDriveShare: { build: c => c.post('/api/admin/google-drive/shares/authorize', {}), scope: 'byLevel' },
   completeDriveShareFlow: { build: c => c.post('/api/admin/google-drive/shares/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },
-  driveShareFolders: { build: c => c.get('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000/folders'), scope: 'byLevel' },
+  driveShareFolders: { allowNotFound: true, build: c => c.get('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000/folders'), scope: 'byLevel' },
   updateDriveShare: { build: c => c.patch('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000', { name: 'Matrix Drive' }), scope: 'byLevel' },
   stopDriveShare: { build: c => c.del('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
 }

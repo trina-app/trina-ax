@@ -130,7 +130,7 @@ describe('a replayed answer in a real chat turn', () => {
   let bobSock: TestSocket
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-replay-turn-'))
   beforeAll(async () => {
-    h = await startHarness({ name: 'b-demo-replay', turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'b-demo-replay', stallTimeoutMs: 60_000 })
     fs.mkdirSync(path.join(h.team, 'shared'), { recursive: true })
     fs.writeFileSync(path.join(h.team, 'shared', 'plan.md'), '# 11월 캠페인\n')
     fs.writeFileSync(path.join(dir, 'a.json'), JSON.stringify(rec()))

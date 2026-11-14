@@ -38,7 +38,7 @@ let h: Harness
 const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-shared-chats', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-shared-chats', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'Falcon project notes.' })
   projectId = p.id
