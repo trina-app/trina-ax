@@ -36,13 +36,17 @@ Type a name. Each person or group gets **Viewer** or **Editor**. **Remove access
 **Restricted**: only the people listed can open it. Or the whole team, as **Viewer** or **Editor**. A folder without a setting of its own shows what it gets from the folder above, with **Change there**.
 
 #### Check before saving
-The dialog names who will gain or lose access. Nothing changes until you save. Giving more access asks first.
+The dialog names who will gain or lose access. Nothing changes until you save. Giving more access asks first, and so does a limit that shuts out people the folder above lets in.
 :::
 
-The owner and admins can always open team folders, except projects they are not a member of.
+Access adds up, as in Google Drive: what a folder gives comes on top of what the folders above give. A role lower than that cannot be picked; the row says where the higher one comes from ("Editor from "Company-wide"").
+
+To give a folder less than the folders above, turn on **Settings › Limit access**. Then only the people and groups added there open it. **Access removed** lists the people who can open the folder above but not this one; **Add** brings one back as Viewer. Turning the limit off again raises any role lower than the folders above to that level.
+
+The owner and admins can always open team folders, except projects they are not a member of. They show as one **Manager** row.
 
 :::note
-Until a later update, the setting closest to a file decides, also when it gives less. If a listed role gives someone less than they would get otherwise, for example Viewer in a folder where the whole team can edit, the row says so. People kept out by an older "No access" setting are listed under **Access removed**; **Add** brings them back.
+After the update that made access add up, some folders list their people by name (tagged **Added when folders changed**), and Folder permissions shows a one-time notice naming them. People added by name keep access if they later leave the group. **Admin › Groups** and the person's page say so before saving, with **Remove now**.
 :::
 
 **Admin › Folder permissions › By folder** shows the team folder as a tree. Each row says who can open it and where that comes from.

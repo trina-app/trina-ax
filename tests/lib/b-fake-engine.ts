@@ -29,6 +29,9 @@
 //                                            from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), POST
 //                                            $ANTHROPIC_BASE_URL/v1/messages?beta=true with stream, say the text deltas;
 //                                            an HTTP error ends the turn like Claude Code's "API Error: <status> ..."
+//                                            Office own-login (ANTHROPIC_CUSTOM_HEADERS set): a fixed stand-in login
+//                                            (FAKE_MAC_LOGIN, never a real login file) as the Bearer + the custom headers.
+//                                            "modelExtra": {...} adds fields to the request body (mcp_servers, tools ...)
 //   @fake {"echo": "secrets"}                say whether a model credential is visible in env / argv (it must not be)
 //   @fake {"direct": "http://127.0.0.1:N/"}  try to reach an address other than the proxy; says direct=blocked|reached
 //   @fake {"echo": "codexEnv"}               (Codex) say what the turn got: the (placeholder) login in CODEX_HOME, the
@@ -280,15 +283,28 @@ function proxyToken(): string {
   delete process.env[fdVar] // like Claude Code: read once, then forget where it came from
   return modelToken
 }
-async function callModel(prompt: string, speak = true) {
+/** office mode with the Mac user's login (ANTHROPIC_CUSTOM_HEADERS set): like Claude Code, a stored login as the
+ * Bearer and the custom headers on every request. The login is a fixed stand-in: the scripted engine never reads a
+ * real login file (a test's fake HOME does not hide the real home from os.homedir()). */
+const FAKE_MAC_LOGIN = 'sk-ant-oat01-fake-mac-login'
+function ownLoginHeaders(): Record<string, string> | null {
+  const custom = process.env.ANTHROPIC_CUSTOM_HEADERS
+  if (!custom) return null
+  const out: Record<string, string> = {}
+  for (const l of custom.split('\n')) { const i = l.indexOf(':'); if (i > 0) out[l.slice(0, i).trim()] = l.slice(i + 1).trim() }
+  out.authorization = 'Bearer ' + FAKE_MAC_LOGIN
+  return out
+}
+async function callModel(prompt: string, speak = true, extra: Record<string, unknown> = {}) {
   const base = process.env.ANTHROPIC_BASE_URL
   if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
   let r: Response
   try {
+    const own = ownLoginHeaders()
     r = await fetch(base.replace(/\/$/, '') + '/v1/messages?beta=true', {
       method: 'POST',
-      headers: { authorization: 'Bearer ' + proxyToken(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14', 'user-agent': 'claude-cli/0.0.0-fake (external, cli)', 'x-app': 'cli', 'x-stainless-os': 'MacOS' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }] }),
+      headers: { ...(own ?? { authorization: 'Bearer ' + proxyToken() }), 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14', 'user-agent': 'claude-cli/0.0.0-fake (external, cli)', 'x-app': 'cli', 'x-stainless-os': 'MacOS' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }], ...extra }),
     })
   } catch (e) { return finish({ error: `API Error: Connection error (${(e as Error).message})` }) }
   if (!r.ok) return finish({ error: `API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
@@ -523,7 +539,7 @@ for (const d of directives) {
   else if (d.echo === 'message') await say(message)
   else if (d.echo === 'model') await say(`model=${model}`)
   else if (d.echo === 'resume') await say(`resumed=${resumed}`)
-  else if (d.model !== undefined) await callModel(String(d.model))
+  else if (d.model !== undefined) await callModel(String(d.model), true, d.modelExtra && typeof d.modelExtra === 'object' ? d.modelExtra : {})
   else if (d.echo === 'secrets') await say(secretsVisible())
   else if (d.direct) {
     let reached = false

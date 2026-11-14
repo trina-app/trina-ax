@@ -5,36 +5,32 @@
 // (web/test/mock/server.ts) its own, and both answer with it. Every access here is RuleSet.access / explain, the same
 // computation as the permission function; nothing here decides access, and nothing is saved.
 //
-// Why only the folder and the rule folders below it: the edit replaces the rules of one folder P. A folder below P
-// without rules of its own between it and P answers like P for every person (decide() walks up to the first folder
-// with a rule for them). A rule folder Q below P answers like P for the people that no rule from Q up to P (P left out)
-// names, and is unchanged for the others. So a person whose access at P does not change has no change anywhere.
+// Why only the folder and the boundary folders below it (docs/DECISIONS.md "Folder access adds up like Google Drive
+// (P2)"): the edit replaces the rules (and the limit) of one folder P. Access adds up from the folders above, up to the
+// nearest limited folder. A folder below P that is not a boundary (no rules, not limited) answers like the nearest
+// boundary above it. A boundary Q below P changes only through P's part, and only when no limited folder between Q and
+// P (P left out, Q included) cuts it. So a person whose access at P does not change has no change anywhere.
 import { createHash } from 'node:crypto'
 import type { Access, FolderEditBelow, FolderEditChange, FolderEditPreview, FolderEditWarning } from '@mycel/shared/api'
-import { RuleSet, type DecidingRule, type Principal } from '../policy/access'
+import { RuleSet, type Principal, type RuleLike } from '../policy/access'
 import { byPerson, cmp, segsOf, shownSegs } from './access-rows'
 import { isSkills, rootOpensTo, treeCmp, whoAt } from './access-tree'
 
-/** A rule as the API and the database have it (FolderRuleInput, DecidingRule, a row of `folder_rules`). */
-export interface RuleLike { subjectType: string; subjectId: string | null; access: string }
+export type { RuleLike }
 
-/** The hash of one folder's rules: the same rules in any order give the same hash, and no rules the hash of none
- * (`Folder.rulesHash`, `FolderEditPreview.hash`). A save that sends the hash it started from is refused when the rules
- * are not those any more. */
-export function rulesHash(rules: readonly RuleLike[]): string {
+/** The hash of one folder's rules as the API shows them (no markers, no project exceptions) and its limit: the same
+ * rules in any order give the same hash (`Folder.rulesHash`, `FolderEditPreview.hash`). A save that sends the hash it
+ * started from is refused when the folder is not like that any more. `rules-v2`: the limit is part of it, so a page
+ * from before it (rules-v1) is told it is out of date. */
+export function rulesHash(rules: readonly RuleLike[], limited = false): string {
+  const lines = rules.filter((r) => !(r.subjectType === 'everyone' && r.access === 'none') && !(r.subjectType === 'role' && r.subjectId === 'admin' && r.access === 'write'))
+    .map((r) => `${r.subjectType}\u0000${r.subjectId ?? ''}\u0000${r.access}`).sort(cmp)
+  return createHash('sha256').update(`rules-v2\u0002${limited ? 1 : 0}\u0002${lines.join('\u0001')}`).digest('base64url').slice(0, 32)
+}
+/** The hash a page from before the limit (rules-v1) sent: told apart, so the save is refused as out of date. */
+export function rulesHashV1(rules: readonly RuleLike[]): string {
   const lines = rules.map((r) => `${r.subjectType}\u0000${r.subjectId ?? ''}\u0000${r.access}`).sort(cmp)
   return createHash('sha256').update(`rules-v1\u0002${lines.join('\u0001')}`).digest('base64url').slice(0, 32)
-}
-
-/** Every rule of `rules`, with the folder `at`'s replaced by `next` (none: the folder has no rules of its own). */
-export function withRules(rules: RuleSet, at: string, next: readonly RuleLike[]): RuleSet {
-  const rows: ConstructorParameters<typeof RuleSet>[0] = []
-  for (const f of rules.ruleFolders()) {
-    if (f === at) continue
-    for (const r of rules.rulesAt(f)) rows.push({ path: f, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })
-  }
-  for (const r of next) rows.push({ path: at, subject_type: r.subjectType as DecidingRule['subjectType'], subject_id: r.subjectId, access: r.access as Access })
-  return new RuleSet(rows)
 }
 
 /** At most this many people are named per change; this many folders below are listed, each with this many names. */
@@ -63,9 +59,6 @@ const everyoneWrites = (rules: readonly RuleLike[]) => {
   const member = rules.find((r) => r.subjectType === 'role' && r.subjectId === 'member')
   return (member ?? rules.find((r) => r.subjectType === 'everyone'))?.access === 'write'
 }
-/** a rule is for this person (policy/access.ts applies(), on the API's shape) */
-const appliesTo = (r: DecidingRule, p: Principal) =>
-  r.subjectType === 'everyone' || (r.subjectType === 'role' ? r.subjectId === p.role : r.subjectType === 'group' ? r.subjectId !== null && p.groups.includes(r.subjectId) : r.subjectId === p.id)
 
 /**
  * People that no rule on the way from the folder up, nor any rule folder below it, can tell apart (the same role, the
@@ -79,9 +72,9 @@ function classes(people: readonly Principal[], rulesets: readonly RuleSet[], pat
   for (const rs of rulesets) {
     const folders = new Set<string>()
     for (let len = segs.length; len >= 0; len--) folders.add(segs.slice(0, len).join('/'))
-    for (const f of rs.ruleFolders()) if (strictlyBelow(f, path)) folders.add(f)
+    for (const f of rs.boundaryFolders()) if (strictlyBelow(f, path)) folders.add(f)
     for (const f of folders) {
-      for (const r of rs.rulesAt(f)) {
+      for (const r of rs.storedAt(f)) {
         if (r.subjectId === null) continue
         if (r.subjectType === 'group' && !groups.has(r.subjectId)) groups.set(r.subjectId, groups.size)
         else if (r.subjectType === 'user') named.add(r.subjectId)
@@ -104,7 +97,7 @@ function classes(people: readonly Principal[], rulesets: readonly RuleSet[], pat
  * shown too, so a rule that decides on the way from one of them up to `path` is in this list.
  */
 function belowOf(rules: RuleSet, path: string) {
-  const paths = rules.ruleFolders().filter((q) => strictlyBelow(q, path) && shownSegs(q) !== null).sort(treeCmp)
+  const paths = rules.boundaryFolders().filter((q) => strictlyBelow(q, path) && shownSegs(q) !== null).sort(treeCmp)
   const index = new Map(paths.map((q, i) => [q, i]))
   const top = segsOf(path).length
   const parent = paths.map((q) => {
@@ -119,17 +112,15 @@ function belowOf(rules: RuleSet, path: string) {
 }
 
 /**
- * Which of those folders `p` falls through to `path` from: no rule on the way up from the folder to `path` (left out)
- * is for them, so their access there is their access at `path` and changes with it. In the tree's order the folder
- * above comes first: one pass, one look at each folder's own rules (the walk of decide(), cut at `path`).
+ * Which of those folders change for `p` with the edit: their access there before and after (the permission function
+ * itself; with access adding up, a folder below changes only through the edited folder's part, and only when no limited
+ * folder between them cuts it, but whether it does depends on the rest of the person's rules there).
  */
-function fallsThrough(below: ReturnType<typeof belowOf>, p: Principal): Uint8Array {
+function fallsThrough(below: ReturnType<typeof belowOf>, p: Principal, before: RuleSet, after: RuleSet): Uint8Array {
   const out = new Uint8Array(below.paths.length)
   for (let i = 0; i < out.length; i++) {
-    const up = below.parent[i]!
-    // decided at a folder above it (and below `path`): so is this one
-    if (up >= 0 && !out[up]) continue
-    out[i] = below.rules[i]!.some((r) => appliesTo(r, p)) ? 0 : 1
+    const s = segsOf(below.paths[i]!)
+    out[i] = before.access(p, s) !== after.access(p, s) ? 1 : 0
   }
   return out
 }
@@ -139,20 +130,21 @@ function fallsThrough(below: ReturnType<typeof belowOf>, p: Principal): Uint8Arr
  * the team's shared/ or skills/ (the caller compares names the way the volume does). `chats`: how many chats of a person
  * start a fresh AI session when they lose read there (H7; the mock has none).
  */
-export function editPreview(src: EditSource, path: string, next: readonly RuleLike[], o: { team: 'shared' | 'skills' | null; chats?: (userId: string) => number }):
+export function editPreview(src: EditSource, path: string, next: readonly RuleLike[], o: { team: 'shared' | 'skills' | null; chats?: (userId: string) => number; limited?: boolean }):
   Omit<FolderEditPreview, 'path' | 'exists' | 'connected'> {
   const segs = segsOf(path)
   const before = src.rules
-  const after = withRules(before, path, next)
-  const current = before.rulesAt(path)
+  const after = before.replacing(path, { rules: next, limited: o.limited })
+  const current = before.rulesAt(path).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
+  const limitedNow = before.limitedAt(path)
   const ws = { people: src.people, groupName: src.groupName, personName: src.personName }
   const now = whoAt({ ...ws, rules: before }, segs)
   const nextWho = whoAt({ ...ws, rules: after }, segs)
-  const above = segs.length ? whoAt({ ...ws, rules: withRules(before, path, []) }, segs) : null
+  const above = segs.length ? whoAt({ ...ws, rules: before.replacing(path, { rules: [], limited: false }) }, segs) : null
   // "the same as the folder above", in one line: what a member whom no person or group rule names gets here with no
   // rules of its own, and the folder whose rule decides it (null: no rule on the way up lets them in). Asked of the
   // permission function itself, for a member who is nobody (no groups, an id no person can have).
-  const everyoneAbove = segs.length ? plainAbove(withRules(before, path, []), segs) : null
+  const everyoneAbove = segs.length ? plainAbove(before.replacing(path, { rules: [], limited: false }), segs) : null
 
   // the rule folders below, the same before and after (only `path` changes)
   const below = belowOf(before, path)
@@ -163,7 +155,7 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
     const b = before.access(p, segs)
     const a = after.access(p, segs)
     if (a === b) continue
-    changed.push({ people: c, direction: RANK[a] < RANK[b] ? 'less' : 'more', before: b, after: a, through: below.paths.length ? fallsThrough(below, p) : null })
+    changed.push({ people: c, direction: RANK[a] < RANK[b] ? 'less' : 'more', before: b, after: a, through: below.paths.length ? fallsThrough(below, p, before, after) : null })
   }
 
   // the people whose access changes, grouped by the change (at most six groups)
@@ -217,7 +209,7 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   }
 
   return {
-    current, hash: rulesHash(current),
+    current, hash: rulesHash(current, limitedNow), limited: limitedNow,
     people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
     now, next: nextWho, above, everyoneAbove, ...latentOf(src, before, after, path, below.paths), changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
   }
@@ -232,7 +224,7 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
  */
 function latentOf(src: EditSource, before: RuleSet, after: RuleSet, path: string, belowPaths: readonly string[]): Pick<FolderEditPreview, 'latentMore' | 'latent'> {
   const groups = new Set<string>()
-  for (const rs of [before, after]) for (const f of rs.ruleFolders()) for (const r of rs.rulesAt(f)) if (r.subjectType === 'group' && r.subjectId) groups.add(r.subjectId)
+  for (const rs of [before, after]) for (const f of rs.boundaryFolders()) for (const r of rs.rulesAt(f)) if (r.subjectType === 'group' && r.subjectId) groups.add(r.subjectId)
   // the groups named on the way up to the folder, at it and below it: the ones whose combinations can decide there
   const segs = segsOf(path)
   const near = new Set<string>()
@@ -294,4 +286,29 @@ const NOBODY: Principal = { id: '\u0000everyone', name: '', role: 'member', grou
 function plainAbove(rules: RuleSet, segs: readonly string[]): NonNullable<FolderEditPreview['everyoneAbove']> {
   const e = rules.explain(NOBODY, segs)
   return { access: e.access, folder: e.reason.kind === 'rule' ? e.reason.folder : null }
+}
+
+const ORDER: Record<Access, number> = { none: 0, read: 1, write: 2 }
+/**
+ * 12-A at save time (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): on a folder that is not limited a
+ * rule lower than what the folders above already give its subject restricts nobody (access adds up), so it is stored at
+ * that level instead: General access, a group, a person. What anyone can open does not change; the stored rules just say
+ * what is true. `rs` is the rules now; the folder's own rules and limit are left out of "above". A person row is measured
+ * by their own rules above and the team's only, never through their groups or their role (re-review of #787): raising
+ * Bob to Editor because his group can edit above would keep him Editor by name after he leaves the group, and an admin
+ * stored as Editor would keep it after being demoted (the C1 problem outside C1-A).
+ */
+export function raiseToAbove<R extends { subjectType: string; subjectId: string | null; access: Access }>(rs: RuleSet, path: string, rules: readonly R[]): R[] {
+  const without = rs.replacing(path, { rules: [], limited: false })
+  const segs = path.split('/')
+  // what a subject gets from above: everyone through a member who is in no group; a group through a member only in it
+  const of = (p: Principal) => without.access(p, segs)
+  const plain = (groups: string[], id = '\u0000above'): Principal => ({ id, name: '', role: 'member', groups })
+  return rules.map((r) => {
+    if (r.access === 'write') return r
+    const p = r.subjectType === 'everyone' ? plain([]) : r.subjectType === 'group' && r.subjectId ? plain([r.subjectId]) : r.subjectType === 'user' && r.subjectId ? plain([], r.subjectId) : null
+    if (!p) return r
+    const up = of(p)
+    return ORDER[up] > ORDER[r.access] ? { ...r, access: up } : r
+  })
 }

@@ -143,7 +143,7 @@ test('a member with write and an admin on the same folder: the same people, the 
   const c = await playwright.request.newContext({ baseURL: new URL(page.url()).origin })
   expect((await c.post(`/api/invites/${(await inv.json()).token}/accept`, { headers: { [CSRF_HEADER]: '1' }, data: { username: 'carol', name: 'Carol', password: 'carol password 1' } })).ok()).toBe(true)
   await c.dispose()
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }], limited: true })
   // Olga (owner): Bob by the rule; Dana, Eve and herself by role; not Carol. The chip apart, the panel the total
   await page.goto('/files?path=marketing')
   await expect(chip(page)).toHaveText(en('folderAccess.direct', { n: 1 }))
@@ -196,9 +196,9 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   await expect(page.getByTestId('sharing-general-hint')).toContainText(t['folderAccess.restrictedHint'])
   await expect(page.getByTestId('sharing-general-inherited')).toHaveText(t['folderAccess.fromTop'])
   await expect(page.getByTestId('sharing-general-select').locator('option')).toHaveText([t['folderAccess.restricted'], 'Acme'])
-  // the owner and admins are a row of the list (Full access), not a footer sentence
+  // the owner and admins are a row of the list (Manager, Drive's word), not a footer sentence
   await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.staffRow'])
-  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.fullAccess'])
+  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.manager'])
   await expect(page.getByRole('heading', { name: t['folderAccess.peopleWithAccess'] })).toBeVisible()
   // the role menu: Viewer, Editor and Remove access; no ✕
   await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level').locator('option:not([disabled])')).toHaveText([t['folderAccess.canView'], t['folderAccess.canEdit'], t['folderAccess.removeAccess']])
@@ -258,7 +258,7 @@ test('the confirm says who gains later by what they get: "open" for a group adde
   await signIn(page)
   // a group nobody is in yet: only whoever joins it later gains
   expect((await page.request.post('/api/admin/groups', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Design', memberIds: [] } })).ok()).toBe(true)
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }], limited: true })
   await page.goto('/files?path=marketing')
   await chip(page).click()
   await page.getByTestId('edit-add').fill('Des')
@@ -280,7 +280,7 @@ test('two groups added later, one "Can edit" and one "Can view": the confirm say
   await signIn(page)
   // groups nobody is in yet: only whoever joins them later gains
   for (const name of ['Design', 'Ops']) expect((await page.request.post('/api/admin/groups', { headers: { [CSRF_HEADER]: '1' }, data: { name, memberIds: [] } })).ok()).toBe(true)
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }], limited: true })
   await page.goto('/files?path=marketing')
   await chip(page).click()
   for (const name of ['Des', 'Ops']) {
@@ -322,8 +322,8 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   // the mock keeps each person's groups on the person too (the server has one membership table)
   for (const id of ['bob', 'carol']) expect((await page.request.patch(`/api/admin/users/${id}`, { headers: { [CSRF_HEADER]: '1' }, data: { groupIds: [sales.id] } })).ok()).toBe(true)
   await post(page, '/__test/file', { path: 'marketing/plans/q4.md', text: 'plans' })
-  // marketing: Bob can edit, nobody else; plans has no settings of its own
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  // marketing: Bob can edit, nobody else (limited); plans has no settings of its own
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }], limited: true })
   await page.goto('/files?path=marketing%2Fplans')
   await chip(page).click()
   const above = page.getByTestId('sharing-above').and(page.locator('[data-subject="user:bob"]'))
@@ -336,36 +336,27 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   // no setting of its own: General access shows what marketing gives, and where from
   await expect(page.getByTestId('sharing-general-select')).toHaveValue('restricted')
   await expect(page.getByTestId('sharing-general-inherited')).toHaveText(en('folderAccess.fromFolder', { folder: 'marketing' }))
-  // following a Restricted folder still lets in who it lists (Bob): "Only people listed here" cuts them off (review H1),
-  // and "Use the access of" brings the folder back to following
-  await expect(page.getByTestId('sharing-general-limit')).toHaveText(en('folderAccess.limitHere', { folder: 'marketing' }))
-  await page.getByTestId('sharing-general-limit').click()
+  // Settings › Limit access (Drive): cuts off who the folder above lets in (Bob), asked first by name; Cancel keeps it
+  await expect(page.getByTestId('sharing-limit')).not.toBeChecked()
+  await page.getByTestId('sharing-limit').check({ force: true })
   await expect(outcome(page)).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
-  // cutting them off asks first, by name (re-review of #779); Cancel keeps the draft
   await page.getByTestId('sharing-save').click()
   await expect(page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] })).toBeVisible()
   await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
   await page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] }).getByRole('button', { name: t['common.cancel'] }).click()
-  await expect(page.getByTestId('sharing-general-limit')).toHaveCount(0)
-  await page.getByTestId('sharing-general-follow').click()
+  // off again: nothing to save
+  await page.getByTestId('sharing-limit').uncheck({ force: true })
   await expect(page.getByTestId('sharing-save')).toHaveCount(0)
-  await expect(page.getByTestId('sharing-general-limit')).toBeVisible()
 
-  // the group Sales set to "Can view" here: Bob is in it, so here he can only view; Carol gets in. Both named
+  // the group Sales set to "Can view" here: Carol gets in; Bob keeps editing through his own row above (access adds up)
   await page.getByTestId('edit-add').fill('Sal')
   await page.getByTestId('edit-add-option').filter({ hasText: 'Sales' }).click()
-  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
   await expect(outcome(page)).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
-  // Bob can edit marketing by his own row: the Sales row here lowers him, and says so (the deepest rule decides, P1)
-  await expect(sharingRow(page, `group:${sales.id}`).getByTestId('sharing-row-lower')).toHaveText(en('folderAccess.lowerGroupAbove', { group: 'Bob', folder: 'marketing' }))
-  // the confirm says both
+  await expect(outcome(page)).not.toContainText('Bob')
   await page.getByTestId('sharing-save').click()
-  await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
   await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
   await page.getByRole('dialog').filter({ has: confirm(page) }).getByRole('button', { name: t['common.cancel'] }).click()
 
-  // Bob is decided here now (by Sales): his row from above is gone, the change named above
-  await expect(above).toHaveCount(0)
   // "Change there" (general access, the folder above) with a draft asks first; Discard, then the folder above, and back
   await page.getByTestId('sharing-general-from').click()
   await confirm(page).click()
@@ -379,31 +370,32 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
 })
 
-test('Drive\'s words over the old model: a Viewer under a team that can edit says it is lower, before and after Save; Access removed comes back with Add (review A1, A3, A5)', async ({ page, playwright }) => {
+test('Drive\'s words since P2: a row under a team that can edit says "Editor from"; Access removed on a limited folder comes back with Add', async ({ page, playwright }) => {
   await signIn(page)
   await addCarol(page, playwright)
   await post(page, '/__test/file', { path: 'marketing/down/a.md', text: 'a' })
   // marketing: everyone at Acme can edit; down: no setting of its own (screenshot 08 "Downgrade")
-  // (Bob: an old "No access" row there, for Access removed below)
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'write' }, { subjectType: 'user', subjectId: 'bob', access: 'none' }] })
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'write' }] })
   await page.goto('/files?path=marketing%2Fdown')
   await chip(page).click()
   await expect(page.getByTestId('sharing-general-select')).toHaveValue('team')
   await expect(page.getByTestId('sharing-general-role')).toHaveValue('write')
+  // access adds up: Viewer for the team cannot be picked here without Limit access, and the line says how
+  await expect(page.getByTestId('sharing-general-role').locator('option[value="read"]')).toBeDisabled()
+  await expect(page.getByTestId('sharing-general-above')).toContainText(t['folderAccess.lowerNeedsLimit'])
   await page.getByTestId('edit-add').fill('Car')
   await page.getByTestId('edit-add-option').filter({ hasText: 'Carol' }).click()
-  const lower = en('folderAccess.lowerTeamAbove', { team: 'Acme', folder: 'marketing' })
-  await expect(sharingRow(page, 'user:carol').getByTestId('sharing-row-lower')).toHaveText(lower)
-  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Carol' }))
-  await page.getByTestId('sharing-save').click()
-  await expect(page.getByTestId('sharing-done')).toBeVisible()
-  // after Save it still says so
-  await expect(sharingRow(page, 'user:carol').getByTestId('sharing-row-lower')).toHaveText(lower)
+  // Carol edits through marketing anyway: her row says where from, and nothing changes
+  await expect(sharingRow(page, 'user:carol').getByTestId('sharing-row-from')).toHaveText(en('folderAccess.fromAbove', { role: t['folderAccess.canEdit'], folder: 'marketing' }))
+  await expect(outcome(page)).toContainText(t['folderAccess.noChange'])
+  await page.getByTestId('sharing-cancel').click()
   await page.keyboard.press('Escape')
 
-  // a "No access" row (made in Admin before P1): Access removed, "Can't open it here", and Add (not "Remove from list")
-  await page.goto('/files?path=marketing')
+  // down limited, nobody added: Access removed lists who opens marketing but not down; Add brings one back as Viewer
+  await post(page, '/api/admin/folders', { path: 'marketing/down', create: false, rules: [], limited: true })
+  await page.goto('/files?path=marketing%2Fdown')
   await chip(page).click()
+  await expect(page.getByTestId('sharing-limit')).toBeChecked()
   const removed = page.getByTestId('sharing-removed-row').and(page.locator('[data-subject="user:bob"]'))
   await expect(page.getByTestId('sharing-removed')).toContainText(t['folderAccess.accessRemoved'])
   await expect(removed).toContainText(t['folderAccess.cantOpenHere'])
@@ -415,7 +407,7 @@ test('Drive\'s words over the old model: a Viewer under a team that can edit say
   await expect(page.getByRole('dialog').filter({ hasText: en('folderAccess.confirmOpen', { n: 1 }) })).toBeVisible()
   await confirm(page).click()
   await expect(page.getByTestId('sharing-done')).toBeVisible()
-  expect(await rules(page, 'marketing')).toEqual(['everyone::write', 'user:bob:read'])
+  expect(await rules(page, 'marketing/down')).toEqual(['user:bob:read'])
 })
 
 test('a team project\'s folder and the folders inside it: shown, not changed, and no admin endpoint is asked', async ({ page }) => {
@@ -471,7 +463,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await signIn(page)
     await post(page, '/__test/file', { path: 'marketing/plans/q4.md', text: 'plans' })
-    await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+    await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }], limited: true })
     await page.goto('/files?path=marketing%2Fplans')
     await chip(page).click()
     await expect(page.getByTestId('sharing-above')).toBeVisible()
@@ -493,7 +485,7 @@ for (const scheme of ['light', 'dark'] as const) {
 test('an admin on a folder no member can open: owner and admins only', async ({ page }) => {
   await post(page, '/__test/restrict', { path: 'docs', users: ['olga', 'dana', 'eve'] })
   await signIn(page)
-  await post(page, '/api/admin/folders', { path: 'docs', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await post(page, '/api/admin/folders', { path: 'docs', create: false, rules: [], limited: true })
   await page.goto('/files?path=docs')
   await expect(chip(page)).toHaveText(t['accessTree.who.adminsOnly'])
 })

@@ -72,8 +72,9 @@ describe('a turn', () => {
     fs.writeFileSync(path.join(dir, 'references/private/hidden.md'), 'P4_DENIED_RESOURCE_BODY')
     fs.writeFileSync(path.join(dir, 'assets/template.txt'), 'P4_ASSET_BODY')
     fs.writeFileSync(path.join(dir, 'scripts/run.sh'), '#!/bin/sh\ntouch ../executed\n', { mode: 0o700 })
-    h.ctx.db.query("INSERT INTO folders (id,path) VALUES ('p4-private-resource',?)").run(privateFolder)
-    h.ctx.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-private-deny','p4-private-resource','user','alice','none')").run()
+    // closed to alice: limited with no rules (access adds up; a person's own "none" is no rule any more)
+    h.ctx.db.query("INSERT INTO folders (id,path,limited) VALUES ('p4-private-resource',?,1)").run(privateFolder)
+    h.ctx.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-private-deny','p4-private-resource','everyone',NULL,'none')").run()
     try {
       const listed = (await h.api('alice').call(API.listSkills)).items.filter(s => s.path.startsWith(`skills/${name}/`))
       expect(listed).toEqual([{ path: rel, name, description }])

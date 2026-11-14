@@ -21809,6 +21809,7 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
 - Version impact: **patch** (new wording, one optional card field, no data change).
 
 ## 열 수 있는 사람, 드라이브 공유 창처럼 — Who can open it, like Drive's Share (feat/drive-like-access, 2026-11-11, product owner)
+- **Amended 2026-11-14 by "Folder access adds up like Google Drive (P2)"** (below): access adds up from the folders above; "only the people named" is Limit access, not an `everyone: none` rule.
 
 넣을 곳: Team AX core (`web/src/components/FolderAccess.tsx`, `web/src/pages/admin/FolderSharing.tsx`,
 `web/src/pages/admin/useRulesDraft.ts`, `web/src/lib/folder-sharing.ts`, `server/src/admin/access-edit.ts`), 이유:
@@ -26396,6 +26397,7 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
   and a member, with own, shared, pinned and scheduled rows.
 
 ## Leaving a project — 프로젝트 나가기 (feat/leave-project, 2026-11-13, the owner, QA TC-1020)
+- **Amended 2026-11-14 by "Folder access adds up like Google Drive (P2)"** (below): the person's own "no access" on `projects/<name>` is the project exception and depends on the rule alone; `project_leavers` is only what the members screen says (item 9-A kept).
 
 - **Who.** A member of a team project in `projects/<name>` (in place, not in the trash) may leave it: "Leave project"
   in the project's name menu and its card's "…" (`Project.leave`, `POST /api/projects/:id/leave`). Not a personal
@@ -26686,6 +26688,131 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   `chat-errors-plain.test.ts`; the harness option `turnTimeoutMs` is now `stallTimeoutMs`.
 - Version impact: **patch** (a limit removed, one error text added; no API or database change).
 
+## Folder access adds up like Google Drive (P2) — 폴더 권한이 드라이브처럼 위에서 더해진다 (feat/folder-access-additive, 2026-11-14, owner decided)
+
+**Owner, 2026-11-14: go with P2.** C1-A with the warning before saving; M6-A with a written and rehearsed manual
+roll-back runbook (docs/BACKUP-RESTORE.md "Going back from the folder access update"); item 9-A; item 12-A applied at
+save time too. Spec v3 and the reviews are with the owner (not in the repo).
+
+- **12-A at save time** (owner, review of #787): on a folder that is not limited a rule lower than what the folders
+  above give its subject restricts nobody, so it is never stored: turning Limit access off in the dialog raises General
+  access and every person or group row to the level from above, and the server stores such a rule at that level on any
+  save or create (`raiseToAbove`, `server/src/admin/access-edit.ts`), so it does not rely on the web. A person row is
+  measured by their own rules above and the team's only, never through their groups or role (re-review of #787):
+  otherwise Bob, raised to Editor because his group edits above, would keep Editor by name after leaving the group, and
+  an admin stored as Editor would keep it after a demotion (C1 outside C1-A). On shared/ and skills/ with nobody added
+  and nothing from the team root, Limit access cannot be switched off into a folder with no setting (the server refuses
+  it); pick a team role first.
+- **Review of #787 (FIX FIRST), fixed:** an unconverted live database whose copy (VACUUM INTO) cannot be made stops the
+  restore, never the backup's rules; the group warning offers no Remove on a folder inside a team project (its members
+  manage it) and a folder gone meanwhile is an error, never "Removed"; Remove says it acts at once ("Remove now");
+  shared/ and skills/ keep a setting of their own again (P1's guard): their Restricted is Limit access, and the switch
+  shows there; Korean "변경하려면 액세스 제한 켜기" and "지금 제외"; role menus name their shown role (WCAG 2.5.3).
+
+- **The permission function** (`server/src/policy/access.ts`): outside the fixed branches (users/, .system/, temp
+  names, the system principal, the owner and admins outside `projects/<name>`, the zone floor and the M2 check, all
+  unchanged), every rule that applies on the way up, up to and including the nearest **limited** folder
+  (`folders.limited`), adds up; the widest wins. "No access" rows add nothing. There are no tiers any more.
+- **The project exception** (C2, item 9-A): a person's own "no access" on `projects/<name>` keeps them out of that folder
+  and everything in it, whatever else applies. It depends on the rule row alone (not on `projects` or
+  `project_leavers`), so deleting the project with its folder kept, pointing the project elsewhere or a cascade delete
+  never lets them back in. `project_leavers` is only what the members screen says. Leave writes it
+  (`setProjectException`); adding the person back by name replaces it. This amends "Leaving a project" (item 9-A kept).
+- **Markers.** `everyone: none` stays on a limited folder without an everyone rule (the **legacy marker**: what an
+  older reader reads as the cut). `role: admin: write` is the **managed marker** (inert for access; keeps a folder
+  admin-only to move, rename or trash). Both are left out of `rulesAt`, the API rules and the hashes.
+- **Migration `121_a_folder_limited.sql`** (reader level 7, **M6-A: no automatic roll-back**): `folders.limited`,
+  `folder_rules.origin`, and triggers that refuse any other "no access" row (allowed: the legacy marker on a limited
+  folder, a person's own on a depth-2 `projects/*` path in any letter case, parked copies under `.system/`, rows under
+  `users/`) and any role row but the managed marker. They name only `folders` and `folder_rules` (a fresh database works).
+- **Post-migration steps** (`server/src/db-steps.ts`, hooked in `db.ts migrate()` after every pending file, inside the
+  same `BEGIN IMMEDIATE`): `folderAccessAdditive` (the conversion; gate: the columns exist and the marker
+  `settings.folder_access_model` is missing) and `safeOpsFolderLimited` (redefines `safe_ops_folders_update` with
+  `limited` and `safe_ops_folder_rules_update` with `origin`; gate: the triggers lack them **and** the columns exist,
+  review 3 S4). A throw rolls back the pending files too. A database with no pending file but an open gate (a restored
+  or copied one) gets the pre-migration copy first. *Foundation owners: please agree to the hook and reader level 7.*
+- **The conversion** (`server/src/policy/convert-additive.ts`, frozen old resolver `policy/legacy-deepest.ts`), per
+  folder top-down: tier-safe rules, the chain A above up to the nearest limit, S1/S2/S3. Safe: not limited, the rules
+  without "no access". Otherwise limited, with the tier-safe grants, the rules of A no rule of the folder lowers (none
+  for `projects/<name>`), and each existing person (active or switched off) who would get less named by a person rule
+  with their access before and an `origin` (`{v, by, groups:[{id, member}], base}`). Role member becomes everyone;
+  role admin/owner rows become one managed marker; a folder left without rules gets the managed marker (M2). Trashed
+  folders are converted at their old path (the in-place view) and written back in place. Inside a project's zone only
+  what rules at or below `projects/<name>` gave is named (access through `projects/` or the root is not: case 7.5-1,
+  or promoting that person to admin later would let them in by that name). Proof (also in the file header): for anyone
+  the conversion did not name, safe folders inherit as before (induction), a person's own rule at a safe folder was
+  their widest (S1) and at least everything above (S2), and every kept or copied rule at a limited folder is at most
+  what the person's top tier gave.
+- **The final assertion** runs inside the transaction on the converted database: every existing person (and as if
+  promoted to admin) at every boundary, live and parked; a fresh member in every combination of the groups named on the
+  chain (all subsets up to 8, else singles, pairs and 256 seeded); each person named there in every other combination,
+  **without the origin rows** (C1-A). A violation rewrites that folder the strictest way and checks again; a second one
+  throws and nothing changes. It writes the audit row `folders.additive_conversion` (paths and counts) and recomputes
+  the scheduled tasks' save fingerprints whose readers did not change (the others lapse with reason `rules`).
+- **Independent review of the PR (2026-11-14), fixed here:** the final assertion now checks each trashed folder in the
+  same chain view the conversion and the trash use (`parkedViews`; a one-level view saw a nested trashed folder's own
+  rules as a widening, and the server would not have started); the server and the migrate child set the team folder's
+  case mode before migrating (on a case-sensitive disk `Projects/<name>` is an ordinary folder, so its "no access" row
+  is no project exception); the assertion also checks the owner and admins as if made members. Residual: an admin CLI
+  that opens a pre-P2 database before the server ever starts converts it with the default (case-folding) mode.
+- **Fail-closed cases** (narrower, never wider; listed in the audit row): 7.5-1 a project member who relied on a rule
+  above the project; 7.5-2 a person with a project exception who read a subfolder by a deeper rule; 7.5-3 future
+  members at folders frozen by name; a parked chain that cannot be built (strictest rewrite).
+- **C1-A (default; the one place "never more than today" is not strict):** a person named by the conversion keeps that
+  access when they later join or leave one of the recorded groups, as Drive keeps access given by name. It is said,
+  never silent: `POST /api/admin/groups/origin-check` (for the screens to warn before saving), `originKept` in the
+  `group.update`, `group.delete` and `user.update` audit rows, a "Kept by name" line in the connector's
+  `group_update`/`group_delete` results (review 3 S5), `Folder.rules[].byConversion`, and the restore result counts
+  origin rows whose recorded groups differ from the restored ones. An unrelated save keeps every origin of a person row
+  saved with the same access; changing its access clears it (review 3 S1).
+- **One loader** (`RuleSet.fromDb(db, { mapPath })`, private constructor, `fromWorld` for tests and the web mock):
+  the `folders` table (a limited folder with no rules counts), the rules with origin; `boundaryFolders()` (rules ∪
+  limited) replaced `ruleFolders()` everywhere; `replacing`, `relocated`, `parkedInPlace`, `excepting` derive sets.
+  Without the marker the loader fails closed (no rule applies). `tests/unit/rule-set-construction.test.ts` keeps it so.
+- **One writer** (`admin/folders.ts writeFolderAccess`): no "no access" or role rule (an Error); `limited` omitted
+  keeps the current value (H1); the markers follow; project exceptions stay unless named; origins kept on unchanged
+  rows. `hasAccessSettings` (rules or a limit) replaced every "has rules" check. Every project path limits the folder:
+  new project, sharing a personal project, repoint, adopt, the read-scope row (M1).
+- **API**: `Folder.limited`; `limited` on create, save, preview and edit-preview (missing = keep); 400
+  `no_deny_rules` / `no_role_rules`; 409 `client_outdated` for a limited folder saved without `limited` and with no hash
+  or a `rules-v1` hash; `rules-v2` hash includes the limit; `AccessReason` gains `no-rule.cutAt` and `left`. shared/ and
+  skills/ keep a rule or a limit (M3).
+- **Restore** (H4): the staged backup is migrated (converted once with its own people); an unconverted live database is
+  converted as a copy (`restore-live-converted.db`, removed after) and read from it, and a failure stops the restore;
+  `limited` and `origin` are copied; backup-only rows that are not parked get `limited = 0`.
+- **Fingerprints and caches**: schedule save fingerprint `levels-v2` (limit per level, `policy/fingerprint.ts`), the
+  remote-MCP policy hash reads every folder row with its limit, safe-ops generation (above).
+- **Item 12-A**: "everyone can view" under "everyone can edit" becomes limited + everyone view (no names needed).
+- **Deliberate differences from Drive**: only the owner and admins share and turn Limit access on or off; no Commenter,
+  no notify box, no links, folders only; people who reach a limited folder only from above do not see it greyed out;
+  the project exception is the one "deny" left.
+- **Rejected**: keeping deepest-wins (not Drive); encoding a limit as `everyone: none` only (a limited folder with no
+  rules was invisible to the loader); converting by current members only (B4); a leaver exception tied to
+  `project_leavers` (fails open on delete or repoint); `limited` defaulting to false when missing.
+- **Web (built in the same PR, second step)**: the Share dialog's Settings › **Limit access** switch (also on a limited
+  top folder, M3; off on the team root), General access apart from it (a role lower than what the folders above give
+  cannot be picked on a folder that is not limited: the line says so with "Limit access to change this"), **Access
+  removed › Add** on a limited folder (from the folder answers of it and its parent: who opens the parent and is stopped
+  by this limit, `cutAt`), the owner and admins as a **Manager** row ("관리 권한"), a row's "Editor from '<folder>'"
+  when the folders above give more, the **"Added when folders changed"** tag (`byConversion`), the **warning before
+  saving** on Admin › Groups (a member taken out, a group deleted) and the person's page (a group taken off) from
+  origin-check, each line with Remove (`web/src/pages/admin/originKept.tsx`), and the **one-time Admin notice** on
+  Folder permissions (GET/POST `/api/admin/folder-access/notice[/dismiss]`, one team setting, audited). P1's "lower
+  than" captions are removed (`lowerOf`, `generalLowerOf`, `overridingGroup`: with access adding up a lower row lowers
+  nobody). `client_outdated` needs no prompt of its own: this web always sends the rules-v2 hash, and an older page
+  gets the server's "reload the page" message as its save error.
+- **Not picked** (the owner chose C1-A and M6-A; kept for the record):
+  - C1-B (only if picked): S3, the `group_members` revert must compare old and new member lists in code (both group
+    and person saves delete and re-insert every membership), and the explicit revert on deleteGroup.
+  - M6-B (only if picked): S2, the "written by an older build" dirty marks must skip this build's own writers (moves,
+    drops, deletes, setProjectException, keepFolderAccess, the conversion), e.g. an epoch column, or every P2 writer
+    clears its marks.
+  - C1-C is not built (the resolver has no legacy branch).
+- **Dry run** (`scripts/dry-run/folder-additive.ts <copy.db>`; in-memory, counts only on stdout): QA-Acme (live copy
+  and its newest backup) and the demo seed made on dev: **0 widened**, invariants ok, restore checks equal. QA-Acme:
+  13 folders limited, 1 person named by the conversion (C1-A: keeps more than today after a change of that group).
+  Demo: 2 limited, nobody named. potenlab and jdr not run (the owner decides).
+
 ## Always allow also in side chats, rooms and scheduled runs (fix/rec4, 2026-11-14, owner, QA TC-1292, TC-320)
 
 Owner, 2026-11-14: "거기서도 그냥 항상 허용 넣자" — Always allow goes into rooms, ✦ side chats and scheduled runs too, not
@@ -26731,3 +26858,53 @@ connect_service are unchanged.
   phone; names 15px and 16px.
 - `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
   title as the second line, 추가 / 추가됨).
+
+## Office Mac turns get the model-request body check (fix/office-model-proxy-tc359, 2026-11-14, owner, QA TC-359, TC-358)
+
+- **Office turns with the Mac's own Claude sign-in now use the proxy's checked HTTP path, like Linux.** Before, they
+  reached `api.anthropic.com` through a CONNECT tunnel that stays TLS end to end, so `checkProxyRequest` (no
+  `mcp_servers`, no code execution, no server tool but `web_search`, inline image / document data only), the tool
+  lockdown (`checkToolNames`), the confidential-chat search rule and the budget never ran. Now the office proxy has
+  `ownLogin`: the engine gets `ANTHROPIC_BASE_URL=http://127.0.0.1:<proxy>` (the launcher sets it from `--proxy-port`
+  when a request asks for it, never another address) and the turn's proxy token in `ANTHROPIC_CUSTOM_HEADERS`
+  (`x-mycel-turn`). The proxy takes the token only from that header (never from Authorization, which is the Mac's
+  login), checks the TCP peer as before, runs the same checks as managed mode and sends the request on to
+  `https://api.anthropic.com` with the engine's own Authorization (or x-api-key), never with the turn token. No usage
+  is counted there (the turn's result does), and a 401 / long 429 of the Mac's login comes back as it came (Claude Code
+  refreshes by itself). The turn subscribes to the proxy's events, so a lockdown or budget refusal ends it.
+- **CONNECT keeps only the refresh host, and that tunnel is read too.** `CLAUDE_CONNECT_HOSTS` is now
+  `platform.claude.com:443` only. That host also answers the Messages API (an unauthenticated POST /v1/messages there
+  gets the API's own "x-api-key header is required"), so a plain tunnel to it would be the same hole. Its tunnel ends at
+  the refresh terminator (`server/src/proxy/refresh-terminator.ts`): a loopback TLS listener with a certificate for
+  that host, signed by a CA made on this Mac with `/usr/bin/openssl` (in `<secrets>/claude-refresh-ca`, 0600, CA key
+  deleted after signing, made again after a year). The engine trusts it through `NODE_EXTRA_CA_CERTS` (the CA in the
+  turn's `.turn`, written by the launcher). It answers only `POST /v1/oauth/token` with a `refresh_token` grant, which it
+  sends to the real host; everything else is a 403 + audit. `CLAUDE_CODE_CUSTOM_OAUTH_URL` cannot point at the proxy
+  (the CLI takes only Anthropic's approved addresses). Claude Code still tries a tunnel to `api.anthropic.com` for side
+  lookups (seen: `GET /v1/mcp_servers`, the claude.ai connector list); it is refused without an Activity line when the
+  caller is the turn's engine (`CLAUDE_TURN_QUIET`) and the turn goes on.
+- **Why the engine still reads the Mac's login.** Claude Code signs every request with it and refreshes it itself (the
+  refresh token rotates in the keychain or `~/.claude/.credentials.json`). The server taking that over would mean
+  re-implementing the OAuth refresh and writing the Mac user's sign-in from outside the CLI. What is narrowed is where
+  the token can be used: the engine's only network is the proxy port, the proxy forwards checked Messages API requests
+  and the refresh grant only, and nothing else reaches Anthropic. The rule from "Claude Code 자격 증명 우선순위" still
+  holds: no proxy token is injected as a credential in this mode, so there is no silent fallback to the stored login.
+- **Left open (accepted, written down).** ① The engine can read the Mac owner's refresh token, which a Linux engine
+  never holds. Anthropic will not fetch or connect for it any more, but the allowed `web_search` server tool takes any
+  query, so a taken-over engine could put text (the token too) into a search query that the search provider sees.
+  Turning search off for office turns would cost a normal turn a feature; the owner's remedy is the office
+  setup-token mode (r4b "사무실도 구독 setup-token으로"), where the engine holds no real credential. ② Certificates are
+  renewed at server start (made again after a year, valid 825 days). ③ The Claude sign-in process of managed mode
+  (`claude-login:` tokens) still tunnels to `platform.claude.com` directly; it runs the fixed `claude setup-token`, not
+  a turn. ④ The terminator forwards the checked body written again (a duplicate key cannot read differently at the
+  host), with an exact content type; an openssl failure stops the engine core with a clear message (fails closed).
+- **Checked with the real CLI** (Claude Code 2.1.325, outside the sandbox, the Mac's own sign-in, through this proxy):
+  a plain answer and a WebSearch answer both worked, every model request went through the checked HTTP path, and the
+  CLI trusted a terminated tunnel's CA through `NODE_EXTRA_CA_CERTS`. A real refresh was not forced (that would touch
+  the Mac's sign-in); a refresh grant through the terminator reached the real host and got its 400 for a made-up token.
+  Tests: `tests/security/r4b-office-body-check.test.ts` (CI: refused bodies, header-only token, peer, 401 pass-through,
+  the terminator), `tests/security/r4b-office-engine-network.test.ts` (macOS sandbox: real office core + stand-in
+  engine), `tests/unit/native.test.ts` (launcher base URL).
+- **TC-358 (session folder of shared project chats): accepted, no change** (owner 2026-11-14: "거기서는 어쩔 수 없는거").
+  A shared project chat is shared by design, so what one member's turn leaves in the AI session can be read by the next
+  member's turn.

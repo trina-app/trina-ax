@@ -40,7 +40,7 @@ beforeAll(async () => {
   legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo', [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('user', 'carl', 'write'), rule('everyone', null, 'none')], 'adam')
   legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo/drafts', [rule('user', 'bob', 'write')], 'adam')
   legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo/closed', [rule('everyone', null, 'none')], 'adam')
-  await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
+  await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', limited: true, rules: [rule('group', ops, 'read')] })
   // a team project, and alice's personal project and file (their names must never reach an admin)
   // made as builds before "Projects live only in projects/" made them on existing folders (tests/lib/legacy-project.ts)
   legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Apollo', folderPath: 'projects/apollo' })
@@ -66,21 +66,22 @@ describe('one folder: every active person, the folder and rule it comes from', (
     const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
     expect(Object.keys(by).sort()).toEqual(['adam', 'alice', 'bob', 'dora', 'erik', 'olga']) // carl is switched off
     // the owner and admins are judged as members inside a team project (docs/DECISIONS.md "Project contents only for
-    // members"): no rule names them, so everyone:none decides, and nothing below is open to them
-    const asMember = { access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone', rules: [rule('everyone', null, 'none')] }, listable: false, via: [] }
+    // members"): no rule names them, apollo is limited, and nothing below is open to them
+    const asMember = { access: 'none', reason: { kind: 'no-rule', cutAt: 'projects/apollo' }, listable: false, via: [] }
     expect(by.olga!).toMatchObject(asMember)
     expect(by.adam!).toMatchObject(asMember)
     expect(by.alice!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'user', rules: [rule('user', 'alice', 'write')] } })
     expect(by.dora!).toMatchObject({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group', rules: [rule('group', sales, 'read')] } })
     // bob may not read apollo, but its drafts: apollo shows in his tree; the folder inside is never named
-    expect(by.bob!).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' }, listable: true, via: [], viaMore: false })
+    expect(by.bob!).toMatchObject({ access: 'none', reason: { kind: 'no-rule', cutAt: 'projects/apollo' }, listable: true, via: [], viaMore: false })
     expect(by.erik!).toMatchObject({ access: 'none', listable: false, via: [] })
     for (const p of r.people) {
       expect(p.access, p.user.id).toBe(accessOf(p.user.id, 'projects/apollo'))
       expect(p.listable, p.user.id).toBe(canList(p.user.id, 'projects/apollo'))
     }
     expect(r.summary.access).toEqual({ none: 4, read: 1, write: 1 })
-    expect(r.summary.sources).toEqual([{ reason: 'rule', folder: 'projects/apollo', count: 6 }])
+    // (apollo is limited: those no rule there names have no rule at all, not "everyone: none")
+    expect(r.summary.sources).toEqual([{ reason: 'no-rule', folder: null, count: 4 }, { reason: 'rule', folder: 'projects/apollo', count: 2 }])
     expect(JSON.stringify(r)).not.toContain('drafts')
   })
 
@@ -107,12 +108,12 @@ describe('one folder: every active person, the folder and rule it comes from', (
     expect((await personAnswer('carl')).folders.find((f) => f.path === 'projects/apollo/closed')).toBeUndefined()
     // the same case in a team folder: carl:write above, everyone:none below; switched back on, carl gets none there
     const top = await admin.call('POST', '/api/admin/folders', { path: 'shared/carl-team-1d4', rules: [rule('user', 'carl', 'write')] })
-    const below = await admin.call('POST', '/api/admin/folders', { path: 'shared/carl-team-1d4/closed', rules: [rule('everyone', null, 'none')] })
+    const below = await admin.call('POST', '/api/admin/folders', { path: 'shared/carl-team-1d4/closed', limited: true, rules: [] })
     try {
       const closed = await folderAnswer('shared/carl-team-1d4/closed')
       expect(closed.people.some((p) => p.user.id === 'carl')).toBe(false)
       expect(closed.inactive).toEqual([{ user: { id: 'carl', name: 'CARL' }, role: 'member', access: 'none',
-        reason: { kind: 'rule', folder: 'shared/carl-team-1d4/closed', tier: 'everyone', rules: [rule('everyone', null, 'none')] }, rules: [{ folder: 'shared/carl-team-1d4', access: 'write' }] }])
+        reason: { kind: 'no-rule', cutAt: 'shared/carl-team-1d4/closed' }, rules: [{ folder: 'shared/carl-team-1d4', access: 'write' }] }])
       // the same as the person answer for carl, which is computed as if active
       const carl = await personAnswer('carl')
       expect(carl.folders.find((f) => f.path === 'shared/carl-team-1d4/closed')).toMatchObject({ access: 'none' })
@@ -127,7 +128,7 @@ describe('one folder: every active person, the folder and rule it comes from', (
     const r = await folderAnswer('skills/finance/not-yet')
     expect(r).toMatchObject({ path: 'skills/finance/not-yet', exists: false, ruleFolder: 'skills/finance' })
     const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
-    expect(by.erik!).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'skills/finance', tier: 'everyone' } })
+    expect(by.erik!).toMatchObject({ access: 'none', reason: { kind: 'no-rule', cutAt: 'skills/finance' } })
     expect(by.adam!).toMatchObject({ access: 'write', reason: { kind: 'owner-admin' } })
     for (const p of r.people) expect(p.access).toBe(accessOf(p.user.id, 'skills/finance/not-yet'))
     // inside a team project: no answer, the same one for a missing folder and one that is there
@@ -199,7 +200,7 @@ describe('one person: every team folder and why', () => {
     expect(r.folders.map((f) => f.path)).toEqual([...r.folders.map((f) => f.path)].sort((a, b) => (a < b ? -1 : 1)))
     const text = JSON.stringify(res)
     // the trashed folder's rules are there, parked under .system/trash/<month>/<id>: they must not show
-    expect(h.ctx.files.rules().ruleFolders().some((f) => f.startsWith('.system/trash/'))).toBe(true)
+    expect(h.ctx.files.rules().boundaryFolders().some((f) => f.startsWith('.system/trash/'))).toBe(true)
     for (const hidden of ['Alice-private-plan-7c1', 'Alice-secret-name-3e9', 'Alice-private-folder-5d2', 'old-team-4b8', '.system', '.mycel-tmp']) expect(text, hidden).not.toContain(hidden)
     expect(r.folders.filter((f) => f.path.startsWith('users')).map((f) => f.path)).toEqual(['users/alice'])
     const by = Object.fromEntries(r.folders.map((f) => [f.path, f]))
@@ -211,7 +212,7 @@ describe('one person: every team folder and why', () => {
     expect(by['groups/Ops']).toMatchObject({ access: 'none', reason: { kind: 'no-rule' }, listable: false })
     expect(by['connected/nas']).toMatchObject({ kinds: ['connected'], connected: { name: 'nas' }, exists: true })
     expect(by['skills']!.kinds.sort()).toEqual(['rules', 'top'])
-    expect(by['skills/finance']).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'skills/finance', tier: 'everyone' }, listable: false })
+    expect(by['skills/finance']).toMatchObject({ access: 'none', reason: { kind: 'no-rule', cutAt: 'skills/finance' }, listable: false })
     expect(by['shared']).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'shared', tier: 'everyone' } })
     // every row is the permission function's answer, and "shown in the tree" is canList
     for (const f of r.folders) {
@@ -252,7 +253,7 @@ describe('one person: every team folder and why', () => {
     const notApollo = own.folders.filter((f) => f.path !== 'projects/apollo')
     expect(notApollo.every((f) => f.access === 'write' && f.listable)).toBe(true)
     expect(notApollo.filter((f) => f.path !== 'users/olga').every((f) => f.reason.kind === 'owner-admin')).toBe(true)
-    expect(own.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' }, listable: false })
+    expect(own.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'none', reason: { kind: 'no-rule', cutAt: 'projects/apollo' }, listable: false })
   })
 
   test('a new person with a role and groups gets what a real person with them gets', async () => {
@@ -267,7 +268,7 @@ describe('one person: every team folder and why', () => {
     // a new admin: write everywhere but inside a team project, where they are a member with their groups
     const asAdmin = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'admin', groupIds: [], limit: 2000 }))
     expect(asAdmin.folders.filter((f) => f.path !== 'projects/apollo').every((f) => f.access === 'write' && f.reason.kind === 'owner-admin')).toBe(true)
-    expect(asAdmin.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' } })
+    expect(asAdmin.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'none', reason: { kind: 'no-rule', cutAt: 'projects/apollo' } })
     // in the project's group they read it as its members of that group do
     const salesAdmin = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'admin', groupIds: [sales], limit: 2000 }))
     expect(salesAdmin.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group' } })
@@ -379,8 +380,9 @@ describe('changes between pages, forgotten rule rows', () => {
       expect(JSON.stringify(top)).not.toContain('MYCEL-TMP')
       expect(JSON.stringify(top)).not.toContain('Users/')
       for (const p of top.people) expect(p.listable, p.user.id).toBe(canList(p.user.id, ''))
-      // the permission function still answers these paths exactly as before (display only)
-      expect(accessOf('erik', 'shared/.MYCEL-TMP-y')).toBe('read')
+      // the permission function answers these paths as rules anywhere (display only): access adds up, so shared/'s
+      // "everyone: write" reaches through the row's "everyone: read"
+      expect(accessOf('erik', 'shared/.MYCEL-TMP-y')).toBe('write')
     } finally {
       for (const id of ids) h.ctx.db.query('DELETE FROM folders WHERE id = ?').run(id)
       fs.rmSync(path.join(root, '.MYCEL-TMP-z'), { recursive: true, force: true })

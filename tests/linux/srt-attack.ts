@@ -13,6 +13,7 @@ import { RuleSet, type Access } from '../../server/src/policy/access'
 import { folderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
 const BASE = `/var/lib/${ID}`
@@ -56,15 +57,17 @@ w('groups/marketing/campaign/plan.md', 'campaign plan\n')
 w('users/bob/notes.md', `${CANARY}-bob`)
 w('.system/history/old.bin', `${CANARY}-system`)
 fs.mkdirSync(`${DIR1}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${DIR1}/.git/config`, '[core]\n')
-const RULES = new RuleSet(([
+const RULES = ruleWorld(([
   ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
-  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
+  // the salaries: limited with no rules (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"); and a
+  // limited folder with no rules inside shared/, which everyone may edit: the sandbox must deny reading it
+  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'everyone', null, 'none'], ['shared/hr-limited', 'everyone', null, 'none'],
   ['groups/finance', 'group', 'finance', 'write'],
   // carol (an admin) is a member of projects/one: since project contents are for members only (docs/DECISIONS.md
   // "Project contents only for members"), an admin opens a project only as one of its members (A28d-h, A29)
   ['projects/one', 'user', ME, 'write'], ['projects/one', 'user', 'carol', 'write'], ['projects/one/public', 'everyone', null, 'read'],
   ['projects/two', 'group', 'finance', 'write'], ['connected/nas', 'everyone', null, 'read'],
-] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two'])
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
 const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }

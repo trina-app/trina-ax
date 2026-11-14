@@ -426,15 +426,18 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('the card is bound to who gets it: someone losing the project after it is shown makes it stale, named for an admin', async () => {
-    const fin = "UPDATE folder_rules SET access = ? WHERE folder_id = (SELECT id FROM folders WHERE path = 'projects/falcon') AND subject_type = 'group' AND subject_id = 'finance'"
+    // (finance loses falcon: its rule goes; a "no access" rule no longer exists since access adds up)
+    const where = "folder_id = (SELECT id FROM folders WHERE path = 'projects/falcon') AND subject_type = 'group' AND subject_id = 'finance'"
+    const was = h.ctx.db.query(`SELECT id, folder_id, access FROM folder_rules WHERE ${where}`).get() as { id: string; folder_id: string; access: string }
+    const fin = { run: (a: string) => (a === 'none' ? h.ctx.db.query(`DELETE FROM folder_rules WHERE ${where}`).run() : h.ctx.db.query("INSERT OR REPLACE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', ?)").run(was.id, was.folder_id, a)) }
     try {
       // the team's quote into falcon: alice newly may change it there (a card, no longer a refusal)
-      const r = await turn('carol', moveCall({ skill: 'quote', to: 'project' }), { answer: 'move', meanwhile: () => h.ctx.db.query(fin).run('none') })
+      const r = await turn('carol', moveCall({ skill: 'quote', to: 'project' }), { answer: 'move', meanwhile: () => fin.run('none') })
       expect(fields(r.card)['고칠 수 있게 돼요']).toBe('Alice Kim')
       expect(r.content).toContain('Not moved: since the card was shown, it would no longer reach Bob Lee')
       expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true)
       expect(fs.existsSync(path.join(h.team, 'projects/falcon/skills/quote'))).toBe(false)
-    } finally { h.ctx.db.query(fin).run('read') }
+    } finally { fin.run(was.access) }
   })
 
   test('moved after yes: the card says who loses it, SKILL.md folded, every file; audited with both levels and counts; announced', async () => {
@@ -502,10 +505,12 @@ describe('in the app: the Skills page and the AI', () => {
     const o = await h.api('alice').call(API.skillMoveOptions, { query: { path: 'users/alice/skills/launch/SKILL.md' } })
     const hawk = o.targets.find((x) => x.to.level === 'project' && x.to.projectId === HAWK)!
     expect(hawk.blocked).toBeUndefined()
-    h.ctx.db.query("UPDATE folder_rules SET access = 'none' WHERE id = 'r_hawk_fin'").run()
+    // (finance loses hawk: its rule goes)
+    const fin = h.ctx.db.query("SELECT folder_id FROM folder_rules WHERE id = 'r_hawk_fin'").get() as { folder_id: string }
+    h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_hawk_fin'").run()
     try {
       expect(await status(h.api('alice').call(API.moveSkill, { body: { path: o.path, to: hawk.to, token: hawk.token! } }))).toBe(409)
-    } finally { h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = 'r_hawk_fin'").run() }
+    } finally { h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_hawk_fin', ?, 'group', 'finance', 'read')").run(fin.folder_id) }
     const again = (await h.api('alice').call(API.skillMoveOptions, { query: { path: o.path } })).targets.find((x) => x.to.level === 'project' && x.to.projectId === HAWK)!
     const done = await h.api('alice').call(API.moveSkill, { body: { path: o.path, to: again.to, token: again.token! } })
     expect(done.path).toBe('projects/hawk/skills/launch/SKILL.md')

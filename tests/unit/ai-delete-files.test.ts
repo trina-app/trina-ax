@@ -277,7 +277,8 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
 
   test('a folder holding a group, project or rule folder the asker cannot read: the generic words, never which kind', () => {
     const hide = (id: string, folder: string) => {
-      h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(`f_${id}`, folder)
+      // (limited with its legacy marker: nobody below the owner and admins)
+      h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(`f_${id}`, folder)
       h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(`r_${id}`, `f_${id}`)
     }
     // a project's folder nobody but the owner and admins reads, inside a folder alice writes
@@ -596,7 +597,7 @@ describe('a double fault never strands an item without a trash row (review of #2
     // folder back from the trash with none: every member could read "shared/h4 (restored)/secret.md"
     const db = h.ctx.db
     put('shared/h4/secret.md', 'CLOSED-FOLDER-CANARY\n')
-    db.query("INSERT INTO folders (id, path) VALUES ('f_del_h4', 'shared/h4')").run()
+    db.query("INSERT INTO folders (id, path, limited) VALUES ('f_del_h4', 'shared/h4', 1)").run()
     db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_h4_all', 'f_del_h4', 'everyone', NULL, 'none'), ('r_del_h4_carol', 'f_del_h4', 'user', 'carol', 'write')").run()
     const readable = async (user: string, rel: string) => { try { return (await svc().content(user, rel)).content } catch { return null } }
     expect(await readable('alice', 'shared/h4/secret.md')).toBeNull()

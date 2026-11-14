@@ -62,7 +62,9 @@ describe('first-run setup', () => {
     for (const d of ['shared', 'skills', 'groups', 'projects', 'users/olga']) expect(fs.statSync(path.join(h.ctx.files.fx.root, d)).isDirectory()).toBe(true)
     const folders = await c.call('GET', '/api/admin/folders')
     const rules = Object.fromEntries(folders.items.map((f: any) => [f.path, f.rules.map((r: any) => `${r.subjectType}:${r.subjectId}:${r.access}`).sort()]))
-    expect(rules).toEqual({ shared: ['everyone:null:write'], skills: ['everyone:null:read', 'role:admin:write'] })
+    // (skills/ also carries the managed marker role admin: write, which the API does not show)
+    expect(rules).toEqual({ shared: ['everyone:null:write'], skills: ['everyone:null:read'] })
+    expect(h.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'skills' AND r.subject_type = 'role' AND r.subject_id = 'admin' AND r.access = 'write'").get()).not.toBeNull()
     expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'setup-token'))).toBe(false)
     // QA TC-211: the administrator's copy of the spent code goes too; the folder's other files stay
     const setupDir = resolveLayout(h.ctx.config).setupDir

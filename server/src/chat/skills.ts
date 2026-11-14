@@ -734,7 +734,7 @@ export function writableProjectSkillRoot(files: FileService, user: Principal, pr
  * folders, [] for everyone else. Team skills only: a group's are writableGroupSkillRoots. */
 export function managedSkillRoots(files: FileService, user: Principal): string[] {
   const rules = files.rules()
-  const writable = [SKILLS_DIR, ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith(SKILLS_DIR + '/') && f.split('/').length <= 3)]
+  const writable = [SKILLS_DIR, ...(rules.boundaryFolders?.() ?? []).filter((f) => f.startsWith(SKILLS_DIR + '/') && f.split('/').length <= 3)]
     .filter((f) => rules.access(user, f.split('/')) === 'write')
   return writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
 }

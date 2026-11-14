@@ -7,13 +7,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { act, useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { Folder } from '@mycel/shared/api'
-import { RuleSet, type Access, type Principal } from '../../../server/src/policy/access'
+import { type Access, type Principal } from '../../../server/src/policy/access'
 import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import FolderSharing from '../../src/pages/admin/FolderSharing'
 import { DialogHost } from '../../src/components/ui'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
+import { ruleWorld } from '../../../tests/lib/rule-world'
 
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
 const SALES = '01900000-0000-7000-8000-0000000000c1'
@@ -34,11 +35,18 @@ type R = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: strin
 /** the stub server's rule rows by folder, and its folder ids */
 let rows: Map<string, R[]>
 const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4'], ['shared/Sales/New', '01900000-0000-7000-8000-0000000000f5']])
-const ruleSet = () => new RuleSet([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))))
+/** the stub's limited folders (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): set by a save's `limited`;
+ * a folder whose rows hold "everyone: none" counts as limited too (the form these tests were written in) */
+let limitedPaths = new Set<string>()
+/** rows the one-time conversion wrote (`Folder.rules[].byConversion`), as `<path>:<type>:<id>` */
+let byConversion = new Set<string>()
+const isLimited = (path: string) => limitedPaths.has(path) || (rows.get(path) ?? []).some((r) => r.subjectType === 'everyone' && r.access === 'none')
+const ruleSet = () => ruleWorld([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))), [...rows.keys()].filter(isLimited))
 const folderOf = (path: string): Folder => ({
   id: ids.get(path)!, path, exists: true, createdAt: T0, groupId: null, keep: path === 'shared' ? 'team' : null, hidden: false,
-  rules: (rows.get(path) ?? []).map((r, i) => ({ id: `01900000-0000-7000-8000-0000000001${String(i).padStart(2, '0')}`, folderId: ids.get(path)!, ...r, updatedBy: null, updatedAt: T0 })),
-  rulesHash: rulesHash(rows.get(path) ?? []),
+  rules: (rows.get(path) ?? []).map((r, i) => ({ id: `01900000-0000-7000-8000-0000000001${String(i).padStart(2, '0')}`, folderId: ids.get(path)!, ...r, updatedBy: null, updatedAt: T0, ...(byConversion.has(`${path}:${r.subjectType}:${r.subjectId}`) ? { byConversion: true } : {}) })),
+  rulesHash: rulesHash(rows.get(path) ?? [], isLimited(path)),
+  limited: isLimited(path),
 })
 const sent: { key: string; body: any }[] = []
 let putReply: ((path: string, body: any) => Response) | null = null
@@ -58,13 +66,27 @@ beforeAll(() => {
     if (key === 'GET /api/admin/folders') return json(200, { items: [...rows.keys()].map(folderOf) })
     if (key === 'GET /api/admin/users') return json(200, { items: people.map(user) })
     if (key === 'GET /api/admin/groups') return json(200, { items: groups })
+    if (key === 'GET /api/admin/access/folder') {
+      // every person's access to a file in `path`, and for "no access" the nearest limited folder at or above it
+      const at = new URL(url, 'http://x').searchParams.get('path') ?? ''
+      const segs = at ? at.split('/') : []
+      let cutAt: string | undefined
+      for (let i = segs.length; i > 0; i--) if (isLimited(segs.slice(0, i).join('/'))) { cutAt = segs.slice(0, i).join('/'); break }
+      const out = people.map((p) => {
+        const access = ruleSet().access(p, [...segs, 'x.md'])
+        const reason = p.role === 'owner' ? { kind: 'owner-admin' } : access === 'none' ? { kind: 'no-rule', ...(cutAt ? { cutAt } : {}) } : { kind: 'rule', folder: at, tier: 'everyone', rules: [] }
+        return { user: { id: p.id, name: p.name }, role: p.role, access, reason, listable: false, via: [], viaMore: false }
+      })
+      return json(200, { path: at, exists: true, ruleFolder: null, people: out, total: out.length, nextCursor: null, summary: { access: { none: 0, read: 0, write: 0 }, sources: [] }, inactive: [] })
+    }
     if (key === 'POST /api/admin/access/edit-preview') {
-      const out = editPreview({ rules: ruleSet(), people, groupName: (id) => groups.find((g) => g.id === id)?.name ?? null, personName: (id) => people.find((p) => p.id === id)?.name ?? null }, body.path, body.rules, { team: body.path === 'shared' ? 'shared' : null })
+      const out = editPreview({ rules: ruleSet(), people, groupName: (id) => groups.find((g) => g.id === id)?.name ?? null, personName: (id) => people.find((p) => p.id === id)?.name ?? null }, body.path, body.rules, { team: body.path === 'shared' ? 'shared' : null, limited: body.limited })
       return json(200, { path: body.path, exists: true, connected: false, ...out })
     }
     if (key === 'POST /api/admin/folders') {
       if (postReply) return postReply(body)
       rows.set(body.path, body.rules)
+      if (body.limited) limitedPaths.add(body.path)
       return json(201, folderOf(body.path))
     }
     const put = /^PUT \/api\/admin\/folders\/([^/]+)\/rules$/.exec(key)
@@ -72,6 +94,8 @@ beforeAll(() => {
       const path = [...ids].find(([, id]) => id === put[1])![0]
       if (putReply) return putReply(path, body)
       rows.set(path, body.rules)
+      if (body.limited === true) limitedPaths.add(path)
+      if (body.limited === false) { limitedPaths.delete(path); rows.set(path, body.rules.filter((r: R) => !(r.subjectType === 'everyone' && r.access === 'none'))) }
       return json(200, folderOf(path))
     }
     return json(500, { error: { code: 'internal', message: `no route ${key}` } })
@@ -79,6 +103,7 @@ beforeAll(() => {
 })
 beforeEach(() => {
   // Quotes: Sales can edit, Alice only views; on Sales, Leads can view and nobody else; Company-wide: everyone views
+  limitedPaths = new Set()
   rows = new Map<string, R[]>([
     ['shared', [{ subjectType: 'everyone', subjectId: null, access: 'read' }]],
     ['shared/Sales', [{ subjectType: 'group', subjectId: LEADS, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }]],
@@ -131,6 +156,11 @@ const open = async (path = 'shared/Sales/Quotes') => {
   await m.until(() => m.find('sharing-list')?.getAttribute('aria-busy') === null && calls('POST /api/admin/access/edit-preview').length > 0, 'the first answer')
   return m
 }
+/** a browser checks a box before the click's listeners run, past React's value tracker (this small DOM does not) */
+const tick = async (m: Mounted, el: FakeElement) => {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'checked')!.set!.call(el, !(el as unknown as { checked: boolean }).checked)
+  await m.click(el)
+}
 const choose = async (el: FakeElement, value: string) => {
   await act(async () => {
     Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')!.set!.call(el, value)
@@ -148,8 +178,8 @@ describe('the panel shows who can open it, like Drive\'s list', () => {
     const m = await open()
     const rows = rowsOf(m, 'sharing-row')
     expect(rows.map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`, 'user:alice'])
-    // lower than her group here (the deepest, most personal rule decides until P2): said, in the warning colour
-    expect(rows[1]!.querySelector('[data-testid="sharing-row-lower"]')!.textContent).toBe(en('folderAccess.inGroupView', { group: 'Sales' }))
+    // since P2 the wider of her two rules decides (access adds up): no "In Sales, but can only view here" line
+    expect(rows[1]!.querySelector('[data-testid="sharing-row-from"]')).toBeNull()
     const above = rowsOf(m, 'sharing-above')
     expect(above.map((r) => r.getAttribute('data-subject'))).toEqual([`group:${LEADS}`])
     expect(above[0]!.textContent).toContain(en('folderAccess.fromFolder', { folder: 'Sales' }))
@@ -161,7 +191,9 @@ describe('the panel shows who can open it, like Drive\'s list', () => {
     expect(m.get('sharing-general-inherited').textContent).toBe(en('folderAccess.fromFolder', { folder: 'Sales' }))
     // the owner and admins: a row of the list, not a footer sentence
     expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.staffRow'))
-    expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.fullAccess'))
+    expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.manager'))
+    // Settings › Limit access: off here (Quotes is not limited)
+    expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(false)
     // the role menu holds Remove access (Drive), no ✕
     expect(rowsOf(m, 'sharing-row')[0]!.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['read', 'write', 'remove'])
     expect(m.find('sharing-remove')).toBeNull()
@@ -187,20 +219,22 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     await m.until(() => rowsOf(m, 'sharing-row').length === 1, 'the row gone')
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
     await ready(m)
-    // Alice is in Sales, which can edit here: without her own row she can edit
-    expect(m.get('sharing-outcome').textContent).toContain('Alice will be able to edit it')
+    // Alice is in Sales, which can edit here: access adds up, so she could edit already; taking her row out changes nobody
+    expect(m.get('sharing-outcome').textContent).toContain(en('folderAccess.noChange'))
     await m.unmount()
   })
 
-  test('a No access row is under Access removed with Add (Google\'s word), which brings them back as Viewer, asked before Save', async () => {
-    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'carol', access: 'none' }])
+  test('a limited folder lists who it stops under Access removed, with Add (Google\'s word): back as Viewer, asked before Save', async () => {
+    // Quotes limited: Carol, let in by Leads on Sales, cannot open it
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }])
+    limitedPaths.add('shared/Sales/Quotes')
     const m = await open()
+    expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
+    await m.until(() => m.find('sharing-removed'), 'Access removed')
     const removed = rowsOf(m, 'sharing-removed-row')
     expect(removed.map((r) => r.getAttribute('data-subject'))).toEqual(['user:carol'])
     expect(m.get('sharing-removed').textContent).toContain(en('folderAccess.accessRemoved'))
-    expect(removed[0]!.textContent).toContain(en('folderAccess.cantOpenHere'))
-    expect(removed[0]!.textContent).not.toContain('Remove from list')
     await m.click('sharing-add-back')
     expect(m.find('sharing-removed')).toBeNull()
     const back = rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:carol')!
@@ -213,41 +247,46 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     await m.click(confirm)
     const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)[0], 'the save')
     expect(put.body.rules).toContainEqual({ subjectType: 'user', subjectId: 'carol', access: 'read' })
+    // the limit was not changed in the draft: not sent (the server keeps it)
+    expect(put.body.limited).toBeUndefined()
     await m.unmount()
   })
 
-  test('nobody listed: the lower line says "anyone at", not "everyone else"', async () => {
+  test('the team can edit the folder above: Viewer cannot be picked here, and the line offers Limit access', async () => {
     rows.set('shared/Sales/Quotes', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])
     rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
     const m = await mountHost('shared/Sales/Quotes')
-    const line = await m.until(() => m.find('sharing-general-lower'), 'the lower line')
-    expect(line.textContent).toBe(en('folderAccess.generalLowerView', { team: 'Acme', folder: 'Sales' }))
-    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.teamHintView', { team: 'Acme' }))
+    await m.until(() => m.find('sharing-general-role'), 'the team role')
+    // access adds up: the team edits here too, whatever Quotes' own row says
+    expect(valueOf(m.get('sharing-general-role'))).toBe('write')
+    const viewer = m.get('sharing-general-role').querySelectorAll('option').find((o) => o.getAttribute('value') === 'read')!
+    expect(viewer.hasAttribute('disabled')).toBe(true)
+    expect(m.get('sharing-general-above').textContent).toContain(en('folderAccess.lowerNeedsLimit'))
+    // the link turns the limit on: Viewer can be picked then
+    await m.click('sharing-general-limit')
+    expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
+    await m.until(() => !m.get('sharing-general-role').querySelectorAll('option').find((o) => o.getAttribute('value') === 'read')!.hasAttribute('disabled'), 'Viewer pickable')
     await m.unmount()
   })
 
-  test('General access lower than the folder above: a lasting line, not only while something is changed', async () => {
+  test('a limited folder may give the team less than the folder above: Viewer under Editor, no line', async () => {
     rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])
     rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
+    limitedPaths.add('shared/Sales/Quotes')
     const m = await open()
     expect(valueOf(m.get('sharing-general-select'))).toBe('team')
     expect(valueOf(m.get('sharing-general-role'))).toBe('read')
-    // Erin is listed as Editor: the team's line says "everyone else" (review of #783)
-    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.teamHintViewElse', { team: 'Acme' }))
-    // Erin is listed as Editor: the lower line says "everyone else" too (review of #784)
-    expect(m.get('sharing-general-lower').textContent).toBe(en('folderAccess.generalLowerViewElse', { team: 'Acme', folder: 'Sales' }))
-    // nothing changed: the line is there without a draft
+    expect(m.find('sharing-general-above')).toBeNull()
     expect(m.find('sharing-save')).toBeNull()
     await m.unmount()
   })
 })
 
 describe('review of #779: the owner\'s row, and General access before the first answer', () => {
-  test('Restricted that cuts off who the folder above lets in asks first, by name (re-review of #779)', async () => {
+  test('Limit access that cuts off who the folder above lets in asks first, by name (re-review of #779)', async () => {
     const m = await open()
-    // Quotes has no General access of its own; Sales (above) lets Leads in: Carol. The link names that folder
-    expect(m.get('sharing-general-limit').textContent).toBe(en('folderAccess.limitHere', { folder: 'Sales' }))
-    await m.click('sharing-general-limit')
+    // Quotes is not limited; Sales (above) lets Leads in: Carol. Turning the limit on stops her
+    await tick(m, m.get('sharing-limit'))
     await ready(m)
     expect(m.get('sharing-outcome').textContent).toContain('Carol will no longer be able to open it')
     await m.click('sharing-save')
@@ -259,21 +298,35 @@ describe('review of #779: the owner\'s row, and General access before the first 
     await m.click((ask.parentNode as FakeElement).querySelectorAll('button')[0]!)
     await m.until(() => !m.find('dialog-confirm'), 'closed')
     expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(0)
+    // Save anyway sends the limit
+    await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)[0], 'the save')
+    expect(put.body.limited).toBe(true)
     await m.unmount()
   })
 
-  test('the owner listed here: Full access with Remove access only; kept out (an old row): no Add, only off the list', async () => {
+  test('the owner listed here: Manager with Remove access only', async () => {
     rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'read' }])
     const m = await open()
     const olga = rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:olga')!
     expect(olga.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['staff', 'remove'])
+    expect(olga.textContent).toContain(en('folderAccess.manager'))
     await m.unmount()
-    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'none' }])
-    const m2 = await open()
-    expect(m2.find('sharing-add-back')).toBeNull()
-    await m2.click('sharing-removed-drop')
-    expect(m2.find('sharing-removed')).toBeNull()
-    await m2.unmount()
+  })
+
+  test('a row the folder conversion added says so ("Added when folders changed")', async () => {
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'erin', access: 'read' }])
+    byConversion = new Set(['shared/Sales/Quotes:user:erin'])
+    try {
+      const m = await open()
+      const erin = rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:erin')!
+      expect(erin.textContent).toContain(en('folderAccess.byConversion'))
+      expect(rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === `group:${SALES}`)!.textContent).not.toContain(en('folderAccess.byConversion'))
+      await m.unmount()
+    } finally {
+      byConversion = new Set()
+    }
   })
 
   test('General access waits for the first answer (what the folder above gives is not known before)', async () => {
@@ -298,6 +351,63 @@ describe('review of #779: the owner\'s row, and General access before the first 
     } finally {
       globalThis.fetch = before
     }
+  })
+})
+
+describe('review of #787: Limit access off, and shared/', () => {
+  test('turning Limit access off raises rows lower than the folders above give (12-A at save time)', async () => {
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])
+    limitedPaths.add('shared/Sales/Quotes')
+    const m = await open()
+    await tick(m, m.get('sharing-limit'))
+    await m.until(() => rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:erin')?.getAttribute('data-access') === 'write', 'Erin raised to Editor')
+    await ready(m)
+    await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)[0], 'the save')
+    expect(put.body.limited).toBe(false)
+    // the team's Viewer row is gone (it follows Editor from above); Erin is stored as Editor
+    expect(put.body.rules).toEqual([{ subjectType: 'user', subjectId: 'erin', access: 'write' }])
+    await m.unmount()
+  })
+
+  test('Limit access off never raises a person through their group (re-review of #787)', async () => {
+    // Sales can edit Sales; Quotes (limited) lists Alice, who is in Sales, as Viewer
+    rows.set('shared/Sales', [{ subjectType: 'group', subjectId: SALES, access: 'write' }])
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }])
+    limitedPaths.add('shared/Sales/Quotes')
+    const m = await open()
+    await tick(m, m.get('sharing-limit'))
+    await ready(m)
+    expect(rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:alice')!.getAttribute('data-access')).toBe('read')
+    await m.unmount()
+  })
+
+  test('shared/ limited with nobody added and nothing from the team root: the limit cannot be turned off into a refused save', async () => {
+    rows.set('shared', [])
+    limitedPaths.add('shared')
+    const m = await mountHost('shared')
+    await m.until(() => m.find('sharing-limit'), 'the switch')
+    await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'the first answer')
+    await tick(m, m.get('sharing-limit'))
+    expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
+    expect(m.find('sharing-save')).toBeNull()
+    await m.unmount()
+  })
+
+  test('shared/: Restricted is Limit access (shared/ keeps a setting of its own); Save is not stopped', async () => {
+    const m = await mountHost('shared')
+    await m.until(() => m.find('sharing-general-select') && !m.find('sharing-general-select')!.hasAttribute('disabled'), 'General access')
+    await choose(m.get('sharing-general-select'), 'restricted')
+    await m.until(() => (m.find('sharing-limit') as unknown as { checked?: boolean } | null)?.checked === true, 'the limit on')
+    await ready(m)
+    expect(m.find('sharing-keep-one')).toBeNull()
+    await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared')}/rules`)[0], 'the save')
+    expect(put.body).toMatchObject({ rules: [], limited: true })
+    await m.unmount()
   })
 })
 
@@ -369,8 +479,10 @@ describe('Save asks the server again, and asks first before more access', () => 
   })
 
   test('another admin changed a folder above after the last answer: Save shows the new answer and needs another click', async () => {
+    // (access adds up: Alice must not edit through Sales here, or giving her edit changes nothing)
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }])
     const m = await open()
-    await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'write')
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'write')
     await ready(m)
     // meanwhile Sales lets everyone view
     rows.set('shared/Sales', [{ subjectType: 'group', subjectId: LEADS, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])

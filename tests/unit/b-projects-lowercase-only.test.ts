@@ -14,6 +14,7 @@ import { authorize } from '../../server/src/policy/authorize'
 import { isProjectsFolder } from '../../server/src/admin/folders'
 import { membersOnlyOnce } from '../../server/src/chat/members-only-once'
 import type { AppContext } from '../../server/src/context'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const before = projectsCaseInsensitive()
 afterEach(() => setProjectsCaseInsensitive(before))
@@ -21,7 +22,7 @@ afterEach(() => setProjectsCaseInsensitive(before))
 const P = (id: string, role: Principal['role'], groups: string[] = []): Principal => ({ id, name: id, role, groups })
 const dana = P('dana', 'owner'), carol = P('carol', 'admin'), alice = P('alice', 'member', ['marketing']), bob = P('bob', 'member', ['finance'])
 const rules = (rows: [string, 'everyone' | 'role' | 'group' | 'user', string | null, 'none' | 'read' | 'write'][]) =>
-  new RuleSet(rows.map(([p, subject_type, subject_id, access]) => ({ path: p, subject_type, subject_id, access })))
+  ruleWorld(rows.map(([p, subject_type, subject_id, access]) => ({ path: p, subject_type, subject_id, access })))
 // a 0.4.0 team: Projects/ClientA everyone reads; the project projects/ClientA is alice's
 const r = rules([
   ['Projects/ClientA', 'everyone', null, 'read'],

@@ -26,6 +26,7 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd } from './barActions'
+import { confirmOriginKept } from './originKept'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 export default function Groups() {
@@ -47,6 +48,8 @@ export default function Groups() {
     const off = connectionsOnlyFor(connections.data, { subjectType: 'group', subjectId: g.id })
     const body = off.length ? <><p>{t('groups.deleteBody')}</p><p className="mt-2" data-testid="group-delete-ai-off">{t('groups.deleteAiOff', { names: off.join(', ') })}</p></> : t('groups.deleteBody')
     if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body, confirm: t('common.delete'), danger: true }))) return
+    // people the folder conversion added by name keep that access without the group: said before deleting
+    if (!(await confirmOriginKept(g.memberIds.map((userId) => ({ userId, groupId: g.id })), { title: t('groups.originTitle'), confirm: t('common.delete') }))) return
     if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
     focus.removed(groups.data?.findIndex((x) => x.id === g.id) ?? 0)
     if (off.length) void connections.reload()
@@ -206,7 +209,10 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
   // a disabled account is offered only while it is already in the group (to take it out): the server never adds one
   const people = [...users].filter((u) => u.status === 'active' || group?.memberIds.includes(u.id)).sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
   const save = async () => {
+    // people taken out of the group who keep folder access by name (added when folders changed): said before saving
+    const leaving = group ? group.memberIds.filter((id) => !memberIds.includes(id)).map((userId) => ({ userId, groupId: group.id })) : []
     setBusy(true)
+    if (!(await confirmOriginKept(leaving, { title: t('groups.originTitle'), confirm: t('common.save') }))) { setBusy(false); return }
     const body = { name: name.trim(), description: description.trim() || null, memberIds }
     const r = await act(() => (group ? api.call(API.updateGroup, { params: { id: group.id }, body }) : api.call(API.createGroup, { body })))
     setBusy(false)
