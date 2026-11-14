@@ -1,6 +1,6 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
-import { GuestLanding, NotForGuests, useGuestPlacePath } from './components/GuestView'
+import { GuestLanding, NotForGuests, NotForRoomGuests, useGuestPlacePath } from './components/GuestView'
 import { ShareChatHost } from './components/chat/ShareChat'
 import { ChatShareHost } from './components/chat/ChatShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
@@ -330,7 +330,8 @@ function Gate() {
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
           <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
           <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
-          <Route path="projects" element={<ProjectList />} />
+          {/* a guest in a room has no projects: their room instead of an empty list (components/GuestView.tsx) */}
+          <Route path="projects" element={<NotForRoomGuests><ProjectList /></NotForRoomGuests>} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="projects/:projectId/files" element={<ProjectFiles />} />
           <Route path="admin" element={<NotForGuests><AdminLayout /></NotForGuests>} />

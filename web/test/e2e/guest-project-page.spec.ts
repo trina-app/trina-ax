@@ -31,6 +31,26 @@ async function projectWithGuest(page: Page, as: 'owner' | 'guest' = 'owner') {
   return id
 }
 
+test('a guest who joins while the project is open: its people and "Includes 1 guest" follow at once (no reload)', async ({ page }) => {
+  await reset(page)
+  const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob', participants: [{ subjectType: 'user', subjectId: 'olga' }] } })
+  const { id } = (await r.json()) as { id: string }
+  await signIn(page)
+  await page.goto(`/projects/${id}`)
+  await expect(page.getByTestId('project-people-header')).toBeVisible()
+  await expect(page.getByTestId('includes-guests')).toHaveCount(0)
+  // the guest accepts their invite (the server tells the project's people: chat/project-joins.ts)
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina Park', place: { kind: 'project', id }, ai: { mode: 'none' } } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/publish', { data: { event: { type: 'notice', data: { level: 'info', code: 'project_people_changed', message: id } } } })).ok()).toBeTruthy()
+  await expect(page.getByTestId('includes-guests')).toHaveText('게스트 1명 포함')
+  // another project's notice changes nothing here (one read per notice of this project only)
+  let reads = 0
+  page.on('request', (q) => { if (new RegExp(`/api/projects/${id}/people`).test(q.url())) reads++ })
+  await page.request.post('/__test/publish', { data: { event: { type: 'notice', data: { level: 'info', code: 'project_people_changed', message: 'another' } } } })
+  await page.waitForTimeout(500)
+  expect(reads).toBe(0)
+})
+
 for (const [w, h] of [[1440, 900], [390, 844]] as const) {
   test.describe(`${w}`, () => {
     test.use({ viewport: { width: w, height: h } })

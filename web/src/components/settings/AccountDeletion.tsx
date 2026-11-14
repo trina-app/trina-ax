@@ -12,7 +12,8 @@ import { ACCOUNT_DELETION_GRACE_DAYS, type AccountDeletionRequest, type InboxNot
 import { api, API, errorText } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { useMe, useMeStrict } from '../../store/session'
+import { meGuest } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { ReauthDialog } from '../../pages/admin/common'
 import { Button, ErrorNote, Skeleton } from '../ui'
@@ -43,7 +44,20 @@ export function deletionDueText(t: T, item: Pick<InboxNotification, 'deletionDue
 /** What happens, in plain lines: the same list before and after asking. */
 function WhatHappens({ value, viewerIsAdmin }: { value: AccountDeletionRequest; viewerIsAdmin: boolean }) {
   const t = useT()
-  const lines = [
+  // a guest (lib/guests.ts) has none of a member's things (team folders, shared skills, scheduled tasks or app
+  // connections): only their account, their chats with the AI when it is on for them, the files they saved in "Your
+  // files", and what they sent in their one place, which stays
+  const guest = meGuest(useMe())
+  const lines = guest ? [
+    t('accountDeletion.told'),
+    t(guest.ai === 'own' ? 'accountDeletion.goesGuestOwn' : guest.ai === 'team' ? 'accountDeletion.goesGuestAi' : 'accountDeletion.goesGuest'),
+    // their own folder ("Your files" in the pickers): what they saved there goes to the owner's archive, as a member's
+    t('accountDeletion.folderGuest'),
+    guest.place?.kind === 'project'
+      ? t('accountDeletion.staysGuestProject', { place: guest.place.name ? t('accountDeletion.placeNamed', { name: guest.place.name }) : t('accountDeletion.guestProject') })
+      : t('accountDeletion.staysGuestRoom', { place: guest.place?.name ? t('accountDeletion.placeNamed', { name: guest.place.name }) : t('accountDeletion.guestRoom') }),
+    t('accountDeletion.kept', { days: value.auditDays ?? DEFAULT_AUDIT_DAYS }),
+  ] : [
     t(viewerIsAdmin ? 'accountDeletion.toldAdmin' : 'accountDeletion.told'),
     t('accountDeletion.goes'),
     t('accountDeletion.folder'),

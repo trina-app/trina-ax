@@ -50,6 +50,7 @@ import { registerComposer } from '../../lib/teamAttach'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions, showsEnginePicker } from './EngineMenu'
@@ -500,7 +501,7 @@ export default function Composer({
               }}
               data-testid="attach-team"
             >
-              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
+              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t(isGuestMe(me) ? 'picker.guestTitle' : 'composer.fromTeam')}
             </button>
           </div>
           </div>

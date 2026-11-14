@@ -105,6 +105,14 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
   return r.open ? `${who} ${t('notifications.resetLink.openHint')}` : who
 }
 
+/** "{name} joined the team.", or for a guest the one place they joined: "{name} joined 'Quote prep' as a guest." (a group
+ * chat with no name, or a place the reader is not in: "joined a group chat / a project as a guest") */
+export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
+  if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
+  if (j.guestPlace.name) return t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name })
+  return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -117,7 +125,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
   if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
-  if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
+  if (item.code === 'team.joined') return item.joined ? joinedText(item.joined, t) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
@@ -177,7 +185,13 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
-  if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
+  if (item.code === 'team.joined') {
+    // a guest joined: the owner and admins open Admin › Members (no id); the member who invited them, the room or project
+    // they joined while they are in it (its id); anyone else nowhere (null)
+    const place = item.joined?.guestPlace
+    if (place && place.id !== undefined) return place.id ? { to: place.kind === 'room' ? `/rooms/${encodeURIComponent(place.id)}` : `/projects/${encodeURIComponent(place.id)}`, testId: 'notification-joined-link' } : null
+    return { to: '/admin/members', testId: 'notification-joined-link' }
+  }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
   // my own account's deletion date while the request is open: the page where I can keep the account

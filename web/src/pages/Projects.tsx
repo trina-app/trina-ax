@@ -37,7 +37,7 @@
 // ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
@@ -55,7 +55,7 @@ import { toast } from '../store/ui'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
-import { accessChanged, chatChanged, reloadAsked } from '../store/live'
+import { accessChanged, chatChanged, projectPeopleChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { hideProject, keepPendingProject, readManagedList, showProject, unhideProject, useProjects } from '../store/projects'
 import { optimistic, optimisticPending } from '../lib/optimistic'
@@ -709,6 +709,9 @@ function ProjectPage() {
   // in the members dialog
   const [peopleVersion, setPeopleVersion] = useState(0)
   const people = useProjectPeople(p, peopleVersion)
+  // someone joined or left it while the page is open (a guest who accepted their invite): its faces, its count and
+  // "Includes 1 guest" follow at once (store/live.ts projectPeopleChanged)
+  useEffect(() => projectPeopleChanged.on((id) => { if (id === projectId) setPeopleVersion((v) => v + 1) }), [projectId])
   // the team directory knows who is a guest: "Includes 1 guest" under the faces needs it before the members dialog is opened
   usePeopleList()
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
@@ -964,7 +967,14 @@ function ProjectPage() {
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
   // name, its members, their own chats in it; nothing of its contents
   const outside = p.member === false
-  const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
+  // a guest has no 파일 screen (components/GuestView.tsx NotForGuests): their project's folders open on its own files
+  // screen (ProjectFiles below), on a computer as on a phone
+  const folderHref = (path: string) => {
+    if (!guestHere) return `/files?path=${encodeURIComponent(path)}`
+    const dir = path === p.folderPath ? '' : path.slice(p.folderPath.length + 1)
+    return `/projects/${p.id}/files${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`
+  }
+  const folderLink = folderHref(p.folderPath)
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
   // the project has no files (as far as this person reads it)
@@ -1197,7 +1207,7 @@ function ProjectPage() {
                           {files?.entries.slice(0, 30).map((f) => (
                             <ListRow
                               key={f.path}
-                              onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
+                              onClick={() => (f.type === 'folder' ? navigate(folderHref(f.path)) : openTeamFile(f.path))}
                               icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
                               name={f.name}
                               nameTitle={f.name}
@@ -1404,6 +1414,10 @@ export function ProjectFiles() {
   const dir = projectDir(params.get('dir'))
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE)
+  // a guest has no 파일 screen: this screen lists their project's folders on a computer too (a computer otherwise goes on
+  // to the 파일 screen below)
+  const guest = isGuestMe(useMe())
+  const here = phone || guest
   // the project as this window knows it (its page a moment ago, or the projects store): a computer goes on to its
   // folder at once, a phone lists the folder without waiting for it
   const [p, setP] = useState<Project | null>(() => knownProject(projectId))
@@ -1418,7 +1432,7 @@ export function ProjectFiles() {
     let live = true
     setMissing(false)
     // a computer that knows the project goes to its folder (below) and asks nothing here
-    if (!phone && knownProject(projectId)) return
+    if (!here && knownProject(projectId)) return
     api.call(API.getProject, { params: { id: projectId! }, query: { manage: '1' } }).then(
       (x) => { if (!live) return; setP(x); useProjects.getState().put(x) },
       (e) => { if (!live) return; if (isApiError(e, 'not_found')) setMissing(true); else setError(errorText(e, locale, t('error.network'))) },
@@ -1440,21 +1454,28 @@ export function ProjectFiles() {
     setList(keptList(path))
     setError(null)
     // (a computer goes to the 파일 screen, which lists the folder itself)
-    if (phone && p?.member !== false) read()
+    if (here && p?.member !== false) read()
     return () => { loads.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, p?.member])
   // a computer: the folder on the 파일 screen (the project's page for someone who is not a member: no files for them)
-  if (!phone && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
+  if (!here && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
   if (missing) return <EmptyState screen title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   const name = dir ? dir.slice(dir.lastIndexOf('/') + 1) : t('files.title')
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="project-files-page">
-      <h1 className="sr-only">{name}</h1>
+      {/* a computer (a guest): the way back to the project, which a phone's bar has */}
+      {!phone && p && (
+        <Link to={dir ? `/projects/${p.id}/files${dir.includes('/') ? `?dir=${encodeURIComponent(dir.slice(0, dir.lastIndexOf('/')))}` : ''}` : `/projects/${p.id}`} className="mx-4 mt-4 inline-flex w-fit items-center gap-1 text-sm text-muted hover:text-ink" data-testid="project-files-back">
+          <ChevronLeft size={14} aria-hidden /> {dir ? (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')).split('/').pop() : t('files.title')) : p.name}
+        </Link>
+      )}
+      <h1 className={phone ? 'sr-only' : 'px-4 pt-1 text-title font-semibold text-ink'} data-testid="project-files-title">{name}</h1>
       <PhoneBarTitle>{name}</PhoneBarTitle>
-      {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them */}
-      {path !== null && p?.member !== false && (
+      {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them; nor a
+          guest, who has no 파일 screen */}
+      {path !== null && p?.member !== false && !guest && (
         <PhoneBarAction>
           <Tooltip label={t('projects.openFolder')}>
             <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">

@@ -40,7 +40,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
-import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, inPlace } from '../auth/guests'
+import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, inPlace, seenBy } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -148,6 +148,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     if (groups.some((g) => !had.has(g))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.groupIds': 'disabled account' }, params: { reason: 'account_disabled' } })
   }
   const before = captureState(ctx.db)
+  // who may see them while the account is as it is now: a status that goes with it is told to them only
+  const seenBefore = b.status !== undefined && liveStatusOf(ctx.db, id, new Date(), true) ? seenBy(ctx.db, id) : null
   const changed: Record<string, unknown> = {}
   ctx.db.transaction(() => {
     // the caller and the target as they are now (an owner who handed the team over a moment ago is an admin; a member
@@ -203,7 +205,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.status !== undefined) ctx.services.realtime.forgetReplay(id)
   // their status message (docs/DECISIONS.md "상태 메시지") is the team's only while the account is on: open windows read
   // the directory again when it goes or comes back with the account
-  if (changed.status !== undefined) statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true))
+  if (changed.status !== undefined && liveStatusOf(ctx.db, id, new Date(), true)) statusGoneWithAccount(ctx, true, [seenBefore ?? (() => false), seenBy(ctx.db, id)])
   if (changed.status === 'disabled') {
     // their "Allow all websites" for the AI's web reads goes off for good (audited when it was on)
     accountDeactivated(ctx.db, id, auth.user.id)
@@ -395,6 +397,8 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   let pruned: Pruned[] = []
   let ownAi: string[] = []
   let hadStatus = false
+  // who may see them before the account goes (afterwards nobody shares a place with it): their status goes to them only
+  const seen = liveStatusOf(ctx.db, id, new Date(), true) ? seenBy(ctx.db, id) : () => false
   let auditId = 0
   ctx.db.transaction(() => {
     o.check?.()
@@ -452,7 +456,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
     auditId = audit(ctx.db, { actor, action: 'user.delete', target: id, detail: removalDetail(o, requested, { unfinished: true }) })
   })()
   revokeSignIns()
-  statusGoneWithAccount(ctx, hadStatus)
+  statusGoneWithAccount(ctx, hadStatus, [seen])
   // their own AI connections went with them: the engines' state is read again, open screens ask again
   { const cc = existingCredentialsOf(ctx); if (cc && ownAi.length) { for (const k of ownAi) cc.cache.delete(k); connectionsChanged(cc) } }
   afterPrune(ctx, actor, pruned)
@@ -625,6 +629,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
  */
 export function disableAccount(ctx: AppContext, id: string, actorId: string | null, why: string): boolean {
   let done = false
+  // who may see them while the account is on: its status goes to them only
+  const seen = liveStatusOf(ctx.db, id, new Date(), true) ? seenBy(ctx.db, id) : () => false
   ctx.db.transaction(() => {
     // read first, then write: `changes` of an UPDATE on users counts the safe-ops trigger's write too on some Bun
     // versions (1.3.12 answers 2), so it cannot tell whether this row changed
@@ -637,7 +643,7 @@ export function disableAccount(ctx: AppContext, id: string, actorId: string | nu
   }).immediate()
   if (!done) return false
   ctx.services.realtime.forgetReplay(id)
-  statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true))
+  statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true), [seen])
   accountDeactivated(ctx.db, id, actorId)
   authOf(ctx).endUserSessions(id, 'disabled')
   stopTurnsOf(ctx, id)

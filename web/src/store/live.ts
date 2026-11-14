@@ -49,6 +49,9 @@ export const schedulesChanged = new Emitter<void>()
 export const enginesChanged = new Emitter<void>()
 /** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
+/** who is in a team project changed (someone joined or left it, a guest accepted their invite): its page reads its
+ * people again (server/src/chat/project-joins.ts, the notice project_people_changed; its message is the projects' ids, comma-separated) */
+export const projectPeopleChanged = new Emitter<string>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
 /** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
@@ -199,6 +202,10 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         // it) follows, and my own account when it was me (another window or device), quietly: the notice carries no text
         if (ev.data.code === 'my_profile_changed') void useSession.getState().refreshMe()
         if (usePeople.getState().loaded) void usePeople.getState().load(true)
+        return
+      }
+      if (ev.data.code === 'project_people_changed') {
+        for (const id of ev.data.message.split(',')) if (id) projectPeopleChanged.emit(id)
         return
       }
       if (ev.data.code === 'speech_changed') {

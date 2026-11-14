@@ -9,6 +9,9 @@ import { api, API, errorText } from '../lib/api'
 import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { crumbs, joinPath, nameProblem } from '../lib/paths'
 import { useLocale, useT } from '../i18n'
+import { isGuestMe } from '../lib/guests'
+import { guestPassThrough, readGuestTop } from '../lib/guestFiles'
+import { useMe } from '../store/session'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, promptDialog } from './ui'
 
 export default function FolderPicker({
@@ -39,6 +42,8 @@ export default function FolderPicker({
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
+  // a guest has no team folder: the top is their project's folder and their own (lib/guestFiles.ts), "Your files"
+  const guest = isGuestMe(useMe())
   const [path, setPath] = useState(initial)
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -86,7 +91,7 @@ export default function FolderPicker({
     let live = true
     setTree(null)
     setError(null)
-    api.call(API.tree, { query: { path, limit: 200 } }).then(
+    ;(guest && path === '' ? readGuestTop() : api.call(API.tree, { query: { path, limit: 200 } })).then(
       (r) => live && setTree(r),
       (e) => live && setError(errorText(e, locale, t('error.network'))),
     )
@@ -156,9 +161,9 @@ export default function FolderPicker({
       )}
       <nav ref={navRef} tabIndex={-1} aria-label={t('files.breadcrumb')} className="mb-3 flex flex-wrap items-center gap-1 text-sm focus:outline-none">
         <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => setPath('')}>
-          <Home size={14} aria-hidden /> {t('files.root')}
+          <Home size={14} aria-hidden /> {t(guest ? 'picker.guestRoot' : 'files.root')}
         </button>
-        {crumbs(path).map((c) => (
+        {crumbs(path).filter((c) => !guest || !guestPassThrough(c.path)).map((c) => (
           <span key={c.path} className="inline-flex items-center gap-1">
             <ChevronRight size={13} className="text-faint" aria-hidden />
             <button type="button" className="rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => setPath(c.path)}>

@@ -108,6 +108,23 @@ export function reachFilter(db: Database, viewerId: string): (otherId: string) =
   }
 }
 
+/**
+ * Who may see `userId` (sharesPlace for each viewer), read now and kept: for a notice sent after a change that ends or
+ * brings back the account (switched off, deleted, switched on), when sharesPlace afterwards may answer differently.
+ * Between two non-guests: yes. A guest and the people outside their one place: no, in both directions.
+ */
+export function seenBy(db: Database, userId: string): (to: string) => boolean {
+  const guests = (db.query("SELECT id FROM users WHERE guest = 1 AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
+  const target = isGuest(db, userId)
+  if (!guests.length && !target) return () => true
+  // one rule set for every project place read here (placePeople reads it again otherwise)
+  const rules = RuleSet.fromDb(db)
+  const own = target ? placePeople(db, userId, rules) : null
+  const guestSees = new Map<string, boolean>()
+  for (const g of guests) if (g !== userId) guestSees.set(g, (!own || own.has(g)) && placePeople(db, g, rules).has(userId))
+  return (to) => to === userId || (guestSees.get(to) ?? (own ? own.has(to) : true))
+}
+
 // ---------------- the plan's guest cap ----------------
 /** Guests on a plan file without maxGuests (the control plane writes it later): the smallest plan's number. */
 export const DEFAULT_PLAN_GUESTS = 3

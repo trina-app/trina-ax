@@ -106,6 +106,9 @@ test.describe('computer', () => {
     const side = page.getByTestId('side-chat-panel')
     await expect(side.getByTestId('ai-access-banner').getByTestId('ai-access-button')).toHaveAttribute('data-action', 'connect_own')
     await expect(side.getByTestId('guest-no-ai')).toHaveCount(0)
+    // nothing answers yet: no starters (Catch up …), only the line that connects their AI
+    await expect(side.getByTestId('side-chat-empty')).toBeVisible()
+    await expect(side.getByTestId('side-chat-starters')).toHaveCount(0)
     // Settings › AI accounts: their own Claude sign-in, in place
     await page.goto('/settings/providers')
     // only their own account answers them: no word of team or company accounts
@@ -128,6 +131,10 @@ test.describe('computer', () => {
     await page.goto('/')
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
+    // and their room's ✦ side chat has its starters
+    await page.goto(`/rooms/${GROUP}`)
+    await page.getByTestId('room-side-chat-button').click()
+    await expect(page.getByTestId('side-chat-panel').getByTestId('side-chat-starters')).toBeVisible()
   })
 
   test('a guest with their own sign-in connects it from the line above the box', async ({ page }) => {
@@ -138,6 +145,45 @@ test.describe('computer', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByTestId('kind-anthropic-oauth')).toBeVisible()
     await expect(dialog.getByTestId('credential-password')).toHaveCount(0)
+  })
+
+  test('a project guest\'s file picker: their project under "내 파일", never the team folder or the folders on the way', async ({ page }) => {
+    await guestIn(page, { kind: 'project', name: '견적 준비' }, { mode: 'own' })
+    const folder = await page.evaluate(async () => ((await (await fetch('/api/projects')).json()) as { items: { folderPath: string }[] }).items[0]!.folderPath)
+    expect((await page.request.post('/__test/file', { data: { path: `${folder}/quote.md`, text: 'q' } })).ok()).toBeTruthy()
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    await page.getByTestId('attach-button').click()
+    await expect(page.getByTestId('attach-team')).toHaveText('내 파일에서 추가')
+    await page.getByTestId('attach-team').click()
+    const dialog = page.getByRole('dialog', { name: '내 파일에서 추가' })
+    await expect(dialog.getByTestId('picker-crumb-root')).toHaveText('내 파일')
+    await expect(dialog).not.toContainText('팀 폴더')
+    // the top is their project (no 프로젝트 or 개인 to pass through)
+    await expect(dialog.getByTestId('picker-folder')).toHaveText(['견적 준비'])
+    await dialog.getByTestId('picker-folder').click()
+    await expect(dialog.getByTestId('picker-file')).toContainText('quote.md')
+    await expect(dialog.locator('nav')).not.toContainText('프로젝트')
+  })
+
+  test("a project guest opens their project's folders on a computer: its own files screen, never /files (which sends a guest Home)", async ({ page }) => {
+    await guestIn(page, { kind: 'project', name: '견적 준비' })
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    const id = page.url().split('/projects/')[1]!
+    const folder = await page.evaluate(async () => ((await (await fetch('/api/projects')).json()) as { items: { folderPath: string }[] }).items[0]!.folderPath)
+    expect((await page.request.post('/__test/file', { data: { path: `${folder}/견적서/v1.md`, text: 'q' } })).ok()).toBeTruthy()
+    await page.goto(`/projects/${id}`)
+    await page.getByTestId('project-files-toggle').click()
+    await page.getByTestId('project-files').getByText('견적서').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}/files\\?dir=`))
+    await expect(page.getByTestId('project-files-title')).toHaveText('견적서')
+    await expect(page.getByTestId('project-file')).toHaveText([/^v1\.md/])
+    // nothing that leads to the 파일 screen
+    await expect(page.getByTestId('project-files-in-files')).toHaveCount(0)
+    await page.getByTestId('project-files-back').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}/files$`))
+    await expect(page.getByTestId('project-file')).toHaveText([/^견적서/])
+    await page.getByTestId('project-files-back').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
   })
 
   test('a guest with AI off who opens Settings by its address: no 트리나 list behind it', async ({ page }) => {
@@ -153,6 +199,9 @@ test.describe('computer', () => {
     await guestIn(page, { kind: 'room', id: GROUP })
     await expect(page.getByTestId('rail-files')).toHaveCount(0)
     await expect(page.getByTestId('rail-projects')).toHaveCount(0)
+    // the projects list by its address: their room, not an empty page
+    await page.goto('/projects')
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
     await page.goto('/rooms')
     await expect(page.getByText('견적 준비').first()).toBeVisible()
     await expect(page.locator(`a[href="/rooms/${EVERYONE}"]`)).toHaveCount(0)
@@ -258,6 +307,20 @@ test.describe('phone', () => {
     await expect(page.getByTestId('tab-chats')).toBeVisible()
     await expect(page.getByTestId('tab-ai')).toHaveCount(0)
     await expect(page.getByTestId('rooms-start-hint')).toHaveCount(0)
+  })
+
+  test("a project guest opens a folder of their project on a phone: the project's files screen", async ({ page }) => {
+    await guestIn(page, { kind: 'project', name: '견적 준비' })
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    const folder = await page.evaluate(async () => ((await (await fetch('/api/projects')).json()) as { items: { folderPath: string }[] }).items[0]!.folderPath)
+    expect((await page.request.post('/__test/file', { data: { path: `${folder}/견적서/v1.md`, text: 'q' } })).ok()).toBeTruthy()
+    const id = page.url().split('/projects/')[1]!
+    await page.goto(`/projects/${id}`)
+    await page.getByTestId('project-files-open').click()
+    await page.getByTestId('project-file').filter({ hasText: '견적서' }).click()
+    await expect(page).toHaveURL(/\/files\?dir=/)
+    await expect(page.getByTestId('project-file')).toHaveText([/^v1\.md/])
+    await expect(page.getByTestId('project-files-in-files')).toHaveCount(0)
   })
 
   test('a guest in a project with no conversation: no 대화 tab; sign-in opens the project', async ({ page }) => {
