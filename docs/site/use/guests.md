@@ -77,7 +77,7 @@ an add list, a guest who is already somewhere else shows where they are, and you
 If the person needs more than one place, an owner or admin can choose **Make team member** (see below).
 
 If a guest leaves, is taken out, or their chat or project is closed, they can no longer sign in, the same as when
-they are removed. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
+they are removed. Moving a project with guests to the trash says so before you confirm. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
 admin switched them on or off in the meantime. Renaming the chat or project changes nothing for them.
 
 ## A guest's AI

@@ -188,6 +188,25 @@ test.describe('computer', () => {
   })
 })
 
+test.describe('trash', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test("moving a project with a guest to the trash says beforehand that its guest can't sign in until it's restored", async ({ page }) => {
+    await start(page)
+    const { id } = (await (await page.request.post('/__test/project', { data: { name: 'Launch plan', by: 'olga' } })).json()) as { id: string }
+    await guest(page, { id: 'gina', name: 'Gina', place: { kind: 'project', id } })
+    await signIn(page)
+    const open = async () => {
+      await page.goto(`/projects/${id}`)
+      await page.getByTestId('project-menu').click()
+      await page.getByTestId('project-delete').click()
+      await expect(page.getByTestId('project-trash-guests')).toHaveText("Its guest can't sign in until it's restored.")
+    }
+    await open()
+    await shoot(page, 'project-trash-guests', async () => { await page.keyboard.press('Escape'); await open() })
+  })
+})
+
 test.describe('guest', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
   const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
@@ -219,7 +238,7 @@ test.describe('guest', () => {
     await signInGuest(page, 'abel')
     await page.goto('/')
     await expect(page.getByTestId('rail-ai')).toBeVisible()
-    await expect(page.getByTestId('guest-no-ai')).toContainText("AI can't answer you here yet. Ask the person who invited you.")
+    await expect(page.getByTestId('guest-no-ai')).toHaveText("AI isn't available right now. Ask the person who invited you.")
     await shoot(page, 'guest-team-ai-gone', async () => { await page.goto('/'); await expect(page.getByTestId('guest-no-ai')).toBeVisible() })
   })
 })

@@ -198,13 +198,16 @@ export function useDeleteProject() {
         return 'gone'
       }
     }
+    const toTrash = isProjectsFolder(now.folderPath) && !now.inTrash
+    // its guests are switched off with it (and come back when it is restored): said before, with how many (QA TC-2240)
+    let guests = 0
+    if (toTrash) try { guests = (await api.call(API.getProjectPeople, { params: { id: p.id } })).people.filter((x) => x.guest).length } catch { /* not known: the general words */ }
     // the person left the page while it was asked: no confirm on another page
     if (opener && !opener.isConnected) return null
     opener?.focus()
-    const toTrash = isProjectsFolder(now.folderPath) && !now.inTrash
     const forGood = !!now.inTrash
     const ask = toTrash
-      ? { title: t('projects.trashTitle', { name: now.name }), body: t('projects.trashBody'), confirm: t('files.moveToTrash') }
+      ? { title: t('projects.trashTitle', { name: now.name }), body: guests ? <>{t('projects.trashBody')}<span className="mt-2 block" data-testid="project-trash-guests">{t('projects.trashGuests', { n: guests })}</span></> : t('projects.trashBody'), confirm: t('files.moveToTrash') }
       : forGood
         ? {
             title: t('projects.deleteForGoodTitle', { name: now.name }),
