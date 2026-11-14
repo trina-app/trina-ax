@@ -74,6 +74,8 @@ export interface RealtimeHub {
    * connection is closed with a WsClose code.
    */
   attach(conn: RealtimeConn, req: Request, info: RequestInfo): Promise<void>
+  /** open connections of every person (F2 sleep: an open web, desktop or mobile app keeps the team awake). Optional. */
+  openSockets?(): number
 }
 
 /** A server->client message channel (Bun ServerWebSocket, or a relay stream). */
