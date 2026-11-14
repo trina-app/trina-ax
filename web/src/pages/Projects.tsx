@@ -81,6 +81,7 @@ import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { IncludesGuests } from '../components/GuestTag'
+import { usePeopleList } from '../store/people'
 import { guestProject, isGuestMe } from '../lib/guests'
 import { GuestProjectNote, useGuestNoAi } from '../components/GuestView'
 import { isProjectsFolder } from '../lib/projectFolders'
@@ -704,6 +705,8 @@ function ProjectPage() {
   // in the members dialog
   const [peopleVersion, setPeopleVersion] = useState(0)
   const people = useProjectPeople(p, peopleVersion)
+  // the team directory knows who is a guest: "Includes 1 guest" under the faces needs it before the members dialog is opened
+  usePeopleList()
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
   // type in (with a mouse; a phone's keyboard does not jump up)
   const location = useLocation()
