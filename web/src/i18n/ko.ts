@@ -4134,7 +4134,7 @@ export const ko = {
   "rooms.withheldMessage": "볼 수 없는 자료를 참고해서 가려졌어요",
   "rooms.aiRootFolder": "팀 폴더",
   "rooms.mentionAll": "전체",
-  "rooms.mentionAllHint": "이 방의 {n}명에게 알림",
+  "rooms.mentionAllHint": "이 방의 다른 {n}명에게 알림",
   "rooms.mentionAllConfirm": "{n}명에게 알림이 가요. 보낼까요?",
   "rooms.picker.groups": "부서",
   "rooms.picker.people": "사람",

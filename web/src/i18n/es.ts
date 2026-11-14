@@ -4091,7 +4091,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.withheldMessage": "Oculto: usó material que usted no puede abrir",
   "rooms.aiRootFolder": "Carpeta del equipo",
   "rooms.mentionAll": "todos",
-  "rooms.mentionAllHint": "{n, plural, one {avisa a la otra persona de la sala} other {avisa a las # personas de esta sala}}",
+  "rooms.mentionAllHint": "{n, plural, one {avisa a la otra persona de la sala} other {avisa a las otras # personas de la sala}}",
   "rooms.mentionAllConfirm": "{n, plural, one {Se avisará a # persona. ¿Enviarlo?} other {Se avisará a # personas. ¿Enviarlo?}}",
   "rooms.picker.groups": "Grupos",
   "rooms.picker.people": "Personas",

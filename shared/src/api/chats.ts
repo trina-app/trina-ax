@@ -462,7 +462,9 @@ export const ProjectAccess = z.object({
 export type ProjectAccess = z.infer<typeof ProjectAccess>
 /** A person in a team project, for its page's faces and its members dialog. `avatarVersion`: their photo (absent without
  * one; the photo is at /api/people/:id/avatar?v=<it>). `creator`: the project's creator. */
-export const ProjectPerson = z.object({ id: z.string(), name: z.string(), avatarVersion: z.number().int().positive().optional(), creator: z.literal(true).optional() })
+/** `guest`: someone from outside the team (docs/DECISIONS.md "Guests"): their "Guest" tag and the header's "Includes 1 guest"
+ * also for an owner or admin outside the guest's one place, whose people list (GET /api/people) does not have them. */
+export const ProjectPerson = z.object({ id: z.string(), name: z.string(), avatarVersion: z.number().int().positive().optional(), creator: z.literal(true).optional(), guest: z.literal(true).optional() })
 export type ProjectPerson = z.infer<typeof ProjectPerson>
 /**
  * Who is in a team project in projects/<name> (GET /api/projects/:id/people; its members, and the owner, admins and its

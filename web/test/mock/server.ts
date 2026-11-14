@@ -2858,7 +2858,7 @@ export class MockServer {
       if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', undefined, { reason: 'project_personal' })
       if (!/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
       const creator = p.createdBy?.id
-      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}) }))
+      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}), ...(u.role === 'guest' ? { guest: true as const } : {}) }))
         .sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name))
       if (!this.projectManages(p, c.user)) return { people }
       const pm = this.projectMembers.get(p.folderPath)

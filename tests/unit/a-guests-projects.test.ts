@@ -46,6 +46,15 @@ test('projects: the guest lists and opens only their project; its people are the
   expect((await mia.client.call('GET', '/api/projects')).items.map((p: any) => p.id).sort()).toEqual([quote.id, secret.id].sort())
 })
 
+test('project people say who is a guest (QA S8): also to the owner, whose people list does not have a guest outside their place', async () => {
+  const { owner, mia, quote, g } = await setup('a-guests-projects-people-flag')
+  const flags = (r: { people: { id: string; guest?: true }[] }) => Object.fromEntries(r.people.map((p) => [p.id, p.guest ?? false]))
+  expect(flags(await mia.client.call('GET', `/api/projects/${quote.id}/people`))).toMatchObject({ [g.id]: true, [mia.id]: false })
+  // the owner manages it without being in it: the guest is not in their people list, but the project's list names and tags them
+  expect(((await owner.call('GET', '/api/people')).people as { id: string }[]).some((p) => p.id === g.id)).toBe(false)
+  expect(flags(await owner.call('GET', `/api/projects/${quote.id}/people`))).toMatchObject({ [g.id]: true, [mia.id]: false })
+})
+
 test('project chats: a member\'s shared chat is not the guest\'s; the guest\'s own chat is visible to the members', async () => {
   const { mia, nora, quote, g } = await setup('a-guests-projects-chats')
   const noraChat = await nora.client.call('POST', '/api/chats', { projectId: quote.id, title: 'pricing talk' })

@@ -4135,7 +4135,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.withheldMessage": "Hidden: this used material you can't open",
   "rooms.aiRootFolder": "Team folder",
   "rooms.mentionAll": "everyone",
-  "rooms.mentionAllHint": "{n, plural, one {notify the # other person here} other {notify all # in this room}}",
+  "rooms.mentionAllHint": "{n, plural, one {notify the # other person here} other {notify the other # people here}}",
   "rooms.mentionAllConfirm": "{n, plural, one {This notifies # person. Send it?} other {This notifies # people. Send it?}}",
   "rooms.picker.groups": "Groups",
   "rooms.picker.people": "People",

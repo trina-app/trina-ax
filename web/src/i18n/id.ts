@@ -4135,7 +4135,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.withheldMessage": "Disembunyikan: ini memakai materi yang tidak bisa Anda buka",
   "rooms.aiRootFolder": "Folder tim",
   "rooms.mentionAll": "semua",
-  "rooms.mentionAllHint": "beri tahu {n} orang di ruang ini",
+  "rooms.mentionAllHint": "beri tahu {n} orang lain di ruang ini",
   "rooms.mentionAllConfirm": "{n} orang akan diberi tahu. Kirim?",
   "rooms.picker.groups": "Grup",
   "rooms.picker.people": "Orang",

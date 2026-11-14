@@ -4091,7 +4091,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.withheldMessage": "開けない資料を参照しているため表示されません",
   "rooms.aiRootFolder": "チームフォルダー",
   "rooms.mentionAll": "全員",
-  "rooms.mentionAllHint": "このルームの{n, plural, one {#人} other {#人}}に通知",
+  "rooms.mentionAllHint": "このルームのほかの{n, plural, one {#人} other {#人}}に通知",
   "rooms.mentionAllConfirm": "{n, plural, one {#人} other {#人}}に通知されます。送信しますか？",
   "rooms.picker.groups": "グループ",
   "rooms.picker.people": "メンバー",

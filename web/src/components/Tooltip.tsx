@@ -12,7 +12,9 @@
 //   element says it has a menu open (aria-expanded="true").
 // - Not while the element shows the same words itself (a button whose words a narrow window hides: the tip shows only
 //   when they are hidden).
-// - Never on touch: not for a finger, and not at all on a device without a fine pointer (phones, tablets).
+// - Never on touch: not for a finger, and not at all on a device without a fine pointer (phones, tablets). On a phone
+//   with a pen too (its any-pointer is fine), focus the last tap or click moved (a dialog focusing its first button) shows
+//   none: only focus after a key press does; and a tap or click anywhere takes a tip away (QA N5: a stuck "Close").
 // - A small dark label (light in dark mode: the ink and surface tokens swap), above the element; below it when there is
 //   no room above, kept inside the window. Rendered into <body> (a portal), so no scroll box clips it and nothing moves.
 // - role="tooltip". The element is described by it (aria-describedby) only when the tip says something its own name
@@ -47,6 +49,19 @@ type Child = ReactElement<{
 const finePointer = () => {
   try { return typeof window !== 'undefined' && !!window.matchMedia?.('(any-pointer: fine)').matches } catch { return false }
 }
+
+/** When the person last pressed a key and last pressed a pointer (finger, mouse, pen) anywhere on the page. */
+const lastInput = { key: 0, pointer: 0 }
+/** the page whose key and pointer presses are watched (once per page, from the first tooltip on it) */
+let watched: Document | null = null
+const watchInput = () => {
+  if (typeof document === 'undefined' || watched === document) return
+  watched = document
+  document.addEventListener('keydown', () => { lastInput.key = Date.now() }, true)
+  document.addEventListener('pointerdown', () => { lastInput.pointer = Date.now() }, true)
+}
+/** The last thing the person did was a tap or a click, not a key: focus now came from it (or from a script after it). */
+const afterPointer = () => lastInput.pointer > lastInput.key
 
 /** Focus the keyboard gave (or a script after a key): the browser's :focus-visible, where it knows it. */
 const keyboardFocus = (el: HTMLElement) => {
@@ -94,7 +109,10 @@ export function Tooltip({ label, children, description = false, disabled = false
     if (!description && saysIt(anchor.current, label)) return
     setOpen(true)
   }, [disabled, label, description])
-  useEffect(() => () => clear(), [])
+  useEffect(() => {
+    watchInput()
+    return () => clear()
+  }, [])
   useEffect(() => { if (disabled) hide() }, [disabled, hide])
   // the control around it that takes the focus for it: its keyboard focus shows the tip too (not the focus a click
   // gives), its blur and a press on it hide it
@@ -102,7 +120,7 @@ export function Tooltip({ label, children, description = false, disabled = false
     const el = focusFrom?.current
     if (!el) return
     const focus = () => {
-      if (Date.now() - pointerAt.current > 500 && keyboardFocus(el)) { clear(); show() }
+      if (Date.now() - pointerAt.current > 500 && !afterPointer() && keyboardFocus(el)) { clear(); show() }
     }
     const down = () => {
       pointerAt.current = Date.now()
@@ -134,14 +152,16 @@ export function Tooltip({ label, children, description = false, disabled = false
     setPos({ top: p.top, left: p.left })
   }, [open, label])
 
-  // while it shows: Esc and any scroll take it away (Esc still goes on to the page)
+  // while it shows: Esc, any scroll and a tap or click anywhere take it away (Esc still goes on to the page)
   useEffect(() => {
     if (!open) return
     const key = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') hide() }
     document.addEventListener('keydown', key, true)
+    document.addEventListener('pointerdown', hide, true)
     window.addEventListener('scroll', hide, true)
     return () => {
       document.removeEventListener('keydown', key, true)
+      document.removeEventListener('pointerdown', hide, true)
       window.removeEventListener('scroll', hide, true)
     }
   }, [open, hide])
@@ -171,7 +191,7 @@ export function Tooltip({ label, children, description = false, disabled = false
     onFocus: (e: FocusEvent<HTMLElement>) => {
       p.onFocus?.(e)
       // focus from the keyboard (a click focuses too, right after its pointerdown: no tip for that)
-      if (Date.now() - pointerAt.current > 500 && keyboardFocus(e.currentTarget)) { clear(); show() }
+      if (Date.now() - pointerAt.current > 500 && !afterPointer() && keyboardFocus(e.currentTarget)) { clear(); show() }
     },
     onBlur: (e: FocusEvent<HTMLElement>) => {
       p.onBlur?.(e)
