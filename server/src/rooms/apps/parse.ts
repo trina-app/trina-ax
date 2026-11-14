@@ -243,7 +243,7 @@ function forms(a: Arrival): Parsed {
   let details = [...(email ? [appText('formsEmail', L, { email })] : []), ...answers.slice(1).map(qa)]
   if (details.length > 3) details = [...details.slice(0, 2), appText('formsMore', L, { n: details.length - 2 })]
   return { event: {
-    switch: 'response', delivery: sha(`${id}\n${at}`), key: `response:${id}`,
+    switch: 'response', delivery: at ? sha(`${id}\n${at}`) : sha(a.raw), key: `response:${id}`,
     card: { kind: appText('formsNew', L, { form }), title: answers[0] ? qa(answers[0]) : form, details },
     reply: { title: appText('formsEdited', L), details: answers[0] ? [qa(answers[0])] : [] },
     extra: lines([...(email ? [appText('formsEmail', L, { email })] : []), ...answers.map(qa)].join('\n')),

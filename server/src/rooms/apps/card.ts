@@ -10,16 +10,23 @@ import { ROOM_APP_LINE_MAX, ROOM_APP_TEXT_MAX, ROOM_APP_TITLE_MAX, type RoomAppC
 export function line(s: unknown, max = ROOM_APP_LINE_MAX): string {
   if (typeof s !== 'string' && typeof s !== 'number') return ''
   const one = String(s).replace(/[\p{Cf}]/gu, '').replace(/[\p{Cc}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim()
-  const chars = [...one]
-  return chars.length > max ? chars.slice(0, max - 1).join('').trimEnd() + '…' : one
+  return cut(one, max)
+}
+
+/** At most `max` characters and at most `max` UTF-16 units (the contracts' limits count those), then "…". */
+function cut(s: string, max: number): string {
+  const chars = [...s]
+  if (chars.length <= max && s.length <= max) return s
+  let out = chars.slice(0, max - 1)
+  while (out.join('').length > max - 1) out = out.slice(0, -1)
+  return out.join('').trimEnd() + '…'
 }
 
 /** Text from outside that may keep its line breaks (an "Other" app's text): the same cleaning per line, at most `max`. */
 export function lines(s: unknown, max = ROOM_APP_TEXT_MAX): string {
   if (typeof s !== 'string') return ''
   const out = s.replace(/\r\n?/g, '\n').split('\n').map((l) => line(l, max)).join('\n').replace(/\n{3,}/g, '\n\n').trim()
-  const chars = [...out]
-  return chars.length > max ? chars.slice(0, max - 1).join('').trimEnd() + '…' : out
+  return cut(out, max)
 }
 
 /** The one link a card may carry: https, a host, no user name or password, at most 2048 characters. Else none. */
@@ -27,7 +34,7 @@ export function safeLink(u: unknown): { url: string; host: string } | undefined 
   if (typeof u !== 'string' || u.length > 2048) return undefined
   let x: URL
   try { x = new URL(u.trim()) } catch { return undefined }
-  if (x.protocol !== 'https:' || !x.hostname || x.username || x.password) return undefined
+  if (x.protocol !== 'https:' || !x.hostname || x.username || x.password || x.href.length > 2048) return undefined
   return { url: x.href, host: x.hostname }
 }
 
@@ -39,7 +46,10 @@ export const escapeMarkdown = (s: string) => s
   .replace(/^(\s*)([-+=])/gm, '$1\\$2')
   .replace(/^(\s*\d+)([.)])/gm, '$1\\$2')
 /** The other way (a push's line, the rooms list's excerpt, search): the plain text again. */
-export const unescapeMarkdown = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)])/g, '$1')
+export const unescapeMarkdown = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/])/g, '$1')
+/** Addresses in text from outside are never links (only the card's one checked link is): "://" and "www." escaped, so
+ * no renderer's autolinking takes them. */
+const unlink = (escaped: string) => escaped.replace(/:\/\//g, ':\\/\\/').replace(/\bwww\./gi, (w) => `${w.slice(0, 3)}\\.`)
 
 /** A card with every field cleaned and bounded. */
 export function cleanCard(c: { kind?: string; title: string; details?: string[]; status?: string; link?: unknown; unverified?: boolean }): RoomAppCard {
@@ -59,15 +69,23 @@ export function cleanCard(c: { kind?: string; title: string; details?: string[];
 /** The card as one plain text (the app's name first): what search, push, export and the AI read. `extra`: more of it
  * than the card shows (an Other app's whole text, all of a form's answers), already cleaned. */
 export function plainText(app: string, card: RoomAppCard, extra?: string): string {
+  const words = textPart(app, card, extra)
+  return card.link ? `${words}\n${card.link.url}` : words
+}
+function textPart(app: string, card: RoomAppCard, extra?: string): string {
   const head = [card.kind, card.title].filter(Boolean).join(' · ')
-  const parts = [`${app}: ${head}`, ...card.details, ...(extra ? [extra] : []), ...(card.status ? [card.status] : []), ...(card.link ? [card.link.url] : [])]
+  const parts = [`${app}: ${head}`, ...card.details, ...(extra ? [extra] : []), ...(card.status ? [card.status] : [])]
   const text = parts.join('\n')
   const chars = [...text]
   return chars.length > ROOM_APP_TEXT_MAX + 600 ? chars.slice(0, ROOM_APP_TEXT_MAX + 599).join('') + '…' : text
 }
 
-/** The stored body: the plain text with Markdown marks escaped. */
-export const bodyOf = (app: string, card: RoomAppCard, extra?: string) => escapeMarkdown(plainText(app, card, extra))
+/** The stored body: the plain text with Markdown marks escaped and its addresses unlinked; the card's one checked https
+ * link (a URL as parsed: no spaces or brackets) on the last line as it is. */
+export const bodyOf = (app: string, card: RoomAppCard, extra?: string) => {
+  const words = unlink(escapeMarkdown(textPart(app, card, extra)))
+  return card.link ? `${words}\n${card.link.url}` : words
+}
 
 /** A stored card, or null when it is not one this build reads. */
 export function parseCard(s: string | null): RoomAppCard | null {

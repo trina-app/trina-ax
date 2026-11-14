@@ -727,6 +727,12 @@ export class Rooms {
       // an AI answer's "참고한 파일" go with it, and the reactions on it (a deleted message takes none)
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
+      // an app's message: its card goes too, but for the app's name and kind (its sender line); audited (rooms/apps)
+      if (m.app_card && !m.author_id) {
+        this.db.query("UPDATE room_messages SET app_card = json_object('title', '', 'details', json('[]'), 'app', json_extract(app_card, '$.app')) WHERE id = ?").run(m.id)
+        const room = roomRow(this.db, roomId)!
+        audit(this.db, { actor: userId, action: 'room_app.message_delete', target: m.id, detail: { ...roomAuditRef(room), ...(room.kind === 'team' || room.kind === 'all' ? { appId: m.app_id } : {}) } })
+      }
       if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: roomAuditRef(roomRow(this.db, roomId)!) })
       return [...this.moveRuns(m), ...(this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)]
     })()
@@ -849,7 +855,6 @@ export class Rooms {
       const room = roomRow(this.db, roomId)!
       if (!mayManageApps(this.db, room, userId)) return fail('forbidden')
       if (m.deleted_at) return fail('conflict')
-      audit(this.db, { actor: userId, action: 'room_app.message_delete', target: m.id, detail: { ...roomAuditRef(room), ...(room.kind === 'team' || room.kind === 'all' ? { appId: m.app_id } : {}) } })
       return m
     }
     // my own message (own() decides, also for one hidden from me)

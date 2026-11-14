@@ -21,8 +21,6 @@ import crypto from 'node:crypto'
 import { ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS, ROOM_APP_DAILY_RECEIVED, ROOM_APP_GITHUB_BODY_MAX, ROOM_APP_TOKEN_RE, type RoomAppKind } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { teamDefaultLocale } from '../../admin/settings'
-import { boundedBody } from '../../http/route'
-import { HttpError } from '../../http/errors'
 import { parseArrival } from './parse'
 import { roomAppsOf, sha256, teamDay, type AppRow } from './service'
 
@@ -39,22 +37,27 @@ const TYPES: Record<RoomAppKind, readonly string[]> = {
 }
 
 class Timeout extends Error {}
-/** The raw body, at most `max` bytes, within `seconds`. */
+class TooBig extends Error {}
+/** The raw body, at most `max` bytes, within `seconds` (past either the stream is cancelled, never waited for). */
 async function readBody(req: Request, max: number, seconds: number): Promise<Uint8Array> {
+  const len = req.headers.get('content-length')
+  if (len !== null && Number(len) > max) throw new TooBig()
   const chunks: Uint8Array[] = []
   let size = 0
+  if (!req.body) return new Uint8Array(0)
+  const reader = req.body.getReader()
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Timeout()), seconds * 1000) })
-  const it = boundedBody(req, max)[Symbol.asyncIterator]()
   try {
     for (;;) {
-      const r = await Promise.race([it.next(), deadline])
+      const r = await Promise.race([reader.read(), deadline])
       if (r.done) break
-      chunks.push(r.value)
       size += r.value.byteLength
+      if (size > max) throw new TooBig()
+      chunks.push(r.value)
     }
   } catch (e) {
-    try { await it.return?.() } catch { /* the stream is given up */ }
+    void reader.cancel().catch(() => { /* given up */ })
     throw e
   } finally { clearTimeout(timer) }
   const out = new Uint8Array(size)
@@ -97,9 +100,12 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   let raw: Uint8Array
   try { raw = await readBody(req, row.kind === 'github' ? ROOM_APP_GITHUB_BODY_MAX : ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS) } catch (e) {
     if (e instanceof Timeout) return answer(408, 'timeout')
-    if (e instanceof HttpError && e.status === 413) { apps.refused(row.id, 'too_big'); return answer(413, 'too_large') }
+    if (e instanceof TooBig) { apps.refused(row.id, 'too_big'); return answer(413, 'too_large') }
     throw e
   }
+  // removed or given a new address while the body came: as an unknown address
+  const now_ = apps.row(row.id)
+  if (!now_ || now_.token_hash !== row.token_hash) return NOT_FOUND()
   // 5. the signature, when a secret is set
   const secret = apps.secretOf(row)
   let signed = false
@@ -118,7 +124,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     else apps.count(row.id, 'skipped', day)
     return answer(200, 'ok')
   }
-  let app = row
+  let app = now_
   const ev = parsed.event
   if (ev.alert && !app.alert_seen) app = apps.alertSeen(app)
   if (!apps.switches(app)[ev.switch]) { apps.count(row.id, 'skipped', day); return answer(200, 'ok') }

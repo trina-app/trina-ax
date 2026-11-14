@@ -327,3 +327,28 @@ test('Google Forms: a response is a card with the respondent\'s email by default
   expect((await post(f.token, JSON.stringify({ form: 'x', id: 'r3', at: 'y', answers: Array.from({ length: 51 }, () => ({ q: 'a', a: 'b' })) }))).status).toBe(400)
   m = ms[0]
 })
+
+test('addresses in outside text never link; lengths fit the contract; a deleted card keeps only its sender; a body that never ends gets 408', async () => {
+  const { owner, add, post, messages, all } = await setup()
+  const o = await add('other')
+  const long = '😀'.repeat(400)
+  expect((await post(o.token, JSON.stringify({ title: long, text: 'Log in at http://evil.example/login or www.evil.example', link: `https://acme-corp.com/${'é'.repeat(400)}` }))).status).toBe(200)
+  await settle()
+  const [m] = await messages()
+  expect(m.body).not.toMatch(/https?:\/\/evil|www\.evil/)
+  expect(m.body).toContain('http:\\/\\/evil')
+  expect(m.appCard.title.length).toBeLessThanOrEqual(200)
+  expect(m.appCard.link).toBeUndefined()
+  // deleted by the owner: the card's content goes from the row too
+  await owner.call('DELETE', `/api/rooms/${all}/messages/${m.id}`)
+  const row = h.ctx.db.query('SELECT body, app_card FROM room_messages WHERE id = ?').get(m.id) as { body: string; app_card: string }
+  expect(row.body).toBe('')
+  expect(row.app_card).not.toContain('evil')
+  expect(JSON.parse(row.app_card).app.kind).toBe('other')
+  // a sender that never finishes its body: 408 at the deadline, not the server's idle timeout
+  const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"text":')) } })
+  const t0 = Date.now()
+  const r = await h.fetch(`/in/${o.token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half' } as never)
+  expect(r.status).toBe(408)
+  expect(Date.now() - t0).toBeLessThan(15_000)
+})

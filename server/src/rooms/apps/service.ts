@@ -249,7 +249,9 @@ export class RoomApps {
     const { room, row } = this.mine(userId, roomId, appId)
     if (this.base() === null) fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
     const prev = this.secretOf(row)
-    const s = this.seal(row.id, newToken(), prev && prev !== 'broken' ? prev : null)
+    // a secret that no longer opens must not turn into "no secret": set it again first
+    if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
+    const s = this.seal(row.id, newToken(), prev)
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
@@ -455,7 +457,7 @@ export class RoomApps {
   }
 
   // ---------------- upkeep ----------------
-  /** Old deliveries, day counters, threads and notices go (the hourly tick). */
+  /** Old deliveries, day counters and threads go (the hourly tick; the paused notices age out with the Inbox). */
   prune(now = this.clock()) {
     const iso = (ms: number) => new Date(now - ms).toISOString()
     const day = (n: number) => new Date(now - n * DAY).toISOString().slice(0, 10)

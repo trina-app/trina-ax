@@ -2,7 +2,7 @@
 // it says is read when the notice is read. The room is named and linked only while the person is still in it.
 import { plainLabel, ROOM_APP_DAILY_CAP, type InboxNotification } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
-import { groupName, memberRow, roomRow } from '../store'
+import { groupName, mayManageApps, memberRow, roomRow } from '../store'
 import { roomAppsOf, type AppRow } from './service'
 
 export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: string): NonNullable<InboxNotification['roomApp']> | null {
@@ -19,6 +19,6 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
   const skipped = (ctx.db.query('SELECT skipped FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { skipped: number } | null)?.skipped ?? 0
   return {
     appId, name: plainLabel(row.name, 40), roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null,
-    day, cap: ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: inRoom && out.canResume,
+    day, cap: ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
   }
 }
