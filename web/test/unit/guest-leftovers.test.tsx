@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Me } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
-import { joinedText } from '../../src/components/settings/Notifications'
+import { joinedText, noticeLink } from '../../src/components/settings/Notifications'
 import { AccountDeletionView } from '../../src/components/settings/AccountDeletion'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
@@ -14,6 +14,15 @@ import { installDom, mount, removeDom } from './dom-host'
 const en = (k: MessageKey, p?: Params) => translate('en', k, p)
 
 describe('joined notice', () => {
+  test("its link: Admin › Members for the owner and admins, the place for the member who invited them, nowhere for anyone else", () => {
+    const item = (guestPlace?: { kind: 'room' | 'project'; name: string; id?: string | null }) => ({ id: 'n1', eventType: 'team.joined', sourceId: 'gina', code: 'team.joined', createdAt: '2026-11-15T00:00:00.000Z', readAt: null, chatId: null, link: null, outcome: null, joined: { name: 'Gina', ...(guestPlace ? { guestPlace } : {}) } }) as never
+    expect(noticeLink(item())?.to).toBe('/admin/members')
+    expect(noticeLink(item({ kind: 'room', name: 'Quote prep' }))?.to).toBe('/admin/members')
+    expect(noticeLink(item({ kind: 'room', name: 'Quote prep', id: 'r1' }))?.to).toBe('/rooms/r1')
+    expect(noticeLink(item({ kind: 'project', name: 'Acme bid', id: 'p1' }))?.to).toBe('/projects/p1')
+    expect(noticeLink(item({ kind: 'room', name: '', id: null }))).toBeNull()
+  })
+
   test('a member joined the team; a guest joined their place as a guest (a group chat with no name says so)', () => {
     expect(joinedText({ name: 'Nora' }, en)).toBe('Nora joined the team.')
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: 'Quote prep' } }, en)).toBe("Gina joined 'Quote prep' as a guest.")

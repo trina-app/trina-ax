@@ -114,8 +114,10 @@ export const InboxNotification = z.object({
   notReady: z.literal(true).optional(),
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it. `guestPlace`: they joined as a guest, into this one room or project (its name; '' for a
-   * group chat with no name, or when the reader is not in that place and is not the owner or an admin), not the team */
-  joined: z.object({ name: z.string(), guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string() }).optional() }).optional(),
+   * group chat with no name, or when the reader is not in that place and is not the owner or an admin), not the team. Its `id`: absent for the owner
+   * and admins (the line opens Admin › Members), the place's id for anyone else in that place (the line opens it), null
+   * for anyone else (no link) */
+  joined: z.object({ name: z.string(), guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string(), id: z.string().nullable().optional() }).optional() }).optional(),
   /** 'account.deletion_request' only (owners and admins): who asked for their account to be deleted, by display name while the
    * account is there (null once it is deleted), and where the request is now: open (waits for the owner or an admin; link
    * 'admin_members' opens that person in Admin › Members, sourceId is their id), cancelled (they took it back) or

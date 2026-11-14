@@ -625,9 +625,13 @@ export class Notifications {
       // place's name as it is now, only to a reader who is in that place or is the owner or an admin (who see it in
       // Admin › Guests anyway); an inviter who left it reads "a group chat" / "a project", never a later rename
       const place = u ? guestDetail(this.ctx.db, row.source_id)?.place : undefined
-      const named = !!place && (isStaff(this.ctx.db, row.user_id) || placePeople(this.ctx.db, row.source_id).has(row.user_id))
+      // Its link: the owner and admins keep Admin › Members (no id); anyone else, the place itself while they are in it
+      // (its id), else nowhere (null): Admin is not theirs
+      const staff = !!place && isStaff(this.ctx.db, row.user_id)
+      const inPlace = !!place && !staff && placePeople(this.ctx.db, row.source_id).has(row.user_id)
+      const named = staff || inPlace
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
-        ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: named ? place.name : '' } } : {}) } } : {}) }
+        ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: named ? place.name : '', ...(staff ? {} : { id: inPlace ? place.id : null }) } } : {}) } } : {}) }
     }
     // the owner and the admins see who asks (a name while the account is there) and where the request is now; while it
     // waits, the link opens that person in Admin › Members, where the account is deleted

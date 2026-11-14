@@ -185,7 +185,13 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
-  if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
+  if (item.code === 'team.joined') {
+    // a guest joined: the owner and admins open Admin › Members (no id); the member who invited them, the room or project
+    // they joined while they are in it (its id); anyone else nowhere (null)
+    const place = item.joined?.guestPlace
+    if (place && place.id !== undefined) return place.id ? { to: place.kind === 'room' ? `/rooms/${encodeURIComponent(place.id)}` : `/projects/${encodeURIComponent(place.id)}`, testId: 'notification-joined-link' } : null
+    return { to: '/admin/members', testId: 'notification-joined-link' }
+  }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
   // my own account's deletion date while the request is open: the page where I can keep the account

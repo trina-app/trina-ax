@@ -20,9 +20,12 @@ test('a guest in a group chat: the inviter and the owner read the chat they join
   const room = await groupChat(mia.client, [nora.id, otto.id], 'Quote prep')
   const gus = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
   for (const c of [mia.client, owner]) expect(await joinedOf(c, gus.id)).toMatchObject({ joined: { name: 'GUS', guestPlace: { kind: 'room', name: 'Quote prep' } } })
+  // the link: the inviter (a member in the chat) opens the chat; the owner keeps Admin › Members (no id)
+  expect(await joinedOf(mia.client, gus.id)).toMatchObject({ joined: { guestPlace: { id: room } } })
+  expect(((await joinedOf(owner, gus.id))?.joined as { guestPlace: object }).guestPlace).not.toHaveProperty('id')
   // the inviter leaves the chat: their line no longer names it (nor a later rename); the owner still reads it
   expect((await mia.client.try('POST', `/api/rooms/${room}/leave`)).status).toBeLessThan(300)
-  expect(await joinedOf(mia.client, gus.id)).toMatchObject({ joined: { name: 'GUS', guestPlace: { kind: 'room', name: '' } } })
+  expect(await joinedOf(mia.client, gus.id)).toMatchObject({ joined: { name: 'GUS', guestPlace: { kind: 'room', name: '', id: null } } })
   expect(await joinedOf(owner, gus.id)).toMatchObject({ joined: { guestPlace: { kind: 'room', name: 'Quote prep' } } })
 })
 
