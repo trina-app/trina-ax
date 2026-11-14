@@ -173,7 +173,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.admin.outLeft": "已不在“{place}”中",
   "guest.admin.outTrashed": "项目 · {place} · 在回收站",
   "guest.admin.restoreProject": "恢复项目",
-  "guest.admin.projectRestored": "已恢复“{place}”。",
+  "guest.admin.projectRestored": "已恢复“{place}”。只要套餐还有名额，其访客就能再次登录。",
   "guest.admin.outGone": "所在的聊天室或项目已不存在",
   "guest.admin.aiGone": "团队 AI · 账号已删除",
   "guest.admin.changeAi": "更改 AI",

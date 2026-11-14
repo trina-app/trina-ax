@@ -176,7 +176,7 @@ export const en: Record<MessageKey, string> = {
   "guest.admin.outLeft": "No longer in '{place}'",
   "guest.admin.outTrashed": "Project · {place} · in the trash",
   "guest.admin.restoreProject": "Restore project",
-  "guest.admin.projectRestored": "'{place}' was restored.",
+  "guest.admin.projectRestored": "'{place}' was restored. Its guests can sign in again while the plan has room for them.",
   "guest.admin.outGone": "Their room or project is gone",
   "guest.admin.aiGone": "Team AI · account removed",
   "guest.admin.changeAi": "Change AI",

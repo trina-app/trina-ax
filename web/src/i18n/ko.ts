@@ -175,7 +175,7 @@ export const ko = {
   "guest.admin.outLeft": "'{place}'에 이제 없어요",
   "guest.admin.outTrashed": "프로젝트 · {place} · 휴지통에 있음",
   "guest.admin.restoreProject": "프로젝트 복원",
-  "guest.admin.projectRestored": "'{place}' 프로젝트를 복원했어요.",
+  "guest.admin.projectRestored": "'{place}' 프로젝트를 복원했어요. 요금제에 자리가 있으면 게스트도 다시 로그인할 수 있어요.",
   "guest.admin.outGone": "있던 방이나 프로젝트가 없어졌어요",
   "guest.admin.aiGone": "팀 AI · 계정 삭제됨",
   "guest.admin.changeAi": "AI 바꾸기",

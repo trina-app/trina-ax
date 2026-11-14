@@ -162,12 +162,13 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
                   // two lines at most and never cut sideways (a phone's narrow row), and on a phone Restore project
                   // under it: beside the words it left them no room
                   <>
-                    <span className="line-clamp-2 whitespace-normal break-words">{meta || u.username}</span>
-                    {restoreBtn && <span className="mt-1 block md:hidden">{restoreBtn('-mobile')}</span>}
+                    <span className="line-clamp-2 whitespace-normal break-words" data-testid={`guest-meta-${u.username}`}>{meta || u.username}</span>
+                    {restoreBtn && <span className="mt-1 block p-0.5 md:hidden">{restoreBtn('-mobile')}</span>}
                   </>
                 }
                 testId={`guest-row-${u.username}`}
-                li={{ ref: u.id === focusId ? focusRow : undefined, className: clsx(u.status === 'disabled' && REMOVED_ROW, u.id === focusId && 'rounded-lg bg-accent-soft') }}
+                li={{ ref: u.id === focusId ? focusRow : undefined, className: clsx(u.status === 'disabled' && !restoreBtn && REMOVED_ROW, u.id === focusId && 'rounded-lg bg-accent-soft') }}
+                rowClass={restoreBtn ? 'max-md:items-start' : undefined}
                 end={
                   <span className="flex shrink-0 items-center gap-1 self-center">
                     {restoreBtn && <span className="max-md:hidden">{restoreBtn('')}</span>}

@@ -697,7 +697,9 @@ export function AssistantMessage({
   // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
   // again (it would be refused until then; owner rule: never an error's look for a known state)
   const atLimit = m.status === 'error' && m.error?.code === 'budget_exceeded'
-  const canRetry = !(m.status === 'error' && isLast) && !atLimit && canRegenerate
+  // (an older limit answer may be asked again once the limit has started again)
+  const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
+  const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
   const finished = !!m.content && m.status === 'done'
   const sendHereOn = !!sendHere && shareable && finished
   const pressItems: MenuItem[] = pressMenu && !streaming ? [

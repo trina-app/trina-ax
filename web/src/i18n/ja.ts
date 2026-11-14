@@ -173,7 +173,7 @@ export const ja: Record<MessageKey, string> = {
   "guest.admin.outLeft": "「{place}」にはもういません",
   "guest.admin.outTrashed": "プロジェクト · {place} · ごみ箱",
   "guest.admin.restoreProject": "プロジェクトを復元",
-  "guest.admin.projectRestored": "「{place}」を復元しました。",
+  "guest.admin.projectRestored": "「{place}」を復元しました。プランに空きがあれば、ゲストもまたサインインできます。",
   "guest.admin.outGone": "ルームまたはプロジェクトはもうありません",
   "guest.admin.aiGone": "チームのAI · アカウント削除済み",
   "guest.admin.changeAi": "AIを変更",

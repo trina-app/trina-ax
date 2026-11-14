@@ -226,7 +226,7 @@ test.describe('admin rows', () => {
     await open()
     // every second line whole: nothing cut sideways or below
     for (const who of ['tara', 'gwen', 'abel']) {
-      const cut = await page.getByTestId(`guest-row-${who}`).evaluate((row) => [...row.querySelectorAll('span')].filter((x) => x.className.includes('text-meta')).some((x) => x.scrollWidth > x.clientWidth + 1 || x.scrollHeight > x.clientHeight + 1))
+      const cut = await page.getByTestId(`guest-meta-${who}`).evaluate((x) => x.scrollWidth > x.clientWidth + 1 || x.scrollHeight > x.clientHeight + 1)
       expect(cut, who).toBe(false)
     }
     await expect(page.getByTestId('guest-row-tara')).toContainText('Disabled')
@@ -236,7 +236,7 @@ test.describe('admin rows', () => {
     await open()
     // one step: the project back, and the guest with it
     await page.getByTestId('guest-restore-tara-mobile').click()
-    await expect(page.getByText("'Launch plan for the spring catalogue' was restored.")).toBeVisible()
+    await expect(page.getByText("'Launch plan for the spring catalogue' was restored. Its guests can sign in again while the plan has room for them.")).toBeVisible()
     await expect(page.getByTestId('guest-row-tara')).not.toContainText('in the trash')
     await expect(page.getByTestId('guest-restore-tara-mobile')).toHaveCount(0)
   })
