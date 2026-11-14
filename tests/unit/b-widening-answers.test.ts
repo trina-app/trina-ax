@@ -161,9 +161,9 @@ describe('the preview line', () => {
   })
 })
 
-describe('migration 295', () => {
+describe('migration 296', () => {
   test("marks the groups of a turn whose read card was answered 'shared' with y (not x ones), writes the cutover once, adds the index", () => {
-    const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/295_b_hidden_answers_cutover.sql'), 'utf8')
+    const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/296_b_hidden_answers_cutover.sql'), 'utf8')
     const update = sql.slice(sql.indexOf('UPDATE shared_answer_reads'), sql.indexOf(';', sql.indexOf('UPDATE shared_answer_reads')) + 1)
     const c = sharedChat('migration')
     const yes = answer(c, 'alice', before(10), 'yes', [{ c: ['alice'], s: [MKT] }, { c: ['alice'], s: [FIN], x: 1 }])

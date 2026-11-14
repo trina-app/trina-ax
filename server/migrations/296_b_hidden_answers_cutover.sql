@@ -11,7 +11,8 @@
 --     (chat/turn.ts noteSharedReads). An older build ignores y.
 --   shared_answer_reads_chat_msg: each chat's records in order, for the widening list (chat/widening.ts).
 -- Rollback: an older build ignores the setting and y and applies the full old rule (hides more, never less).
--- Numbered 295: 294 (b_project_leavers) is the highest of component B on dev.
+-- Numbered 296: 294 (b_project_leavers) is the highest of component B on dev; 295 is taken by an open branch
+-- (b_account_deletion_due).
 INSERT OR IGNORE INTO settings (key, value) VALUES ('hidden_answers_cutover', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
 UPDATE shared_answer_reads SET reads = (

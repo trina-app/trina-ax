@@ -1,10 +1,10 @@
 // People who see a shared project chat later (docs/DECISIONS.md "People who see a shared chat later: nothing new is
-// hidden", QA TC-1404). From the cutover (migration 295) on no answer is hidden ("from the cutover on" below). An answer
+// hidden", QA TC-1404). From the cutover (migration 296) on no answer is hidden ("from the cutover on" below). An answer
 // from before it keeps the old rule where no card covered it (rule b): it stays visible to its runner, to the people who
 // saw the chat when it read what it used, to anyone who may read those places now, and for a group a card's yes covered
 // to everyone; everyone else gets one line in its place and nothing of it anywhere. Most tests here are about such older
 // answers: the cutover is set after them (9999), and an older answer whose card's yes left no mark (no y: an answer the
-// card asked about before migration 295 whose audit row did not say so) stands for one no card covered. The project is on projects/falcon:
+// card asked about before migration 296 whose audit row did not say so) stands for one no card covered. The project is on projects/falcon:
 // alice writes it, the finance group (bob) reads it; carol (admin) and dana (owner) are not its members, so they do not
 // see its chats (docs/DECISIONS.md "Project contents only for members"; a test that needs carol in its audience makes her
 // a member). gina (finance, added here) joins later and cannot read groups/marketing; erin (marketing) gets the project

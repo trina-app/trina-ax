@@ -1,7 +1,7 @@
 // A team room's or the everyone room's history for a member who joins it later (docs/DECISIONS.md "지난 대화", "People
 // who see a shared chat later: nothing new is hidden"): as in a Slack channel they see what was said before them
 // (people's messages, threads, reactions, files, quotes, answers). From the cutover (settings 'hidden_answers_cutover',
-// migration 295) on nothing in a room is hidden from a later member: "Send to a chat room" and the AI's post-to-room card
+// migration 296) on nothing in a room is hidden from a later member: "Send to a chat room" and the AI's post-to-room card
 // say that everyone in the room sees it, people who join later included (QA TC-1404). Only an older message can still be
 // hidden: an answer of the old room AI, one a person shared from their own AI chat, or a message an AI app sent after
 // reading, which went into the room only because everyone there then could open what it used.
