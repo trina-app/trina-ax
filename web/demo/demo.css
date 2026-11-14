@@ -57,6 +57,9 @@
   font-weight: 600;
 }
 .demo-next:hover { background: var(--c-accent-hover); }
+/* between steps (the team is typing, an answer is on its way): a quiet pill, never nothing */
+.demo-wait { background: var(--c-hover, rgb(0 0 0 / 0.05)); color: var(--c-muted, #8a8178); cursor: default; letter-spacing: 0.2em; text-align: center; }
+.demo-wait:hover { background: var(--c-hover, rgb(0 0 0 / 0.05)); }
 .demo-restart {
   flex: 0 0 auto;
   padding: 7px 10px;
@@ -113,7 +116,7 @@
 /* message toasts, top right */
 .demo-toasts {
   position: fixed;
-  z-index: 65;
+  z-index: 75;
   top: 16px;
   right: 16px;
   display: flex;
@@ -187,7 +190,8 @@
 [data-testid="member-welcome-organize"], [data-testid="member-welcome-progress"], [data-testid="member-welcome-hide"] { display: none !important; }
 [data-testid="member-welcome-ask"] { border: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }
 [data-testid="member-welcome-ask"] > span:first-child, [data-testid="member-welcome-ask"] p { display: none !important; }
-[data-testid="member-welcome-ask"] > div, [data-testid="member-welcome-ask"] > div > div:last-child { flex: 1 1 auto; }
+[data-testid="member-welcome-ask"] > div, [data-testid="member-welcome-ask"] > div > div:last-child { flex: 1 1 100% !important; width: 100%; }
+[data-testid="member-welcome-ask"] > div > div:first-child:not(:last-child) { display: none !important; }
 [data-testid="member-welcome-ask-button"] { width: 100%; height: 52px !important; font-size: 16px !important; border-radius: 14px !important; }
 
 /* a project link in a message, as a card */
@@ -245,23 +249,25 @@
 .demo-secondary { background: transparent; color: var(--c-muted, #8a8178); }
 .demo-secondary:hover { background: var(--c-hover, rgb(0 0 0 / 0.05)); }
 
-/* phones: one slim pill in the middle of the top bar (its back button and actions stay free), the suggestions under it */
+/* phones: a bar of its own at the bottom (the app gets the rest of the height, so nothing is covered), with the
+   safe-area inset; the step's prompts sit above the message box as on computers */
 @media (max-width: 767px) {
+  :root { --demo-bar-h: calc(56px + env(safe-area-inset-bottom)); }
+  #root { height: calc(var(--app-h, 100dvh) - var(--demo-bar-h)) !important; }
   .demo-guide {
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
-    top: calc(env(safe-area-inset-top) + 8px);
-    bottom: auto;
-    width: max-content;
-    max-width: calc(100vw - 112px);
-    align-items: center;
-    flex-direction: column-reverse;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: var(--demo-bar-h);
+    padding: 6px 10px env(safe-area-inset-bottom);
+    border-top: 1px solid var(--c-line);
+    background: var(--c-canvas, var(--c-surface));
   }
-  .demo-bar { flex-wrap: nowrap; padding: 3px; border-radius: 999px; }
+  .demo-bar { flex-wrap: nowrap; height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
   .demo-badge { display: none; }
-  .demo-next { order: 0; flex: 0 1 auto; min-width: 0; padding: 6px 12px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .demo-restart { padding: 6px 8px; font-size: 12px; }
+  .demo-next { order: 0; flex: 1 1 auto; min-width: 0; padding: 10px 14px; border-radius: 12px; font-size: 14px; white-space: normal; line-height: 1.2; }
+  .demo-restart { padding: 10px 8px; font-size: 12px; }
   .demo-chip { flex-basis: 100%; padding: 11px 14px; }
-  .demo-toasts { top: calc(env(safe-area-inset-top) + 56px); right: 12px; }
+  .demo-toasts { top: calc(env(safe-area-inset-top) + 8px); right: 8px; left: 8px; width: auto; }
 }

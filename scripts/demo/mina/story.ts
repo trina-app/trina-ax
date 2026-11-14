@@ -67,7 +67,10 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
     question: m.confirm,
     options: [
       { label: m.send, reply: sent(mail) },
-      ...(offerFormal ? [{ label: m.makeFormal, reply: { text: `${m.formalIntro}\n\n${draft(m.formal)}`, attachments, ask: confirm(m.formal, false) } }] : []),
+      // two buttons on every card (AskCard shows two as buttons, more as a list)
+      offerFormal
+        ? { label: m.makeFormal, reply: { text: `${m.formalIntro}\n\n${draft(m.formal)}`, attachments, ask: confirm(m.formal, false) } }
+        : { label: m.sendShort, reply: sent(m.plain) },
     ],
   })
 
@@ -112,6 +115,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       prompt: a.mail.prompt,
       steps: [{ label: `Gmail · ${st.gmailSearch} "Chris"`, tool: 'gmail', ms: 1100 }, read(banner), read(square)],
       text: `${a.mail.intro}\n\n${draft(m.plain)}`,
+      attachments,
       ask: confirm(m.plain, true),
     },
   ]

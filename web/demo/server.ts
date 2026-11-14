@@ -21,10 +21,9 @@ const PIECE = 6
 const PIECE_MS = 22
 
 /** what shows under an answer, by its message id (web/demo/overlay.tsx) */
-export interface Extras extends Pick<DemoAnswer, 'sources' | 'people' | 'compare' | 'deliverables' | 'sendTo'> {
+export interface Extras extends Pick<DemoAnswer, 'sources' | 'people' | 'compare' | 'deliverables' | 'sendTo' | 'attachments'> {
   chatId: string
   answerId: Id | null
-  attachments?: string[]
 }
 /** a message toast: who, what, and where a click takes the visitor */
 export interface Toast { id: Id; from: Id; text: string; open: DemoGo | null }
@@ -400,6 +399,8 @@ export class DemoServer extends MockServer {
     pub({ type: 'queue.position', data: { chatId: chat.id, messageId: assistant.id, turnId: assistant.turnId!, position: 0, epoch: this.epoch, revision: ++this.queueRevision } })
     const place = this.placeOf(chat)
     const answer = this.engine.answerFor(prompt, place)
+    // a short title for the history (the button's words), not the prompt cut off
+    if (answer?.label && !chat.title) chat.title = answer.label
     if (answer) {
       this.noteExtras(assistant.id, chat, answer)
       await this.playReply(chat, assistant, answer, pub)
@@ -420,7 +421,7 @@ export class DemoServer extends MockServer {
   }
 
   noteExtras(messageId: string, chat: Chat, a: DemoAnswer) {
-    this.extras.set(messageId, { chatId: chat.id, answerId: a.id, sources: a.sources, people: a.people, compare: a.compare, deliverables: a.deliverables, sendTo: a.sendTo })
+    this.extras.set(messageId, { chatId: chat.id, answerId: a.id, sources: a.sources, people: a.people, compare: a.compare, deliverables: a.deliverables, sendTo: a.sendTo, attachments: a.attachments })
   }
 
   /** the answer's big button: post it to the room in one click (the app's own share, no dialog); null when refused */
@@ -437,7 +438,21 @@ export class DemoServer extends MockServer {
     }
     let out = await call({})
     if (out?.status === 'confirm') out = await call({ confirmKey: out.confirmKey })
-    return out?.status === 'sent' ? roomId : null
+    if (out?.status !== 'sent') return null
+    // the post carries the pictures it made (the first two: the banner and the square), as the room's own files
+    const room = this.rooms.find((r) => r.id === roomId)
+    const posted = [...(this.roomMessages.get(roomId) ?? [])].reverse().find((m) => m.author?.id === this.script.visitor && m.sharedAnswer)
+    const pictures = (x.deliverables ?? []).map((d) => d.path).filter((p) => /\.(png|jpe?g|webp)$/i.test(p) && this.files.get(p)?.data).slice(0, 2)
+    if (room && posted && pictures.length) {
+      posted.files = pictures.map((p) => {
+        const data = this.files.get(p)!.data!
+        const id = uuidv7()
+        this.roomFiles.set(id, data)
+        return { id, name: baseName(p), size: data.byteLength, mime: mimeOf(p), kind: 'image' as const, thumb: true }
+      })
+      this.publish({ type: 'room.message.updated', data: { roomId, message: posted } })
+    }
+    return roomId
   }
 
   /** steps, the text, its files, then its card and the chosen option's reply */
@@ -481,7 +496,8 @@ export class DemoServer extends MockServer {
     }
     const step: Step = { id, kind: 'tool', tool: st.tool ?? 'tool', label: st.label, status: 'running', startedAt: now(), endedAt: null }
     put(step)
-    await sleep(st.ms ?? 700)
+    // long enough to read (about a second), never a dead wait
+    await sleep(Math.min(2500, Math.max(900, st.ms ?? 1000)))
     put({ ...step, status: 'ok', endedAt: now() })
   }
 

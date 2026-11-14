@@ -181,6 +181,8 @@ export const en = {
     confirm: 'Send this email with Gmail?',
     send: 'Send',
     makeFormal: 'Make it more formal',
+    /** the formal draft's second button (so every confirm card has the same two buttons) */
+    sendShort: 'Send the shorter one',
     formalIntro: 'More formal version:',
     /** {subject} is filled in */
     sent: 'Sent to Chris: "{subject}", with the banner and the square attached.',

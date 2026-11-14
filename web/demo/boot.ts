@@ -23,7 +23,8 @@ export async function boot(made: (s: DemoServer) => void) {
   words['memberWelcome.ask'] = script.home.prompt
   words['memberWelcome.askHint'] = ''
   words['memberWelcome.askQuestion'] = script.home.prompt
-  if (script.home.button) words['memberWelcome.askButton'] = script.home.button
+  words['memberWelcome.askButton'] = script.home.button ?? script.home.prompt
+  if (script.home.subtitle) { words['memberWelcome.invited'] = script.home.subtitle; words['memberWelcome.people'] = script.home.subtitle }
   await import('../src/main')
   const { mountOverlay } = await import('./overlay')
   mountOverlay(server, import.meta.env.VITE_DEMO_SIGNUP_URL || script.end.signup.url)

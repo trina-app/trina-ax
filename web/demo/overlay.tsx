@@ -64,13 +64,19 @@ function watchOpened(server: DemoServer) {
   }, 300)
 }
 
-/** where a place is in the app; a project: its first earlier chat (e.g. Leo's banner), else its page */
+/** where a place is in the app; a project: the visitor's latest chat there (their result), else its first earlier
+ * chat (e.g. Leo's banner), else its page */
 function targetOf(server: DemoServer, go: DemoGo): string {
   if (go === 'home') return '/'
   if ('room' in go) return `/rooms/${server.idOf('room', go.room)}`
   if ('side' in go) return `/rooms/${server.idOf('room', go.side)}`
+  const pid = server.idOf('project', go.project)
+  const mine = server.chats
+    .filter((c) => c.projectId === pid && !c.deletedAt && server.messages.some((m) => m.chatId === c.id && m.role === 'user' && m.author?.id === server.script.visitor))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+  if (mine) return `/c/${mine.id}`
   const chat = server.script.projects.find((p) => p.id === go.project)?.chats?.[0]
-  return chat ? `/c/${server.idOf('chat', chat.id)}` : `/projects/${server.idOf('project', go.project)}`
+  return chat ? `/c/${server.idOf('chat', chat.id)}` : `/projects/${pid}`
 }
 
 /** is the visitor at that place now (a project: its page or any of its chats; a side chat: the room with it open) */
@@ -149,8 +155,11 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const step = e.guide()
   const end = e.endShown && !e.endClosed
   const here = !!step && atPlace(server, step.go, path)
-  const suggest = here ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
   const [sending, setSending] = useState(false)
+  // a step's prompts go once one was sent (they come back with the next step), and while the AI's card waits
+  const [usedFor, setUsedFor] = useState<string | null>(null)
+  const cardOpen = [...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
+  const suggest = here && usedFor !== step?.id && !cardOpen ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
   const [toasts, setToasts] = useState<Toast[]>([])
 
   useEffect(() => {
@@ -161,8 +170,14 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     return () => { server.onToast = null }
   }, [server])
 
-  // the one control that glows: the step's control when the visitor is there (not while suggested prompts are up)
-  const glowSelector = !end && here && step?.highlight && !suggest.length ? step.highlight : null
+  // the one control that glows: the step's suggested prompts when they are up; else its control, there or anywhere it
+  // is on screen (a toast that takes the visitor there); in the room of a side-chat step, the ✦ button; else the guide
+  const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)
+  const control = !step || end || suggest.length ? null
+    : here ? step.highlight ?? null
+    : inSideRoom ? '[data-testid="room-side-chat-button"]'
+    : step.highlight && [...document.querySelectorAll(step.highlight)].some(visible) ? step.highlight : null
+  const glowSelector = control
   useEffect(() => {
     let marked: Element | null = null
     const tick = () => {
@@ -182,7 +197,21 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const pick = async (a: DemoAnswer) => {
     if (!step || sending) return
     setSending(true)
+    setUsedFor(step.id)
     try { await sendPrompt(server, step.go, a) } finally { setSending(false) }
+  }
+
+  /** the guide line does its step: there, it presses the glowing control (or sends the one prompt); else it goes there */
+  const act = async () => {
+    if (!step) return
+    if (!here) {
+      await goTo(server, step.go)
+      return
+    }
+    const el = control ? [...document.querySelectorAll<HTMLElement>(control)].reverse().find(visible) : undefined
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.click(); return }
+    if (suggest.length === 1) { void pick(suggest[0]!); return }
+    document.querySelector('[data-testid="demo-suggest"]')?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 400 })
   }
 
   return (
@@ -191,10 +220,11 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
         <div className="demo-bar">
           <span className="demo-badge">{t('demo.bar', { company: server.script.company.name })}</span>
           {step && !end && (
-            <button type="button" className={here ? 'demo-next' : 'demo-next demo-glow'} onClick={() => void goTo(server, step.go)} data-testid="demo-next" data-away={here ? undefined : ''}>
-              {here ? step.text : step.away ?? step.text}
+            <button type="button" className={here || control || suggest.length ? 'demo-next' : 'demo-next demo-glow'} onClick={() => void act()} data-testid="demo-next" data-away={here || inSideRoom ? undefined : ''}>
+              {here || inSideRoom ? step.text : step.away ?? step.text}
             </button>
           )}
+          {!step && !end && <span className="demo-next demo-wait" data-testid="demo-wait" aria-label="…">…</span>}
           <button type="button" className="demo-restart" onClick={() => location.assign('/')} data-testid="demo-restart">{demoWord('restart', locale)}</button>
         </div>
       </div>
@@ -240,10 +270,13 @@ function Suggestions({ go, answers, sending, onPick }: { go: DemoGo; answers: De
 function AnswerExtras({ server }: { server: DemoServer }) {
   useTick(400)
   const hosts: { id: string; el: HTMLElement; x: Extras }[] = []
-  for (const el of document.querySelectorAll<HTMLElement>('[data-testid="assistant-message"][data-status="done"]')) {
+  for (const el of document.querySelectorAll<HTMLElement>('[data-testid="assistant-message"]')) {
     const id = el.dataset.messageId
-    const x = id ? server.extras.get(id) : undefined
-    if (!id || !x) continue
+    const found = id ? server.extras.get(id) : undefined
+    if (!id || !found) continue
+    // while the answer runs only its attachments show (a mail draft's, above its card); the rest once it is done
+    const x: Extras = el.dataset.status === 'done' ? found : { chatId: found.chatId, answerId: found.answerId, attachments: found.attachments }
+    if (el.dataset.status !== 'done' && !x.attachments?.length) continue
     let host = el.querySelector<HTMLElement>(':scope > .demo-extras')
     if (!host) {
       host = document.createElement('div')
@@ -407,7 +440,7 @@ function EndCard({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           </dl>
         )}
         <div className="demo-end-actions">
-          <a className="demo-primary" href={signupUrl} data-testid="demo-signup">{end.signup.label}</a>
+          <a className="demo-primary" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{end.signup.label}</a>
           <button type="button" className="demo-secondary" onClick={() => e.closeEnd()} data-testid="demo-explore">{end.explore.label}</button>
         </div>
       </section>

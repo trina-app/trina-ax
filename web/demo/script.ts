@@ -180,6 +180,8 @@ export interface DemoAnswer {
   /** ONE big button under the answer: posts the answer (with its deliverables' pictures) to the room in one click, no
    * dialog, and opens that room. Counts as { shared: room } */
   sendTo?: { room: Id; label: string }
+  /** files shown as attachment chips under the text, while its card waits too (e.g. a mail's banner and square) */
+  attachments?: string[]
 }
 
 export interface DemoReply {
