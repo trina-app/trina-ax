@@ -47,10 +47,12 @@ export function useGuestAiOff(): boolean {
 
 export function GuestNoAi({ className }: { className?: string }) {
   const t = useT()
+  // Team AI that cannot answer here yet: not "isn't on" (their 트리나 place is there)
+  const team = meGuest(useMe())?.ai === 'team'
   return (
     <p role="status" className={['flex items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2.5 text-sm leading-6 break-keep text-ink', className].filter(Boolean).join(' ')} data-testid="guest-no-ai">
       <Info size={16} className="mt-1 shrink-0 text-muted" aria-hidden />
-      {t('guest.noAi')}
+      {t(team ? 'guest.noAiTeam' : 'guest.noAi')}
     </p>
   )
 }
@@ -114,9 +116,10 @@ export function useGuestPlacePath(): string | null {
   const me = useMe()
   const guest = isGuestMe(me)
   const named = guestPlacePath(me)
-  const listed = useProjects((s) => s.listed)
-  const roomsLoaded = useRooms((s) => s.loaded)
-  const groupRoom = useRooms((s) => s.rooms.find((r) => r.kind === 'group')?.id)
+  // (read only for a guest: App.tsx calls this for everyone, and a member's room traffic must not re-render the app)
+  const listed = useProjects((s) => (guest ? s.listed : null))
+  const roomsLoaded = useRooms((s) => guest && s.loaded)
+  const groupRoom = useRooms((s) => (guest ? s.rooms.find((r) => r.kind === 'group')?.id : undefined))
   useEffect(() => { if (guest && !named) void readProjectList({ minAgeMs: 60_000 }).catch(() => {}) }, [guest, named])
   if (!guest) return null
   if (named) return named

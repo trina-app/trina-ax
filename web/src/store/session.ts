@@ -45,6 +45,16 @@ interface SessionState {
   setTextSize: (s: TextSize) => Promise<void>
 }
 
+/** A guest turned off while signed in: the team's name, kept in this browser until the next sign-in, so the sign-in page
+ * still says why on a later visit (the server's answer to their password is only "wrong"). */
+const REMOVED_KEY = 'mycel.removedFrom'
+export function removedFrom(): string | null {
+  try { return localStorage.getItem(REMOVED_KEY) } catch { return null }
+}
+function rememberRemoved(team: string | null) {
+  try { if (team) localStorage.setItem(REMOVED_KEY, team); else localStorage.removeItem(REMOVED_KEY) } catch { /* storage blocked: said only this time */ }
+}
+
 function applyMe(me: Me) {
   // the server sends the language the person sees (own choice, else the team default)
   const locale = pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale)
@@ -147,6 +157,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedIn(me, opts) {
+    rememberRemoved(null)
     lastTeamDefault = me.team.defaultLocale
     const picked = storedLocale()
     if (opts?.adoptPick && pickedBeforeSignIn && picked && me.user.localeChoice === null && picked !== me.user.locale) pendingPick = picked
@@ -178,6 +189,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
+    if (reason === 'removed' && team) rememberRemoved(team)
     set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
   },
 

@@ -92,8 +92,9 @@ function Splash() {
 const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/') || isOldConnectorsPath(path)
 
 /** Settings is a dialog over a page (components/settings/SettingsDialog.tsx): the page it was opened from, or Home when
- * its address was opened directly (a guest: their one place, components/GuestView.tsx useGuestPlacePath). `close` goes back to that page: back through the history entries Settings added on
- * top of it, or straight to it when there are none. */
+ * its address was opened directly (a guest: their one place, components/GuestView.tsx useGuestPlacePath). `close` goes
+ * back to that page: back through the history entries Settings added on top of it, or straight to it when there are
+ * none. */
 function useSettingsOverlay() {
   const location = useLocation()
   const navType = useNavigationType()

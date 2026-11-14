@@ -27367,13 +27367,17 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   (`lib/guests.ts guestPlacePath`, `GuestView.tsx useGuestPlacePath`). What hides the 트리나 place, the ✦ side chat and
   the Home redirect is the invite's AI choice (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
   a Team AI guest keeps 트리나 and ✦ like a member with AI also while the team account cannot answer here (ai-access not
-  usable, e.g. a server without managed AI), and the box says "AI isn't on for you…" (`useGuestNoAi`, no side-chat
-  starters). Nothing to start from the chats list for any guest (no "+", no start line, no "or start a new one with +";
+  usable, e.g. a server without managed AI), and the box says "AI can't answer you here yet. Ask the person who invited
+  you." (`useGuestNoAi`, no side-chat starters, no "✦ ask privately"); their project page keeps its box place,
+  instructions and history, and Settings keeps Usage and AI accounts. Nothing to start from the chats list for any guest (no "+", no start line, no "or start a new one with +";
   a 1:1 with someone of their place still opens from Search). A guest in a project with no conversation has no 대화
   place or tab, and `/rooms` opens their project. A guest with no AI sees no project instructions (they are for the AI).
   Their profile says "visible to the people in '<place>'" and the role line drops "No groups". A guest whose account is
-  turned off while signed in (`session.ended` reason `disabled`) lands on a sign-in page that says "You're no longer in
-  <team>…" (session status reason `removed`); a member's stays as before.
+  turned off while signed in (`session.ended` reason `disabled`) lands on a sign-in page titled "You're no longer in
+  <team>" with "ask the person who invited you" and no forgot-password line (session status reason `removed`); this
+  browser keeps the team's name (`mycel.removedFrom`) until the next sign-in, so a later visit says it too (the server's
+  answer to their password is only "wrong"). A member's sign-in page stays as before. On a computer a guest in a room
+  still gets the chats page while they have hidden conversations (that page lists them).
 - **Admin › Members & invites › Guests.** Guests are out of the members table and its count; their own list says where each one is and their AI; "…" changes the AI (`PATCH /api/admin/users/:id/guest-ai`, the same three choices), **Make team member** (takes a seat: "Every seat is taken…" when none is free) or **Remove guest** (the account is turned off; a removed guest can then be deleted as a member is). Guest invite links say which room or project they join, after who the link is for (the dialog's name, sent as `CreateGuestInviteBody.name`).
 - **API fields read** (in one place, `lib/guests.ts`): Person.guest, Me.guest, User.guest, InviteInfo.guestPlace. `Invite.guestName` (added here: `server/src/auth/accounts.ts` toInvite returns `invites.guest_name`, test `tests/unit/a-guests-invite-name.test.ts`) puts who a link is for on its Invite links row.
 - Version impact: **minor** (new screens; no API change in this PR).

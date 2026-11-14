@@ -72,8 +72,8 @@ test.describe('computer', () => {
 
   test('a guest with their own sign-in: the box stays, and the project says once that its members see their chats', async ({ page }) => {
     await guestIn(page, { kind: 'project', name: '견적 준비' }, { mode: 'own' })
-    await page.goto('/projects')
-    await page.getByText('견적 준비').first().click()
+    // sign-in opens their project
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
     await expect(page.getByTestId('guest-project-note')).toHaveText(/이 프로젝트의 멤버는 여기서 나눈 대화를 볼 수 있어요/)
     await expect(page.getByTestId('guest-no-ai')).toHaveCount(0)
     await expect(page.getByTestId('composer-input')).toBeVisible()
@@ -140,12 +140,21 @@ test.describe('computer', () => {
     await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
     await expect(page.getByTestId('rail-ai')).toBeVisible()
     await page.getByTestId('room-side-chat-button').click()
-    await expect(page.getByTestId('guest-no-ai')).toBeVisible()
+    await expect(page.getByTestId('guest-no-ai')).toHaveText('아직 여기서는 AI가 답할 수 없어요. 초대한 분께 물어봐 주세요.')
     await expect(page.getByTestId('side-chat-starters')).toHaveCount(0)
     await page.goto('/')
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('guest-no-ai')).toBeVisible()
     await expect(page.getByTestId('composer-input')).toHaveCount(0)
+  })
+
+  test('a project guest with Team AI that cannot answer here: the page keeps its instructions and history, the box says why', async ({ page }) => {
+    await page.route('**/api/me/ai-access', (r) => r.fulfill({ json: { usable: false, action: 'ask_owner', requested: false } }))
+    await guestIn(page, { kind: 'project', name: '견적 준비' }, TEAM_AI)
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    await expect(page.getByTestId('guest-no-ai')).toHaveText('아직 여기서는 AI가 답할 수 없어요. 초대한 분께 물어봐 주세요.')
+    await expect(page.getByTestId('project-instructions')).toBeVisible()
+    await expect(page.getByTestId('project-chats')).toBeVisible()
   })
 
   test("a removed guest's sign-in page says they are no longer in the team", async ({ page }) => {
@@ -155,7 +164,21 @@ test.describe('computer', () => {
     // the server turns the account off: session.ended with reason 'disabled' (server/src/services.ts)
     await page.waitForTimeout(500)
     expect((await page.request.post('/__test/publish', { data: { event: { type: 'session.ended', data: { reason: 'disabled' } } } })).ok()).toBeTruthy()
-    await expect(page.getByTestId('login-removed')).toContainText('팀에 없어서 로그인할 수 없어요')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^이제 .+에 없어요$/)
+    await expect(page.getByTestId('login-removed')).toHaveText('잘못된 것 같다면 초대한 분께 물어봐 주세요. 다른 계정으로는 계속 로그인할 수 있어요.')
+    await expect(page.getByText('비밀번호를 잊었다면', { exact: false })).toHaveCount(0)
+    // a later visit from this browser still says why (the account is off: no session), until someone signs in here
+    await page.request.post('/api/auth/logout', { headers: { 'x-mycel-csrf': '1' } }).catch(() => {})
+    await page.reload()
+    await expect(page.getByTestId('login-removed')).toBeVisible()
+    await page.getByTestId('login-username').fill('olga')
+    await page.getByTestId('login-password').fill('correct horse battery')
+    await page.getByTestId('login-submit').click()
+    await expect(page.getByTestId('login-submit')).toHaveCount(0)
+    await page.request.post('/api/auth/logout', { headers: { 'x-mycel-csrf': '1' } }).catch(() => {})
+    await page.goto('/login')
+    await expect(page.getByTestId('login-username')).toBeVisible()
+    await expect(page.getByTestId('login-removed')).toHaveCount(0)
   })
 })
 

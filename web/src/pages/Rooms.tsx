@@ -86,7 +86,8 @@ export default function Rooms() {
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
   if (noChats && guestHome) return <Navigate to={guestHome} replace />
-  if (computer && guestRoom && !asked) return <Navigate to={`/rooms/${guestRoom}`} replace />
+  // (not while they have hidden conversations: this page is where those are)
+  if (computer && guestRoom && !asked && !hidden.length) return <Navigate to={`/rooms/${guestRoom}`} replace />
   if (computer)
     return (
       <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">
