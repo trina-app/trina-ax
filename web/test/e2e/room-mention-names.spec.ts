@@ -50,7 +50,7 @@ test('a member: "@QA Mem" keeps the list after the space; Enter picks, the messa
 test('a guest in the room: the same list and the same mention', async ({ page }) => {
   await reset(page)
   expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: ROOM_ID }, ai: { mode: 'none' } } })).ok()).toBeTruthy()
-  const room = await routeRoom(page, { members })
+  const room = await routeRoom(page, { members, me: { id: 'gina', name: 'Gina' } })
   await page.goto('/login')
   await page.getByTestId('login-username').fill('gina')
   await page.getByTestId('login-password').fill('gina password 1')
@@ -58,4 +58,9 @@ test('a guest in the room: the same list and the same mention', async ({ page })
   await expect(page.getByTestId('login-submit')).toHaveCount(0)
   await page.goto(`/rooms/${ROOM_ID}`)
   await typeAndSend(page, room)
+  // their own message: by them, with their Guest tag; the header says the room includes a guest
+  const run = page.locator('[data-testid="room-message"]').last().locator('xpath=ancestor::*[.//*[@data-testid="guest-tag"]][1]')
+  await expect(run.getByTestId('guest-tag')).toBeVisible()
+  await expect(run).toContainText('Gina')
+  await expect(page.getByTestId('includes-guests')).toHaveText(' · 게스트 1명 포함')
 })
