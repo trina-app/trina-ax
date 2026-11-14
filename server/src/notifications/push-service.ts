@@ -185,10 +185,9 @@ export class PushService {
     if(!row?.label_hash||!right||!KEY.test(input.key)||!ID.test(input.notificationId)||!this.admitLabel(row.id,now))return none
     const native=this.o.native()
     if(!native||row.config_key!==nativeConfigKey(native)||!this.session(row.user_id,row.session_id)||!this.enabled(row.user_id))return none
-    // sent (tried at least once) to this device, so only a notice this phone may have got, and within a push's day
     const locale=getUser(db,row.user_id)?.locale??teamDefaultLocale(db)
-    // a chat shared with me by name (chat-shares.ts): the sharer's name and a fixed line, never the chat's title; the
-    // same checks as a room notice's (sent to this device, within a push's day, still wanted)
+    // sent (tried at least once) to this device, so only a notice this phone may have got, and within a push's day.
+    // A chat shared with me by name (chat-shares.ts): the sharer's name and a fixed line, never the chat's title
     const share=db.query(`SELECT n.id FROM chat_share_notices n WHERE n.id=? AND n.user_id=? AND n.named=1 AND n.read_at IS NULL AND n.suppressed=0
       AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM chat_share_push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
       .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id) as {id:string}|null
