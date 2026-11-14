@@ -148,8 +148,9 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   // removed or given a new address while the body came: as an unknown address
   const now_ = apps.row(row.id)
   if (!now_ || now_.token_hash !== row.token_hash) return NOT_FOUND()
-  // 5. the signature, when a secret is set
-  const secret = apps.secretOf(row)
+  // 5. the signature, when a secret is set: the row as read after the body (a secret changed meanwhile is the one
+  // checked, and its pending flag goes with it)
+  const secret = apps.secretOf(now_)
   let signed = false
   let verified: unknown
   if (secret) {
@@ -167,7 +168,8 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
       if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
       // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
       if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-      if (pending) apps.signingSeen(row.id)
+      // only for the secret that was checked: one set again meanwhile keeps waiting for its own first signed request
+      if (pending) apps.signingSeen(row.id, now_.secret_enc!)
       verified = r.json
       signed = true
     }
@@ -204,7 +206,8 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   if (!apps.switches(app)[ev.switch]) { apps.count(row, 'skipped', day); return answer(200, 'ok') }
   const paused = apps.capCheck(app)
   if (paused) { apps.count(row, 'skipped', day); return answer(429, 'slow_down', { 'retry-after': String(Math.max(1, Math.ceil((Date.parse(paused) - now) / 1000))) }) }
-  // with a secret saved, only a signed request may pin the service account (unsigned ones are refused above anyway)
+  // with a secret saved, only a signed request may pin the service account: an unsigned one gets here only while a
+  // secret Trina made still waits for its first signed request (secret_pending), and it pins nothing
   if (ev.pin && app.secret_enc && !signed) delete ev.pin
   if (!apps.post(app, ev, day)) apps.count(row, 'skipped', day)
   return answer(200, 'ok')

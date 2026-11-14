@@ -93,9 +93,11 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       // (Toss Payments and PortOne name their own field)
       const shapeText = app.preset === 'toss_payments' ? "That doesn't look like a Toss Payments security key." : app.preset === 'portone' ? "That doesn't look like a PortOne webhook secret." : `That doesn't look like ${PRESET_NAMES[app.preset!]}'s signing secret.`
       if (b.secret && signing?.signing === 'paste' && signing.shape && !signing.shape.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: shapeText } }, 400))
-      // a secret Trina makes waits for the first signed message (signingPending); a pasted one is on at once
-      app.signed = !!b.secret
-      if (b.generate) app.signingPending = true
+      // the first secret Trina makes waits for the first signed message (signingPending); one made after a secret was
+      // enforced is enforced at once; a pasted one is on at once
+      const enforced = app.signed && !app.signingPending
+      app.signed = !!b.secret || (!!b.generate && enforced)
+      if (b.generate && !enforced) app.signingPending = true
       else delete app.signingPending
       // the old "didn't match" line goes with the old secret
       if (app.lastRefusal?.reason === 'signature') app.lastRefusal = null

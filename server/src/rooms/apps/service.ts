@@ -375,10 +375,14 @@ export class RoomApps {
     }
     const token = this.tokenOf(row)
     const s = this.seal(row.id, token, secret)
+    // the first secret Trina makes for an app waits for the first request signed with it (unsigned ones are shown until
+    // then: copying it must not drop what the service sends before it is pasted there). Once a secret is enforced, a
+    // new one is enforced at once (security review of #880: making another must not let unsigned posts in again); one
+    // the person pasted is the service's own
+    const enforced = !!row.secret_enc && !row.secret_pending
+    const pending = !!secret?.made && 'generate' in b && !enforced
     this.db.transaction(() => {
-      // a secret Trina made waits for the first request signed with it (unsigned ones are shown until then: copying it
-      // must not drop what the service sends before it is pasted there); one the person pasted is the service's own
-      this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, secret_pending = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, secret?.made && 'generate' in b ? 1 : 0, nowIso(), row.id)
+      this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, secret_pending = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, pending ? 1 : 0, nowIso(), row.id)
       // "…the secret didn't match" was about the secret before: not said after it changed or was taken away
       this.db.query("UPDATE room_apps SET last_refusal = NULL, last_refusal_at = NULL WHERE id = ? AND last_refusal = 'signature'").run(row.id)
       // a new secret: the service account pinned before it (possibly by an unsigned request) is forgotten; the next
@@ -484,8 +488,9 @@ export class RoomApps {
    * write a row per request). */
   private drops = new Map<string, { row: Pick<AppRow, 'id' | 'room_id' | 'kind'>; day: string; n: number; at: number }>()
   /** The first request signed with a secret Trina made: from now on only signed requests are shown. */
-  signingSeen(appId: string) {
-    this.db.query('UPDATE room_apps SET secret_pending = 0 WHERE id = ?').run(appId)
+  /** `secretEnc`: the sealed secret the request was checked with; a secret set again since then is left waiting. */
+  signingSeen(appId: string, secretEnc: string) {
+    this.db.query('UPDATE room_apps SET secret_pending = 0 WHERE id = ? AND secret_enc = ?').run(appId, secretEnc)
   }
   dropped(row: Pick<AppRow, 'id' | 'room_id' | 'kind'>, day: string) {
     const now = this.clock()

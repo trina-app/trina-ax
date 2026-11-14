@@ -476,3 +476,31 @@ test('a secret changed or taken away clears its old "didn\'t match" line; Toss P
   expect(r.body.error.retryAfter).toBeGreaterThan(3000)
   expect(r.body.error.message).toMatch(/60/)
 })
+
+test('a secret Trina makes waits only the first time: once one is enforced, a new one is enforced at once; the first signed request clears waiting only for the secret it was checked with (security review of #880)', async () => {
+  const { owner, add, post, all } = await setup()
+  const g = await add('github')
+  const ping = '{"zen":"x","hook_id":1}'
+  const signedPing = (secret: string) => post(g.token, ping, { 'x-github-event': 'ping', 'x-hub-signature-256': `sha256=${hmac(secret, ping)}` })
+  const unsigned = () => post(g.token, ping, { 'x-github-event': 'ping' })
+  const gen = async () => (await owner.call('PUT', `/api/rooms/${all}/apps/${g.app.id}/secret`, { generate: true })) as { secret: string; app: { signed: boolean; signingPending?: true } }
+  // the first one waits: unsigned still taken until its first signed request
+  const first = await gen()
+  expect(first.app.signingPending).toBe(true)
+  // a signed request checked with an older sealed secret clears nothing (a secret set again meanwhile keeps waiting)
+  roomAppsOf(h.ctx).signingSeen(g.app.id, 'not-the-current-secret')
+  expect((h.ctx.db.query('SELECT secret_pending FROM room_apps WHERE id = ?').get(g.app.id) as { secret_pending: number }).secret_pending).toBe(1)
+  expect((await unsigned()).status).toBe(200)
+  expect((await signedPing(first.secret)).status).toBe(200)
+  expect((await unsigned()).status).toBe(401)
+  // making another after that: enforced at once, unsigned refused, the old secret refused, the new one taken
+  const second = await gen()
+  expect(second.app.signed).toBe(true)
+  expect(second.app.signingPending).toBeUndefined()
+  expect((await unsigned()).status).toBe(401)
+  expect((await signedPing(first.secret)).status).toBe(401)
+  expect((await signedPing(second.secret)).status).toBe(200)
+  // taken away and made again: nothing is enforced any more, so it waits again
+  await owner.call('PUT', `/api/rooms/${all}/apps/${g.app.id}/secret`, { secret: null })
+  expect((await gen()).app.signingPending).toBe(true)
+})
