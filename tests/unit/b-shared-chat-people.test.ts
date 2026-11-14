@@ -1,15 +1,16 @@
-// Who wrote in each shared chat, on its project's page (Chat.shared.people and peopleCount; chat/shared.ts chatPeople;
-// docs/DECISIONS.md "Shared project chats", "The faces on the project page"): the people who sent a question there, its
-// creator included, the most recent first, at most 3, and how many in all. Only in a project's chat list, only for the
-// shared chats the viewer sees there (the list's own filter), and from one grouped query for the whole page over
-// messages_author_chat, never one per chat. The project is on projects/falcon: alice writes it, bob (finance) reads it;
+// Who else wrote in each shared chat, in every chat list (Chat.shared.people and peopleCount; chat/shared.ts chatPeople;
+// docs/DECISIONS.md "Faces in every chat list", amending "The faces on the project page"): the other people who sent a
+// question there (its creator included when they did, never the viewer), the most recent first, at most 3, and how
+// many in all. In every list but the trash (a project's page, my chat list, a search, the Trina list's groups) and in
+// chat.updated, only for the shared chats the viewer sees there (the list's own filter), and from one grouped query for
+// the whole response over messages_author_chat, never one per chat. The project is on projects/falcon: alice writes it, bob (finance) reads it;
 // carol (admin) and dana (owner) are not its members, so they do not see its chats (docs/DECISIONS.md "Project contents
 // only for members"); erin does not see it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, CHAT_PEOPLE_SHOWN, type Chat } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { chatPeople } from '../../server/src/chat/shared'
+import { chatPeople, peopleFor } from '../../server/src/chat/shared'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -41,35 +42,37 @@ const projectList = async (user: string, query: Record<string, string | boolean>
 const inList = async (user: string, chatId: string): Promise<Chat | undefined> => (await projectList(user)).find((c) => c.id === chatId)
 const names = (c: Chat | undefined) => c?.shared?.people?.map((p) => p.id)
 
-describe('the people of a shared chat on its project page', () => {
-  test('the most recent writer first, at most 3, and how many wrote; its creator counts as any writer', async () => {
+describe('the people of a shared chat in its lists', () => {
+  test('the others only, the most recent writer first, at most 3, and how many others wrote', async () => {
     const chat = await newShared()
-    // made, nobody wrote yet: no faces (the page shows its creator), count 0
+    // made, nobody wrote yet: no faces (the row shows the people icon), count 0
     expect((await inList('bob', chat.id))?.shared).toMatchObject({ by: { id: 'alice' }, people: [], peopleCount: 0 })
     await ask('alice', chat.id, 'first question')
+    // only its creator wrote: bob sees her face, alice sees nobody else (her row keeps the icon)
+    expect((await inList('bob', chat.id))?.shared).toMatchObject({ people: [{ id: 'alice', name: 'Alice Kim' }], peopleCount: 1 })
+    expect((await inList('alice', chat.id))?.shared).toMatchObject({ people: [], peopleCount: 0 })
     await ask('bob', chat.id, 'second question')
-    expect((await inList('bob', chat.id))?.shared).toMatchObject({ people: [{ id: 'bob', name: 'Bob Lee' }, { id: 'alice', name: 'Alice Kim' }], peopleCount: 2 })
+    expect((await inList('bob', chat.id))?.shared).toMatchObject({ people: [{ id: 'alice', name: 'Alice Kim' }], peopleCount: 1 })
+    expect((await inList('alice', chat.id))?.shared).toMatchObject({ people: [{ id: 'bob', name: 'Bob Lee' }], peopleCount: 1 })
     // carol (admin) is not a member: the project's list does not have it for her, faces and all
     expect(await inList('carol', chat.id)).toBeUndefined()
-    // the same person again moves to the front, and is counted once
-    await ask('alice', chat.id, 'third question')
-    expect(names(await inList('bob', chat.id))).toEqual(['alice', 'bob'])
-    // five people: the three most recent, and 5 (carol and dana wrote there as admins before "Project contents only for
-    // members": their questions are still in the chat, so they count, as erin's below)
+    // five people: the three most recent others, and 4 others (carol and dana wrote there as admins before "Project
+    // contents only for members": their questions are still in the chat, so they count, as erin's below)
     wrote('carol', chat.id)
     wrote('dana', chat.id)
     // erin lost the project since (she is not in its audience): her questions are still in the chat, so she counts
     wrote('erin', chat.id)
-    const five = await inList('bob', chat.id)
-    expect(names(five)).toEqual(['erin', 'dana', 'carol'])
-    expect(five?.shared?.peopleCount).toBe(5)
-    expect(five?.shared?.people).toHaveLength(CHAT_PEOPLE_SHOWN)
+    const forBob = await inList('bob', chat.id)
+    expect(names(forBob)).toEqual(['erin', 'dana', 'carol'])
+    expect(forBob?.shared?.peopleCount).toBe(4)
+    expect(forBob?.shared?.people).toHaveLength(CHAT_PEOPLE_SHOWN)
     wrote('bob', chat.id)
+    // the same person again moves to the front, and is counted once
     expect(names(await inList('alice', chat.id))).toEqual(['bob', 'erin', 'dana'])
     // an answer is nobody's question: it changes nothing
     db().query("INSERT INTO messages (id, chat_id, role, content, author_id) VALUES (?, ?, 'assistant', 'an answer', 'alice')").run(crypto.randomUUID(), chat.id)
     expect(names(await inList('alice', chat.id))).toEqual(['bob', 'erin', 'dana'])
-    expect((await inList('alice', chat.id))?.shared?.peopleCount).toBe(5)
+    expect((await inList('alice', chat.id))?.shared?.peopleCount).toBe(4)
   })
 
   test('each chat its own people; a private chat in the project has none', async () => {
@@ -81,34 +84,61 @@ describe('the people of a shared chat on its project page', () => {
     await ask('bob', two.id, 'his')
     await ask('alice', own.id, 'private')
     const list = await projectList('alice')
-    expect(list.find((c) => c.id === one.id)?.shared).toMatchObject({ people: [{ id: 'alice' }], peopleCount: 1 })
+    expect(list.find((c) => c.id === one.id)?.shared).toMatchObject({ people: [], peopleCount: 0 })
     expect(list.find((c) => c.id === two.id)?.shared).toMatchObject({ by: { id: 'bob' }, people: [{ id: 'bob' }], peopleCount: 1 })
     const priv = list.find((c) => c.id === own.id)
     expect(priv).toBeTruthy()
     expect(priv!.shared).toBeUndefined()
   })
 
-  test('only in a project\'s list, and only for the chats the viewer sees there', async () => {
+  test('in every list but the trash (my list, a search, the Trina list\'s groups) and chat.updated; never a single chat', async () => {
     const chat = await newShared()
+    await h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { title: 'Falcon budget faces' } })
     await ask('alice', chat.id, 'a question')
     await ask('bob', chat.id, 'another')
-    // a single chat, the chat list and the trash: no people
+    // a single chat: no people (its header keeps the shared mark)
     const one = await h.api('bob').call(API.getChat, { params: { id: chat.id } })
     expect(one.shared).toBeTruthy()
     expect(one.shared!.people).toBeUndefined()
     expect(one.shared!.peopleCount).toBeUndefined()
+    // my chat list (the Trina list, the history, the phone's drawer)
     const mine = (await h.api('bob').call(API.listChats, { query: {} })).items.find((c) => c.id === chat.id)
-    expect(mine?.shared).toBeTruthy()
-    expect(mine!.shared!.people).toBeUndefined()
-    // erin does not see the project: its shared chats are not listed for her, so nobody's face is
+    expect(mine?.shared).toMatchObject({ people: [{ id: 'alice', name: 'Alice Kim' }], peopleCount: 1 })
+    // a search (Cmd+K)
+    const found = (await h.api('alice').call(API.listChats, { query: { q: 'faces' } })).items.find((c) => c.id === chat.id)
+    expect(found?.shared).toMatchObject({ people: [{ id: 'bob', name: 'Bob Lee' }], peopleCount: 1 })
+    // the Trina list's groups: the project's group holds it
+    const groups = await h.api('bob').call(API.listChatGroups)
+    const inGroups = [...groups.pinned, ...groups.projects.flatMap((p) => p.top), ...groups.other.items].find((c) => c.id === chat.id)
+    expect(inGroups?.shared).toMatchObject({ people: [{ id: 'alice' }], peopleCount: 1 })
+    // pinned: the same faces
+    await h.api('bob').call(API.pinChat, { params: { id: chat.id } })
+    try {
+      expect((await h.api('bob').call(API.listChatGroups)).pinned.find((c) => c.id === chat.id)?.shared).toMatchObject({ people: [{ id: 'alice' }], peopleCount: 1 })
+      expect((await h.api('bob').call(API.listChats, { query: {} })).items.find((c) => c.id === chat.id)?.shared?.people).toEqual([{ id: 'alice', name: 'Alice Kim' }])
+    } finally { await h.api('bob').call(API.unpinChat, { params: { id: chat.id } }) }
+    // chat.updated: each person's own view, without themselves
+    const from = { alice: ws.alice!.frames.length, bob: ws.bob!.frames.length }
+    await h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { title: 'Falcon budget faces 2' } })
+    const ev = async (u: 'alice' | 'bob') => (await ws[u]!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.chat?.title === 'Falcon budget faces 2' && ws[u]!.frames.indexOf(f) >= from[u])).data.chat!
+    expect((await ev('alice')).shared).toMatchObject({ people: [{ id: 'bob' }], peopleCount: 1 })
+    expect((await ev('bob')).shared).toMatchObject({ people: [{ id: 'alice' }], peopleCount: 1 })
+    // erin does not see the project: its shared chats are not listed for her anywhere, so nobody's face is (her own
+    // questions there from before do not bring it back)
+    wrote('erin', chat.id)
     const forErin = await projectList('erin')
     expect(forErin.find((c) => c.id === chat.id)).toBeUndefined()
     expect(forErin.some((c) => c.shared)).toBe(false)
+    expect((await h.api('erin').call(API.listChats, { query: {} })).items.some((c) => c.id === chat.id)).toBe(false)
+    expect((await h.api('erin').call(API.listChats, { query: { q: 'faces' } })).items.some((c) => c.id === chat.id)).toBe(false)
+    const erinGroups = await h.api('erin').call(API.listChatGroups)
+    expect([...erinGroups.pinned, ...erinGroups.projects.flatMap((p) => p.top), ...erinGroups.other.items].some((c) => c.id === chat.id)).toBe(false)
     // bob loses the project: gone from his list, faces and all
     db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
     try {
       expect(await inList('bob', chat.id)).toBeUndefined()
       expect((await projectList('bob')).some((c) => c.shared)).toBe(false)
+      expect((await h.api('bob').call(API.listChats, { query: {} })).items.some((c) => c.id === chat.id)).toBe(false)
     } finally { db().query("INSERT INTO group_members VALUES ('finance','bob')").run() }
     // a shared chat in its creator's trash: no people there
     await h.api('alice').call(API.deleteChat, { params: { id: chat.id } })
@@ -116,6 +146,24 @@ describe('the people of a shared chat on its project page', () => {
     expect(trash?.shared).toBeTruthy()
     expect(trash!.shared!.people).toBeUndefined()
     await h.api('alice').call(API.restoreChat, { params: { id: chat.id } })
+  })
+
+  test('a chat that is not shared has none', async () => {
+    const own = await h.api('alice').call(API.createChat, { body: {} })
+    await ask('alice', own.id, 'private')
+    const mine = (await h.api('alice').call(API.listChats, { query: {} })).items.find((c) => c.id === own.id)
+    expect(mine).toBeTruthy()
+    expect(mine!.shared).toBeUndefined()
+    const groups = await h.api('alice').call(API.listChatGroups)
+    expect([...groups.pinned, ...groups.projects.flatMap((p) => p.top), ...groups.other.items].find((c) => c.id === own.id)?.shared).toBeUndefined()
+  })
+
+  test('peopleFor: the viewer left out, at most 3, the count of the others', () => {
+    const w = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, name: id.toUpperCase() }))
+    expect(peopleFor(w, 'b')).toEqual({ people: [w[0]!, w[2]!, w[3]!], count: 4 })
+    expect(peopleFor(w, 'zz')).toEqual({ people: w.slice(0, 3), count: 5 })
+    expect(peopleFor([w[0]!], 'a')).toEqual({ people: [], count: 0 })
+    expect(peopleFor(undefined, 'a')).toEqual({ people: [], count: 0 })
   })
 
   test('one grouped query for the whole page, over messages_author_chat (no query per chat)', async () => {
@@ -127,7 +175,8 @@ describe('the people of a shared chat on its project page', () => {
     d.query = ((sql: string) => { seen.push(sql); return real.call(d, sql) }) as typeof d.query
     let list: Chat[]
     try { list = await projectList('bob') } finally { delete (d as unknown as Record<string, unknown>).query }
-    for (const c of chats) expect(list.find((x) => x.id === c.id)?.shared?.peopleCount).toBe(1 + (chats.indexOf(c) % 2))
+    // bob sees alice in each, himself never
+    for (const c of chats) expect(list.find((x) => x.id === c.id)?.shared?.people).toEqual([{ id: 'alice', name: 'Alice Kim' }])
     const people = seen.filter((s) => s.includes('MAX(m.rowid)'))
     expect(people).toHaveLength(1)
     // each (person, chat) pair a seek on the covering index: no scan of the messages, no read of a message row
@@ -135,6 +184,19 @@ describe('the people of a shared chat on its project page', () => {
     expect(plan).toContain('USING COVERING INDEX messages_author_chat (author_id=? AND chat_id=?)')
     expect(plan).not.toMatch(/SCAN m\b/)
     // nothing to ask for: no query at all
-    expect(chatPeople(d, []).size).toBe(0)
+    expect(chatPeople(d, [], 'bob').size).toBe(0)
+  })
+
+  test('my chat list and the Trina list\'s groups: one people query each', async () => {
+    const chats = [await newShared(), await newShared(), await newShared()]
+    for (const c of chats) { wrote('alice', c.id); wrote('bob', c.id) }
+    const d = db()
+    for (const read of [() => h.api('bob').call(API.listChats, { query: {} }), () => h.api('bob').call(API.listChatGroups)]) {
+      const seen: string[] = []
+      const real = d.query
+      d.query = ((sql: string) => { seen.push(sql); return real.call(d, sql) }) as typeof d.query
+      try { await read() } finally { delete (d as unknown as Record<string, unknown>).query }
+      expect(seen.filter((x) => x.includes('MAX(m.rowid)'))).toHaveLength(1)
+    }
   })
 })

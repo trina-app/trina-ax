@@ -26731,3 +26731,30 @@ connect_service are unchanged.
   phone; names 15px and 16px.
 - `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
   title as the second line, 추가 / 추가됨).
+
+## Faces in every chat list (feat/shared-chats-p2, 2026-11-14, TC-1406)
+
+- **Ask:** the owner (2026-11-14, plan `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 2): a shared chat
+  shows who is in it in every chat list, not only on its project's page. Amends "The faces on the project page".
+- **Now:** a shared chat's row shows the faces of the **other** people who wrote in it (never mine), the most recent
+  first, `FaceStack` at its existing 20 px, at most 3 then "+N" on a computer, 2 on a phone: in the Trina list and its
+  history (`nav/ChatItem.tsx` through `ListRow`'s new `faces` slot), the phone drawer's lists (the same row), a
+  project's page (`ProjectChatRow`) and ⌘K search's chat rows. Where faces show they replace the people icon
+  (`SharedIcon`); a shared chat nobody else wrote in keeps the icon (on the project page too: the creator's face and
+  name for "nobody wrote yet" are gone); the chat header keeps its mark. Panel rows and search show no name: the names
+  are in the tooltip (hover and the row's keyboard focus) and in the row's accessible name ("Shared chat · Sam, Jun and
+  2 more", `chat.share.facesLabel`). A project page row with one other writer keeps that face and name on a computer.
+  The faces replace the row's project tag when both would show (`ListRow` draws `faces` in the tag's place), on a
+  computer too: the plan said so for phones, but the computer's list panel is only 240-300 px wide, and faces plus the
+  tag left the title about a quarter of the row (measured at 1440); the project is said after the names in the tooltip
+  and the label instead ("Sam, Jun · Launch"). Private chats show nothing new. Row heights unchanged.
+- **Data:** `Chat.shared.people` / `peopleCount` are now the other writers only (the viewer left out) and come with
+  every list but the trash (`GET /api/chats` in all its forms, `GET /api/chats/groups`) and with `chat.updated` (so a
+  new writer's face shows live). One grouped query per response (`chat/shared.ts chatWriters` over the covering
+  `messages_author_chat` index; `chatPeople` per viewer, `peopleFor` per recipient of `chat.updated`), only for the
+  chats that response already lists for the viewer (its own visibility filter, `chatFor` 'view'), so nobody learns of a
+  chat, or a name, they could not open: the names are the authors they see in the chat anyway. The web keeps a row's
+  faces when an action's answer (no `people`) replaces it (`lib/sharedChat.ts keepFaces`).
+- Tests: `tests/unit/b-shared-chat-people.test.ts` (every list, other writers only, one query per list, outsiders),
+  `web/test/unit/project-chat-faces.test.tsx` (project page and `ChatItem`), `list-row-source`, e2e
+  `shared-project-chats.spec.ts`. No migration. Version impact: minor.

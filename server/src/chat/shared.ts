@@ -227,19 +227,20 @@ export function wroteIn(db: Database, chatId: string, userId: string): boolean {
   return !!db.query("SELECT 1 FROM messages WHERE author_id = ? AND chat_id = ? AND role = 'user' LIMIT 1").get(userId, chatId)
 }
 
-/** A shared chat's writers as a project page shows them (Chat.shared.people and peopleCount). */
+/** The other people who wrote in a shared chat, as its list rows show them (Chat.shared.people and peopleCount): never
+ * the viewer themselves. */
 export interface ChatPeople { people: UserRef[]; count: number }
 
 /**
  * Who wrote in each of these chats (sent a question there; its creator too when they did), the most recent writer
- * first: at most CHAT_PEOPLE_SHOWN of them and how many in all. For a project's chat list, so one grouped query for the
- * whole page, never one per chat: for each person and each chat a seek on messages_author_chat (migration 265: author,
- * chat, only questions), which holds everything it needs (the message's rowid is the order they were written in, as
- * the share check orders answers), with the name from users in the same pass. The caller passes only chats the viewer
- * may view (chatFor 'view'): these are the authors they see in the chat anyway. A chat nobody wrote in yet is absent.
+ * first, all of them. One grouped query for a whole list, never one per chat: for each person and each chat a seek on
+ * messages_author_chat (migration 265: author, chat, only questions), which holds everything it needs (the message's
+ * rowid is the order they were written in, as the share check orders answers), with the name from users in the same
+ * pass. The caller passes only chats the viewer may view (chatFor 'view'): these are the authors they see in the chat
+ * anyway. A chat nobody wrote in yet is absent.
  */
-export function chatPeople(db: Database, chatIds: readonly string[]): Map<string, ChatPeople> {
-  const out = new Map<string, ChatPeople>()
+export function chatWriters(db: Database, chatIds: readonly string[]): Map<string, UserRef[]> {
+  const out = new Map<string, UserRef[]>()
   if (!chatIds.length) return out
   // CROSS JOIN keeps users as the outer loop, so each (person, chat) pair is one seek on the covering index
   const rows = db.query(`SELECT m.chat_id AS chat, u.id AS id, u.name AS name, MAX(m.rowid) AS last
@@ -248,10 +249,26 @@ export function chatPeople(db: Database, chatIds: readonly string[]): Map<string
     GROUP BY m.chat_id, u.id ORDER BY m.chat_id, last DESC`).all(JSON.stringify(chatIds)) as { chat: string; id: string; name: string; last: number }[]
   for (const r of rows) {
     let p = out.get(r.chat)
-    if (!p) out.set(r.chat, (p = { people: [], count: 0 }))
-    p.count++
-    if (p.people.length < CHAT_PEOPLE_SHOWN) p.people.push({ id: r.id, name: r.name })
+    if (!p) out.set(r.chat, (p = []))
+    p.push({ id: r.id, name: r.name })
   }
+  return out
+}
+
+/** A chat's writers (chatWriters) as `viewer`'s row shows them: the others only, the most recent first, at most
+ * CHAT_PEOPLE_SHOWN of them, and how many others in all (docs/DECISIONS.md "Faces in every chat list"). */
+export function peopleFor(writers: readonly UserRef[] | undefined, viewer: string): ChatPeople {
+  const others = (writers ?? []).filter((p) => p.id !== viewer)
+  return { people: others.slice(0, CHAT_PEOPLE_SHOWN), count: others.length }
+}
+
+/**
+ * The other writers of each of these shared chats for `viewer`'s list (Chat.shared.people and peopleCount), from one
+ * grouped query for the whole response (chatWriters). Only chats `viewer` may view now: the list's own filter decides.
+ */
+export function chatPeople(db: Database, chatIds: readonly string[], viewer: string): Map<string, ChatPeople> {
+  const out = new Map<string, ChatPeople>()
+  for (const [id, w] of chatWriters(db, chatIds)) out.set(id, peopleFor(w, viewer))
   return out
 }
 
@@ -326,8 +343,8 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
 /**
  * A chat as `viewer` sees it in the API and in chat.updated: a stored connection secret of its creator never shows in
  * the title (QA B-W5-1). A shared chat: the AI's wait and the unseen marker are only for its runner and creator (no
- * marker for anyone else in phase 1), plus Chat.shared. `people`: a project's chat list (chatPeople for its page) adds
- * who wrote in it. Chat.pinnedAt is the viewer's own pin (chat/pins.ts).
+ * marker for anyone else in phase 1), plus Chat.shared. `people`: a chat list (chatPeople) and chat.updated add the
+ * other people who wrote in it (a chat absent from the map: nobody else wrote yet). Chat.pinnedAt is the viewer's own pin (chat/pins.ts).
  */
 export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople> } = {}): Chat {
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide

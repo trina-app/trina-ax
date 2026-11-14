@@ -16,6 +16,12 @@ export interface SharedRights {
   canMove: boolean
 }
 
+/** A chat of a list as it is now, with the faces of the others who wrote in it it had (Chat.shared.people): those come
+ * with the lists and chat.updated, not with a single chat or an action's answer (docs/DECISIONS.md "Faces in every chat
+ * list"). */
+export const keepFaces = (old: Chat | undefined, chat: Chat): Chat =>
+  old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
+
 export function sharedRights(chat: Pick<Chat, 'shared'> & Partial<Pick<Chat, 'sideRoomId'>> | null | undefined, me: string): SharedRights {
   const s = chat?.shared
   // a room's side chat never goes into a project (the server refuses it: side_chat_no_project, QA TC-1010)

@@ -16,7 +16,7 @@ import { visibleChatItems } from './nav-folders'
 import { pinsOf } from './pins'
 import { canSeeProject } from './projects'
 import type { ChatRuntime } from './runtime'
-import { Audiences, chatView, isSharedRow } from './shared'
+import { Audiences, chatPeople, chatView, isSharedRow } from './shared'
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type ProjectRow } from './store'
 import { fail } from '../http/errors'
 
@@ -68,7 +68,10 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
   for (const r of db.query(`SELECT i.chat_id c, i.folder_id f FROM ${visibleChatItems(db)}`).all(me) as { c: string; f: string }[]) folderOf.set(r.c, r.f)
   const aud = new Audiences(db, rt.files)
   const hide = redactorFor(rt.ctx, me).hide
-  const view = (r: ChatRow): Chat => chatView(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}) })
+  // the other people who wrote in each shared chat of my list (the rows' faces; docs/DECISIONS.md "Faces in every chat
+  // list"): one query for the whole answer, only chats I see now (myList)
+  const people = chatPeople(db, chats.filter(isSharedRow).map((r) => r.id), me)
+  const view = (r: ChatRow): Chat => chatView(rt, me, r, { aud, people, ...(r.user_id === me ? { hide } : {}) })
   // each group's first rows, and the marks of all its rows (a row past `top` is read only for its marker)
   const head = (rows: ChatRow[]) => {
     const top = rows.slice(0, CHAT_GROUPS_TOP).map(view)
@@ -124,12 +127,12 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
     folders,
     projects: shown,
     projectsMore: Math.max(0, projects.size - shown.length),
-    other: otherPage(rt, me, other, undefined, OTHER_PAGE, view),
+    other: otherPage(other, undefined, OTHER_PAGE, view),
     projectActivity,
   }
 }
 
-function otherPage(rt: ChatRuntime, me: string, rows: ChatRow[], cursor: string | undefined, limit: number, view: (r: ChatRow) => Chat) {
+function otherPage(rows: ChatRow[], cursor: string | undefined, limit: number, view: (r: ChatRow) => Chat) {
   const cur = decodeCursor(cursor, ['u', 'id'])
   if (cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
   const after = cur ? rows.filter((r) => r.updated_at < cur.u || (r.updated_at === cur.u && r.id < cur.id)) : rows
@@ -148,5 +151,6 @@ export function otherChats(rt: ChatRuntime, me: string, cursor: string | undefin
   const aud = new Audiences(db, rt.files)
   const hide = redactorFor(rt.ctx, me).hide
   const rows = chats.filter((r) => place(r, pins, folderOf, projects).kind === 'other')
-  return otherPage(rt, me, rows, cursor, limit, (r) => chatView(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}) }))
+  const people = chatPeople(db, rows.filter(isSharedRow).map((r) => r.id), me)
+  return otherPage(rows, cursor, limit, (r) => chatView(rt, me, r, { aud, people, ...(r.user_id === me ? { hide } : {}) }))
 }

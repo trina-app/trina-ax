@@ -215,7 +215,7 @@ export type Project = z.infer<typeof Project>
 /** Run state of a chat, from the turn queue. */
 export const ChatRunState = z.enum(['idle', 'queued', 'running'])
 export type ChatRunState = z.infer<typeof ChatRunState>
-/** At most this many of a shared chat's writers come with it (Chat.shared.people): the faces a project page's row shows. */
+/** At most this many of a shared chat's other writers come with it (Chat.shared.people): the faces its list rows show. */
 export const CHAT_PEOPLE_SHOWN = 3
 export const Chat = z.object({
   id: Uuid7,
@@ -282,11 +282,13 @@ export const Chat = z.object({
     /** I may send files from the computer here (they go into the project's chat attachments folder, which I may write:
      * server/src/uploads/shared-chat.ts). false: the message box offers team files only. Absent (older server): allowed. */
     canUpload: z.boolean().optional(),
-    /** who wrote in it (sent a question there, its creator included), the most recent first, at most
-     * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
-     * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
+    /** the other people who wrote in it (sent a question there, its creator included when they did; never the viewer),
+     * the most recent first, at most CHAT_PEOPLE_SHOWN of them: the faces of its list rows (docs/DECISIONS.md "Faces in
+     * every chat list"). In every chat list (GET /api/chats in all its forms but the trash, GET /api/chats/groups) and in
+     * chat.updated; absent elsewhere (a single chat, an action's answer), and empty while nobody else wrote. People the
+     * viewer sees in the chat anyway. */
     people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
-    /** how many people wrote in it (with `people`) */
+    /** how many other people wrote in it (with `people`) */
     peopleCount: z.number().int().nonnegative().optional(),
   }).optional(),
 })

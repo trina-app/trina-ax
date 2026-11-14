@@ -33,7 +33,7 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
-import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
 
 export const DEFAULT_CONCURRENCY = 3
@@ -1049,9 +1049,13 @@ export class ChatRuntime {
       const project = this.store.projectRow(r.project_id!)
       const aud = new Audiences(this.db, this.files)
       const hide = redactorFor(this.ctx, r.user_id).hide
+      // the rows' faces (Chat.shared.people, as the lists give them): who wrote in it, read once, each person's own
+      // view leaving them out
+      const writers = change === 'deleted' ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
       for (const uid of project ? aud.of(project) : []) {
         if (o.window && uid !== userId) continue
-        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
+        const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined
+        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
         if (o.window) this.hub.publishTo(uid, o.window, ev)
         else this.hub.publish(uid, ev)
       }

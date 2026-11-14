@@ -1,7 +1,8 @@
 // One row of the AI's history and its hover quick view: every list of AI chats draws the same row (the Trina list,
 // panels/TrinaList.tsx, and the filtered history, nav/HistoryList.tsx), the lists' own ListRow (components/list/List.tsx:
 // the panels' sizes, a phone's sizes). In 최근 기록 a project's chat names its project in the row's trailing tag
-// (`projectTag`), right-aligned at the same edge on every row, cut after the title.
+// (`projectTag`), right-aligned at the same edge on every row, cut after the title. A shared chat someone else wrote in
+// has their faces there in place of the people icon and of the tag (ChatFaces; the project is said after their names).
 import clsx from 'clsx'
 import { Pin } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -18,7 +19,7 @@ import { useMeStrict } from '../../store/session'
 import { useProjects } from '../../store/projects'
 import { useRooms } from '../../store/rooms'
 import { useChatMenuItems } from '../chat/chatMenuItems'
-import { PrivateIcon, SharedIcon } from '../chat/SharedChat'
+import { ChatFaces, PrivateIcon, SharedIcon, otherWriters } from '../chat/SharedChat'
 import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
@@ -32,8 +33,12 @@ import { ListRow } from '../list/List'
 export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void; projectTag?: boolean }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
-  // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx)
+  // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx), or the
+  // faces of the others who wrote in it at its end (docs/DECISIONS.md "Faces in every chat list")
   const rights = sharedRights(chat, useMeStrict().user.id)
+  const faces = rights.shared && !!otherWriters(chat.shared)
+  // the row's link: its keyboard focus shows the names on the faces
+  const link = useRef<HTMLAnchorElement>(null)
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
   // the dot: what "답 필요" and the one count hold) reads semibold in ink, the others stay muted (index.css "list panels")
   const { marker, reason } = useChatMarker(chat)
@@ -57,6 +62,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
   return (
     <ListRow
       to={`/c/${chat.id}`}
+      rowRef={link}
       selected={selected}
       unread={needsMe(marker)}
       li={{ ref, ...menu.row, onMouseEnter: (e) => peek.soon(chat, e.currentTarget, 400), onMouseLeave: peek.hide, 'data-marker': marker?.kind, 'data-chat-id': chat.id, 'data-pinned': chat.pinnedAt ? '' : undefined }}
@@ -71,15 +77,16 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
       onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
       rowClass={clsx('pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17')}
       lead={
-        (chat.pinnedAt || rights.shared || onlyMine) && (
+        (chat.pinnedAt || (rights.shared && !faces) || onlyMine) && (
           <>
             {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-            {rights.shared && <SharedIcon className="text-faint" />}
+            {rights.shared && !faces && <SharedIcon className="text-faint" />}
             {onlyMine && <PrivateIcon />}
           </>
         )
       }
       name={title}
+      faces={faces && <ChatFaces shared={chat.shared!} focusFrom={link} on="subtle" selected={selected} testId="chat-row" where={project?.name} />}
       // the trailing tag: the project the chat is in (최근 기록), or the room a side chat was asked beside
       tag={project ? project.name : sideRoom ? (sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`) : undefined}
       tagTitle={project?.name}

@@ -74,6 +74,7 @@ import { readIntegrations, readSchedules, readSkillList, SHARED, useCachedRead }
 import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
+import { ChatFaces, otherWriters } from './chat/SharedChat'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -887,6 +888,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                       <span className="min-w-0 flex-1 truncate" data-testid="search-row-name">
                         {r.match ? mark(r.title) : r.title}
                         {r.sub && <span className={clsx('ml-2 text-xs', r.marker ? clsx('font-medium', MARKER_TEXT[r.marker.kind]) : r.attention ? 'text-accent-text' : 'text-faint')} data-testid={r.marker ? 'search-marker-reason' : undefined}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
+                      </span>
+                    )}
+                    {/* a shared chat someone else wrote in: their faces, as in the Trina list (docs/DECISIONS.md "Faces in every
+                        chat list"); the names are in the option's words for a screen reader */}
+                    {r.chat && otherWriters(r.chat.shared) && (
+                      <span className="flex shrink-0 items-center" data-testid="search-row-faces">
+                        <ChatFaces shared={r.chat.shared!} on="surface" selected={lit(r)} testId="search-row" />
                       </span>
                     )}
                     {/* the 트리나 list's own marker; its words are the row's second part already */}
