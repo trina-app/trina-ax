@@ -2339,6 +2339,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.chat.delete': "Chat bersama dihapus",
   'audit.act.chat.share': "Chat lama dibagikan dengan anggota proyek",
   'audit.act.chat.side_chat_unshared': "Obrolan di samping ruang obrolan dikeluarkan dari proyek",
+  'audit.act.chat.unshared_rollback': "Obrolan dijadikan pribadi lagi setelah versi lama menjalankannya",
+  'audit.act.chat.audience': "Siapa yang melihat obrolan bersama diubah",
   'audit.act.group.create': 'Membuat grup',
   'audit.act.group.update': 'Mengubah grup',
   'audit.act.group.delete': 'Menghapus grup',

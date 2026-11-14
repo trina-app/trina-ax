@@ -2339,6 +2339,8 @@ export const en: Record<MessageKey, string> = {
   'audit.act.chat.delete': "Shared chat deleted",
   'audit.act.chat.share': "Existing chat shared with the project's members",
   'audit.act.chat.side_chat_unshared': "A chat beside a room taken out of a project",
+  'audit.act.chat.unshared_rollback': "Chat made private again after an older version ran it",
+  'audit.act.chat.audience': "Who sees a shared chat changed",
   'audit.act.group.create': 'Created a group',
   'audit.act.group.update': 'Changed a group',
   'audit.act.group.delete': 'Deleted a group',

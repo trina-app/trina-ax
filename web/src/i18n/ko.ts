@@ -2338,6 +2338,8 @@ export const ko = {
   'audit.act.chat.delete': "공유 채팅 삭제",
   'audit.act.chat.share': "기존 채팅을 프로젝트 멤버와 공유",
   'audit.act.chat.side_chat_unshared': "대화방 옆 채팅을 프로젝트에서 뺌",
+  'audit.act.chat.unshared_rollback': "이전 버전이 실행해서 채팅을 다시 나만 보기로 바꿈",
+  'audit.act.chat.audience': "공유 채팅을 보는 사람 변경",
   'audit.act.group.create': '부서 만듦',
   'audit.act.group.update': '부서 변경',
   'audit.act.group.delete': '부서 삭제',
