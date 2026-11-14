@@ -37,7 +37,8 @@ corner if needed, then choose **Allow**.
 
 #### You're back on Slack's page in Trina AX
 It says "Added to Slack. Invite the app to the channels where people will use it." The line shows your workspace and
-the app, **Connecting** for a few seconds, then **Connected**. There is nothing to copy or paste.
+the app, **Connecting** for a few seconds, then **Connected**. There is nothing to copy or paste. While Trina AX waits
+for Slack's window, **Try again** and **Cancel** are there; the wait ends by itself after five minutes.
 
 ![Slack's page after it is added: Added to Slack, then Connected, Acme · @trina-ax, the /invite @trina-ax hint, 0 people linked, Remove Slack and a Turn off button](../images/slack/connected.webp "Added and connected")
 :::
@@ -89,6 +90,8 @@ Go back to Slack and ask your question again. From now on Trina AX answers right
 
 - **Go on in the same thread.** Mention the app again in that thread, or reply in the DM thread: it continues the same
   chat. A new thread starts a new chat.
+- **In your language.** Trina AX's own lines in Slack ("Working on it…", "Answering as …", "Open in Trina AX") are in
+  your Trina AX language. The answer itself follows the language you chose for AI answers.
 - **The whole answer is in Trina AX too.** A long answer is shortened in Slack, with a link to the rest. "Working
   on it…" also names the account it answers as, so you can tell it's yours.
 - **Before you post.** If the answer used a place not everyone on the team can see, such as a group's folder or your
@@ -110,8 +113,9 @@ team's owner or an admin: ask them.
 
 ## Remove or reconnect
 
-Slack's page in **Admin › Connected apps** always says where things stand, and its row in the list shows **On**,
-**Off** or what needs you. When the app was removed in Slack, the row says **Reconnect** and the page offers **Add to
+Slack's page in **Admin › Connected apps** always says where things stand, and its row in the list shows the same
+state: **On**, **Connecting**, **Off** or what needs you. If Slack has not answered for a few minutes, the page says
+**Not answering**, with what to do. When the app was removed in Slack, the row says **Reconnect** and the page offers **Add to
 Slack** again, or **Remove Slack** if you don't want it back.
 
 ![Slack's page after the app was removed in Slack: The app was removed from Slack. Add it to Slack again. Above the Add to Slack button and Remove Slack](../images/slack/removed.webp "After the app was removed in Slack")
@@ -140,9 +144,11 @@ Trina AX account is disabled or deleted is unlinked at once.
 
 ### What does Trina AX see in Slack?
 
-Only messages that mention @Trina AX in channels it was invited to, and direct messages sent to it. It doesn't read
-channel history, the earlier messages of a thread or files: the AI gets the text of your question only. To link
-accounts and to say who asked, it reads people's names and e-mail addresses in the workspace. In a channel, an answer
+Messages that mention @Trina AX in channels it was invited to, and direct messages sent to it. When you ask in a
+thread, the AI also reads that thread. When you ask it to, it can read a channel or thread the app was invited to and
+you are in. Messages from other apps there, such as form or monitoring alerts, come with their details. It doesn't read
+files, and it can't read channels the app wasn't invited to. To link accounts and to say who asked, it reads people's
+names and e-mail addresses in the workspace. In a channel, an answer
 is shown only to the person who asked until they post it.
 
 ### Whose permissions does an answer use?

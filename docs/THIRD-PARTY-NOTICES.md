@@ -8,7 +8,7 @@
 | 공유 cloud 프로토콜 | [폴더 한정 MIT](../shared/src/cloud-protocol/LICENSE) | ee/cloud 및 shared의 다른 폴더까지 확대하지 않음 |
 | 역사적 Trina 웹사이트 | [Apache-2.0](../editions/trina/branding/LICENSE.website-upstream.txt), [원 저작권 출처](../editions/trina/branding/NOTICE.website-upstream.md) | 새 서버판 전체가 Apache라는 뜻이 아님 |
 | 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
-| 대화방 앱 표시 | `web/public/icons/room-apps`의 `sentry.svg`, `github.svg`: Simple Icons 16.37.0(npm `simple-icons`, CC0-1.0)의 `icons/sentry.svg`, `icons/github.svg`를 바꾸지 않고 복사(2026-11-14). 아래 [대화방 앱 표시](#대화방-앱-표시-webpubliciconsroom-apps) | 각 표시는 그 소유자의 상표(Sentry: Functional Software, Inc., GitHub: GitHub, Inc.)이고 서비스를 가리키는 데만 쓴다. CC0는 상표권을 주지 않는다 |
+| 대화방 앱 표시 | `web/public/icons/room-apps`의 `sentry.svg`, `github.svg`, `notion.svg`, `zendesk.svg`, `stripe.svg`: Simple Icons 16.37.0(npm `simple-icons`, CC0-1.0)의 같은 이름 파일을 바꾸지 않고 복사(2026-11-14). 아래 [대화방 앱 표시](#대화방-앱-표시-webpubliciconsroom-apps) | 각 표시는 그 소유자의 상표(Sentry: Functional Software, Inc., GitHub: GitHub, Inc.)이고 서비스를 가리키는 데만 쓴다. CC0는 상표권을 주지 않는다 |
 | 사이트 글꼴 | 사이트(ax.trina.app)와 함께 비공개 `trina-ax-core`로 옮김. OFL 원문·Trina UI 변경 기록도 그쪽에 있다 | 사이트 배포물에 함께 넣는다 |
 | 사이트 정적 출력 | 비공개 `trina-ax-core`의 `editions/trina/website/public/licenses/` | 실제 dist의 바이트 확인 필요; 대응 소스 제공과 별개 |
 | 자연스러운 글 스킬(영어) | `resources/skill-packs/work/en/humanizer/`: 오픈소스 "humanizer" 스킬(MIT, Copyright (c) 2025 Siqi Chen)을 고쳐 쓴 것. MIT 고지는 [LICENSE](../resources/skill-packs/work/en/humanizer/LICENSE)와 팀이 받는 SKILL.md 끝에 둔다 | 한국어판은 회사가 쓴 것이라 해당 없음 |
@@ -105,6 +105,12 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 |---|---|---|---|
 | `sentry.svg` | npm `simple-icons@16.37.0` `icons/sentry.svg`(바꾸지 않음, SHA-256 `8ba32902…adc6`). Simple Icons 데이터의 원 출처: https://sentry.io/branding/ | 파일은 CC0-1.0. Sentry 브랜드 페이지는 로고 내려받기(색, 흑백, 글리프)를 주고 "Sentry is a registered Trademark of Functional Software, Inc."라고 적는다 | 한 가지 색, 글자색(밝은 화면 검정, 어두운 화면 흰색)으로 CSS 마스크를 통해 그린다. 모양·비율은 바꾸지 않는다 |
 | `github.svg` | npm `simple-icons@16.37.0` `icons/github.svg`(바꾸지 않음, SHA-256 `3bf8ccee…04bb`). 원 출처: https://github.com/logos | 파일은 CC0-1.0. GitHub 로고 지침(brand.github.com)은 "통합을 알리는 데" 허용된 로고를 쓰게 하고, 색은 흰색·검정(드물게 회색·초록)만, 색·크기 비율 변경 금지 | 같은 방식, 검정·흰색만 |
+| `notion.svg` | npm `simple-icons@16.37.0` `icons/notion.svg`(바꾸지 않음, SHA-256 `b17d2a2b…2f85`, 2026-11-14, TC-1634) | 파일은 CC0-1.0. Notion의 표시는 원래 검정 한 가지 색이다. 브랜드 페이지(notion.com/media-kit)는 2026-11-14에 열리지 않았다(404): QA TC-1634에서 다시 확인 | 같은 방식, 검정·흰색 |
+| `zendesk.svg` | npm `simple-icons@16.37.0` `icons/zendesk.svg`(바꾸지 않음, SHA-256 `0770c2be…d416`) | 파일은 CC0-1.0. Simple Icons가 적은 지침은 brandland.zendesk.com인데 2026-11-14에 브랜드 페이지가 아닌 곳으로 옮겨졌다(403/닫힘): TC-1634에서 다시 확인 | 같은 방식 |
+| `stripe.svg` | npm `simple-icons@16.37.0` `icons/stripe.svg`(바꾸지 않음, SHA-256 `130c6d95…d870`). 원 출처: https://stripe.com/newsroom/information | 파일은 CC0-1.0. Stripe 지침은 "밝은 바탕에는 slate와 blurple, 어두운 바탕에는 흰색"만 허용한다(검정 단색 없음). 표시 이용은 Stripe Marks Usage Agreement를 따른다 | 밝은 화면 blurple `#635BFF`, 어두운 화면 흰색(`LOGO_TINT`). 모양은 바꾸지 않는다 |
+| (Shopify) | 파일 없음 | Shopify 상표 지침: "Use of our brand assets must be expressly authorized in writing"(2026-11-14 확인) | 머리글자 "S" 타일. 허락을 받으면 바꿀 수 있다 |
+| (Typeform) | 파일 없음 | Simple Icons의 `typeform.svg`는 글자 로고(워드마크)라 28 px 타일에서 읽히지 않는다. 브랜드 페이지는 2026-11-14에 404 | 머리글자 "Tf" 타일 |
+| (Tally, Jotform) | 파일 없음 | Simple Icons에 없고, 이용 조건을 밝힌 브랜드 페이지를 찾지 못했다(Tally press kit에는 조건이 없음, Jotform 404) | 머리글자 "T", "J" 타일 |
 | (Google Forms) | 파일 없음 | Google 제품 아이콘은 Partner Marketing Hub에서 허락을 받아야 하고 색을 바꿀 수 없다(2026-11-14 확인) | lucide `ClipboardList`(ISC)로 대신한다. 허락을 받으면 바꿀 수 있다 |
 | (Other) | 파일 없음 | | lucide `Blocks`(ISC) |
 

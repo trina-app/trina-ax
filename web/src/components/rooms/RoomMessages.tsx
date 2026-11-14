@@ -70,7 +70,7 @@ import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 import { AppTile } from './apps/AppParts'
 import { AppSender } from './apps/AppSender'
-import { appPlainText, unescapeAppBody } from '../../lib/roomApps'
+import { appPlainText, serviceOf, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
 import { GuestTagFor } from '../GuestTag'
 import { copyLinkOf } from '../../lib/messageLinks'
@@ -306,7 +306,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
-  if (m.app) return <AppTile kind={m.app.kind} size="face" className="mt-0.5" />
+  if (m.app) return <AppTile service={serviceOf(m.app)} size="face" className="mt-0.5" />
   if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
   return user ? <Avatar user={user} size={32} className="mt-0.5 select-none" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
@@ -428,7 +428,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       data-testid="room-message"
       data-highlight={highlighted ? '' : undefined}
       data-ai={ai ? '' : undefined}
-      data-app={app ? app.kind : undefined}
+      data-app={app ? serviceOf(app) : undefined}
       data-visibility={m.visibility}
       {...(menuOn ? { ...longPress, onPointerDown: (e: React.PointerEvent) => !(e.target as Element).closest?.('[data-own-menu]') && longPress.onPointerDown(e) } : {})}
     >

@@ -140,14 +140,24 @@ export function pageBody(kind: PageKind, lang: Lang, links: PageLinks = DEFAULT_
   return fill(TEXT[kind][lang].body, links)
 }
 
+/** team_waking: "Waiting: 12 s" under the spinner (the page counts it itself; the wait is about a minute) */
+const WAITED: Record<Lang, string> = {
+  en: 'Waiting: %N% s', ko: '기다린 시간: %N%초', id: 'Menunggu: %N% dtk', ja: 'お待ちの時間：%N%秒', es: 'Esperando: %N% s', zh: '已等待：%N% 秒',
+}
+// a spinner that needs no script, the seconds that need a tiny one (the page has no CSP; sessionStorage keeps the count
+// across the page's own reloads, and a pause older than 10 minutes starts it over)
+const WAKING_CSS = '.sp{width:28px;height:28px;border:3px solid #cfd6d1;border-top-color:#2f7d4f;border-radius:50%;animation:sp 1s linear infinite;margin:0 0 16px}@keyframes sp{to{transform:rotate(360deg)}}.w{margin-top:12px;font-size:14px;color:#6b766f;font-variant-numeric:tabular-nums}@media (prefers-color-scheme:dark){.sp{border-color:#3a443e;border-top-color:#5fd08a}.w{color:#8f9a94}}@media (prefers-reduced-motion:reduce){.sp{animation-duration:3s}}'
+const wakingScript = (label: string) => `<script>(function(){var e=document.getElementById('w');if(!e)return;var L=${JSON.stringify(label)},k='mycelWakeSince',n=Date.now(),t=n;try{var v=+sessionStorage.getItem(k);if(v&&n-v<6e5)t=v;else sessionStorage.setItem(k,n)}catch(x){}function u(){e.textContent=L.replace('%N%',Math.max(0,Math.round((Date.now()-t)/1e3)))}e.hidden=false;u();setInterval(u,1e3)})()</script>`
+
 export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null = null, links: PageLinks = DEFAULT_PAGE_LINKS, refreshSec: number | null = null): string {
   const t = { title: TEXT[kind][lang].title, body: pageBody(kind, lang, links) }
   const title = pageMessage(kind, lang, offlineForMs)
   // team_waking: reload the same address (path and query, e.g. an OAuth callback's code) without echoing it in the page
+  const waking = kind === 'team_waking'
   const reload = kind === 'team_waking' ? `<meta http-equiv="refresh" content="${wakingRefreshSec(refreshSec)}">` : ''
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${reload}<title>${esc(t.title)}</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}}</style></head>
-<body><main><h1>${esc(title)}</h1><p>${esc(t.body)}</p></main></body></html>`
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0}${waking ? WAKING_CSS : ''}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}}</style></head>
+<body><main>${waking ? '<div class="sp" role="progressbar" aria-label="' + esc(title) + '"></div>' : ''}<h1>${esc(title)}</h1><p>${esc(t.body)}</p>${waking ? '<p class="w" id="w" role="timer" hidden></p>' + wakingScript(WAITED[lang]) : ''}</main></body></html>`
 }
 
 /** team_waking: the page reloads after the control plane's retryAfterSec, kept to 3-20 s (a stopped hosted server takes

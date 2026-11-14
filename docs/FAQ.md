@@ -8,7 +8,7 @@ It is a company AI workspace for teams. People use a browser; IT operates self-h
 
 ## What does it cost?
 
-Self-hosted software is free; infrastructure, operations and AI usage are separate. Free 14-day trial on Trina hosting (AWS Seoul), then a monthly plan; AI usage is billed separately by the account you connect. [Current prices](https://ax.trina.app/#pricing).
+Self-hosted software is free; infrastructure, operations and AI usage are separate. Free 14-day trial on Trina hosting (AWS Seoul), then a monthly plan; AI usage is billed separately by the account you connect. During the free trial the server turns off when nobody uses it, and starting it again takes about a minute; paid plans stay on all the time. [Current prices](https://ax.trina.app/#pricing).
 
 ## Can we try it without an AI account?
 
