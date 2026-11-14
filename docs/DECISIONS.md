@@ -26725,6 +26725,12 @@ item 9-A, item 12-A. Spec v3 and three reviews are with the owner (not in the re
   **without the origin rows** (C1-A). A violation rewrites that folder the strictest way and checks again; a second one
   throws and nothing changes. It writes the audit row `folders.additive_conversion` (paths and counts) and recomputes
   the scheduled tasks' save fingerprints whose readers did not change (the others lapse with reason `rules`).
+- **Independent review of the PR (2026-11-14), fixed here:** the final assertion now checks each trashed folder in the
+  same chain view the conversion and the trash use (`parkedViews`; a one-level view saw a nested trashed folder's own
+  rules as a widening, and the server would not have started); the server and the migrate child set the team folder's
+  case mode before migrating (on a case-sensitive disk `Projects/<name>` is an ordinary folder, so its "no access" row
+  is no project exception); the assertion also checks the owner and admins as if made members. Residual: an admin CLI
+  that opens a pre-P2 database before the server ever starts converts it with the default (case-folding) mode.
 - **Fail-closed cases** (narrower, never wider; listed in the audit row): 7.5-1 a project member who relied on a rule
   above the project; 7.5-2 a person with a project exception who read a subfolder by a deeper rule; 7.5-3 future
   members at folders frozen by name; a parked chain that cannot be built (strictest rewrite).
