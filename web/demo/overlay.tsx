@@ -235,10 +235,14 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     // (read again now: the page may have changed since the last render)
     const row = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) : undefined
     if (row) { navigate(inAppLink(row) ?? `/c/${server.idOf('chat', projectChat!.id)}`); return }
-    if (suggest.length) { void pick(suggest[0]!); return }
+    // (here, read again: the last render may be a quarter of a second old)
+    const hereNow = atPlace(server, step.go, location.pathname)
+    const firstPrompt = hereNow && usedFor !== step.id && ![...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
+      ? server.script.answers.find((a) => a.id === step.suggest?.[0]) : undefined
+    if (firstPrompt) { void pick(firstPrompt); return }
     // elsewhere: straight there (the ring shows the way for a visitor who clicks by hand), unless the step's own
     // control is on screen (a link in a message)
-    if (!here && !(step.highlight && target?.matches(step.highlight))) { await goTo(server, step.go); return }
+    if (!hereNow && !(step.highlight && target?.matches(step.highlight))) { await goTo(server, step.go); return }
     if (target) {
       target.scrollIntoView({ block: 'center', behavior: 'smooth' })
       if (target.matches('[data-testid="ask-card"]')) {
