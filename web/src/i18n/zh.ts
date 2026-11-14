@@ -2981,6 +2981,7 @@ export const zh: Record<MessageKey, string> = {
   "storage.part.data": "服务器数据",
   "storage.part.app": "应用",
   "storage.part.other": "其他",
+  "storage.kept": "包含已删除聊天和房间的文件 {size}，30 天后清除",
   "storage.measured": "测量于{date}",
   "storage.planDisk": "{gb} GB磁盘",
   "plan.title": "套餐",

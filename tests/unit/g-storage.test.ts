@@ -275,6 +275,22 @@ describe('the monitor and the API', () => {
     expect(r.plan).toBeUndefined()
     setPlanForTests(undefined)
   })
+  test('files of deleted chats and rooms (kept 30 days) are counted in the team files and shown as kept', async () => {
+    const sys = path.join(h.ctx.config.teamRoot, '.system')
+    await getOps(h.ctx)!.storage.measure()
+    const before = (await owner.call('GET', '/api/admin/storage')).breakdown
+    for (const d of ['chat-files-orphans/b1/c1', 'rooms-orphans/b2/r1']) {
+      fs.mkdirSync(path.join(sys, d), { recursive: true })
+      fs.writeFileSync(path.join(sys, d, 'f.bin'), Buffer.alloc(400_000))
+    }
+    await getOps(h.ctx)!.storage.measure()
+    const after = (await owner.call('GET', '/api/admin/storage')).breakdown
+    expect(after.kept - (before.kept ?? 0)).toBeGreaterThanOrEqual(800_000)
+    expect(after.team - before.team).toBeGreaterThanOrEqual(800_000)
+    expect(after.other).toBeLessThanOrEqual(before.other)
+    fs.rmSync(path.join(sys, 'chat-files-orphans'), { recursive: true, force: true })
+    fs.rmSync(path.join(sys, 'rooms-orphans'), { recursive: true, force: true })
+  })
   test('from 80%: the owner and admins are told once per 24 h (audited)', () => {
     const ops = getOps(h.ctx)!
     expect(ops.storage.checkAlert()).toBe(false)

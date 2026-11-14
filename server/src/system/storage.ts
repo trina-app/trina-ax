@@ -25,7 +25,7 @@
 // real disk of that size.
 //
 // What uses the space (Admin > System) is measured 5 minutes after start and then hourly, walking the folders with a
-// pause every 1000 entries: team (the team folder without .system, with room files and chat files), history (.system/history), trash (.system/trash),
+// pause every 1000 entries: team (the team folder without .system, with room files, chat files and the files of deleted chats and rooms kept 30 days: also shown as `kept`), history (.system/history), trash (.system/trash),
 // backups (.system/backups + data/backups), models (data/models), data (the rest of the server data), app (installed
 // versions), other (what is left: the engine folders the server account cannot read, the OS).
 import fs from 'node:fs'
@@ -242,7 +242,7 @@ export function assertStorageRoomForAI(bytes: number): void {
 
 // ---------------- the monitor (ops service) ----------------
 type Measure = StorageBreakdown
-const ZERO: Measure = { team: 0, history: 0, trash: 0, backups: 0, models: 0, data: 0, app: 0, other: 0 }
+const ZERO: Measure = { kept: 0, team: 0, history: 0, trash: 0, backups: 0, models: 0, data: 0, app: 0, other: 0 }
 
 /** Bytes on disk of a folder tree (lstat blocks × 512; links not followed), yielding every 1000 entries. */
 export async function treeBytes(dir: string, skip: (abs: string) => boolean = () => false): Promise<number> {
@@ -320,7 +320,11 @@ export class StorageMonitor {
       const sys = path.join(t, '.system')
       const m: Measure = { ...ZERO }
       // the team's own files, and the files sent in its chat rooms (kept in .system/rooms, rooms/files.ts)
-      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms')) + await treeBytes(path.join(sys, 'chat-files'))
+      // + the files of deleted chats and rooms, kept 30 days (chat-files-orphans, rooms-orphans): on the disk, so counted
+      // here (they would fall under "other") and told apart in `kept`
+      const kept = await treeBytes(path.join(sys, 'chat-files-orphans')) + await treeBytes(path.join(sys, 'rooms-orphans'))
+      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms')) + await treeBytes(path.join(sys, 'chat-files')) + kept
+      m.kept = kept
       m.history = await treeBytes(path.join(sys, 'history'))
       m.trash = await treeBytes(path.join(sys, 'trash'))
       m.backups = await treeBytes(path.join(sys, 'backups')) + await treeBytes(path.join(d, 'backups'))
@@ -329,6 +333,7 @@ export class StorageMonitor {
       m.app = this.o.appDir ? await treeBytes(this.o.appDir) : 0
       // the real value, not the capped view: "other" is what is left on the real disk
       const s = storageSnapshot(true)
+      // m.kept is part of m.team
       const known = m.team + m.history + m.trash + m.backups + m.models + m.data + m.app
       m.other = s ? Math.max(0, s.usedBytes - known) : 0
       this.breakdown = m

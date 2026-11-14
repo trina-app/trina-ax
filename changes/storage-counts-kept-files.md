@@ -1,0 +1,1 @@
+- Admin > System now counts the files of deleted chats and rooms (kept 30 days before they are removed) in Team files, and says how much of that they are. They were counted as "Other".

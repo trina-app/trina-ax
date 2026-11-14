@@ -212,7 +212,10 @@ export const LanFailureBody = z.object({ code: LanFailureCode })
 export const StorageLevel = z.enum(['ok', 'warn', 'high', 'full'])
 export type StorageLevel = z.infer<typeof StorageLevel>
 const Bytes = z.number().nonnegative()
-export const StorageBreakdown = z.object({ team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
+export const StorageBreakdown = z.object({
+  /** of team: files of deleted chats and rooms, kept 30 days before they are removed (absent from an older server) */
+  kept: Bytes.optional(),
+  team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
 export type StorageBreakdown = z.infer<typeof StorageBreakdown>
 export const StorageStatus = z.object({
   /** statfs of the team folder's disk. When the plan is smaller than the disk: total = the plan's bytes, used = statfs,

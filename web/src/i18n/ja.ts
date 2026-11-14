@@ -2987,6 +2987,7 @@ export const ja: Record<MessageKey, string> = {
   'storage.part.data': "サーバーデータ",
   'storage.part.app': "アプリ",
   'storage.part.other': "その他",
+  'storage.kept': '削除したチャットとルームのファイル {size} を含みます。30日後に削除されます',
   'storage.measured': "計測日時 {date}",
   'storage.planDisk': "{gb} GBディスク",
   'plan.title': "プラン",
