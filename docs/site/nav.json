@@ -9,7 +9,8 @@
       { "title": "Core concepts", "pages": ["get-started/key-concepts"] }
     ] },
     { "title": "Use Trina AX", "groups": [
-      { "title": "Work with the AI", "pages": ["use/chats-and-projects", "use/team-skills", "use/mcp", "use/google-own-app", "use/slack", "use/room-apps", "use/scheduled-tasks"] },
+      { "title": "Work with the AI", "pages": ["use/chats-and-projects", "use/team-skills", "use/room-apps", "use/scheduled-tasks"] },
+      { "title": "Connect apps", "pages": ["use/connect-apps", "use/ai-accounts", "use/google-apps", "use/google-own-app", "use/slack", "use/mcp", "use/api-connections"] },
       { "title": "Files and people", "pages": ["use/files-and-permissions", "use/usage-and-limits", "use/admin"] },
       { "title": "Your account", "pages": ["use/settings-and-search"] }
     ] },
