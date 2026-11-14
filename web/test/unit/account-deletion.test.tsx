@@ -59,7 +59,7 @@ describe('the page', () => {
       expect(page).toContain('7일 뒤인')
       expect(page).toContain('팀장과 관리자에게 알림이 가요')
       expect(page).toContain('팀장만 읽을 수 있는 보관 폴더로 옮겨져요')
-      expect(page).toContain('대화방에 보낸 메시지(내 이름으로 남아요)')
+      expect(page).toContain('대화방에 보낸 메시지와 파일(내 이름으로 남아요)')
       expect(page).toContain('팀 활동 기록에 남는 삭제 기록(30일)')
       expect(page).toContain('최대 8주')
       expect(m.container.querySelectorAll('button').length).toBe(1)

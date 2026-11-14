@@ -3667,7 +3667,7 @@ export const id: Record<MessageKey, string> = {
   "accountDeletion.toldAdmin": "Owner tim diberi tahu. Mereka bisa menghapusnya lebih cepat, tetapi tidak bisa menghentikannya.",
   "accountDeletion.goes": "Dihapus: login, profil dan foto, chat pribadi dan memori Anda, koneksi AI dan aplikasi milik Anda, tugas terjadwal dan notifikasi.",
   "accountDeletion.folder": "File di folder pribadi Anda dipindahkan ke arsip yang hanya bisa dibaca owner tim. Hapus file itu sebelumnya jika tidak ingin disimpan.",
-  "accountDeletion.stays": "Tetap ada di tim: file di folder tim, chat yang dibagikan, dan pesan yang Anda kirim di ruang obrolan, dengan nama Anda.",
+  "accountDeletion.stays": "Tetap ada di tim: file di folder tim, chat yang dibagikan, skill yang Anda bagikan ke tim, serta pesan dan file yang Anda kirim di ruang obrolan, dengan nama Anda.",
   "accountDeletion.kept": "Disimpan sementara: catatan penghapusan di log aktivitas tim ({days} hari), dan salinan di cadangan tim (paling lama 8 minggu).",
   "accountDeletion.request": "Hapus akun saya",
   "accountDeletion.confirmTitle": "Hapus akun Anda?",

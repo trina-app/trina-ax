@@ -3623,7 +3623,7 @@ export const ja: Record<MessageKey, string> = {
   "accountDeletion.toldAdmin": "チームのオーナーに通知されます。早めに削除することはできますが、止めることはできません。",
   "accountDeletion.goes": "削除されるもの: ログイン、プロフィールと写真、個人のチャットとメモリー、自分で接続したAIとアプリ、予約タスクと通知。",
   "accountDeletion.folder": "個人フォルダーのファイルは、チームのオーナーだけが読めるアーカイブに移されます。残したくない場合は、それまでに削除してください。",
-  "accountDeletion.stays": "チームに残るもの: チームフォルダーのファイル、共有したチャット、トークルームで送ったメッセージ(あなたの名前のまま)。",
+  "accountDeletion.stays": "チームに残るもの: チームフォルダーのファイル、共有したチャット、チームに共有したスキル、トークルームで送ったメッセージとファイル(あなたの名前のまま)。",
   "accountDeletion.kept": "しばらく保管されるもの: チームのアクティビティログに残る削除の記録({days, plural, one {#日} other {#日}})、チームのバックアップ内のコピー(最大8週間)。",
   "accountDeletion.request": "アカウントを削除",
   "accountDeletion.confirmTitle": "アカウントを削除しますか?",

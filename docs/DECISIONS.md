@@ -27078,12 +27078,26 @@ the recommended design after an independent security and UX review.
 - **The sweep** (auth/sweeper.ts, hourly, one run at a time): `deleteDueAccounts` deletes each person whose date
   passed, re-reading the request inside the write, so a cancel or a transfer a moment before wins. A failure stays
   open and is tried at the next run.
-- **Requests open before this build** (migration 297 adds `due_at`): an open request with no date, or with a date from
-  before its own `requested_at` (re-opened by an older build after a rollback), never counts as due. The sweep first
+- **Requests open before this build** (migration 297 adds `due_at` and `due_for`): a date counts only while `due_for`
+  (the `requested_at` it was set for) equals `requested_at`. A request with no date, or one re-opened by an older build
+  after a rollback (it changes `requested_at` and keeps the old date), never counts as due. The sweep first
   gives it a date 7 days from then (audit `account.deletion_dated`) and tells the person in their inbox
   (`account.deletion_due`, its own notice table like the other notice kinds, link to the page). Nobody is deleted at
   the first sweep without a warning. The review recommended migration time + 7 days; the first sweep runs 5 s after
   the start, so it is the same date, and the rollback case is covered too.
+- **A date that passed while the server was down** (stopped over the date, or a restored copy whose dates passed): the
+  sweep does not delete at its first run. The date moves to 24 hours after this process started its sweeps
+  (`markSweepStart`) and the person is told (audit `account.deletion_dated` with `late`). A restore also undoes cancels
+  made after the backup; the 24 hours give the person and the operator time (docs/BACKUP-RESTORE.md).
+- **Owners' leftover requests** are cancelled by the sweep before any dating, never announced or deleted.
+- **Disabled during the 7 days:** still deleted on the date, because they asked. They get no inbox notice they cannot
+  read; the Members badge still shows the date. Re-enabling them lets them press Keep my account.
+- **A crash between the write and the rest.** The `user.delete` audit row is written in the same write as the tombstone
+  and completed afterwards (`unfinished` until then). Once after every start, `finishRemovals` finishes what a cut-off
+  deletion left: a personal folder still at `users/<id>` goes where its record says (the owner's archive, or removed),
+  and for a person who asked, private chats and trashed files go too (`finishedAtStart` in the record). A transfer with
+  no owner to take it keeps the files and their history (the history purge is skipped while the folder is there), and
+  the next start moves them once there is an owner.
 - **What a self-requested deletion removes at once** (and an early delete by the owner or an admin of someone who
   asked): private chats and memories (not after `chatTrashRetentionDays`), the files they had put in the trash from
   their personal folder (before the folder moves, or they would follow it into the archive), and the file history and

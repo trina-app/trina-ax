@@ -10,7 +10,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { uuidv7 } from '@mycel/shared/api'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
-import { deleteDueAccounts } from '../../server/src/auth/deletion-requests'
+import { deleteDueAccounts, markSweepStart } from '../../server/src/auth/deletion-requests'
+import { finishRemovals } from '../../server/src/admin/users'
 import { lastSweepForget } from '../../server/src/auth/sweeper'
 
 setDefaultTimeout(30_000)
@@ -180,5 +181,96 @@ describe('requests from before the automatic date (migration 297)', () => {
     await m.client.call('DELETE', PATH)
     const [closed] = (await m.client.call('GET', '/api/notifications')).items.filter((x: any) => x.code === 'account.deletion_due')
     expect(closed).toMatchObject({ link: null, deletionDue: { dueAt: null } })
+  })
+})
+
+describe('review of PR #816', () => {
+  const notices = async (c: Client) => (await c.call('GET', '/api/notifications')).items.filter((x: any) => x.code === 'account.deletion_due')
+  const row = (id: string) => h.ctx.db.query('SELECT requested_at, due_at, due_for, cancelled_at FROM account_deletion_requests WHERE user_id = ?').get(id) as { requested_at: string; due_at: string | null; due_for: string | null; cancelled_at: string | null }
+
+  test('a rollback: an old date never carries over to a request opened again by an older build', async () => {
+    const m = await addMember(h, owner, { username: 'roll' })
+    const first = await m.client.call('POST', PATH, { confirm: true, password: m.password })
+    await m.client.call('DELETE', PATH)
+    // the older build opens it again two days later: requested_at changes, due_at and due_for stay
+    const t2 = new Date(Date.parse(first.requestedAt) + 2 * DAY).toISOString()
+    h.ctx.db.query('UPDATE account_deletion_requests SET requested_at = ?, cancelled_at = NULL WHERE user_id = ?').run(t2, m.id)
+    expect((await m.client.call('GET', PATH)).dueAt).toBeNull()
+    h.advance(3 * DAY)
+    try {
+      expect(await deleteDueAccounts(h.ctx)).toMatchObject({ dated: 1, deleted: 0 })
+      const r = row(m.id)
+      expect(r.due_for).toBe(r.requested_at)
+      expect(Date.parse(r.due_at!)).toBeGreaterThan(Date.parse(first.dueAt))
+      expect(await notices(m.client)).toHaveLength(1)
+      // the first request's date passes: nothing happens
+      h.advance(5 * DAY)
+      try { expect(await deleteDueAccounts(h.ctx)).toMatchObject({ deleted: 0 }) } finally { h.advance(-5 * DAY) }
+      expect(live(m.id)).toBe(true)
+    } finally { h.advance(-3 * DAY) }
+    await m.client.call('DELETE', PATH)
+  })
+
+  test('a date that passed while the server was down (or a restored copy) is held 24 hours after the start, with a notice', async () => {
+    const m = await addMember(h, owner, { username: 'late' })
+    const now = Date.now()
+    const asked = new Date(now - 9 * DAY).toISOString()
+    h.ctx.db.query('INSERT INTO account_deletion_requests (user_id, requested_at, due_at, due_for) VALUES (?, ?, ?, ?)').run(m.id, asked, new Date(now - 2 * DAY).toISOString(), asked)
+    markSweepStart(h.ctx, now)
+    try {
+      expect(await deleteDueAccounts(h.ctx)).toMatchObject({ dated: 1, deleted: 0 })
+      expect(live(m.id)).toBe(true)
+      expect(Date.parse(row(m.id).due_at!) - now).toBeGreaterThanOrEqual(DAY - 1000)
+      expect(await notices(m.client)).toHaveLength(1)
+      h.advance(DAY + 60_000)
+      try { expect(await deleteDueAccounts(h.ctx)).toMatchObject({ deleted: 1 }) } finally { h.advance(-(DAY + 60_000)) }
+      expect(live(m.id)).toBe(false)
+    } finally { markSweepStart(h.ctx, 0) }
+  })
+
+  test('an owner\'s leftover request is cancelled, never dated or announced', async () => {
+    h.ctx.db.query('INSERT INTO account_deletion_requests (user_id, requested_at) VALUES (?, ?)').run(ownerId, new Date().toISOString())
+    expect(await deleteDueAccounts(h.ctx)).toMatchObject({ dated: 0, deleted: 0 })
+    expect(row(ownerId).cancelled_at).not.toBeNull()
+    expect(row(ownerId).due_at).toBeNull()
+    expect(await notices(owner)).toEqual([])
+  })
+
+  test('a member disabled after asking gets no notice they cannot read, and is still deleted on the date (they asked)', async () => {
+    const m = await addMember(h, owner, { username: 'quiet' })
+    h.ctx.db.query('INSERT INTO account_deletion_requests (user_id, requested_at) VALUES (?, ?)').run(m.id, new Date().toISOString())
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(m.id)
+    expect(await deleteDueAccounts(h.ctx)).toMatchObject({ dated: 1 })
+    expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM account_deletion_due_notices WHERE user_id = ?').get(m.id)).toEqual({ n: 0 })
+    h.advance(7 * DAY + 60_000)
+    try { expect(await deleteDueAccounts(h.ctx)).toMatchObject({ deleted: 1 }) } finally { h.advance(-(7 * DAY + 60_000)) }
+    expect(live(m.id)).toBe(false)
+  })
+
+  test('no owner to take the folder: its files and history stay; the next start moves them to the owner\'s archive', async () => {
+    const m = await addMember(h, owner, { username: 'orph' })
+    const file = `users/${m.id}/keep.md`
+    await m.client.call('PUT', '/api/files/content', { path: file, content: 'a', baseSha256: null })
+    await m.client.call('PUT', '/api/files/content', { path: file, content: 'b', baseSha256: sha('a') })
+    await m.client.call('POST', PATH, { confirm: true, password: m.password })
+    h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ?").run(ownerId)
+    try {
+      h.advance(7 * DAY + 60_000)
+      try { expect(await deleteDueAccounts(h.ctx)).toMatchObject({ deleted: 1 }) } finally { h.advance(-(7 * DAY + 60_000)) }
+    } finally { h.ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ?").run(ownerId) }
+    const root = h.ctx.files.fx.root
+    expect(fs.readFileSync(path.join(root, file), 'utf8')).toBe('b')
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(file) as { n: number }).n).toBeGreaterThan(0)
+    // the audit row was written with the delete
+    const before = JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'user.delete' AND target = ?").get(m.id) as { detail: string }).detail)
+    expect(before).toMatchObject({ personalFolder: 'transfer', requested: true, movedTo: null })
+    expect(await finishRemovals(h.ctx)).toBeGreaterThanOrEqual(1)
+    const after = JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'user.delete' AND target = ?").get(m.id) as { detail: string }).detail)
+    expect(after.finishedAtStart).toBe(true)
+    expect(fs.readFileSync(path.join(root, after.movedTo, 'keep.md'), 'utf8')).toBe('b')
+    expect(fs.existsSync(path.join(root, 'users', m.id))).toBe(false)
+    // nothing left to finish: a second start does nothing for this person
+    await finishRemovals(h.ctx)
+    expect(JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'user.delete' AND target = ?").get(m.id) as { detail: string }).detail).movedTo).toBe(after.movedTo)
   })
 })

@@ -6,7 +6,8 @@ import { purgeAudit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
 import { authOf } from './service'
 import { cleanUpDeletedAccounts } from './account-removal'
-import { deleteDueAccounts } from './deletion-requests'
+import { deleteDueAccounts, markSweepStart } from './deletion-requests'
+import { finishRemovals } from '../admin/users'
 
 export interface SweepResult { sessions: number; attempts: number; resets: number; audit: number; purgedUsers: number }
 
@@ -62,17 +63,25 @@ export let lastSweepForget: Promise<void> = Promise.resolve()
 
 /** Run now and then every `everyMs` (default hourly) until the context closes. */
 export function startSweeper(ctx: AppContext, everyMs = 3600_000): void {
+  // a deletion date that passed while the server was down is held for a day after this start (deletion-requests.ts)
+  markSweepStart(ctx, authOf(ctx).now())
+  let closed = false
   const run = () => {
+    if (closed) return
     try { sweep(ctx) } catch (e) { ctx.log.error('auth sweep failed', { err: e }) }
     // accounts whose deletion date passed (auth/deletion-requests.ts): each on its own, retried at the next run
     void deleteDueAccounts(ctx).catch((e) => ctx.log.error('account deletion sweep failed', { err: e }))
   }
   const first = setTimeout(() => {
-    // once after a start: accounts deleted earlier lose what the cleanup hooks remove now (auth/account-removal.ts)
-    void cleanUpDeletedAccounts(ctx).catch((e) => ctx.log.error('deleted accounts cleanup failed', { err: e }))
-    run()
+    // once after a start: a deletion cut short by a crash is finished (the personal folder, a self-requested purge),
+    // then accounts deleted earlier lose what the cleanup hooks remove now (auth/account-removal.ts)
+    void (async () => {
+      try { await finishRemovals(ctx) } catch (e) { ctx.log.error('finishing deleted accounts failed', { err: e }) }
+      try { await cleanUpDeletedAccounts(ctx) } catch (e) { ctx.log.error('deleted accounts cleanup failed', { err: e }) }
+      run()
+    })()
   }, 5_000)
   const t = setInterval(run, everyMs)
   first.unref?.(); t.unref?.()
-  ctx.onClose(() => { clearTimeout(first); clearInterval(t) })
+  ctx.onClose(() => { closed = true; clearTimeout(first); clearInterval(t) })
 }

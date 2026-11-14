@@ -24,6 +24,7 @@ import { teamDefaultLocale } from '../admin/settings'
 import { activityTabHas, AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 import { serviceRequestOut } from '../integrations/service-request-notices'
+import { datedSql } from '../auth/deletion-requests'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -583,14 +584,14 @@ export class Notifications {
     // waits, the link opens that person in Admin › Members, where the account is deleted
     if (row.event_type === 'account.deletion_request') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
-      const q = this.ctx.db.query('SELECT cancelled_at, handled_at, CASE WHEN due_at IS NOT NULL AND due_at >= requested_at THEN due_at END AS due_at FROM account_deletion_requests WHERE user_id=?').get(row.source_id) as { cancelled_at: string | null; handled_at: string | null; due_at: string | null } | null
+      const q = this.ctx.db.query(`SELECT cancelled_at, handled_at, CASE WHEN ${datedSql()} THEN due_at END AS due_at FROM account_deletion_requests WHERE user_id=?`).get(row.source_id) as { cancelled_at: string | null; handled_at: string | null; due_at: string | null } | null
       const state = !q ? null : q.handled_at || !u ? 'handled' as const : q.cancelled_at ? 'cancelled' as const : 'open' as const
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: state === 'open' ? 'admin_members' : null, outcome: null,
         ...(state ? { deletionRequest: { name: u?.name ?? null, state, dueAt: state === 'open' ? q!.due_at : null } } : {}) }
     }
     // my own account's deletion date (while the request is open; the link opens the page where I can cancel it)
     if (row.event_type === 'account.deletion_due') {
-      const q = this.ctx.db.query('SELECT due_at FROM account_deletion_requests WHERE user_id=? AND cancelled_at IS NULL AND handled_at IS NULL AND due_at IS NOT NULL AND due_at >= requested_at').get(row.user_id) as { due_at: string } | null
+      const q = this.ctx.db.query(`SELECT due_at FROM account_deletion_requests WHERE user_id=? AND cancelled_at IS NULL AND handled_at IS NULL AND ${datedSql()}`).get(row.user_id) as { due_at: string } | null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: q ? 'account_deletion' : null, outcome: null,
         deletionDue: { dueAt: q?.due_at ?? null } }
     }

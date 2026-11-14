@@ -3666,7 +3666,7 @@ export const ko = {
   "accountDeletion.toldAdmin": "팀장에게 알림이 가요. 더 일찍 삭제할 수는 있지만 막을 수는 없어요.",
   "accountDeletion.goes": "삭제되는 것: 로그인, 프로필과 사진, 내 개인 대화와 메모리, 내가 연결한 AI·앱, 예약 작업과 알림.",
   "accountDeletion.folder": "개인 폴더의 파일은 팀장만 읽을 수 있는 보관 폴더로 옮겨져요. 남기고 싶지 않으면 그 전에 지워 주세요.",
-  "accountDeletion.stays": "팀에 남는 것: 팀 폴더의 파일, 공유한 대화, 대화방에 보낸 메시지(내 이름으로 남아요).",
+  "accountDeletion.stays": "팀에 남는 것: 팀 폴더의 파일, 공유한 대화, 팀에 공유한 스킬, 대화방에 보낸 메시지와 파일(내 이름으로 남아요).",
   "accountDeletion.kept": "잠시 보관되는 것: 팀 활동 기록에 남는 삭제 기록({days}일), 팀 백업에 있는 사본(최대 8주).",
   "accountDeletion.request": "내 계정 삭제",
   "accountDeletion.confirmTitle": "계정을 삭제할까요?",

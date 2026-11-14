@@ -310,6 +310,46 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   })
 }
 
+function removalDetail(o: Pick<RemoveAccountOptions, 'personalFolder' | 'why' | 'actorId'>, requested: boolean, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { personalFolder: o.personalFolder, ...(requested ? { requested: true } : {}), ...(o.why === 'self_request' ? { why: 'self_request', automatic: o.actorId === null } : {}), ...extra }
+}
+
+const personalFolderLeft = (ctx: AppContext, id: string) => {
+  try { const st = fs.lstatSync(path.join(ctx.files.fx.root, 'users', id)); return st.isDirectory() && !st.isSymbolicLink() } catch { return false }
+}
+
+/**
+ * Once after a start (auth/sweeper.ts): a deletion cut short after its write (a crash, a kill) is finished. The
+ * personal folder still at users/<id> of a deleted account goes where its user.delete record said (the owner's archive,
+ * or removed); for a person who had asked, their private chats and trashed files go too. The record gets
+ * `finishedAtStart`. Nothing to do: nothing happens.
+ */
+export async function finishRemovals(ctx: AppContext): Promise<number> {
+  const gone = ctx.db.query(`SELECT u.id, (SELECT handled_at IS NOT NULL FROM account_deletion_requests r WHERE r.user_id = u.id) AS asked
+    FROM users u WHERE u.deleted_at IS NOT NULL`).all() as { id: string; asked: number | null }[]
+  let n = 0
+  for (const u of gone) {
+    const left = personalFolderLeft(ctx, u.id)
+    const asked = !!u.asked
+    const chats = asked && !!ctx.db.query('SELECT 1 FROM chats WHERE user_id = ? AND shared_at IS NULL LIMIT 1').get(u.id)
+    if (!left && !chats) continue
+    const rec = ctx.db.query("SELECT id, detail FROM audit_log WHERE action = 'user.delete' AND target = ? ORDER BY id DESC LIMIT 1").get(u.id) as { id: number; detail: string | null } | null
+    let detail: Record<string, unknown> = {}
+    try { detail = rec?.detail ? JSON.parse(rec.detail) : {} } catch { /* an unreadable record: the default below */ }
+    try {
+      if (asked) { purgePrivateChatsOf(ctx, u.id); componentC(ctx).files.forgetTrashUnder(`users/${u.id}`) }
+      let movedTo: string | null = null
+      if (left) {
+        movedTo = handlePersonalFolder(ctx, u.id, detail.personalFolder === 'delete' ? 'delete' : 'transfer', null)
+        if (asked && !personalFolderLeft(ctx, u.id)) componentC(ctx).files.forgetRecordsUnder(`users/${u.id}`)
+      }
+      if (rec) ctx.db.query('UPDATE audit_log SET detail = ? WHERE id = ?').run(JSON.stringify({ ...detail, ...(movedTo ? { movedTo } : {}), finishedAtStart: true, unfinished: undefined }), rec.id)
+      n++
+    } catch (err) { ctx.log.warn('a deleted account\'s folder or private data could not be finished; tried again at the next start', { err, userId: u.id }) }
+  }
+  return n
+}
+
 export interface RemoveAccountOptions {
   targetId: string
   /** who deletes: the owner or an admin on the members screen; null = the server, when a person's own request came due */
@@ -345,6 +385,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   let pruned: Pruned[] = []
   let ownAi: string[] = []
   let hadStatus = false
+  let auditId = 0
   ctx.db.transaction(() => {
     o.check?.()
     // never the owner, and only an account that is still there (the sweep reads it again here too)
@@ -390,6 +431,10 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
     ctx.db.query('DELETE FROM nav_folders WHERE user_id = ?').run(id)
     // the person had asked for this (Settings › Profile › Delete account): the request is handled
     requested = closeDeletionRequest(ctx, id, actor, now) || o.why === 'self_request'
+    // the audit row is written in the same write as the tombstone: a crash after the commit still leaves the record
+    // (the restore runbook lists deleted accounts from it; finishRemovals reads how the folder was to be handled), and
+    // its detail is completed below
+    auditId = audit(ctx.db, { actor, action: 'user.delete', target: id, detail: removalDetail(o, requested, { unfinished: true }) })
   })()
   revokeSignIns()
   statusGoneWithAccount(ctx, hadStatus)
@@ -424,17 +469,19 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   }
   // file history and folder records still under users/<id>/ (a removed folder's, or a move that failed) have no file
   // any more that anyone can open: they go now, not after the history days
-  if (requested && !folderError) {
+  // (not when the folder is still there: a transfer with no owner to take it, or a move that failed, keeps the files
+  // and so their history)
+  if (requested && !folderError && !personalFolderLeft(ctx, id)) {
     try { const left = componentC(ctx).files.forgetRecordsUnder(`users/${id}`); if (purged) { purged.versions = left.versions; purged.folders = left.folders } } catch (e) { log.warn('file records of a deleted account were not removed', { err: e, userId: id }) }
   }
   // what every area keeps per person (auth/account-removal.ts): counts only in the audit
   let cleaned = 0
   try { cleaned = await runAccountCleanups(ctx, id) } catch (e) { log.error('account cleanup failed; it runs again at the next start', { err: e, userId: id }) }
   const off = pruned.filter((p) => p.switchedOff).map((p) => ({ id: p.id, label: p.label }))
-  audit(ctx.db, { actor, action: 'user.delete', target: id, detail: {
-    personalFolder: o.personalFolder, movedTo, ...(folderError ? { folderError } : {}), ...(requested ? { requested: true } : {}), ...(o.why === 'self_request' ? { why: 'self_request', automatic: actor === null } : {}),
+  ctx.db.query('UPDATE audit_log SET detail = ? WHERE id = ?').run(JSON.stringify({
+    ...removalDetail(o, requested), movedTo, ...(folderError ? { folderError } : {}),
     ...(off.length ? { aiConnectionsOff: off } : {}), ...(ownAi.length ? { ownAiConnections: ownAi.length } : {}), ...(purged ? { purged } : {}), ...(cleaned ? { cleaned } : {}),
-  } })
+  }), auditId)
   afterAccessChange(ctx, before, { actor, target: id })
   return { requested }
 }

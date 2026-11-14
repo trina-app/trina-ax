@@ -3623,7 +3623,7 @@ export const es: Record<MessageKey, string> = {
   "accountDeletion.toldAdmin": "Se avisa al propietario del equipo. Puede eliminarla antes, pero no puede impedirlo.",
   "accountDeletion.goes": "Se elimina: tu inicio de sesión, tu perfil y foto, tus chats privados y memorias, tus conexiones propias de IA y apps, tus tareas programadas y tus avisos.",
   "accountDeletion.folder": "Los archivos de tu carpeta personal pasan a un archivo que solo puede leer el propietario del equipo. Bórralos antes si no quieres que queden.",
-  "accountDeletion.stays": "Se queda en el equipo: los archivos de las carpetas del equipo, los chats compartidos y los mensajes que enviaste en salas, con tu nombre.",
+  "accountDeletion.stays": "Se queda en el equipo: los archivos de las carpetas del equipo, los chats compartidos, las habilidades que compartiste con el equipo y los mensajes y archivos que enviaste en salas, con tu nombre.",
   "accountDeletion.kept": "Se guarda un tiempo: el registro de la eliminación en el historial de actividad del equipo ({days, plural, one {# día} other {# días}}) y las copias en las copias de seguridad del equipo (hasta 8 semanas).",
   "accountDeletion.request": "Eliminar mi cuenta",
   "accountDeletion.confirmTitle": "¿Eliminar tu cuenta?",

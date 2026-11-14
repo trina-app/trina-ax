@@ -41,7 +41,7 @@ The database restore applies at the next server start, and everyone signs in aga
 Sign in, open a known file and its history, compare two people's access, check skills and diagnostics, and reconnect AI and integrations.
 
 #### Delete again the accounts deleted since the backup
-A database restore brings them back. Before restoring, note who was deleted since the backup (Admin › Activity log, "Removed a member"); after it, delete them again in Members & invites. The [backup guide](../../BACKUP-RESTORE.md#accounts-deleted-after-the-backup) has the steps.
+A database restore brings them back, and undoes deletion requests and cancels made since the backup. Before restoring, note them in Admin › Activity log; after it, delete again only the accounts that were already removed (dates that passed are held 24 hours, so there is time). The [backup guide](../../BACKUP-RESTORE.md#accounts-deleted-after-the-backup) has the steps.
 :::
 
 :::note

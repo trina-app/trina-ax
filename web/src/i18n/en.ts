@@ -3667,7 +3667,7 @@ export const en: Record<MessageKey, string> = {
   "accountDeletion.toldAdmin": "The team owner is told. They can delete it sooner, but cannot stop it.",
   "accountDeletion.goes": "Deleted: your sign-in, profile and photo, your private chats and memories, your own AI and app connections, scheduled tasks and notifications.",
   "accountDeletion.folder": "Files in your personal folder move to an archive that only the team owner can read. Delete them before then if you want them gone.",
-  "accountDeletion.stays": "Stays with the team: files in team folders, shared chats, and messages you sent in rooms, which keep your name.",
+  "accountDeletion.stays": "Stays with the team: files in team folders, shared chats, skills you shared with the team, and messages and files you sent in rooms, which keep your name.",
   "accountDeletion.kept": "Kept for a while: the record of the deletion in the team’s activity log ({days, plural, one {# day} other {# days}}), and copies in the team’s backups (up to 8 weeks).",
   "accountDeletion.request": "Delete my account",
   "accountDeletion.confirmTitle": "Delete your account?",
