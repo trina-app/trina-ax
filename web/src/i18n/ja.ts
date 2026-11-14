@@ -529,6 +529,7 @@ export const ja: Record<MessageKey, string> = {
   'steps.postViewLabel': 'ルームで表示',
   'devEnvQueue.waiting': '開発環境を待っています… {n}番目',
   'devEnvQueue.waitingNoPlace': '開発環境を待っています…',
+  'devEnvQueue.waitingProject': 'このプロジェクトの別のコマンドが終わるのを待っています…',
   'devEnvQueue.cancel': 'キャンセル',
   'devEnvQueue.full': '開発環境が満杯です。しばらくしてからもう一度お試しください。',
   'devEnvQueue.cancelled': 'キャンセルしました。実行されていません。',

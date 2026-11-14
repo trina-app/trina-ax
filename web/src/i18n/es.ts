@@ -529,6 +529,7 @@ export const es: Record<MessageKey, string> = {
   'steps.postViewLabel': 'Ver en la sala',
   'devEnvQueue.waiting': 'Esperando el entorno de desarrollo… n.º {n} en la fila',
   'devEnvQueue.waitingNoPlace': 'Esperando el entorno de desarrollo…',
+  'devEnvQueue.waitingProject': 'Esperando a que termine otro comando de este proyecto…',
   'devEnvQueue.cancel': 'Cancelar',
   'devEnvQueue.full': 'El entorno de desarrollo está lleno. Inténtelo más tarde.',
   'devEnvQueue.cancelled': 'Cancelado. No se ejecutó.',
