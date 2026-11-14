@@ -390,9 +390,15 @@ describe('review of #787: Limit access off, and shared/', () => {
     const m = await mountHost('shared')
     await m.until(() => m.find('sharing-limit'), 'the switch')
     await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'the first answer')
-    await tick(m, m.get('sharing-limit'))
+    // the switch says why it cannot go off, and is not offered
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    expect(m.get('sharing-limit-locked').textContent).toBe(en('folderAccess.limitLocked'))
     expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
     expect(m.find('sharing-save')).toBeNull()
+    // a team role picked: the limit can go off again
+    await choose(m.get('sharing-general-select'), 'team')
+    await m.until(() => !m.get('sharing-limit').hasAttribute('disabled'), 'the switch free')
+    expect(m.find('sharing-limit-locked')).toBeNull()
     await m.unmount()
   })
 

@@ -875,6 +875,7 @@ export const id: Record<MessageKey, string> = {
   'folderAccess.settings': "Setelan",
   'folderAccess.limit': "Batasi akses",
   'folderAccess.limitHint': "Hanya orang yang ditambahkan di sini yang bisa membukanya. Orang yang bisa membuka \"{parent}\" kehilangan akses kecuali ditambahkan. Pemilik dan admin tetap bisa membukanya.",
+  'folderAccess.limitLocked': "Untuk mematikannya, pilih dulu peran tim di Akses umum.",
   'folderAccess.lowerNeedsLimit': "Batasi akses untuk mengubah ini",
   'folderAccess.teamEditsAbove': "Siapa pun di {team} dapat mengedit \"{folder}\"",
   'folderAccess.teamViewsAbove': "Siapa pun di {team} dapat melihat \"{folder}\"",
