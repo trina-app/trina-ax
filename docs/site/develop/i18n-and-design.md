@@ -1,11 +1,11 @@
 ---
 title: Languages and design
-description: Five languages for every app string, and the design system every screen follows.
+description: Six languages for every app string, and the design system every screen follows.
 ---
 
 ## Languages
 
-The app speaks English, Korean, Indonesian, Japanese and Spanish. Every app-owned string must exist in all five.
+The app speaks English, Korean, Indonesian, Japanese, Spanish and Simplified Chinese. Every app-owned string must exist in all six.
 
 | File | Language |
 |---|---|
@@ -14,8 +14,9 @@ The app speaks English, Korean, Indonesian, Japanese and Spanish. Every app-owne
 | `web/src/i18n/id.ts` | Indonesian |
 | `web/src/i18n/ja.ts` | Japanese |
 | `web/src/i18n/es.ts` | Spanish |
+| `web/src/i18n/zh.ts` | Simplified Chinese |
 
-- Plurals use ICU messages. Japanese and Spanish need both `one` and `other` forms.
+- Plurals use ICU messages. Japanese, Spanish and Chinese keep both `one` and `other` forms, as English has them.
 - Run `bun run check:i18n` after any UI or server copy change.
 - Write naturally in each language. Do not translate word by word.
 

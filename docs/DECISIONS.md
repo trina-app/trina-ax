@@ -8963,7 +8963,8 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
   `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
   the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
-  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  is no built-in default (superseded on 2026-11-14 for the Trina edition: "Trina team servers use push.trina.app by
+  default" below): phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
   gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
   Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
   nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
@@ -27113,6 +27114,54 @@ phase 4.
 - **Independent review (opus), fixed:** a limited folder with nobody added is listed ("Owner and admins only"; its rules are empty in the API); a group's own folder is hidden only while it is as made *and not limited*; on the person page `groups/`, `projects/` and `connected/` (containers everyone passes through in Files) are never "Can't open", and project folders the person is not in fold into one count line like other groups' folders; "Limited" has its own word in ko/id (액세스 제한됨, Akses dibatasi) apart from General access "Restricted" (제한됨, Dibatasi); a folder that is not limited says "+ the folder above" (access adds up); the invite preview of an admin is the one line; the empty states no longer contradict the hidden list or a search; 15 more dead `rules.*`/`accessTree.*`/`accessEdit.*` words removed (`accessView.summaryNone` stays: the honorific tests use it). Known and accepted: the team root, `groups/` and `connected/` with no sharing of their own get none from here (Files has no Share dialog on them, as before for members); deleting a folder's whole rule row is no longer a button (clearing it in the Share dialog does the same for access).
 - **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
 - Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
+
+## Simplified Chinese app language (feat/locale-zh, 2026-11-14, the owner)
+
+- Add Simplified Chinese (`zh`, 简体中文) as the sixth app language, so a Trina Cloud sign-up can make a team whose
+  default language is `zh`. Same coverage as Japanese and Spanish (2026-10-29): the web dictionary
+  (`web/src/i18n/zh.ts`), every server table and positional text helper, step labels, chat errors, push lock-screen
+  lines, relay pages, the generated offline page, the desktop shell and the macOS menu bar. The phone app's native
+  setup screens stay Korean and English, as they are for the other languages.
+- **Every Chinese tag is `zh`**: `zh`, `zh-CN`, `zh-Hans`, `zh-SG`, and also `zh-TW`, `zh-HK`, `zh-Hant`
+  (`asLocale`). Simplified Chinese is the only Chinese we have, and a Traditional Chinese reader reads it better than
+  English. A Traditional Chinese dictionary would get its own code then. Precedence is unchanged: account choice,
+  team default, English; browser or OS language only before a team language exists.
+- Wording: plain mainland Chinese for office workers, 你 rather than 您, full-width punctuation, no space between a
+  Chinese word and a filled-in value. ICU messages keep English's `one` and `other` branches (Chinese selects
+  `other`), and `check:i18n` checks zh's placeholders and plural forms as for ja/es. Skill names are quoted “…”.
+- Dates and numbers use `Intl` with `zh-CN`. Chinese screens take the Simplified Chinese system face first
+  (PingFang SC, Microsoft YaHei, Noto Sans SC): the default stack starts with Korean faces, which draw Han
+  characters in their Korean shapes.
+- No migration: language columns are text checked by the shared `Locale` schema.
+
+## Trina team servers use push.trina.app by default — 트리나 팀 서버는 기본으로 push.trina.app (feat/push-gateway-default, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `scripts/edition-service.ts`, `shared/src/service-hosts.ts`) and the
+Trina edition's `editions/trina/branding/service.json`, 이유: the server reads its config in the core, and an edition's
+hosted-service addresses go through service.json (docs/EDITION-BRANDING.md). Plan:
+`docs/AGENTS/plan/20261114-0826-push-gateway-default.md`. The owner, on hardening push.trina.app so self-hosted teams
+with the store app get phone pushes: "저거 해보자" (2026-11-14).
+
+- **Why.** The store app's APNs and FCM keys live only on push.trina.app. A self-hosted Trina team server sent no phone
+  push until its operator found and set `MYCEL_PUSH_GATEWAY`, so most self-hosted teams had none.
+- **The default is an edition value.** `service.json` gets an optional `pushGatewayUrl` (`https://<host>`; `""` or
+  missing = none), written into `SERVICE_HOSTS.pushGatewayUrl` by `bun scripts/edition-service.ts … --apply`. Trina:
+  `https://push.trina.app`; the neutral core keeps none, so phone push stays off there until the operator sets one.
+- **Order** (`resolvePushGateway`): `MYCEL_PUSH_GATEWAY` when it is set at all, else `push.gatewayUrl` in server.json
+  when the key is there, else the edition default. An unset variable is not an empty one: `''` or `off` (any case) turns
+  phone push off, as do `null`, `""` and `"off"` in server.json. The address check is unchanged (`https://<host>` or
+  `http://127.0.0.1:<port>`).
+- **Installed servers and office Macs only.** The default applies with `mode: "prod"` or `office: true`. A developer's
+  dev server and the tests keep none, so local runs never register phones with the real gateway.
+- **What people see.** Owners and admins still see one line in Settings › Notifications. The "off" line no longer says
+  that no address is set (it may have been turned off on purpose): "Phone app notifications are off on this team
+  server. Whoever runs the server can turn them on in its settings."
+- **Not changed:** the gateway, the request contract and its limits; hosted servers (their server.json already names
+  the gateway). A changed gateway address leaves old device rows unused as before (`nativeConfigKey`), so phones
+  register again at the next sign-in or app start.
+- Tests: tests/unit/push-native.test.ts (Trina default, neutral none, `''`/`off`/`null`, explicit address, dev vs
+  prod/office), tests/unit/edition-service.test.ts (optional field, applied value matches the edition file).
+- Version impact: **minor** (phone push turns on by itself on Trina team servers; no API or data change).
 
 ## Self-service account deletion — 내 계정 삭제 (feat/self-account-deletion, 2026-11-14, the owner, QA TC-1524..1532)
 

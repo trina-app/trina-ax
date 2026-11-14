@@ -8,7 +8,7 @@ import { translate, type MessageKey } from '../../src/i18n'
 import { adminPath, chatErrorText } from '../../src/lib/chatErrors'
 import { flowReasonKey } from '../../src/lib/integrations'
 
-const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const REASONS = Object.keys(CHAT_ERROR_MESSAGES) as ChatErrorReason[]
 const say = (l: (typeof LOCALES)[number], r: ChatErrorReason, role: 'owner' | 'admin' | 'member', noAi = false) => {
   const { key, where } = chatErrorText(r, role, noAi)

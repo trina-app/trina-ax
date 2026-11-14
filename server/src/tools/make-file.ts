@@ -134,12 +134,12 @@ const LATIN_FONTS = ['Helvetica Neue', 'Arial', 'Libertinus Serif']
 /** a PDF's language: the team's languages and the two Chinese scripts */
 export type PdfLanguage = Locale | 'zh-Hans' | 'zh-Hant'
 /** typst's lang (and region) for each */
-const TYPST_LANG: Record<PdfLanguage, string> = { ko: 'lang: "ko"', en: 'lang: "en"', id: 'lang: "id"', ja: 'lang: "ja"', es: 'lang: "es"', 'zh-Hans': 'lang: "zh", region: "cn"', 'zh-Hant': 'lang: "zh", region: "tw"' }
+const TYPST_LANG: Record<PdfLanguage, string> = { ko: 'lang: "ko"', en: 'lang: "en"', id: 'lang: "id"', ja: 'lang: "ja"', es: 'lang: "es"', zh: 'lang: "zh", region: "cn"', 'zh-Hans': 'lang: "zh", region: "cn"', 'zh-Hant': 'lang: "zh", region: "tw"' }
 
 /** The fonts of a PDF in `lang`: its own CJK faces first, the other CJK faces (a Japanese report quoting a Korean name
  * still draws it), then Latin fallbacks. A language without CJK of its own keeps Korean first, as before. */
 export function pdfFonts(lang: PdfLanguage): string[] {
-  const first: CjkScript = lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant' ? lang : 'ko'
+  const first: CjkScript = lang === 'zh' ? 'zh-Hans' : lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant' ? lang : 'ko'
   return [...CJK_FONTS[first], ...(Object.keys(CJK_FONTS) as CjkScript[]).filter((k) => k !== first).flatMap((k) => CJK_FONTS[k]), ...LATIN_FONTS]
 }
 /** the font list of a Korean (or Latin-script) PDF */

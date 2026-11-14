@@ -5,13 +5,14 @@ import { ja } from '../../src/i18n/ja'
 import { es } from '../../src/i18n/es'
 import { id } from '../../src/i18n/id'
 import { ko } from '../../src/i18n/ko'
+import { zh } from '../../src/i18n/zh'
 import { account, cachedPaths, offlineServer, signInOfflineTeam, warmWorker } from './offline-server'
 import { signOut } from './nav'
 
-for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+for (const locale of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
   test(`${locale}: production SW, stopped listener, warm/cold assets and API-down retry retain the session`, async ({ page }) => {
     const server = await offlineServer()
-    const dict = { ko, en, id, ja, es }[locale]
+    const dict = { ko, en, id, ja, es, zh }[locale]
     try {
       await signInOfflineTeam(page, server.url, locale)
       await warmWorker(page)

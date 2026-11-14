@@ -19,7 +19,7 @@ const render = (l: Locale, s: Partial<ReturnType<typeof useAiAccess.getState>>) 
 }
 
 test('trial credit used up or over: that line first, then the button for this person, in every language', () => {
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
     const used = render(l, { action: 'connect_team', trial: 'used' })
     const line = translate(l, 'aiAccess.banner.trialUsed')
     expect(used).toContain('data-testid="ai-access-trial"')

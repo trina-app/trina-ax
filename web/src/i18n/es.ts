@@ -1472,7 +1472,7 @@ export const es: Record<MessageKey, string> = {
   'push.denied': "El navegador bloquea las notificaciones de este sitio. Permítalas en la configuración del sitio y vuelva a intentarlo. En una ventana privada no se pueden activar.",
   'push.deniedApp': 'Las notificaciones de esta app están desactivadas. Actívelas en los Ajustes del teléfono y vuelva a intentarlo.',
   'push.phoneGateway': 'Push de la app móvil: activado. Los avisos pasan por {host} hacia Apple y Google, solo con texto genérico.',
-  'push.phoneOff': 'Las notificaciones de la app móvil están desactivadas: el servidor del equipo no tiene una dirección de notificaciones. Se activan cuando quien administra el servidor la añade en su configuración.',
+  'push.phoneOff': 'Las notificaciones de la app móvil están desactivadas en este servidor del equipo. Quien administra el servidor puede activarlas en su configuración.',
   'push.failed': "No se pudo guardar la configuración push. Revise su conexión y vuelva a intentarlo.",
   'push.ask': "¿Quiere recibir avisos de mensajes nuevos y de las respuestas de @Trina?",
   'push.turnOn': "Activar avisos",

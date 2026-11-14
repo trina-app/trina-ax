@@ -104,5 +104,5 @@ export function placesText(c: Pick<PostCheck, 'places' | 'own' | 'otherPlaces'>,
     .map((w) => (w.length > 120 ? `${w.slice(0, 119)}…` : w))
   const named = words.slice(0, 12)
   if (c.otherPlaces || words.length > named.length || !named.length) named.push(say('placeOther', locale))
-  return named.join(locale === 'ja' ? '、' : ', ')
+  return named.join(locale === 'ja' || locale === 'zh' ? '、' : ', ')
 }

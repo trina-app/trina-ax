@@ -3,7 +3,7 @@ import { reportBrowserAnswers } from './coverage-report'
 
 export const OWNER = { username: 'olga', password: 'correct horse battery' }
 
-export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' | 'en' | 'id' | 'ja' | 'es'; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
+export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
   reportBrowserAnswers(page)
   const r = await page.request.post('/__test/reset', { data: o })
   expect(r.ok()).toBeTruthy()
