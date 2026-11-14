@@ -1531,6 +1531,8 @@ export const es: Record<MessageKey, string> = {
   'connectors.allow': "Permitir y continuar",
   'connectors.deny': "Denegar",
   'connectors.expired': "Esta solicitud venció o se abrió en otra sesión. Vuelva a conectar desde la aplicación.",
+  'connectors.guestTitle': "Los invitados no pueden conectar aplicaciones a Trina",
+  'connectors.guestBody': "Esta cuenta es de invitado en un solo lugar, así que no se puede conectar Claude ni otras aplicaciones. No se permitió nada. Puede cerrar esta ventana.",
   'connectors.currentSession': "Permitido en la sesión actual",
   'connectors.expires': "Vence: {date}",
   'push.title': "Notificaciones push del dispositivo",

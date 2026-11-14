@@ -1558,6 +1558,8 @@ export const ko = {
   'connectors.allow': '허용하고 계속',
   'connectors.deny': '거절',
   'connectors.expired': '요청이 만료됐거나 다른 로그인 세션에서 열렸어요. 앱에서 다시 연결해 주세요.',
+  'connectors.guestTitle': '게스트 계정은 앱을 연결할 수 없어요',
+  'connectors.guestBody': '이 계정은 한 곳에만 초대된 게스트라서 Claude 같은 앱을 연결할 수 없어요. 아무것도 허용되지 않았어요. 이 창은 닫으셔도 돼요.',
   'connectors.currentSession': '현재 로그인에서 허용됨',
   'connectors.expires': '만료: {date}',
   'push.title': '기기 푸시 알림',

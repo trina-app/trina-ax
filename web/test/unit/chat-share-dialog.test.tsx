@@ -99,6 +99,17 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
+  test('a guest is never offered (a chat shared with people is no place of theirs); a member is', async () => {
+    routesWith(audience())
+    routes['GET /api/people'] = () => json(200, { people: [...PEOPLE.people, { id: 'gina', name: 'Gina Park', guest: true, guestPlace: { kind: 'room', id: 'r1', name: 'Quote prep' } }] })
+    const m = await open()
+    await m.type('chat-share-picker-search', 'park')
+    expect(m.find('participant-add-user-gina')).toBeNull()
+    await m.type('chat-share-picker-search', 'bob')
+    expect(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000)).toBeTruthy()
+    await m.unmount()
+  })
+
   test('a pick: new, Share on; ✕ asks; Keep editing keeps it; Discard closes', async () => {
     routesWith(audience())
     let closed = 0

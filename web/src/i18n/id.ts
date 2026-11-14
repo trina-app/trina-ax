@@ -1559,6 +1559,8 @@ export const id: Record<MessageKey, string> = {
   'connectors.allow': 'Izinkan dan lanjutkan',
   'connectors.deny': 'Tolak',
   'connectors.expired': 'Permintaan kedaluwarsa atau dibuka dari sesi lain. Hubungkan kembali dari aplikasi.',
+  'connectors.guestTitle': 'Tamu tidak bisa menghubungkan aplikasi ke Trina',
+  'connectors.guestBody': 'Akun ini adalah tamu di satu tempat, jadi Claude dan aplikasi lain tidak bisa dihubungkan. Tidak ada yang diizinkan. Anda bisa menutup jendela ini.',
   'connectors.currentSession': 'Diizinkan dalam login saat ini',
   'connectors.expires': 'Kedaluwarsa: {date}',
   'push.title': 'Notifikasi push perangkat',
