@@ -311,7 +311,7 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   await row.hover()
   await more.click()
   // the Trina list has no folders any more: no "Move to folder", the project's move instead
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['chat.share.menu'], t['common.delete']])
   await expect(page.getByTestId('row-folder-move')).toHaveCount(0)
 })
 
