@@ -26,8 +26,8 @@ async function holdEnter(page: Page, presses = 25) {
   await page.waitForTimeout(800)
 }
 
-// Folder permissions › By folder (the tree): since stage 5 a folder's rules change in the edit panel ("follow the folder
-// above" is no rules saved there, access-edit.spec.ts), and removing a rule row is for cleaning up only: a row left
+// Folder permissions › By folder (the tree): a folder's rules change in the Share dialog ("no setting here" is no
+// rules saved there, folder-access.spec.ts), and removing a rule row is for cleaning up only: a row left
 // without rules that no project uses. The folder stays in the tree, the delete button goes with the row, and the focus
 // goes to the folder's rules button instead of the page. Rows of folders that are not in the tree have their own list
 // (access-tree.spec.ts: focus to the next row's delete, then "Add folder").

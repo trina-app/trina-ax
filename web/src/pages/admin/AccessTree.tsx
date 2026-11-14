@@ -1421,7 +1421,7 @@ function OutsideRules({ rows, folders, subject, groups, editable, onEdit, remova
   folders: Folder[] | null
   subject: (type: string, id: string | null) => string
   groups: Group[]
-  /** the people and groups the edit panel names have come */
+  /** the people and groups the Share dialog names have come */
   editable: boolean
   onEdit: (f: Folder) => void
   removal: ReturnType<typeof useRemoveRules>

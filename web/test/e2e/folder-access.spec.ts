@@ -338,8 +338,14 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   await expect(page.getByTestId('sharing-general-inherited')).toHaveText(en('folderAccess.fromFolder', { folder: 'marketing' }))
   // following a Restricted folder still lets in who it lists (Bob): "Only people listed here" cuts them off (review H1),
   // and "Use the access of" brings the folder back to following
+  await expect(page.getByTestId('sharing-general-limit')).toHaveText(en('folderAccess.limitHere', { folder: 'marketing' }))
   await page.getByTestId('sharing-general-limit').click()
   await expect(outcome(page)).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
+  // cutting them off asks first, by name (re-review of #779); Cancel keeps the draft
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] })).toBeVisible()
+  await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
+  await page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] }).getByRole('button', { name: t['common.cancel'] }).click()
   await expect(page.getByTestId('sharing-general-limit')).toHaveCount(0)
   await page.getByTestId('sharing-general-follow').click()
   await expect(page.getByTestId('sharing-save')).toHaveCount(0)

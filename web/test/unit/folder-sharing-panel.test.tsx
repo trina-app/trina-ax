@@ -230,6 +230,24 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
 })
 
 describe('review of #779: the owner\'s row, and General access before the first answer', () => {
+  test('Restricted that cuts off who the folder above lets in asks first, by name (re-review of #779)', async () => {
+    const m = await open()
+    // Quotes has no General access of its own; Sales (above) lets Leads in: Carol
+    await m.click('sharing-general-limit')
+    await ready(m)
+    expect(m.get('sharing-outcome').textContent).toContain('Carol will no longer be able to open it')
+    await m.click('sharing-save')
+    const ask = await m.until(() => m.find('dialog-confirm'), 'the confirm')
+    expect(m.html()).toContain(en('folderAccess.narrowTitle'))
+    expect(m.get('sharing-confirm-body').textContent).toContain('Carol will no longer be able to open it')
+    expect(ask.textContent).toBe(en('folderAccess.saveAnyway'))
+    // Cancel: nothing saved
+    await m.click((ask.parentNode as FakeElement).querySelectorAll('button')[0]!)
+    await m.until(() => !m.find('dialog-confirm'), 'closed')
+    expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(0)
+    await m.unmount()
+  })
+
   test('the owner listed here: Full access with Remove access only; kept out (an old row): no Add, only off the list', async () => {
     rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'read' }])
     const m = await open()
@@ -256,6 +274,10 @@ describe('review of #779: the owner\'s row, and General access before the first 
       const m = await mountHost('shared/Sales/Quotes')
       const sel = await m.until(() => m.find('sharing-general-select'), 'the select')
       expect(sel.hasAttribute('disabled')).toBe(true)
+      // no value shown yet (not "Restricted"), no role, no line under it (re-review of #779)
+      expect(valueOf(sel)).toBe('')
+      expect(m.find('sharing-general-role')).toBeNull()
+      expect(m.find('sharing-general-hint')).toBeNull()
       release()
       await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'enabled after the answer')
       await m.unmount()
