@@ -57,15 +57,22 @@ export const kindOf = (s: AppService): RoomAppKind => (isPreset(s) ? 'other' : s
 export const PICKER_GROUPS: readonly { key: 'forms' | 'payments' | 'work' | 'developers'; items: readonly AppService[] }[] = [
   { key: 'forms', items: ['google_forms', 'typeform', 'tally', 'jotform'] },
   { key: 'payments', items: ['stripe', 'shopify'] },
-  { key: 'work', items: ['notion', 'zendesk'] },
+  { key: 'work', items: ['notion', 'zendesk', 'jira', 'hubspot'] },
   { key: 'developers', items: ['github', 'sentry'] },
 ]
+/** "Show more services" (collapsed, under the groups): the regional services (plan P4: Toss Payments, Channel Talk,
+ * PortOne). The same list for everyone, no language or country logic. */
+export const MORE_SERVICES: readonly AppService[] = ['toss_payments', 'channel_talk', 'portone']
 /** Form services: the side chat offers "Summarize today's responses" when only these posted. */
 export const FORM_SERVICES: readonly AppService[] = ['google_forms', 'typeform', 'tally', 'jotform']
 
 /** The events the guide marks as optional to set up in the service (Shopify makes one webhook per event; Zendesk's
  * second trigger): until one arrives, its switch says "Not set up in {app}". */
-const OPTIONAL_EVENTS: Partial<Record<RoomAppPresetId, readonly string[]>> = { shopify: ['paid', 'cancelled', 'refund', 'fulfilled'], zendesk: ['updated'] }
+const OPTIONAL_EVENTS: Partial<Record<RoomAppPresetId, readonly string[]>> = {
+  shopify: ['paid', 'cancelled', 'refund', 'fulfilled'], zendesk: ['updated'],
+  // one Jira flow per trigger, one HubSpot workflow per object: the guide's later ones are optional
+  jira: ['transitioned', 'commented'], hubspot: ['contact', 'ticket'],
+}
 /** A service's switches: a kind's (shared ROOM_APP_SWITCHES) or a preset's (ROOM_APP_PRESET_SWITCHES). */
 export const switchesOf = (s: AppService): readonly { key: string; on: boolean; optional?: boolean }[] =>
   isPreset(s) ? ROOM_APP_PRESET_SWITCHES[s].map((w) => ({ ...w, optional: !!OPTIONAL_EVENTS[s]?.includes(w.key) })) : ROOM_APP_SWITCHES[s]
@@ -90,6 +97,18 @@ export const STRIPE_EVENTS: Record<string, readonly string[]> = {
   dispute: ['charge.dispute.created'],
   subscription_ended: ['customer.subscription.deleted'],
   subscription_new: ['customer.subscription.created'],
+}
+
+/** Toss Payments' event to tick (step 2). DEPOSIT_CALLBACK is not needed: a bank transfer also arrives as
+ * PAYMENT_STATUS_CHANGED (both ticked: the server shows it once). */
+export const TOSS_EVENTS: readonly string[] = ['PAYMENT_STATUS_CHANGED']
+
+/** HubSpot's "Customize request body" rows per object: the key Trina reads, and what it is mapped to in HubSpot (a
+ * property by its label, or a static value). Server: presets/hubspot.ts. */
+export const HUBSPOT_ROWS: Record<'deal' | 'contact' | 'ticket', readonly (readonly [string, string, 'static' | 'property'])[]> = {
+  deal: [['object', 'deal', 'static'], ['id', 'hubspotRecordId', 'property'], ['name', 'hubspotDealName', 'property'], ['amount', 'hubspotAmount', 'property'], ['stage', 'hubspotDealStage', 'property']],
+  contact: [['object', 'contact', 'static'], ['id', 'hubspotRecordId', 'property'], ['firstname', 'hubspotFirstName', 'property'], ['lastname', 'hubspotLastName', 'property'], ['company', 'hubspotCompany', 'property'], ['stage', 'hubspotLifecycle', 'property']],
+  ticket: [['object', 'ticket', 'static'], ['id', 'hubspotRecordId', 'property'], ['subject', 'hubspotTicketName', 'property'], ['stage', 'hubspotTicketStatus', 'property']],
 }
 
 /** Make's request content for the "Don't see your app?" example (Google Calendar › Watch Events, module 1): Make turns
