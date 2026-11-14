@@ -14,9 +14,10 @@ const ours = (url: URL) => url.origin === location.origin && url.pathname.starts
 export function installBridge(ready: Promise<DemoServer>) {
   const realFetch = window.fetch.bind(window)
   window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const req = new Request(input, init)
-    if (!ours(new URL(req.url))) return realFetch(input, init)
-    return (await ready).handle(req, '')
+    // the address first: a Request's body is read only when the answer is ours
+    const url = new URL(input instanceof Request ? input.url : String(input), location.href)
+    if (!ours(url)) return realFetch(input, init)
+    return (await ready).handle(new Request(input, init), '')
   }) as typeof fetch
 
   navigator.serviceWorker?.addEventListener('message', (e: MessageEvent) => {
@@ -26,7 +27,7 @@ export function installBridge(ready: Promise<DemoServer>) {
     void (async () => {
       try {
         const res = await (await ready).handle(new Request(d.url, { method: d.method, headers: d.headers, body: d.body }), '')
-        const body = res.status === 204 ? null : await res.arrayBuffer()
+        const body = [101, 204, 205, 304].includes(res.status) ? null : await res.arrayBuffer()
         port.postMessage({ status: res.status, headers: [...res.headers], body }, body ? [body] : [])
       } catch {
         port.postMessage({ status: 500, headers: [], body: null })

@@ -116,3 +116,15 @@ test('"Start over" begins the story again', async ({ page }) => {
   await expect(page.getByTestId('member-welcome-ask-button')).toBeVisible()
   await expect(guide(page)).toHaveText(script.guide[0]!.text)
 })
+
+test('Stop while a card waits closes it and leaves the story where it was', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('member-welcome-title')).toBeVisible()
+  await page.getByTestId('composer-input').first().fill('Tell me a joke')
+  await page.getByTestId('send').first().click()
+  await expect(page.getByTestId('ask-card').last()).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('stop').first().click()
+  await expect(page.getByTestId('ask-card')).toHaveCount(0)
+  await expect(page.getByTestId('stop')).toHaveCount(0)
+  await expect(guide(page)).toHaveText(script.guide[0]!.text)
+})

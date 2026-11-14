@@ -198,7 +198,8 @@ export class DemoServer extends MockServer {
   /** a story person's message, when its trigger happened: "typing…" for a moment, then the message */
   async postEvent(ev: DemoEvent) {
     const room = this.rooms.find((r) => r.id === this.idOf('room', ev.room))
-    if (!room) return
+    // a script error, loud: every step chained on this message would wait for good
+    if (!room) throw new Error(`demo: event ${ev.id} names no room ${ev.room}`)
     const gen = this.generation
     for (const f of ev.newFiles ?? []) this.putDemoFile(f)
     const typing = (on: boolean) => {
@@ -222,8 +223,18 @@ export class DemoServer extends MockServer {
       const message = this.addRoomMessage(room, c.user.id, '', [], now(), true)
       // the visitor's words as written (never resolved like the story's)
       Object.assign(message, { body: c.body.body, mentions: c.body.mentions ?? [] })
+      if (room.lastMessage) room.lastMessage.excerpt = message.body.slice(0, 120)
       this.publish({ type: 'room.message', data: { roomId: room.id, message } })
+      this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
       return { status: 201, body: message }
+    }
+    // Stop while a card waits: the card closes and the answer ends stopped (the mock's stop only marks the turn)
+    const stop = h.stop!
+    h.stop = async (c) => {
+      const out = (await stop(c)) as { turnId: string | null }
+      const waiting = out.turnId ? this.pendingAsk.get(out.turnId) : undefined
+      if (waiting) { this.pendingAsk.delete(out.turnId!); waiting(null) }
+      return out
     }
     h.roomFile = (c) => {
       const data = this.roomFiles.get(c.params.fileId!) ?? this.notFound()
@@ -326,18 +337,19 @@ export class DemoServer extends MockServer {
     const answer = this.engine.answerFor(prompt, place)
     if (answer) {
       await this.playReply(chat, assistant, answer, pub)
-      this.engine.answered(answer.id)
+      // a stopped answer does not move the story on
+      if (!this.stopped.has(assistant.turnId!)) this.engine.answered(answer.id)
       return
     }
     // free typing: a short reply and the suggested questions as buttons; a pick goes on in the same answer
     await this.playReply(chat, assistant, { text: this.script.fallback.text }, pub)
     const offered = this.engine.suggestionsFor(place)
-    if (!offered.length) return
+    if (!offered.length || this.stopped.has(assistant.turnId!)) return
     const i = await this.askCard(chat, assistant, { question: this.script.fallback.question ?? this.script.fallback.text, options: offered.map((a) => ({ label: a.label ?? a.prompt, reply: a })) }, pub)
     const picked = i === null ? undefined : offered[i]
     if (!picked) return
     await this.playReply(chat, assistant, picked, pub)
-    this.engine.answered(picked.id)
+    if (!this.stopped.has(assistant.turnId!)) this.engine.answered(picked.id)
   }
 
   /** steps, the text, its files, then its card and the chosen option's reply */
@@ -363,7 +375,7 @@ export class DemoServer extends MockServer {
       pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset, text: piece } })
       await sleep(PIECE_MS)
     }
-    if (!reply.ask?.options.length) return
+    if (!reply.ask?.options.length || this.stopped.has(turnId)) return
     const i = await this.askCard(chat, assistant, reply.ask, pub)
     const chosen = i === null ? undefined : reply.ask.options[i]
     if (chosen) await this.playReply(chat, assistant, chosen.reply, pub)
@@ -396,7 +408,8 @@ export class DemoServer extends MockServer {
     const answer = await new Promise<unknown>((r) => this.pendingAsk.set(turnId, r))
     this.openAsks.delete(turnId)
     if (s) s.waiting = false
-    pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+    pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: answer == null ? 'turn_ended' : 'answered' } })
+    if (answer == null) return null
     const v = Number(Array.isArray(answer) ? answer[0] : answer)
     return Number.isInteger(v) && v >= 0 && v < ask.options.length ? v : null
   }
