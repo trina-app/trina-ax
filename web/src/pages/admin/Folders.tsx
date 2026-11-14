@@ -105,7 +105,8 @@ export default function Folders() {
           {view === 'people' ? <PersonOpens query={query} /> : <FolderList key={round} query={query} onShare={(path) => setParams((p) => { const q = new URLSearchParams(p); q.set('edit', path); return q }, { replace: true })} />}
         </Suspense>
       </TabPanel>
-      {editing !== null && (
+      {/* a team project's folder waits for the project list (its lines need the project), so it never shows another view first */}
+      {editing !== null && !(inProjects(editing) && managed === null) && (
         <FolderAccessPanel
           key={editing}
           target={{ path: editing, access: 'write' }}

@@ -52,9 +52,10 @@ test('the list: only folders with their own sharing, in Files\' names, Limited m
   await expect(folderRow(page, 'shared').getByTestId('folder-crumbs')).toHaveText(TOP_FOLDER_LABELS.shared.en)
   // who, in one line
   // (a folder that is not limited also gets what the folder above gives: "+ the folder above"; a limited one only its own)
-  await expect(folderRow(page, 'shared').getByTestId('folders-row-who')).toHaveText(`${en('folders.whoEveryone', { team: 'Acme', role: t['folderAccess.canEdit'] })} ${t['folders.plusAbove']}`)
+  await expect(folderRow(page, 'shared').getByTestId('folders-row-who')).toHaveText(en('folders.whoEveryone', { team: 'Acme', role: t['folderAccess.canEdit'] }))
+  // top folders: the team root gives nobody anything, so no "+ the folder above"
   await expect(folderRow(page, 'marketing').getByTestId('folders-row-who')).toHaveText(`Bob · ${t['folderAccess.canEdit']}`)
-  await expect(folderRow(page, 'finance').getByTestId('folders-row-who')).toHaveText(`재무팀 · ${t['folderAccess.canView']} ${t['folders.plusAbove']}`)
+  await expect(folderRow(page, 'finance').getByTestId('folders-row-who')).toHaveText(`재무팀 · ${t['folderAccess.canView']}`)
   // only a limited folder is marked (the review cut "Shared with more" and "Whole team")
   await expect(folderRow(page, 'marketing').getByTestId('folder-kind')).toHaveText(t['folders.kindLimited'])
   for (const p of ['shared', 'docs', 'finance']) await expect(folderRow(page, p).getByTestId('folder-kind')).toHaveCount(0)
@@ -115,6 +116,16 @@ test('the address: ?edit= and the old ?folder= open a folder\'s Share dialog; a 
   await expect(page).toHaveURL(/\/projects$/)
 })
 
+
+test('a team project\'s folder opened from Admin shows the project\'s members way, never its rules', async ({ page }) => {
+  await signIn(page)
+  await team(page)
+  const p = (await call(page, 'post', '/api/projects', { name: 'Falcon', instructions: '' })) as { folderPath: string }
+  await page.goto(`/admin/folders?edit=${encodeURIComponent(p.folderPath)}`)
+  await expect(page.getByTestId('folder-access-project')).toBeVisible()
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-save')).toHaveCount(0)
+})
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true })
