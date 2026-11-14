@@ -23,6 +23,7 @@ import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
+import { pausedNoticeLink, pausedNoticeText } from '../rooms/apps/PausedNotice'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
  * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
@@ -120,6 +121,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
   if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
+  // an app in a room paused for the day (docs/DECISIONS.md "Apps posting in rooms")
+  if (item.code === 'room_app.paused' && item.roomApp) return pausedNoticeText(item.roomApp, t, locale)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
   if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
@@ -153,6 +156,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // an app that paused: its settings in its room, while I am in it
+  if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }

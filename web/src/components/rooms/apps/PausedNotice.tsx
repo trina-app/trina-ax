@@ -1,0 +1,64 @@
+// The "app paused" notice in Activity (notifications 'room_app.paused', docs/DECISIONS.md "Apps posting in rooms";
+// plan screen 6): "Sign-up form paused in #sales · It reached 500 messages today. 37 more were skipped and won't
+// appear. It starts again tomorrow." with [Resume now] (once a day, while it is still paused and I manage it) and
+// [Open settings] (the room with the app's settings open: /rooms/<room>?apps=<app>). "Tomorrow" is the team's midnight;
+// when that is not midnight where the reader is, the time is said instead.
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { InboxNotification, Locale } from '@mycel/shared/api'
+import { api, API, errorText } from '../../../lib/api'
+import { intlTag } from '../../../lib/format'
+import { useLocale, useT } from '../../../i18n'
+import { toast } from '../../../store/ui'
+import { Button } from '../../ui'
+
+type Paused = NonNullable<InboxNotification['roomApp']>
+type T = ReturnType<typeof useT>
+
+/** The time the pause ends, when that is not midnight in the reader's time zone (else null: "tomorrow" says it). */
+export function startsAtTime(until: string | null, locale: Locale, timeZone?: string): string | null {
+  if (!until) return null
+  const d = new Date(until)
+  const parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(d)
+  if (parts === '00:00') return null
+  return new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short', timeZone }).format(d)
+}
+
+export function pausedNoticeText(p: Paused, t: T, locale: Locale): string {
+  const title = p.roomName ? t('roomApps.pausedTitle', { app: p.name, room: p.roomKind === 'team' ? `#${p.roomName}` : p.roomName }) : t('roomApps.pausedTitleNoRoom', { app: p.name })
+  const at = startsAtTime(p.pausedUntil, locale)
+  const body = at ? t('roomApps.pausedBodyAt', { cap: p.cap, skipped: p.skipped, time: at }) : t('roomApps.pausedBody', { cap: p.cap, skipped: p.skipped })
+  return `${title}. ${body}`
+}
+
+/** Where the row opens: the app's settings in its room, while I am in it. */
+export const pausedNoticeLink = (p: Paused | undefined) => (p?.roomId ? `/rooms/${encodeURIComponent(p.roomId)}?apps=${encodeURIComponent(p.appId)}` : null)
+
+/** Under the row: Resume now (when it can be) and Open settings. */
+export function PausedNoticeExtras({ item, onRead, onChanged }: { item: InboxNotification; onRead: () => void; onChanged: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const p = item.roomApp
+  const [busy, setBusy] = useState(false)
+  if (!p?.roomId) return null
+  const resume = async () => {
+    setBusy(true)
+    try {
+      await api.call(API.resumeRoomApp, { params: { id: p.roomId!, appId: p.appId } })
+      toast({ level: 'success', text: t('roomApps.resumed', { app: p.name }) })
+      onRead()
+      onChanged()
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const settings = pausedNoticeLink(p)!
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="notification-room-app">
+      {p.canResume && p.pausedUntil && <Button size="sm" variant="primary" busy={busy} onClick={() => void resume()} data-testid="notification-room-app-resume">{t('roomApps.resumeNow')}</Button>}
+      <Link to={settings} onClick={onRead} className="inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover max-md:h-11" data-testid="notification-room-app-settings">{t('roomApps.openSettings')}</Link>
+    </div>
+  )
+}

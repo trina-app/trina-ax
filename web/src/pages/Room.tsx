@@ -47,6 +47,7 @@ import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
 import { ImageGroup } from '../components/ImageViewer'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
+import { mayManageApps, useRoomApps } from '../store/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
@@ -151,8 +152,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useOverlayEntry(sideOpen && !threadId, closeSide)
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
-  const askTrina = useCallback((m: RoomMessage) => {
-    setSideSeed(messageSeed(m, aiName(t)))
+  // `ask`: a question that goes at once with the message quoted (an app's thread: "Summarise this thread")
+  const askTrina = useCallback((m: RoomMessage, ask?: string) => {
+    setSideSeed({ ...messageSeed(m, aiName(t)), ...(ask ? { ask } : {}) })
     setSideOpen(true)
   }, [t, setSideOpen])
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
@@ -162,6 +164,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // ?m=<message>: the message a link points at (an Inbox row: components/settings/RoomNoticeRow.tsx), picked out in the
   // thread when one is open, else in the timeline
   const target = useMemo(() => { const m = new URLSearchParams(location.search).get('m'); return m && isUuid7(m) ? m : null }, [location.search])
+  // the room's apps (docs/DECISIONS.md "Apps posting in rooms"), for those who manage them: the ⋯ says how many post
+  // here; ?apps=<app id> (the paused notice's "Open settings") opens that app's settings, once
+  const manages = mayManageApps(room, me)
+  useEffect(() => { if (manages) void useRoomApps.getState().load(roomId).catch(() => {}) }, [manages, roomId])
+  const appsParam = useMemo(() => new URLSearchParams(location.search).get('apps'), [location.search])
+  useEffect(() => {
+    if (!appsParam || !manages) return
+    useRoomApps.getState().open(roomId, isUuid7(appsParam) || /^[A-Za-z0-9_-]{1,64}$/.test(appsParam) ? { view: 'settings', appId: appsParam } : { view: 'auto' })
+    navigate({ pathname: location.pathname, search: '' }, { replace: true, state: location.state })
+  }, [appsParam, manages, roomId, navigate, location.pathname, location.state])
   // a thread opened from this room is one step back from it (the back arrow, the browser's back, a phone's back
   // gesture all close it); one thread replaces another and keeps how the first was reached; a thread opened from a link
   // or a notice closes to its room
@@ -516,7 +528,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     {/* the room's right column: the thread in the address, else my Trina side chat */}
     {threadId ? (
       <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
-        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />
+        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m, ask) => { closeThread(); askTrina(m, ask) }} focusBox={focusThread} highlight={target} />
       </RoomSideColumn>
     ) : sideOpen ? (
       <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>

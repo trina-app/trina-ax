@@ -535,6 +535,9 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                 <CopyButton text={/^https?:\/\//.test(tell) ? tell : `https://${tell}`} showLabel className="shrink-0" />
               </div>
             )}
+            {/* the server's own address has a country or network list, and an app posts in a room: services reach its
+                /in/ addresses anyway (docs/DECISIONS.md "Apps posting in rooms", owner decision 8) */}
+            {c.appsAnywhere && <p className="mt-2 text-xs text-muted" data-testid="connection-apps-anywhere">{t('roomApps.connectionAnywhere')}</p>}
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-code-sm break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
             {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}

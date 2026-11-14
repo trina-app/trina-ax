@@ -27,6 +27,7 @@ import { RoomSideColumn } from './RoomSideColumn'
 import type { SideSeed } from './SideChatPanel'
 import { ImageGroup } from '../ImageViewer'
 import { FileDropZone } from '../FileDropZone'
+import { AiMark } from './AiFace'
 
 const NO_PENDING: PendingSend[] = []
 const NO_REPLIES: RoomMessage[] = []
@@ -36,7 +37,7 @@ const ALONE_GONE = new ApiError(404, { code: 'not_found', message: '' })
 /** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. `frame`
  * false: the column around it is the caller's (RoomSideColumn). `alone`: `rootId` is a message without a thread, shown
  * by itself. */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, onAskFile, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, onAskFile, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage, ask?: string) => void; onAskFile?: (seed: SideSeed) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
   const t = useT()
   const locale = useLocale()
   // a DM whose other person left the team: the thread reads, nobody writes in it (pages/Room.tsx says so under the room)
@@ -150,6 +151,13 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
               {!root && view?.loading && <Skeleton lines={3} className="pt-2" />}
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useRooms.getState().loadThread(roomId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
               {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" onAskTrina={onAskTrina} onAskFile={onAskFile} highlight={highlight} />}
+              {/* an app's thread (docs/DECISIONS.md "Apps posting in rooms"): one chip asks the side chat to sum it up */}
+              {root?.app && !root.deletedAt && !alone && onAskTrina && (
+                <button type="button" onClick={() => onAskTrina(root, t('roomApps.askThread'))} className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-hover max-md:min-h-11" data-testid="thread-app-summarise">
+                  <AiMark place="menu" />
+                  {t('roomApps.chipThread')}
+                </button>
+              )}
               {root && !alone && (
                 <div role="separator" className="flex items-center gap-3 pt-3 pb-1 text-xs text-faint" data-testid="thread-count">
                   {count > 0 ? t('rooms.threadReplies', { n: count }) : t('rooms.threadNone')}
