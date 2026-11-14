@@ -197,7 +197,7 @@ export class DemoServer extends MockServer {
 
   /** a story person's message, when its trigger happened: "typing…" for a moment, then the message */
   async postEvent(ev: DemoEvent) {
-    const room = this.rooms.find((r) => r.id === this.idOf('room', ev.room))
+    const room = this.rooms.find((r) => r.id === this.idOf('room', ev.room ?? ''))
     // a script error, loud: every step chained on this message would wait for good
     if (!room) throw new Error(`demo: event ${ev.id} names no room ${ev.room}`)
     const gen = this.generation
@@ -210,7 +210,7 @@ export class DemoServer extends MockServer {
     await sleep(1100)
     if (gen !== this.generation) return
     typing(false)
-    const message = this.addRoomMessage(room, ev.from, ev.text, ev.files ?? [], now(), false)
+    const message = this.addRoomMessage(room, ev.from, ev.text ?? '', ev.files ?? [], now(), false)
     this.publish({ type: 'room.message', data: { roomId: room.id, message } })
     this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
     this.engine.fire({ event: ev.id })

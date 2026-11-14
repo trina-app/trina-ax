@@ -50,8 +50,12 @@ export interface DemoScript {
     title: string
     /** the question the card's button sends to the AI; must be the `prompt` of one of `answers` */
     prompt: string
-    /** the button's label (default: the app's own "묻기") */
+    /** the button's label (default: the app's own "Ask") */
     button?: string
+    /** v2: who invited the visitor: their photo and "<name> invited you" on the card (default: the first event's sender) */
+    inviter?: Id
+    /** v2: the line under the title (default: the app's "<name> invited you · N people are here") */
+    subtitle?: string
   }
   /** the canned AI answers; the visitor's message is matched to `prompt` (trimmed, exact) */
   answers: DemoAnswer[]
@@ -72,8 +76,15 @@ export interface DemoPerson {
   name: string
   /** a job title, shown in the guide and people's profile line, e.g. "마케팅팀장" */
   title?: string
-  /** a profile picture in assets/ (square PNG or JPEG); without one the app shows initials */
+  /** a profile picture in assets/ (square PNG, JPEG or WebP, 256 px or more); without one the app shows initials.
+   * Swap a photo by replacing that file: nothing else changes */
   avatar?: Asset
+  /** v2: someone outside the team (e.g. Chris at the agency): not in the people list or rooms, only in toasts */
+  outside?: true
+  /** v2: their organisation, shown after the name in a toast: "Chris (Fieldnote)" */
+  org?: string
+  /** v2: shown online (a presence dot) from the start; default: online */
+  online?: boolean
 }
 
 export interface DemoGroup {
@@ -157,14 +168,28 @@ export interface DemoAnswer {
   files?: DemoFile[]
   /** a card after the text with buttons; the chosen option's reply goes on in the same answer */
   ask?: DemoAsk
+  /** v2: shown under the answer, in this order (all optional) */
+  /** team files the answer read, as chips that open the file */
+  sources?: string[]
+  /** people to know, each a chip with their photo and one line */
+  people?: { id: Id; why: string }[]
+  /** a before/after slider of two team pictures (paths), e.g. Leo's banner and the new one */
+  compare?: { before: string; after: string; beforeLabel?: string; afterLabel?: string }
+  /** the things the answer made, as tiles that open the file (pictures show a thumbnail; a text file its first lines) */
+  deliverables?: { path: string; label: string }[]
+  /** ONE big button under the answer: posts the answer (with its deliverables' pictures) to the room in one click, no
+   * dialog, and opens that room. Counts as { shared: room } */
+  sendTo?: { room: Id; label: string }
 }
 
 export interface DemoReply {
   steps?: DemoStep[]
   text: string
   files?: DemoFile[]
-  /** another card after this reply (e.g. "보낼까요?" after a draft) */
+  /** another card after this reply (e.g. "Send it?" after a draft) */
   ask?: DemoAsk
+  /** v2: files shown as attachment chips above the card (e.g. the banner and the square version of a mail) */
+  attachments?: string[]
 }
 
 export interface DemoAsk {
@@ -198,27 +223,45 @@ export interface DemoEvent {
   id: Id
   /** when it is sent */
   after: DemoTrigger
-  /** wait this long after the trigger (default 1500 ms; "typing…" shows meanwhile) */
+  /** wait this long after the trigger (default 1500 ms) */
   delayMs?: number
-  /** where: a room id */
-  room: Id
+  /** where: a room id. v2: none for someone `outside` (a toast only) */
+  room?: Id
   from: Id
-  text: string
+  /** the message; v2: none for an event that only reacts (see `reactions`) */
+  text?: string
+  /** v2: how long "<name> is typing…" shows before the message (default 1100 ms; 0: none) */
+  typingMs?: number
+  /** v2: a toast slides in at the top right with the message ("Sara: Got a sec? 🙏"); clicking it opens `open`
+   * (default: the event's room). Shown whatever screen the visitor is on */
+  toast?: true | { text?: string; open?: DemoGo }
+  /** v2: emoji reactions that pile up, one by one: on this event's message, or with `on: 'visitor'` on the visitor's
+   * latest message in the room (e.g. on Mina's post). `afterMs`: after the previous one (default 2500) */
+  reactions?: { from: Id; emoji: string; afterMs?: number }[]
+  on?: 'self' | 'visitor'
   /** files attached (paths of `files`, or new ones listed in `newFiles`) */
   files?: string[]
   /** files this message brings that did not exist before (e.g. the CEO's final file) */
   newFiles?: DemoFile[]
 }
 
+/** A place in the app the guide (or a toast) takes the visitor to. */
+export type DemoGo = 'home' | { room: Id } | { project: Id } | { side: Id }
+
 export interface DemoGuideStep {
   id: Id
-  /** the line, e.g. "다음: 팀장 DM 열기 →" */
+  /** the line, e.g. "Next: open Sara's message →" */
   text: string
+  /** v2: the line while the visitor is somewhere else than `go`, e.g. "Sara is waiting in your DMs →" (default: text) */
+  away?: string
   /** where the line takes the visitor when they click it (brings them back if they wandered off) */
-  go: 'home' | { room: Id } | { project: Id } | { side: Id }
-  /** the control to highlight there, as a CSS selector (copy the ones in the example; most are data-testid) */
+  go: DemoGo
+  /** the control to highlight there, as a CSS selector (copy the ones in the example; most are data-testid). Exactly one
+   * control glows at a time: this one, or the step's suggested buttons when it has `suggest`. v2 selectors the demo adds:
+   * [data-testid="demo-send-to"] (the answer's big send button), [data-testid="room-side-chat-button"] (✦ in a room),
+   * [data-testid="demo-toast"], [data-testid="demo-project-card"] (a project link in a message) */
   highlight?: string
-  /** answer ids offered as buttons with the line (e.g. the two banner prompts) */
+  /** answer ids offered as big buttons right above the message box there (e.g. the two banner prompts) */
   suggest?: Id[]
   /** the step is over when this happens; the next one shows */
   until: DemoTrigger
@@ -233,6 +276,8 @@ export interface DemoEnd {
   delayMs?: number
   title: string
   body?: string
+  /** v2: the numbers on the card, in order; 'elapsed' is the real time since the start (m:ss) */
+  stats?: { label: string; value: number | 'elapsed' }[]
   /** the sign-up link (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
   signup: { label: string; url: string }
   /** closes the card; the visitor looks around freely */
