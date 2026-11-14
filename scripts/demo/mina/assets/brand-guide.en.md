@@ -14,11 +14,16 @@ Steepling is a fictional company made up for this demo. This page is sample cont
 | Ink | `#1B1F1C` | body text |
 
 - No red, purple or neon.
-- No rainbow or pastel gradients. Backgrounds are a flat colour or a natural, photo-like scene.
+- No rainbow or pastel gradients. Backgrounds are a flat colour or a real, natural photo.
+
+## Photos
+- Natural light, real kitchens and tables, winter mornings. The pouch is always dark green with the cream label.
+- No text inside photos: words are set on top.
 
 ## Type
-- **Pretendard** only.
-- Titles in ExtraBold, body in Regular. Titles at least 3× the body size.
+- **Fraunces** (SemiBold, italic for one stressed word) for headlines and the wordmark.
+- **Pretendard** for everything else: lines, prices, buttons, labels.
+- Headlines at least 3× the body size.
 
 ## Banners
 1. **One message.** A short title, one or two lines.

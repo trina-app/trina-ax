@@ -11,8 +11,8 @@ Steepling is a fictional company made up for this demo. This page is sample cont
 - 800 new Instagram followers
 
 ## Message
-- **Headline**: "Hello, Yuzu Ginger"
-- **One line**: Just add cold water. Lovely hot, too.
+- **Headline**: "A little sun for grey mornings."
+- **One line**: Yuzu Ginger cold brew: bright yuzu, a warm kick of ginger.
 - **Offer**: 20% off for launch (Nov 23 – Dec 6)
 
 ## To do

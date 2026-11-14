@@ -27,13 +27,12 @@ export const en = {
     brandGuide: 'shared/Brand guide.md',
     brief: 'November launch brief.md',
     leoBanner: 'launch-banner-leo-v1.png',
-    // A and B save under the same names (the latest one wins), so the mail always attaches what the visitor made
+    // the launch set (the mail attaches the banner and the square)
     banner: 'launch-banner-new.png',
     square: 'instagram-square.png',
     story: 'instagram-story.png',
     captions: 'captions.md',
-    brandCheck: 'brand-check.md',
-    background: 'background-yuzu-ginger.png',
+    photo: 'higgsfield-photo-yuzu-ginger.jpg',
   },
 
   /** the words of the steps shown above an answer */
@@ -44,7 +43,8 @@ export const en = {
     makeSquare: 'Make Instagram square',
     makeStory: 'Make Instagram story',
     writeCaptions: 'Write captions',
-    higgsfield: 'Generate background image (leaf green, yuzu slices, soft light)',
+    higgsfieldHero: 'Generate photo · pouch and iced Yuzu Ginger by a frosted window, morning light, 16:9',
+    higgsfieldCrops: 'Generate photo · same shot, 1:1 and 9:16',
     gmailSearch: 'Search mail',
     gmailSend: 'Send email',
   },
@@ -91,53 +91,30 @@ export const en = {
         daniel: 'says yes to the launch.',
       },
     },
-    bannerA: {
-      prompt: 'Fix it with our brand guide',
-      text: [
-        'Fixed it with the brand guide, and made the rest of the launch set while I was at it.',
-        '',
-        '- **One big title**, everything else smaller',
-        '- **Leaf green and cream**, yuzu yellow only on the sale badge',
-        '- **Logo top left**, Pretendard throughout',
-        '',
-        'Captions for the posts:',
-      ].join('\n'),
-      after: 'Leo\'s original is still in the project, untouched.',
-    },
-    bannerB: {
+    banner: {
       prompt: 'Make a new background with Higgsfield',
       text: [
-        'New background from Higgsfield: deep leaf green, soft yuzu slices, a bit of window light. Text is cream so it reads on the dark.',
+        'Shot it with Higgsfield: our green pouch and an iced Yuzu Ginger by a frosted window. The square and the story come from the same shot, so the pouch matches everywhere.',
         '',
-        'Same set in every size, plus captions for the posts:',
+        'Headline in Fraunces, the rest in Pretendard, yuzu yellow only on the 20% badge.',
+        '',
+        'Captions:',
       ].join('\n'),
-      after: 'The background is saved on its own too, if you want it for other posts.',
+      after: 'Leo\'s draft is untouched.',
     },
-    /** the captions both versions come with (A and B share them) */
+    /** the three captions that come with the set */
     captions: [
       'New for winter: Yuzu Ginger 🍋 Drop a bag in cold water before bed, wake up to something bright. 20% off till Dec 6.',
       'yuzu + ginger. that\'s it. that\'s the post. (ok fine, it\'s also 20% off this week)',
       'Our team has been quietly drinking this since August. It\'s yours from Monday.',
     ],
     captionsTitle: 'Captions: Yuzu Ginger launch',
-    /** brand-check notes that come with version A */
-    brandCheck: {
-      title: 'Brand check: launch banner v2',
-      lines: [
-        'Title: one message, "Hello, Yuzu Ginger", 3× the body size',
-        'Colours: leaf green #1F4D3A and cream #F6F1E7; yuzu yellow #F2B630 only on the sale badge',
-        'Removed: pastel gradient, red sale text, stars',
-        'Font: Pretendard ExtraBold / Regular',
-        'Logo: top left, 64 px from the edge',
-      ],
-    },
     deliverables: {
       banner: 'Web banner · 1200×628',
       square: 'Instagram square · 1080×1080',
       story: 'Instagram story · 1080×1920',
       captions: '3 captions',
-      brandCheck: 'Brand check',
-      background: 'Higgsfield background',
+      photo: 'Higgsfield photo',
     },
     compare: { before: 'Before: Leo\'s draft', after: 'After' },
     /** the other sizes, shown in the answer under the new banner */
@@ -207,7 +184,7 @@ export const en = {
     ask: { text: 'Ask Trina about the company →', away: 'Your first question is on Home →' },
     dm: { text: 'Sara sent you a message →', away: 'Sara is waiting in your DMs →' },
     project: { text: 'Open the project in Sara\'s message →', away: 'Sara is waiting in your DMs →' },
-    banner: { text: 'Pick one: brand guide or Higgsfield →', away: 'Leo\'s banner is waiting in the project →' },
+    banner: { text: 'Ask Trina to redo it with Higgsfield →', away: 'Leo\'s banner is waiting in the project →' },
     share: { text: 'Send it to #Marketing →', away: 'Your new banner is ready to share →' },
     room: { text: 'Open #Marketing: the team is reacting →', away: 'Open #Marketing: the team is reacting →' },
     mail: { text: 'Ask ✦ Trina to email Chris →', away: 'Chris still needs the banner →' },

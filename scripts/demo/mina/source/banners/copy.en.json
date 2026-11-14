@@ -1,7 +1,7 @@
 {
   "lang": "en",
   "brand": "Steepling",
-  "pouchKind": "COLD BREW TEA",
+  "pouchKind": "Cold brew tea",
   "pouchName": "Yuzu Ginger",
   "pouchCount": "10 tea bags",
   "leoFont": "Arial, Helvetica, sans-serif",
@@ -11,10 +11,10 @@
   "leo4": "Period: 11/23 ~ 12/6",
   "leo5": "Buy yours today~",
   "leoLogo": "steepling tea",
-  "eyebrow": "Winter limited · Out November 23",
-  "title": "Hello,<br>Yuzu Ginger",
-  "sub": "Just add cold water. Lovely hot, too.",
-  "badge": "Launch 20% off",
+  "eyebrow": "New · Winter only",
+  "headline": "A little sun<br>for <em>grey mornings.</em>",
+  "productLine": "Yuzu Ginger cold brew: bright yuzu,<br>a warm kick of ginger.",
+  "badge": "20% off",
   "badgeDates": "Nov 23 – Dec 6",
-  "cta": "Shop now →"
+  "cta": "Shop Yuzu Ginger →"
 }
