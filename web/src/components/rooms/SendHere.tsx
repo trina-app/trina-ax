@@ -148,6 +148,7 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
           target={<Target room={room} thread={confirm.ask.to === 'thread' ? thread : null} />}
           ask={confirm.ask}
           others={Math.max(0, (room?.memberCount ?? 1) - 1)}
+          later={room?.kind === 'team' || room?.kind === 'all'}
           attach={confirm.attach}
           onAttach={confirm.setAttach}
           busy={busy}

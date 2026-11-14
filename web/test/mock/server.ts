@@ -69,6 +69,7 @@ import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { LocalSpeechTool } from '@mycel/shared/api'
 import type { FileListStatus } from '@mycel/shared/api'
+import { WideningAnswer } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -366,6 +367,9 @@ export class MockServer {
   sharedByClientId = new Map<string, RoomMessage>()
   /** POST /__test/share-changed: a "confirm" key given before this is stale (something changed meanwhile) */
   shareEpoch = 0
+  /** POST /__test/widening {items}: the widening list (POST /api/sharing/widening-answers) of every project, and its
+   * count in the Members dialog's dry run when someone is added; none until set (until the next reset) */
+  widening: WideningAnswer[] | null = null
   messages: Message[] = []
   artifacts: Artifact[] = []
   /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
@@ -574,6 +578,7 @@ export class MockServer {
   fileList: FileListStatus = mockFileList()
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.widening = null
     this.notReadyTold = new Set()
     this.fileList = mockFileList()
     this.presence = new Map()
@@ -2762,7 +2767,17 @@ export class MockServer {
       const skillNames = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).map(([k]) => k.slice(p.folderPath.length + 8).split('/')[0]!).sort()
       const skills = skillNames.length
       const sharedChats = this.chats.filter((x) => x.projectId === p.id && !x.deletedAt && this.sharedChats.has(x.id)).length
-      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split }
+      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split, ...(this.widening?.length ? { hiddenAnswers: this.widening.length } : {}) }
+    },
+    // the widening list (chat/widening.ts): whoever may change the members (projectToEdit); POST /__test/widening's items,
+    // 20 a page (the cursor: where the next page starts)
+    wideningAnswers: (c) => {
+      const p = this.projectToEdit({ ...c, params: { id: c.body.target.projectId } })
+      void p
+      const all = this.widening ?? []
+      const at = c.body.cursor ? Number(c.body.cursor) : 0
+      const n = c.body.limit ?? 20
+      return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
     },
     putProjectParticipants: (c) => {
       const p = this.projectToEdit(c)
@@ -5591,6 +5606,7 @@ export class MockServer {
       this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
       for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
     }
+    else if (p === '/__test/widening') this.widening = (body.items as unknown[]).map((x) => WideningAnswer.parse(x))
     else if (p === '/__test/share-changed') {
       // something changed since the last "confirm" (someone joined, lost access): its key is stale
       this.shareEpoch++
@@ -6372,7 +6388,7 @@ export class MockServer {
       const requestId = `shared-read-${turnId}`
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 멤버 ${people.length}명 중 ${blind}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.`,
+        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 ${people.length}명 중 ${blind}명은 이곳을 열 수 없어요. 읽으면 찾은 내용이 이 채팅에 남아, 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 보게 돼요.`,
         options: [{ label: '읽고 공유하기', value: 'share' }, { label: '읽지 않기', value: 'skip' }],
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
       }
@@ -6388,7 +6404,7 @@ export class MockServer {
       this.sharedSend((uid) => (uid === user.id ? { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } } : null))
       pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
       const yes = answer === 'share' || (Array.isArray(answer) && answer[0] === 'share')
-      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '프로젝트 멤버 모두가 볼 수는 없는 곳이라 읽지 않았어요' }) })
+      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요' }) })
       text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 멤버 모두가 볼 수 있는 자료로만 답할게요.'
     }
     if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
