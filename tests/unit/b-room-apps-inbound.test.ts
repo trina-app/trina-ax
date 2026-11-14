@@ -154,6 +154,11 @@ test('Sentry: a new issue is a card; resolved goes to its thread and the card\'s
   ms = await messages()
   expect(ms).toHaveLength(1)
   expect(ms[0].appCard.status).toBe(appText('status', 'ko', { status: appText('sentryResolved', 'ko') }))
+  // QA TC-2483: the headline says it was resolved, not "New issue"
+  expect(ms[0].appCard.kind).toBe(`${appText('sentryResolvedBy', 'ko', { actor: 'Jun' })} · checkout-web · error`)
+  // the request was not signed and the headline now names someone: the card is marked unverified (it was not before)
+  expect(root.appCard.unverified).toBeUndefined()
+  expect(ms[0].appCard.unverified).toBe(true)
   expect(ms[0].thread.replyCount).toBe(1)
   const thread = await owner.call('GET', `/api/rooms/${all}/messages/${root.id}/thread`)
   expect(thread.items[0].appCard.title).toBe(appText('sentryResolvedBy', 'ko', { actor: 'Jun' }))
@@ -208,6 +213,8 @@ test('signatures are optional for GitHub and Sentry; once a secret is set, a mis
   const ms = await messages()
   expect(ms).toHaveLength(1)
   expect(ms[0].appCard.status).toBe(appText('status', 'ko', { status: appText('statusMerged', 'ko') }))
+  // QA TC-2483: the headline follows too (not "Pull request opened" over "Merged")
+  expect(ms[0].appCard.kind).toBe(`${appText('prMerged', 'ko')} · acme/web#7`)
   const thread = await owner.call('GET', `/api/rooms/${all}/messages/${ms[0].id}/thread`)
   expect(thread.items[0].appCard.title).toBe(`${appText('prMerged', 'ko')} · ${appText('byActor', 'ko', { actor: 'jun' })}`)
   // ping: connected, no card
@@ -220,6 +227,13 @@ test('signatures are optional for GitHub and Sentry; once a secret is set, a mis
   const created = sentryIssue('created', '77')
   expect((await post(se.token, created, { 'sentry-hook-resource': 'issue' })).status).toBe(401)
   expect((await post(se.token, created, { 'sentry-hook-resource': 'issue', 'sentry-hook-signature': hmac(clientSecret, created) })).status).toBe(200)
+  // signed "resolved": the headline names Jun and the card stays unmarked (security review of #890)
+  const resolved = sentryIssue('resolved', '77')
+  expect((await post(se.token, resolved, { 'sentry-hook-resource': 'issue', 'sentry-hook-signature': hmac(clientSecret, resolved) })).status).toBe(200)
+  await settle()
+  const seRoot = (await messages()).find((m) => m.app?.id === se.app.id && !m.threadRootId)
+  expect(seRoot.appCard.kind).toContain(appText('sentryResolvedBy', 'ko', { actor: 'Jun' }))
+  expect(seRoot.appCard.unverified).toBeUndefined()
   // the pasted secret is never shown again
   expect((await owner.call('GET', `/api/rooms/${all}/apps/${se.app.id}/address`)).secret).toBeUndefined()
   // taken away: unsigned again

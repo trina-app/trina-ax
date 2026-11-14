@@ -98,6 +98,7 @@ export const APP_TEXT = {
   orderCancelled: t('주문 취소됨', 'Order cancelled', 'Pesanan dibatalkan', '注文がキャンセルされました', 'Pedido cancelado', "订单已取消"),
   orderFulfilled: t('주문 배송 처리됨', 'Order fulfilled', 'Pesanan dipenuhi', '注文が発送されました', 'Pedido preparado', "订单已发货"),
   newTicket: t('새 티켓 #{id}', 'New ticket #{id}', 'Tiket baru #{id}', '新しいチケット #{id}', 'Nuevo ticket #{id}', "新工单 #{id}"),
+  ticketOf: t('티켓 #{id}', 'Ticket #{id}', 'Tiket #{id}', 'チケット #{id}', 'Ticket #{id}', "工单 #{id}"),
   ticketUpdated: t('티켓 #{id} 업데이트됨', 'Ticket #{id} updated', 'Tiket #{id} diperbarui', 'チケット #{id} が更新されました', 'Ticket #{id} actualizado', "工单 #{id} 已更新"),
   fromName: t('보낸 사람: {name}', 'From {name}', 'Dari {name}', '送信者: {name}', 'De {name}', "来自 {name}"),
   // phase 4: Jira, HubSpot, Toss Payments, Channel Talk, PortOne

@@ -68,22 +68,22 @@ function toss(a: Arrival): Parsed {
       const kind = appText(deposit ? 'depositReceived' : 'paymentReceived', L)
       const s = statusOf(L, 'statusPaid')
       // a card for the order already (waiting for the transfer, or the other of the two events): its status line only
-      return { event: { ...base, switch: 'payment', state: 'paid', status: s, onlyStatus: true, card: { kind, title, details, status: s }, reply: { title: kind } } }
+      return { event: { ...base, switch: 'payment', state: 'paid', status: s, rootKind: kind, onlyStatus: true, card: { kind, title, details, status: s }, reply: { title: kind } } }
     }
     case 'CANCELED': case 'PARTIAL_CANCELED': {
       const kind = appText(status === 'CANCELED' ? 'paymentCancelled' : 'paymentPartCancelled', L)
       const s = statusOf(L, 'statusCancelled')
-      return { event: { ...base, switch: 'cancelled', state: status.toLowerCase(), status: s, card: { kind, title, details, status: s }, reply: { title: kind } } }
+      return { event: { ...base, switch: 'cancelled', state: status.toLowerCase(), status: s, rootKind: kind, card: { kind, title, details, status: s }, reply: { title: kind } } }
     }
     case 'WAITING_FOR_DEPOSIT': {
       const kind = appText('waitingDeposit', L)
       const s = statusOf(L, 'statusPending')
-      return { event: { ...base, switch: 'waiting', state: 'waiting', status: s, card: { kind, title, details, status: s }, reply: { title: kind } } }
+      return { event: { ...base, switch: 'waiting', state: 'waiting', status: s, rootKind: kind, card: { kind, title, details, status: s }, reply: { title: kind } } }
     }
     case 'ABORTED': case 'EXPIRED': {
       const kind = appText('paymentFailed', L)
       const s = statusOf(L, 'statusFailed')
-      return { event: { ...base, switch: 'failed', state: 'failed', status: s, card: { kind, title, details, status: s }, reply: { title: kind } } }
+      return { event: { ...base, switch: 'failed', state: 'failed', status: s, rootKind: kind, card: { kind, title, details, status: s }, reply: { title: kind } } }
     }
     default: return { skip: true }
   }
@@ -169,7 +169,8 @@ function portone(a: Arrival): Parsed {
   const kind = appText(t.kind, L)
   const status = statusOf(L, t.status)
   return { event: {
-    switch: t.switch, delivery, key: `payment:${paymentId}`, state: t.state, status,
+    // the payment's headline follows its state (QA TC-2483)
+    switch: t.switch, delivery, key: `payment:${paymentId}`, state: t.state, status, rootKind: kind,
     // paid after a virtual account was issued: the card's status line
     ...(t.state === 'paid' ? { onlyStatus: true } : {}),
     card: { kind, title: appText('paymentOf', L, { id: line(paymentId, 100) }), details: [], status },

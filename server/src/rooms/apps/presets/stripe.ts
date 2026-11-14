@@ -35,7 +35,8 @@ function parse(a: Arrival): Parsed {
   const payment = (pi: string, k: string, amt: string, name: string, details: string[], state: 'succeeded' | 'refunded' | 'failed' | 'disputed', sw: string, reply: string, back = false): Parsed => {
     const status = statusOf(appText(state === 'succeeded' ? 'statusSucceeded' : state === 'refunded' ? 'statusRefunded' : state === 'failed' ? 'statusFailed' : 'statusDisputed', L))
     const event: AppEvent = {
-      ...base, switch: sw, ...(pi ? { key: `pi:${pi}` } : {}), state, status, back,
+      // the payment's headline follows it (a refunded one no longer reads "Payment received"; QA TC-2483)
+      ...base, switch: sw, ...(pi ? { key: `pi:${pi}` } : {}), state, status, back, rootKind: kindOf(k),
       // a Checkout session and its payment intent are one payment: the second only changes the status line
       ...(state === 'succeeded' ? { onlyStatus: true } : {}),
       card: { kind: kindOf(k), title: titleOf(amt, name) || k, details, status, link: pi ? `${dash}/payments/${pi}` : undefined, unverified: unverified && !!name },
@@ -104,7 +105,7 @@ function parse(a: Arrival): Parsed {
       const k = appText(ended ? 'subscriptionEnded' : 'subscriptionNew', L)
       const status = statusOf(appText(ended ? 'statusEnded' : 'statusActive', L))
       return { event: {
-        ...base, switch: ended ? 'subscription_ended' : 'subscription_new', key: `sub:${sub}`, state: ended ? 'ended' : 'active', status,
+        ...base, switch: ended ? 'subscription_ended' : 'subscription_new', key: `sub:${sub}`, state: ended ? 'ended' : 'active', status, rootKind: kindOf(k),
         card: { kind: kindOf(k), title: plan || amt || sub, details: plan && amt ? [amt] : [], status, link: `${dash}/subscriptions/${sub}` },
         reply: { title: k },
       } }
