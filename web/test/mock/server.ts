@@ -69,6 +69,9 @@ import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { LocalSpeechTool } from '@mycel/shared/api'
 import type { FileListStatus } from '@mycel/shared/api'
+import { WideningAnswer } from '@mycel/shared/api'
+import type { ChatAudience } from '@mycel/shared/api'
+import { ACCOUNT_DELETION_GRACE_DAYS } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -205,7 +208,9 @@ function slidePng(i: number): Uint8Array {
 }
 
 interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; mime?: string }
-interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
+export interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
+/** a server-side socket: Bun's ServerWebSocket, or the in-page one of web/demo/ */
+export interface MockSocket { data: WsData; send(text: string): unknown; close(code?: number, reason?: string): unknown }
 interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
 /** Folders below the mock share account's top level, found by the folder picker's search */
@@ -249,13 +254,16 @@ const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code: 'web_a
 /** like server/src/admin/team-icon.ts TEAM_ICON_CHANGED */
 const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
+
+/** an account deletion request's automatic date (server/src/auth/deletion-requests.ts: 7 days after asking) */
+const deletionDue = (at: string) => new Date(Date.parse(at) + ACCOUNT_DELETION_GRACE_DAYS * 86_400_000).toISOString()
 export class MockServer {
   setupNeeded = false
   serverVersion = '0.1.0'
   epoch = uuidv7()
   seq = 0
   buffer: { seq: number; text: string }[] = []
-  sockets = new Set<Bun.ServerWebSocket<WsData>>()
+  sockets = new Set<MockSocket>()
   /** status messages (docs/DECISIONS.md "상태 메시지"; server/src/auth/status-messages.ts): mine through PUT/DELETE
    * /api/me/status, anyone's through POST /__test/status; worked out by the server's own rules in the team's zone */
   statuses = new Map<string, { emoji: string; text: string; clear: StatusClear; starts_at: string | null; clears_at: string | null; until_day: string | null }>()
@@ -315,6 +323,8 @@ export class MockServer {
     | { kind: 'service_ready'; service: RequestableService; requestId: string }
     // someone started to see a project I am in (an owner or admin who added themselves: server/src/chat/project-joins.ts)
     | { kind: 'project_joined'; joinerId: string; projectId: string }
+    // someone shared a chat with me (server/src/chat/people-share.ts): by name or through a group
+    | { kind: 'chat_shared'; chatId: string; byId: string; named: boolean }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -366,6 +376,9 @@ export class MockServer {
   sharedByClientId = new Map<string, RoomMessage>()
   /** POST /__test/share-changed: a "confirm" key given before this is stale (something changed meanwhile) */
   shareEpoch = 0
+  /** POST /__test/widening {items}: the widening list (POST /api/sharing/widening-answers) of every project, and its
+   * count in the Members dialog's dry run when someone is added; none until set (until the next reset) */
+  widening: WideningAnswer[] | null = null
   messages: Message[] = []
   artifacts: Artifact[] = []
   /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
@@ -440,6 +453,9 @@ export class MockServer {
   /** an admin chose the speech provider (stored); false: like server/src/admin/settings.ts, it reads OpenRouter while the
    * team's key is set and off without it (speechNow) */
   speechChosen = true
+  /** where phone notifications go (server/src/notifications/push-gateway-setting.ts); /__test/push-gateway sets it,
+   * e.g. { lockedBy: 'MYCEL_PUSH_GATEWAY', choice: 'custom', url } for a server whose config sets it */
+  pushGateway: import('@mycel/shared/api').PushGatewaySetting = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
@@ -574,6 +590,7 @@ export class MockServer {
   fileList: FileListStatus = mockFileList()
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.widening = null
     this.notReadyTold = new Set()
     this.fileList = mockFileList()
     this.presence = new Map()
@@ -700,6 +717,7 @@ export class MockServer {
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.speechChosen = true
+    this.pushGateway = { choice: 'default', url: null, defaultHost: 'push.trina.app', lockedBy: null }
     this.transcribeChats = []
     this.transcribeProgress = null
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
@@ -1354,6 +1372,13 @@ export class MockServer {
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
     if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'chat_shared') {
+      // who shared it while the account is there; the chat while the reader still sees it (link 'chat' then), else gone
+      const who = this.users.find((x) => x.id === n.byId)
+      const chat = this.chats.find((x) => x.id === n.chatId && !x.deletedAt)
+      const sees = !!chat && !!viewer && this.peopleAudience(chat.id).includes(viewer.id)
+      return { id: n.id, eventType: 'chat.shared', sourceId: n.id, code: 'chat.shared', createdAt: n.createdAt, readAt: n.readAt, chatId: sees ? chat!.id : null, link: sees ? 'chat' : null, chatShared: { name: who?.name ?? null, title: sees ? chat!.title || null : null, ...(sees ? {} : { gone: true as const }) } }
+    }
     if (n.kind === 'project_joined') {
       // who, while the account is there; the project while the reader still sees it (link 'project' then)
       const who = this.users.find((x) => x.id === n.joinerId)
@@ -1427,9 +1452,9 @@ export class MockServer {
   }
 
   deletionOf(u: User) {
-    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null }
+    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null, dueAt: null, auditDays: 90 }
     const at = this.deletionRequests.get(u.id)
-    return at ? { state: 'pending' as const, requestedAt: at } : { state: 'none' as const, requestedAt: null }
+    return at ? { state: 'pending' as const, requestedAt: at, dueAt: deletionDue(at), auditDays: 90 } : { state: 'none' as const, requestedAt: null, dueAt: null, auditDays: 90 }
   }
 
   startSession(u: User) {
@@ -2198,7 +2223,7 @@ export class MockServer {
       const u = this.users.find((x) => x.username === c.body.username)
       // like the server: before sign-in, the page's language header, else the team default
       const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
-      const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.' }[loc]
+      const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.', zh: '用户名或密码不正确。' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
@@ -2315,6 +2340,7 @@ export class MockServer {
     myDeletionRequest: (c) => this.deletionOf(c.user),
     requestAccountDeletion: (c) => {
       if (c.user.role === 'owner') fail('conflict', 409)
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, 'Wrong password.', { 'body.password': 'wrong password' })
       if (!this.deletionRequests.has(c.user.id)) this.deletionRequests.set(c.user.id, now())
       return this.deletionOf(c.user)
     },
@@ -2762,7 +2788,17 @@ export class MockServer {
       const skillNames = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).map(([k]) => k.slice(p.folderPath.length + 8).split('/')[0]!).sort()
       const skills = skillNames.length
       const sharedChats = this.chats.filter((x) => x.projectId === p.id && !x.deletedAt && this.sharedChats.has(x.id)).length
-      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split }
+      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split, ...(this.widening?.length ? { hiddenAnswers: this.widening.length } : {}) }
+    },
+    // the widening list (chat/widening.ts): whoever may change the members (projectToEdit); POST /__test/widening's items,
+    // 20 a page (the cursor: where the next page starts)
+    wideningAnswers: (c) => {
+      const p = this.projectToEdit({ ...c, params: { id: c.body.target.projectId } })
+      void p
+      const all = this.widening ?? []
+      const at = c.body.cursor ? Number(c.body.cursor) : 0
+      const n = c.body.limit ?? 20
+      return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
     },
     putProjectParticipants: (c) => {
       const p = this.projectToEdit(c)
@@ -3296,7 +3332,10 @@ export class MockServer {
     postResult: () => fail('not_found', 404),
 
     // the people who asked to have their account deleted: the owner sees them all, an admin the members' only
-    listUsers: (c) => ({ items: this.users, deletionRequested: this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member')).map((u) => u.id) }),
+    listUsers: (c) => {
+      const asked = this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member'))
+      return { items: this.users, deletionRequested: asked.map((u) => u.id), deletionDue: Object.fromEntries(asked.map((u) => [u.id, deletionDue(this.deletionRequests.get(u.id)!)])) }
+    },
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
@@ -4117,7 +4156,7 @@ export class MockServer {
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
     plan: (c) => ({
       plan: this.cloud ? {
-        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim', ja: 'チーム', es: 'Equipo' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
+        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim', ja: 'チーム', es: 'Equipo', zh: '团队' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
         maxActiveMembers: 12, activeMembers: this.users.filter((u) => u.status === 'active').length, diskGiB: 50, memoryMiB: 4096, cpuCores: 3,
         localBackupRetentionDays: 3, links: { account: 'https://app.teamax.example/billing', status: 'https://status.teamax.example', support: 'support@teamax.example' },
         updatedAt: now(),
@@ -4501,6 +4540,12 @@ export class MockServer {
       this.integrationFlows.set(flow.flowId, { flow, integrationId: x.id, userId: c.user.id, polls: 0 })
       return { flowId: flow.flowId, authorizationUrl: `https://auth.example.test/authorize?client_id=mock&state=${flow.flowId}`, expiresAt: flow.expiresAt }
     },
+    cancelIntegrationFlow: (c) => {
+      const f = this.integrationFlows.get(c.params.id)
+      if (!f || f.userId !== c.user.id) return fail('not_found', 404)
+      if (f.flow.state === 'pending') Object.assign(f.flow, { state: 'failed', reason: 'cancelled' })
+      return undefined
+    },
     integrationFlow: (c) => {
       const f = this.integrationFlows.get(c.params.id)
       if (!f || f.userId !== c.user.id) return fail('not_found', 404)
@@ -4799,6 +4844,20 @@ export class MockServer {
       return this.notifyPrefs
     },
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
+    // like server/src/routes/push.ts: locked by the server's config; a custom address is saved only when it answers as a
+    // gateway (here: any https://<host> whose name does not start with "not-"; "down." answers nothing)
+    getPushGateway: () => this.pushGateway,
+    setPushGateway: (c) => {
+      if (this.pushGateway.lockedBy) fail('conflict', 409, undefined, undefined, { reason: 'locked' })
+      if (c.body.choice === 'custom') {
+        const m = /^https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)+)\/?$/.exec((c.body.url ?? '').trim())
+        if (!m) fail('validation', 400, undefined, { 'body.url': 'address' }, { reason: 'address' })
+        if (m![1]!.startsWith('down.')) fail('validation', 400, undefined, { 'body.url': 'unreachable' }, { reason: 'unreachable' })
+        if (m![1]!.startsWith('not-')) fail('validation', 400, undefined, { 'body.url': 'not_gateway' }, { reason: 'not_gateway' })
+        this.pushGateway = { ...this.pushGateway, choice: 'custom', url: `https://${m![1]}` }
+      } else this.pushGateway = { ...this.pushGateway, choice: c.body.choice, url: null }
+      return this.pushGateway
+    },
     // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "SK") ----------------
     // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
     // step shows its Claude Code line. A share proposal is a fixed, realistic one whatever was sent (the server's
@@ -5471,6 +5530,7 @@ export class MockServer {
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
+    else if (p === '/__test/push-gateway') this.pushGateway = { ...this.pushGateway, ...(body as Partial<import('@mycel/shared/api').PushGatewaySetting>) }
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/google-own-app') {
       const b = body as Partial<ReturnType<typeof MockServer.freshGoogleOwn>>
@@ -5591,6 +5651,7 @@ export class MockServer {
       this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
       for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
     }
+    else if (p === '/__test/widening') this.widening = (body.items as unknown[]).map((x) => WideningAnswer.parse(x))
     else if (p === '/__test/share-changed') {
       // something changed since the last "confirm" (someone joined, lost access): its key is stale
       this.shareEpoch++
@@ -5668,6 +5729,249 @@ export class MockServer {
   /** `${userId}:${chat or room id}` → the folder it is in, for that person */
   navItems = new Map<string, string>()
   readonly navFoldersInstalled = this.installNavFolders()
+
+  // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
+  // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
+  // (sharedChats with no project, so turns, authors and the 404 of everyone else work as there), with who it is shared
+  // with here. Test-only: POST /__test/chat-share {confirm?: {hiddenAnswers?, memories?, people?, places?} | null (adds
+  // that bring in new people answer "confirm" with these until the next reset; the key is "ok:<the picks>"), fail?: n
+  // (the next n saves answer 500)}. A saved add leaves a "chat.shared" notice for each person who starts to see it.
+  peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
+  /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
+  peopleHidden = new Set<string>()
+  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[] } | null = null
+  peopleFail = 0
+  readonly peopleSharedInstalled = this.installPeopleShared()
+
+  /** everyone who sees a people-shared chat now: its creator, the active people listed and the active members of the
+   * groups listed */
+  peopleAudience(chatId: string): string[] {
+    const ps = this.peopleShared.get(chatId)
+    const s = this.sharedChats.get(chatId)
+    if (!ps || !s) return []
+    const out = new Set([s.by.id])
+    for (const x of ps.subjects) {
+      if (x.subjectType === 'user') { if (this.users.some((u) => u.id === x.subjectId && u.status === 'active')) out.add(x.subjectId) }
+      else for (const id of this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []) if (this.users.some((u) => u.id === id && u.status === 'active')) out.add(id)
+    }
+    return [...out]
+  }
+
+  private installPeopleShared() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const key = (s: readonly { subjectType: string; subjectId: string }[]) => s.map((x) => `${x.subjectType}:${x.subjectId}`).sort().join(',')
+    const chatOf = (id: string) => this.chats.find((x) => x.id === id) ?? fail('not_found', 404)
+    const inIt = (chatId: string, u: User) => this.peopleAudience(chatId).includes(u.id)
+
+    const baseView = this.sharedView.bind(this)
+    this.sharedView = (chat, viewer) => {
+      const ps = this.peopleShared.get(chat.id)
+      if (!ps) return baseView(chat, viewer)
+      const s = this.sharedChats.get(chat.id)!
+      const aud = this.peopleAudience(chat.id)
+      if (!aud.includes(viewer.id)) return null
+      const creator = s.by.id === viewer.id
+      // a group in it: how many see it only for its creator and admins (S8)
+      const hidden = ps.subjects.some((x) => x.subjectType === 'group') && !creator && viewer.role === 'member'
+      const { waiting: _w, unseen: _u, shared: _s, ...rest } = chat
+      const runner = s.runner && s.runner !== viewer.id ? this.users.find((u) => u.id === s.runner) : undefined
+      return {
+        ...rest,
+        ...(s.runner === viewer.id && s.waiting ? { waiting: true as const } : {}),
+        ...(chat.unseen && creator ? { unseen: true as const } : {}),
+        shared: {
+          kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
+          answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+          mine: true, canDelete: creator, canUpload: false,
+        },
+      }
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.peopleShared = new Map()
+      this.peopleHidden = new Set()
+      this.peopleConfirm = null
+      this.peopleFail = 0
+      baseReset(o)
+    }
+    // a people-shared chat's chat.updated without the chat (deleted, purged): to everyone who sees it
+    const basePublish = this.publish.bind(this)
+    this.publish = (ev) => {
+      const chatId = (ev.data as { chatId?: unknown }).chatId
+      if (ev.type === 'chat.updated' && typeof chatId === 'string' && this.peopleShared.has(chatId) && !ev.data.chat) {
+        const aud = this.peopleAudience(chatId)
+        return this.sharedSend((uid) => (aud.includes(uid) ? ev : null))
+      }
+      return basePublish(ev)
+    }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      if (p !== '/__test/chat-share') return baseControl(p, req)
+      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number }
+      if (body.confirm !== undefined) this.peopleConfirm = body.confirm
+      if (body.fail !== undefined) this.peopleFail = body.fail
+      return Response.json({ ok: true })
+    }
+
+    // my lists leave out what I hid (a search still finds it)
+    over('listChats', (c, base) => {
+      const out = base(c) as { items: Chat[]; nextCursor: string | null }
+      if (c.query.q?.trim()) return out
+      return { ...out, items: out.items.filter((x) => !this.peopleHidden.has(`${c.user.id}:${x.id}`)) }
+    })
+    // opening it brings it back (POST /api/chats/:id/seen)
+    over('markChatSeen', (c, base) => {
+      const out = base(c)
+      const k = `${c.user.id}:${c.params.id}`
+      if (this.peopleShared.has(c.params.id!) && this.peopleHidden.delete(k)) {
+        const v = this.sharedView(chatOf(c.params.id!), c.user)
+        if (v) this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: v.id, change: 'updated', chat: { ...v, shared: { ...v.shared!, ...this.sharedPeople(v.id, uid) } } } } : null))
+      }
+      return out
+    })
+    // never into a project (409 shared_chat_move, in its own words)
+    over('updateChat', (c, base) => {
+      if (this.peopleShared.has(c.params.id!) && c.body.projectId !== undefined && c.body.projectId !== chatOf(c.params.id!).projectId) {
+        if (!inIt(c.params.id!, c.user)) fail('not_found', 404)
+        fail('conflict', 409, CHAT_TEXT.chatShareMovePeople?.ko ?? '공유한 채팅은 프로젝트로 옮길 수 없어요.', { 'body.projectId': 'shared_chat_move' }, { reason: 'shared_chat_move' })
+      }
+      return base(c)
+    })
+
+    const rowsOf = (chatId: string, viewer: User) => {
+      const ps = this.peopleShared.get(chatId)!
+      const s = this.sharedChats.get(chatId)!
+      const full = s.by.id === viewer.id || viewer.role !== 'member'
+      return ps.subjects.flatMap((x): ChatAudience['subjects'] => {
+        if (x.subjectType === 'user') {
+          const u = this.users.find((y) => y.id === x.subjectId)
+          return u ? [{ subjectType: 'user' as const, subjectId: u.id, name: u.name }] : []
+        }
+        const g = this.groups.find((y) => y.id === x.subjectId)
+        if (!g) return []
+        const members = g.memberIds.filter((id) => this.users.some((u) => u.id === id && u.status === 'active')).length
+        return [{ subjectType: 'group' as const, subjectId: g.id, name: g.name, ...(full ? { members } : {}), ...(g.memberIds.includes(viewer.id) ? { mine: true as const } : {}) }]
+      })
+    }
+    const audienceOf = (chat: Chat, viewer: User): ChatAudience => {
+      const s = this.sharedChats.get(chat.id)
+      const ownerId = s?.by.id ?? this.chatOwners.get(chat.id) ?? viewer.id
+      const owner = this.users.find((u) => u.id === ownerId)
+      const by = { id: ownerId, name: owner?.name ?? ownerId }
+      if (!this.peopleShared.has(chat.id)) {
+        if (s) return { kind: 'project', canEdit: false, by, subjects: [] }
+        return { kind: 'private', canEdit: ownerId === viewer.id && !chat.projectId && !chat.sideRoomId, by, subjects: [] }
+      }
+      const groups = this.peopleShared.get(chat.id)!.subjects.some((x) => x.subjectType === 'group')
+      const full = ownerId === viewer.id || viewer.role !== 'member'
+      return { kind: 'people', canEdit: ownerId === viewer.id, by, subjects: rowsOf(chat.id, viewer), ...(!groups || full ? { count: this.peopleAudience(chat.id).length } : {}) }
+    }
+    /** the chat as `u` may see it here: anyone else gets the 404 of a missing chat */
+    const sees = (chatId: string, u: User): Chat => {
+      const chat = chatOf(chatId)
+      if (chat.deletedAt) fail('not_found', 404)
+      if (this.peopleShared.has(chatId)) { if (!inIt(chatId, u)) fail('not_found', 404); return chat }
+      const s = this.sharedChats.get(chatId)
+      if (s) { if (!this.sharedView(chat, u)) fail('not_found', 404); return chat }
+      if ((this.chatOwners.get(chatId) ?? u.id) !== u.id) fail('not_found', 404)
+      return chat
+    }
+    h.getChatAudience = (c) => audienceOf(sees(c.params.id!, c.user), c.user)
+    h.putChatAudience = (c) => {
+      const chat = sees(c.params.id!, c.user)
+      const no = (status: number, reason: string, message: string): never => fail(status === 400 ? 'validation' : 'conflict', status, message, undefined, { reason })
+      const s = this.sharedChats.get(chat.id)
+      const ownerId = s?.by.id ?? this.chatOwners.get(chat.id) ?? c.user.id
+      if (ownerId !== c.user.id) fail('forbidden', 403, '이 채팅을 볼 수 있는 사람은 채팅을 시작한 사람만 바꿀 수 있어요.', undefined, { reason: 'chat_share_creator_only' })
+      if (chat.projectId) {
+        const p = this.projects.find((x) => x.id === chat.projectId)
+        if (p?.folderPath.startsWith('users/')) no(409, 'project_personal', '개인 프로젝트의 채팅은 나만 봐요. 다른 사람과 공유하려면 채팅을 프로젝트 밖으로 옮겨 주세요.')
+        no(409, 'share_people_in_project', '프로젝트에 있는 채팅은 프로젝트 멤버와 공유돼요.')
+      }
+      if (chat.sideRoomId) no(409, 'side_chat', '대화방의 사이드 채팅은 공유할 수 없어요.')
+      const wanted = (c.body.subjects as { subjectType: 'user' | 'group'; subjectId: string }[]).filter((x, i, all) => !(x.subjectType === 'user' && x.subjectId === c.user.id) && all.findIndex((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId) === i)
+      if (wanted.length > 100) no(400, 'audience_full', '채팅 하나는 사람과 그룹을 합쳐 100개까지 공유할 수 있어요. 먼저 몇 개를 빼 주세요.')
+      const ps = this.peopleShared.get(chat.id)
+      const before = ps?.subjects ?? []
+      const added = wanted.filter((x) => !before.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
+      const removed = before.filter((x) => !wanted.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
+      if (!added.length && !removed.length) {
+        if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 그룹을 한 명 이상 골라 주세요.')
+        return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
+      }
+      if (added.length && (this.allConfidential || chat.confidential)) no(409, 'safe_ops', '팀의 보안 설정 때문에 지금은 채팅을 새로 공유할 수 없어요.')
+      if (added.length && chat.runState !== 'idle') no(409, 'chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
+      for (const x of added) {
+        const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active') : this.groups.some((g) => g.id === x.subjectId && (c.user.role !== 'member' || g.memberIds.includes(c.user.id)))
+        if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 그룹이 있어요. 다시 골라 주세요.')
+      }
+      if (this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
+      const was = new Set(ps ? this.peopleAudience(chat.id) : [c.user.id])
+      const resolve = (subjects: typeof wanted) => {
+        const out = new Set([c.user.id])
+        for (const x of subjects) {
+          if (x.subjectType === 'user') out.add(x.subjectId)
+          else for (const id of this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []) out.add(id)
+        }
+        return [...out].filter((id) => this.users.some((u) => u.id === id && u.status === 'active'))
+      }
+      const after = resolve(wanted)
+      const gained = after.filter((id) => !was.has(id))
+      const lost = [...was].filter((id) => !after.includes(id))
+      const k = `ok:${key(wanted)}`
+      const ask = this.peopleConfirm
+      if (gained.length && ask && c.body.confirmKey !== k) {
+        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, confirmKey: k,
+          provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
+      }
+      // the people who lose it hear it is gone (its id alone), before the rows change
+      for (const id of lost) this.sharedSend((uid) => (uid === id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
+      if (!wanted.length) {
+        this.peopleShared.delete(chat.id)
+        this.sharedChats.delete(chat.id)
+        for (const k2 of [...this.peopleHidden]) if (k2.endsWith(`:${chat.id}`)) this.peopleHidden.delete(k2)
+        this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } } : null))
+        return { status: 'saved', chat, audience: audienceOf(chat, c.user) }
+      }
+      if (!ps) this.sharedChats.set(chat.id, { by: { id: c.user.id, name: c.user.name }, projectId: '', runner: null, waiting: false })
+      this.peopleShared.set(chat.id, { subjects: wanted })
+      for (const id of lost) this.peopleHidden.delete(`${id}:${chat.id}`)
+      const named = new Set(added.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
+      for (const id of gained) this.note(id, { kind: 'chat_shared', chatId: chat.id, byId: c.user.id, named: named.has(id) })
+      this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
+    }
+    const hide = (c: Ctx, on: boolean) => {
+      const chat = sees(c.params.id!, c.user)
+      const s = this.sharedChats.get(chat.id)
+      if (!this.peopleShared.has(chat.id) || s?.by.id === c.user.id) fail('validation', 400, '내가 시작한 채팅은 목록에서 숨길 수 없어요.', undefined, { reason: 'chat_hide_creator' })
+      const k = `${c.user.id}:${chat.id}`
+      if (on) this.peopleHidden.add(k)
+      else this.peopleHidden.delete(k)
+      const v = this.sharedView(chat, c.user)!
+      this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: on ? 'deleted' : 'updated', chat: on ? null : { ...v, shared: { ...v.shared!, ...this.sharedPeople(v.id, uid) } } } } : null))
+      return v
+    }
+    h.hideChat = (c) => hide(c, true)
+    h.unhideChat = (c) => hide(c, false)
+    // the delete-account dialog's count: the person's people-shared chats someone else wrote in
+    h.userSharedChats = (c) => ({ sharedChats: [...this.peopleShared.keys()].filter((id) => this.sharedChats.get(id)?.by.id === c.params.id && this.messages.some((m) => m.chatId === id && m.role === 'user' && m.author && m.author.id !== c.params.id)).length })
+    // the widening list with a chat as its target: its creator only; POST /__test/widening's items
+    over('wideningAnswers', (c, base) => {
+      const target = c.body.target as { kind: string; chatId?: string }
+      if (target.kind !== 'chat') return base(c)
+      const chat = sees(target.chatId!, c.user)
+      if ((this.sharedChats.get(chat.id)?.by.id ?? this.chatOwners.get(chat.id)) !== c.user.id) fail('forbidden', 403, undefined, undefined, { reason: 'widening_not_allowed' })
+      const all = this.widening ?? []
+      const at = c.body.cursor ? Number(c.body.cursor) : 0
+      const n = c.body.limit ?? 20
+      return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
+    })
+  }
 
   private installNavFolders() {
     const h = this.handlers
@@ -6372,7 +6676,7 @@ export class MockServer {
       const requestId = `shared-read-${turnId}`
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 멤버 ${people.length}명 중 ${blind}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.`,
+        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 ${people.length}명 중 ${blind}명은 이곳을 열 수 없어요. 읽으면 찾은 내용이 이 채팅에 남아, 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 보게 돼요.`,
         options: [{ label: '읽고 공유하기', value: 'share' }, { label: '읽지 않기', value: 'skip' }],
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
       }
@@ -6388,7 +6692,7 @@ export class MockServer {
       this.sharedSend((uid) => (uid === user.id ? { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } } : null))
       pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
       const yes = answer === 'share' || (Array.isArray(answer) && answer[0] === 'share')
-      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '프로젝트 멤버 모두가 볼 수는 없는 곳이라 읽지 않았어요' }) })
+      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요' }) })
       text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 멤버 모두가 볼 수 있는 자료로만 답할게요.'
     }
     if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
@@ -6412,6 +6716,48 @@ export class MockServer {
     pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
   }
 
+  /** a socket's data from its upgrade request (also used by web/demo/, which runs this mock in the browser) */
+  socketData(req: Request): WsData {
+    const url = new URL(req.url)
+    const user = this.userOf(req)
+    const after = url.searchParams.get('after')
+    return { user: user?.id ?? '', windowId: url.searchParams.get('windowId') ?? '', epoch: url.searchParams.get('epoch'), after: after === null ? null : Number(after) }
+  }
+
+  /** the WebSocket protocol's server side (hello / resume / reset, presence, ping), for Bun.serve and web/demo/ */
+  socketOpen(ws: MockSocket) {
+    if (!ws.data.user) { ws.close(WsClose.unauthorized, 'sign in'); return }
+    this.sockets.add(ws)
+    const hello = (resumed: boolean) => JSON.stringify({ type: 'hello', epoch: this.epoch, seq: this.seq, resumed, windowId: ws.data.windowId, serverVersion: this.serverVersion, pingIntervalMs: 20000 })
+    const { epoch, after } = ws.data
+    if (epoch && epoch !== this.epoch) {
+      ws.send(hello(false))
+      ws.send(JSON.stringify({ type: 'reset', epoch: this.epoch, seq: this.seq, reason: 'epoch_mismatch' }))
+    } else if (epoch && after !== null) {
+      const oldest = this.buffer[0]?.seq ?? this.seq + 1
+      if (after + 1 < oldest) {
+        ws.send(hello(false))
+        ws.send(JSON.stringify({ type: 'resync', epoch: this.epoch, seq: this.seq, reason: 'buffer_overflow' }))
+      } else {
+        ws.send(hello(true))
+        for (const b of this.buffer) if (b.seq > after) ws.send(b.text)
+      }
+    } else ws.send(hello(false))
+    // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
+    ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...this.presence].map(([id, state]) => ({ id, state })) })))
+  }
+
+  socketMessage(ws: MockSocket, msg: string | Uint8Array) {
+    const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
+    if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+    if (f.type === 'room.typing') this.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
+    if (f.type === 'presence') this.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
+  }
+
+  socketClose(ws: MockSocket) {
+    this.sockets.delete(ws)
+  }
+
   serve(port: number, dist: string) {
     const self = this
     return Bun.serve<WsData, never>({
@@ -6420,10 +6766,7 @@ export class MockServer {
       async fetch(req, server) {
         const url = new URL(req.url)
         if (url.pathname === WS_PATH) {
-          const user = self.userOf(req)
-          const after = url.searchParams.get('after')
-          const data: WsData = { user: user?.id ?? '', windowId: url.searchParams.get('windowId') ?? '', epoch: url.searchParams.get('epoch'), after: after === null ? null : Number(after) }
-          const ok = server.upgrade(req, { data, headers: { 'sec-websocket-protocol': 'mycel.v1' } })
+          const ok = server.upgrade(req, { data: self.socketData(req), headers: { 'sec-websocket-protocol': 'mycel.v1' } })
           return ok ? undefined : new Response('upgrade failed', { status: 400 })
         }
         const res = await self.handle(req, dist)
@@ -6434,36 +6777,9 @@ export class MockServer {
         return marked
       },
       websocket: {
-        open(ws) {
-          if (!ws.data.user) return ws.close(WsClose.unauthorized, 'sign in')
-          self.sockets.add(ws)
-          const hello = (resumed: boolean) => JSON.stringify({ type: 'hello', epoch: self.epoch, seq: self.seq, resumed, windowId: ws.data.windowId, serverVersion: self.serverVersion, pingIntervalMs: 20000 })
-          const { epoch, after } = ws.data
-          if (epoch && epoch !== self.epoch) {
-            ws.send(hello(false))
-            ws.send(JSON.stringify({ type: 'reset', epoch: self.epoch, seq: self.seq, reason: 'epoch_mismatch' }))
-          } else if (epoch && after !== null) {
-            const oldest = self.buffer[0]?.seq ?? self.seq + 1
-            if (after + 1 < oldest) {
-              ws.send(hello(false))
-              ws.send(JSON.stringify({ type: 'resync', epoch: self.epoch, seq: self.seq, reason: 'buffer_overflow' }))
-            } else {
-              ws.send(hello(true))
-              for (const b of self.buffer) if (b.seq > after) ws.send(b.text)
-            }
-          } else ws.send(hello(false))
-          // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
-          ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
-        },
-        message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
-          if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
-          if (f.type === 'room.typing') self.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
-          if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
-        },
-        close(ws) {
-          self.sockets.delete(ws)
-        },
+        open: (ws) => { self.socketOpen(ws) },
+        message: (ws, msg) => self.socketMessage(ws, msg),
+        close: (ws) => self.socketClose(ws),
       },
     })
   }

@@ -1,3 +1,0 @@
-- Folder sharing now looks like Google Drive's Share dialog. Files › a folder's ⋯ › **Share** and Admin › Folder permissions › **Share** open the same dialog: add people and groups, **People with access** with a Viewer / Editor menu (Remove access is in the same menu), the owner and admins as a row, and **General access** (Restricted, or the team as Viewer or Editor). Admin's separate rules editor is gone.
-- When a role in the list gives someone less than they would get otherwise (for example Viewer in a folder where the whole team can edit), the row says so. People kept out by an older "No access" setting are listed under **Access removed**, with **Add** to bring them back.
-- A file's **Share (copy)** is now **Copy to…**.

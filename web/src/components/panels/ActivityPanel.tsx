@@ -36,9 +36,11 @@ const AUTO_PAGES = 9
 const PAGE = 30
 
 /** A notice opens as itself in the main area (not at its link) when it has no page of its own or carries what only its
- * own view shows: a handover's buttons, a job's log, an ask to add an app with its button. */
+ * own view shows: a handover's buttons, a job's log, an ask to add an app with its button, a paused room app's Resume now. */
 export function opensAsItself(item: InboxNotification): boolean {
   return !noticeLink(item) || !!item.handover || !!item.devEnv?.job?.tail || (item.code === 'service.request' && !!item.serviceRequest?.open)
+    // an app paused in a room that can still be resumed: its Resume now (components/rooms/apps/PausedNotice.tsx)
+    || (item.code === 'room_app.paused' && !!item.roomApp?.canResume && !!item.roomApp.pausedUntil)
 }
 
 /** the history entry's state key that names the notice opened from here (its page can be another notice's too) */
@@ -311,7 +313,8 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
       icon={<Icon />}
       name={noticeText(item, t, locale)}
       nameTestId="activity-panel-text"
-      meta={<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time>}
+      // a chat shared with me: its title under the words, while I still see it
+      meta={<>{item.code === 'chat.shared' && item.chatShared?.title ? <><bdi data-testid="activity-panel-chat">{item.chatShared.title}</bdi> · </> : null}<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
       end={
         unread && (
           <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent max-md:mt-0" data-testid="activity-panel-dot">

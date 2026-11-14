@@ -17,6 +17,6 @@ For an optional local-login AI development environment, build the web app, use a
 
 The focused checks above cover onboarding and skills; they are not the full suite. `bun run test:unit` includes converters/native dependencies. Install ripgrep, poppler and pandoc where relevant. Web changes need `bun run test:web` and `bun run build:web`. Full relay, privileged Linux, production installer and real-engine suites have additional OS/account requirements; do not run them against shared services or consume credentials casually. CI describes those separately in [.github/workflows/ci.yml](../.github/workflows/ci.yml).
 
-App-owned strings must include all five locales (EN/KO/ID/JA/ES); run `bun run check:i18n` after merging UI or server copy changes.
+App-owned strings must include all six locales (EN/KO/ID/JA/ES/ZH); run `bun run check:i18n` after merging UI or server copy changes.
 
 Changing defaults, artifact names or release contents requires reviewing README language parity, FAQ, llms.txt and bundled office instructions. Preserve source-offer/license boundaries and never put secrets in fixtures or screenshots.

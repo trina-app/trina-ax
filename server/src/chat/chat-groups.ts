@@ -17,6 +17,7 @@ import { pinsOf } from './pins'
 import { canSeeProject } from './projects'
 import type { ChatRuntime } from './runtime'
 import { Audiences, chatPeople, chatView, isSharedRow, type ChatPeople } from './shared'
+import { inPeopleAudienceSql, isPeopleRow, notHiddenSql } from './chat-audience'
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type ProjectRow } from './store'
 import { fail } from '../http/errors'
 
@@ -33,11 +34,13 @@ const unused = (rt: ChatRuntime, r: ChatRow) => !r.title && r.created_at === r.u
 function myList(rt: ChatRuntime, me: string, who: Principal | null) {
   const db = rt.db
   const rows = db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND ${notInternalChat(db)} AND deleted_at IS NULL
-      AND (user_id = ?1 OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?1)))`).all(me) as ChatRow[]
+      AND (user_id = ?1 OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?1))
+        OR (${inPeopleAudienceSql('?1')} AND ${notHiddenSql('?1')}))`).all(me) as ChatRow[]
   const projects = new Map<string, ProjectRow>()
   for (const p of db.query(`SELECT ${PROJECT_COLS} FROM projects`).all() as ProjectRow[]) if (who && canSeeProject(rt.files, who, p)) projects.set(p.id, p)
-  // a shared chat only while I see its project now (GET /api/chats does the same)
-  const chats = rows.filter((r) => (!isSharedRow(r) || projects.has(r.project_id!)) && !unused(rt, r)).sort(newestFirst)
+  // a shared chat only while I see its project now (GET /api/chats does the same); one shared with me by name or
+  // through a group is in my list while I am in it (the query's own condition: chat/chat-audience.ts), unless I hid it
+  const chats = rows.filter((r) => (!isSharedRow(r) || isPeopleRow(r) || projects.has(r.project_id!)) && !unused(rt, r)).sort(newestFirst)
   return { chats, projects }
 }
 

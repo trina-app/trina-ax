@@ -11,7 +11,7 @@ const SRC = path.resolve(import.meta.dir, '../../src')
 const I18N = path.join(SRC, 'i18n')
 
 afterEach(async () => {
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) await loadLocale(l)
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) await loadLocale(l)
   useLocaleStore.getState().setLocale('en')
 })
 

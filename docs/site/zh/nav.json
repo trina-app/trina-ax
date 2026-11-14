@@ -1,0 +1,39 @@
+{
+  "title": "Trina AX 文档",
+  "description": "如何使用、运行、扩展和自动化 Trina AX：带有团队文件、团队技能和文件夹权限的公司 AI 工作空间。",
+  "repo": "https://github.com/trina-app/trina-ax",
+  "product": { "label": "打开 Trina AX", "url": "https://ax.trina.app" },
+  "tabs": [
+    { "title": "开始使用", "groups": [
+      { "title": "开始使用", "pages": ["index", "get-started/quickstart", "get-started/team-setup"] },
+      { "title": "核心概念", "pages": ["get-started/key-concepts"] }
+    ] },
+    { "title": "使用 Trina AX", "groups": [
+      { "title": "与 AI 一起工作", "pages": ["use/chats-and-projects", "use/team-skills", "use/mcp", "use/google-own-app", "use/slack", "use/room-apps", "use/scheduled-tasks"] },
+      { "title": "文件和成员", "pages": ["use/files-and-permissions", "use/usage-and-limits", "use/admin"] },
+      { "title": "你的账号", "pages": ["use/settings-and-search"] }
+    ] },
+    { "title": "运行和运维", "groups": [
+      { "title": "安装设置", "pages": ["operate/install", "operate/configuration"] },
+      { "title": "保持运行", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
+      { "title": "安全", "pages": ["operate/security"] }
+    ] },
+    { "title": "开发者指南", "groups": [
+      { "title": "了解代码", "pages": ["develop/architecture", "develop/repository-layout"] },
+      { "title": "修改代码", "pages": ["develop/local-development", "develop/testing", "develop/i18n-and-design", "develop/contributing"] },
+      { "title": "插件", "pages": ["develop/plugins"] },
+      { "title": "发布", "pages": ["develop/versioning", "develop/core-and-trina"] }
+    ] },
+    { "title": "面向 AI 智能体", "groups": [
+      { "title": "概览", "pages": ["agents/overview"] },
+      { "title": "编程智能体", "pages": ["agents/coding-agents", "agents/machine-readable-docs"] },
+      { "title": "运行时智能体", "pages": ["agents/runtime", "agents/mcp-connector", "agents/skills-format", "agents/plugins"] }
+    ] },
+    { "title": "参考", "groups": [
+      { "title": "参考", "pages": ["reference/http-api", "reference/cli", "reference/environment", "reference/glossary"] }
+    ] },
+    { "title": "资源", "groups": [
+      { "title": "资源", "pages": ["resources/support"] }
+    ] }
+  ]
+}

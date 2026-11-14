@@ -36,5 +36,6 @@ COPY relay/package.json /opt/mycel/relay/package.json
 RUN cd /opt/mycel && bun install --frozen-lockfile --ignore-scripts >/dev/null
 COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt
 COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts
+COPY tests/lib/rule-world.ts /opt/mycel/tests/lib/rule-world.ts
 COPY tests/linux/srt-attack.ts /opt/mycel/tests/linux/srt-attack.ts
 CMD ["bun", "/opt/mycel/tests/linux/srt-attack.ts"]

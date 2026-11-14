@@ -184,7 +184,8 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
   const kept = keptPatch(d, roomId, (tl) => ({ ...tl, messages: mergeMessages(tl.messages, [m]) }))
   const room = d.rooms.find((r) => r.id === roomId)
   if (!room) return { ...d, timeline, threadViews, ...kept }
-  if (m.event) return { ...d, timeline, threadViews, ...kept, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
+  // an app's quiet line (server rooms/apps: Quiet, the paused line) counts nowhere, as an event line
+  if (m.event || m.app?.quiet) return { ...d, timeline, threadViews, ...kept, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
   const fresh = m.seq > room.lastSeq
   const mine = !!meId && m.author?.id === meId
   // my message in the room reads the room up to it (as the server does); my reply sent to the room too does not: it was

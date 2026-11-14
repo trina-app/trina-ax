@@ -1,0 +1,6 @@
+/* macOS permission prompts (id). The English base is mac.extendInfo in desktop/electron-builder.config.ts. */
+"NSMicrophoneUsageDescription" = "Input suara di chat memakai mikrofon.";
+"NSLocalNetworkUsageDescription" = "Terhubung langsung ke server tim Anda di dalam kantor.";
+"NSDesktopFolderUsageDescription" = "Hanya membaca folder yang Anda pilih, untuk menemukan skill dan dokumen perusahaan Anda.";
+"NSDocumentsFolderUsageDescription" = "Hanya membaca folder yang Anda pilih, untuk menemukan skill dan dokumen perusahaan Anda.";
+"NSDownloadsFolderUsageDescription" = "Hanya membaca folder yang Anda pilih, untuk menemukan skill dan dokumen perusahaan Anda.";

@@ -49,17 +49,17 @@ The owner and admins can always open team folders, except projects they are not 
 After the update that made access add up, some folders list their people by name (tagged **Added when folders changed**), and Folder permissions shows a one-time notice naming them. People added by name keep access if they later leave the group. **Admin › Groups** and the person's page say so before saving, with **Remove now**.
 :::
 
-**Admin › Folder permissions › By folder** shows the team folder as a tree. Each row says who can open it and where that comes from.
+**Admin › Folder permissions › Folders** lists only the folders shared differently from the folder they are in, in the same names as Files, with **Limited** on the ones that keep people out. **Share** opens the folder's Share dialog. Project folders are one line: their members are changed on the project.
 
-![Admin › Folder permissions › By folder: the team folder as a tree, each folder with who can open it](../images/files/folder-permissions.webp "Folder permissions, by folder")
+![Admin › Folder permissions › Folders: the folders shared differently, each with who and Share](../images/files/folder-permissions.webp "Folder permissions, folders")
 
-**By person** shows what one person, and so their AI, can see, and why.
+**What a person can open** shows, for one person (and so their AI), each folder with Viewer or Editor and why, and the folders they can't open.
 
 :::warning
 `skills/` holds instructions that every member's AI follows. Write access there makes someone a skill manager. Before the AI saves into `skills/`, the server asks a person to confirm. The same goes for a group's `groups/<group>/skills/`: every member of that group's AI follows it, and any member who may write the group's folder changes it.
 :::
 
-![Folder permissions by person: pick someone to see which team folders they can open, and why](../images/files/by-person.webp "Folder permissions, by person")
+![What a person can open: each folder with Viewer or Editor and why, then what they can't open](../images/files/by-person.webp "What a person can open")
 
 ## Working with files
 

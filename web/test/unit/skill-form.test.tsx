@@ -108,7 +108,7 @@ describe('Team skills page', () => {
   // the empty page's "추천 스킬 4개 넣기" is gone (docs/DECISIONS.md "W6"): the kept skills are in the fold under the
   // lists (test/unit/available-skills-install.test.tsx)
   test('no skills: no install button for anyone; owners and admins read none yet, members that the owner or an admin puts them in', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(l)
       for (const role of ['owner', 'admin'] as const) {
         signIn(role)

@@ -1,2 +1,0 @@
-- After the owner saves a connection change that moves the team address (not a relay rename), System › Connection says "Tell your team the new address" with the address and a copy button, once the new address is up.
-- Admin › Team settings › File list now says "The last file list run didn't finish. Trina will try again." after a failed run, until a run goes through.

@@ -22,10 +22,10 @@ const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>
 
 describe('the words and the tokens (lib/rooms.ts)', () => {
   test('each language\'s word and Slack\'s find it; a person\'s name does not', () => {
-    expect([...MENTION_ALL_WORDS].sort()).toEqual(['everyone', 'semua', 'todos', '전체', '全員'].sort())
+    expect([...MENTION_ALL_WORDS].sort()).toEqual(['everyone', 'semua', 'todos', '전체', '全員', '所有人'].sort())
     // the word each language's "@" list writes is one the server takes (ROOM_MENTION_ALL_WORDS)
     for (const l of LOCALES) expect({ l: l.id, known: MENTION_ALL_WORDS.includes(translate(l.id, 'rooms.mentionAll')) }).toEqual({ l: l.id, known: true })
-    for (const q of ['', '전', '전체', 'all', 'AL', 'channel', 'chan', 'every', 'everyone', 'Everyone', '全員', 'todos', 'semua']) expect({ q, hit: allMatches(q, MENTION_ALL_WORDS) }).toEqual({ q, hit: true })
+    for (const q of ['', '전', '전체', 'all', 'AL', 'channel', 'chan', 'every', 'everyone', 'Everyone', '全員', 'todos', 'semua', '所有人']) expect({ q, hit: allMatches(q, MENTION_ALL_WORDS) }).toEqual({ q, hit: true })
     for (const q of ['Ben', 'mia', '전체요', 'alle']) expect({ q, hit: allMatches(q, MENTION_ALL_WORDS) }).toEqual({ q, hit: false })
   })
 

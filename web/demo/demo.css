@@ -1,0 +1,130 @@
+/* The demo's only layer (web/demo/overlay.tsx): the guide line and the ring over the next real control, in the app's
+   colours (theme.edition.css). Nothing here restyles the app's own screens. Plain CSS, not Tailwind utilities: the
+   product's stylesheet must not change for the demo. */
+.demo-guide {
+  position: fixed;
+  z-index: 60;
+  /* computers: over the bottom of the list panel beside the rail, clear of every message box */
+  left: 84px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 264px;
+  pointer-events: none;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.demo-guide > * { pointer-events: auto; }
+.demo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--c-line);
+  border-radius: 14px;
+  background: var(--c-surface);
+  color: var(--c-ink, inherit);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+}
+.demo-badge {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--c-muted, #8a8178);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.demo-next, .demo-restart, .demo-choice { font: inherit; cursor: pointer; border: 0; }
+.demo-next {
+  order: -1;
+  flex: 1 1 100%;
+  display: block;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--c-accent);
+  color: var(--c-accent-ink);
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+}
+.demo-next:hover { background: var(--c-accent-hover); }
+/* between steps (the team is typing, an answer is on its way): a quiet line, never nothing */
+.demo-wait, .demo-wait:hover { background: var(--c-hover, rgb(0 0 0 / 0.05)); color: var(--c-muted, #8a8178); cursor: default; }
+.demo-restart {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--c-muted, #8a8178);
+}
+.demo-restart:hover { background: var(--c-hover, rgb(0 0 0 / 0.05)); color: inherit; }
+/* the step's prompts, in the guide line */
+.demo-choices { display: flex; flex-direction: column; gap: 6px; }
+.demo-choice {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--c-accent);
+  background: var(--c-surface);
+  color: var(--c-accent-text);
+  font-weight: 650;
+  text-align: left;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.10);
+  animation: demo-pulse 1.6s ease-in-out infinite;
+}
+.demo-choice:hover { background: var(--c-accent-soft); }
+.demo-choice:disabled { opacity: 0.6; cursor: default; animation: none; }
+.demo-next:focus-visible, .demo-restart:focus-visible, .demo-choice:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+/* the end: the guide line's last state */
+.demo-end-line { order: -1; flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; padding: 4px 6px 2px; }
+.demo-end-line > span { font-size: 13px; color: var(--c-muted, #8a8178); }
+.demo-end-line strong { color: var(--c-ink, inherit); }
+.demo-end-line .demo-next { text-align: center; }
+
+/* the guide line itself, when it is the one thing to press */
+.demo-glow { animation: demo-pulse 1.6s ease-in-out infinite; }
+@keyframes demo-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(232 82 26 / 0.35); }
+  50% { box-shadow: 0 0 0 8px rgb(232 82 26 / 0); }
+}
+/* the ring over the next real control (drawn over it: the control itself is not restyled) */
+.demo-ring {
+  position: fixed;
+  z-index: 57;
+  border: 2px solid var(--c-accent);
+  border-radius: 14px;
+  pointer-events: none;
+  animation: demo-ring 1.6s ease-in-out infinite;
+}
+@keyframes demo-ring { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .demo-glow, .demo-ring, .demo-choice { animation: none; }
+}
+
+/* phones: a bar of its own at the bottom (the app gets the rest of the height, so nothing is covered), with the
+   safe-area inset; the step's prompts above it */
+@media (max-width: 767px) {
+  /* the guide's measured height (overlay.tsx), the step's prompts included */
+  #root { height: calc(var(--app-h, 100dvh) - var(--demo-guide-h, 56px)) !important; }
+  /* while a dialog of the app is open, the guide steps back (the ring still shows the next control) */
+  .demo-guide-back { visibility: hidden; }
+  .demo-guide {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    padding: 6px 10px env(safe-area-inset-bottom);
+    border-top: 1px solid var(--c-line);
+    background: var(--c-canvas, var(--c-surface));
+  }
+  .demo-bar { flex-wrap: nowrap; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .demo-badge { display: none; }
+  .demo-next { order: 0; flex: 1 1 auto; min-width: 0; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.2; }
+  .demo-restart { padding: 10px 8px; font-size: 12px; }
+  .demo-end-line { order: 0; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0; }
+  .demo-end-line .demo-next { flex: 1 1 auto; }
+}

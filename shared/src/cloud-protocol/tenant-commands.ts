@@ -95,6 +95,16 @@ export const TenantStatus = z.strictObject({
 })
 export type TenantStatus = z.infer<typeof TenantStatus>
 
+/**
+ * The `TenantStatus.checks` ids that are `fail` on a freshly installed hosted team that nobody has set up yet (no AI
+ * connection added): the team server's diagnostics (server/src/system/ops.ts) say so, and `overall` is `fail` because
+ * of them. The control plane's update gate (Trina Cloud rule F-14) must not read these as a broken update: it rolls
+ * back only on checks that were not failing before the update. tests/unit/fresh-team-failing-checks.test.ts runs the
+ * diagnostics of such a team and fails when this list and the diagnostics disagree: a new check that fails on a fresh
+ * team goes here, and the control plane is told.
+ */
+export const FRESH_TEAM_FAILING_CHECKS: readonly string[] = Object.freeze(['engine.claude-code'])
+
 /** set-server-config: the server.json keys the control plane may change (anything else is refused). publicOrigins
  * follow HttpsUrl like everywhere in these contracts: https, http only to this machine (dev / tests). */
 export const ServerConfigPatch = z.strictObject({

@@ -1,6 +1,6 @@
 // An existing private chat shared with its project's people (docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): a chat moved into a team project arrives private, with no switch in the move dialog (QA TC-1075), its
-// header shows the lock (QA TC-1068); it is shared from the title menu's "프로젝트 멤버와 공유" or the project page's
+// header shows the lock (QA TC-1068); it is shared from the title menu's "공유…" (Share…) or the project page's
 // "chats only you see" line, always after one confirm whose focus starts on 취소 and whose material-others-can't-see
 // line is a warning (QA TC-1073); cancel leaves it private. The same from a chat row's "…" menu in the sidebar, and a
 // second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each dialog. The mock
@@ -214,7 +214,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await page.getByTestId('chat-menu').click()
       const item = page.getByTestId('chat-share')
-      await expect(item).toHaveText('프로젝트 멤버와 공유')
+      // one item for both kinds of sharing (docs/DECISIONS.md "Chats shared with people and groups")
+      await expect(item).toHaveText('공유…')
       await audit(page, 'chat menu with share')
       await item.click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })

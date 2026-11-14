@@ -78,8 +78,9 @@ export const adminRoutes: RouteModule = {
       const noAi = query.noAi ? withoutAi(ctx, { problems }) : null
       // who asked for their account to be deleted: for the owner and the admins, who delete accounts (an admin sees
       // the members' requests only: an admin's own is the owner's to handle)
-      const deletionRequested = openDeletionRequests(ctx, auth.user.role === 'owner' ? undefined : 'member')
-      return { items: listUsers(ctx), ...(noAi ? { noAi: noAi.ids, noAiUntil: noAi.until } : {}), ...(deletionRequested ? { deletionRequested } : {}) }
+      const open = openDeletionRequests(ctx, auth.user.role === 'owner' ? undefined : 'member')
+      const deletionDue = Object.fromEntries(open.flatMap((r) => (r.dueAt ? [[r.userId, r.dueAt]] : [])))
+      return { items: listUsers(ctx), ...(noAi ? { noAi: noAi.ids, noAiUntil: noAi.until } : {}), deletionRequested: open.map((r) => r.userId), deletionDue }
     })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))

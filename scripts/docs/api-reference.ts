@@ -41,7 +41,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   DEMO: 'Demo mode (development demo server only)',
   PEOPLE: 'People directory and profiles',
   ROOMS: 'Team chat rooms',
-  ACCOUNT_DELETION: 'Account deletion request',
+  ACCOUNT_DELETION: 'Account deletion',
   SLACK: 'Slack connector',
   PROMO_VIDEO: 'Promo video and its MP4',
   INTRO_DECK: 'Company intro deck (the welcome steps\' first result): PowerPoint and PDF',
@@ -52,6 +52,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   SERVICE_REQUESTS: 'Asking an admin to add an app',
   MEMBER_WELCOME: 'The welcome card for invited people (Home)',
   NAV_FOLDERS: 'List folders (my own folders for chats and conversations)',
+  ROOM_APPS: 'Apps posting in rooms',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

@@ -2,7 +2,8 @@
 // row (Electron has no push service: the old button always failed with "check your connection"), one row "이 컴퓨터 앱
 // 알림" instead. A desktop app with testNotify adds "테스트 알림" (sent through the bridge, focused or not) and, when the
 // system refused it, says where to turn the app's notifications on; an older desktop app shows the row without it. The
-// desktop app writes the test notification itself (the page sends no words). Owners and admins keep the phone push line.
+// desktop app writes the test notification itself (the page sends no words). Where the team's phone notifications go is
+// the Phone section's row (PhoneGatewayRow.tsx), not a line here.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -91,7 +92,7 @@ describe('the row', () => {
   })
 })
 
-describe('owners and admins: the phone push line stays', () => {
+describe('owners and admins: where phone notifications go is not here', () => {
   const realFetch = globalThis.fetch
   const status = useSession.getState().status, locale = useLocaleStore.getState().locale
   let reads = 0
@@ -99,22 +100,16 @@ describe('owners and admins: the phone push line stays', () => {
   beforeAll(() => {
     installDom()
     useLocaleStore.setState({ locale: 'ko' })
-    globalThis.fetch = (async () => { reads++; return Response.json({ configured: true, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' } }) }) as unknown as typeof fetch
+    globalThis.fetch = (async () => { reads++; return Response.json({}) }) as unknown as typeof fetch
   })
   afterAll(() => { globalThis.fetch = realFetch; removeDom(); useSession.setState({ status }); useLocaleStore.setState({ locale }) })
-  test('an admin sees where phone push goes, as in a browser; a member sees no such line and nothing is read', async () => {
+  test('an admin\'s row has no gateway line and reads nothing (the Phone section\'s "Phone notifications" row says it)', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: me('admin') } } as never)
     const page = await mount(<DesktopNotifications bridge={bridge({ test: async () => 'shown' })} />)
-    const line = await page.until(() => page.find('phone-push-gateway'), 'the gateway line')
-    expect(line.textContent).toBe(ko('push.phoneGateway', { host: 'push.example.test' }))
-    await page.unmount()
-    reads = 0
-    useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
-    const member = await mount(<DesktopNotifications bridge={bridge({ test: async () => 'shown' })} />)
-    await member.settle(30)
-    expect(member.find('phone-push-gateway')).toBeNull()
+    await page.settle(30)
+    expect(page.find('phone-push-gateway')).toBeNull()
     expect(reads).toBe(0)
-    await member.unmount()
+    await page.unmount()
   })
 })
 
@@ -126,7 +121,7 @@ test('each answer in words, with the system\'s own place on macOS, Windows and L
   expect(desktopTestText('unknown', 'darwin', en)).toBe('Test notification sent. If it does not show, turn notifications on in System Settings › Notifications › Trina AX.')
   expect(desktopTestText('unsupported', 'linux', en)).toBe('This computer does not support app notifications.')
   expect(desktopTestText('limited', 'darwin', en)).toBe('Too many notifications just now. Try again in a minute.')
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
     const t = (k: MessageKey, p?: Params) => translate(l, k, p)
     for (const o of ['shown', 'off', 'unsupported', 'limited', 'unknown'] as const) for (const p of ['darwin', 'win32', 'linux'] as const) {
       const text = desktopTestText(o, p, t)

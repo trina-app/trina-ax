@@ -55,6 +55,30 @@ Before any replacement, make a current backup, pause team use and preserve the c
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 
+## Accounts deleted after the backup
+
+A database restore brings back every account deleted after the backup was made: the backup still has the person's
+row, sign-in and private data. It also brings back deletion requests as they were at the backup time: one cancelled
+since is open again, one made since is gone. / 백업 뒤에 삭제한 계정은 DB 복원으로 되살아나고, 그 뒤의 삭제 요청·취소는 사라져요. 복원 전에 목록을 받아 두세요.
+
+1. Before the restore, list from the live database what happened since the backup's time: Admin › Activity log,
+   "Removed a member", "Requested account deletion" and "Cancelled the account deletion request" from that date on
+   (or on Linux, as the service account:
+   `sqlite3 -readonly /var/lib/mycel/data/app.db "SELECT action, target, at FROM audit_log WHERE action IN ('user.delete', 'account.deletion_request', 'account.deletion_cancel') AND at >= '<backup time, ISO>'"`).
+   Keep the list with the restore record, not in a team folder.
+2. After the restart, nobody is deleted at once: a deletion date that passed while the server was down, or that the
+   restored copy carries, moves to 24 hours after the start, and the person is told in their inbox. Within those 24
+   hours:
+   - **Removed since the backup:** delete each again in Admin › Members & invites (personal files: "Move to the owner's
+     archive", as before). They were already deleted, so doing it now breaks no promise.
+   - **Cancelled since the backup:** ask the person to open Settings › Profile › Delete account and press "Keep my
+     account" (their request is open again in the restored copy).
+   - **Asked since the backup:** do not delete them by hand; that would be earlier than the date they were shown. Ask
+     them to ask again (a new 7-day date), or delete them in Members only on or after the date in the list.
+3. Backups themselves keep a deleted person's data until they rotate out (daily backups 14 days, the weekly full
+   backup 8 weeks, update and manual backups 30 days on the hosted service). Nobody reads them for anything but a
+   restore; the account deletion page and the privacy policy say "up to 8 weeks".
+
 ## Going back to the version before an update (Linux)
 
 Use this when an update (for example 0.4.0 → 0.5.0) went wrong and the team must run the old version again. The old version cannot read a database the new version has already changed, so you put back the copy of the database from just before the update and start the old version in one go. Do not use Admin › System › Update › **Go back** or a plain server restart for this: a restart starts the new version, which changes the restored copy again.

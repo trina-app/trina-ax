@@ -1,6 +1,8 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
 import { ShareChatHost } from './components/chat/ShareChat'
+import { ChatShareHost } from './components/chat/ChatShareDialog'
+import { WideningDraftHost } from './components/WideningDraftHost'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -51,6 +53,7 @@ import { afterJoinSet, afterJoinTarget, clearAfterJoin, readJoinToken } from './
 import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
+import { RoomAppsHost } from './components/rooms/apps/AppsHost'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -384,7 +387,10 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <RoomAppsHost />
         <ShareChatHost />
+        <ChatShareHost />
+        <WideningDraftHost />
         <StatusDialogHost />
         <ImageViewerHost />
         <Toaster />

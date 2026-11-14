@@ -20,8 +20,8 @@ export const AUTO_HOLD_MS = 7 * 86_400_000
 /** the team's update window when Admin > Settings has none (team time zone) */
 export const DEFAULT_UPDATE_WINDOW = '03:00-05:00'
 
-export const waitingTasks = (n: number) => ({ ko: `업데이트가 진행 중인 작업 ${n}개가 끝나기를 기다리고 있어요`, en: `An update is waiting for ${enPlural(n, 'running task', 'running tasks')} to finish`, id: `Pembaruan menunggu ${n} tugas yang sedang berjalan selesai`, ja: `更新は実行中のタスク${n}件の完了を待っています`, es: `Una actualización espera a que ${n === 1 ? 'termine 1 tarea en curso' : `terminen ${n} tareas en curso`}` })
-const restarting = { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor." }
+export const waitingTasks = (n: number) => ({ ko: `업데이트가 진행 중인 작업 ${n}개가 끝나기를 기다리고 있어요`, en: `An update is waiting for ${enPlural(n, 'running task', 'running tasks')} to finish`, id: `Pembaruan menunggu ${n} tugas yang sedang berjalan selesai`, ja: `更新は実行中のタスク${n}件の完了を待っています`, es: `Una actualización espera a que ${n === 1 ? 'termine 1 tarea en curso' : `terminen ${n} tareas en curso`}`, zh: `更新正在等待${n}个运行中的任务完成` })
+const restarting = { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor.", zh: "正在重启服务器。" }
 
 export interface RunUpdateDeps {
   updates: UpdateManager
@@ -70,8 +70,12 @@ async function updateSteps(d: RunUpdateDeps, target: string, o: { staged: boolea
     if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
     if (feed.rollout?.hold) throw new UpdateError(`the publisher paused version ${target}; it is not installed until the roll-out resumes`)
     if (d.updates.needsRoot(feed)) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
+    if (!d.updates.releaseCanRead(feed)) throw new UpdateError(cannotOpenData(target))
     await d.updates.download(feed, (f) => progress(0.3 + 0.5 * f, stepText(d.locale, 'download')))
   }
+  // the version brought in (or one staged before) must open the database as it is now: one that cannot exits 75 and
+  // the bootstrap rolls back (a roll-back's Go back is checked the same way, UpdateManager.rollBack)
+  if (!d.updates.canRead(target)) throw new UpdateError(cannotOpenData(target))
   // 4) switch and restart; the bootstrap health-checks and rolls back on failure
   progress(0.9, stepText(d.locale, 'switch'))
   const r = await d.updates.switchTo(target)
@@ -79,6 +83,8 @@ async function updateSteps(d: RunUpdateDeps, target: string, o: { staged: boolea
   d.restart(`update to ${target}`)
   return { fromVersion: r.from, toVersion: r.to, rolledBack: o.rollback }
 }
+
+const cannotOpenData = (v: string) => `version ${v} cannot open this server's data: a newer version has already updated the database. Waiting for a newer release`
 
 // ---------------- automatic updates (Linux self-host, update.auto) ----------------
 type History = z.infer<typeof UpdateHistoryEntry>[]
@@ -118,7 +124,7 @@ export function nextWindow(window: string | null, now: Date, tz: string): { at: 
   return null
 }
 
-export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'paused' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
+export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'cannot_read' | 'paused' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
 
 /** Should this install take the feed's release by itself now? (pure: the ops service gathers the facts) */
 export function autoUpdateDecision(o: {
@@ -132,12 +138,18 @@ export function autoUpdateDecision(o: {
   /** the version root's update failed here (root/update-failed.json, native/cmd/mycel-ctl schedule.go), held or not:
    * the root update timer tries it again after its own back-off, so this updater leaves it (0.2.19 review S1) */
   rootHold?: string | null
+  /** the release can open the database as it is now (UpdateManager.releaseCanRead); false: it is never taken by itself,
+   * whatever the hold or the roll-out says, until a newer release can (absent: yes) */
+  canRead?: boolean
   /** decide as if the window were open and no answer ran (Admin Home asks what holds a release back, not when) */
   ignoreWindow?: boolean
 }): AutoDecision {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
+  // a release that cannot open this database (a dev build ran migrations of a higher reader level): installing it only
+  // ends in exit 75 and a roll-back, again after every hold. Not a failure: it waits for a newer release
+  if (o.canRead === false) return { go: false, why: 'cannot_read' }
   // the publisher paused this release's roll-out (system/rollout.ts hold): nobody takes it by itself until it resumes
   if (f.rollout?.hold) return { go: false, why: 'paused' }
   if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }
@@ -159,10 +171,10 @@ export function autoUpdateDecision(o: {
 // ---------------- an update job whose version did not stay (QA TC-336) ----------------
 type Msg = Record<Locale, string>
 const UPDATE_NOT_KEPT = {
-  goBack: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 되돌리지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not go back to ${to}; still on ${cur}.`, id: `Tidak bisa kembali ke ${to}; masih memakai ${cur}.`, ja: `${to}に戻せませんでした。現在も${cur}で動いています。`, es: `No se pudo volver a ${to}; sigue en ${cur}.` }),
-  update: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 업데이트하지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not update to ${to}; still on ${cur}.`, id: `Tidak bisa memperbarui ke ${to}; masih memakai ${cur}.`, ja: `${to}に更新できませんでした。現在も${cur}で動いています。`, es: `No se pudo actualizar a ${to}; sigue en ${cur}.` }),
-  cannotRead: (to: string, cur: string): Msg => ({ ko: `${to}은(는) ${cur}이(가) 이미 바꾼 데이터베이스를 읽지 못해요. 잃은 데이터는 없어요. ${to}(으)로 돌아가려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `${to} cannot read the database that ${cur} has already updated. Nothing was lost. To return to ${to}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `${to} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Tidak ada yang hilang. Untuk kembali ke ${to}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${to}は、${cur}がすでに更新したデータベースを読み込めません。失われたデータはありません。${to}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `${to} no puede leer la base de datos que ${cur} ya actualizó. No se perdió nada. Para volver a ${to}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).` }),
-  why: (detail: string): Msg => ({ ko: `이유: ${detail}`, en: `Reason: ${detail}`, id: `Alasan: ${detail}`, ja: `理由：${detail}`, es: `Motivo: ${detail}` }),
+  goBack: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 되돌리지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not go back to ${to}; still on ${cur}.`, id: `Tidak bisa kembali ke ${to}; masih memakai ${cur}.`, ja: `${to}に戻せませんでした。現在も${cur}で動いています。`, es: `No se pudo volver a ${to}; sigue en ${cur}.`, zh: `无法回退到${to}；仍在${cur}。` }),
+  update: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 업데이트하지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not update to ${to}; still on ${cur}.`, id: `Tidak bisa memperbarui ke ${to}; masih memakai ${cur}.`, ja: `${to}に更新できませんでした。現在も${cur}で動いています。`, es: `No se pudo actualizar a ${to}; sigue en ${cur}.`, zh: `无法更新到${to}；仍在${cur}。` }),
+  cannotRead: (to: string, cur: string): Msg => ({ ko: `${to}은(는) ${cur}이(가) 이미 바꾼 데이터베이스를 읽지 못해요. 잃은 데이터는 없어요. ${to}(으)로 돌아가려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `${to} cannot read the database that ${cur} has already updated. Nothing was lost. To return to ${to}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `${to} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Tidak ada yang hilang. Untuk kembali ke ${to}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${to}は、${cur}がすでに更新したデータベースを読み込めません。失われたデータはありません。${to}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `${to} no puede leer la base de datos que ${cur} ya actualizó. No se perdió nada. Para volver a ${to}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).`, zh: `${to}无法读取已被${cur}更新过的数据库。没有丢失任何数据。要回到${to}，需要恢复更新前创建的备份（见备份与恢复指南）。` }),
+  why: (detail: string): Msg => ({ ko: `이유: ${detail}`, en: `Reason: ${detail}`, id: `Alasan: ${detail}`, ja: `理由：${detail}`, es: `Motivo: ${detail}`, zh: `原因：${detail}` }),
 }
 
 /**

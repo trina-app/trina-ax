@@ -9,7 +9,7 @@ import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { ConnectionRow, connectionLogo } from './ConnectionRow'
-import { Button, IconButton, StickyHeader, inputCls } from '../ui'
+import { Button, IconButton, StickyHeader, inputCls, useMediaQuery } from '../ui'
 import { SplitAction, type AddMenuItem } from '../PageActions'
 
 // the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
@@ -114,8 +114,8 @@ export function InitialTile({ name, className }: { name: string; className?: str
 }
 
 /** What one row of "Your connectors" says on its right: one status or one button, nothing else. `off`: set up and
- * turned off (Admin › Connected apps › Slack). */
-export type RowStatus = 'connected' | 'on' | 'off' | 'signin' | 'reconnect' | 'attention' | 'connect'
+ * turned off (Admin › Connected apps › Slack); `connecting`: on and not connected yet (Slack, lib/slackState.ts). */
+export type RowStatus = 'connected' | 'on' | 'off' | 'connecting' | 'signin' | 'reconnect' | 'attention' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
@@ -133,18 +133,23 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
   testId?: string
 }) {
   const t = useT()
+  // a phone: the note goes under the name; at the row's right it would take the room the name needs (QA TC-1549)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={onOpen} openTestId="connector-row-open"
       logo={logo ? <LogoTile src={logo} className={connectionLogo} /> : <InitialTile name={name} className={connectionLogo} />} name={name}
       badge={team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
+      more={phone && note ? <span className="mt-1 flex">{note}</span> : undefined}
       end={<>
-        {note}
+        {!phone && note}
         {status === 'connected' || status === 'on' ? (
           <span className="flex items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
             <Check size={14} className="text-ok" aria-hidden /> {t(status === 'on' ? 'appConnectors.on' : 'drive.status.connected')}
           </span>
         ) : status === 'off' ? (
           <span className="text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
+        ) : status === 'connecting' ? (
+          <span className="text-xs text-warn" data-testid="connector-row-status">{t('slack.state.connecting')}</span>
         ) : status === 'signin' ? (
           <button type="button" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
         ) : status === 'reconnect' ? (

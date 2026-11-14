@@ -8,19 +8,19 @@ import { prepareAvatar, type AvatarProblem } from './avatar'
 import { LIVE_SQL, statusOut } from './status-plan'
 
 type T = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 const KB = AVATAR_MAX_BYTES / 1024
 
 /** Refusals of a photo, in the uploader's language. */
 export const AVATAR_TEXT: Record<AvatarProblem, T> = {
-  type: t('PNG, JPEG, WebP 사진만 올릴 수 있어요.', 'Only PNG, JPEG or WebP photos can be used.', 'Hanya foto PNG, JPEG, atau WebP yang bisa dipakai.', 'PNG、JPEG、WebPの写真のみ使用できます。', 'Solo se pueden usar fotos PNG, JPEG o WebP.'),
-  mismatch: t('파일 내용이 PNG, JPEG, WebP 사진이 아니에요. 다른 사진을 골라 주세요.', 'The file is not really a PNG, JPEG or WebP photo. Choose another photo.', 'Isi berkas bukan foto PNG, JPEG, atau WebP. Pilih foto lain.', '実際のファイル形式がPNG、JPEG、WebPではありません。別の写真を選んでください。', 'El archivo no es realmente una foto PNG, JPEG o WebP. Elija otra foto.'),
-  too_big: t(`사진은 ${KB}KB까지 올릴 수 있어요.`, `The photo can be at most ${KB} KB.`, `Foto paling besar ${KB} KB.`, `写真は最大${KB} KBです。`, `La foto puede ocupar como máximo ${KB} KB.`),
-  not_square: t('사진은 정사각형이어야 해요. 화면에서 고르면 알아서 잘라 드려요.', 'The photo must be square. Choosing it in the app crops it for you.', 'Foto harus persegi. Memilihnya di aplikasi akan memotongnya otomatis.', '写真は正方形である必要があります。アプリで選ぶと自動で切り抜きます。', 'La foto debe ser cuadrada. Al elegirla en la app se recorta sola.'),
-  too_small: t(`가로와 세로가 ${AVATAR_MIN_PX}px 이상인 사진을 올려 주세요.`, `Use a photo at least ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} pixels.`, `Pakai foto minimal ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} piksel.`, `${AVATAR_MIN_PX} × ${AVATAR_MIN_PX}ピクセル以上の写真を使ってください。`, `Use una foto de al menos ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} píxeles.`),
-  too_large: t(`가로와 세로가 ${AVATAR_MAX_PX}px 이하인 사진을 올려 주세요.`, `Use a photo at most ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} pixels.`, `Pakai foto paling besar ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} piksel.`, `${AVATAR_MAX_PX} × ${AVATAR_MAX_PX}ピクセル以下の写真を使ってください。`, `Use una foto de como máximo ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} píxeles.`),
-  broken: t('사진 파일이 손상된 것 같아요. 다른 사진을 골라 주세요.', 'The photo file seems damaged. Choose another photo.', 'Berkas foto tampaknya rusak. Pilih foto lain.', '写真ファイルが破損しているようです。別の写真を選んでください。', 'El archivo de la foto parece dañado. Elija otra foto.'),
-  animated: t('움직이는 사진은 쓸 수 없어요.', 'Animated photos cannot be used.', 'Foto bergerak tidak bisa dipakai.', '動く写真は使用できません。', 'No se pueden usar fotos animadas.'),
+  type: t('PNG, JPEG, WebP 사진만 올릴 수 있어요.', 'Only PNG, JPEG or WebP photos can be used.', 'Hanya foto PNG, JPEG, atau WebP yang bisa dipakai.', 'PNG、JPEG、WebPの写真のみ使用できます。', 'Solo se pueden usar fotos PNG, JPEG o WebP.', '只能使用 PNG、JPEG 或 WebP 照片。'),
+  mismatch: t('파일 내용이 PNG, JPEG, WebP 사진이 아니에요. 다른 사진을 골라 주세요.', 'The file is not really a PNG, JPEG or WebP photo. Choose another photo.', 'Isi berkas bukan foto PNG, JPEG, atau WebP. Pilih foto lain.', '実際のファイル形式がPNG、JPEG、WebPではありません。別の写真を選んでください。', 'El archivo no es realmente una foto PNG, JPEG o WebP. Elija otra foto.', '此文件实际上不是 PNG、JPEG 或 WebP 照片。请选择其他照片。'),
+  too_big: t(`사진은 ${KB}KB까지 올릴 수 있어요.`, `The photo can be at most ${KB} KB.`, `Foto paling besar ${KB} KB.`, `写真は最大${KB} KBです。`, `La foto puede ocupar como máximo ${KB} KB.`, `照片最大为${KB} KB。`),
+  not_square: t('사진은 정사각형이어야 해요. 화면에서 고르면 알아서 잘라 드려요.', 'The photo must be square. Choosing it in the app crops it for you.', 'Foto harus persegi. Memilihnya di aplikasi akan memotongnya otomatis.', '写真は正方形である必要があります。アプリで選ぶと自動で切り抜きます。', 'La foto debe ser cuadrada. Al elegirla en la app se recorta sola.', '照片必须是正方形。在应用中选择照片时会自动裁剪。'),
+  too_small: t(`가로와 세로가 ${AVATAR_MIN_PX}px 이상인 사진을 올려 주세요.`, `Use a photo at least ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} pixels.`, `Pakai foto minimal ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} piksel.`, `${AVATAR_MIN_PX} × ${AVATAR_MIN_PX}ピクセル以上の写真を使ってください。`, `Use una foto de al menos ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} píxeles.`, `请使用至少${AVATAR_MIN_PX} × ${AVATAR_MIN_PX}像素的照片。`),
+  too_large: t(`가로와 세로가 ${AVATAR_MAX_PX}px 이하인 사진을 올려 주세요.`, `Use a photo at most ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} pixels.`, `Pakai foto paling besar ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} piksel.`, `${AVATAR_MAX_PX} × ${AVATAR_MAX_PX}ピクセル以下の写真を使ってください。`, `Use una foto de como máximo ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} píxeles.`, `请使用最多${AVATAR_MAX_PX} × ${AVATAR_MAX_PX}像素的照片。`),
+  broken: t('사진 파일이 손상된 것 같아요. 다른 사진을 골라 주세요.', 'The photo file seems damaged. Choose another photo.', 'Berkas foto tampaknya rusak. Pilih foto lain.', '写真ファイルが破損しているようです。別の写真を選んでください。', 'El archivo de la foto parece dañado. Elija otra foto.', '照片文件似乎已损坏。请选择其他照片。'),
+  animated: t('움직이는 사진은 쓸 수 없어요.', 'Animated photos cannot be used.', 'Foto bergerak tidak bisa dipakai.', '動く写真は使用できません。', 'No se pueden usar fotos animadas.', '不能使用动态照片。'),
 }
 const refuse = (problem: AvatarProblem, locale: Locale): never =>
   fail(problem === 'too_big' ? 'payload_too_large' : 'validation', AVATAR_TEXT[problem][locale] ?? AVATAR_TEXT[problem].en, {

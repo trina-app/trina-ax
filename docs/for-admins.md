@@ -1,6 +1,6 @@
 # IT handoff: deploy and operate Trina AX
 
-[한국어](for-admins.ko.md)
+[한국어](for-admins.ko.md) · [简体中文](for-admins.zh.md)
 
 Decide data sensitivity, server ownership, authorized provider connections, client needs, outbound network policy and who restores backups. Selected context leaves for the provider; hosted operators can access stored data. [Security boundaries](security-and-permissions.md).
 
@@ -43,7 +43,7 @@ Pilot acceptance: demonstrate two users' different file access, review a skill r
 
 Before updating, read the [latest release](https://github.com/trina-app/trina-ax/releases/latest), including default changes, and back up. Linux and office Mac use the Trina feed. App rollback is not database/file rollback. A Linux server keeps the current version and the previous one (for roll-back) and removes older ones by itself, so the app takes about 1–1.5 GB of disk ([Kept versions](INSTALL-LINUX.en.md#kept-versions)). [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md).
 
-Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES. HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
+Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES/ZH (简体中文). HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
 
 PDFs the AI makes on a Linux server draw Korean, Japanese and Chinese with the Noto Sans CJK fonts that come with each release; there is nothing to install. An office Mac uses its own fonts (Apple SD Gothic Neo, Hiragino Sans, PingFang). Each PDF is set in the language it is written in: a Japanese document gets the Japanese faces first and a Chinese one the Chinese faces (the same characters are drawn differently in each), and a document without Korean, Japanese or Chinese text follows the team language.
 

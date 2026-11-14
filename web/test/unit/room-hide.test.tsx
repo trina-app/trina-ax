@@ -100,7 +100,10 @@ describe('the menu by kind', () => {
     const Menu = ({ id }: { id: string }) => <RoomMenu room={useRooms((s) => s.rooms.find((r) => r.id === id)!)} />
     const words = [ko('rooms.menu.notify'), ko('rooms.menu.copyLink')]
     const pin = ko('chat.pin')
-    const want = [[pin, words[0], ko('rooms.info.rename'), words[1], ko('rooms.info.leave')], [pin, ...words, ko('rooms.menu.hideDm')], [pin, ...words, ko('rooms.menu.hide')], [pin, ...words, ko('rooms.menu.hide')]]
+    // "앱 추가" (docs/DECISIONS.md "Apps posting in rooms"): any member of a group chat or a DM; a team room's and the
+    // everyone room's only for owners and admins (this person is a member)
+    const apps = ko('roomApps.menuAdd')
+    const want = [[pin, words[0], ko('rooms.info.rename'), apps, words[1], ko('rooms.info.leave')], [pin, words[0], apps, words[1], ko('rooms.menu.hideDm')], [pin, ...words, ko('rooms.menu.hide')], [pin, ...words, ko('rooms.menu.hide')]]
     for (const [i, r] of rs.entries()) {
       const m = await mount(<MemoryRouter><Menu id={r.id} /></MemoryRouter>)
       try {
@@ -121,7 +124,7 @@ describe('the menu by kind', () => {
           expect(sent.find((s) => s.key === `PUT /api/rooms/${r.id}/hidden`)!.body).toEqual({ hidden: true })
           // the same menu now offers it back
           await m.click('room-menu')
-          expect(menuItems(m)).toEqual([...words, ko('rooms.menu.show')])
+          expect(menuItems(m)).toEqual([words[0], apps, words[1], ko('rooms.menu.show')])
         }
       } finally { await m.unmount() }
     }

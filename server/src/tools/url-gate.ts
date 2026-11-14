@@ -224,9 +224,10 @@ function searchUrls(db: Database, chatId: string): Set<string> {
  * others wrote in it (a deleted project's, now its creator's; the rollback guard: chat/shared.ts severalAuthors)? A
  * room's AI session has its own rules. */
 function sharedChat(db: Database, chatId: string): boolean {
-  const r = db.query('SELECT shared_at, project_id, room_id, user_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string } | null
+  const r = db.query('SELECT shared_at, project_id, room_id, user_id, people_shared_at FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string; people_shared_at: string | null } | null
   if (!r) return false
-  if (r.shared_at && r.project_id) return true
+  // a shared project chat, or a chat shared with people and groups
+  if ((r.shared_at && r.project_id) || (r.people_shared_at && !r.project_id)) return true
   return !r.room_id && !!db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, r.user_id)
 }
 
@@ -539,6 +540,7 @@ export const TEXT = {
     id: "AI ingin membuka alamat yang tidak ada di obrolan ini. Pastikan alamat itu tidak memuat informasi Anda.\n\n{url}",
     ja: "AIがこの会話になかったアドレスを開こうとしています。アドレスにあなたの情報が含まれていないか確認してください。\n\n{url}",
     es: "La IA quiere abrir una dirección que no estaba en este chat. Compruebe que no contenga su información.\n\n{url}",
+    zh: "AI 想打开一个不在此对话中的地址。请确认其中不包含你的信息。\n\n{url}",
   },
   noEgress: {
     ko: "AI가 이 주소를 열려고 해요. 내부 네트워크의 기기(공유기, 프린터 등)로 가는 주소가 아닌지 확인해 주세요.\n\n{url}",
@@ -546,6 +548,7 @@ export const TEXT = {
     id: "AI ingin membuka alamat ini. Pastikan alamat itu tidak mengarah ke perangkat di dalam jaringan Anda (router, printer, dan sejenisnya).\n\n{url}",
     ja: "AIがこのアドレスを開こうとしています。内部ネットワークの機器（ルーター、プリンターなど）につながるアドレスでないか確認してください。\n\n{url}",
     es: "La IA quiere abrir esta dirección. Compruebe que no lleve a un dispositivo de su red interna (un router, una impresora o similar).\n\n{url}",
+    zh: "AI 想打开这个地址。请确认它不会指向你网络内部的设备（路由器、打印机等）。\n\n{url}",
   },
   longQuery: {
     ko: "AI가 여는 주소 끝에 긴 내용이 붙어 있어요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}",
@@ -553,6 +556,7 @@ export const TEXT = {
     id: "Alamat yang ingin dibuka AI punya teks panjang di bagian akhir. Pastikan alamat itu tidak memuat informasi Anda.\n\n{url}",
     ja: "AIが開こうとしているアドレスの末尾に長い内容が付いています。あなたの情報が含まれていないか確認してください。\n\n{url}",
     es: "La dirección que la IA quiere abrir lleva mucho texto al final. Compruebe que no contenga su información.\n\n{url}",
+    zh: "AI 想打开的地址末尾有很多文字。请确认其中不包含你的信息。\n\n{url}",
   },
   budget: {
     ko: "AI가 웹 페이지와 검색 결과에 있던 주소를 묻지 않고 열 수 있는 만큼 다 열었어요(답변마다 {turn}개, 대화마다 {chat}개). 이제부터는 열기 전에 물어봐요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}",
@@ -560,6 +564,7 @@ export const TEXT = {
     id: "AI sudah membuka sebanyak mungkin alamat dari halaman web dan hasil pencarian tanpa bertanya ({turn} per jawaban, {chat} per obrolan). Mulai sekarang AI bertanya dulu. Pastikan alamat ini tidak memuat informasi Anda.\n\n{url}",
     ja: "AIが確認なしで開けるウェブページや検索結果のアドレスの上限に達しました（回答ごとに{turn}件、会話ごとに{chat}件）。ここからは開く前に確認します。このアドレスにあなたの情報が含まれていないか確認してください。\n\n{url}",
     es: "La IA ya abrió sin preguntar todas las direcciones de páginas web y resultados de búsqueda que puede ({turn} por respuesta, {chat} por chat). A partir de ahora pregunta antes. Compruebe que esta no contenga su información.\n\n{url}",
+    zh: "AI 不经询问打开来自网页和搜索结果的地址已达到上限（每次回答{turn}个，每个对话{chat}个）。从现在起它会先询问。请确认这个地址不包含你的信息。\n\n{url}",
   },
   echo: {
     ko: "AI가 연결된 서비스가 알려 준 주소를 열려고 해요. 그런데 이 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
@@ -567,6 +572,7 @@ export const TEXT = {
     id: "AI ingin membuka alamat yang diberikan layanan yang terhubung, tetapi alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
     ja: "AIが連携サービスから受け取ったアドレスを開こうとしています。ただし、このアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
     es: "La IA quiere abrir una dirección que le dio un servicio conectado, pero la dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
+    zh: "AI 想打开一个已连接的应用给出的地址，但该地址中包含 AI 之前在此对话中发送过的内容。请确认它不会泄露你的信息。\n\n{url}",
   },
   echoWeb: {
     ko: "AI가 웹 페이지나 검색 결과에 있던 주소를 열려고 해요. 그런데 이 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
@@ -574,6 +580,7 @@ export const TEXT = {
     id: "AI ingin membuka alamat dari halaman web atau hasil pencarian, tetapi alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
     ja: "AIがウェブページや検索結果にあったアドレスを開こうとしています。ただし、このアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
     es: "La IA quiere abrir una dirección de una página web o de un resultado de búsqueda, pero la dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
+    zh: "AI 想打开一个来自网页或搜索结果的地址，但该地址中包含 AI 之前在此对话中发送过的内容。请确认它不会泄露你的信息。\n\n{url}",
   },
   redirectEcho: {
     ko: "AI가 여는 주소가 다른 주소로 넘어가는데, 넘어가는 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
@@ -581,6 +588,7 @@ export const TEXT = {
     id: "Alamat yang dibuka AI meneruskannya ke alamat lain, dan alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
     ja: "AIが開こうとしているアドレスは別のアドレスに転送されます。転送先のアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
     es: "La dirección que abre la IA lleva a otra, y esa dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
+    zh: "AI 正在打开的地址会跳转到另一个地址，而那个地址中包含 AI 之前在此对话中发送过的内容。请确认它不会泄露你的信息。\n\n{url}",
   },
   opaque: {
     ko: "주소에 알아보기 어려운 긴 글자가 있어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.",
@@ -588,6 +596,7 @@ export const TEXT = {
     id: "Alamat ini memuat teks panjang yang sulit dibaca (disorot). Informasi Anda bisa tersembunyi di sana; periksa.",
     ja: "アドレスに読み取りにくい長い文字列があります（強調表示）。あなたの情報が隠れている可能性があるため、確認してください。",
     es: "La dirección tiene cadenas largas difíciles de leer (resaltadas). Su información podría ir oculta en ellas; revíselas.",
+    zh: "这个地址中有难以看懂的长字符串（已高亮）。你的信息可能藏在其中，请检查。",
   },
   longName: {
     ko: "사이트 이름 앞부분이 길어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.",
@@ -595,6 +604,7 @@ export const TEXT = {
     id: "Bagian sebelum nama situs panjang (disorot). Informasi Anda bisa tersembunyi di sana; periksa.",
     ja: "サイト名の前の部分が長くなっています（強調表示）。あなたの情報が隠れている可能性があるため、確認してください。",
     es: "La parte anterior al nombre del sitio es larga (resaltada). Su información podría ir oculta en ella; revísela.",
+    zh: "网站名前面的部分很长（已高亮）。你的信息可能藏在其中，请检查。",
   },
   site: {
     ko: "사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 물어봐요.",
@@ -602,6 +612,7 @@ export const TEXT = {
     id: "Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di obrolan ini. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan.",
     ja: "サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認します。",
     es: "Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en este chat. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando.",
+    zh: "如果允许此网站，{site} 上的其他地址会不经询问直接打开，仅限此对话。带有难以看懂的长字符串或末尾有很多文字的地址仍会询问。",
   },
   /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
   all: {
@@ -610,18 +621,19 @@ export const TEXT = {
     id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di ruang obrolan, sampai Anda mematikannya di Pengaturan. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan, tetapi itu hanya menangkap yang mudah terlihat.',
     ja: 'すべてのサイトを許可すると、設定でオフにするまで、あなたが頼んだときはチャットでもトークルームでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認しますが、見つけられるのは目立つものだけです。',
     es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y en las salas, hasta que lo desactive en Configuración. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando, pero eso solo detecta lo que salta a la vista.',
+    zh: '如果允许所有网站，你让 AI 打开公共网站时，它会不经询问直接打开，在你的对话和群聊中都是如此，直到你在设置中关闭。带有难以看懂的长字符串或末尾有很多文字的地址仍会询问，但这只能拦住容易发现的情况。',
   },
   allowAll: {
     en: 'Allow all websites (turn off in Settings)', ko: '모든 사이트 허용 (설정에서 끌 수 있어요)', id: 'Izinkan semua situs web (matikan di Pengaturan)',
-    ja: 'すべてのサイトを許可（設定でオフにできます）', es: 'Permitir todos los sitios web (desactívelo en Configuración)',
+    ja: 'すべてのサイトを許可（設定でオフにできます）', es: 'Permitir todos los sitios web (desactívelo en Configuración)', zh: '允许所有网站（可在设置中关闭）',
   },
-  labelUrl: { ko: '주소', en: 'Address', id: 'Alamat', ja: 'アドレス', es: 'Dirección' },
-  allow: { ko: '열기', en: 'Open', id: 'Buka', ja: "開く", es: "Abrir" },
+  labelUrl: { ko: '주소', en: 'Address', id: 'Alamat', ja: 'アドレス', es: 'Dirección', zh: '地址' },
+  allow: { ko: '열기', en: 'Open', id: 'Buka', ja: "開く", es: "Abrir", zh: "打开" },
   allowSite: {
     ko: '이 대화에서 이 사이트 허용 ({site})', en: 'Allow this site in this conversation ({site})', id: 'Izinkan situs ini di percakapan ini ({site})',
-    ja: 'この会話でこのサイトを許可（{site}）', es: 'Permitir este sitio en esta conversación ({site})',
+    ja: 'この会話でこのサイトを許可（{site}）', es: 'Permitir este sitio en esta conversación ({site})', zh: '在此对话中允许此网站（{site}）',
   },
-  deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir" },
+  deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir", zh: "不打开" },
 } satisfies Record<string, Record<Locale, string>>
 
 /** 'seen', 'site' and 'all' opened without a card (①, ①b and ①d), 'confirmed' after one. */

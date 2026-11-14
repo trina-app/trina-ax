@@ -341,7 +341,7 @@ describe('while this server does not know its exit address (fail-safe, as before
     // five languages, each different from the promise; one address in the singular (English, Spanish), two counted
     const input = { title: 't', prompt, repeat: 'daily' as const, time: '09:00' }
     const two = { ...input, prompt: `${prompt} Also read https://news.example.net/today.` }
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       const shut = scheduleCard(input, [], L, 'create', { urlsOpen: false })
       const open = scheduleCard(input, [], L, 'create')
       expect(shut.question).toContain(SCHEDULE_TEXT.urlsBlockedOne[L])

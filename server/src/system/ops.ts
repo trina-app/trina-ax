@@ -32,6 +32,8 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
+import { cleanDevenv } from './devenv-clean'
+import { busyOwners, srtConfig } from '../devenv/srt/runner'
 import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
@@ -152,18 +154,22 @@ export class OpsService {
 
   /** What holds the available release back from installing by itself, from the very decision the automatic update makes
    * (autoUpdateDecision), the window and running answers aside. null: nothing (or nothing to install). */
-  updateHold(): 'paused' | 'rollout' | 'failed' | 'root_failed' | null {
+  updateHold(): 'cannot_read' | 'paused' | 'rollout' | 'failed' | 'root_failed' | null {
     try {
       const feed = this.updates.lastFeed()
       if (!feed || !this.updates.installed) return null
+      // a release that cannot open this database says so before any failure it caused (root's tries of it, before
+      // mycel-ctl checked the reader level, ended in a roll-back and a hold)
+      const canRead = this.updates.releaseCanRead(feed)
+      if (!canRead && compareVersions(feed.version, this.ctx.version) > 0) return 'cannot_read'
       const rootHold = this.rootUpdateFailure()?.version ?? null
       if (rootHold && rootHold === feed.version) return 'root_failed'
       let last: { version: string; at: string } | null = null
       try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
       const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
-        channel: this.ctx.config.update.channel })
-      return d.go ? null : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+        channel: this.ctx.config.update.channel, canRead })
+      return d.go ? null : d.why === 'cannot_read' ? 'cannot_read' : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
     } catch { return null }
   }
 
@@ -182,7 +188,7 @@ export class OpsService {
       const s = getTeamSettings(this.ctx.db)
       return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(),
-        rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel })
+        rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel, canRead: !feed || this.updates.releaseCanRead(feed) })
     }
     const first = decide()
     const log = this.ctx.log.child({ c: 'update' })
@@ -908,6 +914,28 @@ export class OpsService {
       }, WINDOWS_FIRST_MS)
       this.timers.push(firstOffer as unknown as ReturnType<typeof setInterval>)
     }
+    // the dev environment's caches and the build folders of idle chats (system/devenv-clean.ts): 20 minutes after start,
+    // then hourly
+    let cleaning = false
+    const clean = () => {
+      if (cleaning) return
+      cleaning = true
+      void cleanDevenv({
+        base: srtConfig().base, now: () => this.now().getTime(), log: log,
+        busy: () => busyOwners(this.ctx),
+        chatActivity: (id) => {
+          const r = this.ctx.db.query('SELECT c.updated_at AS u, (SELECT MAX(started_at) FROM turns WHERE chat_id = c.id) AS t FROM chats c WHERE c.id = ?').get(id) as { u: string | null; t: string | null } | null
+          return r ? Math.max(Date.parse(r.u ?? '') || 0, Date.parse(r.t ?? '') || 0) : null
+        },
+      }).catch((e) => log.warn('dev environment clean-up failed', { err: e })).finally(() => { cleaning = false })
+    }
+    const firstClean = setTimeout(() => {
+      clean()
+      const hourly = setInterval(clean, 60 * 60_000)
+      ;(hourly as unknown as { unref?: () => void }).unref?.()
+      this.timers.push(hourly)
+    }, 20 * 60_000)
+    this.timers.push(firstClean as unknown as ReturnType<typeof setInterval>)
     // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
     this.timers.push(setInterval(() => {
       try { const r = pruneOld(this.ctx.db); if (Object.values(r).some((n) => n > 0)) log.info('retention sweep', { ...r }) } catch (e) { log.warn('retention sweep failed', { err: e }) }

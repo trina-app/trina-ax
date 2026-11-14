@@ -12,18 +12,18 @@ export type TopFolder = (typeof TOP_FOLDERS)[number]
 
 /** What the screen calls each top folder. `groups` is what each language calls the admin groups (ko: 부서). */
 export const TOP_FOLDER_LABELS = {
-  shared: { ko: '전사 공유', en: 'Company-wide', id: 'Seluruh perusahaan', ja: '全社共有', es: 'Toda la empresa' },
-  groups: { ko: '부서', en: 'Groups', id: 'Grup', ja: 'グループ', es: 'Grupos' },
-  projects: { ko: '프로젝트', en: 'Projects', id: 'Proyek', ja: 'プロジェクト', es: 'Proyectos' },
-  skills: { ko: '팀 스킬', en: 'Team skills', id: 'Skill tim', ja: 'チームスキル', es: 'Habilidades del equipo' },
-  users: { ko: '개인', en: 'Personal', id: 'Pribadi', ja: '個人', es: 'Personal' },
+  shared: { ko: '전사 공유', en: 'Company-wide', id: 'Seluruh perusahaan', ja: '全社共有', es: 'Toda la empresa', zh: '全公司共享' },
+  groups: { ko: '부서', en: 'Groups', id: 'Grup', ja: 'グループ', es: 'Grupos', zh: '小组' },
+  projects: { ko: '프로젝트', en: 'Projects', id: 'Proyek', ja: 'プロジェクト', es: 'Proyectos', zh: '项目' },
+  skills: { ko: '팀 스킬', en: 'Team skills', id: 'Skill tim', ja: 'チームスキル', es: 'Habilidades del equipo', zh: '团队技能' },
+  users: { ko: '개인', en: 'Personal', id: 'Pribadi', ja: '個人', es: 'Personal', zh: '个人' },
 } as const satisfies Record<TopFolder, T>
 
 /** The person's own folder (users/<their id>/). */
-export const OWN_FOLDER_LABEL = { ko: '내 폴더', en: 'My folder', id: 'Folder saya', ja: '自分のフォルダー', es: 'Mi carpeta' } as const satisfies T
+export const OWN_FOLDER_LABEL = { ko: '내 폴더', en: 'My folder', id: 'Folder saya', ja: '自分のフォルダー', es: 'Mi carpeta', zh: '我的文件夹' } as const satisfies T
 /** Its name in 파일 (docs/AGENTS/plan/20261112-1839-nav-rail.md decision Q4): "내 파일", so
  * "폴더" is left to the list folders of 트리나 and 대화. */
-export const OWN_FILES_LABEL = { ko: '내 파일', en: 'My files', id: 'File saya', ja: '自分のファイル', es: 'Mis archivos' } as const satisfies T
+export const OWN_FILES_LABEL = { ko: '내 파일', en: 'My files', id: 'File saya', ja: '自分のファイル', es: 'Mis archivos', zh: '我的文件' } as const satisfies T
 
 /** Which of the two names the person's own folder has: the server and the web app both set "files" at start
  * (server/src/main.ts, web/src/main.tsx), so the screen and the AI say the same word; "folder" stays the default of this
@@ -41,15 +41,15 @@ export function ownFolderLabel(locale: Locale): string {
 }
 
 /** Forms and templates: shared/<this>/, made for a new team in the team's language (createDefaultFolders). */
-export const TEMPLATES_FOLDER = { ko: '양식', en: 'Templates', id: 'Templat', ja: 'テンプレート', es: 'Plantillas' } as const satisfies T
+export const TEMPLATES_FOLDER = { ko: '양식', en: 'Templates', id: 'Templat', ja: 'テンプレート', es: 'Plantillas', zh: '模板' } as const satisfies T
 
 /** Finished work, moved there when the person asks to tidy up: a subfolder of its own area, named in the team's language
  * (a convention the AI's instructions describe; nothing makes it). */
-export const ARCHIVE_FOLDER = { ko: '보관', en: 'Archive', id: 'Arsip', ja: 'アーカイブ', es: 'Archivo' } as const satisfies T
+export const ARCHIVE_FOLDER = { ko: '보관', en: 'Archive', id: 'Arsip', ja: 'アーカイブ', es: 'Archivo', zh: '归档' } as const satisfies T
 
 /** Files from the computer attached in a shared project chat: <project folder>/<this>/, made when the first one comes, in
  * the team's language (one under any of these names is used again; server/src/uploads/shared-chat.ts). */
-export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', id: 'Lampiran obrolan', ja: 'チャット添付', es: 'Adjuntos del chat' } as const satisfies T
+export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', id: 'Lampiran obrolan', ja: 'チャット添付', es: 'Adjuntos del chat', zh: '对话附件' } as const satisfies T
 
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 

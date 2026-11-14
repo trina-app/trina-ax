@@ -69,7 +69,7 @@ image mode + the first-boot pieces (`mycel-enroll`).
   `kernel.kptr_restrict=2`, `kernel.dmesg_restrict=1`. Named `99-` so it wins over the kit's `60-mycel.conf`
   (`ptrace_scope = 1` for self-host). Unprivileged user namespaces stay on (bwrap).
 - zram (`ram / 2`, zstd), chrony with only the platform sources (`server 10.200.0.1 iburst` for
-  Proxmox, `server 169.254.169.123 iburst` = Amazon Time Sync for EC2), journald `SystemMaxUse=200M`, system time zone
+  Proxmox, `server 169.254.169.123 iburst` = Amazon Time Sync for EC2), journald `SystemMaxUse=100M`, system time zone
   `Etc/UTC` (the team zone is `MYCEL_TEAM_TZ`), `fstrim.timer`, serial getty on ttyS0, root locked.
 - unattended-upgrades: **Debian-Security only** (`#clear` of the default origins), no automatic reboot (the kit's
   maintenance timer reboots in the team's window); needrestart restarts services automatically.

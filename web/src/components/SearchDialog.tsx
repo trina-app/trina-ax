@@ -75,6 +75,7 @@ import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
 import { ChatFaces, otherWriters } from './chat/SharedChat'
+import { AppTile, SenderTag, useAppName } from './rooms/apps/AppParts'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -1013,14 +1014,17 @@ function MessageHit({ hit, room, text }: { hit: RoomSearchHit; room: RoomSearchR
   const locale = useLocale()
   const person = useAvatarOf(hit.author)
   const ai = hit.authorKind === 'ai'
-  const name = ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
+  // an app's message (docs/DECISIONS.md "Apps posting in rooms"): the app's name with the "App" tag, never a person
+  const appName = useAppName()
+  const name = hit.app ? appName(hit.app) : ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
   const where = useWhere()(room, hit.author?.id)
   return (
     <>
-      {ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
+      {hit.app ? <AppTile kind={hit.app.kind} name={hit.app.name} size={32} /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
-          <span className="shrink-0 font-medium text-ink">{name}</span>
+          <span className="shrink-0 font-medium text-ink" data-testid="search-message-author">{name}</span>
+          {hit.app && <SenderTag />}
           <span className="min-w-0 truncate text-xs text-faint" data-testid="search-message-room">
             {where}
             {hit.threadRootId && ` · ${t('search.inThread')}`}

@@ -6,7 +6,7 @@ import { labelSetup, mobileProduct, mobileService } from './src/product.ts'
 import { IOS_USAGE } from './src/strings.ts'
 
 /** Store version (CFBundleShortVersionString / versionName). The build number must grow with every upload. */
-const VERSION = '1.0.5'
+const VERSION = '1.0.6'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
@@ -78,12 +78,12 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // root); until then Android offers the app in its chooser
       ...(linkHost ? { intentFilters: [{ action: 'VIEW', autoVerify: true, category: ['BROWSABLE', 'DEFAULT'], data: [{ scheme: 'https', host: linkHost, pathPrefix: '/invite/' }, { scheme: 'https', host: linkHost, path: '/join' }] }] } : {}),
     },
-    locales: { en: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.en } }, ko: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.ko } } },
+    locales: { en: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.en } }, ko: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.ko } }, 'zh-Hans': { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.zh } } },
     plugins: [
       'expo-secure-store',
       'expo-localization',
       // the phone's own photo picker (photo-pick-v1: PHPicker on iOS, the photo picker on Android; neither asks for
-      // access). Our usage strings, never the plugin's English defaults; the Korean ones are in `locales` above.
+      // access). Our usage strings, never the plugin's English defaults; the Korean and Chinese ones are in `locales` above.
       ['expo-image-picker', { photosPermission: IOS_USAGE.en.NSPhotoLibraryUsageDescription, cameraPermission: IOS_USAGE.en.NSCameraUsageDescription, microphonePermission: IOS_USAGE.en.NSMicrophoneUsageDescription }],
       // aps-environment entitlement; Xcode's App Store export switches it to production.
       // Android's status bar icon is a white silhouette (otherwise the system shows a plain circle)

@@ -446,11 +446,11 @@ describe('the room page', () => {
       const text = await fire(box, 'dragover', textDrag())
       expect(text.defaultPrevented).toBe(false)
       await fire(box, 'dragenter', filesDrag())
-      expect(box.getAttribute('class')).toContain('sm:ring-2')
+      expect(box.getAttribute('class')).toContain('ring-2')
       await dropOn(box, [pdf('on-the-box.pdf')])
       await m.until(() => roomChips(m)[0]?.getAttribute('data-status') === 'done', 'the chip')
       expect(roomUploads).toEqual(['on-the-box.pdf'])
-      expect(box.getAttribute('class')).not.toContain('sm:ring-2')
+      expect(box.getAttribute('class')).not.toContain('ring-2')
     } finally { await m.unmount() }
   })
 })

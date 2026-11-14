@@ -12,7 +12,7 @@ const placeholders = (s: string) => placeholdersOf(s)
 
 describe('translations', () => {
   test('account deletion describes private archive transfer without a fixed path', () => {
-    for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const loc of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       const body = translate(loc, 'members.removeBody', { days: 7 })
       expect(placeholders(DICTS[loc]['members.removeBody'])).toEqual(['days'])
       expect(body).not.toContain('users/')
@@ -21,7 +21,7 @@ describe('translations', () => {
     expect(translate('en', 'members.removeBody')).toContain('Only the owner can read')
   })
   test('chat trash and account deletion guidance show the team chat retention, not a fixed 7 days', () => {
-    for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const loc of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody', 'projects.deleteBodyShared'] as const) {
         // the chat delete confirms name the trash by the Trina list's name for it (a rename there follows)
         const trash = key === 'chat.deleteBody' || key === 'projects.deleteBodyShared'
@@ -42,7 +42,7 @@ describe('translations', () => {
     expect(translate('id', 'chat.deleteBody', { days: 14 })).toContain('selama 14 hari')
   })
   test('file deletion guidance uses the team retention policy and each item’s saved date', () => {
-    for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const loc of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(translate(loc, 'files.deleteBody')).not.toMatch(/\d/)
       expect(placeholders(translate(loc, 'files.deleteBody'))).toEqual([])
       expect(placeholders(DICTS[loc]['files.purgeAt'])).toEqual(['date'])
@@ -112,14 +112,13 @@ describe('translations', () => {
     expect(pickLocale(null, null)).toBe('en')
     expect(DEFAULT_LOCALE).toBe('en')
     // pickers: English first, each language in its own language
-    expect(LOCALES).toEqual([{ id: 'en', label: 'English' }, { id: 'ko', label: '한국어' }, { id: 'id', label: 'Bahasa Indonesia' }, { id: 'ja', label: '日本語' }, { id: 'es', label: 'Español' }])
+    expect(LOCALES).toEqual([{ id: 'en', label: 'English' }, { id: 'ko', label: '한국어' }, { id: 'id', label: 'Bahasa Indonesia' }, { id: 'ja', label: '日本語' }, { id: 'es', label: 'Español' }, { id: 'zh', label: '简体中文' }])
   })
   test('English counts take the singular or the plural form', () => {
     expect(translate('en', 'steps.summary', { n: 1 })).toBe('1 step')
     expect(translate('en', 'steps.summary', { n: 3 })).toBe('3 steps')
     expect(translate('en', 'files.summary.conflicts', { n: 1 })).toBe('1 saved as a copy')
     expect(translate('en', 'members.days', { n: 1 })).toBe('1 day')
-    expect(translate('en', 'rules.losingLine', { name: 'Lee', paths: 'a/', n: 1 })).toBe('Lee: a/ (1 chat continues without what the AI read there before)')
     expect(translate('ko', 'steps.summary', { n: 1 })).toContain('1')
     expect(placeholdersOf('{n, plural, one {# day} other {# days}} {x}')).toEqual(['n', 'x'])
     // "1 steps" style texts: a count right before an English plural noun must use the plural form

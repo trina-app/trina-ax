@@ -44,7 +44,7 @@ export const FEATURES: Feature[] = [
   { id: 'auth.devices', name: 'Signed-in devices', area: 'Sign-in & account', endpoints: ['mySessions', 'revokeMySession'], screens: ['/settings/security', '/settings/security/devices'] },
   { id: 'account.profile', name: 'Profile, photo and language', area: 'Sign-in & account', endpoints: ['updateMe', 'updateMyProfile', 'putMyAvatar', 'deleteMyAvatar', 'personAvatar'], screens: ['/settings/profile'] },
   { id: 'account.status', name: 'Status message and away', area: 'Sign-in & account', endpoints: ['setMyStatus', 'clearMyStatus', 'setMyAway'] },
-  { id: 'account.deletion', name: 'Account deletion request', area: 'Sign-in & account', endpoints: ['myDeletionRequest', 'requestAccountDeletion', 'cancelAccountDeletion'], screens: ['/settings/account/delete'] },
+  { id: 'account.deletion', name: 'Account deletion', area: 'Sign-in & account', endpoints: ['myDeletionRequest', 'requestAccountDeletion', 'cancelAccountDeletion'], screens: ['/settings/account/delete'] },
   { id: 'account.usage', name: 'My own AI usage', area: 'Sign-in & account', endpoints: ['myUsage'], screens: ['/settings/usage'] },
   { id: 'people.directory', name: 'People of the team', area: 'Sign-in & account', endpoints: ['listPeople'] },
 
@@ -55,7 +55,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
-  { id: 'chat.share', name: 'Share a chat or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom'] },
+  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'hideChat', 'unhideChat', 'userSharedChats'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
@@ -70,7 +70,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Projects ----------------
   { id: 'projects.list', name: 'Projects list and new project', area: 'Projects', endpoints: ['listProjects', 'createProject', 'previewProjectAccess'], screens: ['/projects'] },
   { id: 'projects.home', name: 'A project: its chats, files, rename, delete, restore', area: 'Projects', endpoints: ['getProject', 'updateProject', 'deleteProject', 'restoreProject'], screens: ['/projects/:projectId', '/projects/:projectId/files'] },
-  { id: 'projects.members', name: 'Who is in a project', area: 'Projects', endpoints: ['getProjectAccess', 'getProjectPeople', 'putProjectParticipants', 'shareProject', 'leaveProject'] },
+  { id: 'projects.members', name: 'Who is in a project', area: 'Projects', endpoints: ['getProjectAccess', 'getProjectPeople', 'putProjectParticipants', 'shareProject', 'leaveProject', 'wideningAnswers'] },
   { id: 'projects.update-notice', name: 'Projects become members-only (0.5 update notice)', area: 'Projects', endpoints: ['*ProjectsUpdateNotice'] },
   { id: 'projects.dev-env', name: 'Dev environment of a project', area: 'Projects', endpoints: ['devEnv', 'devEnvStop', 'devEnvRunStop', 'devEnvActivity', 'myDevEnvRuns', 'stopMyDevEnvRun', 'previewMyDevEnvRun'] },
   { id: 'projects.dev-env-sites', name: 'Dev environment sites and full internet', area: 'Projects', endpoints: ['myDevEnvSites', 'removeMyDevEnvSite', 'setMyDevEnvFullInternet'], screens: ['/settings/dev-env-sites'] },
@@ -98,6 +98,7 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
   { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity'] },
+  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, other services)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp'], screens: ['/rooms/:roomId'] },
 
   // ---------------- Skills ----------------
   { id: 'skills.list', name: 'Skills page: my, group and team skills', area: 'Skills', endpoints: ['listSkills', 'listSkillIssues', 'skillsOverview'], screens: ['/skills'] },
@@ -115,7 +116,7 @@ export const FEATURES: Feature[] = [
   { id: 'schedules.review', name: 'Review a paused scheduled task', area: 'Scheduled tasks', endpoints: ['getScheduleReview', 'confirmScheduleReview', 'listSchedulesAwaitingReview'] },
 
   // ---------------- Connections ----------------
-  { id: 'connectors.mine', name: 'My connectors (MCP services)', area: 'Connections', endpoints: ['listIntegrations', 'createIntegration', 'updateIntegration', 'deleteIntegration', 'refreshIntegration', 'authorizeIntegration', 'integrationFlow', 'setIntegrationTool', 'stopAlwaysAllow'], screens: ['/settings/connectors', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId'] },
+  { id: 'connectors.mine', name: 'My connectors (MCP services)', area: 'Connections', endpoints: ['listIntegrations', 'createIntegration', 'updateIntegration', 'deleteIntegration', 'refreshIntegration', 'authorizeIntegration', 'integrationFlow', 'cancelIntegrationFlow', 'setIntegrationTool', 'stopAlwaysAllow'], screens: ['/settings/connectors', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId'] },
   { id: 'connectors.team', name: 'Team connectors (Admin › Connected apps)', area: 'Connections', endpoints: ['listTeamIntegrations', 'createTeamIntegration'], screens: ['/admin/connectors', '/admin/connectors/:id', '/admin/connectors/mcp/:id'] },
   { id: 'connectors.requests', name: 'Admin asks a member to connect a service', area: 'Connections', endpoints: ['*IntegrationRequest*'] },
   { id: 'connectors.templates', name: 'Shared connector templates', area: 'Connections', endpoints: ['*IntegrationTemplate*'] },

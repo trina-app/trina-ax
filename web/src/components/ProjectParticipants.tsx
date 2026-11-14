@@ -92,7 +92,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, readOnly = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -104,6 +104,15 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   groupPeople?: ReadonlyMap<string, readonly ProjectPerson[]>
   /** key → words at the end of the row's second line */
   notes?: ReadonlyMap<string, string>
+  /** the search's words ("Add by name or group" by default; a chat's Share dialog: "Add people and groups") */
+  placeholder?: string
+  /** keys never offered in the results (a chat's Share dialog: me, who is always in it) */
+  exclude?: ReadonlySet<string>
+  /** key → a short tag a phone shows instead of the row's whole tag (a chat's Share dialog: "You" for "You · Started
+   * this chat") */
+  phoneTags?: ReadonlyMap<string, string>
+  /** who is in it, without the search and without × (someone else's shared chat) */
+  readOnly?: boolean
   testId?: string
 }) {
   const t = useT()
@@ -129,7 +138,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   const byKey = useMemo(() => new Map(options.map((x) => [participantKey(x), x])), [options])
   const picked = new Set(value.map(participantKey))
   const before = current ? new Set(current.map(participantKey)) : null
-  const searching = open
+  const searching = open && !readOnly
 
   // fixed ones in their order, then the chosen and the ones taken out before saving: groups, then people, by name
   const rows: ParticipantOption[] = []
@@ -142,7 +151,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   rows.sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? 0 : a.subjectType === b.subjectType ? byName(a, b) : a.subjectType === 'group' ? -1 : 1))
 
   const needle = fold(q)
-  const results = options.filter((x) => !needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle))
+  const results = options.filter((x) => !exclude?.has(participantKey(x)) && (!needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle)))
   const isIn = (x: ParticipantOption) => picked.has(participantKey(x)) || fixed.has(participantKey(x))
 
   const add = (x: ParticipantOption) => {
@@ -194,7 +203,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
       // Esc closes the results first (from the search or a result); the dialog stays open
       onKeyDown={(e) => { if (e.key === 'Escape' && searching) { e.preventDefault(); close(); focusQuiet(input.current) } }}
     >
-      <label htmlFor={searchId} className="flex items-center gap-2 border-b border-line px-2.5">
+      {!readOnly && <label htmlFor={searchId} className="flex items-center gap-2 border-b border-line px-2.5">
         <Search size={14} className="shrink-0 text-faint" aria-hidden />
         <input
           ref={input}
@@ -205,12 +214,12 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
           onFocus={() => { if (!quiet.current) setOpen(true) }}
           onClick={() => setOpen(true)}
           onKeyDown={(e) => { if (e.key === 'ArrowDown') setOpen(true) }}
-          placeholder={t('projects.participantsSearch')}
-          aria-label={t('projects.participantsSearch')}
+          placeholder={placeholder ?? t('projects.participantsSearch')}
+          aria-label={placeholder ?? t('projects.participantsSearch')}
           autoComplete="off"
           data-testid={`${testId}-search`}
         />
-      </label>
+      </label>}
       {searching ? (
         // the box keeps the focus on a click anywhere in the results (a row, the padding, the scrollbar): the list stays
         // until the add
@@ -270,7 +279,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   // the note wraps on its own line on a phone, never cut (noteOf, QA TC-1402)
                   meta={below ? <>{s}{noteOf(x, s)}</> : undefined}
                   nameTitle={[x.name, s].filter(Boolean).join(' · ')}
-                  tag={role || undefined}
+                  // a phone: the short tag ("You"), the whole one in the tooltip and the accessible name (never cut)
+                  tag={role && phoneTags?.has(k) ? <><span className="sm:hidden">{phoneTags.get(k)}<span className="sr-only"> · {role}</span></span><span className="max-sm:hidden">{role}</span></> : role || undefined}
+                  tagTitle={role && phoneTags?.has(k) ? role : undefined}
                   tagTestId={`participant-tags-${x.subjectType}-${x.subjectId}`}
                   // a group with its people known (the members dialog): the row opens to list them
                   {...(inside ? {
@@ -281,9 +292,10 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                     link: { 'aria-controls': `${testId}-group-${x.subjectId}` },
                   } : {})}
                   li={{ 'data-testid': `participant-${x.subjectType}-${x.subjectId}`, 'data-state': tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member' }}
-                  actions={tag === undefined ? (out ? (
-                    <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} aria-label={t('projects.undoRemoveLabel', { name: x.name })} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
-                      {t('projects.undoRemove')}
+                  actions={tag === undefined && !readOnly ? (out ? (
+                    <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
+                      {/* (its name starts with the words it shows: "Undo · Keep Bob") */}
+                      {t('projects.undoRemove')}<span className="sr-only"> · {t('projects.undoRemoveLabel', { name: x.name })}</span>
                     </button>
                   ) : (
                     <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
@@ -340,11 +352,17 @@ export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): string 
   return t('projects.whoMembers', { n: c.n })
 }
 
-/** The server's count for the line under the picker. */
-export interface AccessCount { n: number }
+/** How long the count waits after the last pick before it asks the server (QA TC-1408). */
+export const ACCESS_COUNT_DEBOUNCE_MS = 400
+
+/** The server's count for the line under the picker; `hiddenAnswers`: the answers of its shared chats the people who
+ * gain it would start seeing although they used places some of them can't open (the widening warning) */
+export interface AccessCount { n: number; hiddenAnswers?: number }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
- * of its folder taken out too), asked again 300 ms after the last change; null while asking or when it failed. */
+ * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
+ * answers the people added would start seeing, a walk of the project's shared chats); null while asking or when it
+ * failed. */
 export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
   const key = participants.map(participantKey).sort().join(',')
@@ -354,8 +372,8 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
     let live = true
     setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people }), () => {})
-    }, 300)
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }), () => {})
+    }, ACCESS_COUNT_DEBOUNCE_MS)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, removing, o.projectId, o.enabled])

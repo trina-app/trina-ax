@@ -14,6 +14,7 @@ import { API, CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -28,6 +29,9 @@ let projectId: string, otherProject: string
 let chatId: string, questionId: string, answerId: string, turnId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'sec-shared-chats', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
+  // the answers here are judged by the rule for answers from before the cutover (docs/DECISIONS.md "People who see a
+  // shared chat later: nothing new is hidden"): the cutover after all of them
+  setHiddenAnswersCutover(h.ctx.db, '9999-12-31T00:00:00.000Z')
   for (const u of PEOPLE) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   // the owner and an admin are not members of it: neither reads it; carol adds herself (Add me), dana stays out

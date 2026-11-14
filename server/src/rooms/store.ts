@@ -18,7 +18,8 @@
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
-import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
+import { parseStored, unescapeMarkdown } from './apps/card'
+import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
@@ -46,6 +47,10 @@ export interface MessageRow {
   answer_at: number | null; answer_cut: number
   /** "@전체": it mentions every member who can see it (never its sender); absent from rows made in code */
   mentions_all?: number
+  /** a message an app posted (rooms/apps, migration 299): the app (no foreign key: a removed app's id stays), its card
+   * as JSON (with the app's name and kind then), and whether it was posted quiet (no unread, no notice, not the list's
+   * line); absent from rows made in code */
+  app_id?: string | null; app_card?: string | null; app_quiet?: number
 }
 /** An event line as stored: user ids, never names (they are read when it is shown). */
 export type EventData =
@@ -57,7 +62,7 @@ export type EventData =
   | { type: 'joined' }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string; team_path?: string | null; team_stamp?: string | null }
 
-export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut'
+export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, app_id, app_card, app_quiet'
 /** Does the message on room_messages `m` mention the person `?` (picked by name, or "@전체" by someone else)? */
 export const MENTIONS_SQL = '(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) OR (m.mentions_all = 1 AND (m.author_id IS NULL OR m.author_id <> ?)))'
 
@@ -260,6 +265,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
   // the file links of each, for the files this viewer may open
   const ai = rows.some((r) => r.author_kind === 'ai')
   const opens = ai || rows.some((r) => sharedAnswerOf(r)) ? pathChecks.get(db)?.(viewer.user_id) : undefined
+  // messages apps posted (rooms/apps): the app as it is now (or as it was, once removed) and its card
+  const apps = appRefsOf(db, rows)
   return rows.map((r): RoomMessage => {
     const ev = events.get(r.id)
     if (r.event) {
@@ -278,7 +285,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       // them) shows no content; a hidden answer says so (withheld)
       const shown = q && canSee(db, q, viewer) && !q.deleted_at && !q.event
       const hidden = !shown && !!q && !q.deleted_at && !q.event && isHiddenFor(db, q, viewer.user_id)
-      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}) }
+      // a quoted app message (rooms/apps): its plain text (the body escapes Markdown marks and addresses) and the app
+      const qApp = shown && q.app_card ? appRefsOf(db, [q]).get(q.id) : undefined
+      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(qApp ? unescapeMarkdown(q.body).replace(/<(https:\/\/[^>\s]+)>/g, '$1').replace(/\s+/g, ' ').trim() : q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}), ...(qApp ? { app: qApp } : {}) }
     }
     const thread = threads.get(r.id)
     const reacted = reactions.get(r.id)
@@ -302,6 +311,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       ...(reacted?.length ? { reactions: reacted } : {}),
       // the id the author's app sent it with, to the author only: a send whose answer was lost is matched to it
       ...(r.author_kind === 'user' && r.client_id && r.author_id === viewer.user_id ? { clientMessageId: r.client_id } : {}),
+      ...appOut(apps, r),
     }
   })
 }
@@ -419,11 +429,15 @@ function openableFor(check: ((rel: string) => boolean) | undefined, body: string
 /** The rooms list line: the newest message of the timeline `viewer` can see. */
 function lastMessage(db: Database, roomId: string, viewer: MemberRow): RoomLastMessage | null {
   // event lines are not what the room's list line shows, nor replies that stay in their thread
-  const m = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.event IS NULL ORDER BY m.seq DESC LIMIT 1`).get(roomId, ...seeArgs(viewer)) as MessageRow | null
+  // nor an app's quiet lines (rooms/apps: Quiet, the paused line)
+  const m = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.event IS NULL AND m.app_quiet = 0 ORDER BY m.seq DESC LIMIT 1`).get(roomId, ...seeArgs(viewer)) as MessageRow | null
   if (!m) return null
   const author = m.author_id ? refsOf(db, [m.author_id]).get(m.author_id) ?? null : null
   const files = m.deleted_at ? 0 : (db.query('SELECT COUNT(*) n FROM room_files WHERE message_id = ?').get(m.id) as { n: number }).n
-  return { id: m.id, seq: m.seq, author, excerpt: m.deleted_at ? '' : excerpt(m.body.replace(/\s+/g, ' ').trim(), EXCERPT_LIST), fileCount: files, deleted: !!m.deleted_at, createdAt: m.created_at }
+  const app = m.app_card ? appRefsOf(db, [m]).get(m.id) : undefined
+  // an app's message: its plain text (the body escapes Markdown marks: rooms/apps/card.ts)
+  const text = app ? unescapeMarkdown(m.body) : m.body
+  return { id: m.id, seq: m.seq, author, excerpt: m.deleted_at ? '' : excerpt(text.replace(/\s+/g, ' ').trim(), EXCERPT_LIST), fileCount: files, deleted: !!m.deleted_at, createdAt: m.created_at, ...(app ? { app } : {}) }
 }
 
 /** Unread messages of the timeline for `viewer`: after their read position, theirs to see, not their own, not deleted,
@@ -431,7 +445,7 @@ function lastMessage(db: Database, roomId: string, viewer: MemberRow): RoomLastM
 export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { n: number; mentioned: boolean } {
   const from = Math.max(viewer.last_read_seq, viewer.visible_from_seq)
   const r = db.query(`SELECT COUNT(*) n, MAX(${MENTIONS_SQL}) men FROM room_messages m
-    WHERE m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND (m.author_id IS NULL OR m.author_id <> ?)`)
+    WHERE m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`)
     .get(viewer.user_id, viewer.user_id, roomId, from, ...seeArgs(viewer), viewer.user_id) as { n: number; men: number | null }
   return { n: Math.min(MAX_UNREAD, r.n), mentioned: !!r.men }
 }
@@ -453,7 +467,7 @@ export function threadsUnread(db: Database, roomId: string, viewer: MemberRow): 
   const rows = db.query(`SELECT f.root_id, MAX(m.seq) newest, MAX(${MENTIONS_SQL}) men
     FROM room_thread_follows f CROSS JOIN room_messages root ON root.id = f.root_id CROSS JOIN room_messages m ON m.thread_root_id = f.root_id AND m.seq > f.last_read_seq
     WHERE f.user_id = ? AND f.room_id = ? AND root.room_id = ? AND root.seq > ? AND m.room_id = ? AND m.also_in_room = 0
-      AND m.deleted_at IS NULL AND m.event IS NULL AND m.visibility = 'room' AND (m.author_id IS NULL OR m.author_id <> ?)
+      AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND m.visibility = 'room' AND (m.author_id IS NULL OR m.author_id <> ?)
       AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = root.room_id AND h.user_id = f.user_id AND h.message_id IN (root.id, m.id))
     GROUP BY f.root_id ORDER BY newest DESC LIMIT ${THREADS_LOOKED_AT}`)
     .all(viewer.user_id, viewer.user_id, viewer.user_id, roomId, roomId, seesFrom(viewer), roomId, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
@@ -479,6 +493,13 @@ export function mayRename(db: Database, room: Pick<RoomRow, 'kind'>, userId: str
 /** An owner or an admin (an account that is active). */
 export const isOwnerOrAdmin = (db: Database, userId: string): boolean =>
   !!db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL").get(userId)
+
+/** May this person manage the apps of a room they are in (rooms/apps, docs/DECISIONS.md "Apps posting in rooms"): in a
+ * team room and the everyone room its owners and admins; in a 1:1 or a group chat any of its members (no admins
+ * there). Membership is checked by the caller. */
+export function mayManageApps(db: Database, room: Pick<RoomRow, 'kind'>, userId: string): boolean {
+  return room.kind === 'dm' || room.kind === 'group' ? true : isOwnerOrAdmin(db, userId)
+}
 
 /** A group chat's manager (방장), computed, never stored: its maker while they are still in it (rooms.created_by, cleared
  * when they leave, are taken out or their account goes), else the member who joined first (then by id). null for the
@@ -558,4 +579,36 @@ export const hideable = (kind: RoomKind) => kind !== 'group'
 export function membersOut(db: Database, roomId: string): RoomMember[] {
   return (db.query(`SELECT u.id, u.name, m.joined_at FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.name, u.id`)
     .all(roomId) as { id: string; name: string; joined_at: string }[]).map((r) => ({ user: { id: r.id, name: r.name }, joinedAt: r.joined_at }))
+}
+
+/** The apps of these messages (rooms/apps), as a message shows its sender: the name and kind the app had when it posted
+ * (a rename never changes what was said before), and its id while the app is there (null once removed). Messages that
+ * no app posted are not in it. */
+export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | 'app_id' | 'app_card' | 'app_quiet'>[]): Map<string, RoomAppRef> {
+  const out = new Map<string, RoomAppRef>()
+  const mine = rows.filter((r) => r.app_card)
+  if (!mine.length) return out
+  const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
+  // live apps, with who added it while they are in the team (the sender's popover: "Set up by …")
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  for (const r of mine) {
+    const stored = parseStored(r.app_card ?? null)
+    if (!stored) continue
+    const kind = stored.app.kind as RoomAppKind
+    out.set(r.id, {
+      id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
+      by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
+      ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
+    })
+  }
+  return out
+}
+
+/** A message's app fields (none for a person's message): the app and its card; a deleted one keeps its sender only. */
+function appOut(apps: Map<string, RoomAppRef>, r: MessageRow): Pick<RoomMessage, 'app' | 'appCard'> {
+  const app = apps.get(r.id)
+  if (!app) return {}
+  const card = r.deleted_at ? null : parseStored(r.app_card ?? null)?.card
+  return { app, ...(card ? { appCard: card } : {}) }
 }

@@ -85,7 +85,7 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 |---|---|
 | **AI defaults** | The default engine and model, and how many answers run at the same time. |
 | **Who picks the engine** | Whether members may pick another engine, and switching to Codex at Claude's limit. |
-| **Members' own AI accounts** | Whether members may add their own accounts, whether a subscription may be shared, and the accounts they added. |
+| **Members' own accounts** | Whether members may add their own accounts, whether a subscription may be shared, and the accounts they added. |
 | **Usage limits** | Token or dollar limits a day or a month, for a person, a group or the team. |
 
 Cancel and Save appear in a group only after you change something in it; each group saves on its own.
