@@ -1,0 +1,242 @@
+[
+ {
+  "file": "admin/handover-notices.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL ORDER BY created_at, id LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "admin/handover-notices.ts",
+  "sql": "SELECT 1 FROM invites i JOIN users u ON u.id = i.used_by WHERE i.id = ? AND i.lead_hint = 1 AND i.lead_hint_by = ? AND i.used_at IS NOT NULL AND u.status = 'active' AND u.deleted_at IS NULL AND u.role != 'owner'",
+  "reason": "a lead invite's joiner (a member invite, never a guest): only whether they are still not the owner"
+ },
+ {
+  "file": "admin/handover.ts",
+  "sql": "SELECT id FROM users WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "admin/users.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "admin/users.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "auth/accounts.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "auth/accounts.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "auth/cli.ts",
+  "sql": "SELECT username FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "auth/cli.ts",
+  "sql": "SELECT username, name, status FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "auth/deletion-requests.ts",
+  "sql": "SELECT r.user_id FROM account_deletion_requests r JOIN users u ON u.id = r.user_id WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND u.role = 'owner'",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "auth/guests.ts",
+  "sql": "SELECT id, name, ${} AS role FROM users WHERE status = 'active' AND deleted_at IS NULL",
+  "reason": "roleSql(): the guest-aware role"
+ },
+ {
+  "file": "auth/team-links.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "chat/members-only-once.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin')",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "chat/often-asked.ts",
+  "sql": "WITH RECURSIVE branch(id, chat_id) AS ( SELECT c.active_leaf_id, c.id FROM chats c JOIN users u ON u.id = c.user_id WHERE ${} UNION SELECT p.id, p.chat_id FROM branch b JOIN messages m ON m.id = b.id AND m.chat_id = b.chat_id JOIN messages p ON p.id = m.parent_id AND p.chat_id = m.chat_id WHERE p.created_at >= $from ) SELECT c.user_id AS user, m.content AS content, m.created_at AS at FROM branch b JOIN messages m ON m.id = b.id AND m.chat_id = b.chat_id JOIN chats c ON c.id = m.chat_id WHERE m.role = 'user' AND m.author_id = c.user_id AND m.auto_sent = 0 AND length(m.content) <= 4000 AND m.cre",
+  "reason": "messages.role (who wrote a chat message), not users.role"
+ },
+ {
+  "file": "chat/old-projects.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin')",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "chat/shared.ts",
+  "sql": "SELECT m.chat_id AS chat, u.id AS id, u.name AS name, MAX(m.rowid) AS last FROM users u CROSS JOIN messages m ON m.author_id = u.id WHERE m.role = 'user' AND m.chat_id IN (SELECT value FROM json_each(?)) GROUP BY m.chat_id, u.id ORDER BY m.chat_id, last DESC",
+  "reason": "messages.role (who wrote a chat message), not users.role"
+ },
+ {
+  "file": "connectors/remote-mcp/oauth.ts",
+  "sql": "SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND role IN ('owner','admin')",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "credentials/store.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "credentials/store.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "file-list/engine-reader.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "integrations/google-drive/oauth.ts",
+  "sql": "SELECT 1 FROM users WHERE id=? AND role IN ('owner','admin') AND status='active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "integrations/google-drive/shares.ts",
+  "sql": "SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND role IN ('owner','admin')",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "integrations/google-drive/store.ts",
+  "sql": "SELECT 1 FROM users WHERE id=? AND role IN ('owner','admin')",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "integrations/slack/service.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "DELETE FROM service_request_notices WHERE event_type='service.request' AND user_id NOT IN (SELECT id FROM users WHERE role IN ('owner','admin') AND status='active' AND deleted_at IS NULL) RETURNING user_id",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "DELETE FROM account_deletion_notices WHERE source_id=? AND user_id IN (SELECT id FROM users WHERE role='admin') RETURNING user_id",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "SELECT r.user_id FROM account_deletion_requests r JOIN users u ON u.id=r.user_id WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND u.role != 'owner'",
+  "reason": "open deletion requests of anyone but the owner: a guest's request is handled as a member's (owner decision 2026-11-14)"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "SELECT id FROM users WHERE role IN (${}) AND status = 'active' AND deleted_at IS NULL",
+  "reason": "roles are spliced from constants: 'owner' or 'owner', 'admin' only (notifyHosting, deletionHandlers)"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "SELECT id FROM users WHERE role IN (${}) AND status = 'active' AND deleted_at IS NULL",
+  "reason": "roles are spliced from constants: 'owner' or 'owner', 'admin' only (notifyHosting, deletionHandlers)"
+ },
+ {
+  "file": "onboarding/goal.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/goal.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/member-welcome.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/member-welcome.ts",
+  "sql": "SELECT id, name FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/suggestions.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'member' AND guest = 0 AND status = 'active' AND deleted_at IS NULL",
+  "reason": "role = 'member' AND guest = 0: guests left out on purpose"
+ },
+ {
+  "file": "onboarding/team-files.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/welcome-result.ts",
+  "sql": "SELECT d.user_id AS id FROM onboarding_profile_drafts d JOIN users u ON u.id = d.user_id WHERE d.source = 'website' AND u.role = 'owner' AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY d.created_at DESC LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/welcome-result.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL AND status = 'active' ORDER BY created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/welcome.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/welcome.ts",
+  "sql": "SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/welcome.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner'",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "policy/convert-additive.ts",
+  "sql": "SELECT id, name, role FROM users${} ORDER BY id",
+  "reason": "the one-time additive conversion: it runs once, before migration 122 can have made any guest"
+ },
+ {
+  "file": "relay-client/index.ts",
+  "sql": "SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active'",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "rooms/store.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "routes/onboarding-packs.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "skills/changes.ts",
+  "sql": "SELECT id, locale FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND id <> ?",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "skills/suggestions.ts",
+  "sql": "SELECT id, locale FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL ORDER BY created_at",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "system/cli.ts",
+  "sql": "SELECT id, status, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "system/ops.ts",
+  "sql": "SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ }
+]

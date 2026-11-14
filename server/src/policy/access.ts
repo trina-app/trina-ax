@@ -517,7 +517,8 @@ export class RuleSet {
       if (p.system) return { listable: true, via: [], more: false }
       if (this.isGuest(p)) {
         // a guest: nothing outside the zone but their own users/<id>; inside, person rules only (decide())
-        if (within.length && !inProjectZone(within)) return { listable: false, via: [], more: false }
+        // (the root and projects/ itself only show the way to their project)
+        if (within.length && !inProjectZone(within) && !isProjectsTop(within)) return { listable: false, via: [], more: false }
         if (inProjectZone(within) && !atLeast(this.access(p, within.slice(0, ZONE_FLOOR)), 'read')) return { listable: false, via: [], more: false }
         const found = scan(guestSubject(p), true)
         const top = [...found.top]

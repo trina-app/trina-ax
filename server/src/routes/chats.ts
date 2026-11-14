@@ -28,6 +28,8 @@ import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
 import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, rulesOf, validateRules, writeFolderAccess } from '../admin/folders'
+import '../admin/guest-hooks'
+import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
@@ -342,11 +344,14 @@ export const chatsRoutes: RouteModule = {
         if (query.projectId) {
           const p = rt.store.projectRow(query.projectId)
           if (!p || !aud.sees(me, p)) where.push('shared_at IS NULL')
+          // a guest: other people's shared chats are never theirs (Audiences.seesChat)
+          else if (aud.isGuest(me)) { where.push('(shared_at IS NULL OR user_id = ?)'); args.push(me) }
         } else {
           const projects = (ctx.db.query(`SELECT DISTINCT project_id FROM chats WHERE ${where.join(' AND ')} AND shared_at IS NOT NULL AND project_id IS NOT NULL`).values(...args) as [string][]).map((r) => r[0])
           const seen = projects.filter((id) => { const p = rt.store.projectRow(id); return !!p && aud.sees(me, p) })
           where.push('(shared_at IS NULL OR project_id IN (SELECT value FROM json_each(?)))')
           args.push(JSON.stringify(seen))
+          if (aud.isGuest(me)) { where.push('(shared_at IS NULL OR user_id = ?)'); args.push(me) }
         }
         let ids: string[] | null = null
         for (const like of [...words].sort((a, b) => b.length - a.length)) {
@@ -417,7 +422,7 @@ export const chatsRoutes: RouteModule = {
         // a chat shared with people and groups: while I am in it now; in the trash only its creator's
         if (isPeopleRow(r)) return aud.seesChat(me, r) && (!q || found(r)) && (!query.trash || r.user_id === me)
         const p = rt.store.projectRow(r.project_id!)
-        return !!p && aud.sees(me, p) && (!q || found(r)) && (!query.trash || mayRestore(r, p))
+        return !!p && aud.seesChat(me, r) && (!q || found(r)) && (!query.trash || mayRestore(r, p))
       }
       const out: ChatRow[] = []
       let after = cur
@@ -1199,10 +1204,13 @@ export const chatsRoutes: RouteModule = {
         audit(ctx.db, { actor: auth.user.id, action: 'project.trash', target: r.id, detail: { name: r.name, folderPath: r.folder_path } })
         // its shared chats leave everyone's lists until it comes back
         for (const x of shared) for (const uid of audience) rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } })
+        // a guest whose one place this project was is switched off (admin/guests.ts)
+        disablePlacelessGuests(ctx, auth.user.id)
         return
       }
       // for good: the same path as Files › Trash's Delete for good on a project's own folder (chat/project-delete.ts)
       deleteProjectForGood(ctx, rt, r, auth.user.id, locale)
+      disablePlacelessGuests(ctx, auth.user.id)
     })
   },
 }
