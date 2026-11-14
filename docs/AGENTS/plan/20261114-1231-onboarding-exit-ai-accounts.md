@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 12:31
 - Branch: `fix/onboarding-exit-ai-accounts`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `web/` (onboarding components, Admin layout, project page). Why: the welcome steps are core
   onboarding (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to an existing flow
@@ -49,4 +49,8 @@ under the page is the steps, so ‹ does not walk the steps twice.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Exits found from /welcome: the AI step's engines line and 팀 파일's project **Open** (both now carry
+the step and show the way back); 나중에 and the end screen's Home and skill (meant to leave; the setup row, Home's row
+and the no-AI card lead back); new-tab links (website, sign-ins) that leave the steps open; the invite step's "add
+skills · add files" (step switches inside /welcome). One addition: the control also asks for AI again on window focus,
+because a subscription's sign-in happens in another tab.

@@ -28390,3 +28390,23 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **The limit is a notice, not an error, also before the send.** The server refuses a send at a used-up limit before the AI runs (`budget_exceeded`, with the guest's wording and the reset date), and the box showed it in red like a fault. The message box (`Composer`) and a refused user message ("Not sent.") now show it as a neutral line with the pause icon, as the answer's own limit notice already did. "Send again" stays on the message (it works once an admin raises the limit or the month turns). Left as it was: the room's ✦ side chat also shows a warn toast for it (the "Not sent." line in the chat is calm now).
 - **Docs:** the guest limits table lists Free trial 10 (the Free plan is gone, owner 2026-11-14).
 - **Checked and fine:** the full invite dialog (owner, admin, member, store app without "See plans"); an older link at the cap keeps the typed fields; a freed seat works at once; See plans opens a new tab and loses no picks; the guest's AI stops exactly at the limit and resumes in the same chat when the limit is raised or the month turns.
+
+## W6 follow-up: every way out of the welcome steps has a way back (fix/onboarding-exit-ai-accounts, 2026-11-14)
+
+- **Problem.** The AI step's "Other AI services such as OpenRouter: Admin › AI accounts" opened Admin with no way back:
+  Admin has no setup row, and without AI the row opens the connect dialog, not the steps; a phone's ‹ said "Admin".
+- **Audit of the exits from /welcome.** Leaving to another app page in the same tab: the AI step's engines line and 팀
+  파일's **Open** of the project it made (both fixed here). Meant to leave: 나중에 (Home; the setup row, Home's row and the
+  no-AI card lead back), the end screen's Home and skill (the steps are finished or put off; the end screen lists what
+  was put off). New browser tabs (the company website, Google and MCP sign-ins) leave the steps where they are. The
+  invite step's "add skills · add files" switch steps inside /welcome.
+- **Decision.** A link out of the steps carries the step in the history entry's state (`lib/welcome.ts
+  setupReturnState`, like `INVITE_STEP_STATE`). The page it opens shows one small control at its top
+  (`components/onboarding/SetupReturn.tsx`): "← Back to getting started", and after the AI step, once AI answers (asked
+  again on an engines change and on window focus, for a sign-in in another tab), "Continue setup" in the accent. Both
+  open /welcome, which resumes by itself (the AI step recorded done). On a phone whose entry under the page is the
+  steps, it goes back in the history instead. Owner only; nothing once the steps are finished. The engines line goes
+  straight to /admin/providers (the /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Not done.** The state lives in that one history entry: moving to another page drops the control (the setup row is
+  the way back from there).
+- Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
