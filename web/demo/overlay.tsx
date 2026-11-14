@@ -36,7 +36,26 @@ export function mountOverlay(server: DemoServer, signupUrl: string) {
   host.id = 'demo-overlay'
   document.body.append(host)
   createRoot(host).render(<Overlay server={server} signupUrl={signupUrl} />)
+  // a link to a chat, room or project that the browser would follow loads the page again, and a new page starts the
+  // story over: such a link moves inside the app instead (the app's own handler may run too; the same address twice
+  // is one move). Other links (a file's preview, downloads) are left to the app.
+  window.addEventListener('click', (ev) => {
+    if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return
+    const href = inAppLink(ev.target)
+    if (!href) return
+    ev.preventDefault()
+    navigate(href)
+  }, true)
   watchOpened(server)
+}
+
+/** the in-app address of a link to a chat, room or project under `target`, or null */
+function inAppLink(target: EventTarget | null): string | null {
+  const a = (target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  if (!a || a.target === '_blank' || a.hasAttribute('download')) return null
+  const url = new URL(a.href, location.href)
+  if (url.origin !== location.origin || !/^\/(c|rooms|projects)(\/|$)/.test(url.pathname)) return null
+  return url.pathname + url.search + url.hash
 }
 
 /** "opened" happenings: the visitor is on a room's page or in a project (its page or one of its chats) */
@@ -210,6 +229,9 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
    * the step's first prompt, or goes there */
   const act = async () => {
     if (!step) return
+    // (read again now: the page may have changed since the last render)
+    const row = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) : undefined
+    if (row) { navigate(inAppLink(row) ?? `/c/${server.idOf('chat', projectChat!.id)}`); return }
     if (suggest.length) { void pick(suggest[0]!); return }
     // elsewhere: straight there (the ring shows the way for a visitor who clicks by hand), unless the step's own
     // control is on screen (a link in a message)
@@ -226,6 +248,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
         return
       }
       const el = target as HTMLElement
+      const href = inAppLink(el)
+      if (href) { navigate(href); return }
       const button = el.matches('button, a, [role="button"], [role="option"]') ? el : el.querySelector<HTMLElement>('button, a, [role="button"]') ?? el
       button.click()
       return

@@ -70,7 +70,7 @@ export class DemoServer extends MockServer {
     const lead = s.home.inviter ?? (s.events[0] ? s.events[0].from : null)
     const inviter = lead ? this.users.find((u) => u.id === lead) : undefined
     this.memberWelcome = {
-      team: s.company.name, inviter: inviter ? { id: inviter.id, name: inviter.name } : null, people: s.people.length,
+      team: s.company.name, inviter: inviter ? { id: inviter.id, name: inviter.name } : null, people: s.people.filter((p) => !p.outside).length,
       rooms: this.rooms.filter((r) => r.kind === 'all' || r.kind === 'team').map((r) => ({ id: r.id, kind: r.kind as 'all' | 'team', name: r.name })),
       owner: null, steps: { rooms: true, hi: false, photo: this.avatars.has(s.visitor), asked: false }, allSet: false,
     }
