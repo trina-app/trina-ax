@@ -112,6 +112,8 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome-rooms').getAttribute('data-done')).toBe('true')
       expect(text(m, 'member-welcome-rooms')).toContain("You're in Everyone and # Sales")
       expect(m.get('member-welcome-rooms-open').getAttribute('href')).toBe('/rooms')
+      // the place is named as the nav names it (Chats), on a computer too, not "Conversations" that no label shows
+      expect(text(m, 'member-welcome-rooms')).toContain("Your team's rooms are in Chats")
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
       expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina")
       expect(m.get('member-welcome-photo').getAttribute('data-optional')).toBe('true')

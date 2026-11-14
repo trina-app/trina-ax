@@ -4,7 +4,7 @@
 // while it shows ("Y — Home shows one thing at a time").
 // - "Welcome to {team}, {first name}" and "{inviter} invited you · {n} people are here" (no inviter: the second half).
 // - "Get started · {done} of {total}" and Hide (for good, on every device).
-// - Rows, each with a done / not done circle: a. "You're in {rooms}" (done from the start; Open: Conversations), b. "Say
+// - Rows, each with a done / not done circle: a. "You're in {rooms}" (done from the start; Open: Chats), b. "Say
 //   hi to the team" ("👋 Hi, I'm {name}" posts that in the everyone room as them; done once they wrote any message in a
 //   room; then Open: that room), c. "Add your photo" (optional, not counted: the photo picker in place, saved at once),
 //   d. "Ask {AI} what you can do here" (one tap starts a normal chat with a fixed question, which opens; done once it
@@ -32,7 +32,7 @@ import { useChats } from '../../store/chats'
 import { useMemberWelcome } from '../../store/memberWelcome'
 import { useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, Modal, useMediaQuery } from '../ui'
+import { Button, Modal } from '../ui'
 import { useWelcome } from '../../store/welcome'
 import { ConnectAiButton } from './ConnectAi'
 import { TeamFilesStep } from './TeamFilesStep'
@@ -54,14 +54,12 @@ export function roomList(rooms: Welcome['rooms'], everyone: string, locale: stri
 /** The rows that count toward "{done} of {total}" (the photo is optional). */
 export const countedSteps = (s: Welcome['steps']) => ({ done: [s.rooms, s.hi, s.asked].filter(Boolean).length, total: 3 })
 
-const PHONE = '(max-width: 767.98px)'
 const tap = 'max-md:min-h-11'
 
 export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const t = useT()
   const ids = useId()
   const me = useMeStrict()
-  const phone = useMediaQuery(PHONE)
   const hide = useMemberWelcome((s) => s.hide)
   const name = firstName(me.user.name)
   const people = t('memberWelcome.people', { n: welcome.people })
@@ -74,7 +72,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink" aria-hidden><Check size={14} /></span>
           <div className="min-w-0 flex-[1_1_12rem]">
             <h2 id={`${ids}-title`} className="text-title-sm font-semibold text-ink">{t('memberWelcome.allSet')}</h2>
-            <p className="text-sm text-muted text-balance">{t('memberWelcome.allSetHint', { place: t(phone ? 'tabs.chats' : 'rooms.title'), ai: aiName(t) })}</p>
+            <p className="text-sm text-muted text-balance">{t('memberWelcome.allSetHint', { place: t('tabs.chats'), ai: aiName(t) })}</p>
           </div>
           <Button size="sm" className={tap} onClick={() => void hide()} data-testid="member-welcome-close">{t('common.close')}</Button>
         </div>
@@ -97,7 +95,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         </button>
       </div>
       <ul className="divide-y divide-line" data-testid="member-welcome-rows">
-        <RoomsRow welcome={welcome} phone={phone} />
+        <RoomsRow welcome={welcome} />
         <HiRow welcome={welcome} name={name} />
         <PhotoRow done={welcome.steps.photo} />
         <AskRow welcome={welcome} />
@@ -129,11 +127,11 @@ function Row({ id, done, title, hint, children, optional }: { id: string; done: 
   )
 }
 
-function RoomsRow({ welcome, phone }: { welcome: Welcome; phone: boolean }) {
+function RoomsRow({ welcome }: { welcome: Welcome }) {
   const t = useT()
   const locale = useLocale()
   return (
-    <Row id="rooms" done title={t('memberWelcome.rooms', { rooms: roomList(welcome.rooms, t('rooms.all'), locale) })} hint={t('memberWelcome.roomsHint', { place: t(phone ? 'tabs.chats' : 'rooms.title') })}>
+    <Row id="rooms" done title={t('memberWelcome.rooms', { rooms: roomList(welcome.rooms, t('rooms.all'), locale) })} hint={t('memberWelcome.roomsHint', { place: t('tabs.chats') })}>
       <Link to="/rooms" className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-rooms-open">
         {t('memberWelcome.roomsOpen')}
       </Link>
