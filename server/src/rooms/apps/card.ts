@@ -99,14 +99,15 @@ export function parseCard(s: string | null): RoomAppCard | null {
 }
 
 /** What room_messages.app_card holds: the card and the app as it was (name, kind; example). */
-export interface StoredCard extends RoomAppCard { app: { name: string; kind: string }; example?: true }
-export function parseStored(s: string | null): { card: RoomAppCard; app: { name: string; kind: string }; example: boolean } | null {
+export interface StoredCard extends RoomAppCard { app: { name: string; kind: string; preset?: string }; example?: true }
+export function parseStored(s: string | null): { card: RoomAppCard; app: { name: string; kind: string; preset?: string }; example: boolean } | null {
   const card = parseCard(s)
   if (!card) return null
   try {
     const v = JSON.parse(s!) as Partial<StoredCard>
     const name = typeof v.app?.name === 'string' ? line(v.app.name, 40) : ''
     const kind = typeof v.app?.kind === 'string' ? v.app.kind : 'other'
-    return { card, app: { name: name || 'App', kind }, example: !!v.example }
+    const preset = typeof v.app?.preset === 'string' ? v.app.preset : undefined
+    return { card, app: { name: name || 'App', kind, ...(preset ? { preset } : {}) }, example: !!v.example }
   } catch { return null }
 }

@@ -1,6 +1,7 @@
 // The words an app's cards and lines carry (docs/DECISIONS.md "Apps posting in rooms"). Written by the server in the
 // team's language when the card is posted (like event lines), so search, push and the AI see what people see. English
-// is the source; never the word "webhook".
+// is the source; Slack's own terms where a service's screen is named (owner decision 3 of plan 20261114-1522: "Webhook
+// URL", a vendor's "Reveal secret").
 import type { Locale } from '@mycel/shared/api'
 
 type T = Record<Locale, string>
@@ -59,6 +60,43 @@ export const APP_TEXT = {
   alreadyResumed: t('오늘은 이미 한 번 다시 켰어요. 내일 다시 시작해요.', 'It was already turned back on once today. It starts again tomorrow.', 'Aplikasi ini sudah dinyalakan lagi sekali hari ini. Mulai lagi besok.', '今日はすでに一度再開しています。明日また始まります。', 'Ya se volvió a activar una vez hoy. Vuelve a empezar mañana.', "今天已经重新开启过一次。明天会重新开始。"),
   teamCap: t('오늘 이 팀의 모든 앱 메시지가 {cap}개에 도달했어요. 내일 다시 시작해요.', "This team's apps reached {cap} messages today. They start again tomorrow.", 'Aplikasi tim ini mencapai {cap} pesan hari ini. Mulai lagi besok.', 'このチームのアプリは今日 {cap} 件のメッセージに達しました。明日また始まります。', 'Las aplicaciones de este equipo llegaron a {cap} mensajes hoy. Vuelven a empezar mañana.', "本团队的应用今天已达到 {cap} 条消息。明天会重新开始。"),
   noSecretForKind: t('이 앱에는 비밀값을 쓸 수 없어요.', "This app doesn't take a secret.", 'Aplikasi ini tidak memakai rahasia.', 'このアプリにはシークレットを設定できません。', 'Esta aplicación no admite un secreto.', "此应用不使用密钥。"),
+  // presets (plan 20261114-1522 "Presets"): the vendors' names stay as they are
+  notionUpdated: t('페이지가 업데이트됨', 'Page updated', 'Halaman diperbarui', 'ページが更新されました', 'Página actualizada', "页面已更新"),
+  notionLinked: t('연결된 항목 {n}개', '{n} linked', '{n} tertaut', 'リンク {n}件', '{n} vinculados', "已关联 {n} 项"),
+  paymentReceived: t('결제 완료', 'Payment received', 'Pembayaran diterima', '支払いを受け取りました', 'Pago recibido', "已收到付款"),
+  refunded: t('환불됨', 'Refunded', 'Dikembalikan', '返金済み', 'Reembolsado', "已退款"),
+  paymentFailed: t('결제 실패', 'Payment failed', 'Pembayaran gagal', '支払いに失敗しました', 'Pago fallido', "付款失败"),
+  disputeOpened: t('이의 제기 접수됨', 'Dispute opened', 'Sengketa dibuka', '異議申し立てが開始されました', 'Disputa abierta', "已发起争议"),
+  subscriptionEnded: t('구독 종료', 'Subscription ended', 'Langganan berakhir', 'サブスクリプション終了', 'Suscripción finalizada', "订阅已结束"),
+  subscriptionNew: t('새 구독', 'New subscription', 'Langganan baru', '新しいサブスクリプション', 'Nueva suscripción', "新订阅"),
+  testMode: t('테스트 모드', 'Test mode', 'Mode uji', 'テストモード', 'Modo de prueba', "测试模式"),
+  amountFrom: t('{name} 님이 {amount} 결제', '{amount} from {name}', '{amount} dari {name}', '{name}さんから {amount}', '{amount} de {name}', "来自 {name} 的 {amount}"),
+  refundedAmount: t('{amount} 환불됨', 'Refunded {amount}', '{amount} dikembalikan', '{amount} を返金', 'Reembolsado: {amount}', "已退款 {amount}"),
+  reason: t('사유: {reason}', 'Reason: {reason}', 'Alasan: {reason}', '理由: {reason}', 'Motivo: {reason}', "原因：{reason}"),
+  statusSucceeded: t('완료', 'Succeeded', 'Berhasil', '成功', 'Completado', "成功"),
+  statusRefunded: t('환불됨', 'Refunded', 'Dikembalikan', '返金済み', 'Reembolsado', "已退款"),
+  statusDisputed: t('이의 제기됨', 'Disputed', 'Disengketakan', '異議申し立て中', 'En disputa', "争议中"),
+  statusEnded: t('종료됨', 'Ended', 'Berakhir', '終了', 'Finalizada', "已结束"),
+  statusActive: t('사용 중', 'Active', 'Aktif', '有効', 'Activa', "有效"),
+  statusPaid: t('결제됨', 'Paid', 'Dibayar', '支払い済み', 'Pagado', "已付款"),
+  statusPending: t('대기 중', 'Pending', 'Tertunda', '保留中', 'Pendiente', "待处理"),
+  statusCancelled: t('취소됨', 'Cancelled', 'Dibatalkan', 'キャンセル済み', 'Cancelado', "已取消"),
+  statusFulfilled: t('배송 처리됨', 'Fulfilled', 'Dipenuhi', '発送済み', 'Preparado', "已发货"),
+  newOrder: t('새 주문 {order}', 'New order {order}', 'Pesanan baru {order}', '新しい注文 {order}', 'Nuevo pedido {order}', "新订单 {order}"),
+  orderOf: t('주문 {order}', 'Order {order}', 'Pesanan {order}', '注文 {order}', 'Pedido {order}', "订单 {order}"),
+  orderItemsOne: t('{total} · 상품 1개', '{total} · 1 item', '{total} · 1 barang', '{total} · 1点', '{total} · 1 artículo', "{total} · 1 件商品"),
+  orderItemsMany: t('{total} · 상품 {n}개', '{total} · {n} items', '{total} · {n} barang', '{total} · {n}点', '{total} · {n} artículos', "{total} · {n} 件商品"),
+  orderLine: t('{title} × {n}', '{n} × {title}', '{n} × {title}', '{title} × {n}', '{n} × {title}', "{title} × {n}"),
+  orderPaid: t('주문 결제됨', 'Order paid', 'Pesanan dibayar', '注文の支払いが完了しました', 'Pedido pagado', "订单已付款"),
+  orderCancelled: t('주문 취소됨', 'Order cancelled', 'Pesanan dibatalkan', '注文がキャンセルされました', 'Pedido cancelado', "订单已取消"),
+  orderFulfilled: t('주문 배송 처리됨', 'Order fulfilled', 'Pesanan dipenuhi', '注文が発送されました', 'Pedido preparado', "订单已发货"),
+  newTicket: t('새 티켓 #{id}', 'New ticket #{id}', 'Tiket baru #{id}', '新しいチケット #{id}', 'Nuevo ticket #{id}', "新工单 #{id}"),
+  ticketUpdated: t('티켓 #{id} 업데이트됨', 'Ticket #{id} updated', 'Tiket #{id} diperbarui', 'チケット #{id} が更新されました', 'Ticket #{id} actualizado', "工单 #{id} 已更新"),
+  fromName: t('보낸 사람: {name}', 'From {name}', 'Dari {name}', '送信者: {name}', 'De {name}', "来自 {name}"),
+  // refusals of the management API (presets)
+  presetSecretShape: t('{app}의 서명 시크릿 같지 않아요.', "That doesn't look like {app}'s signing secret.", 'Itu tidak terlihat seperti signing secret {app}.', '{app} の署名シークレットではないようです。', 'Eso no parece el secreto de firma de {app}.', "这看起来不像 {app} 的签名密钥。"),
+  zendeskTestSecret: t('이건 Zendesk의 테스트용 시크릿이에요. 웹훅 페이지의 "Reveal secret"에 있는 시크릿을 붙여 넣어 주세요.', "That is Zendesk's test secret. Paste the secret from \"Reveal secret\" on your webhook's page.", 'Itu secret uji milik Zendesk. Tempel secret dari "Reveal secret" di halaman webhook Anda.', 'これは Zendesk のテスト用シークレットです。Webhook のページの「Reveal secret」にあるシークレットを貼り付けてください。', 'Ese es el secreto de prueba de Zendesk. Pegue el secreto de "Reveal secret" en la página de su webhook.', "这是 Zendesk 的测试密钥。请粘贴 webhook 页面上“Reveal secret”中的密钥。"),
+  presetNotForKind: t('서비스는 "다른 앱"에만 고를 수 있어요.', 'A service can only be picked for "Other app".', 'Layanan hanya bisa dipilih untuk "Aplikasi lain".', 'サービスは「その他のアプリ」でのみ選べます。', 'Solo se puede elegir un servicio para "Otra aplicación".', "只能为“其他应用”选择服务。"),
 } satisfies Record<string, T>
 
 export type AppTextKey = keyof typeof APP_TEXT

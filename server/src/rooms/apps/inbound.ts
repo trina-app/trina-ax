@@ -9,20 +9,25 @@
 //   2. a browser's Origin header: 403 (vendors and curl send none; a web page that learned the address must not post
 //      with its visitors' browsers).
 //   3. the app's own limits before the body: a burst then 1 a second, and the day's received count (429 + Retry-After).
-//   4. the content type (415), then the body: the raw bytes, at most 256 KiB (GitHub 1 MiB; 413), within 10 s (408).
-//   5. the signature over the raw bytes when a secret is set (GitHub X-Hub-Signature-256 "sha256=<hex>", Sentry
-//      Sentry-Hook-Signature "<hex>"; constant time; 401). Without a secret the token alone authenticates and the
+//      An Other app set up as a preset this build does not know: 401 with a secret, 400 without (never read as Other).
+//   4. the content type (415), then the body: the raw bytes, at most 256 KiB (GitHub 1 MiB; a preset its own; 413),
+//      within 10 s (408).
+//   5. the signature when a secret is set (signatures.ts: GitHub X-Hub-Signature-256 "sha256=<hex>", Sentry
+//      Sentry-Hook-Signature "<hex>", a preset its service's scheme; constant time; 401; Tally's signed createdAt older
+//      than 2 days: 401). Jotform's form post is read into fields here. Without a secret the token alone authenticates and the
 //      card carries `unverified` when it names someone; the app's settings say "Not signed" once (owner decision 9:
 //      optional for both; no "(unverified)" after each name since the 2026-11-14 review).
 //   6. parse (400 unreadable), the app's switch (off: 200, skipped), the day's caps (pause: 429), then one transaction
 //      posts it with its delivery row (a retry posts once). 200 "ok" (Slack-style senders look for it).
 // No network I/O and no AI on this path. A refusal is written to the app's status line at most once a minute, never the
 // body.
-import crypto from 'node:crypto'
 import { ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS, ROOM_APP_DAILY_RECEIVED, ROOM_APP_GITHUB_BODY_MAX, ROOM_APP_TOKEN_RE, type RoomAppKind } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
-import { teamDefaultLocale } from '../../admin/settings'
-import { parseArrival } from './parse'
+import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
+import { parseArrival, type Parsed } from './parse'
+import { presetOf, PRESETS } from './presets'
+import { tallyTooOld, typeformTooOld } from './presets/forms'
+import { verifySignature } from './signatures'
 import { roomAppsOf, sha256, teamDay, type AppRow } from './service'
 
 const HEADERS = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' }
@@ -67,13 +72,22 @@ async function readBody(req: Request, max: number, seconds: number): Promise<Uin
   return out
 }
 
-/** Constant-time comparison of a hex HMAC-SHA256 of the body with what the request says. */
-function signatureOk(secret: string, raw: Uint8Array, given: string | null): boolean {
-  if (!given) return false
-  const want = crypto.createHmac('sha256', secret).update(raw).digest()
-  const hex = given.trim().toLowerCase()
-  if (!/^[0-9a-f]{64}$/.test(hex)) return false
-  return crypto.timingSafeEqual(want, Buffer.from(hex, 'hex'))
+/** A form post's fields (Jotform), read from the bounded raw body: at most FORM_FIELDS_MAX fields of at most
+ * FORM_FIELD_MAX characters; file parts are left out (never stored). null: not readable. */
+const FORM_FIELDS_MAX = 100
+const FORM_FIELD_MAX = 64 * 1024
+async function formFields(raw: Uint8Array, contentType: string, full: string): Promise<[string, string][] | null> {
+  try {
+    const entries: [string, string][] = []
+    const take = (k: string, v: unknown) => { if (typeof v === 'string' && entries.length < FORM_FIELDS_MAX) entries.push([k.slice(0, 200), v.slice(0, FORM_FIELD_MAX)]) }
+    if (contentType === 'application/x-www-form-urlencoded') {
+      for (const [k, v] of new URLSearchParams(new TextDecoder().decode(raw))) take(k, v)
+    } else {
+      const fd = await new Response(raw as Uint8Array<ArrayBuffer>, { headers: { 'content-type': full } }).formData()
+      for (const [k, v] of fd.entries()) take(k, v)
+    }
+    return entries
+  } catch { return null }
 }
 
 export interface InboundInfo { ip: string | null; /** came through the server's own public address with a country or network list (the /in/ exemption): the stricter unknown-token limit */ strict?: boolean }
@@ -95,11 +109,20 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   const wait = apps.limits.appWait(row.id)
   if (wait !== null) { apps.dropped(row, day); return answer(429, 'slow_down', { 'retry-after': String(wait) }) }
   if (apps.count(row, 'received', day) > ROOM_APP_DAILY_RECEIVED) { apps.dropped(row, day); return answer(429, 'slow_down', { 'retry-after': untilMidnight }) }
+  // a preset this build does not know (written by a newer build, then rolled back): never read as plain Other with a
+  // guessed scheme. With a secret it fails as a signature would (401), else as a body this build cannot read (400)
+  const p = row.kind === 'other' ? presetOf(row.preset) : null
+  if (p === 'unknown') {
+    if (row.secret_enc) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    apps.refused(row.id, 'format'); return answer(400, 'invalid_payload')
+  }
+  const preset = p ? PRESETS[p] : null
   // 4. the content type, then the body
-  const type = (req.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
-  if (!TYPES[row.kind].includes(type)) { apps.refused(row.id, 'format'); return answer(415, 'unsupported_type') }
+  const fullType = req.headers.get('content-type') ?? ''
+  const type = fullType.split(';')[0]!.trim().toLowerCase()
+  if (!(preset ? preset.types : TYPES[row.kind]).includes(type)) { apps.refused(row.id, 'format'); return answer(415, 'unsupported_type') }
   let raw: Uint8Array
-  try { raw = await readBody(req, row.kind === 'github' ? ROOM_APP_GITHUB_BODY_MAX : ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS) } catch (e) {
+  try { raw = await readBody(req, preset ? preset.bodyMax : row.kind === 'github' ? ROOM_APP_GITHUB_BODY_MAX : ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS) } catch (e) {
     if (e instanceof Timeout) return answer(408, 'timeout')
     if (e instanceof TooBig) { apps.refused(row.id, 'too_big'); return answer(413, 'too_large') }
     throw e
@@ -110,15 +133,38 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   // 5. the signature, when a secret is set
   const secret = apps.secretOf(row)
   let signed = false
+  let verified: unknown
   if (secret) {
-    const given = row.kind === 'github' ? (req.headers.get('x-hub-signature-256') ?? '').replace(/^sha256=/i, '') || null : req.headers.get('sentry-hook-signature')
-    if (secret === 'broken' || !signatureOk(secret.secret, raw, given)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    // the preset's scheme (fixed at create); a preset that cannot sign never has a secret (setSecret refuses), and one
+    // that has it anyway is refused. Part 1's kinds as before: GitHub's header, else Sentry's
+    const sig = preset ? preset.signature : row.kind === 'github' ? { scheme: 'hex-body' as const, header: 'x-hub-signature-256', prefix: 'sha256=' } : { scheme: 'hex-body' as const, header: 'sentry-hook-signature' }
+    const r = secret !== 'broken' && sig ? verifySignature(sig.scheme, { secret: secret.secret, raw, headers: req.headers, now, header: sig.header, prefix: sig.prefix }) : { ok: false as const }
+    if (!r.ok) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
+    if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
+    if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    verified = r.json
     signed = true
   }
+  let form: [string, string][] | undefined
+  if (p === 'jotform') {
+    const f = await formFields(raw, type, fullType)
+    if (!f) { apps.refused(row.id, 'format'); return answer(400, 'invalid_payload') }
+    form = f
+  }
   // 6. what it says
-  let locale
+  let locale, timeZone: string | undefined
   try { locale = teamDefaultLocale(db) } catch { locale = 'en' as const }
-  const parsed = parseArrival({ kind: row.kind, headers: req.headers, contentType: type, raw, signed, locale, events: apps.switches(row) })
+  try { timeZone = teamTimeZone(db) } catch { timeZone = undefined }
+  let parsed: Parsed
+  try {
+    parsed = parseArrival({ kind: row.kind, preset: p, headers: req.headers, contentType: type, raw, signed, locale, events: apps.switches(row), pin: now_.preset_pin, ...(verified !== undefined ? { json: verified } : {}), ...(form ? { form } : {}), timeZone, now })
+  } catch (e) {
+    // a reader that met a shape it did not expect: a body Trina cannot read, never a 500
+    ctx.log.warn('room app body not read', { err: e, kind: row.kind, preset: p })
+    parsed = { refuse: 'format' }
+  }
   if ('refuse' in parsed) { apps.refused(row.id, 'format'); return answer(400, 'invalid_payload') }
   if ('skip' in parsed) {
     if (parsed.connected) apps.connected(row.id)
