@@ -4,6 +4,7 @@ import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { audit } from '../admin/audit'
 import { fail } from '../http/errors'
+import { forgetUserName } from '../chat/runtime'
 import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
 import { clearStatus, countWrite, setStatus, startStatusClock, tellAfterWrite } from '../auth/status-messages'
 import { teamTimeZone } from '../admin/settings'
@@ -33,6 +34,7 @@ export const peopleRoutes: RouteModule = {
 
     kit.handle(API.updateMyProfile, ({ body, auth }) => {
       const changes = updateProfile(ctx.db, auth.user.id, body)
+      if (changes.name) forgetUserName(ctx, auth.user.id)
       if (Object.keys(changes).length) {
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: Object.keys(changes), ...(changes.name ? { name: changes.name } : {}) } })
         ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
