@@ -744,7 +744,7 @@ function Update() {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.updateStatus))
-  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
+  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, running: state.data?.running, onDone: () => void state.reload() })
   const setAsk = install.ask
   // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
   const phone = useMediaQuery(PHONE)
@@ -761,6 +761,15 @@ function Update() {
                 {u.current} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
                 {u.lastCheckedAt && <span className="block text-xs text-faint">{t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
               </Row>
+              {u.waiting && (u.running ?? 0) > 0 && (
+                // an update (this server's own, or root's `mycel-ctl update`) waits for running tasks before the restart;
+                // this server's own can go on now
+                <Row label={t('system.row.status')} long action={u.waiting.skippable ? (
+                  <Button size="sm" variant="secondary" onClick={() => setAsk('anyway')} data-testid="update-waiting-anyway">{t('system.updateAnyway')}</Button>
+                ) : undefined}>
+                  <span className="font-medium" data-testid="update-waiting">{t('system.updateWaiting', { count: u.running ?? 0 })}</span>
+                </Row>
+              )}
               {u.managed ? (
                 // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
                 <Row label={t('system.row.status')} long>

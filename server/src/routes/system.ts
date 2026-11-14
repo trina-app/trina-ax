@@ -23,6 +23,7 @@ import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { runUpdate } from '../system/update-job'
+import { skipUpdateWait, updateWaitingFor } from '../system/update-wait'
 import { teamDefaultLocale } from '../admin/settings'
 import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
@@ -111,6 +112,8 @@ export const systemRoutes: RouteModule = {
       try { return fn() } catch (e) { ops().unlock(); throw e }
     }
     const release = () => { ops().unlock() }
+    /** the update job of "Update now" while it runs (its wait can be ended by "Update now anyway") */
+    let updateJobId: string | null = null
 
     kit.handle(API.health, ({ c, auth }): Health => {
       let dbOk = true
@@ -153,7 +156,8 @@ export const systemRoutes: RouteModule = {
       }
       // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
       const turnAt = ops().rolloutTurnAt()
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}) }
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}),
+        running: ops().queue().running, waiting: updateWaitingFor(ctx.config) }
     })
 
     // what a release left for an admin to do (system/after-update.ts)
@@ -166,6 +170,9 @@ export const systemRoutes: RouteModule = {
       const u = ops().updates
       if (!u.installed) fail('conflict', tr(locale, T.devOnly))
       const st = u.status()
+      // "Update now anyway" while this server's own update waits for running tasks: that update stops waiting and goes
+      // on (its job is the one to follow); a second update would only be refused as busy
+      if (body.force && updateJobId && skipUpdateWait()) return { jobId: updateJobId }
       const target = body.rollback ? st.previous : body.version ?? st.available?.version ?? null
       if (!target) fail('conflict', tr(locale, body.rollback ? T.noPrevious : T.noUpdate))
       // a version that cannot open the database the running one migrated only exits 75 and bounces back (QA TC-336)
@@ -177,16 +184,16 @@ export const systemRoutes: RouteModule = {
       if (!staged && !body.rollback && held?.version === target && held.rollout?.hold) fail('conflict', tr(locale, T.paused))
       // a release that also changes root-owned parts is installed by `sudo mycel-ctl update` (Linux), not from here
       if (!staged && !body.rollback && u.status().needsRoot) fail('conflict', tr(locale, T.needsRoot))
-      const jobId = exclusive('update', locale, () => jobs().start({
+      const jobId = exclusive('update', locale, () => updateJobId = jobs().start({
         kind: 'update', userId: auth.user.id,
         run: async (h) => {
           try {
-            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m) },
+            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m), force: !!body.force },
               target!, { staged, rollback: !!body.rollback })
           } catch (e) {
             if (e instanceof DownloadStalled) throw new JobFailure('unavailable', M.updateStalled)
             throw e
-          } finally { release() }
+          } finally { updateJobId = null; release() }
         },
       }))
       return { jobId }

@@ -13,7 +13,7 @@
 //	mycel-ctl verify-bundle DIR|FILE [--allow-unsigned] [--pubkey K]...
 //	mycel-ctl status [--json]
 //	mycel-ctl apply-plan < plan.json
-//	mycel-ctl update [--version V | --bundle FILE] [--only-if-needs-root] [--scheduled] [--json] [--max-wait 600]
+//	mycel-ctl update [--version V | --bundle FILE] [--only-if-needs-root] [--scheduled] [--json] [--max-wait 1800 (600 hosted)]
 //	mycel-ctl render-units [--templates DIR] [--out DIR]
 //	mycel-ctl safe-ops on|off|status [--json] [--no-restart] [--max-wait S]
 //	mycel-ctl auto-update on|off|status [--json] [--no-restart] [--max-wait S]
@@ -77,7 +77,7 @@ const usage = `usage: mycel-ctl <command> [--base /var/lib/mycel]
   verify-bundle DIR|FILE                 check a release (manifest + signature); FILE = <v>-linux-<arch>.tar.zst
   status [--json]                        versions, units, firewall, plan, disk, health, update history
   apply-plan < plan.json                 install a resource plan and apply it to the units
-  update [--version V|--bundle FILE]     update root files and the app (--only-if-needs-root, --scheduled, --json, --max-wait 600)
+  update [--version V|--bundle FILE]     update root files and the app (--only-if-needs-root, --scheduled, --json, --max-wait 1800 (600 hosted))
   render-units [--templates D] [--out D] write the systemd units from root/systemd/*.in
   safe-ops on|off|status                 safe operations 1A: flag, root-owned programs, bounded <id>.slice, restart
   auto-update on|off|status              automatic updates: the update timer, the app's own updates (install.json, server.json)

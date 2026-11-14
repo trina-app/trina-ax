@@ -48,36 +48,43 @@ export function useJobRunner() {
 
 /** Install the available version (or go back to `previous`): the password dialog, the job and its toast. `ask('update')`
  * / `ask('rollback')` opens the dialog; render `dialog` once and `jobId` with JobLine. */
-export function useUpdateInstall(o: { version?: string; previous?: string | null; onDone: () => void }) {
+export function useUpdateInstall(o: { version?: string; previous?: string | null; running?: number; onDone: () => void }) {
   const t = useT()
   const reauth = useReauthCall()
   const runner = useJobRunner()
-  const [ask, setAsk] = useState<'update' | 'rollback' | null>(null)
+  const [ask, setAsk] = useState<'update' | 'rollback' | 'anyway' | null>(null)
+  // tasks running now: the update waits for them (at most 30 minutes) unless the owner picks "Update now anyway"
+  const running = o.running ?? 0
+  const start = async (password: string, force: boolean) => {
+    // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the install started
+    const r = await reauth(() => api.call(API.startUpdate, { body: ask === 'rollback' ? { password, rollback: true, ...(force ? { force } : {}) } : { password, version: o.version, ...(force ? { force } : {}) } }))
+    if (r && 'refused' in r) return r.refused
+    setAsk(null)
+    if (!r) return
+    await runner.run(
+      async () => r.value,
+      // "finished" only once the server answers with the new version; a version that did not stay (a Go back that
+      // bounced, QA TC-336) is said as such (lib/updateOutcome.ts)
+      async (job) => {
+        const out = await updateOutcome(job, { health: () => api.call(API.health), fetchJob: (id) => api.call(API.getJob, { params: { id } }) })
+        if (out.kind === 'ok') toast({ level: 'success', text: t('system.updateDone') })
+        else if (out.kind === 'not_kept') toast({ level: 'error', text: out.message ?? t('system.updateNotKept', { version: out.version, current: out.current }) })
+        else toast({ level: 'info', text: t('system.updateStillRestarting') })
+        o.onDone()
+      },
+    )
+  }
+  // with tasks running, "Install update" asks: wait for them, or update now anyway; 'anyway': an update that waits
+  // already (Admin > System's waiting line) goes on now
+  const choice = ask === 'update' && running > 0
   const dialog = ask && (
     <ReauthDialog
-      title={ask === 'update' ? t('system.installUpdate') : t('system.rollback', { version: o.previous ?? '' })}
-      body={t('system.updateNote')}
-      confirm={t('common.continue')}
+      title={ask === 'rollback' ? t('system.rollback', { version: o.previous ?? '' }) : ask === 'anyway' ? t('system.updateAnyway') : t('system.installUpdate')}
+      body={choice || ask === 'anyway' ? <>{t('system.updateNote')} <span className="mt-2 block font-medium text-ink" data-testid="update-running">{t('system.updateRunning', { count: running })}</span></> : t('system.updateNote')}
+      confirm={choice ? t('system.updateWait') : ask === 'anyway' ? t('system.updateAnyway') : t('common.continue')}
+      alt={choice ? { label: t('system.updateAnyway'), testId: 'update-anyway', onConfirm: (password) => start(password, true) } : undefined}
       onClose={() => setAsk(null)}
-      onConfirm={async (password) => {
-        // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the install started
-        const r = await reauth(() => api.call(API.startUpdate, { body: ask === 'rollback' ? { password, rollback: true } : { password, version: o.version } }))
-        if (r && 'refused' in r) return r.refused
-        setAsk(null)
-        if (!r) return
-        await runner.run(
-          async () => r.value,
-          // "finished" only once the server answers with the new version; a version that did not stay (a Go back that
-          // bounced, QA TC-336) is said as such (lib/updateOutcome.ts)
-          async (job) => {
-            const out = await updateOutcome(job, { health: () => api.call(API.health), fetchJob: (id) => api.call(API.getJob, { params: { id } }) })
-            if (out.kind === 'ok') toast({ level: 'success', text: t('system.updateDone') })
-            else if (out.kind === 'not_kept') toast({ level: 'error', text: out.message ?? t('system.updateNotKept', { version: out.version, current: out.current }) })
-            else toast({ level: 'info', text: t('system.updateStillRestarting') })
-            o.onDone()
-          },
-        )
-      }}
+      onConfirm={(password) => start(password, ask === 'anyway')}
     />
   )
   return { jobId: runner.jobId, ask: setAsk, dialog }

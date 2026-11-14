@@ -14,7 +14,7 @@
 //             team's update window; a manual `stage-update`), and a version folder OLDER than (or the same as) the
 //             current one changed in the last hour (a switch back to it in progress: `admin.js switch <older>` and
 //             Roll back touch it and switch within seconds; `mycel-ctl update --version <older>` copies or touches it
-//             and waits at most --max-wait, 10 minutes, for running turns). Only an hour for the older ones: a server
+//             and waits at most --max-wait, 30 minutes, for running turns). Only an hour for the older ones: a server
 //             that updates many times a day (the dev server: about 40) kept every version of the last day, about 22 GB
 //   removed   every other folder directly under app/versions whose name is a version; .staging-* and *.partial left
 //             by an update that died, once they are a day old; app/engines/<name>/<sha12> folders that

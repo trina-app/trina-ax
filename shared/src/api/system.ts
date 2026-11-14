@@ -91,6 +91,13 @@ export const UpdateStatus = z.object({
    * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
    * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */
   turnAt: IsoTime.nullable().optional(),
+  /** running tasks now (answers, scheduled runs and the commands in them): an update waits for them before it restarts
+   * the server (at most 30 minutes; "Update now anyway" does not). Absent from older servers. */
+  running: z.number().int().nonnegative().optional(),
+  /** an update waits for running tasks before the server restarts (this server's own run, or root's `mycel-ctl update`):
+   * since when and until when at most it waits; skippable: this server's own update, still waiting, which "Update now
+   * anyway" (startUpdate force) can end. null/absent: none. Absent from older servers. */
+  waiting: z.object({ since: IsoTime, until: IsoTime, skippable: z.boolean().optional() }).nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 /** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin
@@ -108,6 +115,9 @@ export const StartUpdateBody = ReauthBody.extend({
   /** default: the available version; 'rollback' = switch back to the previous version */
   version: z.string().max(50).optional(),
   rollback: z.boolean().optional(),
+  /** "Update now anyway": do not wait for running tasks (they stop and say so, with Try again). Default: wait for them,
+   * at most 30 minutes */
+  force: z.boolean().optional(),
 })
 
 export const BackupInfo = z.object({

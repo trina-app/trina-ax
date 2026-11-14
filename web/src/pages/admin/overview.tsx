@@ -168,7 +168,7 @@ export function useAdminOverview() {
   const upd = update.data?.u
   const newVersion = upd && !upd.managed && office.data && !office.data.v ? upd.available?.version : undefined
   // "Install now" is the same install as Admin > System's (jobs.tsx); not when the release needs root (the timer does it)
-  const install = useUpdateInstall({ version: newVersion, onDone: () => void update.reload() })
+  const install = useUpdateInstall({ version: newVersion, running: upd?.running, onDone: () => void update.reload() })
   // by hand it works when automatic updates are off or will not install it (a window that never opens, not this server's turn, on hold)
   // a paused release (the publisher holds it) offers no install button: the server says no to it
   const canInstall = !!newVersion && !upd?.needsRoot && !releasePaused(upd) && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
