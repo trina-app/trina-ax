@@ -1,4 +1,4 @@
-// Admin › Folder permissions › the edit panel (stage 5): a folder's rules as the panel reads them and the rules it saves
+// The Share dialog (FolderSharing.tsx): a folder's rules as the dialog reads them and the rules it saves
 // (web/src/lib/access-edit.ts). Reading and saving again changes nothing; old role rows are saved as "everyone" and that
 // changes nobody's access, checked here against the server's own permission function (RuleSet) on random worlds.
 import { describe, expect, test } from 'bun:test'

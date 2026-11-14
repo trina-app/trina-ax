@@ -1,0 +1,1 @@
+- In a folder's **Share** dialog, choosing **Restricted** where that keeps out people the folder above lets in now asks first and names who loses access. The link that does the same reads **Don't let people from "<folder>" in**, and a General access lower than the folder above is said in one plain sentence.

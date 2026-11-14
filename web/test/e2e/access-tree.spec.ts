@@ -125,7 +125,7 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   await expect(person(page, 'olga')).toContainText(t['accessView.why.owner'])
   await expect(page.getByTestId('folder-detail-counts')).toHaveText(translate('ko', 'accessTree.counts', { see: 3, write: 2, none: 1 }))
 
-  // change the rules from here (the edit panel): everyone reads; the row and the people follow, and the lock goes
+  // change the rules from here (the Share dialog): everyone reads; the row and the people follow, and the lock goes
   await everyoneReads(page)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
   await expect(item(page, 'partners/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
@@ -289,7 +289,7 @@ test('rules of folders gone from disk: folded under the tree, removed with the s
   expect(realErrors(errors)).toEqual([])
 })
 
-test('add a folder: the picker, the folder opened to and chosen, then its rules in the edit panel; the address opens one', async ({ page }) => {
+test('add a folder: the picker, the folder opened to and chosen, then its Share dialog; the address opens one', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/folders')
@@ -538,7 +538,7 @@ test('a refresh that fails says so with a way to try again; the people already s
   await team(page)
   await page.goto('/admin/folders?folder=partners%2Fapollo')
   await expect(page.getByTestId('folder-people')).toBeVisible()
-  // the rules change (the edit panel works its result out first), and the answers that would show it fail
+  // the rules change (the Share dialog works its result out first), and the answers that would show it fail
   await page.getByTestId('folder-detail-edit').click()
   await page.getByTestId('sharing-general-select').selectOption('team')
   await expect(page.getByTestId('sharing-outcome')).toBeVisible()
@@ -753,7 +753,7 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     const manage = detail(page).getByTestId('folder-detail-manage-members')
     await expect(manage).toHaveText(t['accessTree.manageMembers'])
     await expect(manage).toHaveAttribute('href', `/projects/${id}?members=1`)
-    // the edit panel by its address: the server's refusal, in its words
+    // the Share dialog by its address: the server's refusal, in its words
     await page.goto(`/admin/folders?edit=${encodeURIComponent('projects/falcon')}`)
     await expect(page.getByTestId('folder-access-panel')).toContainText('프로젝트 멤버는 프로젝트 페이지에서 바꿔요.')
     // and "멤버 관리": the project's page with its members dialog

@@ -26,7 +26,7 @@ export type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
  * all, for a dialog whose body scrolls (a list lying over its end would be cut off there); then a pointer that leaves
  * the field closes the list only once its click has landed (a centred dialog moves as a whole when the list closes),
  * and Tab closes it at once. `saidOf`: what a screen reader hears once one is picked (default: added with read access,
- * as the edit panel adds them). */
+ * as the Share dialog adds them). */
 export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf, placeholder, label, noMatch, testId, describedBy, invalid, autoFocus }: {
   users: User[]
   groups: Group[]

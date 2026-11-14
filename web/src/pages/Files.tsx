@@ -232,7 +232,7 @@ function Files() {
     return accessChanged.on(() => void loadProjects())
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
-  // back from Admin's edit panel opened from "Who can see it" (AccessTree's from=files): the folder's panel opens again
+  // back from Admin's Share dialog opened with from=files (AccessTree): the folder's Share dialog opens again
   // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
   const accessParam = params.get('access')
   useEffect(() => {

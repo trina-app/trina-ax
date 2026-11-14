@@ -1011,7 +1011,7 @@ export class MockServer {
     return q.rules === '1' || q.rules === 'true' ? ruledAnswer(src, segs, exists, page) : treeAnswer(src, segs, exists, { ...page, open: q.open === '1' || q.open === 'true' })
   }
 
-  /** the edit panel's preview (like explainEdit in server/src/admin/access-explain.ts): the server's own computation
+  /** the Share dialog's preview (like explainEdit in server/src/admin/access-explain.ts): the server's own computation
    * (server/src/admin/access-edit.ts) over the rules and people here. A folder with a rule row as stored, any other as
    * the tree takes it; nothing in users/. Connected folders are those under connected/ here. */
   explainEdit(body: { path: string; rules: { subjectType: string; subjectId: string | null; access: Access }[] }, locale: Locale): FolderEditPreview {

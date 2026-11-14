@@ -19,7 +19,7 @@ import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@m
 import { api, API, errorText } from '../../lib/api'
 import { addNamed, removeNamed, setNamed, type Draft } from '../../lib/access-edit'
 import { isPersonalPath, isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, audienceOf, generalLevel, generalLowerOf, hasPanel, inProjects, latentLines, lowerOf, outcomeLines, overridingGroup, overrideText, parentOf, pickBasic, sameOutcome, saveAsk, type AboveRow, type Lower } from '../../lib/folder-sharing'
+import { aboveRows, askTitle, peopleOf, audienceOf, generalLevel, generalLowerOf, hasPanel, inProjects, latentLines, lowerOf, outcomeLines, overridingGroup, overrideText, parentOf, pickBasic, sameOutcome, saveAsk, type AboveRow, type Lower } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, Skeleton, confirmDialog } from '../../components/ui'
@@ -259,7 +259,10 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
         setChangedNow(true)
         return
       }
-      const ask = saveAsk(fresh)
+      // Restricted that cuts off people the folders above let in (Drive's Limit access): asked first, by name, like the
+      // team's own files (re-review of #779); other narrowing saves straight, "What will happen" having named who
+      const cuts = draft.basic === 'named' && d.initial.basic !== 'named' && peopleOf(fresh.changes, 'lose').count > 0
+      const ask = saveAsk(fresh) ?? (cuts ? { widen: false, later: false, narrow: [], skillsEveryone: false } : null)
       if (ask) {
         const ok = await confirmDialog({
           title: askTitle(t, fresh, ask),
@@ -509,7 +512,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
         // "no setting here" again: its own control (a pick never goes back to it, review H1)
         useAbove={draft.basic !== 'follow' && canFollow && parent !== null ? { text: t('folderAccess.useAbove', { folder: parent === '' ? t('files.root') : nameOf(parent) }), use: () => setDraft((x) => ({ ...x, basic: 'follow' })) } : null}
         // following a Restricted folder above still lets in who it lists: "only people listed here" cuts them off
-        limit={draft.basic === 'follow' && level === 'none' && fromAbove.some((r) => r.access !== 'none') ? () => setDraft((x) => ({ ...x, basic: 'named' })) : null}
+        limit={draft.basic === 'follow' && parent !== null && level === 'none' && fromAbove.some((r) => r.access !== 'none') ? { text: t('folderAccess.limitHere', { folder: parent === '' ? t('files.root') : nameOf(parent) }), use: () => setDraft((x) => ({ ...x, basic: 'named' })) } : null}
       />
 
       {(below > 0 || !admin) && <div className="border-t border-line pt-3 text-xs text-muted">
@@ -611,7 +614,7 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
   keepOne: boolean
   loading: boolean
   useAbove: { text: string; use: () => void } | null
-  limit: (() => void) | null
+  limit: { text: string; use: () => void } | null
 }) {
   const t = useT()
   const id = useId()
@@ -620,9 +623,10 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
     <section aria-labelledby={id} data-testid="sharing-general">
       <h3 id={id} className="text-title-sm font-semibold text-ink">{t('folderAccess.general')}</h3>
       <div className="mt-1.5 flex items-center gap-2.5">
-        <GroupTile size={32} icon={audience === 'restricted' ? Lock : Building2} />
+        <GroupTile size={32} icon={loading ? Building2 : audience === 'restricted' ? Lock : Building2} />
+        {/* before the first answer no value is known: none is shown (not "Restricted"), re-review of #779 */}
         <select
-          value={audience}
+          value={loading ? '' : audience}
           aria-labelledby={id}
           onChange={(e) => onAudience(e.target.value as 'restricted' | 'team')}
           className={clsx(generalSelect, 'min-w-0 flex-1 disabled:cursor-default disabled:opacity-60')}
@@ -631,17 +635,18 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
           data-testid="sharing-general-select"
           data-level={level}
         >
+          {loading && <option value="">{t('common.loading')}</option>}
           <option value="restricted">{t('folderAccess.restricted')}</option>
           <option value="team">{teamName}</option>
         </select>
-        {audience === 'team' && (
+        {!loading && audience === 'team' && (
           <select value={level} aria-label={t('folderAccess.teamRole', { team: teamName })} onChange={(e) => onPick(e.target.value as Access)} disabled={loading} className={clsx(generalSelect, 'shrink-0')} data-testid="sharing-general-role">
             <option value="read">{t('folderAccess.canView')}</option>
             {teamEdit && <option value="write">{t('folderAccess.canEdit')}</option>}
           </select>
         )}
       </div>
-      <p className="mt-1.5 text-xs text-muted" data-testid="sharing-general-hint">
+      {!loading && <p className="mt-1.5 text-xs text-muted" data-testid="sharing-general-hint">
         {hint}
         {from && (
           <>
@@ -652,12 +657,12 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
             </button>
           </>
         )}
-      </p>
+      </p>}
       {lower && <p role="note" className="mt-1.5 text-xs text-warn" data-testid="sharing-general-lower">{lower}</p>}
-      {(useAbove || limit) && (
+      {!loading && (useAbove || limit) && (
         <p className="mt-1 text-xs">
           {useAbove && <button type="button" onClick={useAbove.use} className="font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-general-follow">{useAbove.text}</button>}
-          {limit && <button type="button" onClick={limit} className="font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-general-limit">{t('folderAccess.limitHere')}</button>}
+          {limit && <button type="button" onClick={limit.use} className="font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-general-limit">{limit.text}</button>}
         </p>
       )}
       {keepOne && <p role="note" className="mt-1.5 rounded-lg bg-warn-soft px-2.5 py-1.5 text-xs text-warn" data-testid="sharing-keep-one">{t('folderAccess.keepOne')}</p>}

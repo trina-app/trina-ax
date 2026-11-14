@@ -26572,7 +26572,10 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   `From "Company-wide" · Change there ›`. **Restricted is always stored** ("everyone: no access"): only the people
   listed here open it, and whoever the folders above let in is cut off, Drive's Limit access meaning (review H1: a
   Restricted folder above can still list Sales, so "Restricted = follow it" let Sales in). Where a folder follows a
-  Restricted folder that lists people, one link under General access, **Only people listed here**, does the same. A
+  Restricted folder that lists people, one link under General access, **Don't let people from "<parent>" in**, does
+  the same (re-review: "Only people listed here" read like the line above it). A Restricted that cuts off people the
+  folders above let in **asks first**, by name ("Take access away?", Save anyway), like taking the team's own files;
+  other narrowing still saves straight. Before the first answer General access shows no value and no line. A
   team role equal to what a folder with no setting already gets stores nothing; any other role is stored. Back to
   "no setting here" is one link, **Use the access of "<parent>"** (not at the team root, `shared/` or `skills/`, which
   keep a setting of their own; there a team pick is always stored, review H2). General access waits for the server's
@@ -26585,9 +26588,9 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   Acme can edit it" (General access Editor on the same folder: a group beats everyone there), "In Sales, but can only
   view here" (a person below their group on the same folder). The caption names the rule that decides (the deepest
   folder with a rule for them), so a deeper group with Viewer is not overstated by a group above with Editor. General
-  access lower than the folders above (the team, or a person or group there: "Sales can edit "Plans", but can only view
-  here.") keeps a line for as long as it is so, not only before Save: "Lower than "Company-wide", where anyone at Acme can edit…", "Anyone at
-  Acme can open "Company-wide", but not this folder." The captions come from the server's `above` / `everyoneAbove`
+  access lower than the folders above (the team, or a person or group there: "Sales can edit "Plans" but can only view
+  this folder.") keeps a line for as long as it is so, not only before Save: "Anyone at Acme can edit "Company-wide"
+  but can only view this folder.", "Anyone at Acme can open "Company-wide", but not this folder." The captions come from the server's `above` / `everyoneAbove`
   answer; unit tests check each against the permission function. "What will happen" and the confirm are unchanged.
 - **Remove access asks first** ("Remove access for Bob?"): it is an item of a native select, whose arrow keys would
   otherwise remove a row on the way. The owner's and admins' rows say **Full access** and offer only Remove access
