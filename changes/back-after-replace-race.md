@@ -1,1 +1,0 @@
-- On a slow phone, pressing Back right after switching a page's view (Folder permissions: By folder / By person) could put the page straight back on screen instead of going to the list under it.

@@ -1,2 +1,0 @@
-- Phones: the ⋯ menu on a connected Google app's page (Gmail, Calendar, Docs, Sheets) and on other connection pages now opens fully on screen instead of off the left edge.
-- Desktop: the in-app browser opened right after the first sign-in on a new computer no longer closes by itself a few seconds later.

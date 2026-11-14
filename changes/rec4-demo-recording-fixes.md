@@ -1,4 +1,0 @@
-- Always allow is on the safety card of a ✦ side chat that saves into a folder more people see, and a scheduled run uses the Always allow its own person already chose.
-- Opening a teammate's project chat shows its title and people from the first frame, not "Untitled".
-- A comma or full stop right after a link in an answer stays on the link's line on a phone.
-- The AI now says correctly that a ✦ side chat is private to the person who asked, also in the Everyone room.

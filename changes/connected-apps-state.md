@@ -1,5 +1,0 @@
-- **Admin › Connected apps:** Slack's row and Slack's page now show the same state. "Connecting" moves on to "Connected" by itself, and if Slack has not answered for minutes both say so, with what to do.
-- Rows in Connected apps and Discover look clickable: they light up on hover, show a ›, and the whole row opens the app's page.
-- Connecting an app that opens a browser window (Google, a service's sign-in, Add to Slack, Sign in with Slack) can always be left: **Try again** and **Cancel** are there while it waits, and the wait ends by itself after five minutes if the window was closed.
-- **Slack:** the app's own lines in Slack ("Working on it…", "Answering as …", "Open in Trina AX") are now in the asking person's Trina language, not in the language they chose for AI answers.
-- **Slack:** when Trina reads a channel or thread, messages from other apps (form alerts, monitoring alerts) now come with their details. Before, only their one-line title reached the AI.
