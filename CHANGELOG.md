@@ -7,6 +7,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.4 — 2026-11-14
 
+- When someone shares a chat with you by name, you now get a notification on your phone and in your browser. In the browser, and on iPhone after the next app update, it says who shared it (never the chat's name); Android and older iPhone apps say "Someone shared a chat with you." Shares through a group still show only in Activity, and you get at most one such notification per chat a day. **Settings › Notifications › Chats shared with me** turns it off.
 - Share… in a chat's menu and in every chat row's menu: for a chat outside projects it opens a Share dialog like Google Drive's. Add people and groups, take them out with ✕ (Undo until you save), and Save; leaving with unsaved changes asks first, and a failed save keeps your picks. Before new people are added it shows what they would start seeing (answers that used places they can't open, with the list of those answers) and asks to Share anyway. A chat in a personal project explains why and offers Move…; a chat in a team project is shared with the project's members as before.
 - The people a chat is shared with find it in their list and in Activity ("Olga shared a chat with you"), can continue it or hide it from their list (opening it brings it back), and are told "This chat is no longer shared with you" when they are taken out. When an admin deletes an account, the dialog says how many of that person's shared chats go with it and suggests disabling the account instead.
 
