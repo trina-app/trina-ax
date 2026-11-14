@@ -27497,7 +27497,8 @@ guides, "Apps posting here") are phase 2.
 - **Rule.** On a hosted server (`deployment: "hosted"`) without a Google client of its own, the broker address
   defaults to the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`brokerOrigin`, `hostedDefault`). An
   empty value or `off` still turns it off; a set value still wins; a client of its own still wins. Slack's official app
-  uses the same default (`slackBrokerOrigin`), since both brokers are on the console. Self-installed servers are
+  uses the same default (`slackBrokerOrigin`), since both brokers are on the console; Slack has its own off switch
+  (`MYCEL_SLACK_BROKER_URL=off`): turning Drive off does not turn Slack off. Self-installed servers are
   unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
 - **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
   guard as the other loops); the unit tests pass their own env to check the default.

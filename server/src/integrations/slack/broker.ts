@@ -49,7 +49,7 @@ export function slackBrokerOrigin(env: Record<string, string | undefined> = proc
   return brokerUrlOrigin(raw)
 }
 
-/** The broker of this server, or null without the variable. */
+/** The broker of this server, or null (a self-installed server without the variable, or `off`). */
 export function slackBrokerFor(ctx: AppContext, env: Record<string, string | undefined> = process.env): SlackBrokerOptions | null {
   const origin = slackBrokerOrigin(env, isHosted(ctx.config))
   if (!origin) return null

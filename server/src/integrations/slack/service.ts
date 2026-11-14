@@ -163,7 +163,7 @@ export class SlackConnector {
   private swept = 0
   private emailAuditSeen: number | null = null
   private closed = false
-  /** the hosting service's official app (broker.ts), or null: MYCEL_SLACK_BROKER_URL (or the Drive broker's) not set */
+  /** the hosting service's official app (broker.ts), or null: MYCEL_SLACK_BROKER_URL (or the Drive broker's) not set on a self-installed server, or `off` */
   readonly broker: SlackBrokerClient | null
   private feed: SlackBrokerFeed | null = null
   /** the hosting service answered `status`: it serves this server (its app id) */

@@ -14,7 +14,7 @@ import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, share
 import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 
-/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
+/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (no own client; broker URL set, or a hosted server). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
 /** One Drive connection's way to call Google: a person's own, or a team share's (read.ts). */
 export interface DriveConn {
@@ -36,7 +36,7 @@ export class GoogleDrive {
    * admin's in-app setup replaces it (admin-setup.ts reload()) */
   get config() { return this.cfg }
   /** sign-in through the hosting service (a hosted or registered self-installed server without a client
-   * of its own and with MYCEL_GOOGLE_DRIVE_BROKER_URL), else null */
+   * of its own: a hosted one by default, a self-installed one with MYCEL_GOOGLE_DRIVE_BROKER_URL), else null */
   readonly broker: DriveBroker | null
   private brokerOk = false
   private brokerCheckedAt = 0
