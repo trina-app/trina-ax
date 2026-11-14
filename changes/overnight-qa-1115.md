@@ -1,0 +1,12 @@
+- A guest in a chat can no longer manage its apps: no **Add an app**, and no deleting an app's message (the server refuses it too).
+- When an upload is refused because the team's storage is full, the owner and admins see a **Choose a plan** link next to the refusal (files, folder uploads, chat and room attachments, the welcome step). Members see the plain line.
+- An empty direct message with someone who left the team says just "No messages." instead of inviting you to send the first one.
+- Project members: if the check of who can open past answers is refused for asking too often, the dialog keeps the last count and its warning instead of hiding it.
+- Slack: when Slack refuses the Slack app's token while the AI only reads, Admin › Connected apps › Slack now shows the reconnect state too, not only after a refused post.
+- Slack: after 10 connect links in an hour, the refusal says at what time you can ask again instead of "in a few minutes".
+- A member removed from the team is told on the sign-in page that they are no longer a member, not that they signed out elsewhere or changed their password.
+- Settings › Profile: while your account deletion is pending, the row shows the date and offers **Keep my account**.
+- Adding a sleeping trial team in the desktop or phone app now wakes it and says "Starting your team" instead of "can't reach", and continues by itself when the team answers.
+- If a team has not started after 3 minutes of "Starting your team", the web app says so and offers **Try again**.
+- The Delete account page lists the chats you shared with people or groups under what is deleted; only chats shared in projects stay with the team.
+- Phone: a time zone search that finds nothing says "No time zone matches that." inside the sheet, where you can see it.
