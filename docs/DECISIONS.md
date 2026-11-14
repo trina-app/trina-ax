@@ -27851,8 +27851,7 @@ shared with people and groups, and files attached before the share stayed visibl
 - The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
   `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
 
-
-## A guest with their own sign-in connects it themselves — 게스트 본인 로그인 (fix/guest-own-ai, 2026-11-14, QA)
+## A guest with their own sign-in connects it themselves — 게스트 본인 로그인 (feat/guest-own-signin, 2026-11-14, QA)
 
 넣을 곳: Team AX core (`server/src/credentials/policy.ts`, `server/src/credentials/access.ts`,
 `server/src/routes/credentials.ts`, `web/src/components/rooms/SideChatPanel.tsx`), 이유: AI connections and guests are core.

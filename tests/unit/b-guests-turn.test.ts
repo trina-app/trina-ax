@@ -9,6 +9,8 @@ import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { addCred } from '../lib/credentials'
+import { setSetting } from '../../server/src/admin/settings'
+import { MEMBER_OWN_KEY } from '../../server/src/credentials/resolve'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -54,9 +56,11 @@ test('AI team: the guest runs on the named team connection, with the guest tools
   expect(mine).toContain('find_skills')
 })
 
-test('AI own: never the team-wide connection; once the guest connects their own, their turn is answered on it', async () => {
+test('AI own: never the team-wide connection, with the members\' switch off too; once the guest connects their own, their turn is answered on it', async () => {
   const db = h.ctx.db
   db.query("UPDATE guests SET ai = 'own', team_credential_id = NULL WHERE user_id = 'erin'").run()
+  // whatever the members' switch says: the team chose their own sign-in for this guest
+  setSetting(db, MEMBER_OWN_KEY, false)
   const before = await newChat('erin')
   const r = await ask(h, erin, 'erin', before.id, fake({ say: 'hello' }))
   expect(r.done.error).toMatchObject({ params: { reason: 'no_credential' } })

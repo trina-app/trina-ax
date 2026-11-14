@@ -128,3 +128,18 @@ test('own on a server whose engines use the host\'s own sign-in: nothing to conn
   expect(await g.client.call('GET', '/api/me/ai-access')).toMatchObject({ usable: false, action: 'ask_owner' })
 })
 
+
+test('own changed to none by an admin: their connection is no longer used, and they can add no other', async () => {
+  const { owner, mia, room, addOwn } = await setup()
+  setSetting(h.ctx.db, MEMBER_OWN_KEY, false)
+  const g = await addGuest(h, mia.client, { username: 'oli', place: { kind: 'room', id: room }, ai: { mode: 'own' } })
+  const id = (await addOwn(g.client, AKEY('oli-before'))).body.id as string
+  expect(resolveCredential(h.ctx.db, { userId: g.id, engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: true, credentialId: id })
+  expect((await owner.try('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'none' })).status).toBe(200)
+  expect(personalConnectionsAllowed(h.ctx.db, g.id)).toBe(false)
+  expect(resolveCredential(h.ctx.db, { userId: g.id, engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: false })
+  expect((await addOwn(g.client, AKEY('oli-after'))).status).toBe(403)
+  // and back to own: theirs answers again (the switch for members is still off)
+  expect((await owner.try('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'own' })).status).toBe(200)
+  expect(resolveCredential(h.ctx.db, { userId: g.id, engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: true, credentialId: id })
+})
