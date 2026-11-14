@@ -26715,3 +26715,18 @@ connect_service are unchanged.
 - Tests: `b-chat-rooms-save.test.ts` (the combined card offers it; picking it keeps both kinds), `b-always-allow.test.ts`
   (a scheduled run: `on` only for its own person's kind, never offered), `b-chat-rooms-fewer-cards.test.ts`.
 - Version impact: **patch**.
+
+## Project members: one line per person (fix/thumb-1h-participants-row, 2026-11-14)
+
+- **Ask:** the member list of the project pickers (components/ProjectParticipants.tsx: 멤버 추가 on a personal project,
+  the Members dialog, the new-project form) built its own rows, the last "to fix" entry of the list-row guard
+  (web/test/unit/list-row-source.test.ts). Its controls could wrap under the name, a second line of buttons.
+- **Now:** each member is a shared `ListRow`, one line, as in a chat app's member list: the picture (or a group's mark)
+  as the icon; the name and 새로, then its title or the group's "부서 · N명" in small faint words on the same line,
+  cut at the end when long; the tags (나, 만든 사람, a folder rule) at the row's right as the row's tag; × or 되돌리기
+  in the row's `actions`, beside it. A group with a note (the Members dialog's "except Kim") keeps its words on a
+  second line, where the names have the row's width; on a phone the note wraps there, never cut (#788, TC-1402). A group in the Members dialog is a button row that opens its people under it (a
+  list item of its own after the row). Rows are the lists' heights: 36px with a 28px face on a computer, 48px on a
+  phone; names 15px and 16px.
+- `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
+  title as the second line, 추가 / 추가됨).

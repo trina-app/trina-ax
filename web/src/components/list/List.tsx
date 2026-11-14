@@ -32,7 +32,7 @@ export function ListIcon({ children, className, face }: { children: ReactNode; c
   )
 }
 
-type RowLink = { [data: `data-${string}`]: string | undefined }
+type RowLink = { [attr: `data-${string}` | `aria-${string}`]: string | undefined }
 /** the row's <li>: a ref, its hover, its menu's right-click and long press, data-* (a chat's row) */
 type RowLi = Omit<HTMLAttributes<HTMLLIElement>, 'children'> & RowLink & { ref?: Ref<HTMLLIElement> }
 
@@ -118,7 +118,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, name, nameTi
   testId?: string
   nameTestId?: string
   metaTestId?: string
-  /** more attributes for the row's link or button (data-*) */
+  /** more attributes for the row's link or button (data-*, aria-*) */
   link?: RowLink
   li?: RowLi
   rowClass?: string
