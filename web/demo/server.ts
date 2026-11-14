@@ -7,7 +7,7 @@
 // The visitor is always signed in (a member, so the admin pages and permission settings are not offered).
 import { Room, RoomMessage, RoomTypingFrame, uuidv7, type Chat, type Message, type RoomFile, type ServerEventInput, type Step, type TurnRequest, type User } from '@mycel/shared/api'
 import { MockServer } from '../test/mock/server'
-import type { DemoAsk, DemoEvent, DemoFile, DemoReply, DemoScript, DemoStep } from './script'
+import type { DemoAnswer, DemoAsk, DemoEvent, DemoFile, DemoReply, DemoScript, DemoStep } from './script'
 import { StoryEngine, type Place } from './engine'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -29,7 +29,6 @@ export class DemoServer extends MockServer {
   /** a room file's bytes by its id (the story's attachments and what the visitor sends) */
   roomFiles = new Map<string, Uint8Array>()
   avatars = new Map<string, Uint8Array>()
-
   constructor(script: DemoScript, assets: Record<string, Uint8Array>) {
     // no e2e team first (setup: the mock's own seed is skipped), then the story's
     super({ setup: true })
@@ -54,22 +53,26 @@ export class DemoServer extends MockServer {
     this.avatars = new Map()
     for (const p of ['shared', 'groups', 'projects', 'skills', 'users']) this.folder(p)
     this.groups = s.groups.map((g) => ({ id: this.idOf('group', g.id), name: g.name, description: '', memberIds: g.members }))
+    this.presence = new Map()
     for (const p of s.people) {
-      this.addUser({ id: p.id, username: p.id, name: p.name, role: 'member', groupIds: s.groups.filter((g) => g.members.includes(p.id)).map((g) => this.idOf('group', g.id)), localeChoice: null }, uuidv7())
-      this.folder(`users/${p.id}`)
       const pic = p.avatar && this.assets[p.avatar]
       if (pic) this.avatars.set(p.id, pic)
+      // someone outside the team is no account here
+      if (p.outside) continue
+      if (p.online !== false && p.id !== s.visitor) this.presence.set(p.id, 'online')
+      this.addUser({ id: p.id, username: p.id, name: p.name, role: 'member', groupIds: s.groups.filter((g) => g.members.includes(p.id)).map((g) => this.idOf('group', g.id)), localeChoice: null }, uuidv7())
+      this.folder(`users/${p.id}`)
     }
     for (const g of s.groups) this.folder(`groups/${g.name}`)
     for (const f of s.files) this.putDemoFile(f)
     for (const pr of s.projects) this.seedProject(pr)
     for (const r of s.rooms) this.seedRoom(r)
-    const lead = s.events[0] ? s.events[0].from : null
+    const lead = s.home.inviter ?? (s.events[0] ? s.events[0].from : null)
     const inviter = lead ? this.users.find((u) => u.id === lead) : undefined
     this.memberWelcome = {
-      team: s.company.name, inviter: inviter ? { id: inviter.id, name: inviter.name } : null, people: s.people.length,
+      team: s.company.name, inviter: inviter ? { id: inviter.id, name: inviter.name } : null, people: s.people.filter((p) => !p.outside).length,
       rooms: this.rooms.filter((r) => r.kind === 'all' || r.kind === 'team').map((r) => ({ id: r.id, kind: r.kind as 'all' | 'team', name: r.name })),
-      owner: null, steps: { rooms: true, hi: true, photo: true, asked: false }, allSet: false,
+      owner: null, steps: { rooms: true, hi: false, photo: this.avatars.has(s.visitor), asked: false }, allSet: false,
     }
   }
 
@@ -195,25 +198,60 @@ export class DemoServer extends MockServer {
     return message
   }
 
-  /** a story person's message, when its trigger happened: "typing…" for a moment, then the message */
+  /** a story person's message, when its trigger happened: "typing…" for a moment, then the message, its toast and the
+   * reactions that pile up; then the event counts as happened (what is chained on it follows) */
   async postEvent(ev: DemoEvent) {
-    const room = this.rooms.find((r) => r.id === this.idOf('room', ev.room ?? ''))
+    const gen = this.generation
+    const room = this.rooms.find((r) => r.id === this.idOf('room', ev.room))
     // a script error, loud: every step chained on this message would wait for good
     if (!room) throw new Error(`demo: event ${ev.id} names no room ${ev.room}`)
-    const gen = this.generation
     for (const f of ev.newFiles ?? []) this.putDemoFile(f)
-    const typing = (on: boolean) => {
-      const frame = JSON.stringify(RoomTypingFrame.parse({ type: 'room.typing', roomId: room.id, threadRootId: null, userId: ev.from, typing: on }))
-      for (const ws of this.sockets) ws.send(frame)
+    let message: RoomMessage | undefined
+    if (room && ev.text) {
+      const typingMs = ev.typingMs ?? 1100
+      if (typingMs > 0) {
+        this.typing(room.id, ev.from, true)
+        await sleep(typingMs)
+        this.typing(room.id, ev.from, false)
+        if (gen !== this.generation) return
+      }
+      message = this.addRoomMessage(room, ev.from, ev.text, ev.files ?? [], now(), false)
+      this.publish({ type: 'room.message', data: { roomId: room.id, message } })
+      this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
     }
-    typing(true)
-    await sleep(1100)
-    if (gen !== this.generation) return
-    typing(false)
-    const message = this.addRoomMessage(room, ev.from, ev.text ?? '', ev.files ?? [], now(), false)
-    this.publish({ type: 'room.message', data: { roomId: room.id, message } })
-    this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
+    if (room && ev.reactions?.length) {
+      const target = ev.on === 'visitor'
+        ? [...(this.roomMessages.get(room.id) ?? [])].reverse().find((m) => m.author?.id === this.script.visitor)
+        : message
+      for (const r of ev.reactions) {
+        await sleep(r.afterMs ?? 2500)
+        if (gen !== this.generation) return
+        if (target) this.react(room.id, target, r.from, r.emoji, true)
+      }
+    }
     this.engine.fire({ event: ev.id })
+  }
+
+  typing(roomId: string, userId: string, on: boolean) {
+    const frame = JSON.stringify(RoomTypingFrame.parse({ type: 'room.typing', roomId, threadRootId: null, userId, typing: on }))
+    for (const ws of this.sockets) ws.send(frame)
+  }
+
+  /** put (or take off) someone's reaction on a room message and tell the windows */
+  react(roomId: string, m: RoomMessage, userId: string, emoji: string, on: boolean) {
+    const user = this.users.find((u) => u.id === userId)
+    if (!user) return
+    const list = (m.reactions ?? []).map((r) => ({ ...r, users: [...r.users] }))
+    let r = list.find((x) => x.emoji === emoji)
+    if (on && !r) list.push((r = { emoji, count: 0, mine: false, users: [] }))
+    if (!r) return
+    const had = r.users.some((u) => u.id === userId)
+    if (on && !had) r.users.push({ id: user.id, name: user.name })
+    if (!on && had) r.users = r.users.filter((u) => u.id !== userId)
+    r.count = r.users.length
+    r.mine = r.users.some((u) => u.id === this.script.visitor)
+    m.reactions = list.filter((x) => x.count > 0)
+    this.publish({ type: 'room.reactions', data: { roomId, messageId: m.id, reactions: m.reactions } })
   }
 
   private installDemoHandlers() {
@@ -227,6 +265,12 @@ export class DemoServer extends MockServer {
       this.publish({ type: 'room.message', data: { roomId: room.id, message } })
       this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
       return { status: 201, body: message }
+    }
+    h.reactRoomMessage = (c) => {
+      const m = (this.roomMessages.get(c.params.id!) ?? []).find((x) => x.id === c.params.messageId) ?? this.notFound()
+      const on = !(m.reactions ?? []).some((r) => r.emoji === c.body.emoji && r.mine)
+      this.react(c.params.id!, m, c.user.id, c.body.emoji, c.body.on ?? on)
+      return { reactions: m.reactions ?? [] }
     }
     // Stop while a card waits: the card closes and the answer ends stopped (the mock's stop only marks the turn)
     const stop = h.stop!
@@ -251,11 +295,25 @@ export class DemoServer extends MockServer {
     }
     // a hosted team's notices in the mock (maintenance tonight…) are not part of the story
     h.managedNotices = () => ({ items: [] })
-    const me = h.me!
-    h.me = async (c) => {
-      const out = (await me(c)) as { user: { id: string; title?: string } }
-      const p = this.script.people.find((x) => x.id === out.user.id)
-      return { ...out, user: { ...out.user, ...(this.avatars.has(out.user.id) ? { avatarVersion: 1 } : {}), ...(p?.title ? { title: p.title } : {}) } }
+    // the visitor's photo and title in every answer that carries Me (a read, and a change such as a preference)
+    for (const name of ['me', 'updateMe'] as const) {
+      const base = h[name]!
+      h[name] = async (c) => {
+        const out = (await base(c)) as { user: { id: string; title?: string } }
+        const p = this.script.people.find((x) => x.id === out.user.id)
+        return { ...out, user: { ...out.user, ...(this.avatars.has(out.user.id) ? { avatarVersion: 1 } : {}), ...(p?.title ? { title: p.title } : {}) } }
+      }
+    }
+    // a project's faces (its page, its card): the photos too, where the contract carries avatarVersion
+    const withPhotos = (v: unknown): unknown => {
+      if (Array.isArray(v)) return v.map(withPhotos)
+      if (!v || typeof v !== 'object') return v
+      const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, withPhotos(x)])) as Record<string, unknown>
+      return typeof o.id === 'string' && typeof o.name === 'string' && this.avatars.has(o.id) && !('avatarVersion' in o) ? { ...o, avatarVersion: 1 } : o
+    }
+    for (const name of ['getProjectPeople', 'listProjects', 'getProject'] as const) {
+      const base = h[name]
+      if (base) h[name] = async (c) => withPhotos(await base(c))
     }
     const people = h.listPeople!
     h.listPeople = async (c) => {
@@ -308,9 +366,12 @@ export class DemoServer extends MockServer {
 
   override async runSharedTurn(chat: Chat, user: User, prompt: string, assistant: Message) {
     await this.playTurn(chat, user, prompt, assistant)
+    // the answer's end goes to its runner (the mock sends a shared chat's turn events to the runner only), then the chat
+    // is free again
     const s = this.sharedChats.get(chat.id)
-    if (s) s.runner = null
     this.finishTurn(chat, assistant)
+    if (s) s.runner = null
+    this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
   }
 
   finishTurn(chat: Chat, assistant: Message) {
@@ -331,11 +392,16 @@ export class DemoServer extends MockServer {
       if (gen !== this.generation) throw new Error('demo was reset')
       this.publish(ev)
     }
+    // the end card's time counts from the visitor's first question, not from when the page opened
+    if (!this.engine.begun) { this.engine.begun = true; this.engine.startedAt = Date.now() }
     await sleep(350)
     pub({ type: 'queue.position', data: { chatId: chat.id, messageId: assistant.id, turnId: assistant.turnId!, position: 0, epoch: this.epoch, revision: ++this.queueRevision } })
     const place = this.placeOf(chat)
     const answer = this.engine.answerFor(prompt, place)
+    // a short title for the history (the button's words), not the prompt cut off
+    if (answer && !chat.title) chat.title = answer.label ?? answer.prompt
     if (answer) {
+      this.noteSources(assistant, answer)
       await this.playReply(chat, assistant, answer, pub)
       // a stopped answer does not move the story on
       if (!this.stopped.has(assistant.turnId!)) this.engine.answered(answer.id)
@@ -348,8 +414,19 @@ export class DemoServer extends MockServer {
     const i = await this.askCard(chat, assistant, { question: this.script.fallback.question ?? this.script.fallback.text, options: offered.map((a) => ({ label: a.label ?? a.prompt, reply: a })) }, pub)
     const picked = i === null ? undefined : offered[i]
     if (!picked) return
+    // the history names the question that was answered, not the typed words
+    chat.title = picked.label ?? picked.prompt
+    this.noteSources(assistant, picked)
     await this.playReply(chat, assistant, picked, pub)
     if (!this.stopped.has(assistant.turnId!)) this.engine.answered(picked.id)
+  }
+
+  /** the files the answer read, as the app's own "sources" under it (GET …/messages/:id/sources) */
+  noteSources(assistant: Message, a: DemoAnswer) {
+    const list = (a.sources ?? []).filter((p) => this.files.has(p)).map((path) => ({ path, name: baseName(path), locs: [], via: ['read' as const] }))
+    if (!list.length) return
+    this.sources.set(assistant.id, list)
+    assistant.sourceCount = list.length
   }
 
   /** steps, the text, its files, then its card and the chosen option's reply */
@@ -389,7 +466,8 @@ export class DemoServer extends MockServer {
     }
     const step: Step = { id, kind: 'tool', tool: st.tool ?? 'tool', label: st.label, status: 'running', startedAt: now(), endedAt: null }
     put(step)
-    await sleep(st.ms ?? 700)
+    // long enough to read (about a second), never a dead wait
+    await sleep(Math.min(2500, Math.max(900, st.ms ?? 1000)))
     put({ ...step, status: 'ok', endedAt: now() })
   }
 

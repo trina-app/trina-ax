@@ -79,9 +79,7 @@ const script: DemoScript = {
   end: {
     after: { answer: 'mail' },
     title: '첫날 끝',
-    body: '미나님의 첫날이 끝났어요. 우리 팀에서도 이렇게 일해 보세요.',
     signup: { label: '우리 팀으로 시작하기', url: 'https://trina.app/' },
-    explore: { label: '자유롭게 둘러보기' },
   },
 }
 

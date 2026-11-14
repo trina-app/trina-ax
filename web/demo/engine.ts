@@ -32,6 +32,11 @@ export class StoryEngine {
   answers: Id[] = []
   endShown = false
   endClosed = false
+  /** when the story started and when the end card came (the card's real elapsed time) */
+  startedAt = Date.now()
+  /** the visitor sent their first message (the time counts from then) */
+  begun = false
+  endedAt: number | null = null
   private listeners = new Set<() => void>()
   private timers: ReturnType<typeof setTimeout>[] = []
 
@@ -56,7 +61,7 @@ export class StoryEngine {
     }
     const end = this.script.end
     if (!this.endShown && keysOf(end.after).includes(key)) {
-      this.wait(() => { this.endShown = true; this.changed() }, end.delayMs ?? 2500)
+      this.wait(() => { this.endShown = true; this.endedAt = Date.now(); this.changed() }, end.delayMs ?? 2500)
     }
     this.changed()
   }
@@ -69,7 +74,10 @@ export class StoryEngine {
   /** the guide's line now: the first step not over yet, once its start happened; null between steps and at the end */
   guide(): DemoGuideStep | null {
     const steps = this.script.guide
-    for (let i = 0; i < steps.length; i++) {
+    // a step the visitor went past (a later step's end already happened, e.g. a link followed at once) is over too
+    let from = 0
+    steps.forEach((s, i) => { if (this.has(s.until)) from = i + 1 })
+    for (let i = from; i < steps.length; i++) {
       const s = steps[i]!
       if (this.has(s.until)) continue
       if (s.after && !this.has(s.after)) return null

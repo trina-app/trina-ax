@@ -1,10 +1,10 @@
-// "Mina's first day" (v2): the story's structure (format: web/demo/script.ts), with every word taken from a strings
+// "Mina's first day" (v2.1): the story's structure (format: web/demo/script.ts), with every word taken from a strings
 // file (strings/<locale>.ts) and every picture or text file from ../assets/<name>.<locale>.<ext>. Steepling is a
 // fictional company; every person, number, address and file is made up (README.md).
 //
-// Four moments: ① the AI already knows the company (3 files read, people to know), ② one prompt gives a launch set of
-// five deliverables shot with Higgsfield, ③ the team reacts live in #Marketing, ④ the mail goes out and the agency
-// answers.
+// Four moments: ① the AI already knows the company (3 files read, people to know), ② one prompt gives a launch set
+// shot with Higgsfield (banner, square, story, captions, the photo), ③ the team reacts live in #Marketing, ④ the mail
+// goes out and the agency answers.
 import type { DemoAnswer, DemoAsk, DemoReply, DemoScript, DemoStep } from '../../../web/demo/script'
 import type { Strings } from './strings/en'
 
@@ -32,7 +32,10 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
   const captionsText = `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`
   const captionsQuote = a.captions.map((c, i) => `> ${i + 1}. ${c}`).join('\n>\n')
   const d = a.deliverables
-
+  // the pictures in the answer itself, as a real answer shows generated images: before, after, the other sizes
+  const img = (label: string, path: string) => `![${label}]({{file:${path}}})`
+  const pictures = `**${a.compare.before}**\n\n${img(a.compare.before, leoBanner)}\n\n**${a.compare.after}**\n\n${img(d.banner, banner)}\n\n` +
+    `${a.otherSizes}\n\n${img(d.square, square)}\n\n${img(d.story, story)}`
   // ---- ④ the mail to the agency: a draft with the banner and the square, a confirm card, a sent line
 
   const m = s.mail
@@ -44,13 +47,15 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
   const sent = (mail: Mail): DemoReply => ({
     steps: [{ label: `Gmail · ${st.gmailSend}`, tool: 'gmail', ms: 1200 }],
     text: m.sent.replaceAll('{subject}', mail.subject),
-    attachments,
   })
   const confirm = (mail: Mail, offerFormal: boolean): DemoAsk => ({
     question: m.confirm,
     options: [
       { label: m.send, reply: sent(mail) },
-      ...(offerFormal ? [{ label: m.makeFormal, reply: { text: `${m.formalIntro}\n\n${draft(m.formal)}`, attachments, ask: confirm(m.formal, false) } }] : []),
+      // two buttons on every card (AskCard shows two as buttons, more as a list)
+      offerFormal
+        ? { label: m.makeFormal, reply: { text: `${m.formalIntro}\n\n${draft(m.formal)}`, ask: confirm(m.formal, false) } }
+        : { label: m.sendShort, reply: sent(m.plain) },
     ],
   })
 
@@ -63,9 +68,9 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       where: 'home',
       prompt: a.company.prompt,
       steps: [read(s.paths.companyIntro), read(brief), read(s.paths.brandGuide)],
-      text: a.company.text,
+      text: `${a.company.text}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- **${s.people[id].name}**, ${s.people[id].title}: ${a.company.people[id]}`).join('\n')}`,
+      // the app's own "sources" under the answer
       sources: [s.paths.companyIntro, brief, s.paths.brandGuide],
-      people: (['sara', 'leo', 'daniel'] as const).map((id) => ({ id, why: a.company.people[id] })),
     },
     {
       id: 'banner',
@@ -82,7 +87,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
         make(`${st.makeStory} 1080×1920`, story),
         make(st.writeCaptions, captions, 700),
       ],
-      text: `${a.banner.text}\n\n${captionsQuote}\n\n${a.banner.after}`,
+      text: `${a.banner.text}\n\n${pictures}\n\n${captionsQuote}\n\n${a.banner.after}`,
       files: [
         { path: banner, asset: `campaign-banner.${locale}.png` },
         { path: square, asset: `campaign-square.${locale}.png` },
@@ -90,15 +95,6 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
         { path: captions, text: captionsText },
         { path: photo, asset: 'higgsfield-photo.jpg' },
       ],
-      compare: { before: leoBanner, after: banner, beforeLabel: a.compare.before, afterLabel: a.compare.after },
-      deliverables: [
-        { path: banner, label: d.banner },
-        { path: square, label: d.square },
-        { path: story, label: d.story },
-        { path: captions, label: d.captions },
-        { path: photo, label: d.photo },
-      ],
-      sendTo: { room: 'mkt-room', label: a.sendTo },
     },
     {
       id: 'mail',
@@ -122,8 +118,8 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
     company: { name: s.company },
     visitor: 'mina',
     people: [
-      ...team.map((id) => ({ id, name: pp[id].name, title: pp[id].title, avatar: `avatar-${id}.png` })),
-      { id: 'chris', name: pp.chris.name, title: pp.chris.title, org: pp.chris.org, outside: true as const, avatar: 'avatar-chris.png' },
+      ...team.map((id) => ({ id, name: pp[id].name, title: pp[id].title, avatar: `avatar-${id}.jpg` })),
+      { id: 'chris', name: pp.chris.name, title: pp.chris.title, org: pp.chris.org, outside: true as const, avatar: 'avatar-chris.jpg' },
     ],
     groups: [{ id: 'mkt', name: s.marketingGroup, members: marketing }],
     rooms: [
@@ -153,14 +149,11 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       // team skills, where the product keeps them (skills/<name>/SKILL.md)
       ...['social-posts', 'press-release', 'competitor-roundup', 'handover'].map((k) => ({ path: `skills/${k}/SKILL.md`, asset: `skill-${k}.${locale}.md` })),
     ],
-    home: { title: s.home.title, subtitle: s.home.subtitle, inviter: 'sara', prompt: a.company.prompt },
+    home: { title: s.home.title, inviter: 'sara', prompt: a.company.prompt },
     answers,
     events: [
-      // Sara's DM slides in as a toast right after the company answer
-      {
-        id: 'dm-1', after: { answer: 'company' }, delayMs: 2000, typingMs: 1400, room: 'dm-lead', from: 'sara', text: link(s.events.leadDm),
-        toast: { text: s.events.leadDmToast, open: { room: 'dm-lead' } },
-      },
+      // Sara's DM right after the company answer (the app's own unread mark tells it)
+      { id: 'dm-1', after: { answer: 'company' }, delayMs: 2000, typingMs: 1400, room: 'dm-lead', from: 'sara', text: link(s.events.leadDm) },
       // ③ #Marketing reacts to Mina's post
       { id: 'ceo-ship', after: { shared: 'mkt-room' }, delayMs: 1500, typingMs: 2200, room: 'mkt-room', from: 'daniel', text: s.events.ceoShip },
       { id: 'leo-how', after: { event: 'ceo-ship' }, delayMs: 1200, typingMs: 1500, room: 'mkt-room', from: 'leo', text: s.events.leoHow },
@@ -170,31 +163,25 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       },
       { id: 'gmail', after: { event: 'reactions' }, delayMs: 2200, typingMs: 1300, room: 'mkt-room', from: 'sara', text: s.events.leadGmail },
       // ④ the agency answers the mail
-      { id: 'chris-reply', after: { answer: 'mail' }, delayMs: 3500, typingMs: 0, from: 'chris', text: s.events.chrisReply, toast: true },
+      // ④ the agency answers the mail: Sara passes it on in #Marketing
+      { id: 'chris-reply', after: { answer: 'mail' }, delayMs: 3000, typingMs: 1200, room: 'mkt-room', from: 'sara', text: s.events.chrisRelayed.replace('{reply}', s.events.chrisReply) },
     ],
     guide: [
       { id: 'ask', text: s.guide.ask.text, away: s.guide.ask.away, go: 'home', highlight: '[data-testid="member-welcome-ask"]', until: { answer: 'company' } },
-      { id: 'dm', text: s.guide.dm.text, away: s.guide.dm.away, go: { room: 'dm-lead' }, after: { event: 'dm-1' }, highlight: '[data-testid="demo-toast"]', until: { opened: { room: 'dm-lead' } } },
-      { id: 'project', text: s.guide.project.text, away: s.guide.project.away, go: { room: 'dm-lead' }, highlight: '[data-testid="demo-project-card"]', until: { opened: { project: 'launch' } } },
+      { id: 'dm', text: s.guide.dm.text, away: s.guide.dm.away, go: { room: 'dm-lead' }, after: { event: 'dm-1' }, until: { opened: { room: 'dm-lead' } } },
+      { id: 'project', text: s.guide.project.text, away: s.guide.project.away, go: { room: 'dm-lead' }, highlight: '[data-testid="room-message"] a[href^="/projects/"]', until: { opened: { project: 'launch' } } },
       { id: 'banner', text: s.guide.banner.text, away: s.guide.banner.away, go: { project: 'launch' }, suggest: ['banner'], until: { answer: 'banner' } },
-      { id: 'share', text: s.guide.share.text, away: s.guide.share.away, go: { project: 'launch' }, highlight: '[data-testid="demo-send-to"]', until: { shared: 'mkt-room' } },
+      { id: 'share', text: s.guide.share.text, away: s.guide.share.away, go: { project: 'launch' }, highlight: '[data-testid="share-to-room"]', until: { shared: 'mkt-room' } },
+      { id: 'room', text: s.guide.room.text, away: s.guide.room.away, go: { room: 'mkt-room' }, until: { opened: { room: 'mkt-room' } } },
       { id: 'mail', text: s.guide.mail.text, away: s.guide.mail.away, go: { side: 'mkt-room' }, after: { event: 'gmail' }, suggest: ['mail'], until: { answer: 'mail' } },
     ],
     fallback: { text: s.fallback.text, question: s.fallback.question },
     end: {
       after: { event: 'chris-reply' },
-      delayMs: 2500,
+      delayMs: 3000,
       title: s.end.title,
-      body: s.end.body,
-      stats: [
-        { label: s.end.stats.time, value: 'elapsed' },
-        { label: s.end.stats.filesRead, value: 3 },
-        { label: s.end.stats.deliverables, value: 5 },
-        { label: s.end.stats.approvals, value: 1 },
-        { label: s.end.stats.emails, value: 1 },
-      ],
+      contrast: s.end.usually,
       signup: { label: s.end.signup, url: 'https://trina.app/' },
-      explore: { label: s.end.explore },
     },
   }
 }

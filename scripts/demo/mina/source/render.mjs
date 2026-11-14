@@ -4,7 +4,7 @@
 //   banners/campaign.html                                               → campaign-banner.<locale>.png (1200×628)
 //                                                                          campaign-square.<locale>.png (1080×1080)
 //                                                                          campaign-story.<locale>.png (1080×1920)
-//   avatars (256×256, initials on a plain shape, every locale)          → avatar-<id>.png
+//   (avatars are photos of made-up people, assets/avatar-<id>.jpg, made with Higgsfield: not rendered here)
 // Words come from banners/copy.<locale>.json.
 //
 //   bun scripts/demo/mina/source/render.mjs [locale]        (default: en)
@@ -26,29 +26,6 @@ const here = import.meta.dir
 const assets = path.join(here, '..', 'assets')
 const locale = process.argv[2] ?? 'en'
 const copy = JSON.parse(fs.readFileSync(path.join(here, 'banners', `copy.${locale}.json`), 'utf8'))
-
-/** the people's avatars: initials, background, letters, shape colour */
-const AVATARS = [
-  ['mina', 'ML', '#F2B630', '#1F4D3A', '#FBE3A2'],
-  ['sara', 'SJ', '#2F6B8F', '#F6F1E7', '#5B95B8'],
-  ['daniel', 'DO', '#1F4D3A', '#F6F1E7', '#2F6B52'],
-  ['leo', 'LS', '#D9824B', '#FFF7EE', '#E9A574'],
-  ['tom', 'TB', '#6B5CA5', '#F4F1FB', '#8C80BD'],
-  ['aiko', 'AT', '#C55A7A', '#FFF3F6', '#DA86A0'],
-  ['omar', 'OH', '#3D7D6E', '#EEF7F4', '#62A08F'],
-  ['chris', 'CW', '#3B4A5C', '#F3F5F8', '#5E7085'],
-]
-const SHAPES = [
-  (c) => `<circle cx="208" cy="48" r="70" fill="${c}"/>`,
-  (c) => `<rect x="150" y="-30" width="140" height="140" rx="30" transform="rotate(20 220 40)" fill="${c}"/>`,
-  (c) => `<path d="M0 200 Q128 120 256 200 V256 H0Z" fill="${c}"/>`,
-  (c) => `<circle cx="40" cy="220" r="80" fill="${c}"/>`,
-]
-const avatarPage = ([, initials, bg, fg, shape], i) => `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="banners/product.css">
-<style>html,body{width:256px;height:256px;background:transparent}</style></head><body>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><clipPath id="c"><circle cx="128" cy="128" r="128"/></clipPath>
-<g clip-path="url(#c)"><rect width="256" height="256" fill="${bg}"/>${SHAPES[i % SHAPES.length](shape)}</g>
-<text x="128" y="128" dy=".35em" text-anchor="middle" font-family="Pretendard, sans-serif" font-weight="800" font-size="92" letter-spacing="-2" fill="${fg}">${initials}</text></svg></body></html>`
 
 const fill = (file, vars = {}) => fs.readFileSync(path.join(here, 'banners', file), 'utf8').replace(/\{\{(\w+)\}\}/g, (_, k) => {
   if (k in vars) return String(vars[k])
@@ -75,7 +52,6 @@ const jobs = [
   campaign('banner', 1200, 628),
   campaign('square', 1080, 1080),
   campaign('story', 1080, 1920),
-  ...AVATARS.map((a, i) => [avatarPage(a, i), `_avatar-${a[0]}.html`, `avatar-${a[0]}.png`, 256, 256, true]),
 ].filter((j) => !only || j[2].startsWith(only))
 
 const browser = await chromium.launch()

@@ -1,13 +1,15 @@
-// The demo's own screen parts, over the real app (docs/AGENTS/plan/20261114-0507-mina-demo.md): one guide line in a
-// corner ("다음: 팀장님 메시지 열기 →") that highlights the next control and takes the visitor back there, the suggested
-// questions as buttons when the step has them, "처음부터", and the end card. No tooltip tour (DECISIONS rejected
-// those). Styles are in demo.css (not Tailwind: the product's CSS must not change for the demo).
-import { useEffect, useState, useSyncExternalStore } from 'react'
+// The demo's only layer over the real app (docs/AGENTS/plan/20261114-0507-mina-demo.md): the guide line in a corner
+// (on phones a bar of its own) with "Start over", and a ring over the one real control to use next. Everything else
+// on screen is the app's own UI: answers, file chips, the share dialog, the AI's cards, rooms, typing, reactions.
+// The guide line names the moment and does its step; it holds the step's prompts as buttons, and at the end it becomes
+// the end line with the sign-up link. No tooltip tour (DECISIONS rejected those), no cards or toasts of our own.
+// Styles are in demo.css (not Tailwind: the product's stylesheet must not change for the demo).
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useLocale, useT } from '../src/i18n'
-import { demoWord } from './words'
-import type { DemoAnswer, DemoGuideStep } from './script'
+import type { DemoAnswer, DemoGo } from './script'
 import type { DemoServer } from './server'
+import { demoWord } from './words'
 import './demo.css'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -19,9 +21,10 @@ export function navigate(to: string) {
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
+const visible = (el: Element) => (el as HTMLElement).offsetParent !== null || getComputedStyle(el).position === 'fixed'
 async function waitFor<T extends Element>(selector: string, ms = 4000): Promise<T | null> {
   for (let left = ms; left > 0; left -= 100) {
-    const el = [...document.querySelectorAll<T>(selector)].find((x) => (x as unknown as HTMLElement).offsetParent !== null)
+    const el = [...document.querySelectorAll<T>(selector)].find(visible)
     if (el) return el
     await sleep(100)
   }
@@ -33,7 +36,26 @@ export function mountOverlay(server: DemoServer, signupUrl: string) {
   host.id = 'demo-overlay'
   document.body.append(host)
   createRoot(host).render(<Overlay server={server} signupUrl={signupUrl} />)
+  // a link to a chat, room or project that the browser would follow loads the page again, and a new page starts the
+  // story over: such a link moves inside the app instead (the app's own handler may run too; the same address twice
+  // is one move). Other links (a file's preview, downloads) are left to the app.
+  window.addEventListener('click', (ev) => {
+    if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return
+    const href = inAppLink(ev.target)
+    if (!href) return
+    ev.preventDefault()
+    navigate(href)
+  }, true)
   watchOpened(server)
+}
+
+/** the in-app address of a link to a chat, room or project under `target`, or null */
+function inAppLink(target: EventTarget | null): string | null {
+  const a = (target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  if (!a || a.target === '_blank' || a.hasAttribute('download')) return null
+  const url = new URL(a.href, location.href)
+  if (url.origin !== location.origin || !/^\/(c|rooms|projects)(\/|$)/.test(url.pathname)) return null
+  return url.pathname + url.search + url.hash
 }
 
 /** "opened" happenings: the visitor is on a room's page or in a project (its page or one of its chats) */
@@ -52,17 +74,33 @@ function watchOpened(server: DemoServer) {
   }, 300)
 }
 
-/** where a guide step's place is in the app */
-function targetOf(server: DemoServer, go: DemoGuideStep['go']): string {
+/** where a place is in the app; a project: the visitor's latest chat there (their result), else its first earlier
+ * chat (e.g. Leo's banner), else its page */
+function targetOf(server: DemoServer, go: DemoGo): string {
   if (go === 'home') return '/'
   if ('room' in go) return `/rooms/${server.idOf('room', go.room)}`
   if ('side' in go) return `/rooms/${server.idOf('room', go.side)}`
-  // a project: its first earlier chat (e.g. Leo's banner), else its page
+  const pid = server.idOf('project', go.project)
+  const mine = server.chats
+    .filter((c) => c.projectId === pid && !c.deletedAt && server.messages.some((m) => m.chatId === c.id && m.role === 'user' && m.author?.id === server.script.visitor))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+  if (mine) return `/c/${mine.id}`
   const chat = server.script.projects.find((p) => p.id === go.project)?.chats?.[0]
-  return chat ? `/c/${server.idOf('chat', chat.id)}` : `/projects/${server.idOf('project', go.project)}`
+  return chat ? `/c/${server.idOf('chat', chat.id)}` : `/projects/${pid}`
 }
 
-async function goTo(server: DemoServer, go: DemoGuideStep['go']) {
+/** is the visitor at that place now (a project: its page or any of its chats; a side chat: the room with it open) */
+function atPlace(server: DemoServer, go: DemoGo, path: string): boolean {
+  const chatId = /^\/c\/([^/]+)/.exec(path)?.[1]
+  const chat = chatId ? server.chats.find((c) => c.id === chatId) : undefined
+  if (go === 'home') return path === '/' || path === '/new' || (!!chat && !chat.projectId && !chat.sideRoomId)
+  if ('room' in go) return path.startsWith(`/rooms/${server.idOf('room', go.room)}`)
+  if ('side' in go) return path.startsWith(`/rooms/${server.idOf('room', go.side)}`) && !!document.querySelector('[data-testid="side-chat-panel"]')
+  const pid = server.idOf('project', go.project)
+  return path.startsWith(`/projects/${pid}`) || chat?.projectId === pid
+}
+
+async function goTo(server: DemoServer, go: DemoGo) {
   navigate(targetOf(server, go))
   if (go !== 'home' && 'side' in go) {
     const button = await waitFor<HTMLButtonElement>('[data-testid="room-side-chat-button"]')
@@ -70,15 +108,18 @@ async function goTo(server: DemoServer, go: DemoGuideStep['go']) {
   }
 }
 
-/** a suggested question, sent with the app's own box as if typed */
-async function sendPrompt(server: DemoServer, step: DemoGuideStep, a: DemoAnswer) {
-  await goTo(server, step.go)
-  const side = step.go !== 'home' && 'side' in step.go
-  const box = await waitFor<HTMLTextAreaElement>(side ? '[data-testid="side-chat-input"]' : '[data-testid="composer-input"]')
+/** the message box of a place: the side chat's in a room, else the chat's */
+const boxOf = (go: DemoGo) => (go !== 'home' && 'side' in go ? '[data-testid="side-chat-input"]' : '[data-testid="composer-input"]')
+const sendOf = (go: DemoGo) => (go !== 'home' && 'side' in go ? '[data-testid="side-chat-send"]:not([disabled])' : '[data-testid="send"]:not([disabled])')
+
+/** a suggested prompt, sent with the app's own box as if typed */
+async function sendPrompt(server: DemoServer, go: DemoGo, a: DemoAnswer) {
+  if (!atPlace(server, go, location.pathname)) await goTo(server, go)
+  const box = await waitFor<HTMLTextAreaElement>(boxOf(go))
   if (!box) return
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, a.prompt)
   box.dispatchEvent(new Event('input', { bubbles: true }))
-  const send = await waitFor<HTMLButtonElement>(side ? '[data-testid="side-chat-send"]:not([disabled])' : '[data-testid="send"]:not([disabled])', 2000)
+  const send = await waitFor<HTMLButtonElement>(sendOf(go), 2000)
   send?.click()
 }
 
@@ -87,67 +128,182 @@ function useEngine(server: DemoServer) {
   return useSyncExternalStore((fn) => e.subscribe(fn), () => `${e.guide()?.id ?? ''}|${e.endShown}|${e.endClosed}`)
 }
 
+/** the path, kept fresh (react-router changes it without telling this root) */
+function usePath() {
+  const [path, setPath] = useState(location.pathname)
+  useEffect(() => {
+    const id = setInterval(() => setPath(location.pathname), 250)
+    return () => clearInterval(id)
+  }, [])
+  return path
+}
+
+/** re-render every `ms` while on (things in the app's DOM come and go) */
+function useTick(ms: number) {
+  const [, set] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => set((n) => n + 1), ms)
+    return () => clearInterval(id)
+  }, [ms])
+}
+
+
+/** The way to a place when the visitor is elsewhere: its link on screen (a room or project link, the ✦ of a side chat),
+ * else the rail's tab for it */
+function wayTo(server: DemoServer, go: DemoGo, path: string): Element | null {
+  const first = (sel: string) => [...document.querySelectorAll(sel)].find(visible) ?? null
+  // the app's navigation (the rail, the phone's tabs) first, then the phone's back arrow of a chat (where the tabs hide)
+  const tab = (href: string) => first(`nav a[href${href}]`) ?? first(`a[href${href}]`)
+  const back = () => first('[data-testid="chat-back"]')
+  if (go === 'home') return tab('="/"') ?? back()
+  if ('project' in go) return first(`a[href^="/projects/${server.idOf('project', go.project)}"]`) ?? tab('="/projects"') ?? back()
+  const room = server.idOf('room', 'room' in go ? go.room : go.side)
+  if ('side' in go && path.startsWith(`/rooms/${room}`)) return first('[data-testid="room-side-chat-button"]')
+  return first(`a[href^="/rooms/${room}"]`) ?? tab('^="/rooms"') ?? back()
+}
+
+/** The share dialog (the app's own "Send to room"): the story's room row until it is picked, then Send, then the
+ * confirm's Send */
+function shareTarget(server: DemoServer): Element | null {
+  const confirm = [...document.querySelectorAll('[data-testid="share-room-confirm-send"]')].find(visible)
+  if (confirm) return confirm
+  const options = [...document.querySelectorAll<HTMLElement>('[data-testid="share-room-option"]')].filter(visible)
+  if (!options.length) return null
+  const step = server.engine.guide()
+  const roomId = step && step.until && 'shared' in step.until ? step.until.shared : null
+  const r = roomId ? server.script.rooms.find((x) => x.id === roomId) : undefined
+  const name = r?.group ? server.script.groups.find((g) => g.id === r.group)?.name : r?.name
+  const row = options.find((o) => !!name && o.textContent?.includes(name))
+  if (row && row.getAttribute('aria-selected') !== 'true') return row
+  return [...document.querySelectorAll('[data-testid="share-room-send"]')].find(visible) ?? row ?? null
+}
+
 function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string }) {
   const t = useT()
   const locale = useLocale()
   useEngine(server)
+  useTick(250)
+  const path = usePath()
   const e = server.engine
   const step = e.guide()
-  const end = e.endShown && !e.endClosed
-  const suggest = (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id))
+  const end = e.endShown
+  const here = !!step && atPlace(server, step.go, path)
+  // in the room of a side-chat step with the side chat closed: the line already says the step (✦ is ringed)
+  const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)
   const [sending, setSending] = useState(false)
+  // a step's prompts go once one was sent (they come back with the next step), and while the AI's card waits
+  const [usedFor, setUsedFor] = useState<string | null>(null)
+  const cardOpen = [...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
+  // the AI is still answering on screen (its card not out yet): the guide waits with it
+  const working = !cardOpen && [...document.querySelectorAll('[data-testid="assistant-message"][data-status="streaming"]')].some(visible)
+  // on a project's own page with an earlier chat (Leo's banner): that chat first, so the banner is seen before the choice
+  const goProject = step && step.go !== 'home' && 'project' in step.go ? step.go.project : null
+  const projectChat = goProject && /^\/projects\/[^/]+$/.test(path) ? server.script.projects.find((p) => p.id === goProject)?.chats?.[0] : undefined
+  const chatRow = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) ?? null : null
+  const suggest = here && !chatRow && usedFor !== step?.id && !cardOpen && !working ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
+  // a dialog of the app is open (Send to room): the guide steps back so it never covers the dialog's buttons
+  const dialogOpen = [...document.querySelectorAll('[role="dialog"]')].some(visible)
 
-  // the control the line points to, outlined while it is on screen
+  // the one thing ringed: the AI's card when it waits, the share dialog's next control, the step's control, or the way
+  // there; nothing while Trina works or while the step's prompts are in the guide line
+  const target: Element | null = !step || end || working || suggest.length ? null
+    : cardOpen && here ? [...document.querySelectorAll('[data-testid="ask-card"]')].reverse().find(visible) ?? null
+    : chatRow ?? shareTarget(server)
+      ?? (here && step.highlight ? [...document.querySelectorAll(step.highlight)].reverse().find(visible) ?? null : null)
+      ?? (!here ? (step.highlight ? [...document.querySelectorAll(step.highlight)].find(visible) ?? null : null) ?? wayTo(server, step.go, path) : null)
+  const ring = target?.getBoundingClientRect()
+  // a ringed control under the message box or above the top bar is brought into view, once
+  const [shown, setShown] = useState<Element | null>(null)
   useEffect(() => {
-    if (!step?.highlight || end) return
-    let marked: Element | null = null
-    const tick = () => {
-      const el = document.querySelector(step.highlight!)
-      if (el === marked) return
-      marked?.classList.remove('demo-highlight')
-      el?.classList.add('demo-highlight')
-      marked = el
-    }
-    tick()
-    const id = setInterval(tick, 400)
-    return () => { clearInterval(id); marked?.classList.remove('demo-highlight') }
-  }, [step?.highlight, end])
+    if (!target || target === shown) return
+    setShown(target)
+    const r = target.getBoundingClientRect()
+    if (r.bottom > window.innerHeight - 160 || r.top < 64) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [target, shown])
 
   const pick = async (a: DemoAnswer) => {
     if (!step || sending) return
     setSending(true)
-    try { await sendPrompt(server, step, a) } finally { setSending(false) }
+    setUsedFor(step.id)
+    try { await sendPrompt(server, step.go, a) } finally { setSending(false) }
   }
 
+  /** the guide line does its step: it presses the ringed control (the card: its first choice; a row: its button), sends
+   * the step's first prompt, or goes there */
+  const act = async () => {
+    if (!step) return
+    // (read again now: the page may have changed since the last render)
+    const row = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) : undefined
+    if (row) { navigate(inAppLink(row) ?? `/c/${server.idOf('chat', projectChat!.id)}`); return }
+    // (here, read again: the last render may be a quarter of a second old)
+    const hereNow = atPlace(server, step.go, location.pathname)
+    const firstPrompt = hereNow && usedFor !== step.id && ![...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
+      ? server.script.answers.find((a) => a.id === step.suggest?.[0]) : undefined
+    if (firstPrompt) { void pick(firstPrompt); return }
+    // elsewhere: straight there (the ring shows the way for a visitor who clicks by hand), unless the step's own
+    // control is on screen (a link in a message)
+    if (!hereNow && !(step.highlight && target?.matches(step.highlight))) { await goTo(server, step.go); return }
+    if (target) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (target.matches('[data-testid="ask-card"]')) {
+        const send = target.querySelector<HTMLButtonElement>('[data-testid="ask-send"]')
+        if (send) {
+          target.querySelector<HTMLElement>('label, [role="radio"], input[type="radio"]')?.click()
+          await sleep(150)
+          send.click()
+        } else [...target.querySelectorAll<HTMLButtonElement>('button')].filter(visible).pop()?.click()
+        return
+      }
+      const el = target as HTMLElement
+      const href = inAppLink(el)
+      if (href) { navigate(href); return }
+      const button = el.matches('button, a, [role="button"], [role="option"]') ? el : el.querySelector<HTMLElement>('button, a, [role="button"]') ?? el
+      button.click()
+      return
+    }
+    await goTo(server, step.go)
+  }
+
+  const guideRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = guideRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const o = new ResizeObserver(() => document.documentElement.style.setProperty('--demo-guide-h', `${el.offsetHeight}px`))
+    o.observe(el)
+    return () => o.disconnect()
+  }, [])
+
+  const secs = Math.max(0, Math.round(((e.endedAt ?? Date.now()) - e.startedAt) / 1000))
+  const elapsed = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
   return (
     <>
-      <div className="demo-guide" role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
-        {step && !end && suggest.length > 0 && (
-          <div className="demo-suggest" data-testid="demo-suggest">
+      <div ref={guideRef} className={dialogOpen ? 'demo-guide demo-guide-back' : 'demo-guide'} role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
+        {suggest.length > 0 && (
+          <div className="demo-choices" data-testid="demo-suggest">
             {suggest.map((a) => (
-              <button key={a.id} type="button" className="demo-chip" disabled={sending} onClick={() => void pick(a)} data-testid={`demo-suggest-${a.id}`}>{a.label ?? a.prompt}</button>
+              <button key={a.id} type="button" className="demo-choice" disabled={sending} onClick={() => void pick(a)} data-testid={`demo-suggest-${a.id}`}>{a.label ?? a.prompt}</button>
             ))}
           </div>
         )}
         <div className="demo-bar">
           <span className="demo-badge">{t('demo.bar', { company: server.script.company.name })}</span>
-          {step && !end && (
-            <button type="button" className="demo-next" onClick={() => void goTo(server, step.go)} data-testid="demo-next">{step.text}</button>
+          {end ? (
+            <span className="demo-end-line" data-testid="demo-end">
+              <span><strong>{server.script.end.title}</strong> · {elapsed}{server.script.end.contrast ? ` · ${server.script.end.contrast}` : ''}</span>
+              <a className="demo-next" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{server.script.end.signup.label} →</a>
+            </span>
+          ) : step && !working ? (
+            <button type="button" className={target || suggest.length ? 'demo-next' : 'demo-next demo-glow'} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
+              {here && cardOpen ? demoWord('card', locale) : chatRow && projectChat ? demoWord('openChat', locale).replace('{title}', projectChat.title) : here || inSideRoom ? step.text : step.away ?? step.text}
+            </button>
+          ) : (
+            <span className="demo-next demo-wait" data-testid="demo-wait" role="status">{demoWord(working ? 'working' : 'waiting', locale)}</span>
           )}
           <button type="button" className="demo-restart" onClick={() => location.assign('/')} data-testid="demo-restart">{demoWord('restart', locale)}</button>
         </div>
       </div>
-      {end && (
-        <div className="demo-end-backdrop" data-testid="demo-end">
-          <section className="demo-end" role="dialog" aria-modal="true" aria-labelledby="demo-end-title">
-            <h2 id="demo-end-title">{server.script.end.title}</h2>
-            {server.script.end.body?.split('\n\n').map((p) => <p key={p}>{p}</p>)}
-            <div className="demo-end-actions">
-              <a className="demo-primary" href={signupUrl} data-testid="demo-signup">{server.script.end.signup.label}</a>
-              <button type="button" className="demo-secondary" onClick={() => e.closeEnd()} data-testid="demo-explore">{server.script.end.explore.label}</button>
-            </div>
-          </section>
-        </div>
+      {ring && ring.width > 0 && (
+        <span className="demo-ring" data-testid="demo-ring" aria-hidden style={{ left: ring.left - 5, top: ring.top - 5, width: ring.width + 10, height: ring.height + 10 }} />
       )}
     </>
   )

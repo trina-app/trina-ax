@@ -21,7 +21,6 @@ export async function boot(made: (s: DemoServer) => void) {
   const words = DICTS[script.locale] as Record<MessageKey, string>
   words['memberWelcome.title'] = script.home.title
   words['memberWelcome.ask'] = script.home.prompt
-  words['memberWelcome.askHint'] = ''
   words['memberWelcome.askQuestion'] = script.home.prompt
   if (script.home.button) words['memberWelcome.askButton'] = script.home.button
   await import('../src/main')

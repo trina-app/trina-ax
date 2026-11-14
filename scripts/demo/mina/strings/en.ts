@@ -83,11 +83,12 @@ export const en = {
         '',
         '**This week**: Yuzu Ginger launches **Monday**. The launch banner is the big open item.',
       ].join('\n'),
-      /** the "people to know" chips, one line each */
+      /** "people to know", one line each (in the answer's text) */
+      peopleTitle: 'People to know',
       people: {
-        sara: 'Your lead. Ask her anything.',
-        leo: 'Made the first banner. Moves to Sales Monday.',
-        daniel: 'CEO. Says yes to the launch.',
+        sara: 'ask her anything.',
+        leo: 'made the first banner and hands it over to you.',
+        daniel: 'says yes to the launch.',
       },
     },
     banner: {
@@ -115,7 +116,9 @@ export const en = {
       captions: '3 captions',
       photo: 'Higgsfield photo',
     },
-    compare: { before: 'Leo\'s draft', after: 'New' },
+    compare: { before: 'Before: Leo\'s draft', after: 'After' },
+    /** the other sizes, shown in the answer under the new banner */
+    otherSizes: 'Same look, every size:',
     sendTo: 'Send to #Marketing',
     mail: {
       prompt: 'Email the banner to Chris',
@@ -158,6 +161,8 @@ export const en = {
     confirm: 'Send this email with Gmail?',
     send: 'Send',
     makeFormal: 'Make it more formal',
+    /** the formal draft's second button (so every confirm card has the same two buttons) */
+    sendShort: 'Send the shorter one',
     formalIntro: 'More formal version:',
     /** {subject} is filled in */
     sent: 'Sent to Chris: "{subject}", with the banner and the square attached.',
@@ -168,8 +173,10 @@ export const en = {
     leadDmToast: 'Got a sec? 🙏',
     ceoShip: '🔥 This is it. Ship it.',
     leoHow: 'wait how did you do this so fast 😂',
-    leadGmail: 'Mina, Gmail\'s connected. Ask Trina to send it to Chris.',
+    leadGmail: 'Mina, Gmail\'s connected. Ask Trina to send it to Chris at Fieldnote, our agency.',
     chrisReply: 'Looks great, running it Monday.',
+    /** Sara passes on the agency's reply in #Marketing; {reply} is chrisReply */
+    chrisRelayed: 'Chris just replied to your email: "{reply}" 🎉 Great first day, Mina.',
   },
 
   /** each step's line, and `away`: the line while the visitor is somewhere else */
@@ -179,13 +186,14 @@ export const en = {
     project: { text: 'Open the project in Sara\'s message →', away: 'Sara is waiting in your DMs →' },
     banner: { text: 'Ask Trina to redo it with Higgsfield →', away: 'Leo\'s banner is waiting in the project →' },
     share: { text: 'Send it to #Marketing →', away: 'Your new banner is ready to share →' },
+    room: { text: 'Open #Marketing: the team is reacting →', away: 'Open #Marketing: the team is reacting →' },
     mail: { text: 'Ask ✦ Trina to email Chris →', away: 'Chris still needs the banner →' },
   },
 
   fallback: { text: 'This demo follows suggested prompts. Try this one:', question: 'Next step' },
 
   end: {
-    title: 'Mina\'s first day',
+    title: 'That\'s Mina\'s first day',
     body: 'From "what do we do here?" to a launch banner the CEO approved and the agency is running. Day one.',
     stats: {
       time: 'Time',
@@ -194,6 +202,8 @@ export const en = {
       approvals: 'CEO approval',
       emails: 'Email sent',
     },
+    /** one line under the numbers: what this usually takes */
+    usually: 'Without Trina: about 2 days',
     signup: 'Start your team\'s free trial',
     explore: 'Look around',
   },
