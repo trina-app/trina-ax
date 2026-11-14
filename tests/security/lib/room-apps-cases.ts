@@ -60,16 +60,27 @@ export const ROOM_APP_SPECS: Record<string, Spec> = {
     check: async (r, w, who) => {
       noToken(r)
       if (r.status !== 200) return
-      // a preset whose service cannot sign (Notion) takes no secret: 400 no_signing for whoever may manage it (plan
-      // 20261114-1522 "Permission matrix additions"); a member gets 403 and an outsider 404 through the scope above
-      const app = (await w.as[who].ok('POST', all(w), { kind: 'other', preset: 'notion', name: `Notion ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
-      try {
-        const s = await w.as[who].req('PUT', `${all(w)}/${app}/secret`, { generate: true })
-        if (s.status !== 400 || s.json?.error?.params?.reason !== 'no_signing') throw new Error(`a no-signing preset took a secret: ${s.status}`)
-        // the preset is fixed: a PATCH naming one is refused
-        const p = await w.as[who].req('PATCH', `${all(w)}/${app}`, { preset: 'stripe' })
-        if (p.status !== 400) throw new Error(`a preset was changed: ${p.status}`)
-      } finally { await w.as[who].req('DELETE', `${all(w)}/${app}`) }
+      // a preset whose service cannot sign (Notion; phase 4 Jira and HubSpot) takes no secret: 400 no_signing for
+      // whoever may manage it (plan 20261114-1522 "Permission matrix additions"); a member gets 403 and an outsider 404
+      // through the scope above
+      for (const preset of ['notion', 'jira', 'hubspot']) {
+        const app = (await w.as[who].ok('POST', all(w), { kind: 'other', preset, name: `${preset} ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
+        try {
+          const s = await w.as[who].req('PUT', `${all(w)}/${app}/secret`, { generate: true })
+          if (s.status !== 400 || s.json?.error?.params?.reason !== 'no_signing') throw new Error(`a no-signing preset (${preset}) took a secret: ${s.status}`)
+          // the preset is fixed: a PATCH naming one is refused
+          const p = await w.as[who].req('PATCH', `${all(w)}/${app}`, { preset: 'stripe' })
+          if (p.status !== 400) throw new Error(`a preset was changed: ${p.status}`)
+        } finally { await w.as[who].req('DELETE', `${all(w)}/${app}`) }
+      }
+      // the services that make their own secret (phase 4: Toss Payments, Channel Talk, PortOne) refuse one Trina makes
+      for (const preset of ['toss_payments', 'channel_talk', 'portone']) {
+        const app = (await w.as[who].ok('POST', all(w), { kind: 'other', preset, name: `${preset} ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
+        try {
+          const s = await w.as[who].req('PUT', `${all(w)}/${app}/secret`, { generate: true })
+          if (s.status !== 400) throw new Error(`a paste-only preset (${preset}) took a secret Trina made: ${s.status}`)
+        } finally { await w.as[who].req('DELETE', `${all(w)}/${app}`) }
+      }
     },
   },
   rotateRoomApp: { build: (c, w) => c.post(`${one(w)}/rotate`), scope: 'room-all-admins' },

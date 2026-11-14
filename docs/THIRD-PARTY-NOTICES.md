@@ -111,6 +111,8 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | (Shopify) | 파일 없음 | Shopify 상표 지침: "Use of our brand assets must be expressly authorized in writing"(2026-11-14 확인) | 머리글자 "S" 타일. 허락을 받으면 바꿀 수 있다 |
 | (Typeform) | 파일 없음 | Simple Icons의 `typeform.svg`는 글자 로고(워드마크)라 28 px 타일에서 읽히지 않는다. 브랜드 페이지는 2026-11-14에 404 | 머리글자 "Tf" 타일 |
 | (Tally, Jotform) | 파일 없음 | Simple Icons에 없고, 이용 조건을 밝힌 브랜드 페이지를 찾지 못했다(Tally press kit에는 조건이 없음, Jotform 404) | 머리글자 "T", "J" 타일 |
+| (Jira, HubSpot) | 파일 없음 | Atlassian과 HubSpot의 상표 지침은 제품 로고를 쓰기 전에 허락을 요구한다(2026-11-15, TC-1634에서 다시 확인) | 머리글자 "Ji", "H" 타일 |
+| (Toss Payments, Channel Talk, PortOne) | 파일 없음 | 이용 조건을 밝힌 무료 로고 묶음이 없다 | 머리글자 "TP", "CT", "PO" 타일 |
 | (Google Forms) | 파일 없음 | Google 제품 아이콘은 Partner Marketing Hub에서 허락을 받아야 하고 색을 바꿀 수 없다(2026-11-14 확인) | lucide `ClipboardList`(ISC)로 대신한다. 허락을 받으면 바꿀 수 있다 |
 | (Other) | 파일 없음 | | lucide `Blocks`(ISC) |
 

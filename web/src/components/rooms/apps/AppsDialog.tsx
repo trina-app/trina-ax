@@ -22,7 +22,7 @@ import { Link } from 'react-router-dom'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
 import { dateBucket, formatShortDateTime, intlTag } from '../../../lib/format'
-import { appStatus, FORM_SERVICES, isPreset, kindOf, needsOf, notSetUp, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, waitsForEvent, type AppService } from '../../../lib/roomApps'
+import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, waitsForEvent, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
 import { useRooms } from '../../../store/rooms'
 import { useRoomApps, type AppsStart } from '../../../store/roomApps'
@@ -157,6 +157,8 @@ function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: strin
   const gid = useId()
   const left = list.max - list.items.length
   const full = left <= 0
+  // "Show more services": open from the start when the room has one of them already
+  const [more, setMore] = useState(() => list.items.some((a) => MORE_SERVICES.includes(svc(a))))
   // the second line: what the service posts, then what it needs ("Needs: …") so nobody finds out after setup
   const row = (s: AppService) => {
     const needs = needsOf(s)
@@ -185,6 +187,18 @@ function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: strin
             <ul aria-labelledby={`${gid}-${g.key}`}>{g.items.map(row)}</ul>
           </Fragment>
         ))}
+        {/* the regional services, folded: the same list for everyone */}
+        {more ? (
+          <>
+            <GroupHeading id={`${gid}-more`}>{t('roomApps.group.more')}</GroupHeading>
+            <ul aria-labelledby={`${gid}-more`} data-testid="apps-more-list">{MORE_SERVICES.map(row)}</ul>
+          </>
+        ) : (
+          <button type="button" onClick={() => setMore(true)} aria-expanded={false} className="flex min-h-11 w-full items-center gap-1 rounded-lg px-3 text-left text-sm font-medium text-accent-text hover:bg-hover md:min-h-9" data-testid="apps-show-more">
+            {t('roomApps.showMore')}
+            <ChevronRight size={14} aria-hidden className="shrink-0" />
+          </button>
+        )}
       </div>
       {/* a divider, then the catch-all, last (owner decision 5) */}
       <div className="border-t border-line px-2 pb-2 max-sm:px-1">
@@ -606,6 +620,9 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
             : service === 'tally' ? t('roomApps.saferPreset.tally', { secret: v('tallySecret') })
             : service === 'stripe' ? t('roomApps.saferPreset.stripe', { reveal: v('stripeReveal') })
             : service === 'shopify' ? t('roomApps.saferPreset.shopify', { signed: v('shopifySigned') })
+            : service === 'toss_payments' ? t('roomApps.saferPreset.toss_payments', { key: v('tossSecurityKey') })
+            : service === 'channel_talk' ? t('roomApps.saferPreset.channel_talk', { token: v('channelToken') })
+            : service === 'portone' ? t('roomApps.saferPreset.portone', { secret: v('portoneSecret') })
             : t('roomApps.saferPreset.zendesk', { reveal: v('zendeskReveal') })}</p>
           {app?.signed && !secret ? (
             <SignedLine roomId={roomId} app={app} />

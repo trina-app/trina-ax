@@ -266,5 +266,67 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await page.getByTestId('apps-new-address').click()
       await shot('p-settings-shopify-regenerate')
     })
+
+    // ---- phase 4 (QA TC-1634): Jira and HubSpot in Work, "Show more services" and the regional guides, their cards
+    test(`room apps phase 4 screenshots (${vp.name}, ${scheme})`, async ({ page }) => {
+      test.setTimeout(240_000)
+      await page.setViewportSize(vp.size)
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+      const shot = async (name: string) => { await page.waitForTimeout(250); await page.screenshot({ path: `${dir}/${name}-${vp.name}-${scheme}.png` }) }
+      const dialog = page.getByTestId('apps-dialog')
+      await start(page, { messages: MESSAGES.slice(0, 1) })
+      await page.getByTestId('room-menu').first().click()
+      await page.getByTestId('room-menu-apps').click()
+      await expect(page.getByTestId('apps-picker')).toBeVisible()
+      await page.getByTestId('apps-pick-hubspot').scrollIntoViewIfNeeded()
+      await shot('q01-picker-work')
+      await page.getByTestId('apps-show-more').click()
+      await page.getByTestId('apps-pick-portone').scrollIntoViewIfNeeded()
+      await shot('q02-picker-more')
+      for (const p of ['jira', 'hubspot', 'toss_payments', 'channel_talk', 'portone'] as const) {
+        await page.getByTestId(`apps-pick-${p}`).click()
+        await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', p)
+        await shot(`q-guide-${p}`)
+        await page.getByTestId('apps-step').nth(2).scrollIntoViewIfNeeded()
+        await shot(`q-guide-${p}-mid`)
+        const safer = page.getByTestId('apps-safer')
+        if (await safer.count()) await safer.locator('summary').click()
+        await page.getByTestId('apps-example').click()
+        await page.getByTestId('apps-done').scrollIntoViewIfNeeded()
+        await shot(`q-guide-${p}-end`)
+        await page.getByTestId('apps-back').click()
+        if (await page.getByTestId('apps-show-more').count()) await page.getByTestId('apps-show-more').click()
+      }
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+
+      // the cards, as the server's presets write them
+      const P = {
+        jira: mockPreset('jira', { eventsSeen: ['created', 'transitioned'] }), hubspot: mockPreset('hubspot'), toss_payments: mockPreset('toss_payments', { signed: true }),
+        channel_talk: mockPreset('channel_talk'), portone: mockPreset('portone'),
+      }
+      const cards: MockMessage[] = [
+        { id: id(60), author: MINA, body: '', extra: appMessage(P.jira, { kind: 'New work item OPS-142', title: 'Checkout page shows the wrong "total"', details: ['Assigned to Sam Lee'], status: 'Status: In Progress', link: { url: 'https://acme-example.atlassian.net/browse/OPS-142', host: 'acme-example.atlassian.net' } }, { thread: { replyCount: 2, lastReplyAt: '2026-11-05T09:20:00.000Z', repliers: [], newReplies: false } }) },
+        { id: id(61), author: MINA, body: '', extra: appMessage(P.hubspot, { kind: 'Deal', title: 'Example Co. annual plan', details: ['$12,000.00'], status: 'Stage: contractsent' }) },
+        { id: id(62), author: MINA, body: '', extra: appMessage(P.toss_payments, { kind: 'Payment received', title: '₩15,000', details: ['Spring sale tote bag', '카드', 'Order ID: order-20261114-0001'], status: 'Status: Paid' }) },
+        { id: id(63), author: MINA, body: '', extra: appMessage(P.channel_talk, { kind: 'New chat from Jamie Rivera', title: "Hi, my order hasn't arrived yet.", details: [], status: 'Status: opened' }, { thread: { replyCount: 1, lastReplyAt: '2026-11-05T09:21:00.000Z', repliers: [], newReplies: true } }) },
+        { id: id(64), author: MINA, body: '', extra: appMessage(P.portone, { kind: 'Payment received', title: 'Payment example-payment-id', details: [], status: 'Status: Cancelled' }) },
+      ]
+      await start(page, { apps: Object.values(P), messages: [MESSAGES[0]!, ...cards] })
+      await page.getByTestId('room-messages').locator('[data-app="jira"]').first().scrollIntoViewIfNeeded()
+      await shot('q-cards-1')
+      await page.getByTestId('room-messages').locator('[data-app="portone"]').first().scrollIntoViewIfNeeded()
+      await shot('q-cards-2')
+      // settings: Jira's switches with "Not set up in Jira" under the optional flows; Toss signed
+      await page.getByTestId('room-menu').first().click()
+      await page.getByTestId('room-menu-apps').click()
+      await expect(page.getByTestId('apps-list')).toBeVisible()
+      await shot('q-list')
+      await page.getByTestId('apps-list-row').nth(0).click()
+      await shot('q-settings-jira')
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(2).click()
+      await shot('q-settings-toss')
+    })
   }
 }

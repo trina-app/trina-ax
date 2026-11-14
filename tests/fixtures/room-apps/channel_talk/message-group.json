@@ -1,0 +1,2 @@
+{"event":"push","type":"message","entity":{"id":"msg-003","channelId":"12345","chatType":"group","chatId":"g-9","personType":"manager","personId":"m-1","plainText":"Team lunch at 12?"},
+ "refers":{"manager":{"name":"Sam Lee"},"group":{"id":"g-9","name":"general"}}}
