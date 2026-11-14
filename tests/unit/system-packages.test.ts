@@ -402,7 +402,7 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     const env = { PATH: `${bin}:${PATH}`, PK_SYSTEMD_DIR: path.join(d, 'systemd'), PK_APT_LOG: path.join(d, 'apt.log'), https_proxy: 'http://proxy:3128' }
     expect(lib('PK_APT_UNIT=1 pk_apt_install -- unzip libnss3', env).code).toBe(0)
     const calls = fs.readFileSync(path.join(d, 'calls'), 'utf8').split('---\n').filter(Boolean).map((c) => c.trim().split('\n'))
-    expect(calls.length).toBe(2) // apt-get update, apt-get install
+    expect(calls.length).toBe(3) // apt-get update, apt-get install, apt-get clean (the downloaded .deb files go)
     for (const c of calls) {
       for (const a of ['--wait', '--collect', '--quiet', `StandardOutput=append:${d}/apt.log`, `StandardError=append:${d}/apt.log`, 'DEBIAN_FRONTEND=noninteractive', 'https_proxy=http://proxy:3128', '-o', 'DPkg::Lock::Timeout=300'])
         expect(`${c.join(' ')}: ${c.includes(a)}`).toBe(`${c.join(' ')}: true`)
@@ -410,6 +410,7 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     }
     expect(calls[0]!.slice(calls[0]!.indexOf('apt-get'))).toEqual(['apt-get', 'update', '-qq', '-o', 'DPkg::Lock::Timeout=300'])
     expect(calls[1]!.slice(calls[1]!.indexOf('apt-get'))).toEqual(['apt-get', 'install', '-y', '-qq', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=300', 'unzip', 'libnss3'])
+    expect(calls[2]!.slice(calls[2]!.indexOf('apt-get'))).toEqual(['apt-get', 'clean', '-qq', '-o', 'DPkg::Lock::Timeout=300'])
     // only the free-space check (no transaction) ran apt-get directly
     expect(fs.readFileSync(path.join(d, 'direct'), 'utf8').trim().split('\n').every((l) => l.includes('--assume-no'))).toBe(true)
     // the sync sets it; an installer an administrator runs does not (a chroot build would reach the host's systemd)
