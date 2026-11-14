@@ -198,7 +198,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await reset(page)
       await signIn(page)
       const w = await world(page)
-      await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { hiddenAnswers: 1, memories: true, people: 1, places: [{ kind: 'mine' }] } } })
+      await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { hiddenAnswers: 1, memories: true, people: 1, places: [{ kind: 'mine' }], earlierFiles: 2 }, filesNotCopied: 1 } })
       await page.request.post('/__test/widening', { headers: H, data: { items: [
         { chatId: w.chatId, chatTitle: 'Q3 budget questions', messageId: w.answerId, at: '2026-11-12T03:00:00.000Z', askedBy: { id: 'olga', name: 'Olga' }, preview: 'The finance draft puts Q3 spend at 41 % over plan', places: [{ name: 'Finance › Board pack' }, { hidden: true }], missedBy: ['Bob'] },
       ] } })
@@ -209,6 +209,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(dialog.getByTestId('chat-share-warning')).toContainText('Bob')
       await expect(dialog.getByTestId('chat-share-warning')).toContainText('내 파일')
       await expect(dialog.getByTestId('chat-share-memories')).toBeVisible()
+      // a first share: the files I attached from my computer go with it (S6, TC-1413)
+      await expect(dialog.getByTestId('chat-share-earlier-files')).toHaveText('내가 첨부한 파일 2개도 이 사람들이 볼 수 있게 돼요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('그래도 공유')
       await audit(page, 'share dialog, confirm')
       await dialog.getByTestId('chat-share-widen-show').click()
@@ -233,6 +235,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(page.getByTestId('chat-share-save')).toHaveText('그래도 공유')
       await page.getByTestId('chat-share-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요' })).toBeVisible()
+      // and what could not go with it, after the save
+      await expect(page.getByTestId('toast').filter({ hasText: '전에 첨부한 파일 1개는 공유하지 못했어요' })).toBeVisible()
     })
 
     test('Bob hides it from his list (opening it brings it back); taken out while it is open, he is told and goes Home', async ({ page, browser }) => {
