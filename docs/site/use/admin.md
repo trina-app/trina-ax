@@ -79,6 +79,14 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 
 ![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
 
+## Connected apps
+
+**Admin › Connected apps** lists the team's connections under **Connected**, and services you can add under
+**Discover**. Each row shows the app's state (for example **On**, **Connecting** or **Needs attention**); the whole row
+opens the app's page, which shows the same state. Connecting an app that opens a browser window (a Google app, a
+service's sign-in, **Add to Slack**) can always be left: **Try again** and **Cancel** are there while it waits, and the
+wait ends by itself after five minutes if the window was closed. Slack has its own guide: [Slack](slack.md).
+
 ## The team's AI settings
 
 **Admin › Team settings** ends with the team's AI settings:
@@ -106,6 +114,6 @@ From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI en
 
 ## System
 
-**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
+**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Storage counts the files of deleted chats and rooms in **Team files** ("Includes 120 MB from deleted chats and rooms, removed after 30 days"): they are kept 30 days so they can be brought back. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
 
 ![Admin on a phone: one list of the admin areas, with the five tabs at the bottom](../images/admin/admin-phone.webp "Admin on a phone")

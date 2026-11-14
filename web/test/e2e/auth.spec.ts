@@ -428,6 +428,29 @@ test('the offline page retries by itself and goes back to the chat when the serv
   await expect(page.getByTestId('cant-reach')).toHaveCount(0)
 })
 
+// A stopped trial server starts in about a minute: the relay answers a retryable 503 (x-relay-error: team_waking).
+// The app says "Starting your team" with a spinner, not "Can't reach", and comes back by itself.
+test('a starting team shows "Starting your team", not an error, and opens by itself', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.route('**/api/me', route => route.fulfill({
+    status: 503,
+    headers: { 'content-type': 'application/json', 'x-relay-error': 'team_waking', 'retry-after': '4' },
+    body: JSON.stringify({ error: { code: 'unavailable', message: 'Starting your team…', reason: 'team_waking', retryAfter: 4 } }),
+  }))
+  await page.reload()
+  const waking = page.getByTestId('team-waking')
+  await expect(waking).toBeVisible()
+  await expect(waking).toContainText('Starting your team')
+  await expect(page.getByText('about a minute')).toBeVisible()
+  await expect(page.getByTestId('cant-reach')).toContainText('Starting your team')
+  await expect(page.getByText("Can't reach the team server")).toHaveCount(0)
+  await page.screenshot({ path: process.env.WAKE_SHOT_DIR ? `${process.env.WAKE_SHOT_DIR}/wake-web-${test.info().project.name}.png` : test.info().outputPath('wake-web.png') })
+  await page.unroute('**/api/me')
+  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('team-waking')).toHaveCount(0)
+})
+
 test('the offline page asks at once when the network comes back', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)

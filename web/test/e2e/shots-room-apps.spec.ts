@@ -11,7 +11,8 @@ import { appMessage, mockApp, routeRoomApps, type MockApp } from './room-apps-mo
 
 const dir = process.env.ROOM_APPS_SHOTS
 test.skip(!dir, 'ROOM_APPS_SHOTS is not set')
-test.use({ serviceWorkers: 'block', locale: 'en-US', permissions: ['clipboard-read', 'clipboard-write'] })
+// ROOM_APPS_SHOTS_SCALE=2 takes them at the docs' scale (docs/site/use/room-apps.md crops the 1440 light ones)
+test.use({ serviceWorkers: 'block', locale: 'en-US', permissions: ['clipboard-read', 'clipboard-write'], deviceScaleFactor: Number(process.env.ROOM_APPS_SHOTS_SCALE ?? 1) })
 
 const MINA = { id: 'mina', name: 'Mina' }
 const JUN = { id: 'jun', name: 'Jun' }

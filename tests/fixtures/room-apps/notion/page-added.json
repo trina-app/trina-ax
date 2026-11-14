@@ -1,0 +1,97 @@
+{
+ "source": {
+  "type": "automation",
+  "automation_id": "1a2b3c4d-0000-4000-8000-000000000001",
+  "action_id": "1a2b3c4d-0000-4000-8000-000000000002",
+  "event_id": "1a2b3c4d-0000-4000-8000-000000000003",
+  "attempt": 1
+ },
+ "data": {
+  "object": "page",
+  "id": "2f1e0d9c-0000-4000-8000-00000000000a",
+  "created_time": "2026-11-14T09:00:00.000Z",
+  "parent": {
+   "type": "database_id",
+   "database_id": "3e2d1c0b-0000-4000-8000-00000000000b"
+  },
+  "url": "https://www.notion.so/Quarterly-report-2f1e0d9c00004000800000000000000a",
+  "properties": {
+   "Name": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Quarterly report"
+      },
+      "plain_text": "Quarterly report"
+     }
+    ]
+   },
+   "Status": {
+    "id": "s1",
+    "type": "status",
+    "status": {
+     "id": "x",
+     "name": "In progress",
+     "color": "blue"
+    }
+   },
+   "Owner": {
+    "id": "p1",
+    "type": "people",
+    "people": [
+     {
+      "object": "user",
+      "id": "u1",
+      "name": "Jamie Rivera"
+     }
+    ]
+   },
+   "Due": {
+    "id": "d1",
+    "type": "date",
+    "date": {
+     "start": "2026-11-30",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Done": {
+    "id": "c1",
+    "type": "checkbox",
+    "checkbox": false
+   },
+   "Tags": {
+    "id": "t1",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "name": "Finance"
+     },
+     {
+      "name": "Q4"
+     }
+    ]
+   },
+   "Related": {
+    "id": "r1",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "a"
+     },
+     {
+      "id": "b"
+     }
+    ]
+   },
+   "Odd": {
+    "id": "o1",
+    "type": "button",
+    "button": {}
+   }
+  }
+ }
+}

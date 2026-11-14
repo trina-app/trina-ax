@@ -4,7 +4,7 @@
 import './shims/bun'
 import script from '@demo-content'
 import assetUrls from 'virtual:demo-assets'
-import { DICTS, loadLocale, type MessageKey } from '../src/i18n'
+import { DICTS, loadLocale, storedLocale, storeLocale, storeRecentLocale, type MessageKey } from '../src/i18n'
 import { BASE, forgetSession } from './base'
 import { startWorker } from './bridge'
 import { DemoServer } from './server'
@@ -12,6 +12,10 @@ import { DemoServer } from './server'
 export async function boot(made: (s: DemoServer) => void) {
   // a reload starts over: Home, and nothing kept from the last run in this tab
   forgetSession()
+  // the app speaks the story's language from its first paint (another language's demo on this site may have left its
+  // own as the browser's last one)
+  storeRecentLocale(script.locale)
+  if (storedLocale() && storedLocale() !== script.locale) storeLocale(null)
   if (location.pathname !== BASE || location.search) history.replaceState(null, '', BASE)
   const assets: Record<string, Uint8Array> = Object.fromEntries(await Promise.all(Object.entries(assetUrls).map(async ([name, url]) => [name, new Uint8Array(await (await fetch(url)).arrayBuffer())])))
   const server = new DemoServer(script, assets)

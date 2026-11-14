@@ -32,7 +32,7 @@ A folder or file you cannot open is invisible: in Files, in AI answers, in searc
 
 ## Chats and projects
 
-A **chat** is a conversation with the AI. Only its owner sees it.
+A **chat** is a conversation with the AI. It is yours alone until you share it with people or groups; a chat in a team project is shared with the project's members.
 
 A **project** is a folder with instructions, for work that keeps coming back to the same files. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
 

@@ -1,0 +1,2 @@
+- Apps in rooms: an "Other app" now also reads messages sent in JANDI's incoming-webhook format, besides Slack's and Discord's, so any tool that can post to a JANDI webhook can post to a room.
+- Apps in rooms (server): Notion automations, Typeform, Tally, Jotform, Stripe, Shopify and Zendesk can be set up as named services with their own cards, threads and optional signing secrets. The screens to pick them come in the next update.

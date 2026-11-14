@@ -95,6 +95,9 @@ export class ApiClient {
         const j = ApiErrorResponse.safeParse(await res.json())
         if (j.success) parsed = j.data.error
       } catch { /* not JSON (e.g. relay HTML error page) */ }
+      // The relay answers a stopped team's request with a retryable 503 while the server starts (relay/src/pages.ts
+      // team_waking). Its marker is the x-relay-error header; the body's own `reason` is not kept by the schema.
+      if (res.status === 503 && res.headers.get('x-relay-error') === 'team_waking') parsed = { ...parsed, params: { ...parsed.params, reason: 'team_waking' } }
       throw new ApiError(res.status, parsed)
     }
     const r = ep.response

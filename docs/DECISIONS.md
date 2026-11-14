@@ -27967,3 +27967,96 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2".
 - **Settings opened by its address** by a guest whose AI is off showed 트리나's list behind the dialog (the page under it
   is Home's): a place a guest does not have (`useGuestHidden`) has no list panel.
 - Version impact: **patch** (no API shape change).
+
+## Apps in rooms: presets and JANDI — 방 앱: 서비스 프리셋과 잔디 (feat/room-apps-presets-server, 2026-11-14, the owner, QA TC-1634)
+
+Plan: docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md (revision 2, owner decisions 1-8), phase 1, the server
+part. The picker groups, guides, logos and the Slack words in the web app come in the next PR (after the UI fix
+`fix/room-apps-settings-logos`); email in is phases 2-3 and waits for the mail domain.
+
+- **Other reads JANDI too.** After Slack's `text` and Discord's `content`, a string `body` is JANDI's incoming-webhook
+  shape: `[label](https://…)` gives the label and the card's one link (an address-looking label for another host
+  shows the real address, as Slack's `<url|label>`; an http link shows its label and links nowhere); `connectInfo`
+  (10 read) becomes "title: description" lines, the first three on the card, all in the plain text. `imageUrl` is
+  never fetched or shown, `connectColor` ignored, any `Accept` answered with `200 ok`. The first of text / content /
+  body wins.
+- **Presets.** `room_apps.preset` (migration `401_b_room_app_presets.sql`, B's second range; 401-499 checked free on
+  dev, every branch and the open PRs on 2026-11-14): `notion`, `typeform`, `tally`, `jotform`, `stripe`, `shopify`,
+  `zendesk` (`shared RoomAppPreset`; Jira and HubSpot are phase 4). The row's kind stays `other`, so older builds and
+  phone apps read it as an Other app. One reader per service in `server/src/rooms/apps/presets/*` (content types,
+  body cap, signature, parser); vendor sample payloads with fake data in `tests/fixtures/room-apps/`. Switches and
+  defaults as the plan (`ROOM_APP_PRESET_SWITCHES`: Notion one `entry` switch; Stripe `subscription_new` off; Shopify
+  `fulfilled` off). Cards are plain text with one link built on a fixed host (Stripe's dashboard from the payment
+  intent id, Shopify admin from `<handle>.myshopify.com`, a `.zendesk.com` ticket URL, Notion's hosts) or none; a file
+  answer shows its name, never the service's file URL; a payment shows a customer's name (Shopify: first name and
+  city), never email, phone, street or card data. Names on a card from an unsigned request set the card's
+  `unverified` flag only (the UI fix's rule; no mark after each name). Default name: the vendor's (a brand).
+- **Threads and dedupe.** Stripe `pi:<payment intent>` (a Checkout session and its intent are one card: the second
+  event only changes the status line, `AppEvent.onlyStatus`, no reply and not counted; refunds and disputes join it,
+  a dispute also in the room), event `id` dedupe. Shopify `order:<id>` (the id from `admin_graphql_api_id` when sent:
+  a JSON number past 2^53 loses digits), "Order payment" status only, dedupe `X-Shopify-Event-Id` else
+  `X-Shopify-Webhook-Id`. Zendesk `ticket:<id>`, dedupe sha256(raw) and the ticket's id + status + title + latest
+  comment for 10 minutes (the plan's id + status alone also swallowed a ticket reopened within 10 minutes of being
+  created); a solved or closed ticket opened again also shows in the room (`AppEvent.backFrom`). Notion `page:<id>`,
+  dedupe `source.event_id` (not `attempt`: a retry's attempt grows), else sha256(raw) for 10 minutes. Forms
+  `response:<id>`, dedupe `event_id` / `eventId` (7 days, as every delivery key) / `submissionID`.
+- **Zendesk's Copy body** (`roomAppZendeskBody(event)`) adds `"event": "created" | "updated"` to the plan's body so the
+  switches `new_ticket` / `updated` can tell the two triggers apart (without it: `new_ticket`). A body whose JSON is
+  broken by an unescaped quote is read key by key between the template's known keys (only with `"trina":"zendesk"`).
+- **Signatures** (`server/src/rooms/apps/signatures.ts`, replacing `inbound.ts signatureOk`): `hex-body` (GitHub,
+  Sentry), `b64-body` (Typeform `sha256=<b64>`, Shopify), `b64-json` (Tally: the raw bytes first, then
+  `JSON.stringify(JSON.parse(raw))`; the card is built from that one verified parse; a signed `createdAt` older than
+  2 days is refused, 401), `stripe` (`t.raw`, hex, any `v1`, |now − t| ≤ 5 min, the `whsec_` secret used literally),
+  `zendesk` (base64 of timestamp + raw; the timestamp ISO-8601 with a zone or Unix seconds and ≤ 5 min off, else 401).
+  All constant time over equal-length digests. Optional (owner decision 4): once a secret is saved, unsigned or wrong
+  requests answer 401.
+- **Preset rules.** `preset` only with kind `other` (400) and fixed at create (`UpdateRoomAppBody` has none; strict).
+  `setRoomAppSecret` on a service that cannot sign (plain Other, Google Forms, Notion, Jotform, an unknown preset):
+  400 `params.reason: no_signing`. `generate` only where the service has a field to paste one in (GitHub, Typeform,
+  Tally); Stripe, Shopify and Zendesk paste their own (Stripe checked against `whsec_…`; printable, 16-200 characters);
+  Zendesk's public test secret is refused. A row whose preset this build does not know answers 401 with a secret, 400
+  without, never read as Other.
+- **Jotform** posts a form: `multipart/form-data` or urlencoded, read from the bounded raw body (512 KiB) into at most
+  100 fields of 64 KB; file parts are dropped, never stored. Labels from `pretty`, else the `rawRequest` keys.
+- **API (additive).** `RoomApp.preset?`, `RoomAppRef.preset?` (also on stored cards, so a removed app's messages keep
+  their logo), the paused notice's `roomApp.preset?`, `CreateRoomAppBody.preset?`, `ROOM_APP_PRESET_SWITCHES / _NAMES /
+  _SIGNING / _NEEDS`, `ZENDESK_TEST_SECRET`, `roomAppZendeskBody()`. Audit: `room_app.add` / `.remove` carry `preset`.
+- **`RoomApp.eventsSeen`** (additive, for the web's "Not set up in Shopify" under a switch): the app's switch keys an
+  event has arrived for at least once, also while its switch is off; keys only (`room_apps.events_seen`, JSON array, in
+  migration 401), written once per key after the body was read. A Zendesk key written with `\uXXXX` escapes counts
+  as a duplicate too (the check runs on a copy with them decoded; re-review of #854).
+- **Logs.** `loggablePath` also drops the query string on `/in/` (a service that puts a token in `?token=`).
+- **After the security review of #854.**
+  - **Zendesk quote injection (blocker).** Zendesk does not JSON-escape placeholder values, so a customer comment
+    `x","id":"123","status":"solved","url":"https://evil.zendesk.com/p","update":"y` made valid JSON whose later
+    duplicate keys won (another ticket's thread and status, a link to another tenant). Now the Copy body passes every
+    outsider-written placeholder (title, requester, assignee, latest comment) through Liquid's `| escape` and the
+    server decodes `&quot; &amp; &lt; &gt; &#39;`; a body whose raw text names any template key more than once is
+    refused (400, also in the tolerant reader); the link is built only as `https://<sub>.zendesk.com/agent/tickets/<the
+    same id>`, and the subdomain is pinned to the app on first sight (`room_apps.preset_pin`, added to the unmerged
+    migration 401): another subdomain gets no link. Live check: that Zendesk applies `| escape` in a webhook body.
+  - **Shopify.** Its topic and event-id headers are outside the HMAC: the topic must agree with the signed body
+    (`orders/paid` ⇒ `financial_status` paid, `orders/cancelled` ⇒ `cancelled_at`, `orders/fulfilled` ⇒
+    `fulfillment_status` fulfilled, `orders/create` ⇒ not cancelled; else skipped, 200), a second delivery key
+    `shopify-body:<sha256(raw)>:<topic>` for 7 days stops a replay under a new event id, and the store handle is
+    pinned per app on first sight (another store: no link).
+  - **Typeform.** Its signature has no time: a signed response whose `form_response.submitted_at` is older than 2 days
+    (or missing) is refused, 401, as Tally's `createdAt`.
+  - **Zendesk dedupe** also covers the assignee and priority (a reassignment is a new change).
+  - The pin (owner decision via the coordinator): set by the first event that posts; with a secret saved only a signed
+    request may set it. Regenerate clears it, and so does saving a secret (a pin set by an unsigned request before the
+    secret is forgotten; the next signed request pins again).
+- **Rollback note for 401.** Rolling the server back to a build before this one keeps the column but ignores it: every
+  preset row is read as plain Other. Such a build checks a saved secret against `Sentry-Hook-Signature` for every
+  non-GitHub kind, so **Stripe, Shopify, Zendesk and Tally (and Typeform) apps with a saved secret answer 401** and their
+  vendors retry, then disable or delete the webhook (Shopify after repeated failures, Stripe after 3 days). Unsigned
+  preset apps keep posting as Other cards, with a `format` refusal for most bodies. It fails closed (nothing is posted
+  wrongly), but the vendor setups may need redoing: say so in the release notes of any rollback past this build, and
+  prefer rolling forward.
+- **Still to check live** (TC-1634, plan "Live checks"): Notion's envelope and property shapes; Typeform's secret field;
+  Tally's `data` keys and its real signature; Jotform's content type and fields; Stripe's event names and roles;
+  Shopify's signing key for admin-made webhooks; Zendesk's `| escape` filter in a webhook body, its timestamp format and
+  `{{ticket.latest_public_comment}}`; JANDI-compatible senders and `200 ok`.
+- Tests: tests/unit/b-room-apps-presets.test.ts (incl. the quote-injection fixture), b-room-app-signatures.test.ts;
+  tests/security/lib/room-apps-cases.ts (no_signing, preset fixed).
+- Version impact: **minor**.

@@ -81,6 +81,14 @@ const GOOGLE_OWN = { ...GOOGLE_HOSTED, active: true, by: { id: 'olga', name: 'Ol
 const BOB = { user: 'bob', password: 'bob password 1' }
 /** Acme's Marketing member, the person the --acme shots follow (scripts/docs/acme-scene.ts) */
 const JORDAN = { user: 'jordan', password: 'teamax-demo-1' }
+/** Acme's Priya Nair, whom Jordan shared the brand-voice chat with (scripts/docs/acme-scene.ts) */
+const PRIYA = { user: 'priya', password: 'teamax-demo-1' }
+/** opens a chat of the Trina list by its title, then its title menu's Share… */
+const openShare = (title: RegExp) => async (p: Page) => {
+  await p.locator('[data-testid="trina-list"] a').filter({ hasText: title }).first().click(); await p.waitForTimeout(1200)
+  await p.locator('[data-testid="chat-menu"]').first().click(); await p.waitForTimeout(300)
+  await p.locator('[data-testid="chat-share"]').first().click(); await p.waitForTimeout(800)
+}
 /** the dialog opened from Gmail's Team settings, then Next `n` times (step 3 with the ID and secret, so step 4 opens) */
 const ownAppDialog = (n: number) => async (p: Page) => {
   await p.locator('[data-testid="gsign-use"]').click(); await p.waitForTimeout(400)
@@ -161,11 +169,13 @@ const SHOTS: Shot[] = [
   { file: 'concepts/rail', path: '/', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 380, height: 420 } },
   // Chats and projects
   { file: 'chats/home', path: '/', acme: true, as: JORDAN, crop: 'main' },
-  { file: 'chats/trina-list', path: '/', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 328, height: 330 } },
+  { file: 'chats/trina-list', path: '/', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 328, height: 480 } },
   { file: 'chats/steps', path: '/', acme: true, as: JORDAN, prepare: async (p) => {
     // the brand-voice chat: a short answer with plain steps (the campaign summary's steps are search patterns)
     await p.locator('[data-testid="trina-list"] a').filter({ hasText: /brand voice/i }).first().click(); await p.waitForTimeout(1200)
     await p.getByText(/^\d+ steps?$/).first().click(); await p.waitForTimeout(600)
+    // the chat is shared with Priya, whose question follows: the shot starts at Jordan's question
+    await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'start' }), '[data-testid="user-message"]'); await p.waitForTimeout(400)
   }, crop: 'main' },
   { file: 'chats/trina-drawer-phone', path: '/', phone: true, acme: true, as: JORDAN, prepare: click('[data-testid="menu-open"]') },
   { file: 'chats/rooms-list', path: '/rooms', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 328, height: 330 } },
@@ -181,6 +191,16 @@ const SHOTS: Shot[] = [
   { file: 'chats/rooms-phone', path: '/rooms', phone: true, acme: true, as: JORDAN },
   { file: 'chats/projects-panel', path: '/projects', acme: true, as: JORDAN },
   { file: 'chats/project', path: '/projects', acme: true, as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1000) }, crop: 'main' },
+  // Share… (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check)
+  { file: 'chats/share-dialog', path: '/', acme: true, as: JORDAN, prepare: async (p) => { await openShare(/brand voice/i)(p); await blur(p) }, crop: DIALOG },
+  { file: 'chats/share-warning', path: '/', acme: true, as: JORDAN, prepare: async (p) => {
+    await openShare(/Summarize November/i)(p)
+    await p.locator('[data-testid="chat-share-picker-search"]').fill('Priya'); await p.waitForTimeout(600)
+    await p.locator('[data-testid="participant-add-user-priya"]').click(); await p.waitForTimeout(300)
+    await p.locator('[data-testid="chat-share-save"]').click(); await p.waitForTimeout(1500)
+    await blur(p)
+  }, crop: DIALOG },
+  { file: 'chats/shared-activity', path: '/activity', acme: true, as: PRIYA, clip: { x: 72, y: 0, width: 256, height: 220 } },
   // Files
   { file: 'files/files', path: '/files', acme: true, as: JORDAN, crop: 'main' },
   { file: 'files/files-phone', path: '/files', phone: true, acme: true, as: JORDAN },
@@ -351,7 +371,9 @@ async function main() {
       await username.fill(as?.user ?? o.user)
       await p.locator('input[type="password"]').first().fill(as?.password ?? o.password)
       await p.keyboard.press('Enter')
-      await p.waitForTimeout(2000)
+      // a busy server can take several seconds to sign in: wait up to 20 s for the page to leave /login
+      for (let i = 0; i < 40 && (await p.evaluate(() => location.pathname, '')) === '/login'; i++) await p.waitForTimeout(500)
+      await p.waitForTimeout(1000)
       if ((await p.evaluate(() => location.pathname, '')) === '/login') throw new Error('sign-in failed')
       await p.close()
     }

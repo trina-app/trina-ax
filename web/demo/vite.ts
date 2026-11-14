@@ -35,6 +35,17 @@ export const demoBase = () => {
   return `/${b.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/')
 }
 
+/** The demos of every language on one site, for the guide line's language links: DEMO_LANGS="en=/demo/,ko=/demo/ko/",
+ * by default English at the base (a language's own build sits in <English base><locale>/) and Korean next to it */
+export const demoLangs = (): { locale: string; base: string }[] => {
+  const given = process.env.DEMO_LANGS?.trim()
+  if (given) return given.split(',').map((x) => { const [locale, base] = x.split('='); return { locale: locale!.trim(), base: base!.trim() } })
+  const base = demoBase()
+  const locale = demoLocale()
+  const en = locale !== 'en' && base.endsWith(`/${locale}/`) ? base.slice(0, -(locale.length + 1)) : base
+  return [{ locale: 'en', base: en }, { locale: 'ko', base: `${en}ko/` }]
+}
+
 /** The app under a base without a change to web/src (web/demo/base.ts says how): on the app's source, in the demo build
  * only, its history gets the demo's window, its direct reads of the address read the demo's location, and its worker
  * is registered at the base. A source that no longer reads as expected stops the build. */
@@ -123,7 +134,9 @@ export function demoConfig(base: UserConfig): UserConfig {
       ...base.define,
       'process.env.TMPDIR': 'undefined',
       'process.pid': '0',
+      __DEMO_LANGS__: JSON.stringify(demoLangs()),
     },
-    build: { ...base.build, outDir: 'dist-demo' },
+    // DEMO_OUT: another folder, e.g. one per language (dist-demo-ko)
+    build: { ...base.build, outDir: process.env.DEMO_OUT?.trim() || 'dist-demo' },
   }
 }

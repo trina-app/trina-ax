@@ -7,7 +7,8 @@ import { WideningDraftHost } from './components/WideningDraftHost'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { ApiError, errorText, setMediaKey } from './lib/api'
+import { Loader2 } from 'lucide-react'
+import { ApiError, errorText, isTeamWaking, setMediaKey } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useDeckBuilds } from './store/deckBuilds'
@@ -204,7 +205,7 @@ const RETRY_MS = 5000
 
 /** The offline page: it asks again by itself (every few seconds, when the network comes back, when the tab is looked at
  * again) and the screen the person was on returns when the server answers; the button asks at once. */
-function CantReach({ hint, detail }: { hint: string; detail: string }) {
+function CantReach({ hint, detail, waking }: { hint: string; detail: string; waking?: boolean }) {
   const t = useT()
   const load = useSession((s) => s.load)
   useEffect(() => {
@@ -225,10 +226,20 @@ function CantReach({ hint, detail }: { hint: string; detail: string }) {
         <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
         {PRODUCT.displayName}
       </p>
-      <p className="font-medium">{t('conn.cantReach')}</p>
-      <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
-      {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
-      <Button onClick={() => void load()}>{t('common.retry')}</Button>
+      {waking ? (
+        // the team's server was turned off for no use and is starting (about a minute): a calm wait, not an error
+        <>
+          <p className="flex items-center gap-2 font-medium" role="status" data-testid="team-waking"><Loader2 size={16} className="animate-spin text-muted" aria-hidden />{t('conn.waking')}</p>
+          <p className="max-w-md text-sm text-balance text-muted">{t('conn.wakingDetail')}</p>
+        </>
+      ) : (
+        <>
+          <p className="font-medium">{t('conn.cantReach')}</p>
+          <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
+          {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
+          <Button onClick={() => void load()}>{t('common.retry')}</Button>
+        </>
+      )}
     </div>
   )
 }
@@ -260,7 +271,7 @@ function Gate() {
     const hint = t('conn.cantReachHint')
     const text = errorText(status.error, locale, hint)
     const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
-    return <CantReach hint={hint} detail={detail} />
+    return <CantReach hint={hint} detail={detail} waking={isTeamWaking(status.error)} />
   }
   if (status.kind === 'setup')
     return (
