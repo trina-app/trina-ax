@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 15:09
 - Branch: `fix/composer-send-arrow-up`
-- Status: in progress
+- Status: done
 - Where: trina-ax/web. Why: the AI chat's message box is a core web component (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, an icon change on one button
 
@@ -27,3 +27,8 @@ Out: the button's size, colours and states stay; Enter still sends; SearchDialog
 ## Risks
 
 None for data. The public demo is built from this web app, so its ring target must still sit on the send button.
+
+## Result
+
+Send and send-answer show ArrowUp on computers; classes and states unchanged. Unit test added; web unit, typecheck,
+i18n, docs checks, composer/chat/side-chat e2e (117) and the demo walk pass. Shots at 1440/390, light/dark, looked at.
