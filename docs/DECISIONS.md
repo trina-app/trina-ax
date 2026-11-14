@@ -27054,7 +27054,7 @@ the recommended design after an independent security and UX review.
 - **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
 - Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
 
-## Self-service account deletion — 내 계정 삭제 (feat/self-account-deletion, 2026-11-14, the owner, QA TC-QAIDS)
+## Self-service account deletion — 내 계정 삭제 (feat/self-account-deletion, 2026-11-14, the owner, QA TC-1524..1532)
 
 - **Ask:** Apple 5.1.1(v) and Google Play want a person to delete their account inside the app without waiting for a
   person; privacy law wants it done in days and the retention stated. Before, Settings › Profile › Delete account only

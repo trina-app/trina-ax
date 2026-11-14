@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 07:17
 - Branch: `feat/self-account-deletion`
-- Status: in progress
+- Status: done
 - Where: server/src/auth, server/src/admin, server/migrations (B), web settings, docs. Why: accounts, the deletion
   request and the members screen live there (docs/REPOSITORY-RULES.md)
 - Version impact: minor: new optional API fields, a new migration and a new automatic step (the sweep)
@@ -62,4 +62,7 @@ coverage test, web unit tests for the page.
 
 ## Result
 
-Filled in at the end.
+Built as planned in PR https://github.com/trina-app/trina-ax/pull/816 (QA TC-1524..1532). Differences: the migration
+is 297 (296 landed on dev meanwhile). Open requests from before get their date from the first sweep (5 s after the
+start, so effectively migration time + 7 days), which also covers rows re-opened by an older build after a rollback.
+The password is asked in the existing re-check dialog (ReauthDialog), so the page has no new field or card.
