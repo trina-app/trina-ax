@@ -1,7 +1,7 @@
 -- min_compatible_reader: 1
 -- Push for the "app paused" notice of apps posting in rooms, and the "someone who left knows the address" notice (docs/DECISIONS.md "Apps posting in rooms", "Paused push";
 -- plan docs/AGENTS/plan/20261114-0900-room-apps.md "6. Paused notice"). Numbered as component C: component B's range
--- (200-299) is full (299_b_room_apps.sql took the last number), and 350 is the highest C number here; the push pipeline
+-- (200-299) is full (299_b_room_apps.sql took the last number); 351 is taken by an open PR (chat share push), so 352; the push pipeline
 -- (server/src/notifications/push-service.ts SOURCES) is C's.
 --   room_app_push_deliveries: the same columns as push_deliveries / chat_answer_push_deliveries, for room_app_notices
 --     (migration 299). A notice is pushed through the normal pipeline while it is unread, the app is still there and

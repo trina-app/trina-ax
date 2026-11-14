@@ -18,8 +18,8 @@ test('no "webhook" in Trina\'s own words of the apps screens, in any language; v
       if (!key.startsWith('roomApps.') || key.startsWith('roomApps.vendorLabel.')) continue
       expect({ locale, key, hit: WEBHOOK.test(text) }).toEqual({ locale, key, hit: false })
     }
-    expect(dict['roomApps.vendorLabel.sentryUrl' as never]).toBe('Webhook URL')
-    expect(dict['roomApps.tag' as never]).toBeTruthy()
+    expect((dict as Record<string, string>)['roomApps.vendorLabel.sentryUrl']).toBe('Webhook URL')
+    expect((dict as Record<string, string>)['roomApps.tag']).toBeTruthy()
   }
 })
 

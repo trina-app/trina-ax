@@ -27251,7 +27251,7 @@ guides, "Apps posting here") are phase 2.
   about the exemption, email in and the mailbox (phase 5), a daily digest (owner decision 2).
 - **Paused push (phase 3).** The `room_app.paused` notice also goes to phones and browsers through the normal push
   pipeline, if the person allows push: it is a PushEventType now, with its own deliveries (`room_app_push_deliveries`,
-  migration `351_c_room_app_push.sql`, numbered in C because B's 200–299 is full; push-service.ts SOURCES). No switch
+  migration `352_c_room_app_push.sql`, numbered in C because B's 200–299 is full; push-service.ts SOURCES). No switch
   of its own, like `owner.lead_joined`: pushed while the notice is unread, the app is still there and still paused
   (`paused_until` after now; "Resume now" also marks the notices read) and the person is still in its room
   (`rooms/apps/notice.ts` roomAppPushWanted, asked before and after each send). Generic words only, never the app's or
@@ -27274,7 +27274,7 @@ guides, "Apps posting here") are phase 2.
   - **Leaver notice in Activity.** The people who may manage the app (`mayManageApps`: a team room's owners and admins
     in it, everyone in a 1:1 or group chat), never the leaver, get `room_app.leaver`: "Someone who left knows the
     address of <app> · Get a new address". Activity only (not a PushEventType), shown always (no setting). Its own
-    table `room_app_leaver_notices` (in the same unmerged migration 351: the notice tables' event_type CHECK lists are
+    table `room_app_leaver_notices` (in the same unmerged migration 352: the notice tables' event_type CHECK lists are
     fixed). Source `<app id>.<first 12 of the token hash>`: one notice per person and address, never twice; a new
     address starts over. Detection does not hang on one code path: `RoomApps.leaverSweep()` checks every app with
     viewers every 5 minutes and with the hourly prune (routes/room-apps.ts; not under tests). No call from the
