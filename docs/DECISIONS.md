@@ -26979,7 +26979,6 @@ connect_service are unchanged.
   - tests/unit/update-waits-for-work.test.ts.
   - update-interrupts-answers.test.ts: a cut step, recovery, and schedules during a wait.
   - dev-env-srt.test.ts: a command that cannot finish before the restart is refused, and a job is accepted.
-
 ## People who see a shared chat later: nothing new is hidden (feat/shared-chats-p1, 2026-11-14, product owner)
 
 Supersedes "People who see a shared chat later — 나중에 보는 사람" (2026-11-08) and amends "지난 대화" for answers made
