@@ -5915,14 +5915,15 @@ export class MockServer {
     }
     const shared = (id: string | undefined) => (id ? this.sharedChats.get(id) : undefined)
     const chatOf = (id: string) => this.chats.find((x) => x.id === id) ?? fail('not_found', 404)
-    // every route of a shared chat answers as chat/shared.ts chatFor does: a project in the trash tells its members why
-    // (not only getChat: the page reads the first error that comes back, and the messages answer can be it)
+    // every route of a shared chat answers as chat/shared.ts chatFor does: a project in the trash tells its members why,
+    // and someone taken out of its project (or who left) hears which project (QA TC-1067, TC-1403)
     const view = (chat: Chat, u: User) => {
       const v = this.sharedView(chat, u)
       if (v) return v
       const sc = this.sharedChats.get(chat.id)
       const tp = sc ? project(sc) : undefined
-      return fail('not_found', 404, undefined, undefined, tp?.inTrash && this.projectWasMember(tp, u) ? { reason: 'project_in_trash', projectId: tp.id } : undefined)
+      if (tp?.inTrash && this.projectWasMember(tp, u)) fail('not_found', 404, undefined, undefined, { reason: 'project_in_trash', projectId: tp.id })
+      return tp && !chat.deletedAt ? this.notFoundFor(tp.id, u.id) : fail('not_found', 404)
     }
     const nameOf = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
     const project = (s: { projectId: string }) => this.projects.find((p) => p.id === s.projectId)

@@ -141,10 +141,13 @@ function ChatView({ chatId }: { chatId: string }) {
     if (choose) void loadEngines()
   }, [choose, loadEngines])
 
-  // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx)
+  // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx).
+  // When both reads fail, the page keeps the chat read's error, whichever answer came first: it is the one that says why
+  // the chat cannot be opened (a project left or in the trash; QA TC-1403), the messages' plain 404 says less.
   const load = useCallback(async () => {
     try {
-      const [c] = await Promise.all([chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } }), loadThread(chatId)])
+      const read = chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } })
+      const [c] = await Promise.all([read, loadThread(chatId).catch(async (e: unknown) => { await read; throw e })])
       setLoadError(null)
       setChat(c)
       // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list
