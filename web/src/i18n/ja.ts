@@ -4332,6 +4332,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.install.unreachable": "現在ホスティングサービスに接続できません。しばらくしてからもう一度お試しください。",
   "audit.act.slack.installed": "Slackアプリを追加",
   "audit.act.slack.removed_in_slack": "SlackでSlackアプリが削除された",
+  "audit.act.slack.bot_token_refused": "Slackがアプリのボットトークンを拒否した",
   "slack.read.on": "{product}は、招待されたSlackのチャンネルとスレッドを読めます（あなたもそこにいる場合）。",
   "slack.read.needsAdmin": "{product}はまだSlackのスレッドを読めません。まず管理者がSlackアプリの権限を更新する必要があります。",
   "slack.admin.readTitle": "Slackの権限を更新",

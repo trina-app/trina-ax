@@ -4375,6 +4375,7 @@ export const ko = {
   "slack.install.unreachable": "지금 호스팅 서비스에 연결하지 못했어요. 잠시 뒤 다시 해 주세요.",
   "audit.act.slack.installed": "Slack 앱 추가",
   "audit.act.slack.removed_in_slack": "Slack에서 앱이 빠짐",
+  "audit.act.slack.bot_token_refused": "Slack이 앱의 봇 토큰을 거부함",
   "slack.read.on": "{product}가 초대된 Slack 채널과 스레드를 읽을 수 있어요(나도 그곳에 있을 때만).",
   "slack.read.needsAdmin": "{product}가 아직 Slack 스레드를 읽을 수 없어요. 먼저 관리자가 Slack 앱 권한을 업데이트해야 해요.",
   "slack.admin.readTitle": "Slack 권한 업데이트",

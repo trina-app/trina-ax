@@ -4376,6 +4376,7 @@ export const en: Record<MessageKey, string> = {
   "slack.install.unreachable": "The server can't reach the hosting service right now. Try again in a moment.",
   "audit.act.slack.installed": "Added the Slack app",
   "audit.act.slack.removed_in_slack": "The Slack app was removed in Slack",
+  "audit.act.slack.bot_token_refused": "Slack refused the app's bot token",
   "slack.read.on": "{product} can read the Slack channels and threads it was invited to, when you're in them too.",
   "slack.read.needsAdmin": "{product} can't read Slack threads yet: an admin first has to update the Slack app's permissions.",
   "slack.admin.readTitle": "Update Slack permissions",

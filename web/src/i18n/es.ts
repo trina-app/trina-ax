@@ -4332,6 +4332,7 @@ export const es: Record<MessageKey, string> = {
   "slack.install.unreachable": "Ahora el servidor no puede contactar con el servicio de alojamiento. Inténtelo de nuevo en un momento.",
   "audit.act.slack.installed": "Añadió la aplicación de Slack",
   "audit.act.slack.removed_in_slack": "La aplicación de Slack se quitó en Slack",
+  "audit.act.slack.bot_token_refused": "Slack rechazó el token de bot de la aplicación",
   "slack.read.on": "{product} puede leer los canales e hilos de Slack a los que se le invitó, cuando usted también está en ellos.",
   "slack.read.needsAdmin": "{product} todavía no puede leer hilos de Slack: primero un administrador debe actualizar los permisos de la aplicación de Slack.",
   "slack.admin.readTitle": "Actualizar los permisos de Slack",

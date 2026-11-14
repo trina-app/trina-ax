@@ -4376,6 +4376,7 @@ export const id: Record<MessageKey, string> = {
   "slack.install.unreachable": "Server tidak bisa menghubungi layanan hosting sekarang. Coba lagi sebentar lagi.",
   "audit.act.slack.installed": "Menambahkan aplikasi Slack",
   "audit.act.slack.removed_in_slack": "Aplikasi Slack dihapus di Slack",
+  "audit.act.slack.bot_token_refused": "Slack menolak token bot aplikasi",
   "slack.read.on": "{product} bisa membaca kanal dan utas Slack tempat ia diundang, jika Anda juga ada di sana.",
   "slack.read.needsAdmin": "{product} belum bisa membaca utas Slack: admin harus memperbarui izin aplikasi Slack terlebih dahulu.",
   "slack.admin.readTitle": "Perbarui izin Slack",
