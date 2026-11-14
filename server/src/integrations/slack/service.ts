@@ -1082,12 +1082,13 @@ export class SlackConnector {
 
   /** A post Slack refused because the bot token no longer works: with the official app that is the same as Slack's
    * own "removed" event (the hosting service may not have heard yet). */
-  private tokenRefused(e: unknown) {
+  private tokenRefused(e: unknown, bot?: string) {
     if (!(e instanceof SlackApiError) || !TOKEN_GONE.has(e.code)) return
     const cfg = this.config()
     if (cfg?.mode === 'official') this.removedInSlack('tokens_revoked')
     // the team's own app: its bot token is revoked; Admin says so (and offers new tokens) instead of "Connected"
-    else if (cfg?.mode === 'own' && cfg.secret_enc && cfg.last_error !== 'bot_refused') {
+    // (only the token that is saved now: a call made with tokens replaced meanwhile says nothing about the new ones)
+    else if (cfg?.mode === 'own' && cfg.secret_enc && cfg.last_error !== 'bot_refused' && (bot === undefined || this.tokens(cfg)?.bot === bot)) {
       this.db.query("UPDATE slack_config SET last_error = 'bot_refused', updated_at = ? WHERE id = 1 AND mode = 'own'").run(iso(this.now()))
       audit(this.db, { actor: null, action: 'slack.bot_token_refused', target: cfg.team_id, detail: { reason: e.code } })
       this.log.warn('slack refused the own app\'s bot token', { reason: e.code })
@@ -1148,7 +1149,7 @@ export class SlackConnector {
 
   private async ephemeral(bot: string, q: Pick<Question, 'channel' | 'user' | 'threadTs'>, text: string, blocks?: unknown[]) {
     try { await this.api.call('chat.postEphemeral', bot, { channel: q.channel, user: q.user, ...(q.threadTs ? { thread_ts: q.threadTs } : {}), text, ...(blocks ? { blocks } : {}) }) }
-    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); this.tokenRefused(e) }
+    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); this.tokenRefused(e, bot) }
   }
 
   private async question(cfg: ConfigRow, q: Question) {
@@ -1377,7 +1378,7 @@ export class SlackConnector {
       }
       else this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
       this.log.warn('slack answer could not be delivered', { reason: code })
-      this.tokenRefused(e)
+      this.tokenRefused(e, tk.bot)
     }
   }
 

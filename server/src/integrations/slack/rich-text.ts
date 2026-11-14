@@ -139,6 +139,7 @@ function anchorAt(s: string, i: number, to: number, runs: Closers): { href: stri
   while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid]! < gt + 1) lo = mid + 1; else hi = mid }
   if (lo >= list.length || list[lo]! + 4 > to || list[lo]! - (gt + 1) > 500) return null
   const href = (m[1] ?? m[2] ?? m[3] ?? '').replace(/&amp;/gi, '&').trim()
+  if (/[\s\x00-\x1f]/.test(href)) return null
   return { href, open: gt + 1, close: list[lo]!, end: list[lo]! + 4 }
 }
 /** the first run of exactly `n` × `c` that can close, starting at `from` or later and ending by `to`; -1 if none */

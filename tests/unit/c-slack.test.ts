@@ -1348,6 +1348,7 @@ describe('text', () => {
     expect(block).toEqual([{ type: 'rich_text_preformatted', elements: [{ type: 'text', text: '<a href="https://acme.example">x</a>' }] }])
     // not a whole link, or not a web link: as written
     expect(plainOf(richText('<a href="https://acme.example">no end'))).toBe('<a href="https://acme.example">no end')
+    expect(plainOf(richText('<a href="https://acme.example/ x">sp</a>'))).toBe('<a href="https://acme.example/ x">sp</a>')
     expect(plainOf(richText('<a name="x">anchor</a>'))).toBe('<a name="x">anchor</a>')
     expect(plainOf(richText('<a href="javascript:alert(1)">click</a>'))).toBe('<a href="javascript:alert(1)">click</a>')
     expect(plainOf(richText('<abbr title="x">y</abbr> and a < b'))).toBe('<abbr title="x">y</abbr> and a < b')
