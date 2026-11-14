@@ -1050,8 +1050,8 @@ export class ChatRuntime {
       const aud = new Audiences(this.db, this.files)
       const hide = redactorFor(this.ctx, r.user_id).hide
       // the rows' faces (Chat.shared.people, as the lists give them): who wrote in it, read once, each person's own
-      // view leaving them out
-      const writers = change === 'deleted' ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
+      // view leaving them out; none for a chat in the trash (the trash list has none either)
+      const writers = change === 'deleted' || r.deleted_at ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
       for (const uid of project ? aud.of(project) : []) {
         if (o.window && uid !== userId) continue
         const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined

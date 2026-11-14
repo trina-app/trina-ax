@@ -11,6 +11,7 @@ import { API, CHAT_PEOPLE_SHOWN, type Chat } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { chatPeople, peopleFor } from '../../server/src/chat/shared'
+import { getChatRuntime } from '../../server/src/chat/runtime'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -21,7 +22,7 @@ const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-shared-chat-people', stallTimeoutMs: 60_000 })
-  for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
+  for (const u of ['alice', 'bob', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
@@ -133,19 +134,69 @@ describe('the people of a shared chat in its lists', () => {
     expect((await h.api('erin').call(API.listChats, { query: { q: 'faces' } })).items.some((c) => c.id === chat.id)).toBe(false)
     const erinGroups = await h.api('erin').call(API.listChatGroups)
     expect([...erinGroups.pinned, ...erinGroups.projects.flatMap((p) => p.top), ...erinGroups.other.items].some((c) => c.id === chat.id)).toBe(false)
-    // bob loses the project: gone from his list, faces and all
+    // bob loses the project (he leaves the group that reads it): gone from every list of his, faces and all, and no
+    // chat.updated of it reaches him; erin, who never saw it, hears nothing either
     db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
     try {
       expect(await inList('bob', chat.id)).toBeUndefined()
       expect((await projectList('bob')).some((c) => c.shared)).toBe(false)
       expect((await h.api('bob').call(API.listChats, { query: {} })).items.some((c) => c.id === chat.id)).toBe(false)
+      const bobGroups = await h.api('bob').call(API.listChatGroups)
+      expect([...bobGroups.pinned, ...bobGroups.folders.flatMap((f) => f.top), ...bobGroups.projects.flatMap((p) => p.top), ...bobGroups.other.items].some((c) => c.id === chat.id)).toBe(false)
+      const seen = { bob: ws.bob!.frames.length, erin: ws.erin!.frames.length }
+      await h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { title: 'Falcon budget faces 3' } })
+      await ws.alice!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.chat?.title === 'Falcon budget faces 3')
+      await Bun.sleep(100)
+      for (const u of ['bob', 'erin'] as const) expect(ws[u]!.frames.slice(seen[u]).some((f) => f.type === 'chat.updated' && f.data.chatId === chat.id)).toBe(false)
     } finally { db().query("INSERT INTO group_members VALUES ('finance','bob')").run() }
-    // a shared chat in its creator's trash: no people there
+    // a shared chat in its creator's trash: no people there, in the trash list or in a chat.updated about it
     await h.api('alice').call(API.deleteChat, { params: { id: chat.id } })
     const trash = (await projectList('alice', { trash: true })).find((c) => c.id === chat.id)
     expect(trash?.shared).toBeTruthy()
     expect(trash!.shared!.people).toBeUndefined()
+    const sinceTrash = ws.alice!.frames.length
+    getChatRuntime(h.ctx).publishChat('alice', chat.id, 'updated')
+    const inTrash = await ws.alice!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'updated' && ws.alice!.frames.indexOf(f) >= sinceTrash)
+    expect(inTrash.data.chat?.deletedAt).toBeTruthy()
+    expect(inTrash.data.chat?.shared?.people).toBeUndefined()
     await h.api('alice').call(API.restoreChat, { params: { id: chat.id } })
+  })
+
+  test('a project in the trash: its members (who saw its chats) get no row and no faces anywhere', async () => {
+    // a new team project: dana makes it with alice and bob as members (as b-shared-chat-trash does)
+    const p = await h.api('dana').call(API.createProject, { body: { name: 'Hawk', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'alice' }, { subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+    await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
+    wrote('alice', chat.id)
+    wrote('bob', chat.id)
+    expect((await h.api('bob').call(API.listChats, { query: {} })).items.find((c) => c.id === chat.id)?.shared?.people).toEqual([{ id: 'alice', name: 'Alice Kim' }])
+    // its creator moves it to the trash (with its folder): alice and bob are members while it is there
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect((db().query('SELECT trashed_with FROM projects WHERE id = ?').get(p.id) as { trashed_with: string | null }).trashed_with).toBeTruthy()
+    for (const u of ['alice', 'bob']) {
+      expect((await h.api(u).call(API.listChats, { query: {} })).items.some((c) => c.id === chat.id)).toBe(false)
+      expect((await h.api(u).call(API.listChats, { query: { projectId: p.id } }).catch(() => ({ items: [] as Chat[] }))).items.some((c) => c.id === chat.id)).toBe(false)
+      const g = await h.api(u).call(API.listChatGroups)
+      expect([...g.pinned, ...g.folders.flatMap((f) => f.top), ...g.projects.flatMap((x) => x.top), ...g.other.items].some((c) => c.id === chat.id)).toBe(false)
+      expect((await h.api(u).call(API.listChats, { query: { other: '1' } })).items.some((c) => c.id === chat.id)).toBe(false)
+    }
+  })
+
+  test('?other=1 (the Trina list\'s next pages): the page first, then at most one people query for it', async () => {
+    for (let i = 0; i < 3; i++) await h.api('bob').call(API.createChat, { body: { title: `other page ${i}` } })
+    const d = db()
+    const seen: string[] = []
+    const real = d.query
+    d.query = ((sql: string) => { seen.push(sql); return real.call(d, sql) }) as typeof d.query
+    let page: Chat[]
+    try {
+      const g = await h.api('bob').call(API.listChatGroups)
+      page = g.other.nextCursor ? (await h.api('bob').call(API.listChats, { query: { other: '1', cursor: g.other.nextCursor, limit: 2 } })).items : (await h.api('bob').call(API.listChats, { query: { other: '1', limit: 2 } })).items
+    } finally { delete (d as unknown as Record<string, unknown>).query }
+    expect(page.length).toBeGreaterThan(0)
+    // the other chats are in no project I see: never shared, so no faces
+    expect(page.every((c) => !c.shared)).toBe(true)
+    expect(seen.filter((x) => x.includes('MAX(m.rowid)')).length).toBeLessThanOrEqual(2)
   })
 
   test('a chat that is not shared has none', async () => {
