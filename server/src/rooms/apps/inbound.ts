@@ -26,7 +26,7 @@ import type { AppContext } from '../../context'
 import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
 import { parseArrival, type Parsed } from './parse'
 import { presetOf, PRESETS } from './presets'
-import { tallyTooOld, typeformTooOld } from './presets/forms'
+import { tallyTooOld } from './presets/forms'
 import { verifySignature } from './signatures'
 import { roomAppsOf, sha256, teamDay, type AppRow } from './service'
 
@@ -142,8 +142,6 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     if (!r.ok) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
     // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
     if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
-    if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
     verified = r.json
     signed = true
   }
@@ -159,7 +157,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   try { timeZone = teamTimeZone(db) } catch { timeZone = undefined }
   let parsed: Parsed
   try {
-    parsed = parseArrival({ kind: row.kind, preset: p, headers: req.headers, contentType: type, raw, signed, locale, events: apps.switches(row), pin: now_.preset_pin, ...(verified !== undefined ? { json: verified } : {}), ...(form ? { form } : {}), timeZone, now })
+    parsed = parseArrival({ kind: row.kind, preset: p, headers: req.headers, contentType: type, raw, signed, locale, events: apps.switches(row), ...(verified !== undefined ? { json: verified } : {}), ...(form ? { form } : {}), timeZone, now })
   } catch (e) {
     // a reader that met a shape it did not expect: a body Trina cannot read, never a 500
     ctx.log.warn('room app body not read', { err: e, kind: row.kind, preset: p })

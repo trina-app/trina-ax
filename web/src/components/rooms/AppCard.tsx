@@ -9,13 +9,13 @@
 // (unverified)" when the request was not signed: the server writes it).
 import clsx from 'clsx'
 import { ExternalLink } from 'lucide-react'
-import type { RoomAppKind, RoomMessage } from '@mycel/shared/api'
+import type { RoomMessage } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { appPlainText } from '../../lib/roomApps'
+import { appPlainText, serviceOf, type AppService } from '../../lib/roomApps'
 
 export type AppCardVariant = 'card' | 'reply' | 'quiet'
 
-function CardLink({ kind, name, link, small = false }: { kind: RoomAppKind; name: string; link: { url: string; host: string }; small?: boolean }) {
+function CardLink({ service, link, small = false }: { service: AppService; link: { url: string; host: string }; small?: boolean }) {
   const t = useT()
   return (
     <a
@@ -30,7 +30,7 @@ function CardLink({ kind, name, link, small = false }: { kind: RoomAppKind; name
         : 'touch-hit inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent-text hover:underline'}
       data-testid="room-app-link"
     >
-      {kind === 'other' ? t('roomApps.openLink') : t('roomApps.openIn', { app: name })}
+      {service === 'other' ? t('roomApps.openLink') : t('roomApps.openIn', { app: t(`roomApps.kind.${service}`) })}
       <ExternalLink size={small ? 11 : 12} aria-hidden />
     </a>
   )
@@ -45,7 +45,7 @@ export function AppCardText({ m, variant = 'card', className }: { m: Pick<RoomMe
     return (
       <p className={clsx('min-w-0 text-xs break-words text-muted', className)} data-testid="app-quiet-line">
         <span>{[c.kind, c.title].filter(Boolean).join(': ')}</span>
-        {c.link && <>{' · '}<CardLink kind={app.kind} name={app.name} link={c.link} small /></>}
+        {c.link && <>{' · '}<CardLink service={serviceOf(app)} link={c.link} small /></>}
       </p>
     )
   }
@@ -65,7 +65,7 @@ export function AppCardText({ m, variant = 'card', className }: { m: Pick<RoomMe
       {(c.status || c.link) && (
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           {c.status && <p className="min-w-0 text-xs text-muted" data-testid="app-card-status">{c.status}</p>}
-          {c.link && <CardLink kind={app.kind} name={app.name} link={c.link} />}
+          {c.link && <CardLink service={serviceOf(app)} link={c.link} />}
         </div>
       )}
     </div>

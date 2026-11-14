@@ -4,8 +4,7 @@
 //
 // Typeform (https://www.typeform.com/developers/webhooks/example-payload/): event_id, event_type form_response,
 //   form_response.{form_id, token, definition.{title, fields[]}, answers[]}; answers matched to fields by field.id.
-//   Signed (optional) Typeform-Signature "sha256=<base64>" over the raw bytes; a signed submitted_at older than 2
-//   days is refused (no time in the signature).
+//   Signed (optional) Typeform-Signature "sha256=<base64>" over the raw bytes.
 // Tally (https://tally.so/help/webhooks): eventId, eventType FORM_RESPONSE, createdAt, data.{responseId, formName,
 //   fields[{key, label, type, value, options?}]}; choice values are option ids. Signed (optional) Tally-Signature, base64
 //   HMAC of JSON.stringify(body) (signatures.ts b64-json): the card is built from the verified parse; a createdAt older
@@ -19,8 +18,7 @@ import type { Arrival, Parsed } from '../parse'
 import { arr, get, jsonOf, num, obj, sha, str } from '../read'
 import { fileName, FORM_ANSWERS_MAX, formEvent, type PresetDef } from './common'
 
-/** Tally and Typeform: a signed body whose createdAt / submitted_at is older than this is refused (their signatures
- * carry no time: a replay beyond what dedupe remembers). */
+/** Tally: a signed body whose createdAt is older than this is refused (replay beyond what dedupe remembers). */
 export const TALLY_MAX_AGE_MS = 2 * 86_400_000
 
 // ---------------- Typeform ----------------
@@ -88,12 +86,6 @@ function tally(a: Arrival): Parsed {
 /** Tally's createdAt when it is older than allowed (signed requests only, inbound.ts): true to refuse. */
 export function tallyTooOld(json: unknown, now: number): boolean {
   const at = Date.parse(str(json, 'createdAt'))
-  return !Number.isFinite(at) || now - at > TALLY_MAX_AGE_MS
-}
-
-/** Typeform's submitted_at when it is older than allowed (signed requests only, inbound.ts): true to refuse. */
-export function typeformTooOld(raw: Uint8Array, now: number): boolean {
-  const at = Date.parse(str(jsonOf(raw), 'form_response', 'submitted_at'))
   return !Number.isFinite(at) || now - at > TALLY_MAX_AGE_MS
 }
 

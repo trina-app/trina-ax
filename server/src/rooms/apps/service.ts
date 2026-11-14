@@ -51,7 +51,7 @@ const THREADS_KEPT_DAYS = 90
 const REFUSAL_EVERY_MS = 60_000
 
 export interface AppRow {
-  id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
+  id: string; room_id: string; kind: RoomAppKind; preset: string | null; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
 }
@@ -505,8 +505,6 @@ export class RoomApps {
         if (prior && Date.parse(prior.at) > window) return
       }
       for (const h of [dh, dh2]) if (h) db.query('INSERT OR REPLACE INTO room_app_deliveries (app_id, delivery_hash, at) VALUES (?, ?, ?)').run(row.id, h, at)
-      // the service account this app posts from, pinned on first sight (presets/zendesk.ts, shopify.ts)
-      if (ev.pin) db.query('UPDATE room_apps SET preset_pin = ? WHERE id = ? AND preset_pin IS NULL').run(ev.pin, row.id)
       let root: MessageRow | null = null
       let thread: { root_id: string; state: string | null; last_at: string } | null = null
       if (keyHash) {

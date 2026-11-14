@@ -1,26 +1,84 @@
-// Apps posting in rooms, the web parts (docs/DECISIONS.md "Apps posting in rooms"): Trina's own words never say
-// "webhook" in any language (the services' screen labels, roomApps.vendorLabel.*, are quoted as they are), who may
+// Apps posting in rooms, the web parts (docs/DECISIONS.md "Apps posting in rooms"): Slack's words (Webhook URL, Copy,
+// Regenerate) in every language, the presets (picker groups, service of an app, the shared contracts, words), who may
 // manage a room's apps, the room menu's item, the status line, the side chat's chip, plain text of a card, the paused
 // notice's time and the address cut in its middle.
 import { expect, test } from 'bun:test'
 import { DICTS } from '../../src/i18n'
-import { appChip, appPlainText, appStatus, unescapeAppBody } from '../../src/lib/roomApps'
+import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, RoomAppPreset } from '@mycel/shared/api'
+import { appChip, appPlainText, appStatus, isPreset, kindOf, MAKE_BODY, needsOf, notSetUp, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, unescapeAppBody } from '../../src/lib/roomApps'
 import { mayManageApps } from '../../src/store/roomApps'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
 import { startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
 import { middleCut } from '../../src/components/rooms/apps/AppsDialog'
 
-const WEBHOOK = /web\s*-?\s*hook|웹\s*훅|ウェブフック|webフック|网络钩子|网钩|webhook/i
-
-test('no "webhook" in Trina\'s own words of the apps screens but the address\'s name "Webhook URL", in any language; vendor labels are quoted as they are', () => {
+test('the apps screens use Slack\'s words in every language: "Webhook URL" with Copy and Regenerate (owner decision 3, plan 20261114-1522)', () => {
+  const words: Record<string, { copy: string; regenerate: string }> = {
+    en: { copy: 'Copy', regenerate: 'Regenerate' },
+    ko: { copy: '복사', regenerate: '다시 만들기' },
+  }
   for (const [locale, dict] of Object.entries(DICTS)) {
-    for (const [key, text] of Object.entries(dict)) {
-      if (!key.startsWith('roomApps.') || key.startsWith('roomApps.vendorLabel.')) continue
-      // "Webhook URL" is the address's name, as Slack and the services call it (owner, 2026-11-14); no other "webhook"
-      expect({ locale, key, hit: WEBHOOK.test(text.replaceAll('Webhook URL', '')) }).toEqual({ locale, key, hit: false })
+    const d = dict as Record<string, string>
+    // the address is named the way Slack and the services name it, untranslated
+    expect({ locale, label: d['roomApps.addressLabel'], row: d['roomApps.address'] }).toEqual({ locale, label: 'Webhook URL', row: 'Webhook URL' })
+    expect(d['roomApps.vendorLabel.sentryUrl']).toBe('Webhook URL')
+    expect(d['roomApps.copyAddress']).toBeTruthy()
+    expect(d['roomApps.newAddress']).toBeTruthy()
+    expect(d['roomApps.newAddressConfirm']).toBe(d['roomApps.newAddress'])
+    if (words[locale]) expect({ locale, copy: d['roomApps.copyAddress'], regenerate: d['roomApps.newAddress'] }).toEqual({ locale, ...words[locale] })
+    // Other's one line names the three chat apps whose webhook URL it takes
+    for (const name of ['Slack', 'Discord']) expect(d['roomApps.otherWhere']).toContain(name)
+    expect(d['roomApps.otherWhere']).toMatch(/JANDI|잔디/)
+    expect(d['roomApps.tag']).toBeTruthy()
+  }
+})
+
+test('presets: the picker\'s groups, Other last, no email row, the service of an app, the shared contracts', () => {
+  const picked = PICKER_GROUPS.flatMap((g) => g.items)
+  expect(PICKER_GROUPS.map((g) => g.key)).toEqual(['forms', 'payments', 'work', 'developers'])
+  expect(picked).toEqual(['google_forms', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'notion', 'zendesk', 'github', 'sentry'])
+  // every preset this build knows is in a group; Other comes after them (the divider), Email not before P2
+  expect([...RoomAppPreset.options].sort()).toEqual(picked.filter(isPreset).sort())
+  expect(picked).not.toContain('other')
+  expect(picked).not.toContain('email' as never)
+  expect(serviceOf({ kind: 'other', preset: 'stripe' })).toBe('stripe')
+  expect(serviceOf({ kind: 'other' })).toBe('other')
+  // a preset a newer server knows and this build doesn't shows as a plain Other app
+  expect(serviceOf({ kind: 'other', preset: 'toss_payments' })).toBe('other')
+  expect(serviceOf({ kind: 'sentry', preset: 'stripe' })).toBe('sentry')
+  expect(kindOf('zendesk')).toBe('other')
+  expect(kindOf('github')).toBe('github')
+  for (const p of RoomAppPreset.options) {
+    expect(switchesOf(p).map((s) => [s.key, s.on])).toEqual(ROOM_APP_PRESET_SWITCHES[p].map((s) => [s.key, s.on]))
+    expect(signingOf(p)).toBe(ROOM_APP_PRESET_SIGNING[p].signing)
+    expect(needsOf(p)).toBe(ROOM_APP_PRESET_NEEDS[p] ?? null)
+  }
+  expect(signingOf('github')).toBe('trina_makes')
+  expect(signingOf('sentry')).toBe('paste')
+  expect(signingOf('other')).toBe('none')
+  // the optional events of the guides: only those can say "Not set up in Shopify", and only when the server says
+  expect(switchesOf('shopify').filter((s) => s.optional).map((s) => s.key)).toEqual(['paid', 'cancelled', 'refund', 'fulfilled'])
+  expect([...notSetUp('shopify', {})]).toEqual([])
+  expect([...notSetUp('shopify', { eventsSeen: ['order', 'paid'] })]).toEqual(['cancelled', 'refund', 'fulfilled'])
+  expect([...notSetUp('stripe', { eventsSeen: [] })]).toEqual([])
+  // Stripe's chips cover each switch
+  for (const s of switchesOf('stripe')) expect(STRIPE_EVENTS[s.key]?.length).toBeGreaterThan(0)
+  // the forms posts Summarize today's responses
+  expect(appChip([{ app: { id: 'a', name: 'Survey', kind: 'other', preset: 'typeform' } }, { app: { id: 'b', name: 'Form', kind: 'google_forms' } }])).toBe('forms')
+  expect(appChip([{ app: { id: 'a', name: 'Stripe', kind: 'other', preset: 'stripe' } }])).toBe('today')
+  // Make's example body is JSON with the fields Other reads
+  expect(Object.keys(JSON.parse(MAKE_BODY))).toEqual(['title', 'text', 'link', 'thread'])
+})
+
+test('every service has its words in every language: name, the picker\'s line, the example card, its switches', () => {
+  const services = [...PICKER_GROUPS.flatMap((g) => g.items), 'other'] as const
+  for (const [locale, dict] of Object.entries(DICTS)) {
+    const d = dict as Record<string, string>
+    for (const s of services) {
+      for (const k of [`roomApps.kind.${s}`, `roomApps.hint.${s}`, `roomApps.preview.${s}.title`, `roomApps.preview.${s}.detail`]) expect({ locale, k, ok: !!d[k] }).toEqual({ locale, k, ok: true })
+      for (const w of switchesOf(s)) expect({ locale, s, w: w.key, ok: !!d[`roomApps.switch.${s}.${w.key}`] }).toEqual({ locale, s, w: w.key, ok: true })
+      const n = needsOf(s)
+      if (n) expect(d[`roomApps.needs.${n}`]).toBeTruthy()
     }
-    expect((dict as Record<string, string>)['roomApps.vendorLabel.sentryUrl']).toBe('Webhook URL')
-    expect((dict as Record<string, string>)['roomApps.tag']).toBeTruthy()
   }
 })
 

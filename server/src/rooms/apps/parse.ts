@@ -40,8 +40,6 @@ export interface AppEvent {
   /** when the thing's card is there already, only its status line changes (no reply): the second event of one payment
    * (Stripe's Checkout session and its payment intent), Shopify's "Order payment" */
   onlyStatus?: boolean
-  /** the service account to pin to the app when none is pinned yet (Arrival.pin) */
-  pin?: string
   alert?: boolean
   extra?: string
 }
@@ -66,8 +64,6 @@ export interface Arrival {
   /** the team's time zone (dates on cards) and the clock (Tally's createdAt) */
   timeZone?: string
   now?: number
-  /** the service account pinned to the app (room_apps.preset_pin): a body naming another gets no link */
-  pin?: string | null
 }
 
 function json(a: Arrival): unknown {

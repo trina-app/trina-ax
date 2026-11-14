@@ -12,8 +12,10 @@ status line changes as things move on.
 ## Add an app
 
 1. Open the room, then **⋯ › Add an app**.
-2. Pick **Google Forms**, **Other app**, **GitHub** or **Sentry**. An Other app gets a name first (for example
-   *Backup alerts*): its messages show under that name.
+2. Pick a service. They are grouped: **Forms** (Google Forms, Typeform, Tally, Jotform), **Payments & orders**
+   (Stripe, Shopify), **Work** (Notion, Zendesk) and **For developers** (GitHub, Sentry). **Other app**, last, takes
+   anything else. A service that needs a plan or a role says so on its row (for example *Needs: a paid Notion plan*).
+   An Other app gets a name first (for example *Backup alerts*): its messages show under that name.
 3. Press **Copy** next to the Webhook URL (Google Forms: **Copy code**) and follow the numbered steps in that service.
    Nothing is added to the room until you copy, so you can look first and close the guide.
 4. The guide shows what happens live: *Waiting for the first message*, *Connected*, or why the last try wasn't shown.
@@ -37,7 +39,33 @@ Google Forms has nothing to paste a URL into, so Trina gives you a short script 
 - If the form collects email addresses, each response shows the respondent's email. Turn **Respondent's email** off in
   the app's settings to leave it out. Anyone who can edit the form can see the code.
 
+### Forms, payments and work tools
+
+Typeform, Tally, Jotform, Stripe, Shopify, Notion and Zendesk each have their own guide with the steps in that service,
+named the way it names them. In short:
+
+- **Typeform**: the form's **Connect › Webhooks › Add a webhook**, paste, save and turn it on.
+- **Tally**: the form's **Integrations › Webhooks › Connect**, paste into **Endpoint URL**.
+- **Jotform**: the form's **Settings › Integrations**, search **WebHooks**, paste.
+- **Stripe** (Admin or Developer role): **Developers › Workbench › Webhooks › Create an event destination**, tick the
+  events the guide lists, choose **Webhook endpoint** and paste into **Endpoint URL**.
+- **Shopify** (store owner or staff with Settings access): **Settings › Notifications › Webhooks › Create webhook** for
+  **Order creation**; optionally again for Order payment, Order cancellation and Refund create.
+- **Notion** (paid plan): the database's **Automations**, action **Send webhook**; tick at least the title and Status.
+- **Zendesk** (Team plan or higher, admin): create a webhook, then a trigger that sends the body the guide gives you
+  (**Copy body**, in that step).
+
+Form answers show in the room as they were given, email addresses too; uploaded files show only their name. Payment
+and order cards show a customer's name (and city for Shopify), never their email, phone or card.
+
+Stripe, Shopify, Zendesk, Typeform and Tally can sign what they send. **Optional: make it safer** in the guide takes the
+service's signing secret (or gives you one to paste there); after that only signed messages are shown.
+
 ### Other apps
+
+A tool that asks for a **Slack, Discord or JANDI webhook URL** can post here: paste the Trina Webhook URL in that field.
+Tools that have neither can be connected through Zapier or Make; the guide's **Don't see your app?** walks through one
+example for each.
 
 Anything that can send a message to a Webhook URL (Zapier, Make, Grafana, Uptime Kuma, your own scripts) works. Paste
 the Webhook URL where the service sends messages and send a test. The guide and the app's settings show **How to send**
