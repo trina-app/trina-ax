@@ -1,0 +1,100 @@
+<!doctype html>
+<!-- The launch campaign (web banner 1200×628, Instagram square 1080×1080, story 1080×1920): a Higgsfield photo
+     (../photos, no text in it) under real type. Fraunces (display serif) for the headline and the wordmark,
+     Pretendard for everything else. The pouch's blank cream label gets its printing here, placed on the label's
+     rectangle in the photo (measured in % of the photo), so no AI-made letters show anywhere.
+     render.mjs fills {{format}}, {{w}}, {{h}}, {{photo}}, {{cfg}} (JSON: the photo's size, focus and label box) and
+     the copy. -->
+<html lang="{{lang}}"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=block">
+<style>
+  @font-face { font-family: Pretendard; font-weight: 400; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-Regular.woff2) format('woff2'); }
+  @font-face { font-family: Pretendard; font-weight: 500; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-Medium.woff2) format('woff2'); }
+  @font-face { font-family: Pretendard; font-weight: 600; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-SemiBold.woff2) format('woff2'); }
+  @font-face { font-family: Pretendard; font-weight: 700; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-Bold.woff2) format('woff2'); }
+  :root { --green: #1F4D3A; --deep: #163a2b; --cream: #F6F1E7; --yuzu: #F2B630; --ink: #1B1F1C; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: {{w}}px; height: {{h}}px; overflow: hidden; background: #e9e2d6; }
+  body { position: relative; font-family: Pretendard, sans-serif; color: var(--green); -webkit-font-smoothing: antialiased; }
+
+  .photo { position: absolute; }
+  .photo img { display: block; width: 100%; height: 100%; }
+  /* the label's printing, on the photo's blank label (multiply: it takes the label's own light and grain) */
+  .label { position: absolute; display: flex; flex-direction: column; align-items: center; mix-blend-mode: multiply; color: var(--green); text-align: center; }
+  .label .lb-brand { position: absolute; top: 15%; left: 0; right: 0; font-family: Fraunces, serif; font-weight: 600; letter-spacing: -.01em; }
+  .label .lb-name { position: absolute; top: 64%; left: 0; right: 0; font-family: Fraunces, serif; font-weight: 600; line-height: 1.05; }
+  .label .lb-kind { position: absolute; top: 81%; left: 0; right: 0; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; opacity: .75; }
+  .label .lb-rule { position: absolute; top: 30%; left: 30%; right: 30%; height: 1px; background: currentColor; opacity: .35; }
+
+  .wash { position: absolute; inset: 0; pointer-events: none; }
+  .logo { position: absolute; display: flex; align-items: center; gap: .32em; font-family: Fraunces, serif; font-weight: 600; letter-spacing: -.015em; color: var(--green); }
+  .logo i { width: .78em; height: .78em; border-radius: 0 100% 0 100%; background: var(--green); display: block; transform: translateY(.04em); }
+  .eyebrow { font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--green); opacity: .85; }
+  h1 { font-family: Fraunces, serif; font-weight: 600; letter-spacing: -.025em; line-height: .98; color: var(--deep); font-variation-settings: 'opsz' 144; }
+  h1 em { font-style: italic; font-weight: 500; }
+  .product { font-weight: 500; color: var(--ink); opacity: .82; line-height: 1.4; }
+  .offer { display: inline-flex; align-items: center; gap: .55em; background: var(--yuzu); color: var(--ink); font-weight: 700; border-radius: 999px; white-space: nowrap; }
+  .offer span { font-weight: 500; opacity: .75; }
+  .cta { display: inline-flex; align-items: center; gap: .5em; background: var(--green); color: var(--cream); font-weight: 600; border-radius: 999px; white-space: nowrap; }
+  .row { display: flex; align-items: center; }
+
+  /* web banner 1200×628: copy on the light wall at the left, product right */
+  .banner .wash { background: linear-gradient(90deg, rgba(246,241,231,.78) 0%, rgba(246,241,231,.55) 34%, rgba(246,241,231,0) 52%); }
+  .banner .logo { left: 56px; top: 44px; font-size: 26px; }
+  .banner .copy { position: absolute; left: 56px; top: 132px; width: 520px; }
+  .banner .eyebrow { font-size: 13px; }
+  .banner h1 { margin-top: 16px; font-size: 68px; }
+  .banner .product { margin-top: 18px; font-size: 19px; max-width: 430px; }
+  .banner .row { position: absolute; left: 56px; top: 404px; gap: 14px; }
+  .banner .offer { font-size: 16px; padding: 12px 18px; }
+  .banner .cta { font-size: 16px; padding: 12px 20px; }
+
+  /* Instagram square 1080×1080: copy top left on the wall, product bottom right */
+  .square .wash { background: linear-gradient(180deg, rgba(246,241,231,.6) 0%, rgba(246,241,231,.35) 40%, rgba(246,241,231,0) 58%); }
+  .square .logo { left: 72px; top: 64px; font-size: 34px; }
+  .square .copy { position: absolute; left: 72px; top: 178px; width: 560px; }
+  .square .eyebrow { font-size: 17px; }
+  .square h1 { margin-top: 20px; font-size: 92px; }
+  .square .product { margin-top: 22px; font-size: 24px; max-width: 470px; }
+  .square .row { position: absolute; left: 72px; top: 650px; flex-direction: column; align-items: flex-start; gap: 16px; }
+  .square .offer { font-size: 22px; padding: 14px 24px; }
+  .square .cta { font-size: 22px; padding: 14px 26px; }
+
+  /* Instagram story 1080×1920: inside the safe area (250 px top and bottom), copy on the window, the call at the foot */
+  .story .wash { background: linear-gradient(180deg, rgba(246,241,231,.0) 0%, rgba(246,241,231,.5) 12%, rgba(246,241,231,.45) 36%, rgba(246,241,231,0) 46%); }
+  .story .logo { left: 50%; transform: translateX(-50%); top: 250px; font-size: 40px; }
+  .story .copy { position: absolute; left: 80px; right: 80px; top: 360px; text-align: center; }
+  .story .eyebrow { font-size: 20px; }
+  .story h1 { margin-top: 22px; font-size: 118px; }
+  .story .product { margin-top: 24px; font-size: 30px; }
+  .story .row { position: absolute; left: 0; right: 0; bottom: 236px; justify-content: center; gap: 16px; }
+  .story .offer { font-size: 28px; padding: 16px 30px; }
+  .story .cta { font-size: 28px; padding: 16px 32px; box-shadow: 0 10px 30px rgba(22,58,43,.25); }
+</style></head>
+<body class="{{format}}">
+  <div class="photo" id="photo"><img src="../photos/{{photo}}" alt=""><div class="label" id="label">
+    <div class="lb-brand">{{brand}}</div><div class="lb-rule"></div><div class="lb-name">{{pouchName}}</div><div class="lb-kind">{{pouchKind}}</div>
+  </div></div>
+  <div class="wash"></div>
+  <div class="logo"><i></i>{{brand}}</div>
+  <div class="copy">
+    <div class="eyebrow">{{eyebrow}}</div>
+    <h1>{{headline}}</h1>
+    <p class="product">{{productLine}}</p>
+  </div>
+  <div class="row"><div class="offer">{{badge}}<span>{{badgeDates}}</span></div><div class="cta">{{cta}}</div></div>
+<script>
+  // cover the canvas with the photo around its focus point, then put the label printing on the label box
+  const c = {{cfg}}, W = {{w}}, H = {{h}}
+  const s = Math.max(W / c.w, H / c.h) * (c.zoom || 1)
+  const pw = c.w * s, ph = c.h * s
+  const x = Math.min(0, Math.max(W - pw, W / 2 - c.fx * pw)), y = Math.min(0, Math.max(H - ph, H / 2 - c.fy * ph))
+  Object.assign(document.getElementById('photo').style, { left: x + 'px', top: y + 'px', width: pw + 'px', height: ph + 'px' })
+  const L = c.label, lw = (L[2] - L[0]) * pw, lh = (L[3] - L[1]) * ph
+  Object.assign(document.getElementById('label').style, { left: L[0] * pw + 'px', top: L[1] * ph + 'px', width: lw + 'px', height: lh + 'px' })
+  const lab = document.getElementById('label')
+  lab.querySelector('.lb-brand').style.fontSize = lw * 0.15 + 'px'
+  lab.querySelector('.lb-name').style.fontSize = lw * 0.12 + 'px'
+  lab.querySelector('.lb-kind').style.fontSize = lw * 0.045 + 'px'
+</script>
+</body></html>

@@ -13,11 +13,14 @@ export const roomAppsRoutes: RouteModule = {
   name: 'room-apps',
   owner: 'B',
   init(ctx) {
-    // old deliveries, day counters and threads go once an hour
+    // old deliveries, day counters and threads go once an hour; every 5 minutes (and with the hourly prune) the managers
+    // are told when someone who left still knows an app's address (RoomApps.leaverSweep: no single code path to hook)
     if (process.env.NODE_ENV === 'test') return
-    const tick = setInterval(() => { try { roomAppsOf(ctx).prune() } catch (e) { ctx.log.warn('room app prune failed', { err: e }) } }, 3_600_000)
-    ;(tick as { unref?: () => void }).unref?.()
-    ctx.onClose(() => clearInterval(tick))
+    const sweep = () => { try { roomAppsOf(ctx).leaverSweep() } catch (e) { ctx.log.warn('room app leaver sweep failed', { err: e }) } }
+    const tick = setInterval(() => { try { roomAppsOf(ctx).prune() } catch (e) { ctx.log.warn('room app prune failed', { err: e }) } sweep() }, 3_600_000)
+    const short = setInterval(sweep, 300_000)
+    for (const t of [tick, short]) (t as { unref?: () => void }).unref?.()
+    ctx.onClose(() => { clearInterval(tick); clearInterval(short) })
   },
   register(kit, ctx) {
     const apps = roomAppsOf(ctx)

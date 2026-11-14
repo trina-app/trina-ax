@@ -27111,7 +27111,8 @@ phase 4.
   from the computer is refused in a people-shared chat (`Chat.shared.canUpload` false) and earlier uploads stay their
   sender's alone, as in a shared project chat; no folder-rule exception anywhere. Push for adds by name and the
   `chatShared` preference: the push gateway and the phone extension need the new code first, so this phase records the
-  Inbox notice only (nothing is pushed).
+  Inbox notice only (nothing is pushed). Done in feat/shared-chats-push: "Chats shared with me: a push that names the
+  sharer".
 - Version impact: **minor**.
 
 ## Chats shared with people and groups: the Share dialog (feat/shared-chats-p4, 2026-11-14, product owner)
@@ -27404,6 +27405,47 @@ commit for its own reports (no SDK, same allowlist), and every new shape of repo
   never throwing, rate-limit categories both ways).
 - Version impact: **none** (no team server or app change; relay and push gateway behaviour unchanged).
 
+## Disk: what is kept and what goes on a small team disk (feat/disk-retention, 2026-11-14, the owner: trial servers get a 20 GB data disk)
+
+- **Already there, kept as it is** (checked in the code, not rebuilt): `system/prune.ts` keeps app/current, the running
+  version, state.json's current and previous (Roll back, the bootstrap's way back) and the newest staged update, and
+  removes every other version and engine folder hourly (so 3 × 483 MB on potenlab is current + previous + the staged
+  one); backups are kept 14 days (a hosted plan: 3) with a full archive every 7 days and a chain of incrementals
+  (`system/backup.ts`); the 80 % notice to owner and admins comes at 4 GB free on a 20 GB disk (90 % at 2 GB, a full
+  backup needs 2 GB), so no new low-disk notice.
+- **Why one daily was 1.8 GB:** the weekly full archive (an incremental is only changed files) walked the whole team
+  folder, and a project folder in it holds the project's `node_modules`, `.next` and virtual environment (a chat with a
+  project runs there: `box_shell` description "node_modules ... use team disk"). Nothing was left out except
+  `.system/backups`. `devenv/work` and `devenv/home` are outside the team folder and were never in it. Fix: the backup
+  walk (`system/regenerable.ts`, `backupWalk`: also the archives of `mycel-ctl backup` and the hosting export) skips
+  `node_modules`, `.next`, `.turbo`, `.svelte-kit`, `.parcel-cache`, `__pycache__` and a `.venv`/`venv` that holds a
+  `pyvenv.cfg`, at any depth. NOT `dist`, `build`, `out`, `.cache`, `.git`: they can be a result or history. A restore
+  brings no `node_modules`; `npm install` makes it again. Archives made before stay until their chain is 14 days old.
+- **Migration copies** (`data/backups/pre-migrate-*.db`): the newest 5 stay and every one of the last 14 days
+  (`PRE_MIGRATE_KEEP_NEWEST/DAYS`), whichever keeps more; the newest, the copy before the latest migration that the
+  bootstrap's roll-back names, is always among them. Before: 14 days (a hosted plan: 3) and only the newest beyond that.
+- **Dev environment** (`system/devenv-clean.ts`, hourly from 20 minutes after start, as the server account): of the two
+  options (show the admin and clear on a click, or clear regenerable folders by itself) the second is the safer here,
+  because it can only remove what a command brings back and never a person's file, so there is nothing to confirm and
+  nobody has to remember. (1) Per person caches under `devenv/home/<user>`: `.npm/_cacache`, `.npm/_logs`, `.cache/pip`,
+  `.bun/install/cache` removed whole when idle 14 days or over 1 GiB, `tmp/` entries older than 7 days; not the browser
+  downloads (no network path to fetch them again); never while the person has a run. (2) The regenerable folders (same
+  list as the backup) of a chat's work folder `devenv/work/<chat>`, only when the chat is idle 14 days (no run, no
+  chat or turn change in the database, no other file changed). No work folder is removed here, `out/` and `dist/` stay,
+  project folders (team folders) are never touched. A project's own `node_modules` costs live disk but no backup space;
+  a click-to-clear list for those is not built.
+- **OS side:** `pk_apt_install` (`scripts/system/packages.sh`: the installer, the package sync, the image build) runs
+  `apt-get clean` after a successful install (798 MB of .deb files on potenlab); the journald cap is
+  `SystemMaxUse=100M` (was 200M) in `install-linux.sh` and the image's `journald-ax.conf`; an existing server gets it
+  at its next installer run, not at an update.
+- Not done: devenv is part of "other" in Admin > System (no own row); no cap on the number of project folders.
+- Steady state of a fresh trial team (numbers from potenlab's breakdown, no project data or uploads): app/versions
+  about 1 GB (current + previous; 1.5 GB while one update is staged), engines 0.56 GB, models 0.68 GB, journal at most
+  0.1 GB, apt cache 0, DB copies and backups a few hundred MB (team archives hold only the real files), devenv caches at
+  most 1 GB per person: about 3 GB on a 20 GB disk before the team's own files. The 3 × 483 MB / 0.5 GB engine /
+  0.7 GB models are fixed costs of the product, not growth.
+- Tests: `tests/unit/g-disk-retention.test.ts`, `tests/unit/system-packages.test.ts` (apt-get clean after install).
+
 ## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
 
 Plan: docs/AGENTS/plan/20261114-0900-room-apps.md (revision 2 and the owner's decisions of 2026-11-14). Phase 1 is the
@@ -27485,6 +27527,143 @@ guides, "Apps posting here") are phase 2.
     naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
 - Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
   tests/security/lib/room-apps-cases.ts.
+- **Paused push (phase 3).** The `room_app.paused` notice also goes to phones and browsers through the normal push
+  pipeline, if the person allows push: it is a PushEventType now, with its own deliveries (`room_app_push_deliveries`,
+  migration `352_c_room_app_push.sql`, numbered in C because B's 200–299 is full; push-service.ts SOURCES). No switch
+  of its own, like `owner.lead_joined`: pushed while the notice is unread, the app is still there and still paused
+  (`paused_until` after now; "Resume now" also marks the notices read) and the person is still in its room
+  (`rooms/apps/notice.ts` roomAppPushWanted, asked before and after each send). Generic words only, never the app's or
+  the room's name: "An app in a room was paused for today." (server `notifications/text.ts` and push-gateway
+  `EVENT_TEXT` the same). A tap opens `/rooms/<roomId>` while the person is still in the room and it is not archived
+  (push-events.ts; the web worker takes the id from the signed-in notice's `roomApp.roomId`), else the start page /
+  the Inbox. Tests: tests/unit/b-room-app-push.test.ts, push-worker.test.ts, push-gateway.test.ts, push-locale.test.ts.
+  - **Leaver notice in Activity.** The people who may manage the app (`mayManageApps`: a team room's owners and admins
+    in it, everyone in a 1:1 or group chat), never the leaver, get `room_app.leaver`: "Someone who left knows the
+    address of <app> · Get a new address". Activity only (not a PushEventType), shown always (no setting). Its own
+    table `room_app_leaver_notices` (in the same unmerged migration 352: the notice tables' event_type CHECK lists are
+    fixed). Source `<app id>.<first 12 of the token hash>`: one notice per person and address, never twice; a new
+    address starts over. Detection does not hang on one code path: `RoomApps.leaverSweep()` checks every app with
+    viewers every 5 minutes and with the hourly prune (routes/room-apps.ts; not under tests). No call from the
+    membership and role code: a room left or a member taken out (Rooms.dropMembers), a group's members changed (team
+    rooms), a role change, a disabled or deleted account are separate paths with no single hook, so a notice may come up
+    to 5 minutes late. "Get a new address" marks them read; removing the app deletes them; the notice's
+    `roomAppLeaver` (app, room while the reader is in it) is absent once either happened. `room_app_viewers.user_id`
+    is kept with a deleted account on purpose (KEPT_WITH_ACCOUNT; it has no foreign key, so the coverage test reads
+    `USER_COLUMNS_WITHOUT_FK` too): the person stays flagged as knowing the address until it changes.
+    Tests: tests/unit/b-room-apps-leaver.test.ts.
+- **Phases 2–4: the screens (feat/room-apps-p2, QA TC-1546, TC-1547, TC-1412).** Words as owner decision 6 ("Add an
+  app", "Apps posting here · N", the "App" tag); Trina's own words never say "webhook" (a web unit test greps every
+  `roomApps.*` key of the six languages; `roomApps.vendorLabel.*` are the services' own labels, quoted in the language's
+  marks, and still to be checked against the live tools with screenshots in TC-1546).
+  - **Where:** the room's ⋯ (`RoomMenu` action `apps`, after Rename) for those who manage the room's apps
+    (`store/roomApps.ts mayManageApps`, the server's rule); one dialog (`components/rooms/apps/AppsDialog.tsx`, a sheet on a
+    phone, loaded on first open by `AppsHost`) with the picker (letter tiles), the four guides, the list and one app's
+    settings. The room page reads the list for managers only (a member would get 403), so the ⋯ can say how many post
+    there; `?apps=<id>` opens an app's settings (the notices' links).
+  - **Guide:** nothing is added before the first Copy (address, Forms code, GitHub secret or a saved Sentry secret); the
+    copy happens in the click with a `ClipboardItem` promise (Safari), and when no copy is possible the text is shown to
+    copy by hand. The status line follows the app live: it reads the list every 4 s while the app waits for its first
+    message or shows a refusal, and at once when a message from it reaches the room (no new realtime event).
+    "Nothing yet?" after 2 minutes for GitHub and Other; "Show an example" once the app exists. Signatures are an
+    optional, folded "Optional: make it safer" step (owner decision 9); Sentry's alert rules a second folded step.
+    Forms: the respondent's email note in step 4 (owner decision 12) and the copied code's `SEND_EMAIL` follows the
+    switch.
+  - **Settings:** the status line (last message, refusal with "Set up again", paused with "Resume now", no internet
+    address, and "Someone who left knows this address · Get a new address" from `RoomApp.leaverKnows`), the switches
+    (one PATCH each, on screen at once, back with "Couldn't save. Try again."), Quiet, Address (Copy / "Get a new
+    address" with its confirm) and Remove with the plan's words.
+  - **Cards:** one component, `components/rooms/AppCard.tsx` `AppCardText` (`card`, `reply`, `quiet`), plain text with
+    only the card's checked link ("Open in Sentry ↗": a button on a computer, a link on the status line on a phone);
+    the sender is `AppSender` (the app's name, `SenderTag` "App" / "Example", a popover: "Set up by Mina · Sentry" and
+    Manage for managers, "Ask Mina to change what shows here." for everyone else). `RoomAppRef.by` (who added it, while
+    in the team) was added for that popover. Search hits and the rooms list name the app; a quoted app message
+    (`RoomQuote.app`) shows its plain text, never links found in it.
+  - **AI chips (phase 3):** the side chat's starters get one chip chosen from the app messages on screen ("Summarise
+    today's responses" when they are forms only, else "What happened today?"), read from the timeline so members get it
+    too; an app's thread has "Summarise this thread", which opens the side chat with the root quoted and sends the
+    question at once (`SideSeed.ask`); a quoted app message's quick questions start with it.
+  - **Notices:** the paused notice (`room_app.paused`) reads "{app} paused in {room}. It reached 500 messages today. N
+    more were skipped and won't appear. It starts again tomorrow." ("at 09:00" when the team's midnight is another time
+    where the reader is), with Resume now and Open settings; on a computer it opens as itself while it can be resumed.
+  - **Self-installed (phase 4):** "Add an app" without an internet address shows who can fix it (the owner: "Turn on the
+    Trina relay…" and Open connection settings; everyone else: "Ask the team owner…"), with How it works
+    (docs/site/use/room-apps.md); existing apps' list and settings say "This server has no internet address now".
+    `ConnectionStatus.appsAnywhere` (a country or network list on the server's own address and at least one app) shows
+    "Apps can reach this server from anywhere at its /in/ addresses…" in Admin › System › Connection.
+  - Not done: the relay's `relay.address_moved` line for apps and per-step screenshots inside the guides (they need the
+    live-tool check of TC-1546 first).
+  - Tests: web/test/unit/room-apps.test.ts, web/test/e2e/room-apps.spec.ts (1440 and 390), web/test/e2e/shots-room-apps.spec.ts
+    (ROOM_APPS_SHOTS).
+
+## Chats shared with me: a push that names the sharer — 나에게 공유된 채팅 알림 (feat/shared-chats-push, 2026-11-14, product owner)
+
+QA TC-1414; follows "Chats shared with people and groups" (#821). 넣을 곳: Team AX core (`server/src/notifications/`,
+`push-gateway/`, the iPhone notification extension, `web/pwa/sw.js`, Settings › Notifications), 이유: notifications
+and the phone push are core.
+
+- **Who gets a push.** A person a chat is shared with **by name** (`chat_share_notices.named = 1`). A group's people get
+  the Activity row alone. The notice is the Inbox's (still at most one a day per chat and person), so a person gets at
+  most one push a day per chat. Someone first reached through a group, taken out, then named on the same day: that
+  day's unread row becomes a share by name (its sharer the one who named them) and is pushed once.
+- **When.** Like every push: only while the notice is unread, the person still sees the chat
+  (`chat-answers.ts chatOpenFor`), outside their quiet hours at send time (a push that waits or retries into them is
+  dropped, as a room notice's), "Phone notifications only when I'm away" for the phone app, and push turned on.
+- **Setting.** Settings › Notifications "Chats shared with me" (`chatShares`, `notification_preferences.chat_shares`,
+  default on). Off: no push, and what waits is cancelled; the Activity row stays (`eventEnabled('chat.shared')` stays
+  true; the push asks `pushEventEnabled`). A server from before it leaves the field out, so the page shows no row.
+- **Event code `chat.shared`** (already the Inbox's), its own deliveries table `chat_share_push_deliveries`
+  (migration 351, additive). The push carries ids and the code only; a tap opens `/c/<chatId>` while the person still
+  sees the chat, else the app's start page.
+- **The name.** The gateway never sees a name. Its generic line for `chat.shared` is "Someone shared a chat with you."
+  and the APNs payload is mutable for this code too, so the iPhone notification extension asks its own team
+  (`POST /api/push/devices/:id/label`, same key and checks as a room push) and shows the sharer's name as the title and
+  "Shared a chat with you." under it. Never the chat's title. A browser push names the sharer from the signed-in fetch
+  of the notice (`/api/push` `messages.chatSharedBy`).
+- **Older parts.** An older gateway shows its `chat.*` fallback ("You have a new message") with no mutable flag; an
+  older iPhone build's extension ignores the code and shows the gateway's line; Android always shows the gateway's
+  line (it has no extension; the same as room pushes); an older browser service worker drops the code (no
+  notification). A tap works on every phone build (the path is ids only). Nothing in the gateway's contract changed,
+  so the team server and the gateway deploy independently.
+- Tests: tests/unit/b-chat-share-push.test.ts (by name, group, same-day, setting, quiet hours, removed share, read,
+  label words), push-gateway.test.ts (text, mutable), mobile-labels.test.ts, push-locale.test.ts, b-rooms-notify.test.ts.
+- Version impact: **minor**.
+
+## Updates skip a release that cannot open the database (fix/update-skip-unreadable-db, 2026-11-14, the owner, QA TC-1513)
+
+- **Gap:** a server on a dev build (0.5.3-dev.x) whose database is at reader level 7 (since #787, 121_a_folder_limited)
+  and that is on the stable channel with automatic updates took stable 0.5.3 (level 6): by semver 0.5.3 is newer than
+  0.5.3-dev.x. Neither updater compared levels: mycel-ctl (native/cmd/mycel-ctl/update.go `gate` and `run`) went from
+  `notNewer` straight to the download and `updateRoot`; the app's `autoUpdateDecision` (server/src/system/update-job.ts)
+  had no such check, and its zod `ReleaseFeed` dropped `minReaderRequired`. 0.5.3 then refused the database (exit 75,
+  nothing written), the bootstrap rolled back after 3 tries, and every hold (20 h, 44 h, 92 h, 7 d) ended in another try.
+- **Rule (both updaters):** a release whose reader level is below the database's is not installed. Its level is the
+  feed's `minReaderRequired` (publish-server.ts writes the build's highest `min_compatible_reader`, which is its
+  `SCHEMA_READER_LEVEL`), else the bundle's own migrations (mycel-ctl after the download, before any root file; the app
+  for a staged copy, `canRead`). Unknown level: no check (old feeds, as before). Read leniently: a value that does not
+  read is unknown, never a reason to refuse the feed.
+- **The database's level:** the app reads it from the database (`requiredReaderLevel`). mycel-ctl has no SQLite, so it
+  reads the running version's migrations (app/versions/<app/current>/server/migrations, the same 400-byte head as
+  `bundleReaderLevel` and install-linux.sh `reader_level`, no link followed): a running build has applied all of its
+  migrations and would have refused a database that needs more, so the two are equal while the server runs.
+- **Skip, not failure:** the timer (`--scheduled`, `--only-if-needs-root`) and a plain `mycel-ctl update` answer "ok,
+  skipped" with the reason, write no root/update-failed.json, and do not download when the feed says the level. A
+  `--version` or `--bundle` an administrator asked for is refused with the same reason, nothing replaced. The app's
+  automatic update returns `cannot_read` (before the hold and roll-out checks); "Update now" is refused (409) and
+  `runUpdate` refuses before the download and again before the switch. A newer release that can read the database ends
+  it by itself; same-level dev → stable (0.5.3-dev.x at 7 → a 0.5.3 at 7) and real upgrades are unchanged.
+- **What people see:** the update status's `hold` gets `cannot_read`; Admin › Home and Admin › System say "Version
+  0.5.3 can't open this server's data yet. Waiting for a newer version." with no install button. A staged copy that
+  cannot open the database (left by a try that rolled back) is no longer offered as `available` (independent review).
+- **Known limit:** the updaters and publish-server.ts read a migration's declaration in its first 400 bytes, db.ts in its
+  first 10 lines. They agree for every migration today; a declaration past 400 bytes would make a release's level read
+  too low and the release be skipped (safe side), so declarations stay at the top of the file.
+- **Version order left as it is:** dev builds of a plain package version are `<v>-dev.<time>`, which semver sorts
+  before `<v>` (the comment in .github/workflows/dev-build.yml says "newer than the package version's release", true
+  only for a pre-release package version). Changing the order would touch every updater and the dev server's timer; the
+  reader-level check is what keeps data safe whatever the order, so the naming is a separate decision.
+- Tests: native/cmd/mycel-ctl/readerlevel_test.go (Linux Docker); tests/unit/update-reader-gate.test.ts;
+  tests/unit/g-update-auto.test.ts (hold and 409 through the app); web/test/unit/update-outcome.test.ts.
+
 
 ## Files from the computer in a chat shared with people (feat/shared-chats-s6, 2026-11-14, product owner, QA TC-1413)
 

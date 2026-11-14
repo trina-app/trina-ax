@@ -52,6 +52,7 @@ const slackPage = (appId: string | null, page: Page) => appId ? `${SLACK_APPS}/$
  * page, or "Replace tokens" here). The connection uses the app-level token only. */
 const FIX: Record<SlackErrorCode, { key: MessageKey; page?: Page | 'replace' }> = {
   invalid_auth: { key: 'slack.err.invalid_auth', page: 'replace' }, token_revoked: { key: 'slack.err.invalid_auth', page: 'replace' },
+  bot_refused: { key: 'slack.err.bot_refused', page: 'replace' },
   not_app_token: { key: 'slack.err.invalid_auth', page: 'replace' }, not_bot_token: { key: 'slack.err.invalid_auth', page: 'replace' },
   missing_scope: { key: 'slack.err.missing_scope', page: 'oauth' }, enterprise_install: { key: 'slack.err.enterprise_install', page: 'install' },
   socket_mode_off: { key: 'slack.err.socket_mode_off', page: 'socket' }, app_mismatch: { key: 'slack.err.app_mismatch', page: 'general' },

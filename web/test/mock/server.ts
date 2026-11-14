@@ -208,7 +208,9 @@ function slidePng(i: number): Uint8Array {
 }
 
 interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; mime?: string }
-interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
+export interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
+/** a server-side socket: Bun's ServerWebSocket, or the in-page one of web/demo/ */
+export interface MockSocket { data: WsData; send(text: string): unknown; close(code?: number, reason?: string): unknown }
 interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
 /** Folders below the mock share account's top level, found by the folder picker's search */
@@ -261,7 +263,7 @@ export class MockServer {
   epoch = uuidv7()
   seq = 0
   buffer: { seq: number; text: string }[] = []
-  sockets = new Set<Bun.ServerWebSocket<WsData>>()
+  sockets = new Set<MockSocket>()
   /** status messages (docs/DECISIONS.md "상태 메시지"; server/src/auth/status-messages.ts): mine through PUT/DELETE
    * /api/me/status, anyone's through POST /__test/status; worked out by the server's own rules in the team's zone */
   statuses = new Map<string, { emoji: string; text: string; clear: StatusClear; starts_at: string | null; clears_at: string | null; until_day: string | null }>()
@@ -6745,6 +6747,48 @@ export class MockServer {
     pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
   }
 
+  /** a socket's data from its upgrade request (also used by web/demo/, which runs this mock in the browser) */
+  socketData(req: Request): WsData {
+    const url = new URL(req.url)
+    const user = this.userOf(req)
+    const after = url.searchParams.get('after')
+    return { user: user?.id ?? '', windowId: url.searchParams.get('windowId') ?? '', epoch: url.searchParams.get('epoch'), after: after === null ? null : Number(after) }
+  }
+
+  /** the WebSocket protocol's server side (hello / resume / reset, presence, ping), for Bun.serve and web/demo/ */
+  socketOpen(ws: MockSocket) {
+    if (!ws.data.user) { ws.close(WsClose.unauthorized, 'sign in'); return }
+    this.sockets.add(ws)
+    const hello = (resumed: boolean) => JSON.stringify({ type: 'hello', epoch: this.epoch, seq: this.seq, resumed, windowId: ws.data.windowId, serverVersion: this.serverVersion, pingIntervalMs: 20000 })
+    const { epoch, after } = ws.data
+    if (epoch && epoch !== this.epoch) {
+      ws.send(hello(false))
+      ws.send(JSON.stringify({ type: 'reset', epoch: this.epoch, seq: this.seq, reason: 'epoch_mismatch' }))
+    } else if (epoch && after !== null) {
+      const oldest = this.buffer[0]?.seq ?? this.seq + 1
+      if (after + 1 < oldest) {
+        ws.send(hello(false))
+        ws.send(JSON.stringify({ type: 'resync', epoch: this.epoch, seq: this.seq, reason: 'buffer_overflow' }))
+      } else {
+        ws.send(hello(true))
+        for (const b of this.buffer) if (b.seq > after) ws.send(b.text)
+      }
+    } else ws.send(hello(false))
+    // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
+    ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...this.presence].map(([id, state]) => ({ id, state })) })))
+  }
+
+  socketMessage(ws: MockSocket, msg: string | Uint8Array) {
+    const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
+    if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+    if (f.type === 'room.typing') this.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
+    if (f.type === 'presence') this.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
+  }
+
+  socketClose(ws: MockSocket) {
+    this.sockets.delete(ws)
+  }
+
   serve(port: number, dist: string) {
     const self = this
     return Bun.serve<WsData, never>({
@@ -6753,10 +6797,7 @@ export class MockServer {
       async fetch(req, server) {
         const url = new URL(req.url)
         if (url.pathname === WS_PATH) {
-          const user = self.userOf(req)
-          const after = url.searchParams.get('after')
-          const data: WsData = { user: user?.id ?? '', windowId: url.searchParams.get('windowId') ?? '', epoch: url.searchParams.get('epoch'), after: after === null ? null : Number(after) }
-          const ok = server.upgrade(req, { data, headers: { 'sec-websocket-protocol': 'mycel.v1' } })
+          const ok = server.upgrade(req, { data: self.socketData(req), headers: { 'sec-websocket-protocol': 'mycel.v1' } })
           return ok ? undefined : new Response('upgrade failed', { status: 400 })
         }
         const res = await self.handle(req, dist)
@@ -6767,36 +6808,9 @@ export class MockServer {
         return marked
       },
       websocket: {
-        open(ws) {
-          if (!ws.data.user) return ws.close(WsClose.unauthorized, 'sign in')
-          self.sockets.add(ws)
-          const hello = (resumed: boolean) => JSON.stringify({ type: 'hello', epoch: self.epoch, seq: self.seq, resumed, windowId: ws.data.windowId, serverVersion: self.serverVersion, pingIntervalMs: 20000 })
-          const { epoch, after } = ws.data
-          if (epoch && epoch !== self.epoch) {
-            ws.send(hello(false))
-            ws.send(JSON.stringify({ type: 'reset', epoch: self.epoch, seq: self.seq, reason: 'epoch_mismatch' }))
-          } else if (epoch && after !== null) {
-            const oldest = self.buffer[0]?.seq ?? self.seq + 1
-            if (after + 1 < oldest) {
-              ws.send(hello(false))
-              ws.send(JSON.stringify({ type: 'resync', epoch: self.epoch, seq: self.seq, reason: 'buffer_overflow' }))
-            } else {
-              ws.send(hello(true))
-              for (const b of self.buffer) if (b.seq > after) ws.send(b.text)
-            }
-          } else ws.send(hello(false))
-          // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
-          ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
-        },
-        message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
-          if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
-          if (f.type === 'room.typing') self.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
-          if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
-        },
-        close(ws) {
-          self.sockets.delete(ws)
-        },
+        open: (ws) => { self.socketOpen(ws) },
+        message: (ws, msg) => self.socketMessage(ws, msg),
+        close: (ws) => self.socketClose(ws),
       },
     })
   }

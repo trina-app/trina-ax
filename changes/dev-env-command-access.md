@@ -1,1 +1,0 @@
-- A command that is running now stops when its person loses the folder (taken out of the project) or the team turns the dev environment off; the AI and the person get a plain line saying why.

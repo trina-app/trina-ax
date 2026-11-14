@@ -1,1 +1,0 @@
-- **Admin › Folder permissions** is now two plain lists: the folders shared differently from the folder they are in (with **Share**, and **Limited** marked), and what one person can open and why. The rule tree and the by-person table are gone.

@@ -12,12 +12,14 @@
 // The room header's "⋯" on a phone (`phone`, QA TC-257): the header there has no bell, so 알림 설정 says the level now
 // after it and opens the level menu as a sheet; no 이름 바꾸기 (the name opens the room's info, where it is changed); and
 // `phone.first` before the rest (the threads with new replies, whose button the header has no room for).
-import { Bell, Eye, EyeOff, Link2, LogOut, Pencil, Pin, PinOff } from 'lucide-react'
+import { Bell, Blocks, Eye, EyeOff, Link2, LogOut, Pencil, Pin, PinOff } from 'lucide-react'
 import { useRef, useState, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
+import { mayManageApps, useRoomApps } from '../../store/roomApps'
+import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
@@ -27,12 +29,14 @@ import { useFolderRowItems } from '../nav/NavFolders'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
-export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'copyLink' | 'leave' | 'hide' | 'show'
-export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt'>>): RoomMenuAction[] {
+export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'apps' | 'copyLink' | 'leave' | 'hide' | 'show'
+/** `apps`: I manage the room's apps ("Add an app" / "Apps posting here", docs/DECISIONS.md "Apps posting in rooms"): in
+ * a team room or the everyone room its owners and admins, in a 1:1 or a group chat its members (store/roomApps.ts) */
+export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt'>>, apps = false): RoomMenuAction[] {
   const hidden = room.kind !== 'group' && !!room.hidden
   const last: RoomMenuAction = room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide'
   const pin: RoomMenuAction[] = hidden ? [] : [room.pinnedAt ? 'unpin' : 'pin']
-  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), 'copyLink', last]
+  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), 'copyLink', last]
 }
 
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
@@ -95,12 +99,17 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   const level = phone ? t(`rooms.notify.${roomNotify(room).level}`) : null
-  const items = roomMenuActions(room).filter((a) => !(phone && a === 'rename')).map((a): MenuItem => {
+  // the room's apps: "Apps posting here · 2" once there are some (the list is read on the room's page), else "Add an app"
+  const me = useMe()
+  const apps = mayManageApps(room, me)
+  const appCount = useRoomApps((s) => s.lists[room.id]?.items.length ?? 0)
+  const items = roomMenuActions(room, apps).filter((a) => !(phone && a === 'rename')).map((a): MenuItem => {
     switch (a) {
       case 'pin': return { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => setPinned(true), testId: 'room-menu-pin' }
       case 'unpin': return { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => setPinned(false), testId: 'room-menu-unpin' }
       case 'notify': return { label: t('rooms.menu.notify'), ...(level ? { hint: `· ${level}` } : {}), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
       case 'rename': return { label: t('rooms.info.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
+      case 'apps': return { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), icon: <Blocks size={14} aria-hidden />, onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
       case 'leave': return { label: t('rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
       case 'hide': return { label: t(room.kind === 'dm' ? 'rooms.menu.hideDm' : 'rooms.menu.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: () => void hide(), testId: 'room-menu-hide' }

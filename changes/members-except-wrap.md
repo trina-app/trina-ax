@@ -1,1 +1,0 @@
-- **Members on a phone**: a group row's "except …" (the people in the group who left the project) wraps onto its own line under the group name instead of being cut off with "…". On a computer it stays on the same line.

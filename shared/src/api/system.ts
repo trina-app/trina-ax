@@ -84,9 +84,11 @@ export const UpdateStatus = z.object({
   nextWindow: z.object({ at: IsoTime, day: z.enum(['now', 'today', 'tomorrow']) }).nullable().optional(),
   /** why the available release will not install by itself even in the window: paused = the publisher paused its
    * roll-out (a bad release; scripts/release/hold.ts); rollout = not this server's turn yet;
-   * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed. null/absent:
-   * nothing holds it. Absent from older servers. */
-  hold: z.enum(['paused', 'rollout', 'failed', 'root_failed']).nullable().optional(),
+   * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed;
+   * cannot_read = it cannot open this server's data (a newer build, a dev build say, already updated the database to a
+   * higher reader level): it waits for a newer release and is not offered. null/absent: nothing holds it. Absent from
+   * older servers. */
+  hold: z.enum(['paused', 'rollout', 'failed', 'root_failed', 'cannot_read']).nullable().optional(),
   /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
    * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
    * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */
@@ -165,6 +167,10 @@ export const ConnectionStatus = z.object({
    * team.example.com: tunnel.host or an https origin with an internet name, server/src/system/connection.ts
    * publicAddress); null = none, so without the relay only the office network */
   publicAddress: z.string().nullable().optional(),
+  /** the server's own public address has a country or network list, and the team has an app posting in a room: apps
+   * reach it anyway at its /in/ addresses (docs/DECISIONS.md "Apps posting in rooms", owner decision 8). Older servers
+   * omit it */
+  appsAnywhere: z.boolean().optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>
 /** Team name at a relay: becomes <name>.<relay domain>. ASCII lowercase letters, digits and inner hyphens (tab 6). */

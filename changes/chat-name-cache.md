@@ -1,1 +1,0 @@
-- After someone changes their name (in their profile or settings, or an admin does it), shared chats and the AI's notes on who wrote what show the new name at once. They kept the old name until the server restarted.

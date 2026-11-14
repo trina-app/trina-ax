@@ -36,8 +36,8 @@ export function ChipThumb({ file, src, alt = '', fallback = null, className }: {
 
 /** The picture's square in the row above the box: a hairline edge (a white screenshot on the white box), a spinner over
  * it while it uploads (with `percent` when it is known), a red edge when it failed (the box says why beside it), and its
- * ✕ on the top corner, a dark dot that takes a 36 px tap (44 px on phones), reaching further out to the right than over
- * the picture (a tap meant for the picture stays the picture's), and not above the box's edge. The dot stands 6 px out of the square: its row item keeps
+ * ✕ on the top corner, a dark dot in a button of 24 px (44 px on phones: WCAG target size), centred on the dot, so it
+ * reaches a little over the picture's corner. The dot stands 6 px out of the square: its row item keeps
  * that room (`pt-1.5 pr-1.5`), so it touches neither the box's edge nor the next picture, which, painted after it, keeps
  * its own clicks. `item`: a click on the picture opens it in the image viewer, with the box's other pictures by ← →
  * (both boxes alike). */
@@ -92,9 +92,11 @@ export function PictureTile({ name, file, src, busy, percent = null, failed, rem
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-ink text-canvas ring-2 ring-surface transition after:absolute after:-inset-y-2 after:-right-3 after:-left-1 hover:opacity-80 max-md:after:-inset-y-3 max-md:after:-right-4 max-md:after:-left-2"
+          className="group absolute -top-2 -right-2 flex size-6 items-center justify-center rounded-full transition max-md:-top-[18px] max-md:-right-[18px] max-md:size-11"
         >
-          <X size={12} strokeWidth={2.5} aria-hidden />
+          <span aria-hidden className="flex size-5 items-center justify-center rounded-full bg-ink text-canvas ring-2 ring-surface group-hover:opacity-80">
+            <X size={12} strokeWidth={2.5} />
+          </span>
         </button>
       </Tooltip>
     </span>

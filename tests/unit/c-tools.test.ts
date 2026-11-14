@@ -142,6 +142,9 @@ describe('make_file', () => {
     const r = await call('alice', null, 'make_file', { content: md, format: 'xlsx', output: 'users/alice/out/f.xlsx' })
     expect(r.isError, r.text).toBe(false)
     expect(r.text).toContain('7 formula cells')
+    // some are stored with their result (SUM of numbers), the others (XLOOKUP, IFERROR, sheet names) are calculated on open
+    expect(r.text).toMatch(/\d of them are saved with their computed result/)
+    expect(r.text).not.toMatch(/only formulas|only after/i)
     const dir = fs.mkdtempSync(path.join(A.data, 'unzip-'))
     Bun.spawnSync(['unzip', '-o', '-q', path.join(A.team, 'users/alice/out/f.xlsx'), '-d', dir])
     const sheet1 = fs.readFileSync(path.join(dir, 'xl/worksheets/sheet1.xml'), 'utf8')

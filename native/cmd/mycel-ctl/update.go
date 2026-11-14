@@ -64,7 +64,10 @@ type ReleaseFeed struct {
 	Notes       string       `json:"notes"`
 	PublishedAt string       `json:"publishedAt"`
 	Rollout     *rolloutSpec `json:"-"` // read leniently from "rollout" (rollout.go UnmarshalJSON, readRollout)
-	Bundles     []struct {
+	// MinReaderRequired: the reader level of the release's build (publish-server.ts; readerlevel.go), 0 = unknown;
+	// read leniently from "minReaderRequired" (readMinReader)
+	MinReaderRequired int `json:"-"`
+	Bundles           []struct {
 		OS     string `json:"os"`
 		Arch   string `json:"arch"`
 		URL    string `json:"url"`
@@ -323,6 +326,13 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
 		return u.syncOnly(why), nil
 	}
+	// a release that cannot open this server's database (a dev build migrated it to a higher reader level) is left
+	// without a download: installing it would only end in exit 75 and a roll-back, again after every hold. It is no
+	// failure, so nothing is held; a newer release that can open it goes on as usual
+	if why := u.unreadable(feed.Version, feed.MinReaderRequired); why != "" {
+		clearDeferred(u.e)
+		return u.syncOnly(why), nil
+	}
 	// a release that failed here a short while ago waits (root/update-failed.json); a newer one ends the hold
 	if h := readFailed(u.e); h != nil {
 		switch {
@@ -506,6 +516,14 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)
 		}
+		// a release that cannot open the database (readerlevel.go): the channel's is left (the timer, a plain update);
+		// one an administrator asked for by --version is refused, nothing downloaded or replaced
+		if why := u.unreadable(feed.Version, feed.MinReaderRequired); why != "" {
+			if version != "" {
+				return fmt.Errorf("%s", unreadableByHand(why))
+			}
+			return skip(why)
+		}
 		u.attempted = true
 		if err := u.download(feed, dir); err != nil {
 			return err
@@ -522,6 +540,16 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return fmt.Errorf("the bundle is version %s, not %s", m.Version, version)
 	}
 	u.res.To = m.Version
+	// the bundle's own reader level, before any root file is replaced: a --bundle, and a feed without minReaderRequired
+	if why := u.unreadable(m.Version, readerLevel(dir)); why != "" {
+		// nothing was replaced: not a failed try of the release (no root/update-failed.json hold)
+		u.attempted = false
+		if version != "" || bundleFile != "" {
+			return fmt.Errorf("%s", unreadableByHand(why))
+		}
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+		return nil
+	}
 	if err := u.updateRoot(dir, m.Version); err != nil {
 		return err
 	}

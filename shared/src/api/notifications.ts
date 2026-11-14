@@ -24,6 +24,9 @@ export const NotificationPreferences = z.object({
   /** a push when an answer in my own AI chat needs me: it finished, failed, or the AI waits for me (a question or a
    * yes/no card) and I am not looking at that chat (docs/DECISIONS.md "AI 답변 알림"; default on). Older servers omit it. */
   chatAnswers: z.boolean().optional(),
+  /** a push when someone shares a chat with me by name ("Chats shared with me", default on; docs/DECISIONS.md "Chats
+   * shared with me: a push that names the sharer"). The Inbox row stays whatever it says. Older servers omit it. */
+  chatShares: z.boolean().optional(),
   /** "Phone notifications only when I'm away" (docs/DECISIONS.md "Phone notifications when I'm away"): 'away' (default)
    * cancels a push to the phone app when, at the moment it would go, I am using Trina in a window (the computer showed
    * it; nothing is sent later); 'always' sends it as before. Older servers omit it (they always send). */
@@ -49,7 +52,14 @@ export function plainLabel(s: string, max = 80): string {
 /** chat.answer_done: an answer in my own AI chat finished, failed or waits for me (a question or a yes/no card), for the
  * person who asked it only (chat_answer_notices with their own deliveries, chat_answer_push_deliveries; docs/DECISIONS.md
  * "AI 답변 알림"). Pushed only: never listed in the Inbox (the chat list's markers show these chats). */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done'])
+/** chat.shared: someone shared a chat with me (chat_share_notices with their own deliveries,
+ * chat_share_push_deliveries; docs/DECISIONS.md "Chats shared with me: a push that names the sharer"). Listed in the
+ * Inbox always; pushed only for a share by name, while "Chats shared with me" (chatShares) is on. A group's people get
+ * the Inbox row alone. */
+/** room_app.paused: an app in a room the person manages reached the day's cap and paused (room_app_notices with their
+ * own deliveries, room_app_push_deliveries, migration 352; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
+ * own: pushed while the notice is unread, the app still paused and the person still in its room. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -75,8 +85,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
  * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
  * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices), and room_app.paused to the people who manage an app in a room that paused for the day
- * (room_app_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'chat.shared', 'room_app.paused'])
+ * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
+ * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
+ * "Apps posting in rooms"). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -119,6 +131,12 @@ export const InboxNotification = z.object({
     appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable(),
     day: z.string(), cap: z.number().int().positive(), skipped: z.number().int().nonnegative(), pausedUntil: IsoTime.nullable(), canResume: z.boolean(),
   }).optional(),
+  /** 'room_app.leaver' only (the people who may manage the app, docs/DECISIONS.md "Apps posting in rooms"): someone who
+   * was shown the app's address (or a secret Trina made) left the room or the team, or is no longer an admin of a team
+   * room, and still knows it ("Get a new address" in the app's settings). The app, its room (link 'room' while I am
+   * still in it; roomId null else); the names are plain lines. Absent once the app is removed or got a new address, and
+   * from older servers */
+  roomAppLeaver: z.object({ appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable() }).optional(),
   /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */

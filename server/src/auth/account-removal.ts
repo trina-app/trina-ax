@@ -4,7 +4,8 @@
 // Google). removeAccount (admin/users.ts) runs them after the account is gone; the auth sweeper runs them once after
 // each start for accounts deleted earlier (idempotent: a delete by user id).
 //
-// tests/unit/a-account-removal-coverage.test.ts reads every column that points at users(id): each is removed by
+// tests/unit/a-account-removal-coverage.test.ts reads every column that points at users(id), and those that hold a
+// person's id without a foreign key (USER_COLUMNS_WITHOUT_FK): each is removed by
 // removeAccount itself, by a hook here, or named in KEPT_WITH_ACCOUNT with the reason it stays.
 import type { AppContext } from '../context'
 
@@ -68,6 +69,10 @@ export const REMOVED_BY_REMOVE_ACCOUNT: readonly string[] = [
   'room_pins.user_id', 'nav_folders.user_id',
 ]
 
+/** Columns that hold a person's id without a foreign key to users(id) (the coverage test reads them with the ones that
+ * have one, so they are decided too). */
+export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id']
+
 /**
  * Columns that point at users(id) and stay after the account is deleted, with the reason (the coverage test checks
  * this list against the schema). Anything not here and not removed is a leak.
@@ -95,6 +100,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_ai_turns.user_id': 'usage of the room AI, as turns',
   'rooms.created_by': 'SET NULL; the room stays for its members',
   'room_apps.created_by': 'SET NULL; an app belongs to its room and goes on ("Set up by someone who left")',
+  'room_app_viewers.user_id': 'ids kept on purpose so people who left stay flagged as knowing an app\'s address until it gets a new one (goes with the app, or at "Get a new address")',
   'skill_shares.created_by': 'a team skill they shared stays for the team',
   'skill_share_merges.user_id': 'team skill history',
   'skill_suggestions.suggester_id': 'team skill history',
