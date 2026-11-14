@@ -53,15 +53,14 @@ test('folder permissions: an empty rule row goes with the server\'s preview, the
   await expect(row('finance')).toBeVisible()
   for (const p of ['docs', 'finance', 'marketing']) await expect(row(p)).toHaveAttribute('data-rules', p === 'finance' ? '1' : '0')
 
-  // a folder with rules offers no delete: its rules change in the edit panel, which says the owner and admins always
-  // see it, and closes without asking when nothing changed
+  // a folder with rules offers no delete: its rules change in the Share dialog, which lists the owner and admins (they
+  // always open it), and closes without asking when nothing changed
   await choose(page, 'finance')
   await expect(page.getByTestId('folder-detail-delete')).toHaveCount(0)
   await rulesButton.click()
-  await page.getByTestId('edit-how-toggle').click()
-  await expect(page.getByTestId('edit-how')).toContainText(t['accessEdit.basicHint'], { useInnerText: true })
-  await page.getByTestId('edit-cancel').click()
-  await expect(page.getByTestId('edit-panel')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.staffRow'])
+  await page.getByTestId('sharing-done').click()
+  await expect(page.getByTestId('folder-access-panel')).toHaveCount(0)
   await expect(rulesButton).toBeFocused()
   // an empty row says what it does and what removing it does
   await choose(page, 'docs')
@@ -97,11 +96,10 @@ test('folder permissions: an empty rule row goes with the server\'s preview, the
   // the folder stays in the tree, inherited; the delete button is gone, and the rules button has the focus (not the
   // page)
   await expect(row('finance/2026')).toHaveAttribute('data-rules', '0')
-  await expect(detail(page)).toContainText(t['accessTree.noOwnRules'])
   await expect(page.getByTestId('folder-marker-hint')).toHaveCount(0)
   await expect(del('finance/2026')).toHaveCount(0)
   await expect(rulesButton).toBeFocused()
-  await expect(rulesButton).toHaveText(t['accessTree.addRules'])
+  await expect(rulesButton).toHaveText(t['accessTree.share'])
 
   // a slow answer: the button says it is busy, and after 5 seconds the dialog opens with the general text
   await page.unroute('**/api/admin/folder-rules/preview')
@@ -281,8 +279,15 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await page.goto('/admin/folders')
   // the chosen folder's delete (an empty rule row only; it never removes the folder)
   const del = (p: string) => page.locator(`[data-testid="folder-detail"][data-path="${p}"]`).getByTestId('folder-detail-delete')
-  const panel = page.getByTestId('edit-panel')
-  const settled = () => expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
+  const panel = page.getByTestId('folder-access-panel')
+  const settled = () => expect(page.getByTestId('sharing-outcome')).toBeVisible()
+  /** Save, and Give access / Save anyway when it asks */
+  const save = async () => {
+    await page.getByTestId('sharing-save').click()
+    const ok = page.getByTestId('dialog-confirm')
+    await expect(page.getByTestId('sharing-done').or(ok).or(page.getByTestId('sharing-footer-bar').getByRole('alert'))).toBeVisible()
+    if (await ok.isVisible()) await ok.click()
+  }
   const why = () => detail(page).getByTestId('folder-keep-reason')
   for (const p of ['shared', 'skills']) {
     await choose(page, p)
@@ -305,12 +310,17 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   // finance follows the folder above: no rules saved there (PUT, the row stays, never a delete), then the empty row can
   // go, and the focus lands on its rules button
   await page.getByTestId('folder-detail-edit').click()
-  for (const x of await panel.getByTestId('edit-named-remove').all()) await x.click()
-  await panel.getByTestId('edit-basic-follow').click()
+  // Remove access, in each row's role menu
+  await expect(panel.getByTestId('sharing-row').first()).toBeVisible()
+  while (await panel.getByTestId('sharing-level').count()) {
+    await panel.getByTestId('sharing-level').first().selectOption('remove')
+    await page.getByTestId('dialog-confirm').click()
+  }
   await settled()
   const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/rules'))
-  await panel.getByTestId('edit-save').click()
+  await save()
   expect((await put).postDataJSON()).toMatchObject({ rules: [] })
+  await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
   await expect(treeRow(page, 'finance')).toHaveAttribute('data-rules', '0')
   await del('finance').click()
@@ -318,33 +328,34 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await expect(del('finance')).toHaveCount(0)
   await expect(page.getByTestId('folder-detail-edit')).toBeFocused()
 
-  // no rule left on shared: said in the panel before saving, and Save waits for a rule
+  // shared keeps a setting of its own: General access is never "no setting here" there (nothing to inherit from), and
+  // Restricted saves "everyone: no access"
   await choose(page, 'shared')
   await page.getByTestId('folder-detail-edit').click()
-  await panel.getByTestId('edit-basic-follow').click()
-  await expect(panel.getByTestId('edit-keep-one')).toHaveText(t['accessEdit.keepTeam'])
-  await expect(panel.getByTestId('edit-save')).toBeDisabled()
-  await expect(panel.getByTestId('edit-save')).toHaveAccessibleDescription(t['accessEdit.keepTeam'])
-  // what it says to do instead works: only the people named (everyone: no access)
-  await panel.getByTestId('edit-basic-named').click()
-  await expect(panel.getByTestId('edit-keep-one')).toHaveCount(0)
+  await expect(panel.getByTestId('sharing-general-inherited')).toHaveCount(0)
+  await panel.getByTestId('sharing-general-select').selectOption('restricted')
+  await expect(panel.getByTestId('sharing-keep-one')).toHaveCount(0)
   await settled()
-  await panel.getByTestId('edit-save').click()
+  await save()
+  await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
-  await expect(detail(page).getByTestId('folder-rules')).toContainText(`${t['rules.everyone']}: ${t['access.none']}`)
+  const sharedRules = ((await (await page.request.get('/api/admin/folders')).json()).items as { path: string; rules: { subjectType: string; access: string }[] }[]).find((f) => f.path === 'shared')!.rules
+  expect(sharedRules.map((r) => `${r.subjectType}:${r.access}`)).toEqual(['everyone:none'])
   await expect(treeRow(page, 'shared').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
 
   // a save the server refuses shows its reason in the panel, which stays open
   await page.route('**/api/admin/folders/*/rules', (r) => r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'REFUSED-BY-SERVER', fields: { 'body.rules': 'x' } } } }))
   await choose(page, 'groups/영업팀')
   await page.getByTestId('folder-detail-edit').click()
-  await panel.getByTestId('edit-basic-read').click()
+  await panel.getByTestId('sharing-general-select').selectOption('team')
   await settled()
-  await panel.getByTestId('edit-save').click()
-  await expect(panel.getByTestId('edit-refused').getByRole('alert')).toHaveText('REFUSED-BY-SERVER')
+  await save()
+  await expect(page.getByTestId('sharing-footer-bar')).toContainText('REFUSED-BY-SERVER')
   await expect(panel).toBeVisible()
-  await panel.getByTestId('edit-cancel').click()
+  await page.getByTestId('sharing-cancel').click()
   await page.getByTestId('dialog-confirm').click()
+  await page.getByTestId('sharing-done').click()
+  await expect(panel).toHaveCount(0)
   await page.unroute('**/api/admin/folders/*/rules')
 
   // once the group is deleted, its folder is an ordinary one

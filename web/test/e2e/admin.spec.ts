@@ -103,17 +103,16 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(folderTree.locator('[data-path="groups/영업팀"]')).toBeVisible()
   await folderTree.locator('[data-path="finance"]').click()
   await page.getByTestId('folder-detail-edit').click()
-  // the edit panel: everyone reads; the server works out who gains (Bob is not in 재무팀) before anything is saved
-  const panel = page.getByTestId('edit-panel')
-  await panel.getByTestId('edit-basic-read').click()
-  const result = panel.getByTestId('edit-result')
-  await expect(result).toHaveAttribute('data-ready', 'true')
-  await result.getByTestId('edit-show-people').click()
-  await expect(result.getByTestId('edit-more')).toContainText('Bob')
-  await expect(panel.getByTestId('edit-save')).toContainText(translate('ko', 'accessEdit.outGainOpen', { n: 2 }))
-  await panel.getByTestId('edit-save').click()
+  // the Share dialog: the team can view; the server works out who gains (Bob is not in 재무팀) before anything is saved
+  const panel = page.getByTestId('folder-access-panel')
+  await panel.getByTestId('sharing-general-select').selectOption('team')
+  await panel.getByTestId('sharing-general-role').selectOption('read')
+  await expect(page.getByTestId('sharing-outcome')).toContainText('Bob')
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByRole('dialog').filter({ hasText: translate('ko', 'folderAccess.confirmOpen', { n: 2 }) })).toBeVisible()
+  await page.getByTestId('dialog-confirm').click()
+  await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')
   await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 볼 수 있음')
 
   // engines: what is missing, in plain words

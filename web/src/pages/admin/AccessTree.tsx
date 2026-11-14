@@ -1,9 +1,9 @@
 // Admin › Folder permissions › By folder: the team folder as a tree, read from the top. Each row is one folder with who
 // can open it and where that comes from (GET /api/admin/access/tree, put into words by lib/access-view.ts); folders
 // without rules of their own are dimmed as inherited. Choosing a folder shows its rules and every person's access and
-// the reason (GET /api/admin/access/folder, the stage 2 answer, with the stage 3 reasons). "규칙 바꾸기" turns that part
-// into the edit panel (AccessEdit.tsx, stage 5: the basic access first, the people and groups named, and what saving
-// would change, from the server); on a phone the panel is the whole screen. "Rule folders only" shows just the folders
+// the reason (GET /api/admin/access/folder, the stage 2 answer, with the stage 3 reasons). [Share] opens the same Share
+// dialog as the Files page (components/FolderAccess.tsx, pages/admin/FolderSharing.tsx; docs/DECISIONS.md "Share like
+// Google Drive (P1)"): a dialog on computers, the bottom sheet on phones. "Rule folders only" shows just the folders
 // with rules and the way to them. Rows of folders that are not in the tree (gone from disk, inside users/, a name the
 // tree never shows) are folded under it to edit or clean up; an empty rule row that no project uses can go too. Nothing
 // here decides access.
@@ -12,19 +12,18 @@
 // move, Right opens a folder or goes into it, Left closes it or goes to the folder above, Home and End, typing jumps to
 // a name, Enter or Space chooses (choosing asks the server, so moving alone does not). "N more" and "Try again" are
 // rows of the tree too. The chosen folder is in the address (`?folder=`); a folder there is looked up, page by page,
-// and said when it is not there. By person opens a folder's panel here (`?edit=<path>&back=<its address>`): the folder
-// is chosen and its panel opened, and closing or saving that panel goes back to the person. The Files page's "Who can
-// see it" panel opens it the same way (`?edit=<path>&from=files`, the fixed word only): closing or saving goes back to
-// that folder in Files with its panel open again (`/files?path=<path>&access=1`).
+// and said when it is not there. By person opens a folder's Share dialog here (`?edit=<path>&back=<its address>`): the
+// folder is chosen and its dialog opened, and closing it goes back to the person. `?edit=<path>&from=files` (the fixed
+// word only) goes back to that folder in Files with its dialog open again (`/files?path=<path>&access=1`).
 // A team project's folder in projects/ is one row with no folders under it: "멤버만" and its count, never "팀장과
 // 관리자만", and no rules to change here: its panel links to the project's members ("멤버 관리", /projects/:id?members=1;
 // docs/DECISIONS.md "Project contents only for members"). The server refuses changes there (409 project_members_only),
-// which the edit panel shows in its words if one is opened by its address.
+// which the dialog shows in its words if one is opened by its address.
 // A phone (QA TC-377, TC-379): Add folder is the bar's + and the "Rule folders only" switch is under the Filters icon
 // beside it (the page's header slot "actions" sits in the bar there, Folders.tsx), so By folder / By person have the
 // row to themselves.
 import clsx from 'clsx'
-import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Info, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Info, Loader2, Lock, Plus, RotateCw, Sparkles, Trash2, TriangleAlert, UserPlus, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { AccessTreeNode, AccessTreeResponse, Folder, Group } from '@mycel/shared/api'
@@ -36,7 +35,9 @@ import FolderPicker from '../../components/FolderPicker'
 import { accessErrorText } from './AccessResults'
 import { People, useFolderAnswer } from './FolderPeople'
 import { RemoveRulesButton, isSkillsFolder, useRemoveRules } from './Folders'
-import AccessEdit from './AccessEdit'
+import { FolderAccessPanel } from '../../components/FolderAccess'
+import { projectsByFolder } from '../../lib/projectFolders'
+import { readProjectList, useProjects } from '../../store/projects'
 import { useFolderPeople } from './SkillManagers'
 import { useFocusAfterRemove, useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
@@ -45,8 +46,7 @@ import { Tooltip } from '../../components/Tooltip'
 import { useMediaQuery } from '../../components/ui'
 import { folderName } from '../../lib/access-view'
 import { hasAppHistory } from '../../lib/back'
-import { FOLDER_Q } from './adminScreens'
-import { useAdminBar, useUpTo } from './phoneBar'
+import { useAdminBar } from './phoneBar'
 import { setPeopleRefocus } from './folder-slots'
 import { BarAdd } from './barActions'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
@@ -382,13 +382,18 @@ export default function AccessTree() {
   /** below the width where the tree and the folder sit side by side: the folder replaces the tree until Back */
   const [showDetail, setShowDetail] = useState(false)
   const [ruledOnly, setRuledOnly] = useState(false)
-  /** the folder whose rules are being changed (the edit panel replaces its part of the screen); `back`: opened from By
+  /** the folder whose Share dialog is open (over the page); `back`: opened from By
    * person, whose address closing it goes back to */
   const [editing, setEditing] = useState<{ path: string; back?: string } | null>(null)
   const [picking, setPicking] = useState(false)
   /** By person asked for a folder that the tree could not find (or ask for): its card offers the way back there */
   const [stranded, setStranded] = useState<{ path: string; back: string } | null>(null)
   /** the panel's: resolves true when it may close (nothing changed, or the admin dropped the changes) */
+  // team projects by their folder: rows a project's folder gives show as its members in the Share dialog
+  const listedProjects = useProjects((st) => st.listed)
+  const projectsById = useProjects((st) => st.byId)
+  const projectFolders = useMemo(() => projectsByFolder(listedProjects ? [...listedProjects].flatMap((id) => projectsById[id] ?? []) : []), [listedProjects, projectsById])
+  useEffect(() => { void readProjectList().catch(() => {}) }, [])
   const editGuard = useRef<() => Promise<boolean>>(async () => true)
   /** the folder picked with "Add folder" (or named by By person): its rules open once the tree has found and chosen it */
   const pendingEdit = useRef<string | null>(null)
@@ -412,12 +417,10 @@ export default function AccessTree() {
   const rootName = t('accessView.rootFolder')
   const removal = useRemoveRules(rootName)
   const wanted = params.get('folder')
-  // a phone (below 768 px): a folder and its rule editor are pages of their own, each a history entry pushed over the
-  // one before (`?folder=<path>`, then `&rules=<path>`), so ‹ and the swipe go editor → folder → tree
-  // (adminScreens.ts); the bar names them. Computers keep one address that is replaced
+  // a phone (below 768 px): a folder is a page of its own, a history entry pushed over the tree (`?folder=<path>`), so ‹
+  // and the swipe go folder → tree (adminScreens.ts); its Share dialog is the bottom sheet, which Back closes. Computers
+  // keep one address that is replaced
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const upTo = useUpTo()
-  const rulesWanted = phone ? params.get(FOLDER_Q.rules) : null
 
   // the first answer opens the way down to rule, group, project and connected folders
   useEffect(() => {
@@ -446,25 +449,11 @@ export default function AccessTree() {
     setShowDetail(true)
     address(path, push)
   }
-  /** Open the edit panel for a folder (its row, if any, comes from the list of rule rows). A phone: its own entry over
-   * the folder's (`&rules=`), or in place of it when it was opened from By person or Files (closing goes back there). */
+  /** Open the Share dialog for a folder (its row, if any, comes from the list of rule rows). A phone: the dialog is the
+   * bottom sheet, whose own history entry makes Back close it (lib/backCloses.ts). */
   const startEdit = (path: string, back?: string) => {
     editReturn.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setEditing({ path, back })
-    if (!phone) return
-    const q = new URLSearchParams(window.location.search)
-    if (q.get(FOLDER_Q.rules) === path) return
-    q.set(FOLDER_Q.rules, path)
-    setParams(q, { replace: back !== undefined })
-  }
-  /** a phone: the editor closed from inside (Cancel, Save): its entry goes, back to the folder under it */
-  const closedRules = useRef<string | null>(null)
-  const popRules = () => {
-    const q = new URLSearchParams(window.location.search)
-    if (!phone || !q.has(FOLDER_Q.rules)) return
-    closedRules.current = q.get(FOLDER_Q.rules)
-    q.delete(FOLDER_Q.rules)
-    upTo(`/admin/folders${q.size ? `?${q}` : ''}`)
   }
   /** back to By person after its panel (pushed: Back returns to the folder here); the focus goes to that folder's row;
    * or, opened from the Files page (FROM_FILES), back to that folder there with its "Who can see it" panel */
@@ -474,7 +463,7 @@ export default function AccessTree() {
       : back === FROM_FILES ? navigate(`/files?path=${encodeURIComponent(path)}&access=1`, { replace: phone }) : setParams(new URLSearchParams(back), { state: { refocus: path }, replace: phone })
   /** the words of the way back: to By person, or to Files */
   const backLabel = (back: string) => t(back === FROM_FILES ? 'accessEdit.backToFiles' : 'accessEdit.backToPeople')
-  /** Leave the edit panel, asking first when something was changed there: false when the admin stays. */
+  /** Leave the Share dialog, asking first when something was changed there: false when the admin stays. */
   const leaveEdit = async () => {
     if (!editing) return true
     if (!(await editGuard.current())) return false
@@ -578,8 +567,8 @@ export default function AccessTree() {
   // tree never shows (Folder.hidden)
   const outside = (ruleRows ?? []).filter((f) => f.path !== '' && (!f.exists || f.hidden || isPersonalPath(f.path))).sort((a, b) => a.path.localeCompare(b.path))
   const node = selected !== null ? tree.data?.nodes.get(selected) : undefined
-  // narrow: the chosen folder, or the edit panel, takes the place of the tree
-  const treeHidden = (showDetail && selected !== null) || editing !== null
+  // narrow: the chosen folder takes the place of the tree
+  const treeHidden = showDetail && selected !== null
 
   /** back from the folder to its row (narrow); from a folder that is not there, to the tree with nothing chosen. The
    * row takes the focus once the tree shows again (below). */
@@ -625,7 +614,6 @@ export default function AccessTree() {
         row={rowOf(node.path)}
         rowsReady={!!folders.data && !!users.data && !!groups.data}
         names={names}
-        subject={subject}
         reloadKey={detailKey}
         headingRef={detailHeading}
         removal={removal}
@@ -689,44 +677,28 @@ export default function AccessTree() {
     )
   }
 
-  // the panel for the folder being changed takes the place of the folder's part (which stays, hidden, with what it
-  // has loaded: it shows again at once, and a refresh that fails after a save keeps what was there)
+  // the Share dialog for the folder being changed, over the page (the same dialog as the Files page's)
   let panel: ReactNode = null
   if (editing) {
     const { path, back } = editing
     panel = (
-      <AccessEdit
+      <FolderAccessPanel
         key={path}
-        path={path}
-        folder={rowOf(path) ?? null}
-        users={users.data ?? []}
-        groups={groups.data ?? []}
+        target={{ path, access: 'write' }}
+        project={null}
+        projectOf={(p) => projectFolders.get(p.normalize('NFC')) ?? null}
+        fromAdmin
         guard={editGuard}
-        returnLabel={back !== undefined ? backLabel(back) : undefined}
-        inPage={phone}
         onClose={() => {
           if (editingPath.current !== path) return
-          if (back !== undefined) return toPerson(back, path)
           setEditing(null)
+          if (back !== undefined) return toPerson(back, path)
           focusAfterEdit.current = true
-          popRules()
         }}
-        onSaved={async (saved) => {
-          // the row as saved at once (opening the panel again before the list comes starts from it), then the tree row,
-          // the folder's rules and every person's access there come again
-          folders.setData((d) => (d ? (d.some((f) => f.id === saved.id) ? d.map((f) => (f.id === saved.id ? saved : f)) : [...d, saved]) : d))
-          if (editingPath.current === path && back !== undefined) return toPerson(back, path)
-          if (editingPath.current === path) {
-            setEditing(null)
-            focusAfterEdit.current = true
-            popRules()
-          }
-          await changed(path)
-        }}
-        onStale={() => {
+        onSaved={() => {
+          // the rule rows, the tree row, the folder's rules and every person's access there come again
           void folders.reload()
-          void tree.refresh(path)
-          setDetailKey((n) => n + 1)
+          void changed(path)
         }}
       />
     )
@@ -749,31 +721,10 @@ export default function AccessTree() {
     if (editing) setEditing(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted])
-  // a phone: the editor's entry is the address (`&rules=<path>`): Back from it closes the editor (the browser gives no
-  // way to ask first; ‹ in the bar asks, below), Forward or a reload on it opens it again once the lists are in
-  // (the router shows an address in a transition, after the editor's own state: only a change of the address counts,
-  // and an editor closed from inside is not opened again before its entry has gone)
-  const listsIn = !!folders.data && !!users.data && !!groups.data
-  const lastRules = useRef<string | null>(null)
-  useEffect(() => {
-    if (!phone || !ready) return
-    const before = lastRules.current
-    lastRules.current = rulesWanted
-    if (rulesWanted === null) {
-      closedRules.current = null
-      if (before !== null && editing && editing.back === undefined) setEditing(null)
-      return
-    }
-    if (editing?.path === rulesWanted || !listsIn || closedRules.current === rulesWanted) return
-    editReturn.current = null
-    setEditing({ path: rulesWanted })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, ready, rulesWanted, listsIn])
-  // the phone's bar: the editor's name, else the folder's, else the page's; ‹ asks first when the rules were changed
+  // the phone's bar: the folder's name, else the page's; ‹ asks first when the Share dialog has changes
   const barTitle = !phone ? null
-    : editing ? t(rowOf(editing.path)?.rules.length ? 'accessEdit.title' : 'accessTree.addRules')
-      : wanted !== null ? (wanted === '' ? rootName : folderName(t, wanted))
-        : null
+    : wanted !== null ? (wanted === '' ? rootName : folderName(t, wanted))
+      : null
   useAdminBar(barTitle, phone && editing ? () => editGuard.current() : undefined)
   // "Add folder": once the folder is found and chosen in the tree, its rules open (a folder that is not there says so)
   useEffect(() => {
@@ -909,13 +860,12 @@ export default function AccessTree() {
             className={clsx(
               // just under the page's sticky header (Folders.tsx passes its height)
               'min-w-0 @2xl:sticky @2xl:top-[calc(var(--folders-head,0px)+1rem)] @2xl:max-h-[calc(100dvh-var(--folders-head,0px)-2rem)] @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 scroll-thin',
-              // the edit panel takes a little more room beside the tree
-              editing ? '@2xl:w-[22rem] @3xl:w-[26rem] @5xl:w-[30rem]' : '@2xl:w-80 @3xl:w-96',
+              '@2xl:w-80 @3xl:w-96',
               !treeHidden && '@max-2xl:hidden',
             )}
             data-testid="folder-detail-box"
           >
-            <div hidden={editing !== null}>{detail}</div>
+            {detail}
             {panel}
           </div>
         </div>
@@ -1315,14 +1265,13 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
 
 // ---------------- the chosen folder ----------------
 
-function FolderDetail({ node: n, members, row, rowsReady, names, subject, reloadKey, headingRef, removal, back, onEdit, onRemoved }: {
+function FolderDetail({ node: n, members, row, rowsReady, names, reloadKey, headingRef, removal, back, onEdit, onRemoved }: {
   node: AccessTreeNode
   members: number
   /** the folder's rule row, if it has one (Admin › Folder permissions' list) */
   row: Folder | undefined
   rowsReady: boolean
   names: Names
-  subject: (type: string, id: string | null) => string
   reloadKey: number
   headingRef: React.Ref<HTMLHeadingElement>
   removal: ReturnType<typeof useRemoveRules>
@@ -1336,7 +1285,6 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   const answer = useFolderAnswer(personal ? null : n.path, reloadKey)
   const name = n.path === '' ? t('accessView.rootFolder') : n.path
   const kind = kindText(t, n)
-  const rules = row?.rules ?? []
   const keep = row?.keep === 'team' ? t('rules.keepTeam') : row?.keep === 'group' ? t('rules.keepGroup', { name: names.group(row.groupId ?? '') ?? '?' }) : null
   const checking = row && removal.checking === row.id
   // "remove all rules" is for cleaning up only: a rule row left without rules that no project uses (a project's marker,
@@ -1369,7 +1317,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
         </div>
       ) : (
         <>
-          {/* a team project's folder: members only, changed on the project's page (no edit panel here) */}
+          {/* a team project's folder: members only, changed on the project's page (no Share here) */}
           {membersOnly && (
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
               <span data-testid="folder-detail-members-only"><Badge>{t('accessTree.membersOnly')}</Badge></span>
@@ -1380,10 +1328,10 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
               )}
             </div>
           )}
-          {/* the rules: change them in the edit panel (rows the server keeps say why under the rules) */}
+          {/* Share: the same dialog as the Files page's (rows the server keeps say why below) */}
           {!membersOnly && <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={onEdit} disabled={!rowsReady} data-testid="folder-detail-edit" data-row-focus>
-              <SlidersHorizontal size={14} aria-hidden /> {rules.length ? t('accessTree.editRules') : t('accessTree.addRules')}
+              <UserPlus size={14} aria-hidden /> {t('accessTree.share')}
             </Button>
             {/* an empty row no project uses: removed with the server's preview (it changes nobody's access); the folder
                 stays */}
@@ -1407,13 +1355,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
           )}
           {/* a team project's folder: no settings of its own here (they cannot be changed on this screen; its members
               are, on its page) */}
-          {!membersOnly && <div className="mt-4">
-            <h4 className="text-xs font-semibold text-muted">{t('accessTree.ownRules')}</h4>
-            {rules.length ? (
-              <RuleBadges rules={rules} path={n.path} subject={subject} />
-            ) : (
-              <p className="mt-1 text-xs text-muted">{t('accessTree.noOwnRules')}</p>
-            )}
+          {!membersOnly && (isSkillsFolder(n.path) || keep) && <div className="mt-3">
             {isSkillsFolder(n.path) && (
               <>
                 <p className="mt-1.5 text-xs text-ink" data-testid="folder-skill-editors">

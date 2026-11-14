@@ -23,6 +23,108 @@ export const parentOf = (path: string): string | null => (path === '' ? null : p
 /** What "everyone" gets with a basic access (the general access): "same as above" is what the folder above gives. */
 export const generalLevel = (basic: Basic, above: Access): Access => (basic === 'follow' ? above : basic === 'named' ? 'none' : basic)
 
+/** General access as Drive shows it (docs/DECISIONS.md "Share like Google Drive (P1)"): Restricted, or the team with a
+ * role. A folder with no setting of its own shows what it gets from above, so there is no "Same as …" choice. */
+export type Audience = 'restricted' | 'team'
+export const audienceOf = (level: Access): Audience => (level === 'none' ? 'restricted' : 'team')
+
+/**
+ * The basic access a General access pick saves (review of #779, H1/H2). **Restricted is always stored** ("everyone: no
+ * access"): only the people listed here open it, and the people and groups the folders above let in are cut off, like
+ * Drive's Limit access. A team role equal to what a folder with no setting of its own already gets stays "no setting
+ * here" (picking it back changes nothing); a team role equal to the stored one keeps it; any other role is stored. Going
+ * back to "no setting here" is its own control ("Use the access of …", `'follow'` directly), offered where the folder
+ * may follow (not the team root, not shared/ or skills/, which keep a setting of their own).
+ */
+export function pickBasic(level: Access, o: { initial: Basic; above: Access; canFollow: boolean }): Basic {
+  if (level === 'none') return 'named'
+  if (o.initial === 'follow' && o.canFollow && level === o.above) return 'follow'
+  if (o.initial !== 'follow' && generalLevel(o.initial, o.above) === level) return o.initial
+  return level
+}
+
+/**
+ * Why a Viewer row gives less than the person or group would get without it (the deepest rule still decides, until P2;
+ * docs/DECISIONS.md "Share like Google Drive (P1)"): Drive readers expect access to add up, so the row says it. `group`:
+ * a group set to Editor on this folder that the person is in; `team`: General access gives the team Editor here
+ * (`folder` null) or a folder above does; `groupAbove` / `selfAbove`: a rule of a folder above gives them Editor (for a
+ * group row, a member's own row above is `groupAbove` with that person's name). From
+ * the server's answer for the draft (`above`: who decides with no rules here; `everyoneAbove`) and the draft itself.
+ */
+export type Lower =
+  | { kind: 'group'; group: string }
+  | { kind: 'team'; folder: string | null }
+  | { kind: 'groupAbove'; group: string; folder: string }
+  | { kind: 'selfAbove'; folder: string }
+export function lowerOf(d: Draft, n: { subjectType: 'user' | 'group'; subjectId: string; access: Access }, o: {
+  groups: ReadonlyMap<string, Group>
+  above: readonly AccessTreeWho[] | null
+  everyoneAbove: { access: Access; folder: string | null } | null | undefined
+  /** a person's name, for a group whose member has a row of their own above */
+  names?: (id: string) => string | undefined
+}): Lower | null {
+  if (n.access !== 'read') return null
+  if (n.subjectType === 'user') {
+    // a group set on this folder decides for its members before General access does; the person's own row wins
+    const mine = d.named
+      .filter((x) => x.subjectType === 'group')
+      .map((x) => ({ g: o.groups.get(x.subjectId), access: x.access }))
+      .filter((x): x is { g: Group; access: Access } => !!x.g && x.g.memberIds.includes(n.subjectId))
+    if (mine.length) {
+      const edit = mine.filter((x) => x.access === 'write').sort((a, b) => a.g.name.localeCompare(b.g.name))[0]
+      return edit ? { kind: 'group', group: edit.g.name } : null
+    }
+  }
+  // General access set on this folder decides for everyone no row names
+  if (d.basic !== 'follow') return d.basic === 'write' ? { kind: 'team', folder: null } : null
+  // no setting here: the folders above decide, as they would without this row. A person: what decides for them above
+  // (their own row, else their groups' widest, else the team). A group: the same for each member (its row here decides
+  // for all of them), the first who could edit named
+  const rules = (o.above ?? []).filter((w) => w.reason === 'rule' && w.folder !== null && w.subject && w.subject.id !== null)
+  /** what decides for one person without this row: the deepest folder above with a rule for them (their own row, else
+   * their groups' widest, else everyone), as the permission function decides; null when that is not Editor */
+  const aboveFor = (person: string): Lower | null => {
+    const own = rules.filter((w) => w.subject!.type === 'user' && w.subject!.id === person)
+    const mine = rules.filter((w) => w.subject!.type === 'group' && !!o.groups.get(w.subject!.id!)?.memberIds.includes(person))
+    const e = o.everyoneAbove && o.everyoneAbove.folder !== null && o.everyoneAbove.access !== 'none' ? o.everyoneAbove : null
+    const depth = (f: string) => (f === '' ? 0 : f.split('/').length)
+    const deepest = Math.max(-1, ...[...own, ...mine].map((w) => depth(w.folder!)), e ? depth(e.folder!) : -1)
+    if (deepest < 0) return null
+    const at = (w: AccessTreeWho) => depth(w.folder!) === deepest
+    const ownHere = own.find(at)
+    if (ownHere) return ownHere.access === 'write' ? { kind: 'selfAbove', folder: ownHere.folder! } : null
+    const groupsHere = mine.filter(at)
+    if (groupsHere.length) {
+      const edit = groupsHere.find((w) => w.access === 'write')
+      return edit ? { kind: 'groupAbove', group: o.groups.get(edit.subject!.id!)?.name ?? edit.subject!.name ?? '', folder: edit.folder! } : null
+    }
+    return e && depth(e.folder!) === deepest && e.access === 'write' ? { kind: 'team', folder: e.folder! } : null
+  }
+  if (n.subjectType === 'user') return aboveFor(n.subjectId)
+  for (const m of o.groups.get(n.subjectId)?.memberIds ?? []) {
+    const l = aboveFor(m)
+    if (!l) continue
+    // a member's own row above: said by their name ("though Bob can edit …")
+    if (l.kind === 'selfAbove') return { kind: 'groupAbove', group: o.names?.(m) ?? m, folder: l.folder }
+    return l
+  }
+  return null
+}
+
+/** General access lower than what the folders above give: `view` (they can only view here, though the team, or a
+ * person or group above, `who`, can edit there) or `closed` (Restricted here, though the team or `who` can open the
+ * folder above). Said under General access for as long as it is so, not only before Save. `above`: the server's rows of
+ * who decides with no rules here; people and groups listed here are left out (their own row decides). */
+export function generalLowerOf(basic: Basic, everyoneAbove: { access: Access; folder: string | null } | null | undefined, o: { above?: readonly AccessTreeWho[] | null; named?: ReadonlySet<string> } = {}): { kind: 'view' | 'closed'; folder: string; who?: string } | null {
+  const e = everyoneAbove
+  if (basic === 'named' && e && e.access !== 'none' && e.folder !== null) return { kind: 'closed', folder: e.folder }
+  if (basic === 'read' && e && e.access === 'write' && e.folder !== null) return { kind: 'view', folder: e.folder }
+  if (basic !== 'named' && basic !== 'read') return null
+  const rows = (o.above ?? []).filter((w) => w.reason === 'rule' && w.folder !== null && w.subject && (w.subject.type === 'user' || w.subject.type === 'group') && w.count > 0 && !o.named?.has(`${w.subject.type}:${w.subject.id}`))
+  const hit = rows.find((w) => (basic === 'named' ? w.access !== 'none' : w.access === 'write'))
+  return hit ? { kind: basic === 'named' ? 'closed' : 'view', folder: hit.folder!, who: hit.subject!.name ?? '' } : null
+}
+
 /** The people and groups the folders above let in here (or keep out), from the server's answer: the person and group
  * rules of a folder above that decide for someone here. Groups first, then people, by name; "no access" last. */
 export interface AboveRow { type: 'user' | 'group'; id: string; name: string; access: Access; folder: string }

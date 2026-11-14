@@ -1,8 +1,8 @@
 // Admin › Folder permissions › By person (read only): "what can this person see, and why?" and "what will someone new
 // see?". One searchable list of people (someone new on top, the active people, then the disabled ones); the chosen
 // person's team folders with the access and the reason, from the server's answers (AccessResults.tsx). Nothing here
-// changes access: a row's "View or change rules" opens that folder's edit panel in By folder (`?edit=<path>&back=<this
-// address>`), and closing or saving it comes back here, the focus on that row's button. The choice is in the address
+// changes access: a row's "View or change rules" opens that folder's Share dialog in By folder (`?edit=<path>&back=<this
+// address>`), and closing it comes back here, the focus on that row's button. The choice is in the address
 // (`?view=people&person=<id>`, `?view=people&new=1&role=admin&groups=<id>,<id>`, `&prefix=<folder>`).
 import clsx from 'clsx'
 import { Search, UserPlus } from 'lucide-react'
@@ -95,7 +95,7 @@ export default function AccessPeople() {
   const user = person ? users.data?.find((u) => u.id === person) : undefined
   useAdminBar(phone ? (isNew ? t('accessView.newPerson') : user?.name ?? null) : null)
   const onPage = phone && selected !== null
-  // the folder's edit panel, in By folder (it knows the folder's row and the tree); this address to come back to
+  // the folder's Share dialog, in By folder (it knows the folder's row and the tree); this address to come back to
   const onEdit = (f: PersonFolderAccess) => setParams(new URLSearchParams({ edit: f.path, back: params.toString() }))
   /** the folder whose rules were just changed in By folder (the panel comes back here with it): its row may have moved
    * (to the folded folders, or out of them), and the focus goes to it, not to the page */
