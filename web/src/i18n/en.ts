@@ -131,7 +131,7 @@ export const en: Record<MessageKey, string> = {
   "guest.ai.limit": "Monthly limit (USD)",
   "guest.ai.noAccount": "The team has no AI account yet.",
   "guest.ai.addAccount": "Add an AI account",
-  "guest.ai.hostSignIn": "On this server, guests can't use AI.",
+  "guest.ai.hostSignIn": "On this server, guests can't use AI. Installing with the admin installer (.pkg) makes it possible.",
   "guest.invite.create": "Create link",
   "guest.invite.readyFor": "Link for {name}",
   "guest.invite.ready": "Guest link",

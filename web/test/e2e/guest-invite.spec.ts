@@ -85,7 +85,7 @@ test("an Office Mac (the server's own sign-in): guests can't use AI, so only No 
   expect((await page.request.post('/__test/host-sign-in', { data: { on: true } })).ok()).toBeTruthy()
   await openRoomAdd(page)
   await page.getByTestId('invite-guest-row').click()
-  await expect(page.getByTestId('guest-ai-host')).toHaveText('이 서버에서는 게스트가 AI를 쓸 수 없어요.')
+  await expect(page.getByTestId('guest-ai-host')).toHaveText('이 서버에서는 게스트가 AI를 쓸 수 없어요. 관리자 설치(.pkg)로 설치하면 쓸 수 있어요.')
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-team')).toBeDisabled()
   await expect(page.getByTestId('guest-ai-own')).toBeDisabled()

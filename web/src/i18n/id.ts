@@ -131,7 +131,7 @@ export const id: Record<MessageKey, string> = {
   "guest.ai.limit": "Batas bulanan (USD)",
   "guest.ai.noAccount": "Tim belum punya akun AI.",
   "guest.ai.addAccount": "Tambah akun AI",
-  "guest.ai.hostSignIn": "Di server ini, tamu tidak bisa memakai AI.",
+  "guest.ai.hostSignIn": "Di server ini, tamu tidak bisa memakai AI. Bisa jika dipasang dengan penginstal admin (.pkg).",
   "guest.invite.create": "Buat tautan",
   "guest.invite.readyFor": "Tautan untuk {name}",
   "guest.invite.ready": "Tautan tamu",
