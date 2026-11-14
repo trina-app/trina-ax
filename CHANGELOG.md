@@ -7,6 +7,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.4 — 2026-11-14
 
+- Hosted teams, groundwork only (off until the hosting service turns it on): a hosted team server that nobody used for a while can later be paused to save cost. Opening the team's address would then show **Starting your team…**, and the page opens by itself in about a minute when the server is back; the desktop and phone apps reconnect on their own. Nothing changes for any team in this release, and self-hosted servers are never paused.
 - The ✕ on a picture you attached in a message box is now an easier target to tap or click (24 px on a computer, 44 px on a phone). It looks the same as before.
 - A team server no longer grows without limit on a small disk. Team backups leave out folders a tool makes again (`node_modules`, `.next`, a Python virtual environment), which were most of a 1.8 GB daily backup; after an `npm install` they are back. The server also clears, once an hour, the npm / pip / bun download caches nobody used for 14 days (or over 1 GB), and the `node_modules` of a chat's work folder when the chat was idle for 14 days. Your own files are never touched. The newest 5 database copies from before an update stay for 14 days and longer; the system log is capped at 100 MB and downloaded system packages are removed after an install.
 - **Slack, own app**: when Slack refuses the team's own app's bot token (revoked), Admin now says so in plain words and offers "Replace tokens", instead of showing "Connected".
