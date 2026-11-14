@@ -1,6 +1,7 @@
 // The mark of a shared project chat (docs/DECISIONS.md "Shared project chats"): one people icon, the same in the
-// Trina list's row, the project page's row and the chat header (there with how many see it as its tooltip). The project
-// page's row also has the faces of the people who wrote in it (ChatFaces, their stack: FaceStack.tsx).
+// Trina list's row, the project page's row and the chat header (there with how many see it as its tooltip). In every
+// chat list a shared chat someone else wrote in shows their faces in place of the icon (ChatFaces, their stack:
+// FaceStack.tsx; docs/DECISIONS.md "Faces in every chat list").
 import clsx from 'clsx'
 import { Lock, ShieldAlert, Users } from 'lucide-react'
 import type { RefObject } from 'react'
@@ -65,46 +66,57 @@ export function SharedReadOnly() {
   )
 }
 
+/** The other people who wrote in a shared chat, as its list gave them (Chat.shared.people: never me); null when nobody
+ * else wrote, or the chat came without them (not from a list): its row shows the people icon then. */
+export const otherWriters = (shared: Chat['shared']) => (shared?.people?.length ? shared.people : null)
+
 /**
- * Who wrote in a shared chat, on its project page's row (Chat.shared.people, the most recent first; docs/DECISIONS.md
- * "Shared project chats", "The faces on the project page"): their pictures overlapping, at most 3 and then "+N"; on a
- * phone at most 2, so the title keeps its room. Each is the people directory's photo (my own also from /api/me), else
- * the letter. One person (or nobody yet: its creator): that face and the name. The pictures are decorative: the row's
- * link reads the names ("Mina, Sam 참여"), and on a computer the tooltip lists them on the faces, also while the row
- * (`focusFrom`) has keyboard focus. Without `people` (a list other than the project page's) its creator alone.
+ * Who else wrote in a shared chat, on its list row (Chat.shared.people, the most recent first, never me;
+ * docs/DECISIONS.md "Faces in every chat list"): their pictures overlapping (FaceStack, 20 px), at most 3 and then
+ * "+N"; on a phone at most 2, so the title keeps its room. Each is the people directory's photo, else the letter.
+ * Nothing when nobody else wrote (otherWriters: the row keeps its people icon). The pictures are decorative: the row's
+ * link reads "Shared chat · Sam, Jun and 2 more" (an sr-only line), and on a computer the tooltip lists the names on
+ * the faces, also while the row (`focusFrom`) has keyboard focus. No name on screen, except on a project page's row
+ * (`page`) with one other writer: that face and the name on a computer. `on`: the colour behind the row (a list panel's
+ * `subtle`, a page's `canvas`); `selected`: the row is the one on screen. `testId`: the stack's prefix. `where`: the
+ * project the row's tag would have named (the faces take its place in the Trina list): after the names, in the tooltip
+ * and the label.
  */
-export function ChatFaces({ shared, focusFrom }: { shared: NonNullable<Chat['shared']>; focusFrom?: RefObject<HTMLElement | null> }) {
+export function ChatFaces({ shared, focusFrom, page = false, on = 'canvas', selected, testId = 'project-chat', where }: { shared: NonNullable<Chat['shared']>; focusFrom?: RefObject<HTMLElement | null>; page?: boolean; on?: 'canvas' | 'subtle' | 'surface'; selected?: boolean; testId?: string; where?: string }) {
   const t = useT()
   const me = useMe()
   usePeopleList()
   const byId = usePeople((s) => s.byId)
-  const wrote = shared.people?.length ? shared.people : null
-  const count = wrote ? Math.max(shared.peopleCount ?? 0, wrote.length) : 1
+  const wrote = otherWriters(shared)
+  if (!wrote) return null
+  const count = Math.max(shared.peopleCount ?? 0, wrote.length)
   // the name and photo as they are now (a rename shows at once, as in rooms); my photo from /api/me while the
   // directory has none for me (not read yet, or it failed)
-  const people = (wrote ?? [shared.by]).map((p) => ({
+  const people = wrote.map((p) => ({
     id: p.id,
     name: byId[p.id]?.name ?? p.name,
     avatarVersion: byId[p.id]?.avatarVersion ?? (p.id === me?.user.id ? me.user.avatarVersion : undefined),
   }))
-  const one = people[0]!
-  if (count === 1) {
+  const names = reactionWho({ count, users: people }, { sep: t('rooms.nameSep'), more: (list, n) => t('rooms.groupNamesMore', { names: list, n }) }) + (where ? ` · ${where}` : '')
+  const label = <span className="sr-only" data-testid={`${testId}-people-label`}>{t('chat.share.facesLabel', { names })}</span>
+  if (page && count === 1) {
+    const one = people[0]!
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <Avatar user={one} size={20} />
-        {/* a phone keeps the face only, so the title has the room (a name cut to "O." said nothing; QA TC-1081); a
-            screen reader still reads it */}
-        <span className="truncate max-md:sr-only" data-testid="project-chat-by">{one.name}</span>
+        {/* a phone keeps the face only, so the title has the room (a name cut to "O." said nothing; QA TC-1081); the
+            screen reader reads the label */}
+        <span aria-hidden className="truncate max-md:hidden" data-testid={`${testId}-by`}>{one.name}</span>
+        {label}
       </span>
     )
   }
-  const names = reactionWho({ count, users: people }, { sep: t('rooms.nameSep'), more: (list, n) => t('rooms.groupNamesMore', { names: list, n }) })
   return (
     <>
       <Tooltip label={names} focusFrom={focusFrom}>
-        <FaceStack people={people} count={count} hoverRing testId="project-chat" />
+        <FaceStack people={people} count={count} hoverRing on={on} selected={selected} testId={testId} />
       </Tooltip>
-      <span className="sr-only" data-testid="project-chat-people-label">{t('projects.chatPeople', { names })}</span>
+      {label}
     </>
   )
 }

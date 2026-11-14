@@ -1,6 +1,5 @@
 // People's pictures overlapping, at most 3 and then "+N"; on a phone at most 2, so the row's text keeps its room. Used
-// for who wrote in a shared project chat (chat/SharedChat.tsx ChatFaces; docs/DECISIONS.md "The faces on the project
-// page"), for a group's members (Admin › Groups) and for who is in a team project (ProjectPeople.tsx: 4 faces, also on a
+// for who else wrote in a shared chat (chat/SharedChat.tsx ChatFaces; docs/DECISIONS.md "Faces in every chat list"), for a group's members (Admin › Groups) and for who is in a team project (ProjectPeople.tsx: 4 faces, also on a
 // phone, each with its name on hover: `shown`, `phoneShown`, `tips`). Decorative (aria-hidden): the row says the names in
 // words. It takes a ref and handlers (the rest of its props go to its element), so a Tooltip can wrap it.
 import clsx from 'clsx'
@@ -24,14 +23,17 @@ const MORE = '-ml-1 flex shrink-0 items-center justify-center rounded-full bg-ho
 /**
  * `people`: the first ones (only `shown` of them show, FACES_SHOWN unless given; on a phone `phoneShown`, 2 unless given);
  * `count`: how many there are in all. Each face has a ring of the page's colour; `hoverRing`: the hover colour on a
- * hovered row (a `group` around it). `tips`: each face says its name on hover (with a mouse). `testId`: the stack is
+ * hovered row (a `group` around it); `on`: the colour behind it, the page's (`canvas`), a list panel's (`subtle`) or a
+ * dialog's (`surface`); `selected`: on a selected row (the hover colour). `tips`: each face says its name on hover (with a mouse). `testId`: the stack is
  * `<testId>-people`, the "+N" tiles `<testId>-more` (a computer) and `<testId>-more-phone` (only when the phone shows
  * fewer). `size`: each face's size (20 unless given).
  */
-export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOWN, phoneShown = PHONE_SHOWN, tips, size = 20, ...rest }: {
+export function FaceStack({ people, count, hoverRing, on = 'canvas', selected, testId, shown = FACES_SHOWN, phoneShown = PHONE_SHOWN, tips, size = 20, ...rest }: {
   people: readonly AvatarUser[]
   count: number
   hoverRing?: boolean
+  on?: 'canvas' | 'subtle' | 'surface'
+  selected?: boolean
   testId: string
   shown?: 1 | 2 | 3 | 4
   phoneShown?: 1 | 2 | 3 | 4
@@ -39,7 +41,7 @@ export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOW
   /** each face's size in px: 20, 24 (a project's people under its name) or 28 (the member picker's group rows) */
   size?: 20 | 24 | 28
 } & Omit<ComponentPropsWithRef<'span'>, 'children' | 'className'>) {
-  const ring = clsx('ring-2 ring-canvas', hoverRing && 'group-hover:ring-hover')
+  const ring = clsx('ring-2', selected ? 'ring-hover' : on === 'subtle' ? 'ring-subtle' : on === 'surface' ? 'ring-surface' : 'ring-canvas', hoverRing && 'group-hover:ring-hover')
   // the "+N" tile as high as a face
   const more = clsx(MORE, size === 28 ? 'h-[28px] min-w-[28px]' : size === 24 ? 'h-[24px] min-w-[24px]' : 'h-[20px] min-w-[20px]')
   const phone = Math.min(phoneShown, shown)

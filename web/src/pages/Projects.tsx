@@ -69,7 +69,7 @@ import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { forgetPrivateAsk, usePrivateAsk } from '../components/chat/privateAsk'
 import { mayShareChat, openShareChat } from '../components/chat/ShareChat'
-import { ChatFaces, PrivateIcon, SharedIcon } from '../components/chat/SharedChat'
+import { ChatFaces, PrivateIcon, SharedIcon, otherWriters } from '../components/chat/SharedChat'
 import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -548,11 +548,11 @@ function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
   )
 }
 
-/** A chat on a project's page: its title and when it last changed. A shared chat has the people icon after the title
- * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
- * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the history row's
- * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
- * a phone. */
+/** A chat on a project's page: its title and when it last changed. A shared chat has the faces of the others who wrote
+ * in it before the time (ChatFaces: one person with the name; docs/DECISIONS.md "Faces in every chat list"), or, while
+ * nobody else wrote, the people icon after the title; a chat of mine has neither. The title gives way first: the faces
+ * and the time keep their room. Its "···" holds the history row's items by the same rules
+ * (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on a phone. */
 export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
   const t = useT()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
@@ -561,6 +561,7 @@ export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved 
   // the keyboard waits on "…" after an item (a dialog it opens gives it back there)
   const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
   const name = c.title || t('chat.untitled')
+  const faces = !!c.shared && !!otherWriters(c.shared)
   return (
     <ListRow
       scale="page"
@@ -571,16 +572,16 @@ export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved 
         name,
         <>
           {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-          {c.shared && <SharedIcon className="text-faint" />}
+          {c.shared && !faces && <SharedIcon className="text-faint" />}
           {/* my chat that only I see in a team project ("Only me", or from before): only its creator lists it */}
           {privateInTeamProject(c, project) && <PrivateIcon />}
         </>,
       )}
       end={
         <ProjectRowEnd at={c.updatedAt}>
-          {c.shared && (
+          {faces && (
             <>
-              <ChatFaces shared={c.shared} focusFrom={row} />
+              <ChatFaces shared={c.shared!} focusFrom={row} page />
               <span aria-hidden>·</span>
             </>
           )}

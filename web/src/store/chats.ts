@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
+import { keepFaces } from '../lib/sharedChat'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -523,8 +524,10 @@ export const useChats = create<ChatsState>((set, get) => {
       })
     },
 
-    upsertChat(c) {
+    upsertChat(next) {
       set((s) => {
+        // a single chat or an action's answer has no faces: the row keeps the ones its list gave it
+        const c = keepFaces(s.chats.find((x) => x.id === next.id) ?? s.others[next.id], next)
         // someone else's shared chat that I have not written in is not mine to list: it is kept only while a screen
         // shows it (its thread is open), so its header and composer follow along
         if (c.shared && !c.shared.mine && !s.chats.some((x) => x.id === c.id)) return s.threads[c.id] || s.others[c.id] ? { others: { ...s.others, [c.id]: c } } : s

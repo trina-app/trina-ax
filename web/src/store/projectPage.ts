@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import type { Chat, Project, ProjectPeople } from '@mycel/shared/api'
 import { accessChanged, chatChanged, filesChanged, reloadAsked } from './live'
+import { keepFaces } from '../lib/sharedChat'
 
 /** how many project pages stay (the one seen longest ago goes first) */
 const KEPT_PAGES = 12
@@ -19,10 +20,7 @@ export const chatOrder = (a: Chat, b: Chat) =>
     ? (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
     : a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1
 
-/** A chat of the list as it is now, with the faces of who wrote in it it had: those come with the list only, not with a
- * chat event or an action's answer. */
-export const keepFaces = (old: Chat | undefined, chat: Chat): Chat =>
-  old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
+export { keepFaces } from '../lib/sharedChat'
 
 /** A project's chats after a chat event (a chat of it made, renamed or restored shows; one deleted, moved away or no
  * longer visible goes). */

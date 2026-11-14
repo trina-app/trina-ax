@@ -5921,11 +5921,11 @@ export class MockServer {
       },
     }
   }
-  /** Who wrote in a shared chat, for its project's page (chat/shared.ts chatPeople): the most recent writer first, at
-   * most 3, and how many */
-  sharedPeople(chatId: string): { people: { id: string; name: string }[]; peopleCount: number } {
+  /** The others who wrote in a shared chat, for `viewer`'s list rows (chat/shared.ts chatPeople): the most recent writer
+   * first, at most 3, never the viewer, and how many */
+  sharedPeople(chatId: string, viewer: string): { people: { id: string; name: string }[]; peopleCount: number } {
     const last = new Map<string, number>()
-    this.messages.forEach((m, i) => { if (m.chatId === chatId && m.role === 'user' && m.author) last.set(m.author.id, i) })
+    this.messages.forEach((m, i) => { if (m.chatId === chatId && m.role === 'user' && m.author && m.author.id !== viewer) last.set(m.author.id, i) })
     const ids = [...last].sort((a, b) => b[1] - a[1]).map(([id]) => id)
     return { people: ids.slice(0, 3).map((id) => ({ id, name: this.users.find((u) => u.id === id)?.name ?? id })), peopleCount: ids.length }
   }
@@ -5984,7 +5984,8 @@ export class MockServer {
           if (!u) return null
           if (!d.chat) return p && this.access(p.folderPath, u) !== 'none' ? ev : null
           const v = this.sharedView(d.chat, u)
-          return v ? ({ ...ev, data: { ...d, chat: v } } as ServerEventInput) : null
+          // the rows' faces come with chat.updated too (runtime.ts publishChat)
+          return v ? ({ ...ev, data: { ...d, chat: d.change === 'deleted' ? v : { ...v, shared: { ...v.shared!, ...this.sharedPeople(d.chat.id, uid) } } } } as ServerEventInput) : null
         })
       }
       const to = s.runner ?? s.by.id
@@ -6064,8 +6065,10 @@ export class MockServer {
         if (!v) return []
         // the trash: its creator's, and the deleter's while they may restore it
         if (x.deletedAt) return v.shared!.by.id === c.user.id || (this.sharedDeletedBy.get(x.id) === c.user.id && v.shared!.canDelete) ? [v] : []
-        if (!c.query.projectId) return v.shared!.mine ? [v] : []
-        return [{ ...v, shared: { ...v.shared!, ...this.sharedPeople(x.id) } }]
+        // every list but the trash: the others who wrote in it (routes/chats.ts listChats)
+        const withPeople = { ...v, shared: { ...v.shared!, ...this.sharedPeople(x.id, c.user.id) } }
+        if (!c.query.projectId) return v.shared!.mine ? [withPeople] : []
+        return [withPeople]
       })
       return { ...out, items }
     })

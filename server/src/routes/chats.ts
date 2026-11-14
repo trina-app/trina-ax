@@ -405,10 +405,10 @@ export const chatsRoutes: RouteModule = {
         }
       }
       const hide = redactorFor(ctx, me).hide
-      // a project's page: who wrote in each of its shared chats listed here (all of them visible to me, above), in one
-      // query for the page
+      // every list but the trash: the other people who wrote in each shared chat listed here (all of them visible to me,
+      // above), in one query for the page (docs/DECISIONS.md "Faces in every chat list")
       const page = [...pinned, ...items]
-      const people = query.projectId && !query.trash ? chatPeople(ctx.db, page.filter(isSharedRow).map((r) => r.id)) : undefined
+      const people = !query.trash ? chatPeople(ctx.db, page.filter(isSharedRow).map((r) => r.id), me) : undefined
       return { items: page.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
     })
 
