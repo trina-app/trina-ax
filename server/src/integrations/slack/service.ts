@@ -1217,7 +1217,8 @@ export class SlackConnector {
     if (!cfg.link_origin) return
     const tooSoon = () => {
       const now = this.now()
-      const recent = this.db.query('SELECT count(*) n, max(created_at) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; last: string | null }
+      // the wait is for a link still to be used: one that was cancelled or used does not hold a new one back
+      const recent = this.db.query('SELECT count(*) n, max(CASE WHEN used_at IS NULL THEN created_at END) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; last: string | null }
       return recent.n >= LINK_PER_HOUR || (!!recent.last && Date.parse(recent.last) > now - LINK_AGAIN_MS)
     }
     if (tooSoon()) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
