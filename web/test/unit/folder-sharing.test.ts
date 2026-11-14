@@ -283,7 +283,11 @@ describe('General access as Drive shows it (P1): Restricted or the team with a r
   })
 })
 
-describe('a Viewer row lower than what they would get otherwise says so (review A1), and the permission function agrees', () => {
+// TODO(P2 UI, before P2 ships): since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive
+// (P2)") a lower row no longer lowers anyone: the permission function gives the wider access with and without the row
+// (asserted below), so these A1 captions (lib/folder-sharing.ts lowerOf, generalLowerOf) describe the old model and go
+// with the P2 Share dialog (spec item 13: "P1 keeps them while out alone; P2 removes them").
+describe('a Viewer row lower than what they would get otherwise (review A1): the caption, and what the permission function gives since P2', () => {
   const groupMap = new Map<string, Group>([
     ['sales', { id: 'sales', name: 'Sales', description: null, memberIds: ['alice', 'bob'] } as Group],
     ['leads', { id: 'leads', name: 'Leads', description: null, memberIds: ['bob', 'carol'] } as Group],
@@ -304,30 +308,30 @@ describe('a Viewer row lower than what they would get otherwise says so (review 
   test('a person set to Viewer under a folder where the team can edit (screenshot 08 "Downgrade")', () => {
     const r = check([row('shared', 'everyone', null, 'write')], 'shared/Down', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }], { subjectType: 'user', subjectId: 'erin' }, 'erin')
     expect(r.lower).toEqual({ kind: 'team', folder: 'shared' })
-    expect([r.with, r.without]).toEqual(['read', 'write'])
+    expect([r.with, r.without]).toEqual(['write', 'write'])
     expect(en('folderAccess.lowerTeamAbove', { team: 'Acme', folder: 'Company-wide' })).toBe('Can only view here, though anyone at Acme can edit "Company-wide"')
   })
 
   test('a group set to Viewer next to General access team Editor on the same folder', () => {
     const r = check([], 'shared', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'write' }], { subjectType: 'group', subjectId: 'sales' }, 'alice')
     expect(r.lower).toEqual({ kind: 'team', folder: null })
-    expect([r.with, r.without]).toEqual(['read', 'write'])
+    expect([r.with, r.without]).toEqual(['write', 'write'])
   })
 
   test('a person set to Viewer below their group set to Editor on the same folder', () => {
     const r = check([], 'shared/Q', [{ subjectType: 'group', subjectId: 'sales', access: 'write' }, { subjectType: 'user', subjectId: 'alice', access: 'read' }], { subjectType: 'user', subjectId: 'alice' }, 'alice')
     expect(r.lower).toEqual({ kind: 'group', group: 'Sales' })
-    expect([r.with, r.without]).toEqual(['read', 'write'])
+    expect([r.with, r.without]).toEqual(['write', 'write'])
   })
 
   test('a person or group set to Viewer where a group above can edit', () => {
     const rows = [row('shared', 'everyone', null, 'read'), row('shared/Sales', 'group', 'sales', 'write')]
     const p = check(rows, 'shared/Sales/Q', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }], { subjectType: 'user', subjectId: 'alice' }, 'alice')
     expect(p.lower).toEqual({ kind: 'groupAbove', group: 'Sales', folder: 'shared/Sales' })
-    expect([p.with, p.without]).toEqual(['read', 'write'])
+    expect([p.with, p.without]).toEqual(['write', 'write'])
     const g = check(rows, 'shared/Sales/Q', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }], { subjectType: 'group', subjectId: 'sales' }, 'alice')
     expect(g.lower).toEqual({ kind: 'groupAbove', group: 'Sales', folder: 'shared/Sales' })
-    expect([g.with, g.without]).toEqual(['read', 'write'])
+    expect([g.with, g.without]).toEqual(['write', 'write'])
   })
 
   test('a group set to Viewer whose member has their own Editor row above: that member is named', () => {
@@ -336,7 +340,7 @@ describe('a Viewer row lower than what they would get otherwise says so (review 
     const draft = draftOf([{ subjectType: 'group', subjectId: 'sales', access: 'read' }], false).draft
     expect(lowerOf(draft, draft.named[0]!, { groups: groupMap, above: data.above, everyoneAbove: data.everyoneAbove, names: (id) => people.find((p) => p.id === id)?.name })).toEqual({ kind: 'groupAbove', group: 'Bob', folder: 'shared' })
     const bob = people.find((p) => p.id === 'bob')!
-    expect(ruleWorld([...rows, row('shared/Q', 'group', 'sales', 'read')]).access(bob, ['shared', 'Q', 'x.md'])).toBe('read')
+    expect(ruleWorld([...rows, row('shared/Q', 'group', 'sales', 'read')]).access(bob, ['shared', 'Q', 'x.md'])).toBe('write')
     expect(ruleWorld(rows).access(bob, ['shared', 'Q', 'x.md'])).toBe('write')
   })
 
@@ -344,18 +348,18 @@ describe('a Viewer row lower than what they would get otherwise says so (review 
     // Bob: Leads can edit shared, Sales can only view shared/A (deeper): without his row here he views
     const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'group', 'leads', 'write'), row('shared/A', 'group', 'sales', 'read')]
     const r = check(rows, 'shared/A/Q', [{ subjectType: 'user', subjectId: 'bob', access: 'read' }], { subjectType: 'user', subjectId: 'bob' }, 'bob')
-    expect([r.with, r.without]).toEqual(['read', 'read'])
+    expect([r.with, r.without]).toEqual(['write', 'write'])
     expect(r.lower).toBeNull()
     // Carol (Leads only): Leads decides for her, Editor: said
     const c = check(rows, 'shared/A/Q', [{ subjectType: 'user', subjectId: 'carol', access: 'read' }], { subjectType: 'user', subjectId: 'carol' }, 'carol')
-    expect([c.with, c.without]).toEqual(['read', 'write'])
+    expect([c.with, c.without]).toEqual(['write', 'write'])
     expect(c.lower).toEqual({ kind: 'groupAbove', group: 'Leads', folder: 'shared' })
   })
 
   test('a person set to Viewer where their own row above lets them edit', () => {
     const r = check([row('shared', 'user', 'erin', 'write')], 'shared/Q', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }], { subjectType: 'user', subjectId: 'erin' }, 'erin')
     expect(r.lower).toEqual({ kind: 'selfAbove', folder: 'shared' })
-    expect([r.with, r.without]).toEqual(['read', 'write'])
+    expect([r.with, r.without]).toEqual(['write', 'write'])
   })
 
   test('no caption where the row lowers nobody: Viewer where they would view anyway, Editor, Restricted here', () => {

@@ -173,6 +173,38 @@ export function convertToAdditive(db: Database, o: { now?: string } = {}): Conve
   }
 }
 
+/**
+ * Each trashed folder put back at its old path, as team-files/service.ts parkedView builds it: the trash items trashed
+ * after it whose old path holds its own (the chain, latest last) are put back too, and live rows at or under those old
+ * paths are left out. The latest trashed first: a folder trashed inside another later is part of that one's view, which
+ * is converted first. The conversion and its final assertion use the same views (review: a one-level view in the
+ * assertion saw the chain's own rules as a widening and the server did not start). `broken`: the chain is longer than 64.
+ */
+export function parkedViews(db: Database): { id: string; map: (p: string) => string | null; scope: (p: string) => boolean; broken: boolean }[] {
+  if (!tableExists(db, 'trash_items') || !columnExists(db, 'trash_items', 'kind')) return []
+  type Held = { id: string; original_path: string; storage_path: string }
+  const held = q(db, "SELECT id, original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL ORDER BY id DESC").all() as Held[]
+  return held.map((own) => {
+    const chain: Held[] = [own]
+    let broken = false
+    for (let cur = own; ;) {
+      const up = held.filter((h) => h.id > cur.id && (h.original_path === '' || cur.original_path.startsWith(h.original_path + '/'))).sort((a, b) => (a.id < b.id ? -1 : 1))[0]
+      if (!up) break
+      chain.push(up)
+      cur = up
+      if (chain.length >= 64) { broken = true; break }
+    }
+    const map = (p: string): string | null => {
+      const c = chain.find((h) => under(p, h.storage_path))
+      if (c) return c.original_path + p.slice(c.storage_path.length)
+      if (isSystem(p)) return null
+      if (chain.some((h) => under(p, h.original_path))) return null
+      return p
+    }
+    return { id: own.id, map, scope: (p: string) => under(p, own.storage_path), broken }
+  })
+}
+
 function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): ConversionReport {
   const report: ConversionReport = { limited: [], byName: [], managedMarkers: [], legacyMarkers: 0, roleRowsNormalised: 0, noneRowsRemoved: 0, exceptionsKept: 0, exceptionsWithoutProject: 0, narrowed: [], parked: 0, parkedFailedClosed: 0, schedulesKept: 0, schedulesLapsed: 0, strict: [], checked: 0 }
   const folders = q(db, 'SELECT id, path FROM folders ORDER BY path').all() as FolderRow[]
@@ -227,30 +259,10 @@ function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): Co
   }
   // 2. trashed folders, put back at their old path (the latest trashed first: a folder trashed inside it later is part
   // of its view; parkedView in team-files/service.ts builds the same chain)
-  if (tableExists(db, 'trash_items') && columnExists(db, 'trash_items', 'kind')) {
-    type Held = { id: string; original_path: string; storage_path: string }
-    const held = q(db, "SELECT id, original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL ORDER BY id DESC").all() as Held[]
-    for (const own of held) {
-      const chain: Held[] = [own]
-      let broken = false
-      for (let cur = own; ;) {
-        const up = held.filter((h) => h.id > cur.id && (h.original_path === '' || cur.original_path.startsWith(h.original_path + '/'))).sort((a, b) => (a.id < b.id ? -1 : 1))[0]
-        if (!up) break
-        chain.push(up)
-        cur = up
-        if (chain.length >= 64) { broken = true; break }
-      }
-      const map = (p: string): string | null => {
-        const c = chain.find((h) => under(p, h.storage_path))
-        if (c) return c.original_path + p.slice(c.storage_path.length)
-        if (isSystem(p)) return null
-        if (chain.some((h) => under(p, h.original_path))) return null
-        return p
-      }
-      report.parked++
-      if (broken) report.parkedFailedClosed++
-      convertView({ name: `parked:${own.id}`, map, strictAll: broken }, (p) => under(p, own.storage_path))
-    }
+  for (const t of parkedViews(db)) {
+    report.parked++
+    if (t.broken) report.parkedFailedClosed++
+    convertView({ name: `parked:${t.id}`, map: t.map, strictAll: t.broken }, t.scope)
   }
 
   // 3. write: limits first (the trigger lets the legacy marker in only on a limited folder), then the rows in place
@@ -392,12 +404,8 @@ function assertNoWidening(db: Database, report: ConversionReport): Set<string> {
   // (the converted database is read with the marker set inside this savepoint: the loader needs it)
   q(db, 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FOLDER_ACCESS_MODEL_KEY, FOLDER_ACCESS_MODEL)
   const violations = new Set<string>()
-  const views: { map: (p: string) => string | null; scope: (p: string) => boolean }[] = [{ map: (p) => (isSystem(p) ? null : p), scope: (p) => !isSystem(p) }]
-  if (tableExists(db, 'trash_items') && columnExists(db, 'trash_items', 'kind')) {
-    for (const t of q(db, "SELECT original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL").all() as { original_path: string; storage_path: string }[]) {
-      views.push({ map: (p) => (under(p, t.storage_path) ? t.original_path + p.slice(t.storage_path.length) : isSystem(p) || under(p, t.original_path) ? null : p), scope: (p) => under(p, t.storage_path) })
-    }
-  }
+  // (the same views the conversion used: the live tree, and each trashed folder with its chain)
+  const views: { map: (p: string) => string | null; scope: (p: string) => boolean }[] = [{ map: (p) => (isSystem(p) ? null : p), scope: (p) => !isSystem(p) }, ...parkedViews(db)]
   const people = peopleOf(db)
   const before = beforeRows.get(db)
   if (!before) return violations
@@ -426,8 +434,9 @@ function assertNoWidening(db: Database, report: ConversionReport): Set<string> {
       for (const p of people) {
         const pr: Principal = { id: p.id, name: p.name, role: p.role, groups: p.groups }
         if (wider(pr, now)) violations.add(F)
-        // as if promoted to admin
+        // as if promoted to admin, or an owner or admin as if made a member (with their own groups)
         if (p.role === 'member' && wider({ ...pr, role: 'admin' }, now)) violations.add(F)
+        if (p.role !== 'member' && wider({ ...pr, role: 'member' }, now)) violations.add(F)
       }
       // a fresh person, and each person named here, in any combination of the groups that matter (C1-A: without the
       // person rules the conversion wrote, which are the accepted exception)

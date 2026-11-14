@@ -35,11 +35,16 @@ type R = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: strin
 /** the stub server's rule rows by folder, and its folder ids */
 let rows: Map<string, R[]>
 const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4'], ['shared/Sales/New', '01900000-0000-7000-8000-0000000000f5']])
-const ruleSet = () => ruleWorld([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))))
+/** the stub's limited folders (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): set by a save's `limited`;
+ * a folder whose rows hold "everyone: none" counts as limited too (the form these tests were written in) */
+let limitedPaths = new Set<string>()
+const isLimited = (path: string) => limitedPaths.has(path) || (rows.get(path) ?? []).some((r) => r.subjectType === 'everyone' && r.access === 'none')
+const ruleSet = () => ruleWorld([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))), [...rows.keys()].filter(isLimited))
 const folderOf = (path: string): Folder => ({
   id: ids.get(path)!, path, exists: true, createdAt: T0, groupId: null, keep: path === 'shared' ? 'team' : null, hidden: false,
   rules: (rows.get(path) ?? []).map((r, i) => ({ id: `01900000-0000-7000-8000-0000000001${String(i).padStart(2, '0')}`, folderId: ids.get(path)!, ...r, updatedBy: null, updatedAt: T0 })),
-  rulesHash: rulesHash(rows.get(path) ?? []),
+  rulesHash: rulesHash(rows.get(path) ?? [], isLimited(path)),
+  limited: isLimited(path),
 })
 const sent: { key: string; body: any }[] = []
 let putReply: ((path: string, body: any) => Response) | null = null
@@ -60,12 +65,13 @@ beforeAll(() => {
     if (key === 'GET /api/admin/users') return json(200, { items: people.map(user) })
     if (key === 'GET /api/admin/groups') return json(200, { items: groups })
     if (key === 'POST /api/admin/access/edit-preview') {
-      const out = editPreview({ rules: ruleSet(), people, groupName: (id) => groups.find((g) => g.id === id)?.name ?? null, personName: (id) => people.find((p) => p.id === id)?.name ?? null }, body.path, body.rules, { team: body.path === 'shared' ? 'shared' : null })
+      const out = editPreview({ rules: ruleSet(), people, groupName: (id) => groups.find((g) => g.id === id)?.name ?? null, personName: (id) => people.find((p) => p.id === id)?.name ?? null }, body.path, body.rules, { team: body.path === 'shared' ? 'shared' : null, limited: body.limited })
       return json(200, { path: body.path, exists: true, connected: false, ...out })
     }
     if (key === 'POST /api/admin/folders') {
       if (postReply) return postReply(body)
       rows.set(body.path, body.rules)
+      if (body.limited) limitedPaths.add(body.path)
       return json(201, folderOf(body.path))
     }
     const put = /^PUT \/api\/admin\/folders\/([^/]+)\/rules$/.exec(key)
@@ -73,6 +79,8 @@ beforeAll(() => {
       const path = [...ids].find(([, id]) => id === put[1])![0]
       if (putReply) return putReply(path, body)
       rows.set(path, body.rules)
+      if (body.limited === true) limitedPaths.add(path)
+      if (body.limited === false) { limitedPaths.delete(path); rows.set(path, body.rules.filter((r: R) => !(r.subjectType === 'everyone' && r.access === 'none'))) }
       return json(200, folderOf(path))
     }
     return json(500, { error: { code: 'internal', message: `no route ${key}` } })
@@ -80,6 +88,7 @@ beforeAll(() => {
 })
 beforeEach(() => {
   // Quotes: Sales can edit, Alice only views; on Sales, Leads can view and nobody else; Company-wide: everyone views
+  limitedPaths = new Set()
   rows = new Map<string, R[]>([
     ['shared', [{ subjectType: 'everyone', subjectId: null, access: 'read' }]],
     ['shared/Sales', [{ subjectType: 'group', subjectId: LEADS, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }]],
@@ -188,13 +197,15 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     await m.until(() => rowsOf(m, 'sharing-row').length === 1, 'the row gone')
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
     await ready(m)
-    // Alice is in Sales, which can edit here: without her own row she can edit
-    expect(m.get('sharing-outcome').textContent).toContain('Alice will be able to edit it')
+    // Alice is in Sales, which can edit here: access adds up, so she could edit already; taking her row out changes nobody
+    expect(m.get('sharing-outcome').textContent).toContain(en('folderAccess.noChange'))
     await m.unmount()
   })
 
   test('a No access row is under Access removed with Add (Google\'s word), which brings them back as Viewer, asked before Save', async () => {
+    // (Quotes limited: Carol, let in by Leads on Sales, is cut off there)
     rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'carol', access: 'none' }])
+    limitedPaths.add('shared/Sales/Quotes')
     const m = await open()
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
     const removed = rowsOf(m, 'sharing-removed-row')

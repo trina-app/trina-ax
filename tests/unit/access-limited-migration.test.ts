@@ -5,7 +5,7 @@
 // exception), and the group screens can name them.
 import { describe, expect, test } from 'bun:test'
 import { legacyDb, type LegacyDb } from '../lib/legacy-db'
-import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
+import { RuleSet, projectsCaseInsensitive, setProjectsCaseInsensitive, type Access, type Principal } from '../../server/src/policy/access'
 import { LegacyRuleSet } from '../../server/src/policy/legacy-deepest'
 import { folderAccessProblems } from '../../server/src/policy/invariants'
 import { originKeepers } from '../../server/src/admin/folders'
@@ -222,6 +222,40 @@ describe('fixed worlds', () => {
     expect(now.access(P('b'), ['shared', 'secret'])).toBe('write')
     // the live folder is converted on its own
     expect(RuleSet.load(w.db).access(P('a', ['g']), ['shared', 'secret'])).toBe('read')
+  })
+
+  test('nested trashed folders: converted and checked in the same chain view (review: the server did not start)', () => {
+    const w = legacyDb()
+    w.group('G'); w.group('HR')
+    w.user('a', 'admin'); w.user('g1', 'member', { groups: ['G'] }); w.user('p', 'member'); w.user('h', 'member', { groups: ['HR'] })
+    w.rule('hr', 'group', 'HR', 'write')
+    // hr/x (everyone write) trashed after hr/x/a (G read) was trashed
+    w.rule('.system/trash/2026-11/t2', 'everyone', null, 'write')
+    w.rule('.system/trash/2026-11/t1', 'group', 'G', 'read')
+    w.db.query("INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, purge_at, kind) VALUES ('t1', 'hr/x/a', '.system/trash/2026-11/t1', 0, 'a', '2099-01-01', 'folder')").run()
+    w.db.query("INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, purge_at, kind) VALUES ('t2', 'hr/x', '.system/trash/2026-11/t2', 0, 'a', '2099-01-01', 'folder')").run()
+    w.convert()
+    expect(folderAccessProblems(w.db)).toEqual([])
+    expect(report(w).parked).toBe(2)
+  })
+
+  test('a case-sensitive disk: Projects/<name> is an ordinary folder, and its "no access" row is converted as one (review)', () => {
+    const before = projectsCaseInsensitive()
+    setProjectsCaseInsensitive(false)
+    try {
+      const w = legacyDb()
+      w.group('G')
+      w.user('x', 'member', { groups: ['G'] }); w.user('y', 'member', { groups: ['G'] })
+      w.rule('Projects/x', 'group', 'G', 'write')
+      w.rule('Projects/x', 'user', 'x', 'none')
+      const was = w.legacy()
+      w.convert()
+      const now = RuleSet.load(w.db)
+      for (const p of [P('x', ['G']), P('y', ['G'])]) expect(now.access(p, ['Projects', 'x', 'doc']), p.id).toBe(was.access(p, ['Projects', 'x', 'doc']))
+      // a new member of G: never more (the folder is limited and names y: case 7.5-3)
+      expect(RANK[now.access(P('z', ['G']), ['Projects', 'x', 'doc'])]).toBeLessThanOrEqual(RANK[was.access(P('z', ['G']), ['Projects', 'x', 'doc'])])
+      expect(now.access(P('x', ['G']), ['Projects', 'x'])).toBe('none')
+    } finally { setProjectsCaseInsensitive(before) }
   })
 
   test('a fresh database only gets the marker', () => {

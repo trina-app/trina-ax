@@ -11,10 +11,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { migrate } from '../../server/src/db'
-import { RuleSet, inPlace, type Access, type Principal, type Role } from '../../server/src/policy/access'
+import { RuleSet, type Access, type Principal, type Role } from '../../server/src/policy/access'
 import { LegacyRuleSet, type LegacyRow } from '../../server/src/policy/legacy-deepest'
 import { folderAccessProblems } from '../../server/src/policy/invariants'
-import { groupSubsets } from '../../server/src/policy/convert-additive'
+import { groupSubsets, parkedViews } from '../../server/src/policy/convert-additive'
 import { keepFolderAccess } from '../../server/src/system/backup'
 
 const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
@@ -56,10 +56,8 @@ const ruleCounts = {
 }
 type View = { name: string; map: (p: string) => string | null; scope: (p: string) => boolean }
 const views: View[] = [{ name: 'live', map: (p) => (isSystem(p) ? null : p), scope: (p) => !isSystem(p) }]
-if (hasCol(db, 'trash_items', 'kind')) for (const t of db.query("SELECT id, original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL").all() as { id: string; original_path: string; storage_path: string }[]) {
-  const m = inPlace(t.storage_path, t.original_path)
-  views.push({ name: `parked`, map: (p) => { const x = m(p); return x !== null && isSystem(x) ? null : x }, scope: (p) => p === t.storage_path || p.startsWith(t.storage_path + '/') })
-}
+// (each trashed folder with its chain, as the conversion and the trash judge it)
+for (const t of parkedViews(db)) views.push({ name: 'parked', map: t.map, scope: t.scope })
 const boundariesOf = (v: View, rows: readonly { path: string }[]) => {
   const out = new Set<string>()
   for (const f of db.query('SELECT path FROM folders').all() as { path: string }[]) if (v.scope(f.path)) { const at = v.map(f.path); if (at !== null && !isUsers(at)) out.add(at) }
@@ -98,7 +96,7 @@ for (const { v, legacy, paths } of snap) {
       for (const r of [...legacy.rulesAt(up), ...oldReader.rulesAt(up)]) { if (r.subject_type === 'group' && r.subject_id) G.add(r.subject_id); if (r.subject_type === 'user' && r.subject_id) U.add(r.subject_id) }
     }
     for (const p of people) {
-      for (const role of p.role === 'member' ? ['member', 'admin'] as Role[] : [p.role]) {
+      for (const role of p.role === 'member' ? ['member', 'admin'] as Role[] : [p.role, 'member'] as Role[]) {
         const pr: Principal = { ...p, role }
         const b = legacy.access(pr, s), a = now.access(pr, s)
         checked++

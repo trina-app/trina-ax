@@ -56,6 +56,8 @@ export type Lower =
   | { kind: 'team'; folder: string | null }
   | { kind: 'groupAbove'; group: string; folder: string }
   | { kind: 'selfAbove'; folder: string }
+// TODO(P2 UI, before P2 ships): since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive
+// (P2)") a lower row lowers nobody: this caption and generalLowerOf describe the old model and go with the P2 dialog.
 export function lowerOf(d: Draft, n: { subjectType: 'user' | 'group'; subjectId: string; access: Access }, o: {
   groups: ReadonlyMap<string, Group>
   above: readonly AccessTreeWho[] | null

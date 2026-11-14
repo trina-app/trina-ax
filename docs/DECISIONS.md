@@ -26763,7 +26763,9 @@ item 9-A, item 12-A. Spec v3 and three reviews are with the owner (not in the re
   - Web (after the P1 Share dialog is on dev): the Limit access switch (also on a limited top folder, M3), General
     access apart from it, Access removed › Add from `cutAt`, the Manager row ("관리 권한"), the "Added when folders
     changed" tag, the group-change warning before saving on Admin › Groups and the person's page (from origin-check),
-    the `client_outdated` reload prompt, the one-time Admin notice listing the folders frozen by name. Until then the
+    the `client_outdated` reload prompt, the one-time Admin notice listing the folders frozen by name, and **removing
+    P1's "lower than the folder above" captions** (`lowerOf`, `generalLowerOf`: with access adding up a lower row lowers
+    nobody, so they would say "can only view here" to someone who can edit; spec item 13). Until then the
     web saves Restricted as `limited: true` (`web/src/lib/access-edit.ts limitedOf`, `useRulesDraft`) and the old
     panel's "No access" rows on a limited folder are dropped (the limit keeps them out).
   - C1-B (only if picked): S3, the `group_members` revert must compare old and new member lists in code (both group
