@@ -16,6 +16,7 @@ import { useUi } from '../../store/ui'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PeoplePicker } from '../rooms/PeoplePicker'
 import { IconButton } from '../ui'
+import { useCanStartChat } from '../GuestView'
 import { LoadError } from '../LoadError'
 import { PanelFrame, panelRow } from './PanelFrame'
 import { RoomsByKind } from './RoomsByKind'
@@ -29,6 +30,8 @@ export function ChatsPanel() {
   const { pathname, search } = useLocation()
   const here = pathname === '/activity' && activityInChats(search)
   const unread = useRoomNoticeUnread()
+  // "+": a guest only when someone of their place is there to talk to (components/GuestView.tsx)
+  const canStart = useCanStartChat()
   return (
     <PanelFrame
       title={t('tabs.chats')}
@@ -38,9 +41,11 @@ export function ChatsPanel() {
           <IconButton label={t('rail.searchChats')} onClick={() => setSearchOpen(true, 'rooms')} data-testid="chats-panel-search">
             <Search size={16} aria-hidden />
           </IconButton>
-          <IconButton label={t('rooms.newChat')} onClick={() => setPicking(true)} data-testid="rooms-new-dm">
-            <Plus size={16} aria-hidden />
-          </IconButton>
+          {canStart && (
+            <IconButton label={t('rooms.newChat')} onClick={() => setPicking(true)} data-testid="rooms-new-dm">
+              <Plus size={16} aria-hidden />
+            </IconButton>
+          )}
         </>
       }
       top={

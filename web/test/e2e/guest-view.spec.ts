@@ -85,6 +85,10 @@ test.describe('computer', () => {
     await page.goto('/rooms')
     await expect(page.getByText('견적 준비').first()).toBeVisible()
     await expect(page.locator(`a[href="/rooms/${EVERYONE}"]`)).toHaveCount(0)
+    // no folders to make; "+" stays: Bob of their room is someone they may write to
+    await expect(page.getByTestId('chats-panel')).toBeVisible()
+    await expect(page.getByTestId('chats-panel').getByText('새 폴더')).toHaveCount(0)
+    await expect(page.getByTestId('rooms-new-dm')).toBeVisible()
     // AI off: no ✦ side chat in the room
     await page.goto(`/rooms/${GROUP}`)
     await expect(page.getByTestId('room-header')).toBeVisible()

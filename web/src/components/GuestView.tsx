@@ -13,6 +13,7 @@ import { useT } from '../i18n'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { readProjectList, useProjects } from '../store/projects'
 import { useRooms } from '../store/rooms'
+import { usePeople } from '../store/people'
 import { useAiAccess } from '../store/aiAccess'
 import { useMe } from '../store/session'
 import { IconButton } from './ui'
@@ -115,4 +116,18 @@ export function GuestLanding() {
  * a guest who opens its address lands on Home instead. */
 export function NotForGuests({ children }: { children: ReactNode }) {
   return isGuestMe(useMe()) ? <Navigate to="/" replace /> : <>{children}</>
+}
+
+/**
+ * May this person start a 1:1 chat from the chats list ("+", the start hint)? Everyone but a guest; a guest only while
+ * the directory has someone of their place besides them (the server lists only those: GET /api/people), since a guest
+ * may DM only the people of their place.
+ */
+export function useCanStartChat(): boolean {
+  const me = useMe()
+  const guest = isGuestMe(me)
+  const people = usePeople((s) => s.people)
+  useEffect(() => { if (guest) void usePeople.getState().load() }, [guest])
+  if (!guest) return true
+  return !!people?.some((p) => p.id !== me?.user.id)
 }

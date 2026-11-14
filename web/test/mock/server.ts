@@ -1478,7 +1478,7 @@ export class MockServer {
   /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
   assertGuestFree() {
     const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
-    if (this.guestCap !== null && used >= this.guestCap) throw new Fail('plan_limit', 409, `The plan's guest limit (${this.guestCap}) is reached.`, undefined, { reason: 'guest_limit', limit: this.guestCap })
+    if (this.guestCap !== null && used >= this.guestCap) throw new Fail('plan_limit', 409, `The plan's guest limit (${this.guestCap}) is reached.`, undefined, { reason: 'guest_limit', limit: this.guestCap, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
   }
 
   me(u: User, sid: string): Me {

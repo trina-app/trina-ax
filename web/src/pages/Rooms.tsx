@@ -14,6 +14,7 @@
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
+import { useCanStartChat } from '../components/GuestView'
 import clsx from 'clsx'
 import { ListHeading, ListIcon, rowName } from '../components/list/List'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
@@ -55,6 +56,8 @@ export default function Rooms() {
   // and stays on the list, and a chat opened from it takes that entry, so Back from the chat comes back to the list
   const [params, setParams] = useSearchParams()
   const [picking, setPicking] = useState(false)
+  // the start hint: a guest only with someone of their place to talk to (components/GuestView.tsx)
+  const canStart = useCanStartChat()
   const asked = params.has('new')
   useEffect(() => {
     if (!asked) return
@@ -78,7 +81,7 @@ export default function Rooms() {
     return (
       <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
-          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t('rail.pickConversation')}</p>
+          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t(canStart ? 'rail.pickConversation' : 'rail.pickConversationOnly')}</p>
           {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         </div>
         {/* /rooms?new=1 (a link that asks for a new conversation) opens the people list here too */}
@@ -108,7 +111,7 @@ export default function Rooms() {
               </section>
             )
           })}
-        {loaded && !failed && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
+        {loaded && !failed && canStart && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
           <button type="button" onClick={() => setPicking(true)} className="mt-2 flex min-h-11 w-full items-center gap-2 px-4 text-left text-sm text-muted hover:text-ink sm:px-6" data-testid="rooms-start-hint">
             <Plus size={16} aria-hidden />
             {t('rooms.startHint')}

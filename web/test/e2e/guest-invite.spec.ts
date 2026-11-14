@@ -83,7 +83,7 @@ test('Cancel goes back to the add list', async ({ page }) => {
   await expect(page.getByTestId('people-search')).toBeVisible()
 })
 
-test('a member sees no Team AI; the plan cap says "게스트는 N명까지예요"', async ({ page }) => {
+test('a member sees no Team AI; a full plan says so plainly and Create link is off', async ({ page }) => {
   await start(page, { username: 'bob', password: 'bob password 1' })
   expect((await page.request.post('/__test/guest-limit', { data: { guests: 0 } })).ok()).toBeTruthy()
   await openRoomAdd(page)
@@ -91,9 +91,14 @@ test('a member sees no Team AI; the plan cap says "게스트는 N명까지예요
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-own')).toBeVisible()
   await expect(page.getByTestId('guest-ai-team')).toHaveCount(0)
+  // nothing about a cap before it is reached
+  await expect(page.getByTestId('guest-invite-full')).toHaveCount(0)
   await page.getByTestId('guest-invite-create').click()
-  await expect(page.getByTestId('guest-invite-error')).toHaveText('게스트는 0명까지예요')
-  await expect(page.getByTestId('guest-invite-error')).not.toContainText('자리')
+  await expect(page.getByTestId('guest-invite-full')).toHaveText('게스트는 0명까지예요. 이미 다 찼어요.')
+  await expect(page.getByTestId('guest-invite-full')).not.toContainText('자리')
+  await expect(page.getByTestId('guest-invite-create')).toBeDisabled()
+  // a member gets no plan link
+  await expect(page.getByTestId('guest-invite-plans')).toHaveCount(0)
 })
 
 test("a project's creator invites from the members dialog; the link's page says it is one project only, then the form", async ({ page, browser }) => {

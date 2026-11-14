@@ -103,6 +103,13 @@ export function useTeamConnections(enabled: boolean): Credential[] | null {
   return list
 }
 
+/** The plan's guest cap was reached (409 plan_limit reason guest_limit): how many, and the plan page when given. */
+export function guestCap(e: unknown): { n: number; manageUrl?: string } | null {
+  if (!isApiError(e, 'plan_limit') || e.body.params?.reason !== GUEST_LIMIT || typeof e.body.params.limit !== 'number') return null
+  const url = e.body.params.manageUrl
+  return { n: e.body.params.limit, ...(typeof url === 'string' && /^https?:\/\//.test(url) ? { manageUrl: url } : {}) }
+}
+
 /** Words for a refused guest change: the plan's guest cap in the owner's words, else the server's. */
 export function guestErrorText(e: unknown, locale: ReturnType<typeof useLocale>, t: ReturnType<typeof useT>): string {
   if (isApiError(e, 'plan_limit') && e.body.params?.reason === GUEST_LIMIT && typeof e.body.params.limit === 'number') return t('guest.limit', { n: e.body.params.limit })
@@ -121,6 +128,9 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
+  // the plan's guests are all there (409 plan_limit reason guest_limit): said plainly, Create link off; the owner and
+  // admins get the plan page when the server names one (a store app's answer has none: lib/api.ts storeSafeError)
+  const [full, setFull] = useState<{ n: number; manageUrl?: string } | null>(null)
   const create = async () => {
     if (busy || !aiChoiceReady(ai)) return
     setBusy(true)
@@ -129,7 +139,9 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
       const r = await api.call(API.createGuestInvite, { body: { place: { kind: place.kind, id: place.id }, ai, ...(name.trim() ? { name: name.trim() } : {}) } })
       setUrl(absoluteUrl(r.url))
     } catch (e) {
-      setError(guestErrorText(e, locale, t))
+      const cap = guestCap(e)
+      if (cap) setFull(cap)
+      else setError(guestErrorText(e, locale, t))
     } finally {
       setBusy(false)
     }
@@ -157,7 +169,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!aiChoiceReady(ai)} onClick={() => void create()} data-testid="guest-invite-create">{t('guest.invite.create')}</Button>
+          <Button variant="primary" busy={busy} disabled={!aiChoiceReady(ai) || !!full} onClick={() => void create()} data-testid="guest-invite-create">{t('guest.invite.create')}</Button>
         </>
       }
     >
@@ -169,6 +181,12 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
         </Field>
         <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} />
+        {full && (
+          <p role="status" className="text-sm leading-6 break-keep text-ink" data-testid="guest-invite-full">
+            {t('guest.full', { n: full.n })}
+            {admin && full.manageUrl && <>{' '}<a href={full.manageUrl} target="_blank" rel="noreferrer" className="font-medium text-accent-text underline" data-testid="guest-invite-plans">{t('guest.seePlans')}</a></>}
+          </p>
+        )}
         {error && <p role="alert" className="text-sm break-keep text-danger" data-testid="guest-invite-error">{error}</p>}
       </form>
     </Modal>
