@@ -4,7 +4,7 @@
 // The guide line names the moment and does its step; it holds the step's prompts as buttons, and at the end it becomes
 // the end line with the sign-up link. No tooltip tour (DECISIONS rejected those), no cards or toasts of our own.
 // Styles are in demo.css (not Tailwind: the product's stylesheet must not change for the demo).
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useLocale, useT } from '../src/i18n'
 import type { DemoAnswer, DemoGo } from './script'
@@ -174,13 +174,19 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const cardOpen = [...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
   // the AI is still answering on screen (its card not out yet): the guide waits with it
   const working = !cardOpen && [...document.querySelectorAll('[data-testid="assistant-message"][data-status="streaming"]')].some(visible)
-  const suggest = here && usedFor !== step?.id && !cardOpen && !working ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
+  // on a project's own page with an earlier chat (Leo's banner): that chat first, so the banner is seen before the choice
+  const goProject = step && step.go !== 'home' && 'project' in step.go ? step.go.project : null
+  const projectChat = goProject && /^\/projects\/[^/]+$/.test(path) ? server.script.projects.find((p) => p.id === goProject)?.chats?.[0] : undefined
+  const chatRow = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) ?? null : null
+  const suggest = here && !chatRow && usedFor !== step?.id && !cardOpen && !working ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
+  // a dialog of the app is open (Send to room): the guide steps back so it never covers the dialog's buttons
+  const dialogOpen = [...document.querySelectorAll('[role="dialog"]')].some(visible)
 
   // the one thing ringed: the AI's card when it waits, the share dialog's next control, the step's control, or the way
   // there; nothing while Trina works or while the step's prompts are in the guide line
   const target: Element | null = !step || end || working || suggest.length ? null
     : cardOpen && here ? [...document.querySelectorAll('[data-testid="ask-card"]')].reverse().find(visible) ?? null
-    : shareTarget(server)
+    : chatRow ?? shareTarget(server)
       ?? (here && step.highlight ? [...document.querySelectorAll(step.highlight)].reverse().find(visible) ?? null : null)
       ?? (!here ? (step.highlight ? [...document.querySelectorAll(step.highlight)].find(visible) ?? null : null) ?? wayTo(server, step.go, path) : null)
   const ring = target?.getBoundingClientRect()
@@ -227,11 +233,20 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     await goTo(server, step.go)
   }
 
+  const guideRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = guideRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const o = new ResizeObserver(() => document.documentElement.style.setProperty('--demo-guide-h', `${el.offsetHeight}px`))
+    o.observe(el)
+    return () => o.disconnect()
+  }, [])
+
   const secs = Math.max(0, Math.round(((e.endedAt ?? Date.now()) - e.startedAt) / 1000))
   const elapsed = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
   return (
     <>
-      <div className="demo-guide" role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
+      <div ref={guideRef} className={dialogOpen ? 'demo-guide demo-guide-back' : 'demo-guide'} role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
         {suggest.length > 0 && (
           <div className="demo-choices" data-testid="demo-suggest">
             {suggest.map((a) => (

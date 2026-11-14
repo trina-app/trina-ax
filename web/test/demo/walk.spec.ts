@@ -63,6 +63,12 @@ for (const branch of step('banner').suggest!) {
     if (byGuide) await follow(page, step('project').text)
     else await link.click()
     await expect(page).toHaveURL(/\/projects\/|\/c\//)
+    // the project's page rings Leo's chat: the banner is seen before the choice
+    const leoChat = script.projects[0]!.chats![0]!.title
+    await expect(ring(page)).toBeVisible()
+    if (byGuide) await follow(page)
+    else await page.locator('a[href^="/c/"]:visible').filter({ hasText: leoChat }).first().click()
+    await expect(page.locator('[data-testid="assistant-message"] img[src*="/api/files/download"]').first()).toBeVisible()
     // ② the two prompts in the guide line
     const prompt = page.getByTestId(`demo-suggest-${branch}`)
     await expect(prompt).toBeVisible()

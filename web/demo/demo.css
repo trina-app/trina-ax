@@ -108,8 +108,10 @@
 /* phones: a bar of its own at the bottom (the app gets the rest of the height, so nothing is covered), with the
    safe-area inset; the step's prompts above it */
 @media (max-width: 767px) {
-  :root { --demo-bar-h: calc(56px + env(safe-area-inset-bottom)); }
-  #root { height: calc(var(--app-h, 100dvh) - var(--demo-bar-h)) !important; }
+  /* the guide's measured height (overlay.tsx), the step's prompts included */
+  #root { height: calc(var(--app-h, 100dvh) - var(--demo-guide-h, 56px)) !important; }
+  /* while a dialog of the app is open, the guide steps back (the ring still shows the next control) */
+  .demo-guide-back { visibility: hidden; }
   .demo-guide {
     left: 0;
     right: 0;

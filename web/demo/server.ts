@@ -72,7 +72,7 @@ export class DemoServer extends MockServer {
     this.memberWelcome = {
       team: s.company.name, inviter: inviter ? { id: inviter.id, name: inviter.name } : null, people: s.people.length,
       rooms: this.rooms.filter((r) => r.kind === 'all' || r.kind === 'team').map((r) => ({ id: r.id, kind: r.kind as 'all' | 'team', name: r.name })),
-      owner: null, steps: { rooms: true, hi: true, photo: true, asked: false }, allSet: false,
+      owner: null, steps: { rooms: true, hi: false, photo: this.avatars.has(s.visitor), asked: false }, allSet: false,
     }
   }
 
@@ -303,6 +303,17 @@ export class DemoServer extends MockServer {
         const p = this.script.people.find((x) => x.id === out.user.id)
         return { ...out, user: { ...out.user, ...(this.avatars.has(out.user.id) ? { avatarVersion: 1 } : {}), ...(p?.title ? { title: p.title } : {}) } }
       }
+    }
+    // a project's faces (its page, its card): the photos too, where the contract carries avatarVersion
+    const withPhotos = (v: unknown): unknown => {
+      if (Array.isArray(v)) return v.map(withPhotos)
+      if (!v || typeof v !== 'object') return v
+      const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, withPhotos(x)])) as Record<string, unknown>
+      return typeof o.id === 'string' && typeof o.name === 'string' && this.avatars.has(o.id) && !('avatarVersion' in o) ? { ...o, avatarVersion: 1 } : o
+    }
+    for (const name of ['getProjectPeople', 'listProjects', 'getProject'] as const) {
+      const base = h[name]
+      if (base) h[name] = async (c) => withPhotos(await base(c))
     }
     const people = h.listPeople!
     h.listPeople = async (c) => {
