@@ -1,0 +1,5 @@
+- In a room's message box, a name of two words (such as "Gina Park") can be typed out after "@": the list of people stays open after the space, so the name can still be picked (Enter) and the message mentions and notifies them. Before, the list closed at the first space and the name could only be picked after its first word.
+- The "@everyone" row says "notify the other 2 people here": the room's header counts you too.
+- Owners and admins see the "Guest" tag and "Includes 1 guest" on a project's page also when they are not in that project.
+- A project with no files says "No files yet" on a computer too, not "0 items".
+- On phones, tooltips no longer stay on screen: a tap does not leave one behind, and a tap anywhere takes one away.

@@ -58,10 +58,11 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
   const allowed = !!everyone
   const tokens = useMemo(() => mentionTokens(text, picked.filter((p) => (p.id === ALL_MENTION_ID ? allowed : members.some((m) => m.id === p.id)))), [text, picked, members, allowed])
   const at = useMemo(() => {
-    const a = caret === null ? null : mentionAt(text, caret)
+    // (names of two words may be typed out: the list stays while one of them still fits, "@전체"'s words too)
+    const a = caret === null ? null : mentionAt(text, caret, [...shown.filter((m) => m.id !== meId).map((m) => m.name), ...(allowed ? MENTION_ALL_WORDS : [])])
     // right after a person's mention (or "@전체"): it is done, no list
     return a && tokens.some((x) => x.start === a.start) ? null : a
-  }, [text, caret, tokens])
+  }, [text, caret, tokens, shown, meId, allowed])
   const allName = t('rooms.mentionAll')
   const hits = useMemo(() => {
     if (!at || closedFor === text) return []

@@ -38,6 +38,24 @@ describe('@mentions', () => {
     expect(mentionAt('no at sign', 10)).toBeNull()
   })
 
+  test('a name of two words: the space does not end it while a name still fits (QA M7), a whole name and a space does', () => {
+    const names = ['QA Member', 'QA Member Two', 'Ben']
+    const at = (s: string) => mentionAt(s, s.length, names)
+    expect(at('Hello from the guest, @QA M')).toEqual({ start: 22, query: 'QA M' })
+    expect(at('Hello, @qa member')).toEqual({ start: 7, query: 'qa member' })
+    expect(at('@QA ')).toEqual({ start: 0, query: 'QA ' })
+    // nobody's name goes on like that, or a whole name was typed and a space after it: done
+    expect(at('@QA Member, hi')).toBeNull()
+    expect(at('@Ben is here')).toBeNull()
+    expect(at('@QA Member ')).toBeNull()
+    expect(at('@QA\nMember')).toBeNull()
+    // a first name and a space, with only a longer name to fit: the list stays (Enter then picks that name)
+    expect(mentionAt('@Ben ', 5, ['Ben Lee'])).toEqual({ start: 0, query: 'Ben ' })
+    expect(mentionAt('@Ben is', 7, ['Ben Lee'])).toBeNull()
+    // without the names (as before): a space ends it
+    expect(mentionAt('@QA M', 5)).toBeNull()
+  })
+
   test('members whose name holds the query, names that start with it first, never me', () => {
     const members = [ME, BEN, CY, { id: 'abe', name: 'Abe' }, { id: 'bea', name: 'Bea' }]
     expect(matchMembers(members, 'be', ME.id).map((m) => m.name)).toEqual(['Bea', 'Ben', 'Abe'])

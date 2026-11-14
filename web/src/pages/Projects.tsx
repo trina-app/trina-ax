@@ -964,7 +964,9 @@ function ProjectPage() {
   const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
-  const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
+  // the project has no files (as far as this person reads it)
+  const filesNone = !!files && !files.failed && !files.entries.length && !files.more
+  const filesEmpty = filesNone && p.canEdit
   // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
   // empty folder comes back (a folder with files becomes its one line). A phone: always its one row (QA TC-1072)
   const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
@@ -1179,32 +1181,32 @@ function ProjectPage() {
                     testId="project-files"
                     icon={<Folder size={16} />}
                     label={t('files.title')}
-                    meta={files && !files.failed && (files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
+                    // none yet, for someone who cannot add them (who may, has the box above): the phone's words ("No
+                    // files yet", not "0 items", QA N4) and nothing to open
+                    meta={files && !files.failed && (filesNone ? <span data-testid="project-files-empty">{t('projects.page.filesEmpty')}</span> : files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
                     action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
                   >
-                    {!files && <Skeleton lines={3} />}
-                    {files && !files.failed && !files.entries.length && (
-                      // none yet, for someone who cannot add them (who may, has the box above)
-                      <p className="text-faint" data-testid="project-files-empty">
-                        {t('projects.page.filesEmpty')}
-                      </p>
-                    )}
-                    {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
-                    <ul className="-mx-3">
-                      {files?.entries.slice(0, 30).map((f) => (
-                        <ListRow
-                          key={f.path}
-                          onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
-                          icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
-                          name={f.name}
-                          nameTitle={f.name}
-                        />
-                      ))}
-                    </ul>
-                    {files && (files.more || files.entries.length > 30) && (
-                      <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
-                        {t('projects.openFolder')}
-                      </Link>
+                    {filesNone ? undefined : (
+                      <>
+                        {!files && <Skeleton lines={3} />}
+                        {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
+                        <ul className="-mx-3">
+                          {files?.entries.slice(0, 30).map((f) => (
+                            <ListRow
+                              key={f.path}
+                              onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
+                              icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
+                              name={f.name}
+                              nameTitle={f.name}
+                            />
+                          ))}
+                        </ul>
+                        {files && (files.more || files.entries.length > 30) && (
+                          <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
+                            {t('projects.openFolder')}
+                          </Link>
+                        )}
+                      </>
                     )}
                   </DisclosureRow>
                 )}

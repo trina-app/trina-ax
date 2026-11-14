@@ -24,14 +24,16 @@ export interface MockRoom {
 export interface MockMessage { id: string; author: { id: string; name: string }; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }
 
 /** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
- * room (my notification level) answers with the room changed. */
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; room?: Record<string, unknown> }): Promise<MockRoom> {
+ * room (my notification level) answers with the room changed. `me`: who is signed in and sends (the owner olga by
+ * default; a guest made with /__test/guest, for a guest's own view). */
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; room?: Record<string, unknown>; me?: { id: string; name: string } }): Promise<MockRoom> {
   // its answers count for the feature map (docs/FEATURES.md) like the mock server's
   reportBrowserAnswers(page)
   const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
-  const members = [{ id: 'olga', name: 'Olga' }, ...o.members]
+  const me = o.me ?? { id: 'olga', name: 'Olga' }
+  const members = [me, ...o.members]
   const message = (m: { id: string; author: { id: string; name: string } | null; body: string; mentions?: string[]; mentionsAll?: boolean; threadRootId?: string; extra?: Record<string, unknown> }, n: number) => ({
     id: m.id, roomId: ROOM_ID, seq: n, authorKind: 'user', author: m.author, askedBy: null, visibility: 'room', body: m.body, replyTo: null,
     mentions: m.mentions ?? [], ...(m.mentionsAll ? { mentionsAll: true } : {}), files: [], createdAt: at(n), editedAt: null, deletedAt: null,
@@ -88,7 +90,7 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       const n = ++seq
       const id = `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
       // a reply comes back as one, and is in its thread when the thread is read again
-      const sent = message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll, ...(b.threadRootId ? { threadRootId: b.threadRootId, extra: b.alsoInRoom ? { alsoInRoom: true } : {} } : {}) }, n)
+      const sent = message({ id, author: me, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll, ...(b.threadRootId ? { threadRootId: b.threadRootId, extra: b.alsoInRoom ? { alsoInRoom: true } : {} } : {}) }, n)
       if (b.threadRootId) all.push(sent)
       return route.fulfill(json(sent, 201))
     }

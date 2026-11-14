@@ -4096,7 +4096,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.withheldMessage": "已隐藏：此内容使用了你无法打开的资料",
   "rooms.aiRootFolder": "团队文件夹",
   "rooms.mentionAll": "所有人",
-  "rooms.mentionAllHint": "{n, plural, one {通知这里的另外#人} other {通知此群聊中的全部#人}}",
+  "rooms.mentionAllHint": "{n, plural, one {通知这里的另外#人} other {通知这里的另外#人}}",
   "rooms.mentionAllConfirm": "{n, plural, one {将通知#人。要发送吗？} other {将通知#人。要发送吗？}}",
   "rooms.picker.groups": "小组",
   "rooms.picker.people": "成员",

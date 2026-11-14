@@ -13,8 +13,14 @@ interface PeopleState {
   /** a screen has read the list (a profile change then reads it again; before, nobody needs it) */
   loaded: boolean
   byId: Record<string, Person>
+  /** guests a list other than the directory said are guests (a project's people, GET /api/projects/:id/people): an
+   * owner or admin outside a guest's one place has them in that list but not in the directory. Only added to: a guest
+   * made a member keeps the tag until the next sign-in or reload (rare; reset() clears it) */
+  guestIds: Record<string, true>
   failed: boolean
   load: (force?: boolean) => Promise<void>
+  /** these people are guests (from such a list) */
+  noteGuests: (ids: readonly string[]) => void
   reset: () => void
 }
 
@@ -26,6 +32,7 @@ export const usePeople = create<PeopleState>((set, get) => ({
   people: null,
   loaded: false,
   byId: {},
+  guestIds: {},
   failed: false,
   load(force) {
     if (inflight) {
@@ -49,9 +56,14 @@ export const usePeople = create<PeopleState>((set, get) => ({
       })
     return inflight
   },
+  noteGuests(ids) {
+    const known = get().guestIds
+    if (ids.every((id) => known[id])) return
+    set({ guestIds: { ...known, ...Object.fromEntries(ids.map((id) => [id, true as const])) } })
+  },
   reset: () => {
     again = false
-    set({ people: null, loaded: false, byId: {}, failed: false })
+    set({ people: null, loaded: false, byId: {}, guestIds: {}, failed: false })
   },
 }))
 
