@@ -1,7 +1,7 @@
 // Screenshots of apps posting in rooms (QA TC-1546, TC-1547, TC-1412), 1440 and 390 wide, light and dark, for review by
 // eye: the room ⋯ with "Add an app", the picker, the four guides (before and after the first Copy, waiting, Nothing
-// yet?, connected, a refusal), the list (paused, someone who left knows the address) and settings (normal, paused,
-// refused), the no-internet-address state for the owner and an admin, the cards in the timeline, a quiet line, an
+// yet?, connected, a refusal, the in-dialog example), the list (paused, someone who left knows the address) and settings
+// (Sentry, an Other app waiting with How to send, paused, refused), the no-internet-address state for the owner and an admin, the cards in the timeline, a quiet line, an
 // example, the thread with "Summarise this thread", a member's sender popover, the side chat's chip, the Activity
 // notices (paused, someone who left) and Admin › System › Connection's line. Only when ROOM_APPS_SHOTS names a folder.
 import { expect, test, type Page } from '@playwright/test'
@@ -18,6 +18,7 @@ const JUN = { id: 'jun', name: 'Jun' }
 const SENTRY = mockApp('sentry')
 const GITHUB = mockApp('github', { id: 'app-github' })
 const FORMS = mockApp('google_forms', { id: 'app-forms', name: 'Sign-up form', pausedUntil: '2099-01-01T00:00:00.000Z', canResume: true, today: 500 })
+const OTHER = mockApp('other', { id: 'app-other', name: 'Backup alerts', firstOkAt: null, lastOkAt: null, today: 0 })
 const ROOT = '019a5f00-0000-7000-8000-00000000c001'
 const id = (n: number) => `019a5f00-0000-7000-8000-00000000c${String(n).padStart(3, '0')}`
 const MESSAGES: MockMessage[] = [
@@ -31,8 +32,8 @@ const MESSAGES: MockMessage[] = [
   },
   { id: id(2), author: MINA, body: '', threadRootId: ROOT, extra: appMessage(SENTRY, { title: 'Happened again', details: ['3 events in 5 minutes'] }) },
   { id: id(3), author: JUN, body: "I'm on it", threadRootId: ROOT },
-  { id: id(4), author: MINA, body: '', threadRootId: ROOT, extra: appMessage(SENTRY, { title: 'Resolved by Jun (unverified)' }) },
-  { id: id(5), author: MINA, body: '', extra: appMessage(GITHUB, { kind: 'Pull request opened · acme/web', title: 'Fix the cart total on Safari', details: ['by jun-dev (unverified)'], status: 'Status: Open', link: { url: 'https://github.com/acme/web/pull/7', host: 'github.com' } }) },
+  { id: id(4), author: MINA, body: '', threadRootId: ROOT, extra: appMessage(SENTRY, { title: 'Resolved by Jun' }) },
+  { id: id(5), author: MINA, body: '', extra: appMessage(GITHUB, { kind: 'Pull request opened · acme/web', title: 'Fix the cart total on Safari', details: ['by jun-dev'], status: 'Status: Open', link: { url: 'https://github.com/acme/web/pull/7', host: 'github.com' } }) },
   { id: id(6), author: MINA, body: '', extra: appMessage({ ...FORMS, quiet: true }, { title: 'Sign-up form reached 500 messages today and was paused. It starts again tomorrow.' }) },
   { id: id(7), author: MINA, body: '', extra: appMessage({ ...SENTRY, example: true, quiet: true }, { kind: 'Example', title: 'This is how messages from Sentry look here' }) },
 ]
@@ -101,14 +102,20 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await shot('07-guide-forms')
       await page.getByTestId('apps-back').click()
       await page.getByTestId('apps-pick-other').click()
+      await page.getByTestId('apps-guide-name').fill('Backup alerts')
+      await shot('08a-guide-other-new')
       await page.getByTestId('apps-copy-address').click()
       apps.connectNext()
       await expect(page.getByTestId('apps-status')).toHaveAttribute('data-state', 'ok', { timeout: 8000 })
       await shot('08-guide-other-connected')
+      await page.getByTestId('apps-example').click()
+      await expect(page.getByTestId('apps-preview')).toBeVisible()
+      await page.getByTestId('apps-preview').scrollIntoViewIfNeeded()
+      await shot('09-guide-other-preview')
       await close()
 
       // ---- a room with apps: cards, thread, list and settings
-      apps = await start(page, { apps: [SENTRY, FORMS, { ...GITHUB, lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' }, signed: true, leaverKnows: true } as MockApp] })
+      apps = await start(page, { apps: [SENTRY, FORMS, { ...GITHUB, lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' }, signed: true, leaverKnows: true } as MockApp, OTHER] })
       await shot('10-timeline-cards')
       await page.getByTestId('app-sender-button').first().click()
       await shot('11-sender-popover-manager')
@@ -139,6 +146,12 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await page.getByTestId('apps-remove').click()
       await shot('19-remove-confirm')
       await page.keyboard.press('Escape')
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(3).click()
+      await expect(page.getByTestId('apps-how-to-send')).toBeVisible()
+      await shot('16b-settings-other')
+      await page.getByTestId('apps-how-to-send').scrollIntoViewIfNeeded()
+      await shot('16c-settings-other-how-to-send')
       await close()
 
       // ---- a member: the popover says who to ask

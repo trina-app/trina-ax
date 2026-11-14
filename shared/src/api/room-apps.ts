@@ -39,7 +39,8 @@ export type RoomAppSwitch<K extends RoomAppKind = RoomAppKind> = (typeof ROOM_AP
 export const roomAppDefaults = (kind: RoomAppKind): Record<string, boolean> =>
   Object.fromEntries(ROOM_APP_SWITCHES[kind].map((s) => [s.key, s.on]))
 
-/** The names an app gets when it is added (the vendor's own name; "Other" is renamed by the person). */
+/** The names an app gets when it is added, in English (the vendor's own name; "Other" is named by the person). The
+ * server gives Google Forms and Other their names in the team's language (rooms/apps/text.ts nameForms, nameOther). */
 export const ROOM_APP_DEFAULT_NAMES: Record<RoomAppKind, string> = { sentry: 'Sentry', github: 'GitHub', google_forms: 'Google Forms', other: 'Other app' }
 
 /** Apps in one room, at most. */

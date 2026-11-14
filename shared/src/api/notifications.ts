@@ -4,6 +4,7 @@ import { IsoTime } from './common'
 import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
 import { RoomKind } from './rooms'
+import { RoomAppKind } from './room-apps'
 import { UserId } from '../ids'
 import { RequestableService } from './service-requests'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
@@ -129,6 +130,8 @@ export const InboxNotification = z.object({
    * once the app is removed, and from older servers */
   roomApp: z.object({
     appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable(),
+    /** the app's kind (Google Forms counts responses); older servers omit it */
+    kind: RoomAppKind.optional(),
     day: z.string(), cap: z.number().int().positive(), skipped: z.number().int().nonnegative(), pausedUntil: IsoTime.nullable(), canResume: z.boolean(),
   }).optional(),
   /** 'room_app.leaver' only (the people who may manage the app, docs/DECISIONS.md "Apps posting in rooms"): someone who

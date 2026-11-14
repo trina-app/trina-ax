@@ -40,9 +40,11 @@ export const APP_TEXT = {
   formsEdited: t('응답이 수정됨', 'Response edited', 'Tanggapan diubah', '回答が編集されました', 'Respuesta editada', "回复已修改"),
   formsEmail: t('이메일: {email}', 'Email: {email}', 'Email: {email}', 'メール: {email}', 'Correo: {email}', "邮箱：{email}"),
   formsMore: t('답변 {n}개 더', '{n} more answers', '{n} jawaban lagi', 'ほか{n}件の回答', '{n} respuestas más', "还有 {n} 个回答"),
+  // the names an app gets when it is added, in the team's language (Sentry and GitHub keep theirs)
+  nameForms: t('Google 설문지', 'Google Forms', 'Google Formulir', 'Google フォーム', 'Formularios de Google', "Google 表单"),
+  nameOther: t('다른 앱', 'Other app', 'Aplikasi lain', 'その他のアプリ', 'Otra aplicación', "其他应用"),
   // every app
   status: t('상태: {status}', 'Status: {status}', 'Status: {status}', '状態: {status}', 'Estado: {status}', "状态：{status}"),
-  unverified: t('(확인 안 됨)', '(unverified)', '(belum diverifikasi)', '(未確認)', '(sin verificar)', "（未验证）"),
   example: t('예시', 'Example', 'Contoh', '例', 'Ejemplo', "示例"),
   exampleTitle: t('{app}의 메시지가 여기에 이렇게 보여요', 'This is how messages from {app} look here', 'Beginilah pesan dari {app} tampil di sini', '{app} からのメッセージはここにこう表示されます', 'Así se ven aquí los mensajes de {app}', "来自 {app} 的消息在这里会这样显示"),
   pausedLine: t('{app}이(가) 오늘 메시지 {cap}개에 도달해 멈췄어요. 내일 다시 시작해요.', '{app} reached {cap} messages today and was paused. It starts again tomorrow.', '{app} mencapai {cap} pesan hari ini dan dijeda. Mulai lagi besok.', '{app} は今日 {cap} 件のメッセージに達したため一時停止しました。明日また始まります。', '{app} llegó a {cap} mensajes hoy y se pausó. Vuelve a empezar mañana.', "{app} 今天已达到 {cap} 条消息，已暂停。明天会重新开始。"),

@@ -15,6 +15,7 @@
 // closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
 // `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header);
 // `describedBy`: the id of the words that describe the button (a phone's choice row: its short line, phone/PhoneChoice.tsx).
+// `startAligned`: under the button with their left edges in line (a sender's name at a message's left, AppSender).
 // `at`: a right-click's menu (components/FileMenu.tsx, a Files row): on a computer it opens at that point of the window
 // (its top left corner there, moved in where it would run off), not by the button, and a scroll closes it.
 import clsx from 'clsx'
@@ -141,7 +142,7 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy, at = null }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string; at?: { x: number; y: number } | null }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy, at = null, startAligned = false }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string; at?: { x: number; y: number } | null; startAligned?: boolean }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -178,7 +179,9 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     const o = m.getBoundingClientRect()
     // a right-click's point: the menu's top left there (its right edge lined up `width` past it)
     const p = openAt.current
-    const spot = p ? { top: p.y, bottom: p.y, right: p.x + o.width } : a.getBoundingClientRect()
+    const r = a.getBoundingClientRect()
+    // left edges in line: its right edge `width` past the button's left
+    const spot = p ? { top: p.y, bottom: p.y, right: p.x + o.width } : startAligned ? { top: r.top, bottom: r.bottom, right: r.left + o.width } : r
     const { x, y } = menuSpot(spot, o, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight })
     m.style.setProperty('--menu-x', `${x - o.left}px`)
     m.style.setProperty('--menu-y', `${y - o.top}px`)

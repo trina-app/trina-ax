@@ -12,11 +12,12 @@ import { middleCut } from '../../src/components/rooms/apps/AppsDialog'
 
 const WEBHOOK = /web\s*-?\s*hook|웹\s*훅|ウェブフック|webフック|网络钩子|网钩|webhook/i
 
-test('no "webhook" in Trina\'s own words of the apps screens, in any language; vendor labels are quoted as they are', () => {
+test('no "webhook" in Trina\'s own words of the apps screens but the address\'s name "Webhook URL", in any language; vendor labels are quoted as they are', () => {
   for (const [locale, dict] of Object.entries(DICTS)) {
     for (const [key, text] of Object.entries(dict)) {
       if (!key.startsWith('roomApps.') || key.startsWith('roomApps.vendorLabel.')) continue
-      expect({ locale, key, hit: WEBHOOK.test(text) }).toEqual({ locale, key, hit: false })
+      // "Webhook URL" is the address's name, as Slack and the services call it (owner, 2026-11-14); no other "webhook"
+      expect({ locale, key, hit: WEBHOOK.test(text.replaceAll('Webhook URL', '')) }).toEqual({ locale, key, hit: false })
     }
     expect((dict as Record<string, string>)['roomApps.vendorLabel.sentryUrl']).toBe('Webhook URL')
     expect((dict as Record<string, string>)['roomApps.tag']).toBeTruthy()

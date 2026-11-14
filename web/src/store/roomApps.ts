@@ -53,10 +53,10 @@ export const useRoomApps = create<RoomAppsState>((set, get) => ({
       return list ? { lists: { ...s.lists, [roomId]: { ...list, items: list.items.filter((a) => a.id !== appId) } } } : s
     })
   },
-  /** a switch, Quiet: on screen at once, the old state back when it fails (the caller says so) */
+  /** a switch, Quiet, the name: on screen at once, the old state back when it fails (the caller says so) */
   async update(roomId, appId, body) {
     const before = get().lists[roomId]?.items.find((a) => a.id === appId)
-    if (before) get().put({ ...before, ...(body.events ? { events: { ...before.events, ...body.events } } : {}), ...(body.quiet !== undefined ? { quiet: body.quiet } : {}) })
+    if (before) get().put({ ...before, ...(body.events ? { events: { ...before.events, ...body.events } } : {}), ...(body.quiet !== undefined ? { quiet: body.quiet } : {}), ...(body.name !== undefined ? { name: body.name } : {}) })
     try {
       const app = await api.call(API.updateRoomApp, { params: { id: roomId, appId }, body })
       get().put(app)

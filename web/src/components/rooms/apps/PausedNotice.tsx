@@ -27,7 +27,11 @@ export function startsAtTime(until: string | null, locale: Locale, timeZone?: st
 export function pausedNoticeText(p: Paused, t: T, locale: Locale): string {
   const title = p.roomName ? t('roomApps.pausedTitle', { app: p.name, room: p.roomKind === 'team' ? `#${p.roomName}` : p.roomName }) : t('roomApps.pausedTitleNoRoom', { app: p.name })
   const at = startsAtTime(p.pausedUntil, locale)
-  const body = at ? t('roomApps.pausedBodyAt', { cap: p.cap, skipped: p.skipped, time: at }) : t('roomApps.pausedBody', { cap: p.cap, skipped: p.skipped })
+  // Google Forms counts responses, and the ones it skipped are still in the form
+  const forms = p.kind === 'google_forms'
+  const body = forms
+    ? (at ? t('roomApps.pausedBodyFormsAt', { cap: p.cap, skipped: p.skipped, time: at }) : t('roomApps.pausedBodyForms', { cap: p.cap, skipped: p.skipped }))
+    : at ? t('roomApps.pausedBodyAt', { cap: p.cap, skipped: p.skipped, time: at }) : t('roomApps.pausedBody', { cap: p.cap, skipped: p.skipped })
   return `${title}. ${body}`
 }
 

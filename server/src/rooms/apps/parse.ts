@@ -87,7 +87,9 @@ function sentry(a: Arrival): Parsed {
   const action = str(body, 'action')
   // the timestamp header is not signed: the delivery is the resource and the body
   const delivery = sha(`${resource}\n${new TextDecoder().decode(a.raw)}`)
-  const actor = (name: string) => (a.signed ? name : `${name} ${appText('unverified', L)}`)
+  // an actor's name as Sentry sent it; an unsigned request only sets the card's `unverified` (the app's settings say once
+  // that it is not signed, owner review 2026-11-14), never a mark after each name
+  const actor = (name: string) => name
   if (resource === 'issue') {
     const issue = get(body, 'data', 'issue')
     const id = str(issue, 'id')
@@ -159,7 +161,7 @@ function github(a: Arrival): Parsed {
   if (event === 'ping') return { skip: true, connected: true }
   const repoId = str(body, 'repository', 'id')
   const repo = line(str(body, 'repository', 'full_name'), 140)
-  const by = (login: string) => (login ? appText('byActor', L, { actor: a.signed ? line(login, 60) : `${line(login, 60)} ${appText('unverified', L)}` }) : '')
+  const by = (login: string) => (login ? appText('byActor', L, { actor: line(login, 60) }) : '')
   const sender = str(body, 'sender', 'login')
   const action = str(body, 'action')
   const statusOf = (k: 'statusOpen' | 'statusMerged' | 'statusClosed' | 'statusFailed') => appText('status', L, { status: appText(k, L) })
