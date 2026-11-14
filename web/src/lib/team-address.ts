@@ -25,3 +25,15 @@ export function teamAddressShown(address: string | null | undefined): string | n
   const u = new URL(address!)
   return u.protocol === 'http:' ? u.origin : host
 }
+
+/** After the owner saves a connection change: the new team address to tell the team, or null when there is nothing to
+ * tell. Apps that were signed in follow a relay rename by themselves (the old name answers with a redirect; only the
+ * first label of the host differs), but any other change leaves them with "can't connect" (QA TC-1232). Nothing to tell
+ * when there was no address before, none now, or it is the same. */
+export function addressToTell(before: string | null | undefined, after: string | null | undefined): string | null {
+  const was = teamAddressShown(before), now = teamAddressShown(after)
+  if (!was || !now || was === now) return null
+  const rest = (s: string) => s.replace(/^https?:\/\//, '').split('.').slice(1).join('.')
+  if (rest(was) && rest(was) === rest(now)) return null
+  return now
+}

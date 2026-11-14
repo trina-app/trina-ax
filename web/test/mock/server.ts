@@ -4143,8 +4143,12 @@ export class MockServer {
       if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
       if (!(this.connection.availableModes ?? []).includes(c.body.mode)) fail('conflict', 409, 'This connection mode is not available in this version yet.')
       if (c.body.mode !== 'direct-only' && !(c.body.teamName ?? this.connection.teamName)) fail('validation', 400)
-      this.connection = { ...this.connection, mode: c.body.mode, teamName: c.body.teamName ?? this.connection.teamName, state: c.body.mode === 'direct-only' ? 'disabled' : 'connecting', detail: 'Applies after the server restarts.' }
-      return this.connection
+      const was = this.connection
+      this.connection = { ...was, mode: c.body.mode, teamName: c.body.teamName ?? was.teamName, state: c.body.mode === 'direct-only' ? 'disabled' : 'connecting', detail: 'Applies after the server restarts.' }
+      // like the real server: the answer still has the old address; the new one is registered at the restart, so later reads have it
+      if (c.body.mode === 'self-relay' && c.body.relayUrl) this.connection.address = `https://${this.connection.teamName}.${new URL(c.body.relayUrl).hostname.split('.').slice(1).join('.')}`
+      else if (was.address && this.connection.teamName !== was.teamName) this.connection.address = was.address.replace(`//${was.teamName}.`, `//${this.connection.teamName}.`)
+      return { ...this.connection, address: was.address }
     },
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
