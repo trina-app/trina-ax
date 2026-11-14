@@ -1,8 +1,9 @@
 // Admin screens: a delete that the server answers with 204 (no body) refreshes the list at once, a failed one keeps the
 // row, and the keyboard focus goes on instead of falling back to the page: to the next row's delete only where a
 // confirm dialog comes first, else to the next row's Edit or the list's title, so a held Enter deletes one row. Folder
-// permissions (the tree since stage 4): the delete dialog shows the server's "who sees what" for no rules, the focus
-// goes to the folder's rules button, and rows the server keeps say why.
+// permissions (two lists since docs/DECISIONS.md "Admin › Folder permissions as two lists, like Drive"): there is no
+// delete of a folder's rules any more; all of a folder's sharing goes in its Share dialog, and the folder then leaves
+// the list of folders with their own sharing.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, translate } from '../../src/i18n'
@@ -26,133 +27,67 @@ async function holdEnter(page: Page, presses = 25) {
   await page.waitForTimeout(800)
 }
 
-// Folder permissions › By folder (the tree): a folder's rules change in the Share dialog ("no setting here" is no
-// rules saved there, folder-access.spec.ts), and removing a rule row is for cleaning up only: a row left
-// without rules that no project uses. The folder stays in the tree, the delete button goes with the row, and the focus
-// goes to the folder's rules button instead of the page. Rows of folders that are not in the tree have their own list
-// (access-tree.spec.ts: focus to the next row's delete, then "Add folder").
-const tree = (page: Page) => page.getByTestId('folder-tree')
-const treeRow = (page: Page, p: string) => tree(page).locator(`[role="treeitem"][data-path="${p}"]`)
-const detail = (page: Page) => page.getByTestId('folder-detail')
-async function choose(page: Page, p: string) {
-  await treeRow(page, p).click()
-  await expect(detail(page)).toHaveAttribute('data-path', p)
+// Folder permissions › Folders: only the folders with their own sharing, each with [Share] (admin-folders.spec.ts). Taking
+// everyone off a folder is done in its Share dialog: Remove access in each row's role menu, then Save, which leaves the
+// folder with nothing of its own (a PUT with no rules, never a delete), so it follows the folder it is in and leaves the
+// list.
+const folderRow = (page: Page, p: string) => page.getByTestId('folders-row').and(page.locator(`[data-path="${p}"]`))
+const panel = (page: Page) => page.getByTestId('folder-access-panel')
+/** Save, and Give access / Save anyway when it asks */
+async function save(page: Page) {
+  await page.getByTestId('sharing-save').click()
+  const ok = page.getByTestId('dialog-confirm')
+  await expect(page.getByTestId('sharing-done').or(ok).or(page.getByTestId('sharing-footer-bar').getByRole('alert'))).toBeVisible()
+  if (await ok.isVisible()) await ok.click()
 }
 
-test('folder permissions: an empty rule row goes with the server\'s preview, the tree refreshes, focus moves on', async ({ page }) => {
+test('folder permissions: a folder\'s sharing is all removed in its Share dialog; it then leaves the list', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  // rule rows left without rules (a project's marker after the project went, rules emptied in the panel)
-  for (const p of ['docs', 'finance/2026', 'marketing']) await post(page, '/api/admin/folders', { path: p, create: true, rules: [] })
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, everyone('read')] })
   await page.goto('/admin/folders')
-  const row = (p: string) => treeRow(page, p)
-  // the chosen folder's "remove the empty rule entry" (it never removes the folder)
-  const del = (p: string) => page.locator(`[data-testid="folder-detail"][data-path="${p}"]`).getByRole('button', { name: t['accessTree.removeMarker'], exact: true })
-  const rulesButton = page.getByTestId('folder-detail-edit')
-  await expect(row('finance')).toBeVisible()
-  for (const p of ['docs', 'finance', 'marketing']) await expect(row(p)).toHaveAttribute('data-rules', p === 'finance' ? '1' : '0')
-
-  // a folder with rules offers no delete: its rules change in the Share dialog, which lists the owner and admins (they
-  // always open it), and closes without asking when nothing changed
-  await choose(page, 'finance')
-  await expect(page.getByTestId('folder-detail-delete')).toHaveCount(0)
-  await rulesButton.click()
-  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.staffRow'])
-  await page.getByTestId('sharing-done').click()
-  await expect(page.getByTestId('folder-access-panel')).toHaveCount(0)
-  await expect(rulesButton).toBeFocused()
-  // an empty row says what it does and what removing it does
-  await choose(page, 'docs')
-  await expect(page.getByTestId('folder-marker-hint')).toHaveText(t['accessTree.markerHint'])
-  await expect(del('docs')).toHaveAccessibleDescription(t['accessTree.markerHint'])
-
-  // the dialog asks the server what "no rules here" does, person by person: Bob is in no group that finance names, and
-  // the team root lets everyone read, so he gains read (the nearest folder above is not the answer for him)
   let loads = 0
   page.on('load', () => loads++)
-  const asked: unknown[] = []
-  await page.route('**/api/admin/folder-rules/preview', async (r) => {
-    asked.push(r.request().postDataJSON())
-    await r.fulfill({ json: { folders: [{ path: 'finance/2026', users: [
-      { user: { id: 'olga', name: 'Olga' }, role: 'owner', before: 'write', after: 'write' },
-      { user: { id: 'bob', name: 'Bob' }, role: 'member', before: 'none', after: 'read' },
-    ] }], losing: [] } })
-  })
-  await row('finance').getByTestId('tree-toggle').click()
-  await choose(page, 'finance/2026')
-  await del('finance/2026').click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByTestId('rules-remove-preview')).toContainText(t['rules.removeKeeps'])
-  await expect(dialog).toContainText(translate('ko', 'rules.removeAt', { path: 'finance/2026' }))
-  const bob = dialog.getByRole('listitem').filter({ hasText: 'Bob' })
-  await expect(bob).toContainText(t['access.none'])
-  await expect(bob).toContainText(t['access.read'])
-  await expect(dialog.getByRole('listitem').filter({ hasText: 'Olga' })).toHaveCount(0) // unchanged people are left out
-  expect(asked).toEqual([{ changes: [{ path: 'finance/2026', rules: [] }] }])
-  const gone = page.waitForResponse((r) => r.request().method() === 'DELETE' && r.url().includes('/api/admin/folders/'))
-  await page.getByTestId('dialog-confirm').click()
-  expect((await gone).status()).toBe(204)
-  // the folder stays in the tree, inherited; the delete button is gone, and the rules button has the focus (not the
-  // page)
-  await expect(row('finance/2026')).toHaveAttribute('data-rules', '0')
-  await expect(page.getByTestId('folder-marker-hint')).toHaveCount(0)
-  await expect(del('finance/2026')).toHaveCount(0)
-  await expect(rulesButton).toBeFocused()
-  await expect(rulesButton).toHaveText(t['accessTree.share'])
+  await expect(folderRow(page, 'marketing')).toBeVisible()
+  await expect(folderRow(page, 'finance')).toBeVisible()
+  // no delete of rules anywhere on the list: [Share] is the only way in
+  await expect(page.getByTestId('folders-list').getByRole('button', { name: t['common.delete'] })).toHaveCount(0)
+  await expect(folderRow(page, 'marketing').getByRole('button')).toHaveCount(1)
 
-  // a slow answer: the button says it is busy, and after 5 seconds the dialog opens with the general text
-  await page.unroute('**/api/admin/folder-rules/preview')
-  await page.route('**/api/admin/folder-rules/preview', async (r) => {
-    await new Promise((done) => setTimeout(done, 8000))
-    await r.fulfill({ json: { folders: [], losing: [] } }).catch(() => {}) // the page gave up on it
-  })
-  await choose(page, 'docs')
-  const asking = Date.now()
-  await del('docs').click()
-  await expect(del('docs')).toHaveAttribute('aria-busy', 'true')
-  await expect(dialog).toContainText(t['rules.removeBody'], { timeout: 7000 })
-  expect(Date.now() - asking).toBeGreaterThanOrEqual(4500)
-  await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
-  await expect(del('docs')).not.toHaveAttribute('aria-busy', 'true')
-  await expect(del('docs')).toBeFocused()
+  // the dialog lists the owner and admins (they always open it), and closes without asking when nothing changed; the
+  // focus goes back to the folder's [Share]
+  await folderRow(page, 'marketing').getByTestId('folders-share').click()
+  await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
+  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.staffRow'])
+  await page.getByTestId('sharing-done').click()
+  await expect(panel(page)).toHaveCount(0)
+  await expect(folderRow(page, 'marketing').getByTestId('folders-share')).toBeFocused()
 
-  // no preview (the server could not answer): the general text, which does not promise more than the server does
-  await page.unroute('**/api/admin/folder-rules/preview')
-  await page.route('**/api/admin/folder-rules/preview', (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'x' } } }))
-  await del('docs').click()
-  await expect(dialog).toContainText(t['rules.removeBody'])
-  await expect(dialog.getByTestId('rules-remove-preview')).toHaveCount(0)
-  await page.getByTestId('dialog-confirm').click()
-  await expect(row('docs')).toHaveAttribute('data-rules', '0')
-  await expect(rulesButton).toBeFocused()
-  await page.unroute('**/api/admin/folder-rules/preview')
-
-  // nothing changes for anyone: it says so
-  await page.route('**/api/admin/folder-rules/preview', (r) => r.fulfill({ json: { folders: [{ path: 'marketing', users: [{ user: { id: 'olga', name: 'Olga' }, role: 'owner', before: 'write', after: 'write' }] }], losing: [] } }))
-  await choose(page, 'marketing')
-  await del('marketing').click()
-  await expect(dialog).toContainText(t['rules.removeNoChange'])
-  await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
-  await expect(del('marketing')).toBeFocused()
-
-  // a refused delete keeps the row and says why
-  await page.route('**/api/admin/folders/*', (r) => r.request().method() === 'DELETE' ? r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'REFUSED-BY-SERVER' } } }) : r.fallback())
-  await del('marketing').click()
-  await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('REFUSED-BY-SERVER')).toBeVisible()
-  await expect(del('marketing')).toBeVisible()
-  await page.unroute('**/api/admin/folders/*')
-  await page.unroute('**/api/admin/folder-rules/preview')
-
-  // the last one: the folder stays, and the focus stays on its rules button
-  await del('marketing').click()
-  await page.getByTestId('dialog-confirm').click()
-  await expect(del('marketing')).toHaveCount(0)
-  await expect(row('marketing')).toHaveAttribute('data-rules', '0')
-  await expect(rulesButton).toBeFocused()
+  // Remove access for Bob, and the team back to Restricted (the folder above gives no one more)
+  await folderRow(page, 'marketing').getByTestId('folders-share').click()
+  await expect(panel(page).getByTestId('sharing-row').first()).toBeVisible()
+  while (await panel(page).getByTestId('sharing-level').count()) {
+    await panel(page).getByTestId('sharing-level').first().selectOption('remove')
+    await page.getByTestId('dialog-confirm').click()
+  }
+  await panel(page).getByTestId('sharing-general-select').selectOption('restricted')
+  await expect(page.getByTestId('sharing-outcome')).toBeVisible()
+  const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/rules'))
+  await save(page)
+  expect((await put).postDataJSON()).toMatchObject({ rules: [] })
+  await page.getByTestId('sharing-done').click()
+  await expect(panel(page)).toHaveCount(0)
+  // nothing of its own any more: it follows the folder it is in, and is not on the list; the other rows stay
+  await expect(folderRow(page, 'marketing')).toHaveCount(0)
+  await expect(folderRow(page, 'finance')).toBeVisible()
+  const items = (await (await page.request.get('/api/admin/folders')).json()).items as { path: string; rules: unknown[] }[]
+  expect(items.find((f) => f.path === 'marketing')?.rules ?? []).toEqual([])
+  // and Bob can no longer open it (the team root gives members nothing)
+  const bob = (await (await page.request.get('/api/admin/access/people/bob?limit=2000')).json()).folders as { path: string; access: string }[]
+  expect(bob.find((f) => f.path === 'marketing')?.access ?? 'none').toBe('none')
   expect(loads).toBe(0)
-  expect(realErrors(errors).filter((e) => !/status of (409|503)/.test(e))).toEqual([])
+  expect(realErrors(errors)).toEqual([])
 })
 
 test('groups: delete (after a confirm) refreshes the list and focus moves to the next row\'s "…"', async ({ page }) => {
@@ -269,36 +204,19 @@ test('invites are revoked at once: a held Enter revokes one, focus goes to the l
   expect(realErrors(errors)).toEqual([])
 })
 
-test('folder permissions: shared, skills and a group\'s folder say why they stay; no rule left cannot be saved', async ({ page }) => {
+test('folder permissions: shared keeps a setting of its own (Restricted = Limited); a refused save stays open; a deleted group\'s rule goes', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   await post(page, '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
-  await post(page, '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
+  await post(page, '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read')] })
   const group = await post(page, '/api/admin/groups', { name: '영업팀', memberIds: [] })
   await page.goto('/admin/folders')
-  // the chosen folder's delete (an empty rule row only; it never removes the folder)
-  const del = (p: string) => page.locator(`[data-testid="folder-detail"][data-path="${p}"]`).getByTestId('folder-detail-delete')
-  const panel = page.getByTestId('folder-access-panel')
   const settled = () => expect(page.getByTestId('sharing-outcome')).toBeVisible()
-  /** Save, and Give access / Save anyway when it asks */
-  const save = async () => {
-    await page.getByTestId('sharing-save').click()
-    const ok = page.getByTestId('dialog-confirm')
-    await expect(page.getByTestId('sharing-done').or(ok).or(page.getByTestId('sharing-footer-bar').getByRole('alert'))).toBeVisible()
-    if (await ok.isVisible()) await ok.click()
-  }
-  const why = () => detail(page).getByTestId('folder-keep-reason')
-  for (const p of ['shared', 'skills']) {
-    await choose(page, p)
-    await expect(del(p)).toHaveCount(0)
-    await expect(why()).toHaveText(t['rules.keepTeam'])
-  }
-  await choose(page, 'groups/영업팀')
-  await expect(del('groups/영업팀')).toHaveCount(0)
-  await expect(why()).toHaveText(translate('ko', 'rules.keepGroup', { name: '영업팀' }))
-  await choose(page, 'finance')
-  await expect(why()).toHaveCount(0)
+  // a group's own folder as it was made is not listed (only its group, Editor)
+  await expect(folderRow(page, 'shared')).toBeVisible()
+  await expect(folderRow(page, 'skills')).toBeVisible()
+  await expect(folderRow(page, 'groups/영업팀')).toHaveCount(0)
   if (process.env.FOLDER_SHOTS) {
     for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(size)
@@ -307,63 +225,47 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
     await page.setViewportSize({ width: 1360, height: 860 })
   }
 
-  // finance follows the folder above: no rules saved there (PUT, the row stays, never a delete), then the empty row can
-  // go, and the focus lands on its rules button
-  await page.getByTestId('folder-detail-edit').click()
-  // Remove access, in each row's role menu
-  await expect(panel.getByTestId('sharing-row').first()).toBeVisible()
-  while (await panel.getByTestId('sharing-level').count()) {
-    await panel.getByTestId('sharing-level').first().selectOption('remove')
-    await page.getByTestId('dialog-confirm').click()
-  }
+  // shared keeps a setting of its own: General access is never "follows the folder above" there (nothing to inherit
+  // from), and Restricted makes it Limited with nobody added: only the owner and admins
+  await folderRow(page, 'shared').getByTestId('folders-share').click()
+  await expect(panel(page).getByTestId('sharing-general-inherited')).toHaveCount(0)
+  await panel(page).getByTestId('sharing-general-select').selectOption('restricted')
+  await expect(panel(page).getByTestId('sharing-keep-one')).toHaveCount(0)
   await settled()
-  const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/rules'))
-  await save()
-  expect((await put).postDataJSON()).toMatchObject({ rules: [] })
+  await save(page)
   await page.getByTestId('sharing-done').click()
-  await expect(panel).toHaveCount(0)
-  await expect(treeRow(page, 'finance')).toHaveAttribute('data-rules', '0')
-  await del('finance').click()
-  await page.getByTestId('dialog-confirm').click()
-  await expect(del('finance')).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail-edit')).toBeFocused()
+  await expect(panel(page)).toHaveCount(0)
+  const shared = ((await (await page.request.get('/api/admin/folders')).json()).items as { path: string; limited?: boolean; rules: { subjectType: string; access: string }[] }[]).find((f) => f.path === 'shared')!
+  expect(shared.limited).toBe(true)
+  expect(shared.rules.filter((r) => r.access !== 'none')).toEqual([])
+  await expect(folderRow(page, 'shared').getByTestId('folder-kind')).toHaveText(t['folders.kindLimited'])
+  await expect(folderRow(page, 'shared').getByTestId('folders-row-who')).toHaveText(t['folders.whoStaff'])
+  const bob = (await (await page.request.get('/api/admin/access/people/bob?limit=2000')).json()).folders as { path: string; access: string }[]
+  expect(bob.find((f) => f.path === 'shared')?.access ?? 'none').toBe('none')
 
-  // shared keeps a setting of its own: General access is never "no setting here" there (nothing to inherit from), and
-  // Restricted saves "everyone: no access"
-  await choose(page, 'shared')
-  await page.getByTestId('folder-detail-edit').click()
-  await expect(panel.getByTestId('sharing-general-inherited')).toHaveCount(0)
-  await panel.getByTestId('sharing-general-select').selectOption('restricted')
-  await expect(panel.getByTestId('sharing-keep-one')).toHaveCount(0)
-  await settled()
-  await save()
-  await page.getByTestId('sharing-done').click()
-  await expect(panel).toHaveCount(0)
-  const sharedRules = ((await (await page.request.get('/api/admin/folders')).json()).items as { path: string; rules: { subjectType: string; access: string }[] }[]).find((f) => f.path === 'shared')!.rules
-  expect(sharedRules.map((r) => `${r.subjectType}:${r.access}`)).toEqual(['everyone:none'])
-  await expect(treeRow(page, 'shared').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
-
-  // a save the server refuses shows its reason in the panel, which stays open
+  // a save the server refuses shows its reason in the panel, which stays open (the group's folder, opened by its address)
   await page.route('**/api/admin/folders/*/rules', (r) => r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'REFUSED-BY-SERVER', fields: { 'body.rules': 'x' } } } }))
-  await choose(page, 'groups/영업팀')
-  await page.getByTestId('folder-detail-edit').click()
-  await panel.getByTestId('sharing-general-select').selectOption('team')
+  await page.goto(`/admin/folders?edit=${encodeURIComponent('groups/영업팀')}`)
+  await expect(panel(page)).toHaveAttribute('data-path', 'groups/영업팀')
+  await panel(page).getByTestId('sharing-general-select').selectOption('team')
   await settled()
-  await save()
+  await save(page)
   await expect(page.getByTestId('sharing-footer-bar')).toContainText('REFUSED-BY-SERVER')
-  await expect(panel).toBeVisible()
+  await expect(panel(page)).toBeVisible()
   await page.getByTestId('sharing-cancel').click()
   await page.getByTestId('dialog-confirm').click()
   await page.getByTestId('sharing-done').click()
-  await expect(panel).toHaveCount(0)
+  await expect(panel(page)).toHaveCount(0)
   await page.unroute('**/api/admin/folders/*/rules')
+  const groupRules = async () => ((await (await page.request.get('/api/admin/folders')).json()).items as { path: string; rules: { subjectType: string; subjectId: string | null }[] }[]).find((f) => f.path === 'groups/영업팀')?.rules ?? []
+  expect((await groupRules()).filter((r) => r.subjectType === 'group' && r.subjectId === group.id)).toHaveLength(1)
 
-  // once the group is deleted, its folder is an ordinary one
+  // once the group is deleted, its rule goes with it; the folder is an ordinary one, and still not on the list
   const gone = await page.request.delete(`/api/admin/groups/${group.id}`, { headers: { [CSRF_HEADER]: '1' } })
   expect(gone.status()).toBe(204)
+  expect((await groupRules()).filter((r) => r.subjectType === 'group' && r.subjectId === group.id)).toEqual([])
   await page.reload()
-  await choose(page, 'groups/영업팀')
-  await expect(del('groups/영업팀')).toHaveCount(1)
-  await expect(why()).toHaveCount(0)
+  await expect(folderRow(page, 'shared')).toBeVisible()
+  await expect(folderRow(page, 'groups/영업팀')).toHaveCount(0)
   expect(realErrors(errors).filter((e) => !/status of 400/.test(e))).toEqual([])
 })

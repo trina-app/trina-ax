@@ -26980,6 +26980,80 @@ connect_service are unchanged.
   - update-interrupts-answers.test.ts: a cut step, recovery, and schedules during a wait.
   - dev-env-srt.test.ts: a command that cannot finish before the restart is refused, and a job is accepted.
 
+## People who see a shared chat later: nothing new is hidden (feat/shared-chats-p1, 2026-11-14, product owner)
+
+Supersedes "People who see a shared chat later — 나중에 보는 사람" (2026-11-08) and amends "지난 대화" for answers made
+from now on. Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` (phase 1, QA TC-1404); the owner decided
+the recommended design after an independent security and UX review.
+
+- **The rule.** From the cutover (settings `hidden_answers_cutover`, written once by migration 296 when this build
+  first runs) no answer is hidden from anyone who sees a shared project chat or a team room / the everyone room. The
+  read card before reading stays and now says so: "If it reads it, what it finds stays in this chat for everyone who
+  sees the chat, including people who get access later." "Send to a chat room" and the AI's post-to-room card add, for
+  a team room or the everyone room, "Everyone in this room will see it, including people who join later." People
+  removed from a chat's audience still lose the whole chat.
+- **Older answers keep the old hiding only where no card covered them** (rule b): a shared project chat's answer from
+  before the cutover is judged by the 11-08 walk, but a read group a card's yes covered (`y: 1`) never hides; `x: 1`
+  groups and silent groups keep hiding. Migration 296 marks `y` on the groups of every turn whose audit row
+  `chat.shared_read` says `shared`; the card writes it from now on. In rooms, an older message is hidden from a later
+  member only when its scope is closed or not kept, or holds a person's own folder, browser or connection (`user`), a
+  team connection or a shared Drive the member may not read, or the room itself where an older answer hidden from them
+  is (the chain). An older answer that used team folders only becomes visible. The walk only ever shows more than
+  before. Rollback: an older build ignores the cutover and `y` and hides as before (more, never less).
+- **Deviation from the plan (safer):** the plan let an older room answer that "used rooms" become visible. A room
+  source may carry an older answer that used a person's own folder (alice's personal notes summarised from the room
+  by someone else's AI), so a source that is this room is still judged by the older answers hidden in it.
+- **Still written:** `shared_answer_reads` for every answer (and `room_messages.source_scope`); they hide nothing new
+  but feed the warning below. A new answer built on an older hidden one its runner could see is visible (like copying
+  it by hand); a later reader's own AI still gets `WITHHELD_ANSWER` for the older hidden ones.
+- **Explicit widening warns, with the answers.** The project Members dialog, when adding people, says "{n} answers
+  here used places {names} can't open. Adding them shows those answers too." with **Show answers ›**: the list of
+  those answers replaces the dialog's body (chat, who asked, when, the first line, the places by name only where the
+  adder may open them, else "a place you can't open"; with several picks which of them miss it). One function
+  (`chat/widening.ts`) serves the dry run's `hiddenAnswers` and `POST /api/sharing/widening-answers` (whoever may
+  change the members; 403 `widening_not_allowed` to another viewer, 404 to anyone else; the first page takes a
+  room-send token; pages of 20 behind a cursor signed over the target, the picks, the people who gain it and the
+  position, 409 `changed` otherwise). Only answers the adder sees; answers that stay hidden from the new people anyway
+  are not listed. An item opens `/c/<chatId>?answer=<messageId>` (the branch holding it for this view only, scrolled
+  to and lit; gone: "That answer is no longer here."): a new tab on a computer; on a phone the same screen, with the
+  dialog's draft kept (memory and sessionStorage, 30 minutes) and a bar "‹ Back to sharing" that, like the system
+  Back, returns to the opener and reopens the dialog on the list with the picks.
+- **Silent widening is accepted:** joining a group, an admin's rule or role change, or an account enabled again shows
+  the history from the cutover on without a warning, as a Slack channel's history.
+- **Budget:** the count plus the first page under 300 ms for 10,000 shared answers in 50 chats, at most 3 queries and
+  one rule check per place and person set (`tests/unit/b-widening-answers-bench.test.ts`, fails over budget; 10x by
+  hand: `scripts/bench/widening-answers.ts`). New index `shared_answer_reads_chat_msg`.
+- **Security review of #813 (2026-11-14), what changed:**
+  - Migration 296 marks `y` on a group only when its people (`c`) are as many as the card's audit row says (`audience`)
+    in the same turn. A silent read in the same turn by the same set of people lands in the same group and cannot be
+    told apart from the card's: it counts as covered (written down, accepted). "Always allow" (`askAlways`: decision
+    `shared` with no card shown) counts as covered too: the owner's rule "always allow means done".
+  - An answer is new ("late") only when made from the cutover on and not before its chat was shared: a chat shared after
+    the cutover keeps the older rule for the answers its share recorded. A late answer with an `x` group (what it read is
+    not all known: memories, a scope the share's check could not tell) stays with that group's people; the widening list
+    counts an `x` group as missed by anyone outside it.
+  - Rooms: another room as a source is judged when it is a 1:1 or a group chat (its members only); another team room or
+    the everyone room is a team place and shows.
+  - The widening walk: the same caller's same question (project, rules hash, newest record, picks, page) is answered from
+    a 20-second cache, so the dialog's dry run on every pick does not walk again; every list page (the cursor's too)
+    takes a room-send token; the cursor is signed over the caller as well. Side chats (`room_id`) are never listed, an
+    answer still being written is not listed, and a failed or stopped answer has no preview for anyone but its runner.
+  - Places in the list are in the Files screen's words (`chat/place-words.ts`, as the read card: "Groups › Finance"),
+    never the disk path, in every language.
+  - Tests: `tests/security/shared-chats-cutover.test.ts` (the cutover in the past: search, export, the AI transcript;
+    a late `x` answer; `?through=` with another chat's answer, an answer hidden from the caller and a person's message).
+- Version impact: **minor**.
+
+## Admin › Folder permissions as two lists, like Drive — 폴더 권한은 목록 두 개 (feat/admin-folder-lists, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`web/src/pages/admin/Folders.tsx`, `web/src/pages/admin/FolderLists.tsx`), 이유: files and permissions are core. Plan: `docs/AGENTS/plan/20261114-0420-admin-folder-lists.md`. Goes with "Folder access adds up like Google Drive (P2)" (#787, which owns the Share dialog, Limit access, Access removed, the group warning and the Admin notice). The owner: the rule tree and rule words are "too unfamiliar and hard"; sharing should feel like Google Drive shared drives, and Drive has no admin table of rules (its admins change a folder in its own Share dialog).
+
+- **Two tabs.** **Folders**: only folders with their own sharing, in the Files page's names (Company-wide › …), **Limited** marked (Limit access; the second plan review cut "Shared with more" and "Whole team"), who in one line, [Share] opening the folder's Share dialog (`?edit=<path>`; old `?folder=<path>` links open it too). A group's own folder as it was made (only its group, Editor) is not listed; project folders are one line to Projects (their members are changed there); rule rows on folders Files does not show stay reachable by path. Empty: "Every folder is shared like the folder it is in." **What <person> can open**: read only, the server's own answer (`GET /api/admin/access/people/:id`) put in words: each folder with Viewer / Editor and why (Everyone at <team>, In <group>, Added by name, Project member, "from "X""), then Can't open (Limited · not added, Not a project member, Not added), other groups' folders as one count line; the owner and admins one line ("Admins open every team folder, except projects they aren't in"). The invite dialog's "What they'll be able to open" uses the same list.
+- **Removed:** the rule tree (`AccessTree.tsx`), By person with its prefix narrowing and "someone new" (`AccessPeople.tsx`, `AccessResults.tsx`), `FolderPeople.tsx`, "Only folders with rules", "How this works", "Add folder", the rule words and raw `shared`/`groups`/`projects` names, `rules.keepTeam`, `rules.removeBody` and the other unused `accessTree.*`, `accessView.*`, `rules.*` words, the tree-only parts of `lib/access-view.ts`. One group count everywhere: active members.
+- **Independent review (opus), fixed:** a limited folder with nobody added is listed ("Owner and admins only"; its rules are empty in the API); a group's own folder is hidden only while it is as made *and not limited*; on the person page `groups/`, `projects/` and `connected/` (containers everyone passes through in Files) are never "Can't open", and project folders the person is not in fold into one count line like other groups' folders; "Limited" has its own word in ko/id (액세스 제한됨, Akses dibatasi) apart from General access "Restricted" (제한됨, Dibatasi); a folder that is not limited says "+ the folder above" (access adds up); the invite preview of an admin is the one line; the empty states no longer contradict the hidden list or a search; 15 more dead `rules.*`/`accessTree.*`/`accessEdit.*` words removed (`accessView.summaryNone` stays: the honorific tests use it). Known and accepted: the team root, `groups/` and `connected/` with no sharing of their own get none from here (Files has no Share dialog on them, as before for members); deleting a folder's whole rule row is no longer a button (clearing it in the Share dialog does the same for access).
+- **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
+- Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
+
 ## Simplified Chinese app language (feat/locale-zh, 2026-11-14, the owner)
 
 - Add Simplified Chinese (`zh`, 简体中文) as the sixth app language, so a Trina Cloud sign-up can make a team whose

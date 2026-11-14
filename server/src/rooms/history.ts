@@ -1,8 +1,10 @@
-// A team room's or the everyone room's history for a member who joins it later (docs/DECISIONS.md "지난 대화"): as in a
-// Slack channel they see what was said before them (people's messages, threads, reactions, files, quotes), except the
-// old answers they could not open. An answer of the room's AI, one a person shared from their own AI chat, or a message
-// an AI app sent after reading went into the room only because everyone there then could open what it used; for a
-// later member it is judged again when they join.
+// A team room's or the everyone room's history for a member who joins it later (docs/DECISIONS.md "지난 대화", "People
+// who see a shared chat later: nothing new is hidden"): as in a Slack channel they see what was said before them
+// (people's messages, threads, reactions, files, quotes, answers). From the cutover (settings 'hidden_answers_cutover',
+// migration 296) on nothing in a room is hidden from a later member: "Send to a chat room" and the AI's post-to-room card
+// say that everyone in the room sees it, people who join later included (QA TC-1404). Only an older message can still be
+// hidden: an answer of the old room AI, one a person shared from their own AI chat, or a message an AI app sent after
+// reading, which went into the room only because everyone there then could open what it used.
 //
 //   room_members.history_from_seq   where the member sees the room from: 0 (the whole history) once worked out here;
 //                                   NULL until then, so they see it from their join on (visible_from_seq), as an
@@ -13,20 +15,22 @@
 //                                   now stays hidden (a member never loses an answer they could read: the members who
 //                                   were there keep theirs when their access narrows too)
 //
-// Which answers: those whose who-sees seq (their own; a thread reply's thread's first message's) is at or before the
-// member's join point, deleted ones too (an answer built on a deleted one is judged by it). A thread reply in a thread
-// that started before the join was decided without the member, whenever it came. An answer is hidden when what it used
-// is not known (no scope kept; an AI answer that used the web, a connection or any tool outside the team files; a
-// shared answer whose chat did not describe it), when the member's account cannot be loaded, or when one of its
-// sources is not theirs to read (chat/read-scope.ts viewersOf: the readers of the "more people can see" card). This
-// room as a source: they must see it from where the answer's context started with no answer hidden from them from there
-// on, but for the ones its asker could not see either while in the room since before it (never in its context). The
-// walk goes in seq order, so an answer built on one hidden from them is hidden too.
+// Which messages: those made before the cutover whose who-sees seq (their own; a thread reply's thread's first
+// message's) is at or before the member's join point, deleted ones too, and any reply in the thread of one hidden from
+// them (hidden with it, whenever it came). An older message is hidden only where no card could have covered it (rule
+// b): what it used is not known (no scope kept; an AI answer that used the web, a connection, a shared Drive or any tool
+// outside the team files; a shared answer whose chat did not describe it; a source this build does not know), the
+// member's account cannot be loaded, or it holds a person's own folder, browser or connection (`user`), a team
+// connection (`integration`), a shared Drive (`drive_share`) or a 1:1 or group chat (`room`) the member may not read
+// (chat/read-scope.ts viewersOf). One that used team folders or team rooms only is visible. One that used this room is judged as before (hidden when an older answer
+// hidden from the member is in what it read): it may carry what no card covered. The walk only ever shows more than the
+// rule before it, never less.
 import type { Database } from 'bun:sqlite'
 import type { RoomKind } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { sourceKey, viewersOf, type ReadSource } from '../chat/read-scope'
+import { afterCutover, hiddenAnswersCutover } from '../chat/shared-answers'
 import { memberRow, roomRow } from './store'
 
 /** Rooms whose history a later member sees: a team room and the everyone room (Slack's channels). Group chats and
@@ -39,7 +43,10 @@ const failed = new WeakMap<Database, Map<string, number>>()
 
 /** What an old answer used, as kept; closed: not all of it is known (hidden from every later member). */
 interface Scope { sources: ReadSource[]; closed: boolean }
-type Candidate = { id: string; seq: number; see: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; thread_root_id: string | null; ai_scope: string | null; source_scope: string | null; q_seq: number | null }
+type Candidate = { id: string; seq: number; see: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; thread_root_id: string | null; ai_scope: string | null; source_scope: string | null; created_at: string | null; q_seq: number | null }
+/** The sources an older message is still judged by (rule b): what no card could cover. Team folders are not; this room
+ * is judged by the older answers hidden in it (walk). */
+const JUDGED: ReadonlySet<string> = new Set(['user', 'integration', 'drive_share'])
 const KNOWN: ReadonlySet<string> = new Set(['folder', 'root', 'user', 'integration', 'drive_share', 'room', 'name'])
 
 /** An AI answer's question scope (room_ai_turns.scope: {sources, outside}) or a person's message's
@@ -92,10 +99,11 @@ export const WOULD_SEE_MS = 100
 
 /**
  * Would `userId` see this team room from `fromSeq` on if they joined it now (an owner or admin may add themselves to any
- * group, and so to its room: docs/DECISIONS.md "대화방에서 새 파일은 미리 허용")? The same walk as a later member's
- * (walk): the room's whole history but the old answers hidden from them, none of which may be at or after `fromSeq`.
- * Only a team room; anything that cannot be worked out in `budgetMs` (a walk out of time, an account not loaded, an
- * error, a room gone or archived) is no: fails closed.
+ * group, and so to its room: docs/DECISIONS.md "대화방에서 새 파일은 미리 허용")? Yes when no message from before the
+ * cutover is hidden from them from `fromSeq` on: the same walk as a later member's (walk), whose hidden messages are
+ * all older than the cutover or in the thread of one (rule b), none of which may be at or after `fromSeq`. Messages
+ * from the cutover on never count against it. Only a team room; anything that cannot be worked out in `budgetMs` (a
+ * walk out of time, an account not loaded, an error, a room gone or archived) is no: fails closed.
  */
 export function wouldSeeFrom(ctx: AppContext, roomId: string, userId: string, fromSeq: number, budgetMs = WOULD_SEE_MS): boolean {
   const deadline = Date.now() + budgetMs
@@ -120,10 +128,13 @@ export class HistoryOutOfTime extends Error {}
 
 /** The walk: every candidate in seq order, the ones hidden from the member (with the seq that decides who sees them).
  * Linear in the room's old answers: the hidden ones so far are kept sorted by who-sees seq (a range is a look from the
- * end), and each person's member row and hidden rows are read once. */
+ * end), each place is checked once, and each person's member row and hidden rows are read once. A message from the
+ * cutover on is never hidden (rule a), but for a reply in the thread of an older one hidden from them; an older one by
+ * rule b (the file's header). */
 function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, joinedAt: number, who: Principal | null, deadline?: number): { id: string; see: number }[] {
   const db = ctx.db
-  const candidates = db.query(`SELECT m.id, m.seq, COALESCE(m.thread_root_seq, m.seq) see, m.author_kind, m.author_id, m.asked_by, m.thread_root_id, m.source_scope,
+  const cutover = hiddenAnswersCutover(db)
+  const candidates = db.query(`SELECT m.id, m.seq, COALESCE(m.thread_root_seq, m.seq) see, m.author_kind, m.author_id, m.asked_by, m.thread_root_id, m.source_scope, m.created_at,
       (SELECT t.scope FROM room_ai_turns t WHERE t.answer_id = m.id LIMIT 1) ai_scope, (SELECT q.seq FROM room_messages q WHERE q.id = m.reply_to_id AND q.room_id = m.room_id) q_seq
     FROM room_messages m WHERE m.room_id = ? AND (m.author_kind = 'ai' OR m.answer_at IS NOT NULL OR m.source_scope IS NOT NULL)
       AND COALESCE(m.thread_root_seq, m.seq) <= ? AND m.visibility = 'room' AND m.event IS NULL ORDER BY m.seq`).all(roomId, joinedAt) as Candidate[]
@@ -162,10 +173,14 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
     return rows
   }
   const reads = (p: Principal, s: ReadSource, c: Candidate): boolean => {
-    if (s.type === 'room' && s.id === roomId) {
-      const from = s.fromSeq ?? 0
-      return !hiddenFrom(from, exemptFor(c, s))
-    }
+    // this room: still judged by the older answers hidden from them in it (an answer that used one carries what a
+    // person's own folder or a connection gave, which no card covered; the safer reading of rule b)
+    if (s.type === 'room' && s.id === roomId) return !hiddenFrom(s.fromSeq ?? 0, exemptFor(c, s))
+    // another room: a team room or the everyone room is a team place a card could have covered (rule b); a 1:1 or a
+    // group chat is its members' only, judged as before (security review of #813)
+    const other = s.type === 'room' && !historyKinds(roomRow(db, s.id)?.kind ?? 'dm')
+    // a team folder, the top, a name, another team room: not judged any more
+    if (!JUDGED.has(s.type) && !other) return true
     const k = sourceKey(s)
     let ok = verdicts.get(k)
     if (ok === undefined) { ok = viewersOf(db, rules, s, [p]).has(p.id); verdicts.set(k, ok) }
@@ -178,6 +193,8 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
     // once its thread's first message is no longer hidden)
     let visible = false
     if (!(c.thread_root_id && ids.has(c.thread_root_id))) {
+      // from the cutover on: never hidden (rule a)
+      if (afterCutover(cutover, c.created_at)) continue
       try {
         const scope = scopeOf(c)
         visible = !!who && !!scope && !scope.closed && scope.sources.every((s) => reads(who, s, c))

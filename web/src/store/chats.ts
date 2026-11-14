@@ -123,6 +123,15 @@ const delivering = new Map<string, { chatId: string; done: Promise<void> }>()
  */
 type Load = { promise: Promise<void>; events: ServerEvent[]; again: boolean }
 const loads = new Map<string, Load>()
+/** a chat shown on the branch of one answer, for this view only (a widening list item: /c/<id>?answer=<messageId>;
+ * GET …/messages `through`): its reads ask for that branch until the page leaves or another branch is picked */
+const throughs = new Map<string, string>()
+/** Show `chatId` on the branch holding `answerId` (null: its active branch again). */
+export function showThrough(chatId: string, answerId: string | null) {
+  if (answerId) throughs.set(chatId, answerId)
+  else throughs.delete(chatId)
+}
+const throughOf = (chatId: string) => { const id = throughs.get(chatId); return id ? { through: id } : {} }
 /** chatId -> local changes of the visible branch (a send, regenerate or edit answered, a branch switch): a reload that
  * began before one is read again instead of used (it would take the new question and answer away) */
 const changes = new Map<string, number>()
@@ -277,7 +286,7 @@ export const useChats = create<ChatsState>((set, get) => {
     // them are not replayed, and the running turn would otherwise wait for an answer nobody can give
     const before = new Set(Object.keys(get().requests))
     const [page, open, queue] = await Promise.all([
-      api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } }),
+      api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, ...throughOf(chatId) } }),
       api.call(API.listTurnRequests, { params: { id: chatId } }).catch(() => null),
       api.call(API.getChatQueue, { params: { id: chatId } }).catch(() => null),
     ])
@@ -553,7 +562,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       const cur = thread(chatId)
       if (!cur.nextCursor) return
-      const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, cursor: cur.nextCursor } })
+      const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, cursor: cur.nextCursor, ...throughOf(chatId) } })
       if (session !== generation) return
       setThread(chatId, (t) => ({ ...t, messages: prependPage(t.messages, page.items), nextCursor: page.nextCursor }))
     },
@@ -623,6 +632,7 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async selectBranch(chatId, messageId) {
+      throughs.delete(chatId)
       const session = generation
       const page = await api.call(API.selectBranch, { params: { id: chatId }, body: { messageId } })
       if (session !== generation) return

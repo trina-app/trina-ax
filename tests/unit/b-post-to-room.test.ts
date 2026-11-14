@@ -156,7 +156,7 @@ describe('the card, and the post', () => {
     const text = 'Plan: [launch-plan.md](/files/view?path=groups/marketing/launch-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
-    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).")
+    expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this room will see it, including people who join later.")
     // no "Always allow" on a card that offers the linked files (review of #678): three buttons as before
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
     expect(r.card!.buttons).toBe(true)
@@ -253,7 +253,7 @@ describe('where it may not post', () => {
     expect(h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(r.chatId)).toEqual({ rooms_seen: 1 })
     // the first and only card is post_to_room's, with the room card's line on top (docs/DECISIONS.md "내 AI 채팅에서 대화방
     // 읽기", fewer cards after a room read) and what the finance room's messages mean for the others
-    expect(r.card!.question).toMatch(/^여기에 대화방 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화방\)를 볼 수 없어요\.$/)
+    expect(r.card!.question).toMatch(/^여기에 대화방 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화방\)를 볼 수 없어요\.\n나중에 들어오는 사람을 포함해 이 대화방의 모두가 보게 돼요\.$/)
     expect(JSON.parse(r.content.slice(r.content.indexOf('{"status"')))).toMatchObject({ status: 'sent' })
   })
 
@@ -387,7 +387,7 @@ describe('injection, retries and changes', () => {
       },
     })
     try {
-      expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).")
+      expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this room will see it, including people who join later.")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)

@@ -601,7 +601,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('send').click()
       const card = page.getByTestId('ask-card')
       await expect(card).toHaveAttribute('data-origin', 'server')
-      await expect(card).toContainText('AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 멤버 2명 중 1명은 이곳을 볼 수 없어요.')
+      await expect(card).toContainText('AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 2명 중 1명은 이곳을 열 수 없어요. 읽으면 찾은 내용이 이 채팅에 남아, 나중에 볼 수 있게 되는 사람을 포함해')
       await expect(card.getByTestId('ask-yes')).toHaveText('읽고 공유하기')
       await expect(card.getByTestId('ask-no')).toHaveText('읽지 않기')
       await audit(page, 'read card')

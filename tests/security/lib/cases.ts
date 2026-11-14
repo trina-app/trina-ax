@@ -264,6 +264,19 @@ export const SPECS: Record<string, Spec> = {
   // who sees alice's team project: alice (its creator), the owner and admins see and change it; erin is a participant
   // but did not make it (403), bob does not see it (404)
   previewProjectAccess: { build: (c, w) => c.post('/api/projects/access-preview', { projectId: w.ids.projTeam, participants: [] }), scope: 'alice-project' },
+  // the widening list (chat/widening.ts, docs/DECISIONS.md "People who see a shared chat later: nothing new is hidden"):
+  // whoever may change the members of alice's team project (alice, the owner, admins); erin sees it but may not change
+  // them (403 widening_not_allowed), bob does not see it (404). The owner and admins manage it without reading it: no
+  // answer of it is listed to them. That no item names a place the caller can't open and none comes from an answer
+  // hidden from them: tests/unit/b-widening-answers.test.ts
+  wideningAnswers: { build: (c, w) => c.post('/api/sharing/widening-answers', { target: { kind: 'project', projectId: w.ids.projTeam }, add: [{ subjectType: 'user', subjectId: 'erin' }, { subjectType: 'user', subjectId: 'bob' }] }), scope: 'alice-project',
+    check: (r, _w, who) => {
+      if (who === 'other' && (r.status !== 403 || r.json?.error?.params?.reason !== 'widening_not_allowed')) throw new Error(`erin, who may not change the members, got ${r.status}`)
+      if (who === 'memberOut' && r.status !== 404) throw new Error(`bob, outside the project, got ${r.status} (not 404)`)
+      if (r.status >= 300) return
+      if (!Array.isArray(r.json?.items) || typeof r.json?.total !== 'number') throw new Error(`${who}: not a widening list`)
+      if ((who === 'owner' || who === 'admin') && (r.json.items.length || r.json.total)) throw new Error(`${who}: answers of a project they manage without reading it were listed`)
+    } },
   // a team project alice put in the trash (its folder with it) comes back by the owner or an admin, who manage it
   // without reading it (docs/DECISIONS.md "Project contents only for members"), or by alice, its creator and a member
   // of it (QA TC-1062, "A team project in the trash: its members keep its card"); nobody else

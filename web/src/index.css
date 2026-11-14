@@ -415,3 +415,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 /* docx-preview pages on a neutral background */
 .docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
 .docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
+
+/* an answer opened from the widening list (pages/Chat.tsx ?answer=): lit for a moment, then it fades */
+[data-message-id] { transition: box-shadow 600ms ease, background-color 600ms ease, outline-color 600ms ease; border-radius: 0.75rem; outline: 1.5px solid transparent; outline-offset: 8px; }
+[data-message-id][data-focused] { background-color: color-mix(in srgb, var(--c-accent) 8%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-accent) 8%, transparent); outline-color: var(--c-accent); }
+@media (prefers-reduced-motion: reduce) { [data-message-id] { transition: none; } }

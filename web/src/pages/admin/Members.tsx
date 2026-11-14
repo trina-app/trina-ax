@@ -45,7 +45,7 @@ import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, Sea
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
-import { NewPersonPreview, personViewLink } from './AccessResults'
+import { NewPersonPreview, personViewLink } from './FolderLists'
 import { TeamLinkDialog, joinsText } from '../../components/onboarding/TeamLinkPanel'
 import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'

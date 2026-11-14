@@ -1,10 +1,15 @@
-// A team room's and the everyone room's history for a member who joins later (docs/DECISIONS.md "지난 대화"): like a
-// Slack channel they see what was said before them (people's messages, threads, reactions, files, quotes) and nothing
-// old is unread or notifies; group chats and 1:1s still start at the join. An old answer (the room's AI, or one shared
-// from a person's own AI chat) that used something the later member cannot open, or whose scope was not kept, is one
-// line for them (RoomMessage.withheld) and hidden everywhere else: its thread, quotes, reactions, sources, the rooms
-// list, the Inbox, the readers of the person's own AI chat and of AI apps, the room AI's context; an answer that used it
-// stays private while such a member is in the room. Answers are written straight into the database where the engine
+// A team room's and the everyone room's history for a member who joins later (docs/DECISIONS.md "지난 대화", "People who
+// see a shared chat later: nothing new is hidden"): like a Slack channel they see what was said before them (people's
+// messages, threads, reactions, files, quotes, answers) and nothing old is unread or notifies; group chats and 1:1s
+// still start at the join. From the cutover (migration 296) on nothing is hidden ("from the cutover on" below). An
+// answer from before it (the old room AI's, or one shared from a person's own AI chat) is still one line for a later
+// member (RoomMessage.withheld), and hidden everywhere else (its thread, quotes, reactions, sources, the rooms list, the
+// Inbox, the readers of the person's own AI chat and of AI apps, the room AI's context), only where no card could have
+// covered it (rule b): its scope was not kept or not known, it used a person's own folder, a connection or a shared
+// Drive the member cannot open, or it used the room where an older answer hidden from them was; one that used team
+// folders only is shown. An answer that used a hidden one
+// stays private while such a member is in the room. The tests below are about such older answers (the cutover is set
+// after them) unless they say otherwise. Answers are written straight into the database where the engine
 // is not the point (the fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -14,7 +19,8 @@ import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { openHistories } from '../../server/src/rooms/history'
+import { openHistories, wouldSeeFrom } from '../../server/src/rooms/history'
+import { setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 import { countedUnreadIn } from '../../server/src/rooms/inbox'
 import { readRoom, searchRooms } from '../../server/src/rooms/reader'
 import { roomTool } from '../../server/src/connectors/remote-mcp/rooms'
@@ -27,6 +33,11 @@ setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const BRIEF = 'groups/marketing/campaign-brief.md'
+/** a cutover after every message of the test: they are all judged by the old rule (b) */
+const OLD_RULE = '9999-12-31T00:00:00.000Z'
+/** what alice's own folder gave (her personal folder, her browser, a personal connection): only she reads it, and no
+ * card could cover it (rule b keeps an older answer that used it hidden) */
+const ALICE_OWN: ReadSource = { type: 'user', id: 'alice' }
 
 let h: Harness
 const ws: Record<string, TestSocket> = {}
@@ -44,6 +55,7 @@ beforeAll(async () => {
   }
   db.exec('PRAGMA foreign_keys = ON')
   roomsOf(h.ctx).clock = () => (clock += 10_000)
+  setHiddenAnswersCutover(db, OLD_RULE)
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
@@ -133,13 +145,15 @@ describe('the history of a team room', () => {
 describe('old answers a later member could not open', () => {
   test('hidden from a member who cannot read what it used, shown to one who can; one line, nothing else', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    const a = aiAnswer(roomId, 'alice', 'The brief says CANARY-BRIEF-1 [brief](/files/view?path=groups/marketing/campaign-brief.md)', { sources: [folder('groups/marketing')] })
+    const a = aiAnswer(roomId, 'alice', 'The brief says CANARY-BRIEF-1 [brief](/files/view?path=groups/marketing/campaign-brief.md)', { sources: [ALICE_OWN] })
+    // an older answer that used a team folder only: a card could have covered it, so it is shown (rule b)
+    const f = aiAnswer(roomId, 'alice', 'FROM-THE-TEAM-FOLDER', { sources: [folder('groups/marketing')] })
     h.ctx.db.query("INSERT INTO room_message_sources (message_id, ord, path, sha256, locs, via, by_main, by_subagent) VALUES (?, 0, ?, NULL, '[]', 'read', 1, 0)").run(a.answerId, BRIEF)
     const said = await send('erin', roomId, 'thanks, noted')
     const inThread = await send('erin', roomId, 'about CANARY-BRIEF-1 again', { threadRootId: a.answerId })
     await h.api('erin').call(API.reactRoomMessage, { params: { id: roomId, messageId: a.answerId }, body: { emoji: '🎉', on: true } })
     await setMembers(groupId, ['alice', 'erin', 'bob', 'carol'])
-    // bob (finance) cannot read groups/marketing: one line, who asked, the question; nothing of the answer
+    // bob cannot read alice's own folder: one line, who asked, the question; nothing of the answer
     const forBob = await timeline('bob', roomId)
     const line = forBob.find((m) => m.id === a.answerId)!
     expect(line).toMatchObject({ withheld: true, body: '', authorKind: 'ai', askedBy: { id: 'alice' }, files: [], mentions: [] })
@@ -151,11 +165,14 @@ describe('old answers a later member could not open', () => {
     expect((await h.req('bob', `/api/rooms/${roomId}/messages/${a.answerId}/sources`)).status).toBe(404)
     expect((await h.req('bob', `/api/rooms/${roomId}/messages/${a.answerId}/reactions`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji: '👍', on: true }) })).status).toBe(404)
     expect((await h.req('bob', `/api/rooms/${roomId}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: 'x', threadRootId: a.answerId, clientMessageId: cm() }) })).status).toBe(400)
-    // carol (admin) may read it: the answer as everyone saw it
-    const forCarol = (await timeline('carol', roomId)).find((m) => m.id === a.answerId)!
-    expect(forCarol.withheld).toBeUndefined()
-    expect(forCarol.body).toContain('CANARY-BRIEF-1')
-    expect(forCarol.thread?.replyCount).toBe(1)
+    // nor carol (admin): a person's own folder is theirs only. The team-folder answer is shown to both (bob cannot read
+    // groups/marketing): a card could have covered it
+    expect((await timeline('carol', roomId)).find((m) => m.id === a.answerId)!.withheld).toBe(true)
+    for (const u of ['bob', 'carol']) expect((await timeline(u, roomId)).find((m) => m.id === f.answerId)).toMatchObject({ body: 'FROM-THE-TEAM-FOLDER' })
+    // erin, who was there, sees it with its thread
+    const forErin = (await timeline('erin', roomId)).find((m) => m.id === a.answerId)!
+    expect(forErin.withheld).toBeUndefined()
+    expect(forErin.thread?.replyCount).toBe(1)
     void inThread
   })
 })
@@ -185,21 +202,24 @@ describe('what an old answer used', () => {
         .run(id, roomId, seq, body, new Date().toISOString(), scope)
       return id
     }
-    const marketing = shared(JSON.stringify({ sources: [folder('groups/marketing')], unknown: false }), 'SHARED-MARKETING')
+    const own = shared(JSON.stringify({ sources: [ALICE_OWN], unknown: false }), 'SHARED-OWN')
     const unknown = shared(JSON.stringify({ sources: [], unknown: true }), 'SHARED-UNKNOWN')
     const older = shared(null, 'SHARED-OLDER')
     const fine = shared(JSON.stringify({ sources: [folder('shared')], unknown: false }), 'SHARED-FINE')
+    // a team folder bob cannot read: shown (rule b)
+    const marketing = shared(JSON.stringify({ sources: [folder('groups/marketing')], unknown: false }), 'SHARED-MARKETING')
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const items = await timeline('bob', roomId)
     const w = (id: string) => items.find((m) => m.id === id)!
-    expect([marketing, unknown, older].map((id) => w(id).withheld)).toEqual([true, true, true])
-    expect(w(marketing)).toMatchObject({ author: { id: 'alice' }, body: '', withheld: true })
+    expect([own, unknown, older].map((id) => w(id).withheld)).toEqual([true, true, true])
+    expect(w(own)).toMatchObject({ author: { id: 'alice' }, body: '', withheld: true })
     expect(w(fine).body).toBe('SHARED-FINE')
+    expect(w(marketing).body).toBe('SHARED-MARKETING')
   })
 
   test('an answer built on one hidden from them is hidden too; one whose context started after it is not', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    const a = aiAnswer(roomId, 'alice', 'SECRET-A', { sources: [folder('groups/marketing')] })
+    const a = aiAnswer(roomId, 'alice', 'SECRET-A', { sources: [ALICE_OWN] })
     const b = aiAnswer(roomId, 'erin', 'BUILT-ON-A', { sources: [{ type: 'room', id: roomId, fromSeq: a.seq - 1 }] })
     const later = await send('alice', roomId, 'something else')
     const c = aiAnswer(roomId, 'erin', 'AFTER-A', { sources: [{ type: 'room', id: roomId, fromSeq: later.seq }] })
@@ -213,7 +233,7 @@ describe('what an old answer used', () => {
 describe('everywhere else the room is read', () => {
   test('the readers of the person\'s own AI chat and of AI apps and the search leave a hidden answer out', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    const a = aiAnswer(roomId, 'alice', 'READER-CANARY-7', { sources: [folder('groups/marketing')] })
+    const a = aiAnswer(roomId, 'alice', 'READER-CANARY-7', { sources: [ALICE_OWN] })
     await send('erin', roomId, 'people talk before bob')
     await send('erin', roomId, 'in its thread READER-CANARY-7', { threadRootId: a.answerId })
     await setMembers(groupId, ['alice', 'erin', 'bob'])
@@ -233,7 +253,7 @@ describe('everywhere else the room is read', () => {
 describe('when it is worked out', () => {
   test('existing later members (an upgrade, a row an older build made): from their join on until the next pass, then the history with the same check', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    const a = aiAnswer(roomId, 'alice', 'UPGRADE-HIDDEN', { sources: [folder('groups/marketing')] })
+    const a = aiAnswer(roomId, 'alice', 'UPGRADE-HIDDEN', { sources: [ALICE_OWN] })
     await send('alice', roomId, 'PRE-JOIN-TALK')
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const db = h.ctx.db
@@ -258,10 +278,10 @@ describe('when it is worked out', () => {
   })
 
 
-  test('an answer in a thread that started before the join is judged, whenever it came; a deleted answer still counts', async () => {
+  test('an answer in a thread that started before the join is judged, whenever it came (before the cutover); a deleted answer still counts', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const root = await send('alice', roomId, 'old thread start')
-    const gone = aiAnswer(roomId, 'alice', 'DELETED-SECRET', { sources: [folder('groups/marketing')] })
+    const gone = aiAnswer(roomId, 'alice', 'DELETED-SECRET', { sources: [ALICE_OWN] })
     const onGone = aiAnswer(roomId, 'erin', 'BUILT-ON-DELETED', { sources: [{ type: 'room', id: roomId, fromSeq: gone.seq }] })
     h.ctx.db.query("UPDATE room_messages SET body = '', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), gone.answerId)
     await setMembers(groupId, ['alice', 'erin', 'bob'])
@@ -269,7 +289,7 @@ describe('when it is worked out', () => {
     const db = h.ctx.db
     db.query('UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
     db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
-    const late = aiAnswer(roomId, 'alice', 'LATE-IN-OLD-THREAD', { sources: [folder('groups/marketing')] }, { threadRootId: root.id })
+    const late = aiAnswer(roomId, 'alice', 'LATE-IN-OLD-THREAD', { sources: [ALICE_OWN] }, { threadRootId: root.id })
     openHistories(h.ctx)
     expect(hiddenRows(roomId, 'bob').sort()).toEqual([gone.answerId, onGone.answerId, late.answerId].sort())
     const thread = await h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })
@@ -279,7 +299,7 @@ describe('when it is worked out', () => {
 })
 
 describe('what people send that came from elsewhere', () => {
-  test('a shared answer keeps what it used with it; a message an AI app sent after reading keeps what the app had read', async () => {
+  test('a shared answer keeps what it used with it; a message an AI app sent after reading keeps what the app had read (a team folder: shown later, rule b)', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const db = h.ctx.db
     // alice's own AI chat answered from the marketing brief; she shares it to the room (everyone there may read it)
@@ -300,19 +320,21 @@ describe('what people send that came from elsewhere', () => {
     // a person's own words keep nothing
     const own = await send('erin', roomId, 'my own words')
     expect(db.query('SELECT source_scope s FROM room_messages WHERE id = ?').get(own.id)).toEqual({ s: null })
-    // bob joins: both are one line for him, by their author; his own words are there
+    // bob joins: both used a team folder only (he cannot read groups/marketing), so a card could have covered them: he
+    // sees them, by their author (rule b); his own words are there
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const items = await timeline('bob', roomId)
-    expect(items.find((m) => m.id === shared.id)).toMatchObject({ withheld: true, author: { id: 'alice' }, body: '' })
-    expect(items.find((m) => m.id === appMsg.id)).toMatchObject({ withheld: true, author: { id: 'erin' }, body: '' })
+    expect(items.find((m) => m.id === shared.id)).toMatchObject({ author: { id: 'alice' } })
+    expect(items.find((m) => m.id === shared.id)?.withheld).toBeUndefined()
+    expect(items.find((m) => m.id === appMsg.id)).toMatchObject({ author: { id: 'erin' }, body: 'APP-SENT-CANARY' })
     expect(items.find((m) => m.id === own.id)?.body).toBe('my own words')
-    expect(JSON.stringify(items)).not.toMatch(/SHARED-BRIEF-CANARY|APP-SENT-CANARY/)
-    // an AI app that read the room's history (with the line hidden from bob in it) cannot send it on to bob's thread…
+    expect(hiddenRows(roomId, 'bob')).toEqual([])
+    // an AI app that read the room's history may send after it: nothing in it is hidden from bob
     const read = readRoom(db, 'erin', 'UTC', { room: roomId })
     const seen = read.seen.map((x): ReadSource => ({ type: 'room', id: x.roomId, ...(x.fromSeq !== undefined ? { fromSeq: x.fromSeq } : {}) }))
-    const refused = await roomTool(h.ctx, loadPrincipal(db, 'erin')!, 'room_send', { room: roomId, text: 'passing it on' }, {} as TurnFiles, { sources: seen, session: true })
-    expect(refused.isError).toBe(true)
-    // …while bob's own app, which never got it, may send after reading the same room
+    const passed = await roomTool(h.ctx, loadPrincipal(db, 'erin')!, 'room_send', { room: roomId, text: 'passing it on' }, {} as TurnFiles, { sources: seen, session: true })
+    expect(passed.isError).toBeFalsy()
+    // bob's own app too
     const bobs = readRoom(db, 'bob', 'UTC', { room: roomId })
     const ok = await roomTool(h.ctx, loadPrincipal(db, 'bob')!, 'room_send', { room: roomId, text: 'bob after reading' }, {} as TurnFiles, { sources: bobs.seen.map((x): ReadSource => ({ type: 'room', id: x.roomId, ...(x.fromSeq !== undefined ? { fromSeq: x.fromSeq } : {}) })), session: true })
     expect(ok.isError).toBeFalsy()
@@ -320,7 +342,7 @@ describe('what people send that came from elsewhere', () => {
 })
 
 describe('a shared answer in a thread (a side chat sends it there)', () => {
-  test("a later member gets it judged with its thread's first message: hidden when it used what they cannot read, shown when they may", async () => {
+  test("a later member gets it judged with its thread's first message: one that used a team folder is shown (rule b)", async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const db = h.ctx.db
     const root = await send('erin', roomId, 'THREAD-ROOT-CANARY 로고 시안 언제 나와요?')
@@ -340,14 +362,14 @@ describe('a shared answer in a thread (a side chat sends it there)', () => {
     // from the marketing brief (bob, in finance, cannot read it), and from the shared folder (everyone may)
     const closed = await shareInto('THREAD-BRIEF-CANARY', [folder('groups/marketing')])
     const open = await shareInto('THREAD-SHARED-CANARY', [folder('shared')])
-    // the thread's first message's seq decides (COALESCE(thread_root_seq, seq)): both were there before bob
+    // the thread's first message's seq decides (COALESCE(thread_root_seq, seq)): both were there before bob; the brief
+    // is a team folder, which a card could have covered: shown (rule b)
     await setMembers(groupId, ['alice', 'erin', 'bob'])
-    expect(hiddenRows(roomId, 'bob')).toEqual([closed.id])
+    expect(hiddenRows(roomId, 'bob')).toEqual([])
     expect((await timeline('bob', roomId)).find((m) => m.id === root.id)?.body).toContain('THREAD-ROOT-CANARY')
     const thread = await h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })
-    expect(thread.items.find((m) => m.id === closed.id)).toMatchObject({ withheld: true, author: { id: 'alice' }, body: '' })
+    expect(thread.items.find((m) => m.id === closed.id)?.body).toBe('THREAD-BRIEF-CANARY')
     expect(thread.items.find((m) => m.id === open.id)?.body).toBe('THREAD-SHARED-CANARY')
-    expect(JSON.stringify(thread)).not.toContain('THREAD-BRIEF-CANARY')
     // erin, who was there, keeps both
     const hers = await h.api('erin').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })
     expect(hers.items.map((m) => m.body)).toEqual(['THREAD-BRIEF-CANARY', 'THREAD-SHARED-CANARY'])
@@ -400,7 +422,7 @@ describe('what an answer may not carry past a hidden answer', () => {
   test('an answer of my own AI chat that used a hidden answer is not sent to the room, confirmed or not', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const db = h.ctx.db
-    aiAnswer(roomId, 'alice', 'H-SHARE-SECRET', { sources: [folder('groups/marketing')] })
+    aiAnswer(roomId, 'alice', 'H-SHARE-SECRET', { sources: [ALICE_OWN] })
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const read = readRoom(db, 'alice', 'UTC', { room: roomId })
     expect(read.text).toContain('H-SHARE-SECRET')
@@ -441,7 +463,7 @@ describe('found in the second PR review', () => {
 
   test('an answer of a chat that read rooms without saying which is not sent past a member with hidden answers, confirmed or not', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    aiAnswer(roomId, 'alice', 'H3-SECRET', { sources: [folder('groups/marketing')] })
+    aiAnswer(roomId, 'alice', 'H3-SECRET', { sources: [ALICE_OWN] })
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const a = roomsReadChat('RESTATES H3-SECRET')
     for (const confirm of [undefined, 5]) {
@@ -461,7 +483,7 @@ describe('found in the second PR review', () => {
 
   test('nor an AI-made file attached from such a chat', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    aiAnswer(roomId, 'alice', 'H4-SECRET', { sources: [folder('groups/marketing')] })
+    aiAnswer(roomId, 'alice', 'H4-SECRET', { sources: [ALICE_OWN] })
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const rel = 'users/alice/restated-h4.md', text = 'RESTATES H4-SECRET\n'
     const abs = path.join(h.ctx.files.fx.root, ...rel.split('/'))
@@ -479,5 +501,62 @@ describe('found in the second PR review', () => {
     expect(r.status).toBe(409)
     expect(await r.text()).toContain('answer_share_hidden')
     expect(db.query('SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND name = ?').get(roomId, 'restated-h4.md')).toEqual({ n: 0 })
+  })
+})
+
+describe('another room as a source (security review of #813)', () => {
+  test('an older answer from a 1:1 or group chat bob is not in stays hidden; one from another team room is shown', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'] } })
+    const { roomId: otherTeam } = await teamRoom(['alice', 'erin'])
+    const fromDm = aiAnswer(roomId, 'alice', 'FROM-THE-GROUP-CHAT', { sources: [{ type: 'room', id: dm.id }] })
+    const fromTeam = aiAnswer(roomId, 'alice', 'FROM-A-TEAM-ROOM', { sources: [{ type: 'room', id: otherTeam }] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const items = await timeline('bob', roomId)
+    expect(items.find((m) => m.id === fromDm.answerId)?.withheld).toBe(true)
+    expect(items.find((m) => m.id === fromTeam.answerId)?.body).toBe('FROM-A-TEAM-ROOM')
+  })
+})
+
+describe('from the cutover on nothing is hidden (TC-1404)', () => {
+  /** the cutover now: what was made before it is older, what comes after it new */
+  const cutNow = async () => { await Bun.sleep(5); setHiddenAnswersCutover(h.ctx.db, new Date().toISOString()); await Bun.sleep(5) }
+  afterAll(() => setHiddenAnswersCutover(h.ctx.db, OLD_RULE))
+
+  test('an older answer with a closed scope stays hidden from a later member; a new one that used the same is shown; replies in a hidden thread stay hidden', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const old = aiAnswer(roomId, 'alice', 'OLD-CLOSED-CANARY', { sources: [ALICE_OWN] })
+    const oldFolder = aiAnswer(roomId, 'alice', 'OLD-FOLDER-CANARY', { sources: [folder('groups/marketing')] })
+    await cutNow()
+    const fresh = aiAnswer(roomId, 'alice', 'NEW-OWN-CANARY', { sources: [ALICE_OWN] })
+    const web = aiAnswer(roomId, 'alice', 'NEW-WEB-CANARY', { sources: [], outside: true })
+    const reply = aiAnswer(roomId, 'erin', 'NEW-REPLY-IN-OLD-THREAD', { sources: [] }, { threadRootId: old.answerId })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const items = await timeline('bob', roomId)
+    const w = (id: string) => items.find((m) => m.id === id)
+    expect(w(old.answerId)?.withheld).toBe(true)
+    expect(w(oldFolder.answerId)?.body).toBe('OLD-FOLDER-CANARY')
+    expect(w(fresh.answerId)?.body).toBe('NEW-OWN-CANARY')
+    expect(w(web.answerId)?.body).toBe('NEW-WEB-CANARY')
+    expect(hiddenRows(roomId, 'bob').sort()).toEqual([old.answerId, reply.answerId].sort())
+    expect(JSON.stringify(items)).not.toContain('OLD-CLOSED-CANARY')
+  })
+
+  test('wouldSeeFrom: an owner or admin would see the room from a seq on when no older hidden answer is there from it on; new answers never count', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    setHiddenAnswersCutover(h.ctx.db, OLD_RULE)
+    const old = aiAnswer(roomId, 'alice', 'WSF-OLD', { sources: [ALICE_OWN] })
+    const after = await send('alice', roomId, 'talk after the old answer')
+    // carol (admin) cannot read alice's own folder: from before the old answer, no; from after it, yes
+    expect(wouldSeeFrom(h.ctx, roomId, 'carol', old.seq - 1)).toBe(false)
+    expect(wouldSeeFrom(h.ctx, roomId, 'carol', after.seq)).toBe(true)
+    // from the cutover on: a new answer that used the same is no reason
+    await cutNow()
+    const fresh = aiAnswer(roomId, 'alice', 'WSF-NEW', { sources: [ALICE_OWN] })
+    expect(wouldSeeFrom(h.ctx, roomId, 'carol', fresh.seq - 1)).toBe(true)
+    expect(wouldSeeFrom(h.ctx, roomId, 'carol', old.seq - 1)).toBe(false)
+    // a room that is not a team room: no
+    const g = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'] } })
+    expect(wouldSeeFrom(h.ctx, g.id, 'carol', 0)).toBe(false)
   })
 })

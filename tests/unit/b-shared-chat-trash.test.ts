@@ -15,7 +15,7 @@ import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { updateGroupAs } from '../../server/src/admin/groups'
 import { WITHHELD_ANSWER } from '../../server/src/chat/shared'
-import { withheldFrom } from '../../server/src/chat/shared-answers'
+import { setHiddenAnswersCutover, withheldFrom } from '../../server/src/chat/shared-answers'
 import { createSuggestion } from '../../server/src/skills/suggestions'
 import { runExport } from '../../server/src/system/export'
 import { chatUrls } from '../../server/src/tools/url-gate'
@@ -32,6 +32,9 @@ const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-shared-chat-trash', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
+  // the answers here are judged by the rule for answers from before the cutover (docs/DECISIONS.md "People who see a
+  // shared chat later: nothing new is hidden"): the cutover after all of them
+  setHiddenAnswersCutover(h.ctx.db, '9999-12-31T00:00:00.000Z')
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'Falcon project notes.' })
   projectId = p.id
