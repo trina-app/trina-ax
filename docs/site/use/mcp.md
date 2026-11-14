@@ -73,7 +73,7 @@ Many services give a key its owner's rights and log every call under that person
 
 :::steps
 #### Add a template
-In **Admin › Connected apps**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
+In **Admin › Connected apps**, choose **Add** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
 
 #### Members connect
 The members it is for see it in **Settings › Connectors** under **Your connectors**, with a **Team** label, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
