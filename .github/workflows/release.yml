@@ -69,7 +69,8 @@ jobs:
   prepare:
     name: Tag, version and release key
     runs-on: ubuntu-24.04
-    # the release secrets live in this environment: the owner sets required reviewers and "only v* tags" there
+    # environment release: deployment only from v* tags (and main for feed.yml), no required reviewers: the tag push is
+    # the approval (owner, 2026-11-14; v* tags are limited by a tag ruleset, docs/RELEASE-CI.md 10장)
     environment: release
     timeout-minutes: 10
     outputs:
