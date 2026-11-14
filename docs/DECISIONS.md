@@ -26796,7 +26796,7 @@ save time too. Spec v3 and the reviews are with the owner (not in the repo).
   than" captions are removed (`lowerOf`, `generalLowerOf`, `overridingGroup`: with access adding up a lower row lowers
   nobody). `client_outdated` needs no prompt of its own: this web always sends the rules-v2 hash, and an older page
   gets the server's "reload the page" message as its save error.
-- **Not built yet / TODO**:
+- **Not picked** (the owner chose C1-A and M6-A; kept for the record):
   - C1-B (only if picked): S3, the `group_members` revert must compare old and new member lists in code (both group
     and person saves delete and re-insert every membership), and the explicit revert on deleteGroup.
   - M6-B (only if picked): S2, the "written by an older build" dirty marks must skip this build's own writers (moves,
