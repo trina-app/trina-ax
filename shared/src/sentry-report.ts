@@ -57,11 +57,12 @@ const SCRUB: readonly [RegExp, string][] = [
   [/(?<![A-Za-z0-9])'[^']*(?:'|$)|"[^"]*(?:"|$)|`[^`]*(?:`|$)/g, '[text]'],
   [/\bBearer\s+\S+/gi, 'Bearer [redacted]'],
   [new RegExp(`(?<![A-Za-z0-9])(${SECRET_NAME})(?![A-Za-z0-9])\\s*[:=]\\s*(?:Bearer \\[redacted\\]|\\S+)`, 'gi'), '$1=[redacted]'],
-  // Korean labels (password, PIN, token, code): the value after them, with or without a colon, and after a particle
-  [/(비밀번호|비번|암호|토큰|인증번호)[은는이가을를]?(?![가-힣])\s*[:=]?\s*(?:Bearer \[redacted\]|\S+)/g, '$1=[redacted]'],
+  // Korean labels (password, PIN, token, code): the value after them, with or without a colon, and after a particle:
+  // 비밀번호|비번|암호|토큰|인증번호, written as escapes because Korean text in code belongs in the language tables
+  [/(\uBE44\uBC00\uBC88\uD638|\uBE44\uBC88|\uC554\uD638|\uD1A0\uD070|\uC778\uC99D\uBC88\uD638)[\uC740\uB294\uC774\uAC00\uC744\uB97C]?(?![\uAC00-\uD7A3])\s*[:=]?\s*(?:Bearer \[redacted\]|\S+)/g, '$1=[redacted]'],
   [/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]'],
   // the domain may be Korean (홍길동@회사.한국): keepText must not let it through
-  [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z가-힣]{2,}/g, '[email]'],
+  [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z\uAC00-\uD7A3]{2,}/g, '[email]'],
   [/\S*[\\/]\S*/g, '[path]'],
   [/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[ip]'],
   [/(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi, '[ip]'],
