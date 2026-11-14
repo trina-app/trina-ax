@@ -267,6 +267,7 @@ export class FileList implements VirtualFiles {
       if (pick.ok) { try { signIn = pick.reader.signIn?.() ?? null } catch (e) { this.ctx.log.warn('file list: sign-in not known', { err: e }) } }
       if (!pick.ok) problem = pick.problem
       else if (last?.stoppedBy === 'limit' && c.waiting > 0) problem = 'limited'
+      else if (last?.stoppedBy === 'failed') problem = 'failed'
     }
     return {
       enabled: !this.forcedOff(), forcedOff: this.forcedOff(), running: !!this.run, listed: c.listed, waiting: c.waiting,

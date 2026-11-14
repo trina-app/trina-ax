@@ -195,6 +195,12 @@ test('system: the relay connection asks for the team name; the official relay is
   await page.getByRole('dialog').getByRole('button', { name: '저장' }).click()
   await expect(page.getByText('저장했어요.')).toBeVisible()
   await expect(page.getByText('acme-sales')).toBeVisible()
+  // another relay: the address changes at the restart, then the page says what to tell the team, with a copy button
+  // (QA TC-1232); a rename alone says nothing, the apps follow it
+  await expect(page.getByTestId('connection-tell-team')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('connection-tell-team')).toContainText('acme-sales.example.org')
+  await page.getByTestId('connection-tell-team').getByRole('button').click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://acme-sales.example.org')
   // office network only needs no team name
   await page.getByRole('button', { name: '연결 방식 바꾸기' }).click()
   await mode.selectOption('direct-only')
