@@ -89,9 +89,9 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       ],
       text: `${a.banner.text}\n\n${pictures}\n\n${captionsQuote}\n\n${a.banner.after}`,
       files: [
-        { path: banner, asset: `campaign-banner.${locale}.png` },
-        { path: square, asset: `campaign-square.${locale}.png` },
-        { path: story, asset: `campaign-story.${locale}.png` },
+        { path: banner, asset: `campaign-banner.${locale}.jpg` },
+        { path: square, asset: `campaign-square.${locale}.jpg` },
+        { path: story, asset: `campaign-story.${locale}.jpg` },
         { path: captions, text: captionsText },
         { path: photo, asset: 'higgsfield-photo.jpg' },
       ],

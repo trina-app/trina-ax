@@ -184,6 +184,10 @@ test('"Start over" begins the story again', async ({ page }) => {
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByTestId('member-welcome-ask-button')).toBeVisible()
   await expect(guide(page)).toHaveText(script.guide[0]!.text)
+  // a deep link (or a reload on one) under the base: the site gives the page, and the story starts at Home, at the base
+  await page.goto('rooms/somewhere')
+  await expect(page.getByTestId('member-welcome-ask-button')).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe(new URL(test.info().project.use.baseURL!).pathname)
 })
 
 test('Stop while a card waits closes it and leaves the story where it was', async ({ page }) => {

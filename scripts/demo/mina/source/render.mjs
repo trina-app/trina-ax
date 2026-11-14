@@ -1,9 +1,11 @@
 // Renders the demo pictures into ../assets:
 //   Leo's weak first draft (1200×628), banners/leo.html                → banner-leo.<locale>.png
 //   the launch campaign over the Higgsfield photos (photos/*.jpg),
-//   banners/campaign.html                                               → campaign-banner.<locale>.png (1200×628)
-//                                                                          campaign-square.<locale>.png (1080×1080)
-//                                                                          campaign-story.<locale>.png (1080×1920)
+//   banners/campaign.html                                               → campaign-banner.<locale>.jpg (1200×628)
+//                                                                          campaign-square.<locale>.jpg (1080×1080)
+//                                                                          campaign-story.<locale>.jpg (1080×1920)
+//   (the photo campaign is JPEG at quality 85, to keep the public demo light; the files in ../assets were made from
+//    the PNG shots with 4:4:4 colour, Pillow quality 85, so no banding on the gradients)
 //   (avatars are photos of made-up people, assets/avatar-<id>.jpg, made with Higgsfield: not rendered here)
 // Words come from banners/copy.<locale>.json.
 //
@@ -42,7 +44,7 @@ const PHOTOS = {
 }
 const campaign = (format, w, h) => {
   const { photo, ...cfg } = PHOTOS[format]
-  return [fill('campaign.html', { format, w, h, photo, cfg: JSON.stringify(cfg) }), `banners/_campaign-${format}.html`, `campaign-${format}.${locale}.png`, w, h]
+  return [fill('campaign.html', { format, w, h, photo, cfg: JSON.stringify(cfg) }), `banners/_campaign-${format}.html`, `campaign-${format}.${locale}.jpg`, w, h]
 }
 
 // pages to shoot: [html text, a temporary file next to the templates (for relative links), output, w, h, transparent]
@@ -64,7 +66,8 @@ try {
       await page.goto('file://' + file, { waitUntil: 'networkidle' })
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
-      await page.screenshot({ path: path.join(assets, out), clip: { x: 0, y: 0, width: w, height: h }, omitBackground: !!clear })
+      const jpeg = out.endsWith('.jpg') ? { type: 'jpeg', quality: 85 } : { omitBackground: !!clear }
+      await page.screenshot({ path: path.join(assets, out), clip: { x: 0, y: 0, width: w, height: h }, ...jpeg })
       await page.close()
       console.log('wrote assets/' + out)
     } finally {

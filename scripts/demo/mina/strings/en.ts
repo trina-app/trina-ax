@@ -28,9 +28,9 @@ export const en = {
     brief: 'November launch brief.md',
     leoBanner: 'launch-banner-leo-v1.png',
     // the launch set (the mail attaches the banner and the square)
-    banner: 'launch-banner-new.png',
-    square: 'instagram-square.png',
-    story: 'instagram-story.png',
+    banner: 'launch-banner-new.jpg',
+    square: 'instagram-square.jpg',
+    story: 'instagram-story.jpg',
     captions: 'captions.md',
     photo: 'higgsfield-photo-yuzu-ginger.jpg',
   },

@@ -86,7 +86,7 @@ function demoPages(): Plugin {
       })
     },
     // the page starts the demo's entry, which then loads the app's own src/main.tsx
-    transformIndexHtml: { order: 'pre', handler: (html) => html.replace('/src/main.tsx', '/demo/main.tsx') },
+    transformIndexHtml: { order: 'pre', handler: (html) => html.replace('/src/main.tsx', '/demo/main.tsx').replace('href="/manifest.webmanifest"', `href="${demoBase()}manifest.webmanifest"`) },
     // the mock loads the HWP renderer from the server's folder (Bun only): never in the browser
     transform(code, id) {
       if (!id.endsWith('/test/mock/server.ts')) return null
