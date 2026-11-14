@@ -86,4 +86,14 @@ describe('demo story engine', () => {
     expect(e.pickAsset(f)).toBe('a.png')
     expect(e.pickAsset({ path: 'y.md', text: 'hi' })).toBeUndefined()
   })
+
+  test('a step the visitor went past is over (a later step already happened)', () => {
+    const { e, flush } = engine()
+    e.answered('company')
+    flush()
+    e.fire({ event: 'dm-1' })
+    // the DM step waits for its room to be opened; the project was opened first (its link followed at once)
+    e.fire({ opened: { project: 'winter' } })
+    expect(e.guide()?.id).toBe('banner')
+  })
 })

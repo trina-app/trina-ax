@@ -74,7 +74,10 @@ export class StoryEngine {
   /** the guide's line now: the first step not over yet, once its start happened; null between steps and at the end */
   guide(): DemoGuideStep | null {
     const steps = this.script.guide
-    for (let i = 0; i < steps.length; i++) {
+    // a step the visitor went past (a later step's end already happened, e.g. a link followed at once) is over too
+    let from = 0
+    steps.forEach((s, i) => { if (this.has(s.until)) from = i + 1 })
+    for (let i = from; i < steps.length; i++) {
       const s = steps[i]!
       if (this.has(s.until)) continue
       if (s.after && !this.has(s.after)) return null
