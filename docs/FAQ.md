@@ -1,6 +1,6 @@
 # Frequently asked questions
 
-[한국어](FAQ.ko.md) · [Support](../SUPPORT.md)
+[한국어](FAQ.ko.md) · [简体中文](FAQ.zh.md) · [Support](../SUPPORT.md)
 
 ## Is Trina for developers?
 

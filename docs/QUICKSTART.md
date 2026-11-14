@@ -1,6 +1,6 @@
 # Try Trina AX locally
 
-[한국어](QUICKSTART.ko.md) · [Team guide](for-teams.md)
+[한국어](QUICKSTART.ko.md) · [简体中文](QUICKSTART.zh.md) · [Team guide](for-teams.md)
 
 Allow about **10 minutes on a prepared Mac** to install dependencies, build and explore the synthetic demo.
 A fresh Mac needs additional tool installation time (the [full guide](INSTALL.md#11-tools) estimates 30–60 minutes).
