@@ -92,6 +92,7 @@ export const SPEECH_FREE_USED = (hours = hostedSpeechFreeHours()) => new JobFail
   id: `${hours} jam transkripsi gratis bulan ini sudah habis. Jatahnya kembali tanggal 1. Untuk lanjut sekarang, admin dapat menambahkan kunci OpenRouter tim di Admin › Pengaturan tim › Input suara.`,
   ja: `今月の無料文字起こし${hours}時間を使い切りました。来月1日にまた使えます。今すぐ続けるには、管理者が「管理 › チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。`,
   es: `Se han agotado las ${hours} horas gratuitas de transcripción de este mes. Vuelven el día 1. Para seguir ahora, un administrador puede añadir la clave de OpenRouter del equipo en Administración › Configuración del equipo › Entrada de voz.`,
+  zh: `本月${hours}小时的免费转写已用完，下月1日会恢复。如果现在就要继续用，管理员可以在“管理 › 团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥。`,
 }, FREE_USED)
 /** OpenRouter refused the hosting key (taken away, paused with a suspended team, or its monthly backstop reached) */
 export const HOSTED_KEY_REFUSED = () => new JobFailure('unavailable', {
@@ -100,6 +101,7 @@ export const HOSTED_KEY_REFUSED = () => new JobFailure('unavailable', {
   id: 'Transkripsi hosting sedang tidak tersedia. Jika berlanjut, beri tahu dukungan Trina. Admin dapat menambahkan kunci OpenRouter tim di Admin › Pengaturan tim › Input suara dan memakainya.',
   ja: 'ホスティングの文字起こしは今使えません。続く場合は Trina サポートにお知らせください。管理者が「管理 › チーム設定 › 音声入力」でチームの OpenRouter キーを追加すれば、そのキーで使えます。',
   es: 'La transcripción alojada no está disponible ahora. Si continúa, avise al soporte de Trina. Un administrador puede añadir la clave de OpenRouter del equipo en Administración › Configuración del equipo › Entrada de voz y usarla.',
+  zh: '托管转写现在无法使用。如果一直这样，请告诉 Trina 支持团队。管理员可以在“管理 › 团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥，改用这个密钥。',
 })
 
 /** The seconds a request with the hosting key holds against its month until it is answered (SpeechMeter). */

@@ -1,4 +1,4 @@
-// All five app dictionaries share keys and placeholders (bun run check:i18n).
+// All six app dictionaries share keys and placeholders (bun run check:i18n).
 // Account choice wins, then team default, then English. Browser detection is only for first-run setup.
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
@@ -14,9 +14,9 @@ type Dictionary = Record<MessageKey, string>
 
 /**
  * Each language is its own file (about 400 KB each), loaded when it is first shown: the first visit downloads one, not
- * all five (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"). main.tsx waits for the starting
+ * all six (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"). main.tsx waits for the starting
  * language before the first render, and useLocaleStore.setLocale switches only once the new one is here, so t() always
- * has the words of the language on screen. Under Bun (tests, scripts) bundled.ts has all five from the start.
+ * has the words of the language on screen. Under Bun (tests, scripts) bundled.ts has all six from the start.
  */
 const LOADERS: Record<Locale, () => Promise<Dictionary>> = {
   ko: () => import('./ko').then((m) => m.ko),
@@ -24,12 +24,13 @@ const LOADERS: Record<Locale, () => Promise<Dictionary>> = {
   id: () => import('./id').then((m) => m.id),
   ja: () => import('./ja').then((m) => m.ja),
   es: () => import('./es').then((m) => m.es),
+  zh: () => import('./zh').then((m) => m.zh),
 }
 const loaded: Partial<Record<Locale, Dictionary>> = { ...BUNDLED }
 const loading = new Map<Locale, Promise<void>>()
 
 /**
- * The dictionaries loaded so far: all five under Bun (the tests and scripts read them here), in the web build only the
+ * The dictionaries loaded so far: all six under Bun (the tests and scripts read them here), in the web build only the
  * languages shown so far. App code reads words through translate / messageOf / hasMessage, never through this
  * (web/test/unit/i18n-on-demand.test.ts checks that).
  */

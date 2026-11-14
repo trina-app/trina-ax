@@ -16,6 +16,7 @@ import { en } from '../../web/src/i18n/en'
 import { id } from '../../web/src/i18n/id'
 import { ja } from '../../web/src/i18n/ja'
 import { es } from '../../web/src/i18n/es'
+import { zh } from '../../web/src/i18n/zh'
 let h: Harness
 const input = () => ({ requestId: crypto.randomUUID(), templateId: 'daily-file-index' as const, version: 1 as const, sourcePath: 'shared', outputPath: 'users/olga/reports', time: '09:00' })
 async function setup() {
@@ -108,8 +109,8 @@ test('20 stored schedules include paused ones; capacity is per person and preser
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM turns').get()).toEqual({ n: 0 })
 })
 
-const WEB = { ko, en, id, ja, es }
-const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
+const WEB = { ko, en, id, ja, es, zh }
+const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es', 'zh']
 const EMOJI = /\p{Extended_Pictographic}/u
 test('every language: the web app\'s name, no emoji, the folders as one JSON line and the same rules', () => {
   const scope = { sourcePath: 'shared/회의록', outputPath: 'users/olga/reports' }

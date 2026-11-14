@@ -40,7 +40,7 @@ export type PushPlatform = (typeof PUSH_PLATFORMS)[number]
 /** APNs environment of the app build that made the token; android is always 'production' */
 export const PUSH_ENVIRONMENTS = ['sandbox', 'production'] as const
 export type PushEnvironment = (typeof PUSH_ENVIRONMENTS)[number]
-export const PUSH_LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+export const PUSH_LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 export type PushLocale = (typeof PUSH_LOCALES)[number]
 
 export interface PushGatewaySend {

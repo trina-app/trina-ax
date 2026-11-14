@@ -126,7 +126,7 @@ test('each answer in words, with the system\'s own place on macOS, Windows and L
   expect(desktopTestText('unknown', 'darwin', en)).toBe('Test notification sent. If it does not show, turn notifications on in System Settings › Notifications › Trina AX.')
   expect(desktopTestText('unsupported', 'linux', en)).toBe('This computer does not support app notifications.')
   expect(desktopTestText('limited', 'darwin', en)).toBe('Too many notifications just now. Try again in a minute.')
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
     const t = (k: MessageKey, p?: Params) => translate(l, k, p)
     for (const o of ['shown', 'off', 'unsupported', 'limited', 'unknown'] as const) for (const p of ['darwin', 'win32', 'linux'] as const) {
       const text = desktopTestText(o, p, t)

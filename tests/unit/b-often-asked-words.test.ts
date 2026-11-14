@@ -8,12 +8,13 @@ import { ko } from '../../web/src/i18n/ko'
 import { id } from '../../web/src/i18n/id'
 import { ja } from '../../web/src/i18n/ja'
 import { es } from '../../web/src/i18n/es'
+import { zh } from '../../web/src/i18n/zh'
 import { APP_PROMPT_KEYS, APP_PROMPTS } from '../../server/src/chat/often-asked-words'
 import { holds, readWord, saidOf, wordsOf } from '../../server/src/chat/often-asked'
 
 describe('the lists', () => {
   test('the app\'s prompts are the web app\'s first lines, in every language', () => {
-    for (const [locale, dict] of Object.entries({ en, ko, id, ja, es }))
+    for (const [locale, dict] of Object.entries({ en, ko, id, ja, es, zh }))
       expect({ locale, prompts: APP_PROMPTS[locale as keyof typeof APP_PROMPTS] }).toEqual({ locale, prompts: APP_PROMPT_KEYS.map((k) => (dict as Record<string, string>)[k]!.split('\n')[0]!.trim()) })
   })
 

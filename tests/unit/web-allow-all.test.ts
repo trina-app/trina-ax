@@ -104,7 +104,7 @@ describe('the card', () => {
     expect(asked[0]!.question).not.toMatch(/token/i)
     // in Korean too: "긴 글자" as on the lines beside it, never "긴 문자열" or "토큰"; every language without "token"
     for (const k of ['opaque', 'site', 'all'] as const) expect([k, GATE_TEXT[k].ko.includes('긴 글자')]).toEqual([k, true])
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([l, /토큰|문자열|token|トークン/i.test(GATE_TEXT.all[l])]).toEqual([l, false])
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([l, /토큰|문자열|token|トークン|令牌/i.test(GATE_TEXT.all[l])]).toEqual([l, false])
     expect(asked[0]!.question).toContain(WEB_ALLOW_ALL_RISK.en)
     // the team key off, or the browser switch above it off: not offered
     for (const s of [{ webAllowAll: false }, { browserAllowAll: false }]) {
