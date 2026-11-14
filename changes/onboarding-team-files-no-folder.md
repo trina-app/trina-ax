@@ -1,0 +1,1 @@
+- **Getting started › Team files** always offers **Choose a folder** and **Upload files yourself**. When the team's own group could not be set up while leaving the company step, the step showed only "The team folder is not there yet" and **Do this later**; now it tries the setup again and puts the files in the company-wide shared folder meanwhile.

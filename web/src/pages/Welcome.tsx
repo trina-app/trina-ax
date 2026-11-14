@@ -297,7 +297,7 @@ function WelcomeSteps() {
    * 내 스킬 (they are tried again at the next 고치기 save and the next install of a skill that reads them). */
   const leaveProfile = (state: WelcomeStepState, brandFailed = false) => run(async () => {
     const w = useWelcome.getState()
-    // a failure here does not hold the owner on this step: the team's files ask again and show why
+    // a failure here does not hold the owner on this step: 팀 파일 tries again quietly, and offers 전사 공유 meanwhile
     if (wantsTeam(w.progress)) await w.setupTeam().catch(() => null)
     if (await go(await w.update({ step: { id: 'profile', state } }), 'profile')) setBrandNote(brandFailed)
   })

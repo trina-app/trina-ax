@@ -270,3 +270,19 @@ describe('the step\'s upload run', () => {
     expect(forgot).toBe(1)
   })
 })
+
+// QA (owner, 2026-11-14): step 4 showed no picker and no upload when the team's start had not gone through (no team
+// group recorded) and no other group had a folder. The step's place is never missing: shared/ stands in.
+describe('the step\'s home place', () => {
+  test('no team group recorded: shared/ (전사 공유), seen by everyone in the team', async () => {
+    const { homePlace } = await import('../../src/components/onboarding/TeamFilesStep')
+    expect(homePlace(undefined, 'Acme', 'Company shared')).toEqual({ id: 'shared', groupId: null, name: 'Company shared', who: 'Acme', folder: 'shared' })
+    expect(homePlace(null, 'Acme', 'Company shared').folder).toBe('shared')
+  })
+  test('a team group whose home is shared/: shared/; a row from before: the group\'s own folder', async () => {
+    const { homePlace } = await import('../../src/components/onboarding/TeamFilesStep')
+    const g = { id: 'g1', name: 'Acme', folder: 'groups/Acme', notesFolder: 'shared/Meeting notes' }
+    expect(homePlace({ ...g, home: 'shared' }, 'Acme', 'Company shared').folder).toBe('shared')
+    expect(homePlace(g, 'Acme', 'Company shared')).toEqual({ id: 'g1', groupId: 'g1', name: 'Acme', who: 'Acme', folder: 'groups/Acme' })
+  })
+})

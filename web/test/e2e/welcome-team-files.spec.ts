@@ -64,6 +64,37 @@ async function toFiles(page: Page) {
 }
 const tree = async (page: Page, path: string) => ((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent(path)}`)).json()).entries ?? []) as { name: string; type: string }[]
 
+// QA (owner, 2026-11-14): on a fresh team whose start did not go through when 회사 소개 was left (no team group, no other
+// group), 팀 파일 showed only "나중에 하기". The step tries the start again and offers 전사 공유 whatever comes of it.
+test('the team\'s start failed on 회사 소개: 팀 파일 still offers the folder and the upload into 전사 공유, and tries the start again', async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/onboarding/welcome/team', (r) => {
+    calls++
+    return calls === 1 ? r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'boom' } }) }) : r.fallback()
+  })
+  await reset(page)
+  await signIn(page)
+  await toFiles(page)
+  await expect(page.getByTestId('welcome-team-files-pick')).toHaveText('폴더 고르기')
+  await expect(page.getByTestId('welcome-team-files-pick-files')).toBeVisible()
+  await expect(page.getByTestId('welcome-files-who')).toContainText('Acme')
+  // the step asked again, and this time the team group was made
+  await expect.poll(() => calls).toBe(2)
+  await expect.poll(async () => (await (await page.request.get('/api/onboarding/welcome')).json()).progress.teamGroup?.home).toBe('shared')
+})
+
+test('the team\'s start keeps failing: hand-picked files still go up into 전사 공유', async ({ page }) => {
+  await page.route('**/api/onboarding/welcome/team', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'boom' } }) }))
+  await reset(page)
+  await signIn(page)
+  await toFiles(page)
+  await expect(page.getByTestId('welcome-team-files-pick')).toBeVisible()
+  await page.getByTestId('welcome-team-files-input').setInputFiles([doc('견적서 양식.md')])
+  // it went up into 전사 공유: the folder plan for 전사 공유 starts (welcome-organize.spec.ts), and the run recorded the step
+  await expect(page.getByTestId('organize-proposal')).toContainText('전사 공유')
+  expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.files).toBe('done')
+})
+
 test('F1 → F2 → F3 (the AI\'s picks ticked, personal apart, nothing of it sent) → one confirm → F4/F5; 팀 파일 recorded by the run; a second pick finds them "이미 있어요"', async ({ page }) => {
   const errors = watchConsole(page)
   await stubPicker(page)
