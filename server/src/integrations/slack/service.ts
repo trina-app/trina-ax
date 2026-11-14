@@ -1122,6 +1122,9 @@ export class SlackConnector {
   private tokenRefused(e: unknown, bot?: string) {
     if (!(e instanceof SlackApiError) || !TOKEN_GONE.has(e.code)) return
     const cfg = this.config()
+    // only the token saved now: a post made with an older one (the workspace removed and added the official app again
+    // meanwhile, or new own tokens were saved) must not remove or mark the new install (security review of #893)
+    if (bot !== undefined && this.tokens(cfg)?.bot !== bot) return
     if (cfg?.mode === 'official') this.removedInSlack('tokens_revoked')
     // the team's own app: its bot token is revoked; Admin says so (and offers new tokens) instead of "Connected"
     // (only the token that is saved now: a call made with tokens replaced meanwhile says nothing about the new ones)

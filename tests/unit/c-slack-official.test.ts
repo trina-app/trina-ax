@@ -12,6 +12,7 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { slackOf } from '../../server/src/integrations/slack/service'
+import { SlackApiError } from '../../server/src/integrations/slack/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
 import { startFakeBroker, type FakeBroker } from '../lib/fake-slack-broker'
@@ -262,6 +263,22 @@ describe('removed, restored and removed by the owner', () => {
     expect(cfg()!.secret_enc).toBeTruthy()
     fake.failNext['auth.test'] = { error: 'account_inactive' }
     await slackOf(h.ctx).checkBotScopes()
+    expect(cfg()!.secret_enc).toBeNull()
+    expect(cfg()!.last_error).toBe('removed')
+    expect(outcome(await add())).toBe('installed')
+  })
+
+  test('a post with the token of an earlier install refused after the app was added again does not remove the new install (security review of #893)', async () => {
+    expect(cfg()!.secret_enc).toBeTruthy()
+    const s = slackOf(h.ctx) as unknown as { tokenRefused(e: unknown, bot?: string): void; botToken(): string | null }
+    const now = s.botToken()
+    expect(now).toBeTruthy()
+    // an ephemeral or an answer still going out with the old install's token, refused by Slack
+    s.tokenRefused(new SlackApiError('token_revoked'), 'xoxb-0-0-' + 'o'.repeat(24))
+    expect(cfg()!.secret_enc).toBeTruthy()
+    expect(cfg()!.last_error).toBeNull()
+    // the token saved now, refused: removed, as before
+    s.tokenRefused(new SlackApiError('token_revoked'), now!)
     expect(cfg()!.secret_enc).toBeNull()
     expect(cfg()!.last_error).toBe('removed')
     expect(outcome(await add())).toBe('installed')
