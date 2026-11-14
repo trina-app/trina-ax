@@ -106,6 +106,12 @@ test('a dead invite link says its true reason: expired, used, revoked, the invit
   const teamLink = await ada.client.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
   await owner.call('PATCH', `/api/admin/users/${ada.id}`, { role: 'member' })
   expect((await info(tokenOf(teamLink))).reason).toBe('inviter_gone')
+  // a Team AI link whose team AI account was deleted: turned off, not "the inviter is gone"
+  const t2 = testCredCtx(h.ctx.db, path.join(h.ctx.config.dataDir, 'test-secrets-3'))
+  const team2 = addCred(t2.cc, 'anthropic-api-key', key('deletedteam'), { label: 'team 2' })
+  const goneAi = await owner.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p.id }, ai: { mode: 'team', credentialId: team2, limitUsd: 5 } })
+  await owner.call('DELETE', `/api/admin/credentials/${team2}`)
+  expect((await info(tokenOf(goneAi))).reason).toBe('revoked')
   // the place gone (TC-2297): the project in the trash
   const p2 = await owner.call('POST', '/api/projects', { name: 'Trashed', scope: 'team' })
   const placeLink = await owner.call('POST', '/api/guest-invites', { place: { kind: 'project', id: p2.id } })
