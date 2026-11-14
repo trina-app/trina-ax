@@ -41,9 +41,12 @@ export type PlanLimits = z.infer<typeof PlanLimits>
 
 export const PlanFile = z.object({
   format: z.literal(1),
-  /** the control plane's plan id (trina-cloud src/teams/plans.ts: free, basic = Starter, team = Team, pro = Business).
+  /** the control plane's plan id (trina-cloud src/teams/plans.ts: trial, basic = Starter, team = Team, pro = Business).
    * The server never branches on it: every per-plan value is a field of this file, and Admin > System shows
-   * `display.name` */
+   * `display.name`. Any id that matches PlanId is accepted, on purpose: the hosted Free plan was removed (owner
+   * decision 2026-11-14, docs/DECISIONS.md "Free plan removed"), but a control plane may still write `plan: "free"`
+   * for a Free team that existed before, until its owner chooses a paid plan or the team is ended. Never add an allowlist that
+   * would refuse such a plan.json (apply-plan and the enroll answer would fail and the team keep a stale plan). */
   plan: PlanId,
   maxConcurrency: z.number().int().min(1).max(16),
   memoryMiB: z.number().int().min(1024).max(262_144),
@@ -61,7 +64,7 @@ export const PlanFile = z.object({
   /** when the control plane made this plan (always written by it; a hand-written self-host file may leave it out) */
   updatedAt: IsoTime.optional(),
   // ---- control plane additions (control-plane 3.5.6) ----
-  /** active accounts allowed (control plane D38, owner decision 2026-11-13: Free 3, Starter/basic 5, Team 15, Business/pro 40), the owner included, disabled ones not; null = no limit.
+  /** active accounts allowed (control plane D38, owner decision 2026-11-13: Starter/basic and the trial 5, Team 15, Business/pro 40), the owner included, disabled ones not; null = no limit.
    * The server refuses invites, direct adds and re-enabling an account over it (409 plan_limit, reason seat_limit). */
   maxActiveMembers: z.number().int().min(1).max(10_000).nullable().default(null),
   /** what Admin > System shows as the plan name */

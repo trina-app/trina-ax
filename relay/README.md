@@ -108,8 +108,8 @@ WebSocket outcomes (with `waking`), wake requests, bytes, registrations by kind,
 
 ## Sleeping teams (F2)
 
-The control plane puts an idle hosted team to sleep: a free team's VM is suspended to disk, a trial team's EC2
-instance is stopped (it starts again in about a minute). Just before, it calls `POST /ops/v1/teams/:id/sleep
+The control plane puts an idle hosted trial team to sleep: its EC2 instance is stopped (it starts again in about a
+minute). Paid teams do not sleep. Just before, it calls `POST /ops/v1/teams/:id/sleep
 { "sleeping": true }`; the flag is in the registry (it survives a relay restart) and ends when the team server
 authenticates again. A request for a sleeping team with no live connection makes the relay ask the control plane to
 wake it:
