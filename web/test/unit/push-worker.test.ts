@@ -177,6 +177,26 @@ test('an AI chat\'s answer: generic words, a click opens the chat from the signe
   expect(off.shown).toHaveLength(0)
 })
 
+test('an app\'s paused notice: generic words (never the app\'s or the room\'s name), a click opens the room from the signed-in notice', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-0000000000a1'
+  const w = worker()
+  w.item({ id: 'event-1', code: 'room_app.paused', readAt: null, link: 'room', chatId: null, roomApp: { appId: 'app-1', name: 'PRIVATE APP', roomId, roomName: 'PRIVATE ROOM' } })
+  await w.push({ ...payload, code: 'room_app.paused', roomId: 'evil' })
+  expect(w.shown).toHaveLength(1)
+  expect(w.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(w.shown[0]!.options).toMatchObject({ body: 'An app in a room was paused for today.', data: { notificationId: 'event-1', roomId } })
+  expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
+  await w.clickShown()
+  expect(w.navigated).toEqual([`https://team.example/rooms/${roomId}`])
+  // no longer in the room (no link): the inbox, as the other notices
+  const gone = worker()
+  gone.item({ id: 'event-1', code: 'room_app.paused', readAt: null, link: null, chatId: null, roomApp: { appId: 'app-1', name: 'x', roomId: null } })
+  await gone.push({ ...payload, code: 'room_app.paused' })
+  expect(gone.shown[0]!.options.data).toEqual({ notificationId: 'event-1' })
+  await gone.clickShown()
+  expect(gone.navigated).toEqual(['https://team.example/settings/notifications'])
+})
+
 test('a room notice opens its room; the room id comes from the signed-in notice, never from the payload', async () => {
   const roomId = '0190f5a0-0000-7000-8000-000000000001'
   const messages = { title: 'Team', bodies: { 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }

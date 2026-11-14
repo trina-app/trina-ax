@@ -51,6 +51,13 @@ export const TEXT = {
     en: 'Trina replied in your chat.',
     id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.', zh: 'Trina在你的对话中回复了。',
   },
+  // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
+  // gateway has the same words: push-gateway/src/text.ts)
+  'room_app.paused': {
+    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a room was paused for today.',
+    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído', zh: '标为已读' }
@@ -96,5 +103,6 @@ export function pushMessages(locale: Locale) {
     'owner.lead_joined': TEXT['owner.lead_joined'][locale],
     'owner.reauth_locked': TEXT['owner.reauth_locked'][locale],
     'chat.answer_done': TEXT['chat.answer_done'][locale],
+    'room_app.paused': TEXT['room_app.paused'][locale],
   }, markRead: MARK_READ[locale] }
 }

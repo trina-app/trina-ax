@@ -636,7 +636,8 @@ describe('push gateway: configuration, text and logs', () => {
   })
 
   test('generic text only: the event texts are the team server\'s; room./chat. say "new message", the rest "new notification"', () => {
-    for (const code of ['schedule.success', 'schedule.failure', 'connection.reconnect', 'chat.answer_done'] as const) expect(EVENT_TEXT[code]).toEqual(TEXT[code])
+    for (const code of ['schedule.success', 'schedule.failure', 'connection.reconnect', 'chat.answer_done', 'room_app.paused'] as const) expect(EVENT_TEXT[code]).toEqual(TEXT[code])
+    expect(alertBody('room_app.paused', 'en')).toBe('An app in a room was paused for today.')
     expect(alertBody('chat.answer_done', 'en')).toBe('Trina replied in your chat.')
     expect(alertBody('room.message', 'id')).toBe('Ada pesan baru')
     expect(alertBody('chat.mention', 'es')).toBe('Tienes un mensaje nuevo')

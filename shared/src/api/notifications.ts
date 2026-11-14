@@ -49,7 +49,10 @@ export function plainLabel(s: string, max = 80): string {
 /** chat.answer_done: an answer in my own AI chat finished, failed or waits for me (a question or a yes/no card), for the
  * person who asked it only (chat_answer_notices with their own deliveries, chat_answer_push_deliveries; docs/DECISIONS.md
  * "AI 답변 알림"). Pushed only: never listed in the Inbox (the chat list's markers show these chats). */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done'])
+/** room_app.paused: an app in a room the person manages reached the day's cap and paused (room_app_notices with their
+ * own deliveries, room_app_push_deliveries, migration 351; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
+ * own: pushed while the notice is unread, the app still paused and the person still in its room. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'room_app.paused'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -74,7 +77,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
  * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
  * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.paused'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,

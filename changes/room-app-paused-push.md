@@ -1,0 +1,1 @@
+- When an app in a room you manage reaches its daily limit and pauses, your phone and browser now tell you too (if you allow notifications). Tapping it opens the room.
