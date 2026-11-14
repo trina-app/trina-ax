@@ -36,7 +36,7 @@ import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
 import { holdPlace, listPlace, restorePlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
 import { useT } from '../i18n'
-import { usePeople, usePeopleList } from '../store/people'
+import { usePeople, usePeopleList, useReadPeopleFor } from '../store/people'
 import { keptFor, keptPlace, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
 import { useSideChats } from '../store/sideChats'
@@ -127,6 +127,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const roomMembers = useRooms((s) => s.members[roomId]) as RoomMember[] | undefined
   const guestNoAi = useGuestAiOff()
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
+  const memberIds = useMemo(() => (roomMembers ?? []).map((m) => m.user.id), [roomMembers])
+  // someone who joined while the room is open: the directory says whether they are a guest (the tag, "Includes 1 guest")
+  useReadPeopleFor(memberIds)
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
   // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), where a thread opens: one of
