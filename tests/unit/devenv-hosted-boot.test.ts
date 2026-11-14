@@ -58,7 +58,7 @@ describe.skipIf(!hasJq)('mycel-devenv-boot --map (needs jq)', () => {
     expect(parsePlan(map(cp('basic', 4096, 2, 80, 2), { mib: 3890, cores: 2 }).out)).toMatchObject({ maxRunning: 1, cpus: 1.5, memoryMiB: 1536 })
     expect(parsePlan(map(cp('team', 8192, 2, 160, 3), { mib: 3890, cores: 2 }).out)).toMatchObject({ plan: 'team', maxRunning: 1, memoryMiB: 1536, pids: 512 })
     expect(parsePlan(map(cp('pro', 16384, 4, 320, 6), { mib: 7900, cores: 2 }).out)).toMatchObject({ maxRunning: 2, cpus: 1.5, memoryMiB: 3072 })
-    // Starter on the 2 GiB VM of Free (MemTotal about 1.9 GiB): no dev environment until the reboot
+    // Starter on an old 2 GiB VM (MemTotal about 1.9 GiB): no dev environment until the reboot
     expect(map(cp('basic', 4096, 2, 80, 2), { mib: 1942, cores: 2 }).code).not.toBe(0)
   })
 })

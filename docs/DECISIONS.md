@@ -13426,7 +13426,7 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   (a plan without hosted speech gets no hosting key: with a key and 0 hours voice input would be on and refuse
   everything).
 - **Not a plan-id table in the server.** The control plane's ids are `free`, `basic` (Starter), `team` and `pro`
-  (Business) (`free`: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"; the trial's id is `trial`, and the server keeps accepting `free` from a control plane that
+  (Business) (`free`: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"; the trial's id is `trial` (trials started before 2026-11-14: `basic`), and the server keeps accepting `free` from a control plane that
   still has a Free team) (trina-cloud `src/teams/plans.ts`, as `tests/unit/devenv-hosted-boot.test.ts` records), not the names in
   the owner's words; prices and plans belong to the private repositories (REPOSITORY-RULES); every other per-plan value
   (seats, memory, backups) is already a plan.json field and the dev environment is derived from the plan's resources.
@@ -13446,7 +13446,7 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   when it makes the key), outside this repository. OpenRouter's prices for `openai/whisper-large-v3-turbo` on
   2026-11-07 (`/api/v1/models/openai/whisper-large-v3-turbo/endpoints`): DeepInfra $0.012 an hour of sound, Groq $0.04.
   A month of the plan's hours costs $0.60 / $1.20 / $2.40 (Starter / Team / Business) through DeepInfra and $2 / $4 /
-  $8 if all of it went to Groq (Free: $0.12 / $0.40). Groq bills at least 10 s a request (its answer's `usage.seconds`),
+  $8 if all of it went to Groq (Free: $0.12 / $0.40; the Free plan: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"). Groq bills at least 10 s a request (its answer's `usage.seconds`),
   so short voice clips through Groq cost more than they count. The limit has to cover the plan's hours: the keys made
   so far were sized for 10 hours, so the control plane raises the limit of every existing key and on every plan change,
   together with `speechFreeHours`. A limit under the plan's hours stops the team with "hosted transcription is not
