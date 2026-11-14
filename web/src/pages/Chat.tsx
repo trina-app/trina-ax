@@ -26,7 +26,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { isPeopleShared, noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -56,7 +56,8 @@ import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
-import { askPrivately, lastOwnQuestion } from '../components/chat/privateAsk'
+import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
+import { openChatShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
@@ -72,7 +73,10 @@ const SLOT = '\u0000'
 
 export default function ChatPage() {
   const { chatId } = useParams()
-  return <ChatView key={chatId} chatId={chatId!} />
+  // ?answer= read again when it changes on the same chat (an answer of the widening list opened from this chat's own
+  // Share dialog on a phone)
+  const [params] = useSearchParams()
+  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} />
 }
 
 function ChatView({ chatId }: { chatId: string }) {
@@ -156,7 +160,22 @@ function ChatView({ chatId }: { chatId: string }) {
   // (store/projects.ts)
   const project = useProjects((s) => (projectId ? s.byId[projectId] : undefined))
   const [members, setMembers] = useState(false)
-  const who = chat ? <WhoSeesLine shared={shared ? { audience: shared.audience, alone: project?.alone } : null} place="chat" onOpen={shared && project?.membersEditable ? () => setMembers(true) : undefined} /> : undefined
+  // a chat shared with people and groups (docs/DECISIONS.md "Chats shared with people and groups"): its creator's line
+  // opens the Share dialog; to someone not told how many see it (a group in it), the names it is shared with
+  const people = isPeopleShared(chat)
+  const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
+  const who = chat ? (
+    <WhoSeesLine
+      shared={shared ? { audience: shared.audience, alone: project?.alone } : null}
+      place="chat"
+      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : undefined}
+      onOpen={people ? (rights.creator && !chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
+      openLabel={people ? t('chat.share.changeWho') : undefined}
+    />
+  ) : undefined
+  // someone else's chat shared with me: when it can't be opened any more, it says so (QA TC-1405)
+  const wasSharedWithMe = useRef(false)
+  if (people && shared && shared.by.id !== me.user.id) wasSharedWithMe.current = true
 
   useEffect(() => {
     if (choose) void loadEngines()
@@ -438,6 +457,17 @@ function ChatView({ chatId }: { chatId: string }) {
         </EmptyState>
       </div>
     )
+  // a chat someone shared with me, and I was taken out (or left its group) while it was open
+  if (loadError && isApiError(loadError, 'not_found') && wasSharedWithMe.current)
+    return (
+      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="shared">
+        <EmptyState screen title={t('notifications.event.chat.sharedGone')}>
+          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-gone-home">
+            {t('notFound.home')}
+          </Link>
+        </EmptyState>
+      </div>
+    )
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
@@ -477,7 +507,8 @@ function ChatView({ chatId }: { chatId: string }) {
       {backToSharing && (
         <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-1">
           {/* like the system Back: the screen that opened the dialog, which opens it again on the list (WideningDraftHost) */}
-          <button type="button" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(draft!.from))} className="touch-hit inline-flex h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent-text hover:bg-hover" data-testid="back-to-sharing">
+          {/* (a chat's own Share dialog opened its answer on the same screen, which a phone replaces: back to its address) */}
+          <button type="button" onClick={() => (draft!.from.split('?')[0] === `/c/${chatId}` ? navigate(draft!.from, { replace: true }) : window.history.length > 1 ? navigate(-1) : navigate(draft!.from))} className="touch-hit inline-flex h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent-text hover:bg-hover" data-testid="back-to-sharing">
             <ChevronLeft size={18} aria-hidden />{t('share.widenList.back')}
           </button>
         </div>
@@ -502,15 +533,17 @@ function ChatView({ chatId }: { chatId: string }) {
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
-              // a shared chat: the same question again in a chat only I see, in its project (my last question here)
-              onPrivately={shared && chat.projectId ? () => askPrivately(navigate, chat.projectId!, lastOwnQuestion(chat.id, me?.user.id)) : undefined}
+              // a shared chat: the same question again in a chat only I see, in its project (my last question here); a
+              // chat shared with people: Home's box, no project
+              onPrivately={shared ? () => (chat.projectId ? askPrivately(navigate, chat.projectId, lastOwnQuestion(chat.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(chat.id, me?.user.id))) : undefined}
+              onHide={() => void actions.hide(chat)}
             />
           ) : (
             <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">
               {title}
             </h1>
           )}
-          {shared && <SharedChatMark audience={shared.audience} />}
+          {shared && <SharedChatMark audience={shared.audience} hidden={!!shared.audienceHidden} />}
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
@@ -588,7 +621,7 @@ function ChatView({ chatId }: { chatId: string }) {
           />
           </>
         )}
-        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footerPrivate')}</p>}
+        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? (shared.audienceHidden ? t('chat.footerAi') : t('chat.footerShared', { n: shared.audience })) : t('chat.footerPrivate')}</p>}
       </div>
       {members && project && (
         <ProjectMembersDialog
