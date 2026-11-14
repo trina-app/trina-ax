@@ -108,7 +108,7 @@ const BOB = { user: 'bob', password: 'bob password 1' }
 const JORDAN = { user: 'jordan', password: 'teamax-demo-1' }
 /** Acme's Priya Nair, whom Jordan shared the brand-voice chat with (scripts/docs/acme-scene.ts) */
 const PRIYA = { user: 'priya', password: 'teamax-demo-1' }
-/** opens a chat of the Trina list by its title, then its title menu's Share… */
+/** opens a chat of the Trina list by its title, then its title menu's Share */
 const openShare = (title: RegExp) => async (p: Page) => {
   await p.locator('[data-testid="trina-list"] a').filter({ hasText: title }).first().click(); await p.waitForTimeout(1200)
   await p.locator('[data-testid="chat-menu"]').first().click(); await p.waitForTimeout(300)
@@ -224,7 +224,7 @@ const SHOTS: Shot[] = [
   { file: 'chats/rooms-phone', set: 'acme', path: '/rooms', phone: true, as: JORDAN },
   { file: 'chats/projects-panel', set: 'acme', path: '/projects', as: JORDAN },
   { file: 'chats/project', set: 'acme', path: '/projects', as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1200); await restMouse(p) }, crop: 'main', maxHeight: 440 },
-  // Share… (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check)
+  // Share (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check)
   { file: 'chats/share-dialog', set: 'acme', path: '/', as: JORDAN, prepare: async (p) => { await openShare(/brand voice/i)(p); await blur(p) }, crop: DIALOG },
   { file: 'chats/share-warning', set: 'acme', path: '/', as: JORDAN, prepare: async (p) => {
     await openShare(/Summarize November/i)(p)
