@@ -12,6 +12,7 @@
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
 // named after where it goes ("‹ 트리나", "‹ 설정": lib/backStack.ts useBackLabel). Every button is 44 px.
+import { useCanStartChat } from './GuestView'
 import clsx from 'clsx'
 import { Menu, MessageCirclePlus, Search } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -37,6 +38,8 @@ export function PhoneTopBar() {
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const setDrawer = useTrinaDrawer((s) => s.setOpen)
   const attention = useAttention()
+  // 대화's new chat: a guest only with someone of their place to talk to (components/GuestView.tsx)
+  const canStart = useCanStartChat()
   const tab = tabOf(path)
   const up = parentOf(`${path}${search}`) ?? TAB_ROOT[tab ?? START_TAB]
   const back = useGoBack(up)
@@ -81,9 +84,11 @@ export function PhoneTopBar() {
       <IconButton label={t('rooms.search')} onClick={() => setSearchOpen(true, 'rooms')} className={icon} data-testid="topbar-search">
         <Search size={20} />
       </IconButton>
-      <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
-        <MessageCirclePlus size={20} />
-      </IconButton>
+      {canStart && (
+        <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
+          <MessageCirclePlus size={20} />
+        </IconButton>
+      )}
     </div>
   )
 }

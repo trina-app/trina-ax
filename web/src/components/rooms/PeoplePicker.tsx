@@ -6,7 +6,7 @@
 // bottom sheet on phones (Modal), the action in its footer.
 import clsx from 'clsx'
 import { Check, Hash, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ROOM_GROUP_MAX, ROOM_NAME_MAX } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -18,6 +18,11 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { ListRow } from '../list/List'
 import { Button, ErrorNote, inputCls, Modal, Skeleton } from '../ui'
+import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf } from '../GuestInvite'
+import { GuestTagFor } from '../GuestTag'
+import { isGuestMe, personIsGuest } from '../../lib/guests'
+import { isAdmin } from '../../store/session'
+import { useRoomTitle } from './RoomIcon'
 
 export type PickerMode = { kind: 'new'; preselect?: string[] } | { kind: 'invite'; roomId: string }
 
@@ -78,6 +83,13 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const [picked, setPicked] = useState<string[]>(() => (mode.kind === 'new' ? (mode.preselect ?? []).filter((id) => id !== meId) : []))
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
+  // "Invite a guest" (components/GuestInvite.tsx): a group chat's add list only, for anyone in it but a guest; the
+  // dialog takes this one's place
+  const [guestInvite, setGuestInvite] = useState(false)
+  // a guest picked here is in another place already (409 guest_one_place): said under their row (or over the list)
+  const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
+  const mayInviteGuest = !!room && room.kind === 'group' && !isGuestMe(me)
+  const roomTitle = useRoomTitle()
 
   // who may be picked: active people (the directory has no one else), never me, never someone already in the room
   const taken = useMemo(() => new Set([meId, ...(inRoom ?? []).map((m) => m.user.id)]), [meId, inRoom])
@@ -100,9 +112,10 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
     .filter((g) => g.ids.length > 0 && (!needle || g.name.toLocaleLowerCase().includes(needle)))
     .sort((a, b) => a.name.localeCompare(b.name)), [groups, active, needle])
 
-  const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : ROOM_GROUP_MAX - 1
+  // a guest starts 1:1 chats only (a group chat would be a second place: the server refuses it)
+  const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : isGuestMe(me) ? 1 : ROOM_GROUP_MAX - 1
   const over = picked.length > max
-  const toggle = (id: string) => setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]))
+  const toggle = (id: string) => { setOnePlace(null); setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])) }
   const allIn = (ids: string[]) => ids.every((id) => picked.includes(id))
   const toggleGroup = (ids: string[]) => setPicked((l) => (allIn(ids) ? l.filter((x) => !ids.includes(x)) : [...l, ...ids.filter((x) => !l.includes(x))]))
 
@@ -119,10 +132,15 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
       onClose()
       navigate(`/rooms/${r.id}`)
     } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      // a guest already in another room or project: the owner's words, "Make team member" for admins
+      const guests = picked.filter((id) => personIsGuest(people?.find((p) => p.id === id)))
+      const refused = onePlaceOf(e, guests.length === 1 ? guests[0] : undefined)
+      if (refused) setOnePlace(refused)
+      else toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       setBusy(false)
     }
   }
+  if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
   const group = !inviting && picked.length >= 2
   const action = inviting ? t('rooms.picker.invite') : group ? t('rooms.picker.createGroup') : t('rooms.picker.start')
@@ -154,6 +172,12 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
         </label>
       </div>
+      {mayInviteGuest && (
+        <ul className="-mx-5 border-b border-line px-2 py-1 max-sm:-mx-4 max-sm:px-1" data-testid="picker-guest">
+          <InviteGuestRow place="room" onOpen={() => setGuestInvite(true)} />
+        </ul>
+      )}
+      {onePlace && !(onePlace.guestId && people?.some((p) => p.id === onePlace.guestId)) && <OnePlaceNote admin={isAdmin(me)} className="pt-3" />}
       {!people && <Skeleton lines={4} className="pt-4" />}
       {people && failed && !others.length && (
         <div className="pt-4">
@@ -188,16 +212,19 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           {shown.length > 0 && (
             <ul className={list} data-testid="people-list">
               {shown.map((p) => (
+                <Fragment key={p.id}>
                 <ListRow
-                  key={p.id}
                   choice
                   face
                   icon={<Avatar user={p} size="fill" />}
-                  name={p.name}
+                  name={<span className="flex min-w-0 items-baseline gap-1.5"><span className="truncate">{p.name}</span><GuestTagFor userId={p.id} /></span>}
                   meta={p.title || undefined}
                   end={<Tick checked={picked.includes(p.id)} disabled={busy} onChange={() => toggle(p.id)} />}
                   testId="people-row"
                 />
+                {/* this guest is in another place already: the refusal right under their row */}
+                {onePlace?.guestId === p.id && <li className="list-none pr-3 pb-2 pl-[calc(0.75rem+var(--spacing-list-face)+0.75rem)]"><OnePlaceNote guestId={p.id} admin={isAdmin(me)} /></li>}
+                </Fragment>
               ))}
             </ul>
           )}

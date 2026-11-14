@@ -72,6 +72,7 @@ import { AppTile } from './apps/AppParts'
 import { AppSender } from './apps/AppSender'
 import { appPlainText, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
+import { GuestTagFor } from '../GuestTag'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -214,6 +215,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                   {/* an app's message: its name (who set it up, a tap away) and the "App" tag, never a person */}
                   {first.app ? <AppSender roomId={roomId} app={first.app} /> : <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>}
                   {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm select-none" />}
+                  {!first.app && first.authorKind !== 'ai' && first.author && <GuestTagFor userId={first.author.id} />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
                   </time>

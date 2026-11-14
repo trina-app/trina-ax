@@ -34,6 +34,8 @@ import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMedia
 import { answerHref, WideningList } from './WideningList'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../store/wideningDraft'
 import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
+import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf } from './GuestInvite'
+import { isGuestMe } from '../lib/guests'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
@@ -127,6 +129,11 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const [removing, setRemoving] = useState<RuleRef[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // "Invite a guest" (components/GuestInvite.tsx): for whoever changes the members (its creator, the owner, an admin);
+  // the dialog takes this one's place
+  const [guestInvite, setGuestInvite] = useState(false)
+  // a guest added here is in another place already (409 guest_one_place): said in the dialog, with Make team member
+  const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   const shown = (a: ProjectAccess) => {
     setAccess(a)
     // back from an answer on a phone: the picks and the list, unless the members were saved meanwhile or it is too old
@@ -204,6 +211,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const save = async () => {
     setBusy(true)
     setError(null)
+    setOnePlace(null)
     const removeRules = removing.length ? { removeRules: removing } : {}
     try {
       const p = await api.call(API.previewProjectAccess, { body: { projectId: project.id, participants, ...removeRules } })
@@ -227,6 +235,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
     } catch (e) {
       // someone changed who sees it meanwhile: show what is there now
       if (isApiError(e, 'conflict') && (e as ApiError).body.params?.reason === 'rules_changed') load().then(shown, () => {})
+      // a guest already in another room or project: the owner's words, "Make team member" for admins
+      const onePlaceRefused = onePlaceOf(e)
+      if (onePlaceRefused) { setOnePlace(onePlaceRefused); return }
       const refused = refusalKey(e, 'project')
       setError(refused ? t(refused) : errorText(e, locale, t('error.network')))
     } finally {
@@ -234,6 +245,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
     }
   }
 
+  if (guestInvite) return <GuestInviteDialog place={{ kind: 'project', id: project.id, name: project.name }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
   const otherRules = access?.otherRules ?? []
   const hidden = access?.otherRulesHidden ?? 0
   const take = (r: ProjectOtherRule) => setRemoving((xs) => [...xs, { subjectType: r.subjectType, subjectId: r.subjectId }])
@@ -270,6 +282,11 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
         {manages && !access && !loadError && <Skeleton lines={4} />}
         {access && editable && (
           <div className="space-y-2">
+            {!isGuestMe(me) && (
+              <ul className="-mx-2 max-sm:-mx-1" data-testid="project-guest">
+                <InviteGuestRow place="project" onOpen={() => setGuestInvite(true)} />
+              </ul>
+            )}
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} />
             {/* the one count of this dialog: everyone who sees it, me included (after the change while one is pending) */}
             <AccessSummary count={count} />
@@ -329,6 +346,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
         )}
         {/* a member who does not change them: everyone in it now, each once (whoever changes them reads the picker) */}
         {(!manages || (access && !editable)) && people && people.people.length > 0 && <PeopleList people={people.people} />}
+        {onePlace && <OnePlaceNote guestId={onePlace.guestId} admin={admin} />}
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
       )}

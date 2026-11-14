@@ -22,6 +22,7 @@ import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { StatusEmoji } from '../StatusMessage'
 import { Avatar } from '../Avatar'
+import { GuestTagFor } from '../GuestTag'
 
 /** A mention's look in the box: the accent colour of a sent mention on its soft background. The shadows widen the
  * background sideways without moving a letter (not up or down: on phones two lines' backgrounds would touch). */
@@ -173,6 +174,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
                 <>
                   <Avatar user={{ ...u, avatarVersion: byId[u.id]?.avatarVersion }} size={22} />
                   <span className="truncate font-medium text-ink">{u.name}</span>
+                  <GuestTagFor userId={u.id} />
                   <StatusEmoji userId={u.id} className="-ml-1" />
                   {byId[u.id]?.title && <span className="truncate text-xs text-muted">{byId[u.id]!.title}</span>}
                 </>

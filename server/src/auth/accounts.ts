@@ -280,8 +280,8 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
 
 // ---------------- invites ----------------
 /** lead_hint / lead_for / lead_hint_by: "이 사람이 팀장이에요" (admin/handover.ts, migration 270) */
-interface InviteRow extends GuestInviteFields { id: string; role: Exclude<Role, 'owner'>; group_ids: string; created_by: string | null; created_at: string | null; expires_at: string; used_at: string | null; used_by: string | null; revoked_at: string | null; lead_hint: number; lead_for: string | null; lead_hint_by: string | null }
-const INVITE_COLS = 'id, role, group_ids, created_by, created_at, expires_at, used_at, used_by, revoked_at, lead_hint, lead_for, lead_hint_by, guest_place_kind, guest_place_id, guest_ai'
+interface InviteRow extends GuestInviteFields { id: string; role: Exclude<Role, 'owner'>; group_ids: string; created_by: string | null; created_at: string | null; expires_at: string; used_at: string | null; used_by: string | null; revoked_at: string | null; lead_hint: number; lead_for: string | null; lead_hint_by: string | null; guest_name: string | null }
+const INVITE_COLS = 'id, role, group_ids, created_by, created_at, expires_at, used_at, used_by, revoked_at, lead_hint, lead_for, lead_hint_by, guest_place_kind, guest_place_id, guest_ai, guest_name'
 
 function parseIds(s: string): string[] { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [] } catch { return [] } }
 
@@ -291,6 +291,7 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     expiresAt: r.expires_at, usedAt: r.used_at, usedBy: userRef(db, r.used_by),
     leadFor: r.lead_hint ? r.lead_for : null,
     ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: guestPlaceOf(r)! } : {}),
+    ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
   }
 }
 const inviteById = (db: Database, id: string) => db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(id) as InviteRow
@@ -325,7 +326,7 @@ export function createInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof C
   const now = authOf(ctx).now()
   const hours = lead ? lead.hours : b.expiresInHours
   const row: InviteRow = { id: newId(), role: lead ? 'member' : b.role, group_ids: JSON.stringify(groups), created_by: auth.user.id, created_at: new Date(now).toISOString(), expires_at: new Date(now + hours * 3600_000).toISOString(), used_at: null, used_by: null, revoked_at: null,
-    lead_hint: lead ? 1 : 0, lead_for: lead ? b.leadFor! : null, lead_hint_by: lead ? auth.user.id : null, guest_place_kind: null, guest_place_id: null, guest_ai: null }
+    lead_hint: lead ? 1 : 0, lead_for: lead ? b.leadFor! : null, lead_hint_by: lead ? auth.user.id : null, guest_place_kind: null, guest_place_id: null, guest_ai: null, guest_name: null }
   let replaced = 0
   ctx.db.transaction(() => {
     // one open lead invite: the one before stops in the same write (two creates at once cannot leave two; the partial

@@ -9,6 +9,7 @@
 // The count is the server's (POST /api/projects/access-preview), so it matches who really sees it: its members ("멤버
 // 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
 // for the owner and admins by role any more).
+import { GuestTagFor } from './GuestTag'
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Search, Users, X } from 'lucide-react'
 import clsx from 'clsx'
@@ -233,7 +234,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                 disabled={added}
                 face
                 icon={<Face x={x} />}
-                name={x.name}
+                name={x.subjectType === 'user' ? <span className="flex min-w-0 items-baseline gap-1.5"><span className="truncate">{x.name}</span><GuestTagFor userId={x.subjectId} /></span> : x.name}
                 meta={sub(x) || undefined}
                 end={
                   <span className="flex shrink-0 items-center gap-2.5 self-center">
@@ -272,6 +273,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   name={
                     <>
                       <span className={clsx(out && 'text-faint line-through')}>{x.name}</span>
+                      {x.subjectType === 'user' && <GuestTagFor userId={x.subjectId} className="ml-1.5" />}
                       {fresh && <span className="ml-1.5 text-meta font-medium text-accent-text">{t('projects.newTag')}</span>}
                       {s && !below && <span className="ml-1.5 text-meta font-normal text-faint">{s}</span>}
                     </>

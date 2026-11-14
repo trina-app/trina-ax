@@ -63,6 +63,8 @@ import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
 import { StatusDmLine } from '../components/StatusMessage'
 import { usePresenceOf } from '../store/presence'
+import { IncludesGuests } from '../components/GuestTag'
+import { useGuestNoAi } from '../components/GuestView'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
  * forward inside the app or by the page reloading itself (an update, a refresh: docs/DECISIONS.md "대화 숨기기")?
@@ -123,6 +125,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the timeline's own sends (a thread's are in its panel)
   const pending = useMemo(() => allPending.filter((p) => !p.threadRootId), [allPending])
   const roomMembers = useRooms((s) => s.members[roomId]) as RoomMember[] | undefined
+  const guestNoAi = useGuestNoAi()
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
@@ -429,6 +432,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               {room && room.kind !== 'dm' && (
                 <span className="shrink-0 text-xs font-normal text-faint max-md:basis-full max-md:leading-4" data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}
+                  {/* "· Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
+                  <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " />
                 </span>
               )}
             </button>
@@ -445,7 +450,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
         )}
-        {room && (
+        {/* ✦: not for a guest whose AI is off (components/GuestView.tsx) */}
+        {room && !guestNoAi && (
           <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
             onClick={() => { if (sideOpen) closeSide(); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
             <AiMark />
@@ -467,7 +473,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           />
         )}
       </div>
-      {room && askHint.show && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
+      {room && askHint.show && !guestNoAi && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-6">

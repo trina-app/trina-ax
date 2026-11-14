@@ -18,6 +18,7 @@
 // this view only (the chat's active branch is not changed for anyone), scrolled to it and lit for a moment; an answer
 // no longer there opens the chat at its end with "That answer is no longer here." On a phone, opened from a sharing
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
+import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -125,6 +126,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const list = useStickToBottom()
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
+  const guestNoAi = useGuestNoAi()
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -588,6 +590,9 @@ function ChatView({ chatId }: { chatId: string }) {
           <TrashedBanner chat={chat} onShown={setChat} />
         ) : readOnly ? (
           <SharedReadOnly />
+        ) : guestNoAi ? (
+          // a guest whose AI is off: one line in place of the box (components/GuestView.tsx)
+          <GuestNoAi className="mb-3" />
         ) : (
           <>
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}

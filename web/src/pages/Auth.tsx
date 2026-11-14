@@ -5,6 +5,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
+import { inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -722,8 +723,11 @@ export function AcceptInvite() {
         <SignInInstead />
       </AuthFrame>
     )
+  // a guest invite (docs/DECISIONS.md "Guests: only what they were invited to"): where exactly they will be, in place of
+  // the role and the date; the form is the members' one. Guests take no seat: `full` never stops one
+  const guest = inviteGuest(info)
   // every seat of the plan is taken: no form that would only be refused after it was filled in (as the team link)
-  if (info.full)
+  if (info.full && !guest)
     return (
       <AuthFrame title={t('invite.title')}>
         <p className="text-sm text-muted" data-testid="invite-full">{t('invite.full')}</p>
@@ -731,12 +735,23 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <BrowserLanguageOffer />
       <JoinChoices path={`/invite/${token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>
     </AuthFrame>
+  )
+}
+
+/** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." (the general
+ * words while the server does not name the place) */
+function GuestJoinLine({ place }: { place: GuestPlaceView | null }) {
+  const t = useT()
+  return (
+    <p className="text-ink" data-testid="invite-guest-place">
+      {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
+    </p>
   )
 }
 

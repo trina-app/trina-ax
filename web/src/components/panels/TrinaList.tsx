@@ -118,7 +118,6 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   return (
     <div ref={listRef} data-testid="trina-list">
       <WaitingRow />
-      {empty && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
 
       {groups.pinned.length > 0 && (
         <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
@@ -130,6 +129,8 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
           be all pinned chats) */}
       {loaded && (
         <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
+          {/* nothing yet: said under the section's heading, not above it */}
+          {empty && <p className="px-3 py-2 text-sm text-faint" data-testid="trina-empty">{t('sidebar.noChats')}</p>}
           <ul>
             {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
             {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
