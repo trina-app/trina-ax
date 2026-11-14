@@ -1,5 +1,5 @@
 import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
-import { guestDetail, placePeople } from '../auth/guests'
+import { guestDetail, placePeople, roleSql } from '../auth/guests'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -897,9 +897,9 @@ export function notifyHosting(ctx: AppContext, event: HostingNoticeEvent, source
     for (const id of ids) notificationsOf(ctx).hostingNotice(id, event, sourceId)
   } catch { ctx.log.warn('hosting notification recording failed') }
 }
-/** The owner or an admin (stored role; a guest is stored as a member, so never one). */
+/** The owner or an admin (the guest-aware role: auth/guests.ts roleSql). */
 function isStaff(db: AppContext['db'], userId: string): boolean {
-  return !!db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND guest = 0").get(userId)
+  return !!db.query(`SELECT 1 FROM users WHERE id = ? AND ${roleSql()} IN ('owner', 'admin')`).get(userId)
 }
 export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joinedUserId: string) {
   for (const userId of new Set(userIds)) {
