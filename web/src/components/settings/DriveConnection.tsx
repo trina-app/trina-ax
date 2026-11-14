@@ -6,7 +6,7 @@ import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } fr
 import { useT } from '../../i18n'
 import { useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
-import { Button, confirmDialog } from '../ui'
+import { Button, LinkButton, confirmDialog } from '../ui'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
  * Sheets: integrations/GoogleAppConnector.tsx) are the same steps on their own addresses. `current`: the connection once
@@ -148,9 +148,9 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
       <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
     </>}
-    {flow.state !== 'ready' && d.authorizationUrl && <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-accent-text hover:underline" onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>{t('drive.openGoogle')}</a>}
-    {/* waiting: Try again (a new window, the server replaces the flow) beside Cancel, always (QA TC-1417) */}
+    {/* waiting: Continue with Google (the window again), Try again (a new window, the server replaces the flow) beside Cancel, always (QA TC-1417) */}
     <div className="flex flex-wrap gap-2">
+      {flow.state !== 'ready' && d.authorizationUrl && <LinkButton variant="primary" href={d.authorizationUrl} onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>{t('drive.openGoogle')}</LinkButton>}
       {flow.state !== 'ready' && <Button disabled={d.busy} onClick={() => void d.start()} data-testid="drive-flow-retry">{t('common.retry')}</Button>}
       <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>
     </div>

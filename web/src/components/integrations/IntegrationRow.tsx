@@ -13,7 +13,7 @@ import { useLocale, useT } from '../../i18n'
 import { useWaitLimit } from '../../lib/signInWait'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { toast } from '../../store/ui'
-import { Badge, Button, confirmDialog } from '../ui'
+import { Badge, Button, LinkButton, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
@@ -300,9 +300,9 @@ export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; on
       )}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
-          <a href={flow.url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent-text underline">
+          <LinkButton variant="primary" size="sm" href={flow.url}>
             {t('integrations.signIn.open')}
-          </a>
+          </LinkButton>
         )}
         {/* always: a window closed before it finished needs a way back (QA TC-1417) */}
         <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
