@@ -106,6 +106,7 @@ export const ja: Record<MessageKey, string> = {
   'role.owner': "オーナー",
   'role.admin': "管理者",
   'role.member': "メンバー",
+  'role.guest': "ゲスト",
   'client.web': "Webブラウザー",
   'client.desktop': "デスクトップアプリ",
   'client.mobile': "モバイル",

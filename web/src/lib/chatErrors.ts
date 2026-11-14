@@ -6,7 +6,7 @@ import type { ChatErrorReason } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
-type Role = 'owner' | 'admin' | 'member' | undefined
+type Role = 'owner' | 'admin' | 'member' | 'guest' | undefined
 /** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), the server's health (Admin › System ›
  * Health, the owner's page only), or the server page with its storage card (Admin › System, which admins see too) */
 type Where = 'providers' | 'health' | 'system'

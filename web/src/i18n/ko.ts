@@ -108,6 +108,7 @@ export const ko = {
   'role.owner': '팀장',
   'role.admin': '관리자',
   'role.member': '팀원',
+  'role.guest': '게스트',
   'client.web': '웹 브라우저',
   'client.desktop': '데스크톱 앱',
   'client.mobile': '모바일',

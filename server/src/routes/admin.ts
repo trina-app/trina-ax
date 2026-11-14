@@ -297,7 +297,7 @@ export const adminRoutes: RouteModule = {
       // who is asking, read again every time it matters (the checks below wait for DNS): an owner demoted, or an admin
       // disabled or deleted, meanwhile is who they are now
       const actorNow = (): 'owner' | 'admin' => {
-        const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { role: string; status: string; deleted_at: string | null } | null
+        const u = ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(auth.user.id) as { role: string; status: string; deleted_at: string | null } | null
         if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
         return u!.role as 'owner' | 'admin'
       }

@@ -109,6 +109,7 @@ export const en: Record<MessageKey, string> = {
   'role.owner': 'Owner',
   'role.admin': 'Admin',
   'role.member': 'Member',
+  'role.guest': 'Guest',
   'client.web': 'Web browser',
   'client.desktop': 'Desktop app',
   'client.mobile': 'Mobile',

@@ -65,7 +65,7 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
     const me = row.user_id === t.from_user ? 'from' as const : row.user_id === t.to_user ? 'to' as const : 'other' as const
     const owner = currentOwnerId(db)
     // [내보내기]: the new owner, while still the owner, may disable the old owner, while that one is an active admin
-    const fromRow = db.query("SELECT role, status FROM users WHERE id = ? AND deleted_at IS NULL").get(t.from_user) as { role: string; status: string } | null
+    const fromRow = db.query("SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE id = ? AND deleted_at IS NULL").get(t.from_user) as { role: string; status: string } | null
     const removable = me === 'to' && owner === row.user_id && fromRow?.role === 'admin' && fromRow.status === 'active'
     const hosted = isHosted(ctx.config) && !ctx.config.handoverSafe
     return { ...base, handover: {

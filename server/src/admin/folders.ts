@@ -329,7 +329,7 @@ export interface AccessState {
 
 /** Active people (with groups) and the current rules. */
 export function captureState(db: Database): AccessState {
-  const users = db.query("SELECT id, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id").all() as { id: string; name: string; role: Role }[]
+  const users = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id").all() as { id: string; name: string; role: Role }[]
   const mem = db.query('SELECT group_id, user_id FROM group_members').all() as { group_id: string; user_id: string }[]
   const groups = new Map<string, string[]>()
   for (const m of mem) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])

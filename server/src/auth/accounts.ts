@@ -350,7 +350,7 @@ function inviteValid(db: Database, r: InviteRow, now: number): boolean {
   const by = getUser(db, r.created_by)
   if (!by || by.status !== 'active') return false
   if (by.role === 'owner') return true
-  if (by.role === 'admin') return r.role === 'member'
+  if (by.role === 'admin') return r.role === 'member' || r.role === 'guest'
   return false
 }
 
@@ -476,7 +476,7 @@ function resetUsable(db: Database, r: ResetRow, u: UserRow | null, now: number):
   const by = getUser(db, r.created_by)
   if (!by || by.status !== 'active' || by.id === u.id) return false
   if (by.role === 'owner') return u.role !== 'owner'
-  if (by.role === 'admin') return u.role === 'member'
+  if (by.role === 'admin') return u.role === 'member' || u.role === 'guest'
   return false
 }
 

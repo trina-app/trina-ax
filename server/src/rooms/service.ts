@@ -861,7 +861,7 @@ export class Rooms {
     if (m && m.author_kind !== 'ai' && m.author_id === userId) return this.own(roomId, messageId, userId, me, true)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
     if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId, me, true)
-    const role = (this.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
+    const role = (this.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(userId) as { role: string } | null)?.role
     if (m.asked_by !== userId && role !== 'owner' && role !== 'admin') return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
     return m

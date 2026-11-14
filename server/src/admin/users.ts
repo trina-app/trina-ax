@@ -70,7 +70,7 @@ function guard(c: Context<AppEnv>, target: UserRow, o: { self?: boolean; newRole
  * disabled or deleted since the request started is what decides now, not the session's copy (security review of
  * 팀장 넘기기: a reset landing on someone who became the owner meanwhile). */
 function actorNow(ctx: AppContext, id: string): { id: string; role: Role } {
-  const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
+  const row = ctx.db.query(`SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
   if (!row || row.deleted_at || row.status !== 'active' || (row.role !== 'owner' && row.role !== 'admin')) return fail('forbidden')
   return { id: row.id, role: row.role }
 }
@@ -300,7 +300,7 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     targetId: id, actorId: auth.user.id, personalFolder, why: 'admin', log: c.get('log'),
     check: () => {
       // who acts is read again too: an admin demoted (or disabled, or deleted) while the password was checked is nobody
-      const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
+      const row = ctx.db.query(`SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(auth.user.id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
       if (!row) return fail('forbidden')
       if (row.deleted_at || row.status !== 'active' || (row.role !== 'owner' && row.role !== 'admin')) fail('forbidden')
       // an admin by now who was not asked for the password (they were the owner at the start) is refused too
@@ -556,7 +556,7 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   let via: 'lead_card' | 'members_menu' = 'members_menu'
   let toEnd: { kind: HandoverConnectionRef['kind']; id: string; label: string }[] = []
   ctx.db.transaction(() => {
-    const caller = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(me) as { role: Role; status: string; deleted_at: string | null } | null
+    const caller = ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(me) as { role: Role; status: string; deleted_at: string | null } | null
     if (!caller || caller.deleted_at || caller.status !== 'active' || caller.role !== 'owner') changedMeanwhile()
     ready(liveUser(ctx, b.userId))
     const lead = ctx.db.query('SELECT id FROM invites WHERE lead_hint = 1 AND lead_hint_by = ? AND used_by = ? AND used_at IS NOT NULL LIMIT 1').get(me, b.userId) as { id: string } | null

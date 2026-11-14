@@ -106,6 +106,7 @@ export const zh: Record<MessageKey, string> = {
   "role.owner": "所有者",
   "role.admin": "管理员",
   "role.member": "成员",
+  "role.guest": "访客",
   "client.web": "网页浏览器",
   "client.desktop": "桌面应用",
   "client.mobile": "手机",

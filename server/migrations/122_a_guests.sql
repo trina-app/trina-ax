@@ -7,7 +7,10 @@
 --   users.guest: 1 = guest. Set once, when the invite is accepted; cleared only by "convert to member".
 --   guests: the per-guest settings. place_kind / place_id: the guest's one place ('room' = a group chat id, 'project' =
 --     a project id); an admin may move it, a second place is refused (guest_one_place). ai: how the guest's AI runs ('none' default, 'team' = connections assigned to them
---     personally under a 'block' budget of their own, 'own' = their own Claude/Codex sign-in). invited_by: who invited.
+--     personally under a 'block' budget of their own, 'own' = their own Claude/Codex sign-in). team_credential_id: with
+--     ai 'team', the one team connection the guest uses. It is NOT an engine_credential_assignments row: one such row
+--     makes a team-wide connection assigned-only and every member would lose it (credentials/resolve.ts candidates).
+--     invited_by: who invited.
 --   invites.guest_place_kind / guest_place_id: the one place a guest invite opens;
 --     invites.guest_ai: JSON {"mode":"none"|"team"|"own","credentialId"?,"limitUsd"?} (null on member invites).
 ALTER TABLE users ADD COLUMN guest INTEGER NOT NULL DEFAULT 0 CHECK (guest IN (0, 1));
@@ -16,6 +19,7 @@ CREATE TABLE guests (
   place_kind TEXT NOT NULL CHECK (place_kind IN ('room', 'project')),
   place_id TEXT NOT NULL,
   ai TEXT NOT NULL DEFAULT 'none' CHECK (ai IN ('none', 'team', 'own')),
+  team_credential_id TEXT REFERENCES engine_credentials(id) ON DELETE SET NULL,
   invited_by TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL
 );

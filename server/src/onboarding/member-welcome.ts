@@ -91,7 +91,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
   const r = rowOf(db, userId)
   if (!r || r.hidden_at || r.joined_at < welcomeSince(now)) return null
   // an owner has the owner's own start on Home (a lead who joined with a lead invite and was handed the team)
-  const me = db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null
+  const me = db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(userId) as { role: string } | null
   if (!me || me.role === 'owner') return null
   if (r.done_at && Date.parse(r.done_at) + ALL_SET_MS < now) return null
   const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at }

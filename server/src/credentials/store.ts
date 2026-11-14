@@ -168,7 +168,7 @@ function tellChange(cc: CredCtx, to: string[], who: string, action: ChangeAction
 export function noticeOwners(cc: CredCtx, actor: string | null, action: ChangeAction, subject: string, vars: Record<string, string> = {}) {
   try {
     if (!actor) return
-    const who = cc.db.query('SELECT name, role FROM users WHERE id = ?').get(actor) as { name: string; role: string } | null
+    const who = cc.db.query(`SELECT name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(actor) as { name: string; role: string } | null
     if (!who || who.role === 'owner') return
     const owners = (cc.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
     if (owners.length) tellChange(cc, owners, who.name, action, subject, vars, '/admin/credentials')

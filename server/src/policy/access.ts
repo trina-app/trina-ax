@@ -8,7 +8,7 @@ import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
 
 export type Access = 'none' | 'read' | 'write'
-export type Role = 'owner' | 'admin' | 'member'
+export type Role = 'owner' | 'admin' | 'member' | 'guest'
 /** `system`: the server's own principal (admin/folders.ts resolveFolderPath): write everywhere outside users/ and
  * .system/, never inferred from a role (docs/DECISIONS.md "Project contents only for members"). */
 export interface Principal { id: string; name: string; role: Role; groups: string[]; system?: true }
@@ -43,6 +43,12 @@ const ZONE_FLOOR = 2
 /** How the owner or an admin is judged inside the zone: as a member with the same groups (a role rule for admins or
  * the owner never applies there). Everyone else, and anyone outside the zone, as they are. */
 const zoneSubject = (p: Principal): Principal => ({ id: p.id, name: p.name, role: 'member', groups: p.groups })
+/** How a guest is judged (RuleSet.isGuest): role guest, no groups, so applies() takes person rules only. */
+const guestSubject = (p: Principal): Principal => ({ id: p.id, name: p.name, role: 'guest', groups: [] })
+/** users.guest = 1 (migration 122); none on a database from before it. */
+function guestIds(db: Database): string[] {
+  try { return (db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id) } catch { return [] }
+}
 export type SubjectType = 'everyone' | 'role' | 'group' | 'user'
 
 interface Rule { subject_type: SubjectType; subject_id: string | null; access: Access; origin?: string | null }
@@ -57,7 +63,7 @@ export const atLeast = (a: Access, b: Access) => RANK[a] >= RANK[b]
  * Only for the owner and admins to read: beside the total, a member would learn how many see it only by role.
  */
 export function splitOf(rules: RuleSet, readers: readonly Principal[], segs: readonly string[]): { direct: number; byRole: number } {
-  const direct = readers.filter((x) => x.role === 'member' || atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')).length
+  const direct = readers.filter((x) => x.role === 'member' || x.role === 'guest' || atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')).length
   return { direct, byRole: readers.length - direct }
 }
 
@@ -94,7 +100,8 @@ export interface Explained { access: Access; reason: AccessReason }
 interface Why { kind: AccessReasonKind; folderLen: number; cutLen: number; rules: readonly Rule[] | null; best: number; who?: Principal }
 
 export function loadPrincipal(db: Database, userId: string): Principal | null {
-  const u = db.query("SELECT id, name, role, status FROM users WHERE id = ?").get(userId) as any
+  // the role as the API knows it: a guest is stored as role 'member' with users.guest = 1 (migration 122_a_guests.sql)
+  const u = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE id = ?").get(userId) as any
   if (!u || u.status !== 'active') return null
   const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as any[]).map((r) => r.group_id)
   return { id: u.id, name: u.name, role: u.role, groups }
@@ -102,8 +109,9 @@ export function loadPrincipal(db: Database, userId: string): Principal | null {
 
 /** One stored rule row with its folder's path. `origin`: set only on a person rule the one-time conversion wrote. */
 export interface RuleRow { path: string; subject_type: SubjectType; subject_id: string | null; access: Access; origin?: string | null }
-/** Everything access depends on: the rule rows and the limited folders (by path). */
-export interface RuleWorld { rows: readonly RuleRow[]; limited: Iterable<string> }
+/** Everything access depends on: the rule rows, the limited folders (by path) and the guests' ids (docs/DECISIONS.md
+ * "Guests: only what they were invited to": for them only person rules inside projects/<name> count). */
+export interface RuleWorld { rows: readonly RuleRow[]; limited: Iterable<string>; guests?: Iterable<string> }
 /** A rule as the API and the database have it (FolderRuleInput, DecidingRule). */
 export interface RuleLike { subjectType: string; subjectId: string | null; access: string; origin?: string | null }
 
@@ -137,6 +145,9 @@ export class RuleSet {
   /** every stored row (markers and project exceptions included), by folder path */
   private byPath = new Map<string, Rule[]>()
   private limited: Set<string>
+  /** the guests' user ids (users.guest = 1): judged by person rules inside projects/<name> only, whatever role a
+   * Principal built anywhere says (the role is checked too: either one makes a guest) */
+  private guests: Set<string>
   /** projects/<name> -> the people its project exception rows name */
   private exceptions = new Map<string, Set<string>>()
   /** set when the set was built from a database without the conversion marker: no rule applies */
@@ -145,6 +156,7 @@ export class RuleSet {
   private constructor(w: RuleWorld, failedClosed = false) {
     this.failedClosed = failedClosed
     this.limited = new Set(w.limited)
+    this.guests = new Set(w.guests ?? [])
     for (const r of w.rows) {
       const list = this.byPath.get(r.path) ?? []
       list.push({ subject_type: r.subject_type, subject_id: r.subject_id, access: r.access, origin: r.origin ?? null })
@@ -171,7 +183,7 @@ export class RuleSet {
     try { model = (db.query('SELECT value FROM settings WHERE key = ?').get(FOLDER_ACCESS_MODEL_KEY) as { value: string } | null)?.value ?? null } catch { model = null }
     if (model !== FOLDER_ACCESS_MODEL) {
       if (!failClosedLogged) { failClosedLogged = true; console.error(`folder access: the database has no "${FOLDER_ACCESS_MODEL_KEY}" marker; every folder rule is ignored (fail closed)`) }
-      return new RuleSet({ rows: [], limited: [] }, true)
+      return new RuleSet({ rows: [], limited: [], guests: guestIds(db) }, true)
     }
     const map = o.mapPath
     const folders = db.query('SELECT id, path, limited FROM folders').all() as { id: string; path: string; limited: number }[]
@@ -189,16 +201,16 @@ export class RuleSet {
       if (p === undefined) continue
       rows.push({ path: p, subject_type: r.subject_type, subject_id: r.subject_id, access: r.access, origin: r.origin })
     }
-    return new RuleSet({ rows, limited })
+    return new RuleSet({ rows, limited, guests: guestIds(db) })
   }
   /** = fromDb(db) */
   static load(db: Database): RuleSet { return RuleSet.fromDb(db) }
 
   /** Everything this set holds, as fromWorld takes it. */
-  world(): { rows: RuleRow[]; limited: string[] } {
+  world(): { rows: RuleRow[]; limited: string[]; guests: string[] } {
     const rows: RuleRow[] = []
     for (const [path, list] of this.byPath) for (const r of list) rows.push({ path, subject_type: r.subject_type, subject_id: r.subject_id, access: r.access, origin: r.origin })
-    return { rows, limited: [...this.limited] }
+    return { rows, limited: [...this.limited], guests: [...this.guests] }
   }
 
   /** The folders where access can change: those that carry a rule row, and the limited ones ('' = the team root). */
@@ -246,7 +258,7 @@ export class RuleSet {
     const lim = new Set(w.limited)
     if (limited) lim.add(folder)
     else lim.delete(folder)
-    return new RuleSet({ rows, limited: lim })
+    return new RuleSet({ rows, limited: lim, guests: w.guests })
   }
   /** This set with a project exception for `userId` on projects/<name> (`folder`), as setProjectException stores it:
    * their own rule there becomes "no access". */
@@ -255,14 +267,14 @@ export class RuleSet {
     const w = this.world()
     const rows = w.rows.filter((r) => !(r.path === folder && r.subject_type === 'user' && r.subject_id === userId))
     rows.push({ path: folder, subject_type: 'user', subject_id: userId, access: 'none' })
-    return new RuleSet({ rows, limited: w.limited })
+    return new RuleSet({ rows, limited: w.limited, guests: w.guests })
   }
   /** This set after `from` moves to `to`: the rows and limits at or below it go with it (team-files relocate moves the
    * folders rows), everything else stays. */
   relocated(from: string, to: string): RuleSet {
     const move = (p: string) => (p === from ? to : from === '' || p.startsWith(from + '/') ? to + p.slice(from.length) : p)
     const w = this.world()
-    return new RuleSet({ rows: w.rows.map((r) => ({ ...r, path: move(r.path) })), limited: w.limited.map(move) })
+    return new RuleSet({ rows: w.rows.map((r) => ({ ...r, path: move(r.path) })), limited: w.limited.map(move), guests: w.guests })
   }
   /** The rules as if a trashed folder were back: its parked rows (under `storage`) at `original`, and none of a folder
    * that took that path since (as chat/shared.ts rulesInPlace builds them from the database). */
@@ -273,7 +285,7 @@ export class RuleSet {
     for (const r of w.rows) { const p = map(r.path); if (p !== null) rows.push({ ...r, path: p }) }
     const limited: string[] = []
     for (const f of w.limited) { const p = map(f); if (p !== null) limited.push(p) }
-    return new RuleSet({ rows, limited })
+    return new RuleSet({ rows, limited, guests: w.guests })
   }
 
   access(p: Principal, segs: readonly string[]): Access { return this.decide(p, segs, null) }
@@ -293,6 +305,9 @@ export class RuleSet {
       .sort((a, b) => String(a.subjectId ?? '').localeCompare(String(b.subjectId ?? '')))
     return { access, reason: { kind: 'rule', folder: segs.slice(0, why.folderLen).join('/'), tier, rules } }
   }
+
+  /** A guest by id (users.guest = 1 when the set was loaded) or by role. */
+  isGuest(p: Pick<Principal, 'id' | 'role'>): boolean { return p.role === 'guest' || this.guests.has(p.id) }
 
   /** The person is kept out of the project folder `segs` is in by a project exception. */
   private excepted(id: string, segs: readonly string[]): boolean {
@@ -316,9 +331,20 @@ export class RuleSet {
     // folder for a person who does not exist yet, no renaming or trashing the whole tree)
     if (segs.length === 1 && segs[0] === 'users') { if (why) why.kind = 'users-root'; return 'read' }
     if (p.system) { if (why) why.kind = 'owner-admin'; return 'write' }
+    // a guest: nothing outside the members-only zone (shared/, skills/, connected/, every team folder, whatever rule
+    // names them); inside it only person rules at or below projects/<name>, and below it only once they read
+    // projects/<name> itself (docs/DECISIONS.md "Guests: only what they were invited to")
+    if (this.isGuest(p)) {
+      if (!inProjectZone(segs)) { if (why) why.kind = 'no-rule'; return 'none' }
+      if (segs.length > ZONE_FLOOR && !atLeast(this.decide(p, segs.slice(0, ZONE_FLOOR), null), 'read')) {
+        if (why) this.decide(p, segs.slice(0, ZONE_FLOOR), why)
+        return 'none'
+      }
+    }
     // the owner and admins: everything outside the members-only zone; inside it they are judged as a member, by the
     // rules at or below projects/<name> only (docs/DECISIONS.md "Project contents only for members")
-    const staff = p.role === 'owner' || p.role === 'admin'
+    const guest = this.isGuest(p)
+    const staff = !guest && (p.role === 'owner' || p.role === 'admin')
     if (staff && !inProjectZone(segs)) { if (why) why.kind = 'owner-admin'; return 'write' }
     // and inside a project only once they read the project's own folder (are its members): a rule on a folder inside it
     // never lets them in alone, so nobody reads part of a project without showing in its members (security review M2)
@@ -326,8 +352,8 @@ export class RuleSet {
       if (why) this.decide(p, segs.slice(0, ZONE_FLOOR), why)
       return 'none'
     }
-    const q = staff ? zoneSubject(p) : p
-    const floor = staff ? ZONE_FLOOR : 0
+    const q = guest ? guestSubject(p) : staff ? zoneSubject(p) : p
+    const floor = staff || guest ? ZONE_FLOOR : 0
     if (why) why.who = q
     // the project exception: a person's own "no access" on projects/<name> keeps them out of it and all in it, whatever
     // else applies (docs/DECISIONS.md "Leaving a project"; it depends on the rule row only)
@@ -360,7 +386,7 @@ export class RuleSet {
       if (segs.length === 1) return true // own personal folder below
       return segs[1] === p.id
     }
-    if (p.system || (isStaff(p) && !inProjectZone(segs))) return true
+    if (p.system || (isStaff(p) && !this.isGuest(p) && !inProjectZone(segs))) return true
     const cands = [...this.boundaryFolders().map((f) => (f === '' ? [] : f.split('/'))).filter((c) => c[0] !== 'users'), ['users', p.id]]
     for (const c of cands) {
       if (c.length > segs.length && segs.every((s, i) => s === c[i]) && atLeast(this.access(p, c), 'read')) return true
@@ -397,7 +423,7 @@ export class RuleSet {
       if (atLeast(this.access(p, segs), 'read')) return true
       if (segs.length && segs[0] === PRODUCT.systemDir) return false
       if (segs[0] === 'users') return segs.length === 1 || segs[1] === p.id
-      if (p.system || (isStaff(p) && !inProjectZone(segs))) return true
+      if (p.system || (isStaff(p) && !this.isGuest(p) && !inProjectZone(segs))) return true
       return below.has(segs.join('/'))
     }
     const ownPath = own.join('/')
@@ -460,7 +486,7 @@ export class RuleSet {
     const shared = new Map<string, { any: boolean; top: string[] }>()
     const scan = (p: Principal, zone: boolean) => {
       const named = sigOf.get(p.id)
-      const key = `${zone ? 'zone\u0000' : ''}${p.role}\u0000${[...new Set(p.groups)].sort().join('\u0001')}${named !== undefined ? `\u0000${named}` : ''}`
+      const key = `${zone ? 'zone\u0000' : ''}${p.role === 'guest' ? `guest\u0000${p.id}\u0000` : ''}${p.role}\u0000${[...new Set(p.groups)].sort().join('\u0001')}${named !== undefined ? `\u0000${named}` : ''}`
       const known = shared.get(key)
       if (known) return known
       const ch = zone ? (zoneChains ??= chainsFrom(ZONE_FLOOR)) : chains
@@ -474,6 +500,7 @@ export class RuleSet {
         const chain = ch[i]
         if (!chain) continue
         const zk = zoneKey[i]
+        if (p.role === 'guest' && (zk === null || !atLeast(this.access(p, items[i]!.segs.slice(0, ZONE_FLOOR)), 'read'))) continue
         if (zk !== null && this.exceptions.get(zk)?.has(p.id)) continue
         let rank = -1
         for (const rules of chain) { const g = grantIn(rules, p); if (g > rank) rank = g }
@@ -488,6 +515,20 @@ export class RuleSet {
       if (within.length && within[0] === PRODUCT.systemDir) return { listable: false, via: [], more: false }
       if (within[0] === 'users') return within.length === 1 ? { listable: true, via: [`users/${p.id}`], more: false } : { listable: within[1] === p.id, via: [], more: false }
       if (p.system) return { listable: true, via: [], more: false }
+      if (this.isGuest(p)) {
+        // a guest: nothing outside the zone but their own users/<id>; inside, person rules only (decide())
+        if (within.length && !inProjectZone(within)) return { listable: false, via: [], more: false }
+        if (inProjectZone(within) && !atLeast(this.access(p, within.slice(0, ZONE_FLOOR)), 'read')) return { listable: false, via: [], more: false }
+        const found = scan(guestSubject(p), true)
+        const top = [...found.top]
+        if (within.length === 0) {
+          const own = `users/${p.id}`
+          let i = 0
+          while (i < top.length && top[i]! < own) i++
+          top.splice(i, 0, own)
+        }
+        return { listable: found.any || within.length === 0, via: top.slice(0, max), more: top.length > max }
+      }
       const zone = isStaff(p) && inProjectZone(within)
       if (isStaff(p) && !zone) return { listable: true, via: [], more: false }
       // (inside a project they do not read, nothing is readable for them: decide())
@@ -540,6 +581,8 @@ export function grantIn(rules: readonly Pick<Rule, 'subject_type' | 'subject_id'
 }
 
 export function applies(r: Pick<Rule, 'subject_type' | 'subject_id'>, p: Pick<Principal, 'id' | 'role' | 'groups'>): boolean {
+  // a guest: person rules only (everyone, role and group rules never apply to them)
+  if (p.role === 'guest') return r.subject_type === 'user' && r.subject_id === p.id
   switch (r.subject_type) {
     case 'everyone': return true
     case 'role': return r.subject_id === p.role

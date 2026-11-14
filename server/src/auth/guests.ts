@@ -148,7 +148,7 @@ export const GUEST_ONE_PLACE_MSG: Record<Locale, string> = {
 }
 /** 409 conflict, reason guest_one_place: a guest is never put into a second room or project. */
 export function failOnePlace(locale: Locale): never {
-  fail('conflict', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
+  return fail('conflict', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
 }
 /** Refuse putting `userId` into `place` when they are a guest whose one place is another one. */
 export function assertGuestMayJoin(db: Database, userId: string, place: GuestPlace, locale: Locale): void {

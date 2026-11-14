@@ -109,6 +109,7 @@ export const id: Record<MessageKey, string> = {
   'role.owner': 'Owner',
   'role.admin': 'Admin',
   'role.member': 'Anggota',
+  'role.guest': 'Tamu',
   'client.web': 'Browser web',
   'client.desktop': 'Aplikasi desktop',
   'client.mobile': 'Ponsel',

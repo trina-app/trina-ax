@@ -132,7 +132,7 @@ export class Audiences {
       if (id === viewer) return true
       const x = byId.get(id)
       // a member of the audience is there by a rule; the owner or an admin only when a member would be too
-      return !!x && x.role !== 'member' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
+      return !!x && x.role !== 'member' && x.role !== 'guest' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
     })
   }
   /**
@@ -178,7 +178,7 @@ export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRo
  * rulesInPlace). For a deleted project's shared chats (routes/chats.ts deleteProject): one goes to its creator's trash
  * only when they would see it. */
 export function accountSeesProject(db: Database, rules: RuleSet | null, p: Pick<ProjectRow, 'folder_path'>, userId: string): boolean {
-  const u = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
+  const u = db.query(`SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND deleted_at IS NULL`).get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
   if (!u) return false
   // its folder was purged: its own rules are gone, so nobody is known to see it (the owner and admins neither)
   if (!rules) return false

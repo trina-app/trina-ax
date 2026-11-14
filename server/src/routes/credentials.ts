@@ -40,7 +40,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // the provider check inside a create or a replace takes seconds: whoever asked must still be an active owner or admin
   // when the write happens (demoted, disabled or deleted meanwhile: refused, nothing written)
   const stillTeamAdmin = (userId: string) => () => {
-    const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(userId) as { role: string; status: string; deleted_at: string | null } | null
+    const u = ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(userId) as { role: string; status: string; deleted_at: string | null } | null
     if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
   }
   kit.handle(API.createCredential, async ({ c, body, auth }) => {

@@ -81,7 +81,7 @@ export interface Viewer { id: string; role: Role }
 export const isAdmin = (role: Role) => role === 'admin' || role === 'owner'
 
 export function activeUser(db: Database, id: string): Viewer | null {
-  return db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(id) as Viewer | null
+  return db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(id) as Viewer | null
 }
 
 /** at most this much saved tool JSON (characters, about its bytes) is kept parsed in memory per database, the list

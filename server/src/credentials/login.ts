@@ -101,7 +101,7 @@ class Logins {
   /** a team sign-in stores a connection only if its starter is still an active owner or admin (demoted or disabled while
    * it ran); a personal one only if the account is still active (not disabled, not deleted) */
   private mayConnectForTeam(userId: string): boolean {
-    const u = this.cc.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(userId) as { role: string; status: string; deleted_at: string | null } | null
+    const u = this.cc.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(userId) as { role: string; status: string; deleted_at: string | null } | null
     return !!u && !u.deleted_at && u.status === 'active' && (u.role === 'owner' || u.role === 'admin')
   }
   private accountActive(userId: string): boolean {
@@ -354,7 +354,7 @@ class Logins {
     // by the owner; the owner's own by nobody else (docs/PERMISSIONS.md)
     const other = l.userId !== userId
     if (other && l.personal) {
-      const role = (id: string) => (this.cc.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role
+      const role = (id: string) => (this.cc.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(id) as { role: string } | null)?.role
       const mine = role(userId), theirs = role(l.userId)
       if (!(mine === 'owner' || (mine === 'admin' && theirs === 'member'))) return fail('forbidden', ct('loginNotYours', locale))
     }

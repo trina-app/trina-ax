@@ -120,7 +120,7 @@ export function peopleWithoutAi(ctx: Ctx, o: AccessOptions = {}): string[] | nul
  */
 export function withoutAi(ctx: Ctx, o: AccessOptions = {}): { ids: string[]; until: Record<string, string> } | null {
   if (!isManaged(ctx.config)) return null
-  const people = ctx.db.query("SELECT id, role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY created_at, id").all() as Person[]
+  const people = ctx.db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY created_at, id").all() as Person[]
   const allowed = allowedCredentialKinds(ctx.config)
   const now = o.now ?? new Date()
   const ids: string[] = []
