@@ -29,6 +29,40 @@ const assetFiles = () => {
 
 const ASSETS_ID = 'virtual:demo-assets'
 
+/** where the demo is served on its site (DEMO_BASE, e.g. /demo/ for https://ax.trina.app/demo/; default the root) */
+export const demoBase = () => {
+  const b = process.env.DEMO_BASE?.trim() || '/'
+  return `/${b.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/')
+}
+
+/** The app under a base without a change to web/src (web/demo/base.ts says how): on the app's source, in the demo build
+ * only, its history gets the demo's window, its direct reads of the address read the demo's location, and its worker
+ * is registered at the base. A source that no longer reads as expected stops the build. */
+function demoBaseSource(): Plugin {
+  const win = '((globalThis as { __mycelDemoWindow?: Window }).__mycelDemoWindow ?? window)'
+  const loc = '((globalThis as { __mycelDemoLocation?: Location }).__mycelDemoLocation ?? window.location)'
+  return {
+    name: 'mycel-demo-base-source',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.split('?')[0]!
+      if (!file.includes('/web/src/') || !/\.tsx?$/.test(file)) return null
+      let out = code.replaceAll('window.location.pathname', `${loc}.pathname`)
+      if (file.endsWith('/web/src/lib/screenHistory.ts')) {
+        const next = out.replace('createScreenHistory(win: Window = window)', `createScreenHistory(win: Window = ${win})`)
+        if (next === out) throw new Error('demo: lib/screenHistory.ts no longer takes its window as expected')
+        out = next
+      }
+      if (file.endsWith('/web/src/lib/pwa.ts')) {
+        const next = out.replace("register('/sw.js', { scope: '/' })", "register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })")
+        if (next === out) throw new Error('demo: lib/pwa.ts no longer registers /sw.js as expected')
+        out = next
+      }
+      return out === code ? null : { code: out, map: null }
+    },
+  }
+}
+
 function demoPages(): Plugin {
   return {
     name: 'mycel-demo-pages',
@@ -43,10 +77,10 @@ function demoPages(): Plugin {
       return files.map(([, file], i) => `import a${i} from ${JSON.stringify(file + '?url')}\n`).join('')
         + `export default {${files.map(([name], i) => `${JSON.stringify(name)}: a${i}`).join(', ')}}\n`
     },
-    // the dev server (bun run dev:demo) serves the demo's worker as /sw.js too
+    // the dev server (bun run dev:demo) serves the demo's worker at the base too
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url?.split('?')[0] !== '/sw.js') return next()
+        if (req.url?.split('?')[0] !== `${demoBase()}sw.js`) return next()
         res.setHeader('content-type', 'text/javascript')
         res.end(fs.readFileSync(path.join(here, 'sw.js'), 'utf8'))
       })
@@ -73,7 +107,8 @@ function demoPages(): Plugin {
 export function demoConfig(base: UserConfig): UserConfig {
   return {
     ...base,
-    plugins: [...(base.plugins ?? []), demoPages()],
+    base: demoBase(),
+    plugins: [demoBaseSource(), ...(base.plugins ?? []), demoPages()],
     resolve: {
       alias: [
         { find: /^node:(fs|os|path|zlib)$/, replacement: shim('node.ts') },

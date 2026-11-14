@@ -5,13 +5,14 @@ import './shims/bun'
 import script from '@demo-content'
 import assetUrls from 'virtual:demo-assets'
 import { DICTS, loadLocale, type MessageKey } from '../src/i18n'
+import { BASE } from './base'
 import { startWorker } from './bridge'
 import { DemoServer } from './server'
 
 export async function boot(made: (s: DemoServer) => void) {
   // a reload starts over: Home, and nothing kept from the last run in this tab
   try { sessionStorage.clear() } catch { /* storage blocked */ }
-  if (location.pathname !== '/' || location.search) history.replaceState(null, '', '/')
+  if (location.pathname !== BASE || location.search) history.replaceState(null, '', BASE)
   const assets: Record<string, Uint8Array> = Object.fromEntries(await Promise.all(Object.entries(assetUrls).map(async ([name, url]) => [name, new Uint8Array(await (await fetch(url)).arrayBuffer())])))
   const server = new DemoServer(script, assets)
   made(server)

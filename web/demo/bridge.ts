@@ -86,7 +86,7 @@ export function installBridge(ready: Promise<DemoServer>) {
 export async function startWorker(): Promise<void> {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return
   try {
-    await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
     if (navigator.serviceWorker.controller) return
     await new Promise<void>((done) => {
       navigator.serviceWorker.addEventListener('controllerchange', () => done(), { once: true })

@@ -16,7 +16,18 @@ const shots = process.env.DEMO_SHOTS
 const step = (id: string) => script.guide.find((s) => s.id === id)!
 const answer = (id: string) => script.answers.find((a) => a.id === id)!
 
-async function shot(page: Page, name: string) {
+// (the demo's start: the base it is served under, DEMO_BASE, is in the config's baseURL)
+const START = './'
+// the page breaks no rule of the CSP it is served with (test/demo/serve.ts DEMO_CSP): a blocked load is a failure
+const blocked = new WeakMap<Page, string[]>()
+test.beforeEach(({ page }) => {
+  const list: string[] = []
+  blocked.set(page, list)
+  page.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) list.push(m.text()) })
+})
+test.afterEach(({ page }) => { expect(blocked.get(page) ?? []).toEqual([]) })
+
+async function shotAs(page: Page, name: string) {
   if (!shots) return
   fs.mkdirSync(shots, { recursive: true })
   await page.waitForTimeout(500)
@@ -37,12 +48,23 @@ async function follow(page: Page, text?: string) {
   await guide(page).click()
 }
 
-for (const branch of step('banner').suggest!) {
-  const byGuide = branch === step('banner').suggest![0]
-  test(`the whole story on ${branch}${byGuide ? ', by the guide line alone' : ''}`, async ({ page }) => {
+/** a step's prompt: its own button when the step offers a choice, else the guide line itself sends the one prompt */
+async function prompt(page: Page, id: string, owner: string) {
+  if (step(owner).suggest!.length > 1) await page.getByTestId(`demo-suggest-${id}`).click()
+  else await guide(page).click()
+}
+
+// every branch of the choice, the first by the guide line alone; with one prompt only, once by the guide line and
+// once by hand
+const banner = step('banner').suggest!
+const runs = banner.length > 1 ? banner.map((branch, i) => ({ branch, byGuide: i === 0 }))
+  : [{ branch: banner[0]!, byGuide: true }, { branch: banner[0]!, byGuide: false }]
+for (const { branch, byGuide } of runs) {
+  test(`the whole story on ${branch}${byGuide ? ', by the guide line alone' : ', by hand'}`, async ({ page }) => {
+    const shot = (p: Page, n: string) => shotAs(p, byGuide ? n : n.replace(branch, `${branch}-hand`))
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
-    await page.goto('/')
+    await page.goto(START)
     // ① Home: the app's welcome card, its question ringed
     await expect(page.getByTestId('member-welcome-title')).toHaveText(script.home.title)
     await expect(ring(page)).toBeVisible()
@@ -70,12 +92,15 @@ for (const branch of step('banner').suggest!) {
     if (byGuide) await follow(page, `Open “${leoChat}” →`)
     else await page.locator('a[href^="/c/"]:visible').filter({ hasText: leoChat }).first().click()
     await expect(page.locator('[data-testid="assistant-message"] img[src*="/api/files/download"]').first()).toBeVisible()
-    // ② the two prompts in the guide line
-    const prompt = page.getByTestId(`demo-suggest-${branch}`)
-    await expect(prompt).toBeVisible()
+    // ② the step's prompt: its choice buttons in the guide line, or (one prompt) the guide line itself
+    if (banner.length > 1) await expect(page.getByTestId(`demo-suggest-${branch}`)).toBeVisible()
+    else {
+      await expect(guide(page)).toHaveText(step('banner').text)
+      await expect(page.getByTestId('demo-suggest')).toHaveCount(0)
+    }
     await shot(page, `${branch}-4-project`)
     if (byGuide) await guide(page).click()
-    else await prompt.click()
+    else await prompt(page, branch, 'banner')
     // the answer as the app shows it: the pictures inline, the saved files, the sources
     await expect(guide(page)).toHaveText(step('share').text, { timeout: 60_000 })
     const pictures = page.locator('[data-testid="assistant-message"]').last().locator('img[src*="/api/files/download"]')
@@ -108,7 +133,7 @@ for (const branch of step('banner').suggest!) {
     await guide(page).click()
     await expect(page.getByTestId('side-chat-panel')).toBeVisible()
     if (byGuide) await guide(page).click()
-    else await page.getByTestId(`demo-suggest-${step('mail').suggest![0]}`).click()
+    else await prompt(page, step('mail').suggest![0]!, 'mail')
     const card = page.getByTestId('ask-card').last()
     await expect(card).toBeVisible({ timeout: 40_000 })
     await expect(ring(page)).toBeVisible()
@@ -127,7 +152,7 @@ for (const branch of step('banner').suggest!) {
 }
 
 test('free typing gets a short reply with the step\'s question on the app\'s card', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(START)
   await expect(page.getByTestId('member-welcome-title')).toBeVisible()
   await page.getByTestId('composer-input').first().fill('What is the weather like?')
   await page.getByTestId('send').first().click()
@@ -142,7 +167,7 @@ test('free typing gets a short reply with the step\'s question on the app\'s car
 })
 
 test('off the path: the guide says where to go and takes the visitor back', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(START)
   await page.getByTestId('member-welcome-ask-button').click()
   await expect(guide(page)).toHaveText(step('dm').away ?? step('dm').text, { timeout: 40_000 })
   await page.evaluate(() => { history.pushState(null, '', '/files'); window.dispatchEvent(new PopStateEvent('popstate')) })
@@ -152,7 +177,7 @@ test('off the path: the guide says where to go and takes the visitor back', asyn
 })
 
 test('"Start over" begins the story again', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(START)
   await page.getByTestId('member-welcome-ask-button').click()
   await expect(page).toHaveURL(/\/c\//)
   await page.getByTestId('demo-restart').click()
@@ -162,7 +187,7 @@ test('"Start over" begins the story again', async ({ page }) => {
 })
 
 test('Stop while a card waits closes it and leaves the story where it was', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(START)
   await expect(page.getByTestId('member-welcome-title')).toBeVisible()
   await page.getByTestId('composer-input').first().fill('Tell me a joke')
   await page.getByTestId('send').first().click()

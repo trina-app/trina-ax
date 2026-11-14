@@ -188,7 +188,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       delayMs: 3000,
       title: s.end.title,
       contrast: s.end.usually,
-      signup: { label: s.end.signup, url: 'https://trina.app/' },
+      signup: { label: s.end.signup, url: 'https://ax.trina.app' },
     },
   }
 }

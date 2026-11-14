@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client'
 import { useLocale, useT } from '../src/i18n'
 import type { DemoAnswer, DemoGo } from './script'
 import type { DemoServer } from './server'
+import { appPath, appPathNow, BASE } from './base'
 import { demoWord } from './words'
 import './demo.css'
 
@@ -16,7 +17,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** a route change react-router hears (BrowserRouter follows popstate) */
 export function navigate(to: string) {
-  if (location.pathname + location.search === to) return
+  if (appPathNow() + location.search === to) return
   history.pushState(null, '', to)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
@@ -54,15 +55,15 @@ function inAppLink(target: EventTarget | null): string | null {
   const a = (target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
   if (!a || a.target === '_blank' || a.hasAttribute('download')) return null
   const url = new URL(a.href, location.href)
-  if (url.origin !== location.origin || !/^\/(c|rooms|projects)(\/|$)/.test(url.pathname)) return null
-  return url.pathname + url.search + url.hash
+  if (url.origin !== location.origin || !/^\/(c|rooms|projects)(\/|$)/.test(appPath(url.pathname))) return null
+  return appPath(url.pathname) + url.search + url.hash
 }
 
 /** "opened" happenings: the visitor is on a room's page or in a project (its page or one of its chats) */
 function watchOpened(server: DemoServer) {
   let last = ''
   setInterval(() => {
-    const path = location.pathname
+    const path = appPathNow()
     if (path === last) return
     last = path
     const room = /^\/rooms\/([^/]+)/.exec(path)?.[1]
@@ -114,7 +115,7 @@ const sendOf = (go: DemoGo) => (go !== 'home' && 'side' in go ? '[data-testid="s
 
 /** a suggested prompt, sent with the app's own box as if typed */
 async function sendPrompt(server: DemoServer, go: DemoGo, a: DemoAnswer) {
-  if (!atPlace(server, go, location.pathname)) await goTo(server, go)
+  if (!atPlace(server, go, appPathNow())) await goTo(server, go)
   const box = await waitFor<HTMLTextAreaElement>(boxOf(go))
   if (!box) return
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, a.prompt)
@@ -130,9 +131,9 @@ function useEngine(server: DemoServer) {
 
 /** the path, kept fresh (react-router changes it without telling this root) */
 function usePath() {
-  const [path, setPath] = useState(location.pathname)
+  const [path, setPath] = useState(appPathNow())
   useEffect(() => {
-    const id = setInterval(() => setPath(location.pathname), 250)
+    const id = setInterval(() => setPath(appPathNow()), 250)
     return () => clearInterval(id)
   }, [])
   return path
@@ -201,6 +202,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const projectChat = goProject && /^\/projects\/[^/]+$/.test(path) ? server.script.projects.find((p) => p.id === goProject)?.chats?.[0] : undefined
   const chatRow = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) ?? null : null
   const suggest = here && !chatRow && usedFor !== step?.id && !cardOpen && !working ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
+  // one prompt only: no choice buttons, the guide line itself sends it (and glows)
+  const choices = suggest.length > 1 ? suggest : []
   // a dialog of the app is open (Send to room): the guide steps back so it never covers the dialog's buttons
   const dialogOpen = [...document.querySelectorAll('[role="dialog"]')].some(visible)
 
@@ -236,7 +239,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     const row = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) : undefined
     if (row) { navigate(inAppLink(row) ?? `/c/${server.idOf('chat', projectChat!.id)}`); return }
     // (here, read again: the last render may be a quarter of a second old)
-    const hereNow = atPlace(server, step.go, location.pathname)
+    const hereNow = atPlace(server, step.go, appPathNow())
     const firstPrompt = hereNow && usedFor !== step.id && ![...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
       ? server.script.answers.find((a) => a.id === step.suggest?.[0]) : undefined
     if (firstPrompt) { void pick(firstPrompt); return }
@@ -278,9 +281,9 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   return (
     <>
       <div ref={guideRef} className={dialogOpen ? 'demo-guide demo-guide-back' : 'demo-guide'} role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
-        {suggest.length > 0 && (
+        {choices.length > 0 && (
           <div className="demo-choices" data-testid="demo-suggest">
-            {suggest.map((a) => (
+            {choices.map((a) => (
               <button key={a.id} type="button" className="demo-choice" disabled={sending} onClick={() => void pick(a)} data-testid={`demo-suggest-${a.id}`}>{a.label ?? a.prompt}</button>
             ))}
           </div>
@@ -293,13 +296,13 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
               <a className="demo-next" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{server.script.end.signup.label} →</a>
             </span>
           ) : step && !working ? (
-            <button type="button" className={target || suggest.length ? 'demo-next' : 'demo-next demo-glow'} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
+            <button type="button" className={target || choices.length ? 'demo-next' : 'demo-next demo-glow'} disabled={sending} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
               {here && cardOpen ? demoWord('card', locale) : chatRow && projectChat ? demoWord('openChat', locale).replace('{title}', projectChat.title) : here || inSideRoom ? step.text : step.away ?? step.text}
             </button>
           ) : (
             <span className="demo-next demo-wait" data-testid="demo-wait" role="status">{demoWord(working ? 'working' : 'waiting', locale)}</span>
           )}
-          <button type="button" className="demo-restart" onClick={() => location.assign('/')} data-testid="demo-restart">{demoWord('restart', locale)}</button>
+          <button type="button" className="demo-restart" onClick={() => location.assign(BASE)} data-testid="demo-restart">{demoWord('restart', locale)}</button>
         </div>
       </div>
       {ring && ring.width > 0 && (
