@@ -195,9 +195,10 @@ export const SEAT_MSG = {
 }
 const MANAGE = { ko: ' 요금제 변경: ', en: ' Change the plan: ', id: ' Ubah paket: ', ja: " プランを変更： ", es: " Cambiar de plan: ", zh: " 更改套餐： " }
 
-/** Active accounts: what counts against the plan's seats (disabled and deleted ones do not). */
+/** Active accounts: what counts against the plan's seats (disabled and deleted ones do not, nor guests: they have a
+ * cap of their own, auth/guests.ts guestLimit). */
 export function seatsUsed(db: Database): number {
-  return (db.query("SELECT COUNT(*) AS n FROM users WHERE status = 'active' AND deleted_at IS NULL").get() as { n: number }).n
+  return (db.query("SELECT COUNT(*) AS n FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0").get() as { n: number }).n
 }
 export function seatLimit(): number | null { return currentPlan()?.maxActiveMembers ?? null }
 /** where the owner changes the plan (the control plane's account page), shown with every over-the-limit message */

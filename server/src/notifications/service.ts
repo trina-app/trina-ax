@@ -422,7 +422,7 @@ export class Notifications {
     args.push(new Date(Date.now() - MEMBER_WELCOME_DAYS * 86_400_000).toISOString())
     args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
     const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
-      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
+      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 AND (t.created_by IS NULL OR u.id <> t.created_by)
       WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
         NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM member_welcome w WHERE w.user_id = u.id AND w.apps_seen_at IS NULL AND w.joined_at >= ? AND t.created_at <= w.joined_at)

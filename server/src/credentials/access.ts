@@ -12,6 +12,7 @@ import type { EngineConfs } from '../chat/engines'
 import { credentialBackAt, hasCredentialFor, hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
 import { hostedChatState } from './hosted-chat'
 import { memberOwnAllowed } from './policy'
+import { isGuestUser } from './guest-ai'
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
 export interface AccessOptions {
@@ -33,6 +34,13 @@ export function enginesAnswering(ctx: Ctx, p: Person, problems: EngineConfs['pro
  * chat/turn.ts), so such an engine counts as usable then. */
 export function canUseAi(ctx: Ctx, p: Person, o: AccessOptions = {}, allowed = allowedCredentialKinds(ctx.config)): boolean {
   const now = o.now ?? new Date()
+  // a guest (credentials/guest-ai.ts): only a connection their guests row allows; never the API engine (the team's
+  // key), never the trial credit (connectionRoute), never a server without AI connections (the host's own sign-in)
+  if (p.role === 'guest' || isGuestUser(ctx.db, p.id)) {
+    if (!isManaged(ctx.config)) return false
+    return enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api' && (hasCredentialSoonFor(ctx.db, p.id, e, allowed, now)
+      || connectionRoute(ctx, p, e, { now, problems: o.problems, allowed }) !== 'own'))
+  }
   return enginesAnswering(ctx, p, o.problems).some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now)
     || (isManaged(ctx.config) && (connectionRoute(ctx, p, e, { now, problems: o.problems, allowed }) !== 'own'
       || (e === 'claude-code' && claudeLimitGoesToCodex(ctx, p, o.problems, allowed, now)))))
@@ -65,7 +73,8 @@ const otherOn = (ctx: Ctx, engine: CredEngine, problems: EngineConfs['problems']
  */
 export function connectionRoute(ctx: Ctx, p: { id: string }, engine: CredEngine, o: { now?: Date; problems?: EngineConfs['problems']; allowed?: AllowedKinds } = {}): 'own' | 'trial' | CredEngine {
   const now = o.now ?? new Date()
-  const state = hostedChatState(ctx.db, now)
+  // a guest never runs on the hosting service's trial credit (owner decision 2026-11-14)
+  const state = isGuestUser(ctx.db, p.id) ? null : hostedChatState(ctx.db, now)
   const fallback = limitFallbackOn(ctx)
   if (!fallback && state !== 'active') return 'own'
   const allowedKinds = o.allowed ?? allowedCredentialKinds(ctx.config)
@@ -149,6 +158,9 @@ export interface AiAccess {
   trial?: 'used' | 'ended'
 }
 export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOptions = {}): AiAccess {
+  // a guest: canUseAi says (never true on a server without AI connections); they ask, they connect nothing for the team,
+  // and the trial credit is never theirs to be told about
+  if (p.role === 'guest' || isGuestUser(ctx.db, p.id)) return { usable: canUseAi(ctx, p, o), action: 'ask_owner' }
   const usable = !isManaged(ctx.config) || canUseAi(ctx, p, o)
   const action: AiAction = p.role === 'owner' || p.role === 'admin' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
   if (usable || !enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api')) return { usable, action }

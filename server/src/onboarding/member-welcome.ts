@@ -92,7 +92,8 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
   if (!r || r.hidden_at || r.joined_at < welcomeSince(now)) return null
   // an owner has the owner's own start on Home (a lead who joined with a lead invite and was handed the team)
   const me = db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(userId) as { role: string } | null
-  if (!me || me.role === 'owner') return null
+  // a guest has no welcome card: it shows the team (its head count, its owner, its rooms)
+  if (!me || me.role === 'owner' || me.role === 'guest') return null
   if (r.done_at && Date.parse(r.done_at) + ALL_SET_MS < now) return null
   const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at }
   const allSet = steps.hi && steps.asked
@@ -102,7 +103,8 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
   return {
     team: getTeamSettings(db).teamName,
     inviter: ref(r.invited_by),
-    people: (db.query("SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL").get() as { n: number }).n,
+    // the team's people: guests are not counted (they take no seat)
+    people: (db.query("SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0").get() as { n: number }).n,
     rooms: roomsFor(ctx, userId),
     owner,
     steps,

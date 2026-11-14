@@ -11,6 +11,7 @@ import type { Database } from 'bun:sqlite'
 import type { CredentialKind } from '@mycel/shared/api'
 import type { AllowedKinds } from '../app-config'
 import { memberOwnAllowed } from './policy'
+import { guestAiOf, guestHasBlockBudget } from './guest-ai'
 export { MEMBER_OWN_KEY, memberOwnAllowed } from './policy'
 import { isCreditLimit, ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
 
@@ -31,6 +32,17 @@ export type Resolution =
  * person's own (someone not there yet: a person who will join through the team link with its groups) */
 export function candidates(db: Database, userId: string, engine: CredEngine, exclude?: ReadonlySet<string>, groupsOf?: readonly string[]): { row: CredRow; tier: Tier }[] {
   const kinds = KINDS_OF[FAMILY_OF[engine]]
+  // a guest: only what their guests row allows (credentials/guest-ai.ts), never assignments, groups or team-wide
+  const guest = guestAiOf(db, userId)
+  if (guest) {
+    if (guest.ai === 'none') return []
+    if (guest.ai === 'team' && (!guest.teamCredentialId || !guestHasBlockBudget(db, userId))) return []
+    const rows = (guest.ai === 'own'
+      ? db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE owner_user_id = ? AND kind IN (${kinds.map(() => '?').join(',')})`).all(userId, ...kinds)
+      : db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE id = ? AND owner_user_id IS NULL AND kind IN (${kinds.map(() => '?').join(',')})`).all(guest.teamCredentialId, ...kinds)) as CredRow[]
+    return rows.filter((row) => !exclude?.has(row.id)).map((row) => ({ row, tier: (guest.ai === 'own' ? 'own' : 'user') as Tier }))
+      .sort((a, b) => a.row.priority - b.row.priority || a.row.created_at.localeCompare(b.row.created_at) || a.row.id.localeCompare(b.row.id))
+  }
   const memberOwn = memberOwnAllowed(db)
   const groups = new Set(groupsOf ?? (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((g) => g.group_id))
   const rows = db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE kind IN (${kinds.map(() => '?').join(',')})`).all(...kinds) as CredRow[]

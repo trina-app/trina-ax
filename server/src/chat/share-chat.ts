@@ -37,8 +37,8 @@ import type { ChatRuntime } from './runtime'
 import { SHARED_LATER, type ChatRow, type ProjectRow } from './store'
 import { canSeeProject } from './projects'
 import { isInternalChat } from './internal-chats'
-import { audienceOf, chatView, projectCanShare, type ChatAccess } from './shared'
-import { confirmMac, provenanceChecker, useOf, type BranchUse } from './answer-share'
+import { chatAudienceOf, chatView, projectCanShare, type ChatAccess } from './shared'
+import { confirmMac, provenanceChecker, useOf, withSkillReads, type BranchUse } from './answer-share'
 import { sourceKey, sourceOf, type ReadSource } from './read-scope'
 import type { ReadGroup } from './shared-answers'
 import { tr } from './i18n'
@@ -114,7 +114,7 @@ function stateOf(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: strin
   const project = shareable(ctx, rt, userId, rt.store.chatRow(chatId) ?? fail('not_found'), locale)
   return {
     project,
-    audience: audienceOf(ctx.db, ctx.files, project).filter((id) => id !== userId).sort(),
+    audience: chatAudienceOf(ctx.db, ctx.files, project, userId).filter((id) => id !== userId).sort(),
     messages: (ctx.db.query('SELECT id FROM messages WHERE chat_id = ? ORDER BY id').all(chatId) as { id: string }[]).map((m) => m.id),
   }
 }
@@ -136,7 +136,8 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
   for (let round = 0; round < 3; round++) {
     const before = stateOf(ctx, rt, userId, a.row.id, locale)
     const { project, audience, messages } = before
-    const use = chatUse(db, a.row.id)
+    // a guest among the project's people: what the chat took from skills/ counts too (answer-share.ts withSkillReads)
+    const use = withSkillReads(db, chatUse(db, a.row.id), audience)
     const prov = await provenanceChecker(ctx, userId, audience, use.answers).of([use], new Set())
     // (also with nobody else in the project now: whoever gets access later sees the whole chat)
     const memories = memoriesInPlay(db, a.row.id, userId)
