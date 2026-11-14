@@ -18,6 +18,8 @@
 // this view only (the chat's active branch is not changed for anyone), scrolled to it and lit for a moment; an answer
 // no longer there opens the chat at its end with "That answer is no longer here." On a phone, opened from a sharing
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
+import clsx from 'clsx'
+import { composerInset } from '../components/chat/composerBox'
 import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
@@ -585,7 +587,7 @@ function ChatView({ chatId }: { chatId: string }) {
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[780px] px-4 pb-[var(--box-bottom)]" data-bottom-bar>
+      <div className={clsx('mx-auto w-full max-w-[780px] pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onShown={setChat} />
         ) : readOnly ? (

@@ -131,7 +131,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
       // what others can't see is a warning (QA TC-1073)
       const warn = ask.getByTestId('share-chat-provenance')
-      await expect(warn).toHaveText('이 채팅에는 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      await expect(warn).toHaveText('1명이 이 채팅이 쓴 자료 중 일부를 열 수 없어요: 내 파일')
       await expect(warn).toHaveClass(/text-warn/)
       await expect(ask.getByTestId('share-chat-memories')).toHaveText('개인 메모리를 참고한 답이 있을 수 있어요')
       // 취소 is the default; the note comes first, before anything else in the dialog's body
@@ -173,7 +173,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('private-chats-choose').click()
       await page.getByTestId('private-chats-list').getByTestId('private-chats-share').click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('1명이 이 채팅이 쓴 자료 중 일부를 열 수 없어요: 내 파일')
       await audit(page, 'share confirm from the project page')
       await ask.getByTestId('share-chat-confirm').click()
       await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 멤버와 공유했어요' })).toBeVisible()
@@ -219,7 +219,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'chat menu with share')
       await item.click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('1명이 이 채팅이 쓴 자료 중 일부를 열 수 없어요: 내 파일')
       await expect(ask.getByTestId('share-chat-memories')).toHaveCount(0)
       // asked again when something changed meanwhile, said so on top
       expect((await post(page, '/__test/share-changed', {})).ok()).toBeTruthy()

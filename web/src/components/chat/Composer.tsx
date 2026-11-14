@@ -33,6 +33,7 @@
 // caret at its end, so what they type or paste next follows it (a caret left at the start put a pasted text before
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
+import { composerRadius } from './composerBox'
 import clsx from 'clsx'
 import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
@@ -626,7 +627,7 @@ export default function Composer({
       {/* The one field that is focused most of the time: a quiet edge, as in Claude, not the 2px accent edge of other
           fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
-        className={clsx(stacked ? 'rounded-3xl' : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
+        className={clsx(stacked ? composerRadius : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="composer"
       >
