@@ -312,6 +312,9 @@ export const ChatAudienceRow = z.object({
   /** a person whose account is disabled (they do not see the chat now; back in once enabled): the creator and admins
    * only, everyone else does not get the row */
   inactive: z.literal(true).optional(),
+  /** a person: the groups listed here that they are in too (they keep the chat through them when taken out by name: QA
+   * TC-2264). The creator and admins only, and only groups the viewer is in (admins: any) */
+  inGroups: z.array(z.string()).optional(),
 })
 /** GET /api/chats/:id/audience: who the chat is shared with (docs/DECISIONS.md "Chats shared with people and groups").
  * `kind`: 'people' (shared with the subjects listed), 'project' (a shared project chat: its project's members see it,
@@ -336,7 +339,12 @@ export const PutChatAudienceBody = z.object({
 export const PutChatAudienceResult = z.discriminatedUnion('status', [
   /** saved: the chat as I see it and its audience now. `filesNotCopied`: at a first share, how many of my earlier
    * computer uploads in it could not be shared with it (too large, no storage room, changed since): still mine alone */
-  z.object({ status: z.literal('saved'), chat: Chat, audience: ChatAudience, filesNotCopied: z.number().int().positive().optional() }),
+  z.object({
+    status: z.literal('saved'), chat: Chat, audience: ChatAudience, filesNotCopied: z.number().int().positive().optional(),
+    /** people taken out by name who still see it through a group listed (QA TC-2264): their name and those groups' names
+     * (only groups I am in, admins any; [] when none of them is one of mine) */
+    keptThrough: z.array(z.object({ name: z.string(), groups: z.array(z.string()) })).optional(),
+  }),
   /** nothing changed yet: the check for the people who would start to see it. `added`: how many people (never who);
    * `provenance`: its answers carry content from places some of them cannot open (null: none); `memories`: an answer
    * may have used my personal memories; `hiddenAnswers`: answers whose recorded places some of them cannot open;

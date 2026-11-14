@@ -26,7 +26,7 @@ import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
 import { resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
-import { peopleChatsLost } from '../chat/chat-audience'
+import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
 import { syncRoomsNow } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
@@ -540,6 +540,8 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
       stopTurnsIn(ctx, userId, chats)
       for (const chatId of chats) {
         ctx.db.query('DELETE FROM chat_list_hidden WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
+        // their old link says it is no longer shared with them (chat/chat-audience.ts wasInPeopleChat)
+        rememberAudience(ctx.db, chatId, [userId])
         ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
       }
     }

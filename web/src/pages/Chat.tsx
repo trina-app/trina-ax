@@ -29,10 +29,12 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isPeopleShared, noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
+import { readDraft } from '../lib/localData'
+import { fromWire } from '../lib/roomRefs'
 import { useBackLink } from '../lib/back'
 import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
@@ -64,7 +66,7 @@ import { openChatShare, useSharedWithNames } from '../components/chat/ChatShareD
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
-import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
+import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -168,11 +170,14 @@ function ChatView({ chatId }: { chatId: string }) {
   // opens the Share dialog; to someone not told how many see it (a group in it), the names it is shared with
   const people = isPeopleShared(chat)
   const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
+  // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
+  // shared with me, never "Only you can see this chat" (QA TC-2263)
+  const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
       shared={shared ? { audience: shared.audience, alone: project?.alone } : null}
       place="chat"
-      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : undefined}
+      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : sharedToMeAlone ? t('chat.share.sharedToMeAlone', { name: shared!.by.name }) : undefined}
       onOpen={people ? (rights.creator && !chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
       openLabel={people ? t('chat.share.changeWho') : undefined}
     />
@@ -461,17 +466,10 @@ function ChatView({ chatId }: { chatId: string }) {
         </EmptyState>
       </div>
     )
-  // a chat someone shared with me, and I was taken out (or left its group) while it was open
-  if (loadError && isApiError(loadError, 'not_found') && wasSharedWithMe.current)
-    return (
-      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="shared">
-        <EmptyState screen title={t('notifications.event.chat.sharedGone')}>
-          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-gone-home">
-            {t('notFound.home')}
-          </Link>
-        </EmptyState>
-      </div>
-    )
+  // a chat someone shared with me, and I was taken out (or left its group): while it was open, or its link opened later
+  // (the server says so only to someone who was in it: QA TC-2009). What I was typing there stays, with Copy (TC-2032)
+  if (loadError && isApiError(loadError, 'not_found') && (wasSharedWithMe.current || noLongerSharedWith(loadError)))
+    return <NoLongerShared userId={me.user.id} chatId={chatId} />
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
@@ -685,6 +683,34 @@ function BrowserToggle() {
 /** the answer failed because nothing answers this person (the button to connect or ask is on it) */
 const noAiError = (m: { role: string; status?: string; error?: Parameters<typeof chatErrorReason>[0] | null } | undefined) =>
   !!m && m.role === 'assistant' && m.status === 'error' && !!m.error && isNoAiReason(chatErrorReason(m.error))
+
+/** "This chat is no longer shared with you" (a chat someone shared with me that I was taken out of) and the way Home.
+ * What I had typed in its box is not lost (QA TC-2032): the box's draft is kept per chat (lib/localData.ts), so it shows
+ * here with Copy, to paste into a chat of my own. */
+function NoLongerShared({ userId, chatId }: { userId: string; chatId: string }) {
+  const t = useT()
+  const [draft] = useState(() => fromWire(readDraft(userId, chatId)).text.trim())
+  return (
+    <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="shared">
+      <EmptyState screen title={t('notifications.event.chat.sharedGone')}>
+        {draft && (
+          <div className="mx-auto mt-1 mb-3 w-full max-w-md text-left" data-testid="chat-gone-draft">
+            <p className="mb-1.5 text-sm break-keep text-muted">{t('chat.goneDraft')}</p>
+            <div className="rounded-xl border border-line bg-surface p-3">
+              <p className="max-h-40 overflow-y-auto text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="chat-gone-draft-text">{draft}</p>
+              <div className="mt-2 flex justify-end">
+                <CopyButton text={draft} showLabel />
+              </div>
+            </div>
+          </div>
+        )}
+        <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-gone-home">
+          {t('notFound.home')}
+        </Link>
+      </EmptyState>
+    </div>
+  )
+}
 
 /** A shared chat link of a team project in the trash, opened by one of its members: the project is in the trash, who
  * moved it there, who can restore it, and its page (where its creator or an admin restores it). The project is read

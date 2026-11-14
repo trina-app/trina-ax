@@ -7,6 +7,8 @@
 //                            ordinary private chat of its creator)
 //   chat_audience            the people (by name) and the groups it is shared with
 //   chat_list_hidden         "Hide from my list", per person
+//   chat_audience_past       who was one of its people at some point (migration 403): their old link says "This chat is
+//                            no longer shared with you" instead of the plain 404 (QA TC-2009)
 //
 // The people who see it now are its creator and the active people listed or in a listed group, read per request: a
 // group's new member sees it at once, someone who leaves the group or whose account is disabled loses it at once.
@@ -100,4 +102,26 @@ export function peopleChatsLost(db: Database, before: ReadonlyMap<string, readon
     }
   }
   return out
+}
+
+/** Record that these people were in this people-shared chat (chat_audience_past, migration 403): a save of its audience
+ * that showed it to them or took it away, a group they left, a listed group deleted. Never its creator. */
+export function rememberAudience(db: Database, chatId: string, userIds: Iterable<string>, at = new Date().toISOString()): void {
+  const ins = db.query('INSERT OR IGNORE INTO chat_audience_past (chat_id, user_id, at) SELECT id, ?, ? FROM chats WHERE id = ? AND user_id <> ?')
+  for (const id of userIds) ins.run(id, at, chatId, id)
+}
+
+/**
+ * Someone who does not see this chat now but was one of its people (chat_audience_past): the reason their link says
+ * "This chat is no longer shared with you" (QA TC-2009, TC-2032). Only while the chat is still there and not in the
+ * trash (a deleted chat is the one 404 for everyone, as a deleted shared project chat is), and only to an active member
+ * account (not a guest): it tells them nothing they did not know (that they were in it and that it still exists). The
+ * caller checked that they do not see it now.
+ */
+export function wasInPeopleChat(db: Database, chat: { id: string; user_id: string; deleted_at: string | null; project_id: string | null }, userId: string): boolean {
+  if (chat.deleted_at || chat.project_id || chat.user_id === userId) return false
+  try {
+    return !!db.query(`SELECT 1 FROM chat_audience_past p JOIN users u ON u.id = p.user_id
+      WHERE p.chat_id = ? AND p.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0`).get(chat.id, userId)
+  } catch { return false }
 }

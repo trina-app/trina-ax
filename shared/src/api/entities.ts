@@ -345,6 +345,10 @@ export const Attachment = z.object({
   moved: z.boolean().optional(),
   /** team references: deleted, or the viewer can no longer read it; name, path and size are then blanked */
   unavailable: z.boolean().optional(),
+  /** the answer to an upload only: how many bytes the server received, when the file it kept is another size (a
+   * picture's place and camera cut out after it arrived whole: a file kept with a chat shared with people). The sender
+   * checks the file arrived whole against this, `size` is what everyone opens (QA TC-2023) */
+  receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message. */

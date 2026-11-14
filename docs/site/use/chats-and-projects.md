@@ -119,7 +119,8 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   names answers ("2 answers here used places Priya can't open"), **Show answers** lists them. **Share anyway** shares
   the chat; **Cancel** leaves it as it was.
 - **Files.** Files you attached from your computer before sharing become visible to the people you add, and the dialog
-  says how many. In a shared chat anyone in it can attach a file from the computer (at most 50 MB a file): it is kept
+  says how many. A file you changed since you attached it stays yours: it is not counted, and the others don't see it.
+  In a shared chat anyone in it can attach a file from the computer (at most 50 MB a file): it is kept
   with the chat, and only the people who see the chat can open it.
 - **Who sees answers.** Answers in a shared chat are never hidden from the people in it, including people added later.
   Before the AI reads something some of them can't open, it asks you first.
@@ -129,7 +130,9 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   **Hide from my list** in its menu; opening it again brings it back.
 - **Change who sees it.** Only the person who started the chat changes who sees it: **Share…** again, or **Change who
   sees it** under the box. Someone you take out loses the chat and its files at once and reads "This chat is no longer
-  shared with you". Taking everyone out makes it yours alone again.
+  shared with you", also when they open its link later; what they were typing in it stays there with **Copy**. Someone
+  you take out by name who is also in a group you shared it with keeps it through that group, and the dialog says so.
+  Taking everyone out makes it yours alone again.
 - **Personal things stay out.** In a shared chat the AI does not use your memories, your browser, your email or your
   schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
 - A chat in a personal project stays yours: **Share…** offers to move it out first. A chat in a team project is shared

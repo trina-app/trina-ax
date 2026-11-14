@@ -135,9 +135,12 @@ export class ChatStore {
     if (viewer !== undefined) {
       const blank = (a: Attachment) => (a.source === 'team' ? blankTeamAttachment(a) : { ...blankTeamAttachment(a), source: a.source })
       const kept = atts.some((a) => a.source === 'chat') && seesChatFiles(this.db, viewer, r.chat_id)
-      const chatRule = (out: Attachment[]) => out.map((a) => (a.source === 'chat' && !kept ? blank(a) : a))
+      // a file from someone else's computer this viewer may not open (one not copied at a first share: QA TC-2022; a
+      // computer upload in a shared project chat) is left out for them, not a nameless "0 B" tile; its sender still sees
+      // it. A team reference they may not open stays, as "unavailable" (it names nothing)
+      const chatRule = (out: Attachment[]) => out.map((a) => (a.source === 'chat' && !kept ? blank(a) : a)).filter((a) => !(a.unavailable && a.source !== 'team'))
       if (!this.viewAttachmentsAs) return chatRule(atts.map((a) => (a.source === 'chat' || (a.source !== 'team' && r.author_id === viewer) ? a : blank(a))))
-      try { return chatRule(this.viewAttachmentsAs(viewer, r.author_id ?? null, atts)) } catch { return atts.map(blank) }
+      try { return chatRule(this.viewAttachmentsAs(viewer, r.author_id ?? null, atts)) } catch { return atts.filter((a) => a.source === 'team').map(blank) }
     }
     if (!atts.some((a) => a.source === 'team')) return atts
     const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
