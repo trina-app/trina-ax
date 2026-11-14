@@ -131,7 +131,9 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await expect(page.getByTestId('credential-password')).toHaveCount(0)
   await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('chatgpt-user-code')).toHaveText('WXYZ-12AB3')
-  await expect(page.getByTestId('chatgpt-code')).toContainText('https://auth.openai.com/codex/device')
+  // the sign-in page is a button (a new tab), with Copy link beside it
+  await expect(page.getByTestId('chatgpt-open')).toHaveAttribute('href', 'https://auth.openai.com/codex/device')
+  await expect(page.getByTestId('chatgpt-open')).toHaveAttribute('target', '_blank')
   await expect(page.getByTestId('chatgpt-done')).toContainText('ChatGPT pro')
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('credentials-codex')).toContainText('팀 ChatGPT')

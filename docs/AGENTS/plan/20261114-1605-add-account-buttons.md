@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 16:05
 - Branch: `fix/add-account-buttons`
-- Status: in progress
+- Status: done
 - Where: web/ (Team AX core). Why: shared web UI of the AI-account and connector sign-in flows (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a visual fix with no API change
 
@@ -34,3 +34,11 @@ Out: copy changes (keys stay), desktop shell (no such flow there), new steps or 
 
 Test ids and roles stay (`claude-open` stays a link with target _blank). Drive's phone-app click handler keeps working
 (LinkButton passes anchor props through). No migrations, no permission change.
+
+## Result
+
+`buttonClass`, `LinkButton` and `SignInLinks` in ui.tsx. Claude: Open primary until used or a code is in, then
+secondary; the code field gets the focus. ChatGPT step 1: Open ChatGPT + Copy link instead of the raw address (step 1
+copy and a new `credentials.chatgpt.open` in all six languages). Connector wait (row and chat card) and Google Drive's
+wait: Open as a primary LinkButton. Unit test `web/test/unit/sign-in-links.test.tsx`; e2e credentials/integrations/
+connected-apps-state pass.
