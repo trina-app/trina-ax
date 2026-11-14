@@ -1481,26 +1481,28 @@ export function ProjectFiles() {
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="project-files-page">
-      {/* a computer (a guest): the way back to the project, which a phone's bar has */}
-      {!phone && p && (
-        <Link to={dir ? `/projects/${p.id}/files${dir.includes('/') ? `?dir=${encodeURIComponent(dir.slice(0, dir.lastIndexOf('/')))}` : ''}` : `/projects/${p.id}`} className="mx-4 mt-4 inline-flex w-fit items-center gap-1 text-sm text-muted hover:text-ink" data-testid="project-files-back">
-          <ChevronLeft size={14} aria-hidden /> {dir ? (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')).split('/').pop() : t('files.title')) : p.name}
-        </Link>
-      )}
-      <h1 className={phone ? 'sr-only' : 'px-4 pt-1 text-title font-semibold text-ink'} data-testid="project-files-title">{name}</h1>
-      <PhoneBarTitle>{name}</PhoneBarTitle>
-      {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them; nor a
-          guest, who has no 파일 screen */}
-      {path !== null && p?.member !== false && !guest && (
-        <PhoneBarAction>
-          <Tooltip label={t('projects.openFolder')}>
-            <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
-              <FolderOpen size={20} aria-hidden />
-            </button>
-          </Tooltip>
-        </PhoneBarAction>
-      )}
-      <div className="px-4 pt-2 pb-8">
+      {/* a computer (a guest): the project page's padding and header (24px from the sidebar, the name large), a phone the
+          bar's */}
+      <div className={phone ? 'px-4 pt-2 pb-8' : 'mx-auto w-full max-w-[1080px] px-6 pt-10 pb-12'} data-testid="project-files-body">
+        {/* a computer (a guest): the way back to the project, which a phone's bar has */}
+        {!phone && p && (
+          <Link to={dir ? `/projects/${p.id}/files${dir.includes('/') ? `?dir=${encodeURIComponent(dir.slice(0, dir.lastIndexOf('/')))}` : ''}` : `/projects/${p.id}`} className="inline-flex w-fit items-center gap-1 text-sm text-muted hover:text-ink" data-testid="project-files-back">
+            <ChevronLeft size={14} aria-hidden /> {dir ? (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')).split('/').pop() : t('files.title')) : p.name}
+          </Link>
+        )}
+        <h1 className={phone ? 'sr-only' : 'mt-2 mb-4 text-display font-semibold tracking-tight break-words text-ink'} data-testid="project-files-title">{name}</h1>
+        <PhoneBarTitle>{name}</PhoneBarTitle>
+        {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them; nor a
+            guest, who has no 파일 screen */}
+        {path !== null && p?.member !== false && !guest && (
+          <PhoneBarAction>
+            <Tooltip label={t('projects.openFolder')}>
+              <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
+                <FolderOpen size={20} aria-hidden />
+              </button>
+            </Tooltip>
+          </PhoneBarAction>
+        )}
         {error && <ErrorNote onRetry={() => read()}>{error}</ErrorNote>}
         {p?.member === false && <p className="py-3 text-sm break-keep text-muted" data-testid="project-files-members-only">{t('projects.membersOnly')}</p>}
         {!list && !error && p?.member !== false && <Skeleton lines={4} />}

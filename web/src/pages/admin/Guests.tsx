@@ -65,7 +65,6 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   const [aiFor, setAiFor] = useState<User | null>(null)
   const [converting, setConverting] = useState<User | null>(null)
   const [noPlace, setNoPlace] = useState<{ user: User; out: GuestPlaceOut } | null>(null)
-  const locale = useLocale()
   // the plan's guest cap and how many are active now, for the title (owner and admins: GuestInviteLimit.used)
   const limit = useGuestLimit()
   const navigate = useNavigate()
