@@ -1,54 +1,55 @@
-# 미나의 첫날 (hands-on demo story, Korean)
+# Mina's first day (hands-on demo story)
 
 The story the hands-on demo build plays (format: [`web/demo/script.ts`](../../../web/demo/script.ts), plan:
-`docs/AGENTS/plan/20261114-0507-mina-demo.md`). [`index.ts`](index.ts) default-exports the `DemoScript`; the pictures
-and text files it names are in [`assets/`](assets/).
+`docs/AGENTS/plan/20261114-0507-mina-demo.md`). English first; other languages come after the owner's review.
 
-**차곡 is a fictional company.** Every person, number, address and file here is made up for the demo. The agency's
-address uses the reserved `.example` domain. There are no photos of people and no real logos: the avatars are
+**Steepling is a fictional company.** Every person, number, address and file here is made up for the demo. The
+agency's address uses the reserved `.example` domain. There are no photos of people and no real logos: the avatars are
 initials on plain shapes, and the product and the banner backgrounds are drawn in CSS.
 
-## The story
-
-차곡 is a 12-person company in 성수동 that makes cold-brew tea bags. Its winter yuzu-ginger blend (유자생강 블렌드)
-launches on Monday, November 23. 윤미나 joins Marketing today; she is good at design.
-
-| Who | Id | In the story |
-|---|---|---|
-| 윤미나 | `mina` | the visitor, new marketing hire |
-| 박서연 | `seoyeon` | 마케팅팀장, sends the DM, asks the CEO, points to Gmail |
-| 정우진 | `woojin` | 대표, approves and posts the final file |
-| 강레오 | `leo` | made the first banner, moves to Sales on November 23 |
-| 한도윤, 최하은, 오지수 | `doyun`, `haeun`, `jisu` | operations, sales, online shop (only in #전체) |
-
-1. **Home**: "신입사원 미나님, 입사를 축하합니다" → "우리 회사는 뭐 하는 회사예요?" The answer reads the company intro
-   and the brief, lists the team skills: the company in 3 lines, her role, 3 skills, "인수인계 도와드릴까요?" and
-   Higgsfield. (`인수인계 도와줘` has its own answer for a visitor who types it; it is not in the guide.)
-2. **DM from the lead** with the project link.
-3. **Project "11월 런칭 캠페인"**: Leo's banner and his earlier chat. Two prompts: A "제목을 크게, 브랜드 색으로
-   정리해줘" (reads the brand guide) and B "Higgsfield로 새 배경 이미지 만들어서 넣어줘" (a Higgsfield step, then the
-   banner on the new background).
-4. **#마케팅**: the visitor shares the answer; the lead, Leo, the CEO (with `런칭배너_최종.png`) and the lead's Gmail line.
-5. **✦ side chat in #마케팅**: "이 배너 김 실장님께 메일로 보내줘" or "좀 더 정중하게 써서 보내줘". Each shows the draft
-   (to, subject, attachment, body) and a card "Gmail로 이 메일을 보낼까요?" (보내기 / 더 정중하게 다듬기 / 취소), then the
-   sent line.
-6. **End card** after the mail. Free typing gets "이 데모는 추천 질문으로 움직여요" with the suggested prompts.
-
-The final file the CEO posts is version A (`FINAL_ASSET` in `index.ts`): the format cannot yet say "the banner the
-visitor made". If the engine learns that, use `banner-b.png` after the `banner-b` answer.
-
-## Files
+## Layout
 
 | Path | What |
 |---|---|
-| `index.ts` | the story (`DemoScript`) |
-| `assets/banner-leo.png` | Leo's banner: same-size lines, pastel gradient, red sale text, tiny logo bottom right (weak on purpose, not a joke) |
-| `assets/banner-a.png` | version A: brand colours, one big title, yuzu badge, logo top left, Pretendard |
-| `assets/banner-b.png`, `assets/bg-b.png` | version B and its "Higgsfield" background (drawn in CSS, no credits spent) |
-| `assets/avatar-*.png` | 256×256 avatars, one per person |
-| `assets/회사소개.md`, `assets/브랜드 가이드.md`, `assets/11월 런칭 캠페인 브리프.md` | team files: `shared/…`, `groups/마케팅/…` |
-| `assets/skill-*.md` | the four team skills, seeded at `skills/<name>/SKILL.md`: SNS 카피 3안, 보도자료 초안, 경쟁사 요약, 인수인계 도우미 |
-| `source/` | how the pictures are made: banner HTML/CSS, avatar SVGs, `render.mjs` (Playwright); the demo never reads it |
+| `index.ts` | default export: `buildScript(en, 'en')`, the `DemoScript` the build plays |
+| `story.ts` | the structure: ids, rooms, triggers, steps, file paths. No words of its own |
+| `strings/en.ts` | every word: names, prompts, answers, messages, emails, guide, fallback, end card (`Strings`) |
+| `assets/*.en.*` | what is English: the three banners, the team files, the four skills |
+| `assets/bg-b.png`, `assets/avatar-*.png` | the same in every language: the "Higgsfield" background, the avatars |
+| `source/` | how the pictures are made: banner templates, `banners/copy.en.json` (their words), `render.mjs`; the demo never reads it |
 
-Banners are 1200×628 PNG, 256 colours. To make them again, see the top of [`source/render.mjs`](source/render.mjs).
-Pretendard is under the SIL Open Font License 1.1 and is loaded from jsDelivr only while rendering.
+**Adding a language** (ko, id, ja, es): copy `strings/en.ts` to `strings/<locale>.ts` (`export const ko: Strings = …`)
+and translate it; translate `assets/*.en.md` to `*.<locale>.md`; copy `source/banners/copy.en.json` to
+`copy.<locale>.json`, translate it and run `render.mjs <locale>`; then build with `buildScript(ko, 'ko')`. The Korean
+first draft of this story is in git history (commit 78e47299a).
+
+## The story
+
+Steepling is a 12-person company that makes cold-brew tea bags. Its winter Yuzu Ginger blend launches on Monday,
+November 23. Mina Lee joins Marketing today; she is good at design.
+
+| Who | Id | In the story |
+|---|---|---|
+| Mina Lee | `mina` | the visitor, new marketing hire |
+| Sara Jensen | `sara` | Marketing lead: sends the DM, asks the CEO, points to Gmail |
+| Daniel Okoye | `daniel` | CEO: approves and posts the final file |
+| Leo Santos | `leo` | made the first banner, moves to Sales on November 23 |
+| Tom Becker, Aiko Tanaka, Omar Haddad | `tom`, `aiko`, `omar` | operations, sales, online shop (only in #Everyone) |
+
+1. **Home**: "Welcome aboard, Mina! Congratulations on your first day." → "What does our company do?" The answer reads
+   the company intro and the brief and lists the team skills: the company, her role, 3 skills, the handover offer and
+   Higgsfield. ("Yes, help me with the handover" has its own answer for a visitor who types it; not in the guide.)
+2. **DM from Sara** with the project link.
+3. **Project "November launch campaign"**: Leo's banner and his earlier chat. Two prompts: A "Make the title bigger
+   and use our brand colors" (reads the brand guide) and B "Make a new background with Higgsfield and put it in".
+4. **#Marketing**: the visitor shares the answer; Sara, Leo, Daniel (with `launch-banner-final.png`), Sara's Gmail line.
+5. **✦ side chat in #Marketing**: "Email this banner to Chris" or "Make it a bit more formal and send it". Each shows
+   the draft (to, subject, attachment, body), the card "Send this email with Gmail?" (Send / Make it more formal /
+   Cancel), then the sent line.
+6. **End card** after the mail. Free typing gets "This demo runs on suggested prompts" with the suggested prompts.
+
+The final file Daniel posts is version A (`finalAsset` in `story.ts`): the format cannot yet say "the banner the
+visitor made". If the engine learns that, use `banner-b.<locale>.png` after the `banner-b` answer.
+
+Banners are 1200×628 PNG, 256 colours, in Pretendard (SIL Open Font License 1.1, loaded from jsDelivr only while
+rendering; Leo's draft uses Arial on purpose). To render again, see the top of [`source/render.mjs`](source/render.mjs).

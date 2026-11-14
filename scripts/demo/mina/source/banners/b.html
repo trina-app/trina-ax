@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- Version B: version A's layout on the new background (assets/bg-b.png), the words in cream so they read on green. -->
-<html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="product.css">
+<html lang="{{lang}}"><head><meta charset="utf-8"><link rel="stylesheet" href="product.css">
 <style>
   body { background: #1F4D3A url(../../assets/bg-b.png) center / cover no-repeat; font-family: Pretendard, sans-serif; color: #F6F1E7; }
   .shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(12, 32, 23, .55) 0%, rgba(12, 32, 23, .25) 45%, rgba(12, 32, 23, 0) 65%); }
@@ -19,15 +19,15 @@
 </style></head>
 <body>
   <div class="shade"></div>
-  <div class="logo"><i></i>차곡</div>
+  <div class="logo"><i></i>{{brand}}</div>
   <div class="copy">
-    <div class="eyebrow">겨울 한정 · 11월 23일 출시</div>
-    <h1>겨울엔,<br>유자생강</h1>
-    <p class="sub">찬물에 넣어 두면 끝. 따뜻하게 우려도 좋아요.</p>
-    <div class="row"><div class="badge">출시 기념 20%<span>11.23 – 12.6</span></div><div class="btn">지금 만나보기 →</div></div>
+    <div class="eyebrow">{{eyebrow}}</div>
+    <h1>{{title}}</h1>
+    <p class="sub">{{sub}}</p>
+    <div class="row"><div class="badge">{{badge}}<span>{{badgeDates}}</span></div><div class="btn">{{cta}}</div></div>
   </div>
   <div class="product">
-    <div class="pouch"><div class="label"><div class="brand">차곡</div><div class="kind">COLD BREW TEA</div><div class="yuzu yuzu-mini"></div><div class="name">유자생강</div><div class="count">10개입</div></div></div>
+    <div class="pouch"><div class="label"><div class="brand">{{brand}}</div><div class="kind">{{pouchKind}}</div><div class="yuzu yuzu-mini"></div><div class="name">{{pouchName}}</div><div class="count">{{pouchCount}}</div></div></div>
     <div class="glass"><div class="bag"></div><div class="tag"></div><div class="yuzu slice"></div></div>
   </div>
 </body></html>
