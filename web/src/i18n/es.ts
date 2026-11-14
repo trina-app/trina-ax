@@ -92,6 +92,8 @@ export const es: Record<MessageKey, string> = {
   'conn.cantReachHint': "Revise su conexión a internet y vuelva a intentarlo en un momento.",
   'conn.now': "No hay conexión en este momento.",
   'conn.retrying': "Reconectando…",
+  'conn.waking': "Iniciando su equipo…",
+  'conn.wakingDetail': "Tarda alrededor de un minuto. Se abre sola cuando está lista.",
   'conn.loadFailed': "No se pudo cargar.",
   'conn.unsent': "No hay conexión, así que no se envió. Su mensaje sigue aquí.",
   "dev.banner": "Modo de desarrollo: sin aislamiento de cuentas del sistema operativo para producción. La IA se ejecuta como el usuario del sistema del servidor.",

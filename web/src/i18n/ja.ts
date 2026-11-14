@@ -92,6 +92,8 @@ export const ja: Record<MessageKey, string> = {
   'conn.cantReachHint': "インターネット接続を確認し、しばらくしてから再試行してください。",
   'conn.now': "いま接続できません。",
   'conn.retrying': "再接続中…",
+  'conn.waking': "チームを起動しています…",
+  'conn.wakingDetail': "1分ほどかかります。準備ができると自動で開きます。",
   'conn.loadFailed': "読み込めませんでした。",
   'conn.unsent': "いま接続できないため、送信できませんでした。メッセージはそのまま残っています。",
   "dev.banner": "開発モード：本番用のOSアカウント分離はありません。AIはサーバーのOSユーザーとして動作します。",

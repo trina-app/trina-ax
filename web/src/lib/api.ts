@@ -99,7 +99,11 @@ export const isApiError = (e: unknown, code?: ErrorCode): e is ApiError => e ins
  * the server's JSON. It passes by itself, so a list that could not be read tries again by itself
  * (components/LoadError.tsx). A reason the server gives (a quarantined file, the queue draining) is not this. */
 export const isConnectionError = (e: unknown) =>
-  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && e.body.params?.reason === undefined)
+  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && (e.body.params?.reason === undefined || isTeamWaking(e)))
+
+/** The relay says the team's server is starting after a pause (a free trial's server turns off when unused): not an
+ * error to fear. It is a connection error too (it passes by itself), but the words say "Starting your team". */
+export const isTeamWaking = (e: unknown) => e instanceof ApiError && e.status === 503 && e.body.params?.reason === 'team_waking'
 
 /**
  * Text for an error, in the UI language. Server messages are already in the user's language (tab 4), but before
