@@ -9,6 +9,7 @@
 // SHOTS_DIR=<folder>: both boxes with a pasted picture, 1440 light; the AI chat's box with three, 390 light.
 import fs from 'node:fs'
 import path from 'node:path'
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -45,6 +46,16 @@ async function shot(page: Page, name: string) {
   if (!process.env.SHOTS_DIR) return
   fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true })
   await page.screenshot({ path: path.join(process.env.SHOTS_DIR, name) })
+}
+
+/** No accessibility violation on the page with a picture attached (target size of its ✕ included), and its ✕ is a target of
+ * at least `min` px each way (24 on a computer, 44 on a phone). */
+async function noAxeViolations(page: Page, chip: Locator, min: number) {
+  const b = (await chip.getByRole('button', { name: 'image.png 빼기' }).boundingBox())!
+  expect(b.width).toBeGreaterThanOrEqual(min)
+  expect(b.height).toBeGreaterThanOrEqual(min)
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
+  expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([])
 }
 
 const WEB_PAGE = '<meta charset="utf-8"><img src="https://example.org/acme-logo.png" alt="acme">'
@@ -134,6 +145,7 @@ test("the AI chat's box: a pasted picture shows at once while it uploads, can be
   await showsPicture(chips.first())
   await expect.poll(() => held.length).toBe(1)
   await shot(page, 'chat-composer-pasted-1440-light.png')
+  await noAxeViolations(page, chips.first(), 24)
 
   await paste(page, { html: WEB_PAGE })
   await expect(chips).toHaveCount(2)
@@ -169,7 +181,7 @@ test("the AI chat's box on a phone: three pasted pictures fit one row, each ✕ 
   expect(new Set(boxes.map((b) => Math.round(b.y))).size).toBe(1)
   const composer = (await page.getByTestId('composer').boundingBox())!
   expect(boxes[2]!.x + boxes[2]!.width).toBeLessThan(composer.x + composer.width)
-  // each ✕ takes a tap around its dot, 44 px tall on a phone (36 px on a computer): 20 px above and below its centre,
+  // each ✕ takes a tap around its dot, 44 px tall on a phone (24 px on a computer): 20 px above and below its centre,
   // 16 px to its left, inside the box
   for (let i = 0; i < 3; i++) {
     const x = chips.nth(i).getByRole('button', { name: 'image.png 빼기' })
@@ -183,6 +195,7 @@ test("the AI chat's box on a phone: three pasted pictures fit one row, each ✕ 
     }
   }
   await shot(page, 'chat-composer-3-pictures-390-light.png')
+  await noAxeViolations(page, chips.first(), 44)
 
   // the ✕ of one picture takes out that one only (each is drawn from its own file)
   const srcs = () => chips.getByTestId('chip-thumb').evaluateAll((all) => all.map((i) => i.getAttribute('src')))
