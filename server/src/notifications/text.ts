@@ -51,6 +51,13 @@ export const TEXT = {
     en: 'Trina replied in your chat.',
     id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.', zh: 'Trina在你的对话中回复了。',
   },
+  // someone shared a chat with me by name: who stays in the app (an iPhone with the notification extension shows the
+  // name: CHAT_SHARED_BY), never the chat's title (the push gateway has the same words: push-gateway/src/text.ts)
+  'chat.shared': {
+    ko: '누군가 채팅을 공유했어요.',
+    en: 'Someone shared a chat with you.',
+    id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
+  },
   // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
   // gateway has the same words: push-gateway/src/text.ts)
   'room_app.paused': {
@@ -59,6 +66,11 @@ export const TEXT = {
     id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
   },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
+/** The line under the sharer's name (the title) when an iPhone's notification extension names them
+ * (notifications/chat-shares.ts chatShareLabel). Never the chat's title. */
+export const CHAT_SHARED_BY: Record<Locale, string> = {
+  ko: '채팅을 공유했어요.', en: 'Shared a chat with you.', id: 'Membagikan obrolan dengan Anda.', ja: 'チャットを共有しました。', es: 'Compartió un chat con usted.', zh: '与你共享了一个对话。',
+}
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído', zh: '标为已读' }
 /** a phone whose notifications another person's live session gets (push-service.ts registerDevice): never says who */
@@ -103,6 +115,7 @@ export function pushMessages(locale: Locale) {
     'owner.lead_joined': TEXT['owner.lead_joined'][locale],
     'owner.reauth_locked': TEXT['owner.reauth_locked'][locale],
     'chat.answer_done': TEXT['chat.answer_done'][locale],
+    'chat.shared': TEXT['chat.shared'][locale],
     'room_app.paused': TEXT['room_app.paused'][locale],
-  }, markRead: MARK_READ[locale] }
+  }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }

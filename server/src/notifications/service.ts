@@ -208,12 +208,17 @@ export class Notifications {
   /** Someone shared a chat with this person (chat/people-share.ts): by name (`named`) or through a group. The source is
    * the chat.audience audit row's id; the chat and who shared it are kept to name them when the notice is read (only
    * while the reader still sees the chat). At most one a day per chat and person (re-adds make no second notice). Shown
-   * always; never pushed for now. */
+   * always. A share by name is also pushed to the person's devices (push-service.ts, notifications/chat-shares.ts) while
+   * their "Chats shared with me" is on; a group's people get the Inbox row alone. The same day's unread row from a group
+   * share becomes a share by name (and its sharer the one who named them) when someone then adds the person by name:
+   * still one notice, now pushed. */
   chatShared(userId: string, auditId: string, chatId: string, byUser: string, named: boolean, at = new Date().toISOString()) {
     if (!this.active(userId) || at < this.cutoff()) return
     const r = this.ctx.db.query(`INSERT INTO chat_share_notices(id,user_id,event_type,source_id,chat_id,by_user,named,day,created_at,suppressed)
       VALUES(?,?,'chat.shared',?,?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, auditId, chatId, byUser, named ? 1 : 0, at.slice(0, 10), at)
-    if (r.changes) this.signal(userId)
+    if (r.changes) { this.signal(userId); return }
+    if (named) this.ctx.db.query(`UPDATE chat_share_notices SET named=1, by_user=? WHERE user_id=? AND chat_id=? AND day=? AND named=0 AND read_at IS NULL AND suppressed=0`)
+      .run(byUser, userId, chatId, at.slice(0, 10))
   }
   /** A member asked to add an app the team has not set up (integrations/service-requests.ts): one notice per owner or
    * admin and app (the source is the app's id). A new ask arms it again (unread, its time now: it moves up and names
@@ -592,7 +597,8 @@ export class Notifications {
     // else "no longer shared with you", no title and no link
     if (row.event_type === 'chat.shared') {
       const n = this.ctx.db.query('SELECT chat_id, by_user FROM chat_share_notices WHERE id = ?').get(row.id) as { chat_id: string; by_user: string | null } | null
-      const u = n?.by_user ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(n.by_user) as { name: string } | null : null
+      // the sharer while their account is there and switched on (the same rule as the push label, chat-shares.ts sharerName)
+      const u = n?.by_user ? this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(n.by_user) as { name: string } | null : null
       const c = n ? this.ctx.db.query('SELECT id, user_id, title, project_id, people_shared_at, deleted_at, room_id FROM chats WHERE id = ?').get(n.chat_id) as { id: string; user_id: string; title: string; project_id: string | null; people_shared_at: string | null; deleted_at: string | null; room_id: string | null } | null : null
       const sees = !!c && !c.deleted_at && !c.room_id && isPeopleRow(c) && inPeopleAudience(this.ctx.db, c, row.user_id)
       const title = sees ? plainLabel(redactorFor(this.ctx, c!.user_id).hide(c!.title || '')) : null

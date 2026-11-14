@@ -4171,6 +4171,8 @@ export const en: Record<MessageKey, string> = {
   "notifications.mutedRoomsDesc": "Turn them back on here, or pick a level for each.",
   "notifications.chatAnswers": "AI chat answers",
   "notifications.chatAnswersDesc": "When an answer you asked for is ready or Trina needs you, and you are not looking at that chat.",
+  "notifications.chatShares": "Chats shared with me",
+  "notifications.chatSharesDesc": "A notification on your phone or browser when someone shares a chat with you by name. Shares through a group show only in Activity.",
   "notifications.section.phone": "Phone",
   "notifications.phoneAway": "Phone notifications only when I'm away",
   "notifications.phoneAwayDesc": "While you're using Trina, notifications show there, not on your phone. Your phone gets them when you're away from Trina on your computer. Off: your phone gets them at once too.",

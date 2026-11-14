@@ -7,7 +7,7 @@ type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'room_app.paused', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
@@ -28,6 +28,13 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
     ko: '트리나가 대화에 답했어요.',
     en: 'Trina replied in your chat.',
     id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.', zh: 'Trina在你的对话中回复了。',
+  },
+  // someone shared a chat with the person by name; older team servers never send it. An iPhone app with the notification
+  // extension asks its own team for who (never the chat's title) and shows that instead (apns.ts mutableCode)
+  'chat.shared': {
+    ko: '누군가 채팅을 공유했어요.',
+    en: 'Someone shared a chat with you.',
+    id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
   },
   // an app in a room the person manages paused for the day; older team servers never send it
   'room_app.paused': {

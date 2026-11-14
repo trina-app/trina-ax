@@ -27111,7 +27111,8 @@ phase 4.
   from the computer is refused in a people-shared chat (`Chat.shared.canUpload` false) and earlier uploads stay their
   sender's alone, as in a shared project chat; no folder-rule exception anywhere. Push for adds by name and the
   `chatShared` preference: the push gateway and the phone extension need the new code first, so this phase records the
-  Inbox notice only (nothing is pushed).
+  Inbox notice only (nothing is pushed). Done in feat/shared-chats-push: "Chats shared with me: a push that names the
+  sharer".
 - Version impact: **minor**.
 
 ## Chats shared with people and groups: the Share dialog (feat/shared-chats-p4, 2026-11-14, product owner)
@@ -27552,3 +27553,36 @@ guides, "Apps posting here") are phase 2.
     live-tool check of TC-1546 first).
   - Tests: web/test/unit/room-apps.test.ts, web/test/e2e/room-apps.spec.ts (1440 and 390), web/test/e2e/shots-room-apps.spec.ts
     (ROOM_APPS_SHOTS).
+
+## Chats shared with me: a push that names the sharer — 나에게 공유된 채팅 알림 (feat/shared-chats-push, 2026-11-14, product owner)
+
+QA TC-1414; follows "Chats shared with people and groups" (#821). 넣을 곳: Team AX core (`server/src/notifications/`,
+`push-gateway/`, the iPhone notification extension, `web/pwa/sw.js`, Settings › Notifications), 이유: notifications
+and the phone push are core.
+
+- **Who gets a push.** A person a chat is shared with **by name** (`chat_share_notices.named = 1`). A group's people get
+  the Activity row alone. The notice is the Inbox's (still at most one a day per chat and person), so a person gets at
+  most one push a day per chat. Someone first reached through a group, taken out, then named on the same day: that
+  day's unread row becomes a share by name (its sharer the one who named them) and is pushed once.
+- **When.** Like every push: only while the notice is unread, the person still sees the chat
+  (`chat-answers.ts chatOpenFor`), outside their quiet hours at send time (a push that waits or retries into them is
+  dropped, as a room notice's), "Phone notifications only when I'm away" for the phone app, and push turned on.
+- **Setting.** Settings › Notifications "Chats shared with me" (`chatShares`, `notification_preferences.chat_shares`,
+  default on). Off: no push, and what waits is cancelled; the Activity row stays (`eventEnabled('chat.shared')` stays
+  true; the push asks `pushEventEnabled`). A server from before it leaves the field out, so the page shows no row.
+- **Event code `chat.shared`** (already the Inbox's), its own deliveries table `chat_share_push_deliveries`
+  (migration 351, additive). The push carries ids and the code only; a tap opens `/c/<chatId>` while the person still
+  sees the chat, else the app's start page.
+- **The name.** The gateway never sees a name. Its generic line for `chat.shared` is "Someone shared a chat with you."
+  and the APNs payload is mutable for this code too, so the iPhone notification extension asks its own team
+  (`POST /api/push/devices/:id/label`, same key and checks as a room push) and shows the sharer's name as the title and
+  "Shared a chat with you." under it. Never the chat's title. A browser push names the sharer from the signed-in fetch
+  of the notice (`/api/push` `messages.chatSharedBy`).
+- **Older parts.** An older gateway shows its `chat.*` fallback ("You have a new message") with no mutable flag; an
+  older iPhone build's extension ignores the code and shows the gateway's line; Android always shows the gateway's
+  line (it has no extension; the same as room pushes); an older browser service worker drops the code (no
+  notification). A tap works on every phone build (the path is ids only). Nothing in the gateway's contract changed,
+  so the team server and the gateway deploy independently.
+- Tests: tests/unit/b-chat-share-push.test.ts (by name, group, same-day, setting, quiet hours, removed share, read,
+  label words), push-gateway.test.ts (text, mutable), mobile-labels.test.ts, push-locale.test.ts, b-rooms-notify.test.ts.
+- Version impact: **minor**.

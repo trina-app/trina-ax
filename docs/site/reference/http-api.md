@@ -390,7 +390,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `DELETE` | `/api/push/subscriptions/:id` | Signed in | Remove an own current-session subscription. |
 | `POST` | `/api/push/devices` | Signed in | The phone app registers its device token for this login session; delivered through the push gateway. Returns a key the app keeps to remove the device later. |
 | `POST` | `/api/push/devices/:id/remove` | Anyone | The phone app removes its device when the person switches team, with the key it got at registration (no session needed; always 204). |
-| `POST` | `/api/push/devices/:id/label` | Anyone | The iPhone app's notification extension asks for the title of a room push it received (who and where, never the text), with the label key whose hash came with its registration (no session; an empty answer for every failure). |
+| `POST` | `/api/push/devices/:id/label` | Anyone | The iPhone app's notification extension asks for the title of a room push it received (who and where, never the text) or of a chat shared with the person by name (who shared it, never the chat's title), with the label key whose hash came with its registration (no session; an empty answer for every failure). |
 | `DELETE` | `/api/push/devices/:id` | Signed in | Remove this session's phone app device. |
 | `GET` | `/api/admin/push-gateway` | Admin | Where phone notifications go: the default gateway, off or the team's own, and whether the server's config sets it (read-only then). |
 | `PUT` | `/api/admin/push-gateway` | Admin | Choose where phone notifications go; an own address is saved only when its /health answers {"ok":true}. Refused while the server's config sets it. Audited. |
