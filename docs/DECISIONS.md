@@ -27249,6 +27249,16 @@ guides, "Apps posting here") are phase 2.
   `allowFrom` while the team has at least one app; https is still required, and unknown tokens there get 10 a minute.
 - **Not in phase 1:** the web screens and their i18n (phase 2), the paused notice's push, the "Admin › Connection" line
   about the exemption, email in and the mailbox (phase 5), a daily digest (owner decision 2).
+- **Paused push (phase 3).** The `room_app.paused` notice also goes to phones and browsers through the normal push
+  pipeline, if the person allows push: it is a PushEventType now, with its own deliveries (`room_app_push_deliveries`,
+  migration `351_c_room_app_push.sql`, numbered in C because B's 200–299 is full; push-service.ts SOURCES). No switch
+  of its own, like `owner.lead_joined`: pushed while the notice is unread, the app is still there and still paused
+  (`paused_until` after now; "Resume now" also marks the notices read) and the person is still in its room
+  (`rooms/apps/notice.ts` roomAppPushWanted, asked before and after each send). Generic words only, never the app's or
+  the room's name: "An app in a room was paused for today." (server `notifications/text.ts` and push-gateway
+  `EVENT_TEXT` the same). A tap opens `/rooms/<roomId>` while the person is still in the room and it is not archived
+  (push-events.ts; the web worker takes the id from the signed-in notice's `roomApp.roomId`), else the start page /
+  the Inbox. Tests: tests/unit/b-room-app-push.test.ts, push-worker.test.ts, push-gateway.test.ts, push-locale.test.ts.
 - Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts; tests/security/lib/room-apps-cases.ts.
 
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)

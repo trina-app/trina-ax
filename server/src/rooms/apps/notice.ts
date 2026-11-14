@@ -22,3 +22,26 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
     day, cap: ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
   }
 }
+
+/** The notice's app and its room while the person is still in that room and it is not archived (ids only: it runs inside
+ * the push service). Null: no such notice, the app removed, the person out of the room or the room archived. */
+function noticeApp(ctx: AppContext, notificationId: string): { room_id: string; paused_until: string | null } | null {
+  const n = ctx.db.query('SELECT user_id, source_id FROM room_app_notices WHERE id = ?').get(notificationId) as { user_id: string; source_id: string } | null
+  const appId = n && /^(.+)\.\d{4}-\d{2}-\d{2}$/.exec(n.source_id)?.[1]
+  if (!n || !appId) return null
+  return ctx.db.query(`SELECT a.room_id, a.paused_until FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
+    JOIN room_members m ON m.room_id = a.room_id AND m.user_id = ? WHERE a.id = ?`).get(n.user_id, appId) as { room_id: string; paused_until: string | null } | null
+}
+/** The paused push (migration 351, room_app_push_deliveries), asked before and after each send
+ * (notifications/push-service.ts SOURCES wanted): the app is still there and still paused ("Resume now" clears
+ * paused_until, the team's midnight passes it) and the person is still in its room. */
+export function roomAppPushWanted(ctx: AppContext, notificationId: string, now = Date.now()): boolean {
+  const a = noticeApp(ctx, notificationId)
+  return !!a?.paused_until && Date.parse(a.paused_until) > now
+}
+/** A tap opens the app's room (/rooms/<roomId>) while the person is still in it; else the app's start page
+ * (notifications/push-events.ts). */
+export function roomAppPushPath(ctx: AppContext, notificationId: string): string | null {
+  const a = noticeApp(ctx, notificationId)
+  return a ? `/rooms/${a.room_id}` : null
+}
