@@ -14,9 +14,17 @@
 // |          |                                                           | "whsec_…" string                                 |
 // | zendesk  | X-Zendesk-Webhook-Signature "<b64>" +                     | HMAC-SHA256(secret, timestamp + raw) base64; the |
 // |          | X-Zendesk-Webhook-Signature-Timestamp                     | timestamp ISO-8601 or Unix seconds, ≤ 5 min off  |
+// | standard | webhook-id, webhook-timestamp, webhook-signature          | Standard Webhooks: HMAC-SHA256(base64-decoded    |
+// |          | "v1,<b64> v1,<b64>"                                       | secret after whsec_, id + "." + ts + "." + raw), |
+// |          |                                                           | any v1, |now − ts| ≤ 5 min (PortOne V2)          |
+// | toss     | tosspayments-webhook-signature "v1:<b64>[,v1:<b64>]" +    | HMAC-SHA256(secret, raw + ":" + time) base64,    |
+// |          | tosspayments-webhook-transmission-time                    | any v1, ≤ 5 min off; the key as text or its hex  |
+// |          |                                                           | bytes (undocumented) (Toss Payments)             |
+// | url-token| ?token=<the service's token> on the Webhook URL           | the saved token equals the query value (Channel  |
+// |          |                                                           | Talk; no HMAC). Compared as SHA-256 digests      |
 import crypto from 'node:crypto'
 
-export type SignatureScheme = 'hex-body' | 'b64-body' | 'b64-json' | 'stripe' | 'zendesk'
+export type SignatureScheme = 'hex-body' | 'b64-body' | 'b64-json' | 'stripe' | 'zendesk' | 'standard' | 'toss' | 'url-token'
 /** How far a signed timestamp (Stripe, Zendesk) may be from now. */
 export const SIGNATURE_TOLERANCE_MS = 5 * 60_000
 
@@ -29,12 +37,14 @@ export interface SignatureInput {
   /** hex-body / b64-body: the header that carries it, and the prefix it starts with ("sha256=") */
   header?: string
   prefix?: string
+  /** url-token: the request's query (never logged: http/middleware.ts loggablePath drops it on /in/) */
+  query?: URLSearchParams
 }
 /** ok: the signature matched. `json`: for b64-json, the parsed body that was verified (the card must be built from
  * it, never from a second parse of the raw bytes). */
 export type SignatureResult = { ok: true; json?: unknown } | { ok: false }
 
-const hmac = (secret: string, ...parts: (string | Uint8Array)[]) => {
+const hmac = (secret: string | Buffer, ...parts: (string | Uint8Array)[]) => {
   const h = crypto.createHmac('sha256', secret)
   for (const p of parts) h.update(p)
   return h.digest()
@@ -118,5 +128,58 @@ export function verifySignature(scheme: SignatureScheme, i: SignatureInput): Sig
       if (at === null || Math.abs(i.now - at) > SIGNATURE_TOLERANCE_MS) return { ok: false }
       return { ok: same(hmac(i.secret, ts, i.raw), fromB64(given)) }
     }
+    case 'standard': {
+      // https://www.standardwebhooks.com/ (PortOne V2): the secret is "whsec_" + base64 of the key
+      const id = headerOf(i.headers, 'webhook-id')
+      const ts = headerOf(i.headers, 'webhook-timestamp')
+      const sigs = headerOf(i.headers, 'webhook-signature')
+      if (!id || id.length > 200 || !ts || !/^\d{1,12}$/.test(ts) || !sigs) return { ok: false }
+      if (Math.abs(i.now - Number(ts) * 1000) > SIGNATURE_TOLERANCE_MS) return { ok: false }
+      const key = standardKey(i.secret)
+      if (!key) return { ok: false }
+      const want = hmac(key, `${id}.${ts}.`, i.raw)
+      let ok = false
+      for (const part of sigs.split(' ').slice(0, 20)) {
+        const [v, sig] = part.split(',', 2)
+        if (v === 'v1' && sig) ok = same(want, fromB64(sig)) || ok
+      }
+      return { ok }
+    }
+    case 'toss': {
+      const sigs = headerOf(i.headers, 'tosspayments-webhook-signature')
+      const time = headerOf(i.headers, 'tosspayments-webhook-transmission-time')
+      if (!sigs || !time || time.length > 40) return { ok: false }
+      const at = parseSignedTime(time) ?? Date.parse(time)
+      if (!Number.isFinite(at) || Math.abs(i.now - at) > SIGNATURE_TOLERANCE_MS) return { ok: false }
+      // the security key is 64 hex characters; whether Toss keys the HMAC with the text or its bytes is not documented
+      // (live check): both are tried, each from the same saved secret
+      const keys: (string | Buffer)[] = [i.secret]
+      if (/^[0-9a-fA-F]{64}$/.test(i.secret)) keys.push(Buffer.from(i.secret, 'hex'))
+      const wants = keys.map((k) => hmac(k, i.raw, `:${time}`))
+      let ok = false
+      for (const part of sigs.split(',').slice(0, 20)) {
+        const p = part.trim()
+        if (!p.startsWith('v1:')) continue
+        const given = fromB64(p.slice(3))
+        for (const w of wants) ok = same(w, given) || ok
+      }
+      return { ok }
+    }
+    case 'url-token': {
+      const given = i.query?.getAll('token') ?? []
+      // exactly one token; compared as digests (equal length, constant time)
+      if (given.length !== 1 || !given[0]) return { ok: false }
+      const d = (s: string) => crypto.createHash('sha256').update(s).digest()
+      return { ok: crypto.timingSafeEqual(d(i.secret), d(given[0])) }
+    }
   }
+}
+
+/** Standard Webhooks' key: the base64 after "whsec_" (PortOne's SDK takes it with or without the prefix; at least 16
+ * bytes), else null. */
+export function standardKey(secret: string): Buffer | null {
+  const m = /^(?:whsec_)?([A-Za-z0-9+/]+={0,2})$/.exec(secret.trim())
+  if (!m) return null
+  const b = Buffer.from(m[1]!, 'base64')
+  return b.length >= 16 ? b : null
 }

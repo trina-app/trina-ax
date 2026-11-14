@@ -27984,3 +27984,66 @@ part. The picker groups, guides, logos and the Slack words in the web app come i
 - Tests: tests/unit/b-room-apps-presets.test.ts (incl. the quote-injection fixture), b-room-app-signatures.test.ts;
   tests/security/lib/room-apps-cases.ts (no_signing, preset fixed).
 - Version impact: **minor**.
+
+## Apps in rooms: Jira, HubSpot and more services — 방 앱: Jira, HubSpot, 다른 서비스 (feat/room-apps-presets-p4, 2026-11-15, the owner, QA TC-1634)
+
+Plan: docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md (revision 2), phase 4. Builds on "Apps in rooms: presets
+and JANDI" (#854) and its web PR. No migration: presets are `room_apps.preset` (401). Vendor facts checked 2026-11-15
+(sources in each `server/src/rooms/apps/presets/*.ts` header and the PR).
+
+- **Presets** `jira`, `hubspot`, `toss_payments`, `channel_talk`, `portone` (shared `RoomAppPreset`). Picker: Jira and
+  HubSpot under Work; the three regional ones behind **Show more services** (collapsed, the same list for everyone, no
+  language or country logic; open from the start when the room has one already). Logos: initials ("Ji", "H", "TP",
+  "CT", "PO"): Atlassian and HubSpot ask for permission before their marks are used, and none of the three regional
+  marks is in a free set with terms we could check.
+- **Clients tolerate a preset they don't know.** `RoomApp.preset`, `RoomAppRef.preset` and the paused notice's preset
+  are `RoomAppPreset.optional().catch(undefined)` (`RoomAppPresetSeen`), as `textSize` is: the shared API client
+  parses every answer with zod, so a desktop app one version behind its server would otherwise fail the whole room
+  list on a new preset (this phase, then `email`). No released client has the strict enum yet (#854 is on dev only).
+- **Jira** (automation "Send web request", custom body `roomAppJiraBody(event)`): one flow per trigger ("Work item
+  created", "Work item transitioned", optional "Work item commented"), each body naming it in `event` (Jira has no
+  documented smart value for the trigger; `{{triggerType}}` was not found). Smart values are pasted as they are, so
+  every person-written one goes through `.jsonEncode` (escapes, adds no quotes: `"title":"{{issue.summary.jsonEncode}}"`;
+  the status name too). Same care as Zendesk after #854's review: a body that names a template key twice (also via
+  `\uXXXX`) is refused, 400; the link is only `https://<site>.atlassian.net/browse/<the same key>`, the site pinned on
+  first sight (`preset_pin`). Thread `issue:<key>`; transitions edit the status line and join the thread, comments
+  join it (off by default). Dedupe: the body's hash and key + event + what the card shows, 10 minutes. No signature.
+  Needs: space admin.
+- **HubSpot** (workflow "Data ops › Send a webhook", Data Hub Professional or Enterprise): "Customize request body"
+  with keys the guide lists per object (`object` static deal / contact / ticket, `id` = Record ID, then name, amount,
+  stage…); "Include all properties" is read too by HubSpot's internal names (shape a live check). Never shown: email,
+  phone or any other property; a contact shows name and company. Thread `<object>:<id>`, the stage on the status line.
+  The record link (`app.hubspot.com/contacts/<portal>/record/<0-1|0-3|0-5>/<id>`) only when the body names the
+  account (`portal` / `portalId`), pinned on first sight. No signature: HubSpot signs with an app's secret only.
+- **Toss Payments**: `PAYMENT_STATUS_CHANGED` and `DEPOSIT_CALLBACK` (other event types read and skipped). Card: the
+  amount, the order's name, the method, the order id; never the card number, virtual account, phone, cash receipt,
+  `secret` or `metadata`. Thread `order:<orderId>`; DONE only changes the status line of an order's card that is there
+  (a transfer reported by both events shows once); cancels join the thread. Switches `payment`, `cancelled` on;
+  `waiting` (virtual account), `failed` (aborted, expired) off. Dedupe eventType + orderId + status + createdAt.
+  Optional signature `toss` (`v1:<b64>` over `raw + ":" + transmission-time`, ≤ 5 min): the security key is 64 hex
+  characters and Toss does not say whether the HMAC key is the text or its bytes, so both are tried; it also does not
+  say which events are signed, so the guide says to take the key away if payments stop showing (live check).
+- **Channel Talk**: `userChat` (a card "New chat from <name>" with its first message; later changes only the status
+  line) and `message` (a customer's message, or with `manager_message` on the team's reply, in the chat's thread;
+  bots skipped). Group chats and DMs of the team (`chatType` other than `userChat`) and `user` events are skipped.
+  Only the customer's name is read from `refers.user` (it carries email, phone and location). Dedupe on the message
+  id; chat changes on the body hash and chat + state for 10 minutes. Optional `url-token`: Channel Talk adds
+  `?token=<its token>` to the URL; once saved, exactly one matching `token` is required (compared as SHA-256 digests).
+  Its length is undocumented, so 8 characters are taken. `/in/` query strings were already never logged (#854).
+- **PortOne V2**: the 2024-04-25 body (`type: Transaction.*`, `data.paymentId`) and the 2024-01-01 one (`status`,
+  `payment_id`). The body has no amount or name: the card is "Payment <id>" and its state. `Transaction.Paid` after a
+  virtual account only changes the status line. Other types (Ready, PayPending, CancelPending, disputes, BillingKey.*)
+  skipped. Dedupe `webhook-id`, else type + id + timestamp. Optional `standard` signature (Standard Webhooks: HMAC of
+  `id.timestamp.raw` with the base64-decoded key, `whsec_` prefix optional as PortOne's SDK, ≤ 5 min, any `v1`).
+- **Secrets**: Jira and HubSpot 400 `no_signing`; Toss 64 hex, PortOne base64 (16+ bytes) with or without `whsec_`,
+  Channel Talk 8-200 printable. A saved one makes unsigned or wrong requests 401, as every preset.
+- **Not done in this phase** (plan): Zapier and Make stay the P1 how-tos; no links on regional cards (no documented
+  dashboard address for one payment or chat).
+- **Still to check live** (TC-1634): Jira's field labels ("Web request body" › "Custom data"), `.jsonEncode` on
+  Cloud and the 2026 step limits; HubSpot's all-properties body and whether it carries the account id; which Toss
+  events are signed and how the key is used; Channel Talk's token in its UI, Korean labels and a desk link; PortOne's
+  default webhook version and where the secret shows.
+- Tests: tests/unit/b-room-apps-presets-p4.test.ts (fixtures under tests/fixtures/room-apps/{jira,hubspot,
+  toss_payments,channel_talk,portone}), web/test/unit/room-apps.test.ts, tests/security/lib/room-apps-cases.ts (Jira
+  and HubSpot no_signing).
+- Version impact: **minor**.

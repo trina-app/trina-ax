@@ -12,7 +12,7 @@ type Kind = 'sentry' | 'github' | 'google_forms' | 'other'
 export interface MockApp {
   id: string; roomId: string; kind: Kind; preset?: RoomAppPreset; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
-  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true
+  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true; eventsSeen?: string[]
 }
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },
@@ -21,7 +21,7 @@ const SWITCHES: Record<Kind, Record<string, boolean>> = {
   other: { message: true },
 }
 const NAMES: Record<Kind, string> = { sentry: 'Sentry', github: 'GitHub', google_forms: 'Google Forms', other: 'Other app' }
-const PRESET_NAMES: Record<RoomAppPreset, string> = { notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk' }
+const PRESET_NAMES: Record<RoomAppPreset, string> = { notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk', jira: 'Jira', hubspot: 'HubSpot', toss_payments: 'Toss Payments', channel_talk: 'Channel Talk', portone: 'PortOne' }
 
 /** An Other app set up as a preset (kind 'other' + preset), with the preset's switches and name. */
 export function mockPreset(preset: RoomAppPreset, o: Partial<MockApp> = {}): MockApp {
@@ -88,7 +88,8 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       const signing = app.preset ? ROOM_APP_PRESET_SIGNING[app.preset] : null
       if (signing?.signing === 'none') return route.fulfill(json({ error: { code: 'validation', message: 'This service cannot sign.', params: { reason: 'no_signing' } } }, 400))
       if (b.secret && !app.preset && !/^[0-9a-f]{64}$/i.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: "That doesn't look like a Sentry Client Secret." } }, 400))
-      if (b.secret && app.preset === 'stripe' && !/^whsec_[A-Za-z0-9+/=_-]{16,200}$/.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: "That doesn't look like Stripe's signing secret." } }, 400))
+      // the shape the server checks (shared ROOM_APP_PRESET_SIGNING), with its words
+      if (b.secret && signing?.signing === 'paste' && signing.shape && !signing.shape.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: `That doesn't look like ${PRESET_NAMES[app.preset!]}'s signing secret.` } }, 400))
       app.signed = b.secret !== null
       return route.fulfill(json({ app, ...(b.generate ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) }))
     }

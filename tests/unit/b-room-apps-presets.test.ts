@@ -109,7 +109,7 @@ test('preset rules: only for Other, fixed at create (no PATCH), the vendor name 
   expect((await messages()).at(-1).app).toMatchObject({ kind: 'other', preset: 'stripe', name: 'Stripe' })
   // a preset this build does not know (a newer build's row): 400 without a secret, 401 with one; never read as Other
   const z = await add(null, 'Future')
-  h.ctx.db.query("UPDATE room_apps SET preset = 'portone' WHERE id = ?").run(z.app.id)
+  h.ctx.db.query("UPDATE room_apps SET preset = 'future_service' WHERE id = ?").run(z.app.id)
   expect((await post(z.token, JSON.stringify({ text: 'hi' }))).status).toBe(400)
   const list = (await owner.call('GET', `/api/rooms/${all}/apps`)).items as any[]
   expect(list.find((x) => x.id === z.app.id).preset).toBeUndefined()

@@ -64,3 +64,11 @@ export function fileName(u: unknown): string {
   if (typeof u !== 'string') return ''
   try { const p = new URL(u).pathname.split('/').filter(Boolean).pop() ?? ''; return line(decodeURIComponent(p), 120) } catch { return line(u.split('/').pop() ?? '', 120) }
 }
+
+/** A flat template body (Zendesk, Jira): true when its raw text names any of the template's keys more than once, also
+ * written with \uXXXX escapes ("id" is "id"). JSON.parse keeps the last of two equal keys, so text an outsider
+ * wrote that closes its quote and adds `"key":…` would otherwise win: such a body is refused. */
+export function duplicateKey(text: string, keys: readonly string[]): boolean {
+  const plain = text.replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+  return keys.some((k) => (plain.match(new RegExp(`"${k}"\\s*:`, 'g')) ?? []).length > 1)
+}

@@ -327,8 +327,8 @@ export class RoomApps {
     if (!canSign || unknownPreset) fail('validation', appText('noSecretForKind', locale), { fields: { body: 'this app takes no secret' }, params: { reason: 'no_signing' } })
     let secret: { secret: string; made: boolean } | null
     if ('generate' in b) {
-      // a secret Trina makes is for a service with a field to paste it in (GitHub, Typeform, Tally); Stripe, Shopify and
-      // Zendesk make their own, so one made here could never match
+      // a secret Trina makes is for a service with a field to paste it in (GitHub, Typeform, Tally); Stripe, Shopify,
+      // Zendesk, Toss Payments, Channel Talk and PortOne make their own, so one made here could never match
       if (signing?.signing === 'paste' || row.kind === 'sentry') fail('validation', undefined, { fields: { 'body.generate': 'this service makes its own secret: paste it' } })
       secret = { secret: newSecret(), made: true }
     } else if (b.secret === null || b.secret === '') secret = null
@@ -339,7 +339,9 @@ export class RoomApps {
       if (preset && signing?.signing === 'paste' && signing.shape && !signing.shape.test(v)) fail('validation', appText('presetSecretShape', locale, { app: ROOM_APP_PRESET_NAMES[preset] }), { fields: { 'body.secret': `not a ${ROOM_APP_PRESET_NAMES[preset]} signing secret` } })
       if (preset === 'zendesk' && v === ZENDESK_TEST_SECRET) fail('validation', appText('zendeskTestSecret', locale), { fields: { 'body.secret': "Zendesk's public test secret" } })
       if (v.length > 200 || /[^\x21-\x7e]/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'printable characters only' } })
-      if (v.length < 16 || /\s/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'at least 16 characters, no spaces' } })
+      // Channel Talk's webhook token: its length is not documented (live check), so a shorter one is taken
+      const min = preset === 'channel_talk' ? 8 : 16
+      if (v.length < min || /\s/.test(v)) fail('validation', undefined, { fields: { 'body.secret': `at least ${min} characters, no spaces` } })
       secret = { secret: v, made: ROOM_APP_SECRET_RE.test(v) }
     }
     const token = this.tokenOf(row)
