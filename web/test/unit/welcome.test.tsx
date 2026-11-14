@@ -1068,8 +1068,8 @@ describe('the later steps and the end', () => {
       // no pack skill stands in for the skill: never the deck, never an old 할 일 정리
       expect(called('POST /api/admin/team-link').map((c) => c.body)).toEqual([{ groupIds: [TEAM.id], expiresInDays: 14 }])
       expect(m.get('invite-step').querySelector('h2')?.textContent).toBe('팀원을 초대해요')
-      expect(m.get('team-link-message').textContent).not.toContain('스킬을 같이 써 보자고')
-      expect(m.get('team-link-message').textContent).not.toContain('회사 소개서')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).not.toContain('스킬을 같이 써 보자고')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).not.toContain('회사 소개서')
       expect(m.find('team-link-create')).toBeNull()
       await m.click('invite-step-done')
       // 준비 끝났어요: no deck line, no kept skill in the team (only an own one, not shared): 홈으로 the one primary
@@ -1131,7 +1131,7 @@ describe('the later steps and the end', () => {
     try {
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('POST /api/admin/team-link').map((c) => c.body)).toEqual([{ groupIds: [TEAM.id], expiresInDays: 14, skillPath: QUOTE_SKILL }])
-      expect(m.get('team-link-message').textContent).toContain("'견적서 쓰기' 스킬을 같이 써 보자고 해요")
+      expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("'견적서 쓰기' 스킬부터 같이 써 봐요")
       await m.click('invite-step-done')
       await m.until(() => m.find('welcome-done'), 'the end screen')
       await m.until(() => m.get('welcome-done-try').textContent === "'견적서 쓰기' 먼저 써 보기", 'the skill named')
@@ -1179,7 +1179,7 @@ describe('the later steps and the end', () => {
     try {
       await m.until(() => m.find('team-link-message'), 'the invite')
       expect(called('POST /api/admin/team-link').map((c) => c.body.skillPath)).toEqual([undefined])
-      expect(m.get('team-link-message').textContent).not.toContain('주간 업무 보고')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).not.toContain('주간 업무 보고')
       await m.click('invite-step-done')
       await m.until(() => m.find('welcome-done'), 'the end screen')
       expect(m.get('welcome-done').textContent).not.toContain('회사 소개서')
@@ -1431,8 +1431,8 @@ describe('the later steps and the end', () => {
     try {
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('POST /api/admin/team-link').map((c) => c.body.skillPath)).toEqual([weekly])
-      expect(m.get('team-link-message').textContent).toContain("'주간 업무 보고' 스킬을 같이 써 보자고 해요")
-      expect(m.get('team-link-message').textContent).not.toContain('견적서 초안')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("'주간 업무 보고' 스킬부터 같이 써 봐요")
+      expect((m.get('team-link-message') as unknown as { value: string }).value).not.toContain('견적서 초안')
       expect(m.get('team-link-landing').textContent).toContain("들어오면 '주간 업무 보고'부터 열려요")
       const select = m.get('team-link-landing-change') as any
       await act(async () => { select.value = quote; select.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
@@ -1473,7 +1473,7 @@ describe('the later steps and the end', () => {
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(reads).toBeGreaterThanOrEqual(2)
       expect(called('POST /api/admin/team-link')).toEqual([])
-      expect(m.get('team-link-message').textContent).toContain('https://acme.example/join#t=other')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).toContain('https://acme.example/join#t=other')
     } finally { await m.unmount() }
   })
 
@@ -1502,8 +1502,8 @@ describe('the later steps and the end', () => {
       await m.until(() => m.find('team-link-message') && called('PATCH /api/admin/team-link').length, 'the message')
       expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: QUOTE_SKILL, addGroupIds: [TEAM.id] }])
       expect(called('POST /api/admin/team-link')).toEqual([])
-      await m.until(() => m.get('team-link-message').textContent?.includes("'견적서 쓰기' 스킬을 같이 써 보자고 해요"), 'the landing skill named')
-      expect(m.get('team-link-message').textContent).toContain('https://acme.example/join#t=open')
+      await m.until(() => (m.get('team-link-message') as unknown as { value: string }).value?.includes("'견적서 쓰기' 스킬부터 같이 써 봐요"), 'the landing skill named')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).toContain('https://acme.example/join#t=open')
     } finally { await m.unmount() }
   })
 
@@ -1515,7 +1515,7 @@ describe('the later steps and the end', () => {
     let m = await mount(<MemoryRouter><InviteStep skillPath={QUOTE_SKILL} retarget prepare onDone={() => {}} /></MemoryRouter>)
     try {
       await m.until(() => m.find('team-link-message'), 'the message')
-      expect(m.get('team-link-message').textContent).toContain('https://acme.example/join#t=open')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).toContain('https://acme.example/join#t=open')
       expect(called('POST /api/admin/team-link')).toEqual([])
       expect(called('PATCH /api/admin/team-link')).toEqual([])
     } finally { await m.unmount() }
@@ -1558,7 +1558,7 @@ describe('the later steps and the end', () => {
     try {
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('POST /api/admin/team-link').map((c) => c.body)).toEqual([{ groupIds: ['01900000-0000-7000-8000-0000000000e2', TEAM.id], expiresInDays: 14 }])
-      expect(m.get('team-link-message').textContent).not.toContain('회사 소개서')
+      expect((m.get('team-link-message') as unknown as { value: string }).value).not.toContain('회사 소개서')
     } finally { await m.unmount() }
   })
 
@@ -1662,7 +1662,7 @@ describe('the later steps and the end', () => {
       await m.click('skill-share-share')
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: SHARED.path, addGroupIds: [TEAM.id] }])
-      expect(m.get('team-link-message').textContent).toBe("Acme에 '주간 회의 할 일' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nhttps://acme.example/join#t=open")
+      expect((m.get('team-link-message') as unknown as { value: string }).value).toBe("Acme에 '주간 회의 할 일' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nhttps://acme.example/join#t=open")
     } finally { await m.unmount() }
   })
 
