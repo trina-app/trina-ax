@@ -8,6 +8,8 @@
 // the flat list: docs/DECISIONS.md "Trina history: Group by defaults to None") shows the whole history filtered instead
 // (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"; "Group by: Project" by hand groups it with the
 // caps of "Trina history by project"), with one line that says what is filtered and a way back.
+import { isGuestMe } from '../../lib/guests'
+import { useMe } from '../../store/session'
 import { BookMarked, CalendarClock, Search, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
@@ -31,6 +33,7 @@ const GROUP_CAPS = { projects: 5, rows: 3 }
 
 export function TrinaPanel() {
   const t = useT()
+  const guest = isGuestMe(useMe())
   const navigate = useNavigate()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
@@ -52,12 +55,17 @@ export function TrinaPanel() {
             <Search size={16} aria-hidden /> {t('sidebar.search')}
             <kbd className={kbd}>{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
           </button>
-          <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
-            <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
-          </NavLink>
-          <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
-            <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
-          </NavLink>
+          {/* scheduled tasks and the team's skills: not a guest's (components/GuestView.tsx) */}
+          {!guest && (
+            <>
+              <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
+                <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
+              </NavLink>
+              <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
+                <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
+              </NavLink>
+            </>
+          )}
           <SetupRow />
         </>
       }

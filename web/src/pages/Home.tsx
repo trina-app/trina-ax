@@ -34,6 +34,9 @@
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
+import { useRealPath } from '../lib/realPath'
+import { isGuestMe } from '../lib/guests'
+import { GuestLanding, useGuestNoAi } from '../components/GuestView'
 import { Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
@@ -67,7 +70,12 @@ import { FileDropZone } from '../components/FileDropZone'
 export default function Home() {
   const location = useLocation()
   const phone = useMediaQuery('(max-width: 767.98px)')
+  // a guest whose AI is off has nothing to ask: their one place opens (components/GuestView.tsx)
+  const guestNoAi = useGuestNoAi()
+  const real = useRealPath()
   const route = homeRoute(location.pathname, location.search, phone)
+  // (not while Settings is open over Home: the page under the dialog stays put)
+  if (guestNoAi) return real === location.pathname ? <GuestLanding /> : <div className="h-full" />
   if ('to' in route) return <Navigate to={route.to} state={location.state} replace />
   return (
     <FileDropZone className="h-full" data-testid="home-drop">
@@ -113,7 +121,8 @@ function HomePage() {
   const firstTime = chatsLoaded && chats.length === 0
   // a demo server's person gets the demo's screen; nothing else shows until it is known whether this is one
   const { ready: demoKnown, demo } = useDemoPersona()
-  const extras = demoKnown && !demo
+  // a guest (lib/guests.ts): the box alone (or the line saying their AI is off), none of the team's cards or suggestions
+  const extras = demoKnown && !demo && !isGuestMe(me)
   // nothing answers this person: one card, no suggestions, no line above the box; the suggestions wait for the answer
   const ai = useAiAccess()
   useEffect(() => { void useAiAccess.getState().load() }, [])
@@ -201,7 +210,8 @@ function HomePage() {
           {phone && dock}
         </div>
       </div>
-      <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>
+      {/* a guest: their chats in a project are seen by its members, so no "only you" there (lib/guests.ts) */}
+      <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden" data-testid="home-footer">{t(isGuestMe(me) ? (projectId ? 'guest.footerProject' : 'guest.footer') : 'chat.footer')}</p>
     </div>
   )
 }

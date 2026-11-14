@@ -88,6 +88,9 @@ export const Invite = z.object({
   leadFor: z.string().nullable().optional(),
   /** a guest invite's one place; absent on member invites */
   guestPlace: GuestPlace.optional(),
+  /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
+   * the links apart by it); absent when none was given and on member invites */
+  guestName: z.string().optional(),
 })
 export type Invite = z.infer<typeof Invite>
 

@@ -24,6 +24,7 @@
 // is writing here (RoomTypingLine, docs/DECISIONS.md "입력 중 표시").
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
+import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
 import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -90,6 +91,8 @@ onRoomDraftElsewhere((key) => {
 /** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
   const t = useT()
+  // a guest whose AI is off: no "✦ to ask on the side" in the box (components/GuestView.tsx)
+  const guestNoAi = useGuestNoAi()
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
   const key = placeKey(roomId, threadRootId)
@@ -196,7 +199,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
   const behindPanel = usePanelExpanded()
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty && !guestNoAi ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return

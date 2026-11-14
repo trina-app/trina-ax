@@ -1,0 +1,3 @@
+- **Invite a guest** into one room or one project: the first row of a group chat's and a project's add list makes a one-time link with Copy. Guests' AI is off by default; admins can give them a team AI account with a monthly limit, or let them use their own sign-in.
+- A guest's invite page says exactly where they will be ("You'll join only the 'Quote prep' project. You won't see the rest of the team."), and the app shows them only that place: no Files, no team areas, Ask Trina says when their AI is off.
+- A small **Guest** tag beside guests' names, and "Includes 1 guest" in a room's and a project's header. **Admin › Members & invites › Guests** lists them with where they are and their AI, and can make one a team member or remove them.

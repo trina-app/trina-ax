@@ -9,6 +9,7 @@
 // recently active first, the ones without a chat of mine after them, newest first. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
 // on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
+import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
 import { FolderLock, Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -41,7 +42,10 @@ export function ProjectsPanel() {
 export function NewProjectRow(_: { phone?: boolean } = {}) {
   const t = useT()
   const navigate = useNavigate()
+  const me = useMe()
   const [open, setOpen] = useState(false)
+  // a guest makes no projects (lib/guests.ts: they are in one place only)
+  if (isGuestMe(me)) return null
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium')} data-testid="projects-panel-new">

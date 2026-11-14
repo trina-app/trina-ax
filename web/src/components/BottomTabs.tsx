@@ -17,6 +17,7 @@
 // A tap never adds a history entry (lib/screenHistory.ts switchTab): another tab puts its own stack back where it was
 // left, the tab on show goes back to its root, so the phone's Back never walks from one tab into another. The tab
 // marked is the stack's: a page opened from 나 (연결한 서비스, a notice's page) keeps 나 marked.
+import { useGuestHidden } from './GuestView'
 import clsx from 'clsx'
 import { FolderOpen, MessageCircle, Sparkles, SquareKanban, UserRound } from 'lucide-react'
 import { useEffect, type MouseEvent, type ReactNode } from 'react'
@@ -55,6 +56,8 @@ export function BottomTabs() {
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
+  // a guest: no 파일, and no 프로젝트 without one (components/GuestView.tsx)
+  const guestHidden = useGuestHidden()
   // 트리나's mark counts the AI chats of the chat list: read it whichever tab opens first, as the rail does
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   useEffect(() => {
@@ -71,6 +74,7 @@ export function BottomTabs() {
   }
   return (
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
+      {!guestHidden.has('ai') && (
       <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon active={current === 'ai'} />} label={aiName(t)} testId="tab-ai" onClick={go('ai')}>
         {attention.chats > 0 &&
           (attention.chatAsk ? (
@@ -84,6 +88,7 @@ export function BottomTabs() {
             </span>
           ))}
       </TabLink>
+      )}
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
         {chats?.kind === 'count' ? (
           <Count n={chats.n} label={t('rail.unreadRooms', { n: chats.n })} testId="tab-chats-unread" />
@@ -95,8 +100,8 @@ export function BottomTabs() {
           )
         )}
       </TabLink>
-      <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<SquareKanban size={22} aria-hidden />} label={t('projects.title')} testId="tab-projects" onClick={go('projects')} />
-      <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />
+      {!guestHidden.has('projects') && <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<SquareKanban size={22} aria-hidden />} label={t('projects.title')} testId="tab-projects" onClick={go('projects')} />}
+      {!guestHidden.has('files') && <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />}
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(e) => { settingsOpenedFrom(e.currentTarget); go('me')(e) }}>
         {inbox > 0 && <Count n={inbox} label={t('notifications.unread', { count: inbox })} testId="tab-me-unread" />}
       </TabLink>

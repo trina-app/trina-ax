@@ -31,6 +31,7 @@
 // drops them, and an opening keeps the chat they wait in. The column around it is components/rooms/RoomSideColumn.tsx: drawn
 // here (`frame`), or by the room page around this (frame={false}). `closeX`: the ✕ at every width, never the phone's ‹
 // (the file viewer's sheet on a phone, which closes back to the file).
+import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -227,6 +228,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const locale = useLocale()
   const me = useMeStrict()
   const navigate = useNavigate()
+  const guestNoAi = useGuestNoAi()
   // opened while the room's side chat was closed: which chat it starts on (sideChatOpening), decided once, written to
   // the store before the first paint and shown by this panel until then, so nothing here sees the chat it replaces
   const opening = useRef<Partial<SideChatState> | null | undefined>(undefined)
@@ -586,6 +588,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         </div>
       </div>
       <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
+        {/* a guest whose AI is off: one line in place of the box (components/GuestView.tsx) */}
+        {guestNoAi ? <GuestNoAi /> : (<>
         {quoted && (
           <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
             <div className="flex items-start gap-2">
@@ -700,6 +704,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           />
         )}
         <p className="pt-1.5 text-center text-micro text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+        </>)}
       </div>
     </FileDropZone>
   )

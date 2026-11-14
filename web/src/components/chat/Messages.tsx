@@ -114,6 +114,10 @@ const typeOf = (name: string) => {
   return ext && ext.length <= 5 ? ext.toUpperCase() : ''
 }
 
+/** The failed answers whose words send a member to an admin (no AI, the AI not ready; the monthly limit is the error
+ * code budget_exceeded): a guest reads "ask the person who invited you" instead (lib/guests.ts). */
+const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'trial_credit_used', 'trial_ended', 'engine_missing'])
+
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
   const { index, count, siblingIds } = m.branch
@@ -651,9 +655,15 @@ export function AssistantMessage({
   // by who reads it (lib/chatErrors.ts): "no AI" with its button for the owner and admins while no AI answers them
   // (another engine's connection, or one added since, keeps the per-engine words); where to fix it for the owner and
   // admins; what happened and who to tell for everyone else. Never the provider's HTTP status (params.status)
-  const role = useMe()?.user.role
+  // a guest reads the words everyone reads, with no button: asking or telling an admin is not theirs (the person who
+  // invited them turns their AI on; lib/guests.ts)
+  const myRole = useMe()?.user.role
+  const guest = myRole === 'guest'
+  const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
-  const said = reason ? chatErrorText(reason, role, noAi) : null
+  // a guest is not told to ask an admin they do not know: the person who invited them
+  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? 'guest.aiLimit' as const : reason && GUEST_ASKS.has(reason) ? 'guest.noAi' as const : null
+  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
     ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
@@ -745,7 +755,7 @@ export function AssistantMessage({
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
             {isLast && canRegenerate && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
-                {isNoAiReason(reason) && <AiAccessButton />}
+                {isNoAiReason(reason) && !guest && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}

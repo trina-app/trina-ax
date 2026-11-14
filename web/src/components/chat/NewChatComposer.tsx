@@ -7,6 +7,7 @@
 // is theirs alone, with their memories and apps, until they share it; the next new chat starts shared again. While safe
 // operations are on, the chip says new chats are only theirs for now, with no switch. Any other project's box says who
 // will see the new chat as before (components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always").
+import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { Lock, Users } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -58,6 +59,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   const me = useMeStrict()
   const t = useT()
   const navigate = useNavigate()
+  const guestNoAi = useGuestNoAi()
   const known = !!project && project.id === projectId
   const safeOps = !!me.server?.allChatsConfidential
   // a team project in place: its new chats are shared unless "Only me" (never sticks: a new box starts shared again)
@@ -143,6 +145,8 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
     navigate(`/c/${r.chatId}`, fromProjects ? { state: { [RAIL_STATE_KEY]: 'projects' } } : undefined)
   }
 
+  // a guest whose AI is off: one line in place of a box that would only fail (components/GuestView.tsx)
+  if (guestNoAi) return <GuestNoAi />
   return (
     <>
     {aiLine && <AiAccessBanner />}

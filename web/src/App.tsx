@@ -1,5 +1,6 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
+import { NotForGuests } from './components/GuestView'
 import { ShareChatHost } from './components/chat/ShareChat'
 import { ChatShareHost } from './components/chat/ChatShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
@@ -298,6 +299,7 @@ function Gate() {
       <RealPath.Provider value={settings.real}>
       {/* keyed by the person: another person signed in over this one starts every screen afresh (useSessionLifecycle) */}
       <div key={status.me.user.id} className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
+      {/* a guest (lib/guests.ts): the pages that are not theirs go to Home (components/GuestView.tsx NotForGuests) */}
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
@@ -311,29 +313,29 @@ function Gate() {
           {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
           <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
-          <Route path="files" element={<Files />} />
-          <Route path="files/view" element={<FileView />} />
+          <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
+          <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="projects/:projectId/files" element={<ProjectFiles />} />
-          <Route path="admin" element={<AdminLayout />} />
-          <Route path="admin/:section" element={<AdminLayout />} />
+          <Route path="admin" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin/:section" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
-          <Route path="admin/:section/:sub" element={<AdminLayout />} />
+          <Route path="admin/:section/:sub" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
-          <Route path="admin/:section/:sub/:item" element={<AdminLayout />} />
+          <Route path="admin/:section/:sub/:item" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           <Route path="trash" element={<Trash />} />
-          <Route path="skills" element={<Skills />} />
+          <Route path="skills" element={<NotForGuests><Skills /></NotForGuests>} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
-          <Route path="skills/share/:id" element={<SkillSharePage />} />
-          <Route path="scheduled" element={<ScheduledList />} />
-          <Route path="scheduled/:id" element={<ScheduledTask />} />
+          <Route path="skills/share/:id" element={<NotForGuests><SkillSharePage /></NotForGuests>} />
+          <Route path="scheduled" element={<NotForGuests><ScheduledList /></NotForGuests>} />
+          <Route path="scheduled/:id" element={<NotForGuests><ScheduledTask /></NotForGuests>} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
-          <Route path="welcome" element={<Welcome />} />
+          <Route path="welcome" element={<NotForGuests><Welcome /></NotForGuests>} />
           {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
-          <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          <Route path="connectors/authorize" element={<NotForGuests><ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
-          <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          <Route path="slack/link" element={<NotForGuests><SlackLink key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
           {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}
           <Route path="slack/signin-return" element={<SlackSignInReturn />} />
           <Route path="slack/done" element={<SlackDone signedIn />} />

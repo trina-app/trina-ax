@@ -80,6 +80,9 @@ import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
+import { IncludesGuests } from '../components/GuestTag'
+import { guestProject, isGuestMe } from '../lib/guests'
+import { GuestProjectNote, useGuestNoAi } from '../components/GuestView'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
@@ -394,6 +397,7 @@ function ProjectCardLines({ project: p }: { project: Project }) {
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
   // the list as last read (store/projects.ts managed): a visit after the first shows it at once and reads it again behind
   // it; only the very first read shows the skeleton (docs/DECISIONS.md "Projects and Files lists open at once")
   const items = useProjects((s) => s.managed)
@@ -472,9 +476,12 @@ export function ProjectList() {
         title={t('projects.title')}
         desc={t('projects.desc')}
         actions={
-          <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
-            <Plus size={15} aria-hidden /> {t('projects.new')}
-          </Button>
+          // a guest makes no projects (lib/guests.ts: they are in one place only)
+          !isGuestMe(me) && (
+            <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
+              <Plus size={15} aria-hidden /> {t('projects.new')}
+            </Button>
+          )
         }
       />
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
@@ -657,7 +664,13 @@ function ProjectPage() {
   const navigate = useNavigate()
   // a project seen a moment ago shows as it was at once (store/projectPage.ts, its files store/teamFiles.ts) and is read
   // again behind it
-  const [p, setP] = useState<Project | null>(() => keptPage(projectId).project)
+  const [rawP, setP] = useState<Project | null>(() => keptPage(projectId).project)
+  // a guest: the project with nothing to change on it (lib/guests.ts guestProject)
+  const guestHere = isGuestMe(useMe())
+  const p = useMemo(() => (guestHere && rawP ? guestProject(rawP) : rawP), [guestHere, rawP])
+  // a guest whose AI is off: no box and no Trina history; the project's files and members are the page, under one quiet
+  // line (components/GuestView.tsx)
+  const aiOff = useGuestNoAi()
   const [missing, setMissing] = useState(false)
   // not found because I was taken out of it (or left): its name (QA TC-1067)
   const [goneFrom, setGoneFrom] = useState<string | null>(null)
@@ -1017,12 +1030,14 @@ function ProjectPage() {
         {hasMembers && people && people.people.length > 0 && (
           <div className="mt-2 flex max-md:mt-0" data-testid="project-people-header">
             <PeopleStack people={people.people} onOpen={() => setMembers(true)} testId="project-header" />
+            {/* "Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
+            <IncludesGuests ids={people.people.map((x) => x.id)} className="ml-2 self-center text-xs text-faint" />
           </div>
         )}
         {/* no copy of the instructions here: they show once, in 지침 beside the box (QA TC-980) */}
         {/* phone: the box, then the chats right under it, then the side lines (QA TC-1072); wide: the chats under the
             box, the lines beside them */}
-        <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
+        <div className={aiOff ? 'mt-6 grid max-w-[720px] gap-y-6' : 'mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]'}>
           <div className="min-w-0 lg:col-start-1">
             {/* a project whose folder is in the trash takes no chat: the note says so, with what the owner and admins
                 can do; a project I manage without being a member: one quiet block in place of the box */}
@@ -1056,6 +1071,12 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
+              aiOff ? (
+                <p className="text-sm text-muted" data-testid="guest-no-ai">{t('guest.noAi')}</p>
+              ) : (
+              <>
+              {/* a guest, once: their chats here are seen by the project's members (components/GuestView.tsx) */}
+              <GuestProjectNote projectId={p.id} />
               <NewChatComposer
                 projectId={p.id}
                 project={p}
@@ -1064,10 +1085,12 @@ function ProjectPage() {
                 autoFocus={newChat || !!privateAsk}
                 {...(privateAsk ? { initialText: privateAsk.text, startPrivate: true, resetKey: privateAsk.n } : {})}
               />
+              </>
+              )
             )}
           </div>
           {(!outside || hasMembers) && (
-            <aside aria-label={t('projects.about')} className="min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1">
+            <aside aria-label={t('projects.about')} className={aiOff ? 'min-w-0' : 'min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1'}>
               <div className="divide-y divide-line">
                 {!outside && !p.instructions?.trim() && p.canEdit && phone ? (
                   // a phone: one line, its name and 지침 쓰기 (QA TC-1072: two empty boxes pushed the chats down)
@@ -1197,7 +1220,7 @@ function ProjectPage() {
               {/* no folder path line: people read 파일 (its 열기 opens the folder) and 멤버, not paths */}
             </aside>
           )}
-          {canAsk && (
+          {canAsk && !aiOff && (
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
             {/* the heading's line: the name, and at its end, on its baseline, 기존 대화 가져오기 for a member, however many
@@ -1206,7 +1229,7 @@ function ProjectPage() {
               <h2 id="pj-chats" className="min-w-0 truncate text-title-sm font-semibold">
                 {t('sidebar.aiChats', { name: aiName(t) })}
               </h2>
-              {!outside && !p.inTrash && (
+              {!outside && !p.inTrash && !guestHere && (
                 <Button size="sm" className="shrink-0" onClick={() => setImporting(true)} data-testid="project-import">
                   <Import size={14} aria-hidden /> {t('projects.page.import')}
                 </Button>

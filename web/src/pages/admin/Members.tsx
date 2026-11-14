@@ -57,6 +57,11 @@ import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
 import { confirmOriginKept } from './originKept'
 import { loadAdminInvites, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
+import { GuestsSection } from './Guests'
+import { inviteGuestName } from '../../lib/guests'
+import { useProjects } from '../../store/projects'
+import { useRooms } from '../../store/rooms'
+import { useRoomTitle } from '../../components/rooms/RoomIcon'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -117,6 +122,15 @@ export default function Members() {
   }
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? '?'
+  // a guest invite's one place: by name when this page knows it (a project, a room I am in), else the kind
+  const projectsById = useProjects((st) => st.byId)
+  const myRooms = useRooms((st) => st.rooms)
+  const roomTitle = useRoomTitle()
+  const guestWhere = (pl: NonNullable<Invite['guestPlace']>) => {
+    const room = pl.kind === 'room' ? myRooms.find((r) => r.id === pl.id) : undefined
+    const name = pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room)
+    return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
+  }
   // a phone: one card per member instead of a squeezed table (the same query as Tailwind's md)
   const phone = useMediaQuery('(max-width: 767.98px)')
   /** the owner and yourself have no actions here; an admin is managed by the owner only */
@@ -137,7 +151,7 @@ export default function Members() {
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   /** the owner removes anyone listed; an admin only a member (the server checks the role again at the moment) */
-  const canRemove = (u: User) => isOwner(me) || u.role === 'member'
+  const canRemove = (u: User) => isOwner(me) || u.role === 'member' || u.role === 'guest'
   // personal files are archived for the owner either way; the text only says that this person asked. AI connections
   // only this person may use are switched off by the delete (never given to the whole team): named in one more line
   // the chats this person shared with people and groups that others wrote in are deleted with the account (docs/DECISIONS.md
@@ -307,7 +321,8 @@ export default function Members() {
         title={
           <>
             {t('members.title')}
-            <CountBadge n={users.data?.items.length} testId="members-count" />
+            {/* team members only: guests have their own list below and take no seat */}
+            <CountBadge n={users.data?.items.filter((u) => u.role !== 'guest').length} testId="members-count" />
           </>
         }
         desc={t('members.pageDesc')}
@@ -352,7 +367,7 @@ export default function Members() {
       <section className="mb-8" aria-label={t('members.title')}>
         <Loadable state={users}>
           {({ items, noAi, noAiUntil }) => {
-            const list = shown(items)
+            const list = shown(items.filter((u) => u.role !== 'guest'))
             if (!list.length)
               return (
                 <p className="border-y border-line py-6 text-sm text-faint" data-testid="members-no-match">
@@ -434,6 +449,9 @@ export default function Members() {
         </Loadable>
       </section>
 
+      {/* the people from outside the team (docs/DECISIONS.md "Guests: only what they were invited to") */}
+      {users.data && <GuestsSection guests={users.data.items.filter((u) => u.role === 'guest')} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} />}
+
       <ScheduleReviews />
 
       {/* Invite links, quiet and only when there are any: the team link (copy, or "…" to change or turn it off in its
@@ -472,7 +490,7 @@ export default function Members() {
                     <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
                       <Badge>{t(`role.${i.role}`)}</Badge>
                       <span className="min-w-0 flex-1 text-xs text-muted" data-testid={i.leadFor ? 'invite-lead' : undefined}>
-                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
+                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
                       </span>
                       {/* a lead link is the owner's to revoke (the server refuses anyone else) */}
                       {!i.usedAt && !expired && (!i.leadFor || isOwner(me)) && (
@@ -1016,7 +1034,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
   const t = useT()
   const act = useAction()
   const [name, setName] = useState(user.name)
-  const [role, setRole] = useState<MemberRole>(user.role === 'owner' ? 'admin' : user.role === 'guest' ? 'member' : user.role)
+  const [role, setRole] = useState<MemberRole>(user.role === 'owner' || user.role === 'admin' ? 'admin' : 'member')
   const [groupIds, setGroupIds] = useState(user.groupIds)
   // '' = follows the team default (null on the wire)
   const [language, setLanguage] = useState<Locale | ''>(user.localeChoice ?? '')

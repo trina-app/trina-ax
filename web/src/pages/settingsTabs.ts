@@ -52,9 +52,16 @@ const TABS: SettingsTab[] = [
 /** The tabs to show: "browser" when browserTabShown says so,
  * "providers" only when the member may have their own AI accounts (or still has one), "dev-env-sites" only when the dev
  * environment on srt is on for the person (GET /api/dev-env/sites state is not 'off'). */
-export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false): SettingsTab[] {
-  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites))
+export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false, guest = false, guestAiOff = false): SettingsTab[] {
+  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites) && !(guest && GUEST_HIDDEN.has(x.id)) && !(guestAiOff && GUEST_AI_OFF_HIDDEN.has(x.id)))
 }
+
+/** A guest's Settings (lib/guests.ts): only their own account, AI sign-in and the app. What the team shares with its
+ * members (connected apps, AI apps, the AI's allowances, the browser, the dev environment) and the AI's memory are not
+ * theirs: the server refuses those to a guest (server/src/auth/guest-endpoints.ts has no memories). With their AI off
+ * (`guestAiOff`) also the AI's usage and AI accounts: nothing to see or sign in to (their own sign-in keeps AI accounts). */
+const GUEST_HIDDEN = new Set(['browser', 'allowances', 'connectors', 'ai-apps', 'dev-env-sites', 'memory'])
+const GUEST_AI_OFF_HIDDEN = new Set(['usage', 'providers'])
 
 /** Is there a Browser section: inside a desktop app that offers its site setting (the only client whose AI has the
  * browser); elsewhere only while the person's "Allow all websites" for the AI's web reads is on (Me.user.webAllowAll)
