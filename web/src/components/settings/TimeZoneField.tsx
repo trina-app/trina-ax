@@ -42,6 +42,8 @@ export function PhoneTimeZoneRow({ value, onChange }: { value: string; onChange:
   return (
     <PhoneChoiceRow title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')} value={value}
       options={options.some((o) => o.value === value) ? options : [cur, ...options]} onChange={onChange} testId="team-time-zone"
+      // the sheet covers the line under the search (QA TC-1829): with nothing found it says so under the kept current zone
+      sheetNote={g.none && <p className="px-3 py-2 text-xs text-muted" data-testid="team-time-zone-none">{t('teamSettings.timeZoneNone')}</p>}
       below={<div className="flex flex-col gap-2 pb-2"><Search id="ts-time-zone-search" value={q} onChange={setQ} />{g.none && <p className="text-xs text-faint" role="status">{t('teamSettings.timeZoneNone')}</p>}</div>} />
   )
 }
