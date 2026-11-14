@@ -1,0 +1,49 @@
+/* The product drawn in CSS (no photos): a stand-up pouch of 차곡 유자생강 and a glass of tea with a yuzu slice. */
+@font-face { font-family: Pretendard; font-weight: 400; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-Regular.woff2) format('woff2'); }
+@font-face { font-family: Pretendard; font-weight: 600; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-SemiBold.woff2) format('woff2'); }
+@font-face { font-family: Pretendard; font-weight: 700; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-Bold.woff2) format('woff2'); }
+@font-face { font-family: Pretendard; font-weight: 800; src: url(https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/woff2/Pretendard-ExtraBold.woff2) format('woff2'); }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1200px; height: 628px; overflow: hidden; }
+
+.product { position: absolute; width: 420px; height: 440px; }
+.pouch {
+  position: absolute; left: 40px; top: 20px; width: 210px; height: 300px;
+  background: linear-gradient(100deg, #1a4232 0%, #1F4D3A 30%, #2a5e48 55%, #1F4D3A 80%, #173c2d 100%);
+  border-radius: 18px 18px 26px 26px; box-shadow: 0 24px 40px rgba(20, 40, 30, .28);
+}
+.pouch::before { /* the zip line */
+  content: ''; position: absolute; left: 14px; right: 14px; top: 26px; height: 3px; border-radius: 2px; background: rgba(246, 241, 231, .25);
+}
+.pouch .label {
+  position: absolute; left: 22px; right: 22px; top: 62px; bottom: 34px; border-radius: 12px;
+  background: #F6F1E7; display: flex; flex-direction: column; align-items: center; padding-top: 22px;
+  font-family: Pretendard, sans-serif; color: #1F4D3A;
+}
+.pouch .label .brand { font-weight: 800; font-size: 30px; letter-spacing: -.02em; }
+.pouch .label .kind { margin-top: 6px; font-weight: 600; font-size: 13px; letter-spacing: .14em; color: #5d6b62; }
+.pouch .label .yuzu-mini { margin-top: 18px; width: 64px; height: 64px; }
+.pouch .label .name { margin-top: 14px; font-weight: 700; font-size: 19px; color: #1B1F1C; }
+.pouch .label .count { margin-top: 4px; font-size: 12px; color: #5d6b62; }
+
+.yuzu { /* a cut yuzu: rind, pith, segments */
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #fbe7a1 0 9%, transparent 10%),
+    repeating-conic-gradient(from 0deg, #f7c948 0deg 26deg, #fdf0c2 26deg 30deg),
+    #f7c948;
+  box-shadow: 0 0 0 5px #fbf4dc, 0 0 0 9px #f2b630;
+}
+.glass {
+  position: absolute; left: 230px; top: 150px; width: 150px; height: 200px;
+  border-radius: 10px 10px 24px 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,.55) 0 14%, #e9a43a 14%, #d98a2b 100%);
+  box-shadow: inset 0 0 0 4px rgba(255,255,255,.65), 0 20px 34px rgba(20, 40, 30, .22);
+}
+.glass::after { /* shine */
+  content: ''; position: absolute; left: 16px; top: 34px; width: 12px; height: 130px; border-radius: 6px; background: rgba(255,255,255,.35);
+}
+.glass .slice { position: absolute; left: 70px; top: -26px; width: 78px; height: 78px; }
+.glass .bag { position: absolute; left: 40px; top: -60px; width: 2px; height: 120px; background: #cfc6b2; }
+.glass .tag { position: absolute; left: 30px; top: -82px; width: 24px; height: 28px; background: #F6F1E7; border: 2px solid #1F4D3A; border-radius: 3px; }
