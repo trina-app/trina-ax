@@ -21,6 +21,7 @@ import { runExport } from '../../server/src/system/export'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import fs from 'node:fs'
 import path from 'node:path'
+import { setFolderAccess } from '../lib/folder-access'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -193,7 +194,8 @@ describe('deleting a project', () => {
     const erins = await h.api('erin').call(API.createChat, { body: { projectId: q.id } })
     await ask('erin', erins.id, 'erin asks\n' + fake({ say: 'ok' }))
     const fid = (db().query("SELECT id FROM folders WHERE path = 'shared/acme-purged'").get() as { id: string }).id
-    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('acme-purged-erin', ?, 'user', 'erin', 'none')").run(fid)
+    // the folder's own setting keeps erin out: limited, nobody named (access adds up since P2)
+    setFolderAccess(db(), fid, [], null, { limited: true })
     const { trashId } = await h.api('dana').call(API.remove, { query: { path: 'shared/acme-purged' } })
     await h.api('dana').call(API.purgeTrash, { params: { id: trashId } })
     await h.api('dana').call(API.deleteProject, { params: { id: q.id } })

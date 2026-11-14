@@ -32,9 +32,18 @@ function setup(name: string) {
 }
 
 let n = 0
+/** A folder row with its rules. "everyone: none" is the legacy marker of a limited folder (docs/DECISIONS.md "Folder
+ * access adds up like Google Drive (P2)"): the row is limited. */
 function folder(db: Database, id: string, p: string, rules: [string, string | null, string][]) {
-  db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, p, '2026-10-01T00:00:00Z')
+  const limited = rules.some(([t, , a]) => t === 'everyone' && a === 'none') ? 1 : 0
+  db.query('INSERT INTO folders (id, path, created_at, limited) VALUES (?, ?, ?, ?)').run(id, p, '2026-10-01T00:00:00Z', limited)
   for (const [t, s, a] of rules) db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(`r${++n}`, id, t, s, a, '2026-10-01T00:00:00Z')
+}
+/** close a folder: limited, its rules gone, the legacy marker */
+function close(db: Database, id: string) {
+  db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(id)
+  db.query('UPDATE folders SET limited = 1 WHERE id = ?').run(id)
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(`r${++n}`, id)
 }
 
 /** back up, change the live DB with `after`, restore the backup and open the result */
@@ -72,7 +81,7 @@ describe('a database-only restore keeps the folder permissions as they are now',
       folder(db, 'f-plans', 'shared/Plans', [['everyone', null, 'read']])
       folder(db, 'f-board', 'shared/Board', [['everyone', null, 'none']])
     }, (db) => {
-      db.query("UPDATE folder_rules SET access = 'none' WHERE folder_id = 'f-plans'").run()
+      close(db, 'f-plans')
       // the board's rules removed (Admin › Folder permissions drops the row): it reads as shared/ now
       db.query("DELETE FROM folder_rules WHERE folder_id = 'f-board'").run()
       db.query("DELETE FROM folders WHERE id = 'f-board'").run()
@@ -152,6 +161,94 @@ describe('a database-only restore keeps the folder permissions as they are now',
     expect(keepFolderAccess(path.join(dir, 'missing.db'), staged)).toBe(false)
     const db = openDb(staged)
     expect(RuleSet.load(db).rulesAt('shared/Plans')).toEqual([{ subjectType: 'everyone', subjectId: null, access: 'read' }])
+    db.close()
+  })
+})
+
+// ---------------- folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)", §9) ----------------
+import { Database as Sqlite } from 'bun:sqlite'
+import { migrate } from '../../server/src/db'
+import { LIVE_CONVERTED_COPY, migrateFile } from '../../server/src/system/backup'
+import { folderAccessProblems } from '../../server/src/policy/invariants'
+import { oldMigrations } from '../lib/legacy-db'
+
+/** a database file as a build before P2 wrote it: rows raw, "no access" rows included */
+function oldDbFile(file: string, fill: (db: Database) => void) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const d = new Sqlite(file, { create: true, strict: true })
+  migrate(d, { migrationsDir: oldMigrations(), readerLevel: 6 })
+  d.query("INSERT INTO users (id, username, name, role) VALUES ('olga', 'olga', 'Olga', 'owner'), ('mia', 'mia', 'Mia', 'member'), ('kim', 'kim', 'Kim', 'member')").run()
+  d.query("INSERT INTO groups (id, name) VALUES ('mk', 'mk')").run()
+  d.query("INSERT INTO group_members (group_id, user_id) VALUES ('mk', 'mia'), ('mk', 'kim')").run()
+  const add = (id: string, p: string, rules: [string, string | null, string][]) => {
+    d.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(id, p)
+    for (const [t, s, a] of rules) d.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(`o${++n}`, id, t, s, a)
+  }
+  add('f-shared', 'shared', [['everyone', null, 'write']])
+  fill(Object.assign(d, { add }) as unknown as Database)
+  d.close()
+}
+const addTo = (db: Database) => (db as unknown as { add: (id: string, p: string, rules: [string, string | null, string][]) => void }).add
+
+describe('restores across the conversion (§9)', () => {
+  test('an old backup over a converted live database: both converted, the live access kept', () => {
+    const dir = path.join(W, 'old-backup')
+    const staged = path.join(dir, 'staged.db'), live = path.join(dir, 'live.db')
+    oldDbFile(staged, (d) => addTo(d)('f-hr', 'shared/HR', [['group', 'mk', 'none']]))
+    oldDbFile(live, (d) => addTo(d)('f-hr', 'shared/HR', [['user', 'kim', 'none']]))
+    migrateFile(live)
+    migrateFile(staged)
+    expect(keepFolderAccess(live, staged)).toBe(true)
+    const a = new Sqlite(staged, { readonly: true }), b = new Sqlite(live, { readonly: true })
+    for (const p of [mia, { ...mia, id: 'kim', groups: ['mk'] }, { ...mia, groups: ['mk'] }]) expect(RuleSet.load(a).access(p, segs('shared/HR'))).toBe(RuleSet.load(b).access(p, segs('shared/HR')))
+    expect(folderAccessProblems(a)).toEqual([])
+    a.close(); b.close()
+  })
+
+  test('an unconverted live database (a restore staged on the old build): a converted copy is read, then removed (H4b)', () => {
+    const dir = path.join(W, 'unconverted-live')
+    const staged = path.join(dir, 'staged.db'), live = path.join(dir, 'live.db')
+    oldDbFile(staged, () => {})
+    oldDbFile(live, (d) => addTo(d)('f-hr', 'shared/HR', [['everyone', null, 'none'], ['user', 'olga', 'write']]))
+    migrateFile(staged)
+    expect(keepFolderAccess(live, staged)).toBe(true)
+    expect(fs.existsSync(path.join(dir, LIVE_CONVERTED_COPY))).toBe(false)
+    // the live file itself is untouched (it becomes before-restore-<stamp>/app.db)
+    const l = new Sqlite(live, { readonly: true })
+    expect((l.query('PRAGMA table_info(folders)').all() as { name: string }[]).some((c) => c.name === 'limited')).toBe(false)
+    l.close()
+    const a = new Sqlite(staged, { readonly: true })
+    expect(RuleSet.load(a).access(mia, segs('shared/HR'))).toBe('none')
+    expect(RuleSet.load(a).access(mia, segs('shared/x'))).toBe('write')
+    a.close()
+  })
+
+  test('a live copy that fails to convert stops the restore: never the backup\'s rules while a live database exists', () => {
+    const dir = path.join(W, 'convert-fails')
+    const staged = path.join(dir, 'staged.db'), live = path.join(dir, 'live.db')
+    oldDbFile(staged, () => {})
+    // a database from a newer build (reader level too high): its copy cannot be migrated here
+    oldDbFile(live, (d) => d.query("INSERT INTO schema_migrations (version, name, applied_at, min_compatible_reader) VALUES (999, '999_x_future.sql', 'now', 99)").run())
+    migrateFile(staged)
+    expect(() => keepFolderAccess(live, staged)).toThrow()
+    expect(fs.existsSync(path.join(dir, LIVE_CONVERTED_COPY))).toBe(false)
+  })
+
+  test('a backup-only row that is not parked is not limited (H4c); a project left after the backup: the exception holds (H4a)', async () => {
+    const { db, rules } = await restoreAfter('backup-only', (db) => {
+      folder(db, 'f-old', 'shared/Old', [['everyone', null, 'none']])
+    }, (db) => {
+      db.query("DELETE FROM folder_rules WHERE folder_id = 'f-old'").run()
+      db.query("DELETE FROM folders WHERE id = 'f-old'").run()
+      folder(db, 'f-p', 'projects/p', [['everyone', null, 'write'], ['user', 'mia', 'none']])
+      db.query("INSERT INTO projects (id, name, folder_path) VALUES ('p', 'p', 'projects/p')").run()
+      db.query("INSERT INTO project_leavers (project_id, user_id, left_at) VALUES ('p', 'mia', 'now')").run()
+    })
+    expect(db.query("SELECT limited FROM folders WHERE id = 'f-old'").get()).toEqual({ limited: 0 })
+    expect(rules.access(mia, segs('shared/Old/x'))).toBe('write')
+    expect(rules.access(mia, segs('projects/p/x'))).toBe('none')
+    expect(rules.access({ ...mia, id: 'olga2' }, segs('projects/p/x'))).toBe('write')
+    expect(folderAccessProblems(db).filter((x) => !x.startsWith('5:'))).toEqual([])
     db.close()
   })
 })

@@ -33,8 +33,10 @@ test('ranks actual usage once per turn, deduplicates people, applies half-open d
 test('revoked and removed skills disappear immediately, even when their recorded count is highest', () => {
   const skill = put('hidden')
   use(skill, 'bob'); use(skill, 'bob'); use(skill, 'bob'); use(skill, 'bob')
-  e.db.query("INSERT INTO folders(id,path) VALUES('popular-hidden','skills/hidden')").run()
-  e.db.query("INSERT INTO folder_rules(id,folder_id,subject_type,subject_id,access) VALUES('popular-hidden-rule','popular-hidden','user','alice','none')").run()
+  // hidden from alice: limited, bob named (access adds up, so "alice: none" is a limit that names who keeps it)
+  e.db.query("INSERT INTO folders(id,path,limited) VALUES('popular-hidden','skills/hidden',1)").run()
+  e.db.query("INSERT INTO folder_rules(id,folder_id,subject_type,subject_id,access) VALUES('popular-hidden-rule','popular-hidden','user','bob','read')").run()
+  e.db.query("INSERT INTO folder_rules(id,folder_id,subject_type,subject_id,access) VALUES('popular-hidden-marker','popular-hidden','everyone',NULL,'none')").run()
   expect(JSON.stringify(popularSkills(e.db, e.files, e.files.principal('alice'), now))).not.toContain('hidden')
   expect(popularSkills(e.db, e.files, e.files.principal('bob'), now).items[0]?.name).toBe('hidden')
   fs.rmSync(path.join(e.fx.team, skill.path))

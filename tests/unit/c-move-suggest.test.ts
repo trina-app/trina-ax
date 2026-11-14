@@ -188,7 +188,8 @@ describe('the endpoint', () => {
     // asked from inside that folder: not offered as a place to go
     expect((await suggest('alice', ['shared/회의록/note-a.txt'])).body.recent.map((x: { path: string }) => x.path)).not.toContain('shared/회의록')
     // a folder she can no longer write drops off
-    expect((await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/회의록', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }) })).status).toBe(201)
+    // (view only under shared/'s edit: Limit access, since access adds up)
+    expect((await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/회의록', limited: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }) })).status).toBe(201)
     expect((await suggest('alice', ['shared/note-b.txt'])).body.recent.map((x: { path: string }) => x.path)).not.toContain('shared/회의록')
   })
 

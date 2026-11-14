@@ -327,9 +327,11 @@ const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.l
 function extraRules(plan: AccessPlan, adds: readonly Subject[], removes: readonly Subject[]): string[] {
   const before = new Set(plan.current.map(ruleKey)), after = new Set(plan.next.map(ruleKey))
   const plus = [...after].filter((x) => !before.has(x)), minus = [...before].filter((x) => !after.has(x))
-  if (sameSet(plus, adds.map((s) => `${keyOf(s)}:write`)) && sameSet(minus, removes.map((s) => `${keyOf(s)}:write`))) return []
+  // (the limit is no rule row: a save that limits the folder is checked apart; docs/DECISIONS.md "Folder access adds up
+  // like Google Drive (P2)")
+  if (!plan.addsFloor && sameSet(plus, adds.map((s) => `${keyOf(s)}:write`)) && sameSet(minus, removes.map((s) => `${keyOf(s)}:write`))) return []
   const out: string[] = []
-  if (plan.addsFloor) out.push('the folder has no "everyone else: no access" rule (a folder an older version made), and the save would add it, so people who saw the project through a rule above it would stop seeing it')
+  if (plan.addsFloor) out.push('the folder is not limited (a folder an older version made), and the save would limit it, so people who saw the project through a rule above it would stop seeing it')
   if (plan.restoresCreator) out.push('the creator\'s rule is missing from the folder (taken out in Admin › Folder permissions), and the save would put it back')
   if (!out.length) out.push('other rules of the folder would change too')
   return out

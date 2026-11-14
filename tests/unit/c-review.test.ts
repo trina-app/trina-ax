@@ -127,7 +127,7 @@ describe('trashed folders take their rules with them', () => {
     const db = A.ctx.db
     fs.mkdirSync(path.join(A.team, 'shared/hr'), { recursive: true })
     fs.writeFileSync(path.join(A.team, 'shared/hr/secret.md'), 'v1')
-    db.query("INSERT INTO folders (id, path) VALUES ('f_review_hr', 'shared/hr')").run()
+    db.query("INSERT INTO folders (id, path, limited) VALUES ('f_review_hr', 'shared/hr', 1)").run()
     db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r1', 'f_review_hr', 'user', 'alice', 'write'), ('r2', 'f_review_hr', 'everyone', NULL, 'none')").run()
     const save = await A.json('/api/files/content', { ...jsonBody({ path: 'shared/hr/secret.md', content: 'v2 SECRET', baseSha256: sha256hex('v1') }, 'PUT'), as: 'alice' })
     expect(save.status).toBe(200)

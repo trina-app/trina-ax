@@ -375,18 +375,18 @@ describe('injection, retries and changes', () => {
   test('who can see what changes while the card waits: refused, "ask again"', async () => {
     put('groups/marketing/q4.md', 'Q4 numbers')
     const before = authored(rooms.all, 'alice')
-    const rule = uuidv7()
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/q4.md' } }), post({ room: rooms.all, text: 'Q4 is up.' })].join('\n'), {
       answer: 'send',
-      // erin may no longer read the marketing folder: the people who cannot see it changed
-      meanwhile: () => { h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, (SELECT id FROM folders WHERE path = 'groups/marketing'), 'user', 'erin', 'none')").run(rule) },
+      // erin may no longer read the marketing folder (the group's rule becomes alice's alone; access adds up, so no
+      // "none" rule takes it from her): the people who cannot see it changed
+      meanwhile: () => { h.ctx.db.query("UPDATE folder_rules SET subject_type = 'user', subject_id = 'alice' WHERE subject_type = 'group' AND subject_id = 'marketing' AND folder_id = (SELECT id FROM folders WHERE path = 'groups/marketing')").run() },
     })
     try {
       expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)
-    } finally { h.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(rule) }
+    } finally { h.ctx.db.query("UPDATE folder_rules SET subject_type = 'group', subject_id = 'marketing' WHERE subject_type = 'user' AND subject_id = 'alice' AND folder_id = (SELECT id FROM folders WHERE path = 'groups/marketing')").run() }
   })
 
   test('someone added to the room while the card waits, nothing at stake either way: refused too (the card named the number)', async () => {

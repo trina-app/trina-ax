@@ -34,6 +34,26 @@
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
 const newId = (): string => uuidv7()
+
+/**
+ * Statements of the conversion are prepared and finalized here, never taken from the connection's statement cache:
+ * the conversion runs once, with many statements, inside migrate(), and a cached statement the cache let go unfinalized
+ * keeps the connection open after close() (Bun 1.3: the database file then cannot be moved and opened again in the same
+ * process, as a restore does).
+ */
+function q(db: Database, sql: string) {
+  const st = db.prepare(sql)
+  return {
+    all: (...a: unknown[]) => { try { return st.all(...(a as never[])) } finally { st.finalize() } },
+    get: (...a: unknown[]) => { try { return st.get(...(a as never[])) } finally { st.finalize() } },
+    run: (...a: unknown[]) => { try { return st.run(...(a as never[])) } finally { st.finalize() } },
+  }
+}
+/** a statement run many times, finalized by the caller (done()) */
+function many(db: Database, sql: string) {
+  const st = db.prepare(sql)
+  return { run: (...a: unknown[]) => st.run(...(a as never[])), done: () => st.finalize() }
+}
 import { FOLDER_ACCESS_MODEL, FOLDER_ACCESS_MODEL_KEY, inProjectZone, isProjectsName, isZoneTop, RuleSet, type Access, type Principal, type Role, type SubjectType } from './access'
 import { LegacyRuleSet, type LegacyRow } from './legacy-deepest'
 import { legacyRuleFingerprint, ruleFingerprint } from './fingerprint'
@@ -73,8 +93,8 @@ export interface ConversionReport {
   checked: number
 }
 
-const tableExists = (db: Database, name: string) => !!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)
-const columnExists = (db: Database, table: string, col: string) => tableExists(db, table) && (db.query(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col)
+const tableExists = (db: Database, name: string) => !!q(db, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)
+const columnExists = (db: Database, table: string, col: string) => tableExists(db, table) && (q(db, `PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col)
 
 const mayCoApply = (a: Pick<CRule, 'subject_type' | 'subject_id'>, b: Pick<CRule, 'subject_type' | 'subject_id'>) => !(a.subject_type === 'user' && b.subject_type === 'user' && a.subject_id !== b.subject_id)
 const appliesTo = (r: Pick<CRule, 'subject_type' | 'subject_id'>, p: Pick<Principal, 'id' | 'role' | 'groups'>) =>
@@ -107,9 +127,9 @@ interface PersonRow { id: string; name: string; role: Role; groups: string[] }
 function peopleOf(db: Database): PersonRow[] {
   if (!tableExists(db, 'users')) return []
   const del = columnExists(db, 'users', 'deleted_at') ? ' WHERE deleted_at IS NULL' : ''
-  const users = db.query(`SELECT id, name, role FROM users${del} ORDER BY id`).all() as { id: string; name: string; role: Role }[]
+  const users = q(db, `SELECT id, name, role FROM users${del} ORDER BY id`).all() as { id: string; name: string; role: Role }[]
   const groups = new Map<string, string[]>()
-  if (tableExists(db, 'group_members')) for (const m of db.query('SELECT group_id, user_id FROM group_members ORDER BY group_id').all() as { group_id: string; user_id: string }[]) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
+  if (tableExists(db, 'group_members')) for (const m of q(db, 'SELECT group_id, user_id FROM group_members ORDER BY group_id').all() as { group_id: string; user_id: string }[]) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
   return users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] }))
 }
 
@@ -155,15 +175,15 @@ export function convertToAdditive(db: Database, o: { now?: string } = {}): Conve
 
 function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): ConversionReport {
   const report: ConversionReport = { limited: [], byName: [], managedMarkers: [], legacyMarkers: 0, roleRowsNormalised: 0, noneRowsRemoved: 0, exceptionsKept: 0, exceptionsWithoutProject: 0, narrowed: [], parked: 0, parkedFailedClosed: 0, schedulesKept: 0, schedulesLapsed: 0, strict: [], checked: 0 }
-  const folders = db.query('SELECT id, path FROM folders ORDER BY path').all() as FolderRow[]
-  const rules = db.query('SELECT id, folder_id, subject_type, subject_id, access, origin FROM folder_rules').all() as RuleRowDb[]
+  const folders = q(db, 'SELECT id, path FROM folders ORDER BY path').all() as FolderRow[]
+  const rules = q(db, 'SELECT id, folder_id, subject_type, subject_id, access, origin FROM folder_rules').all() as RuleRowDb[]
   const pathOf = new Map(folders.map((f) => [f.id, f.path]))
   const idOf = new Map(folders.map((f) => [f.path, f.id]))
   const rowsOf = new Map<string, RuleRowDb[]>()
   for (const r of rules) rowsOf.set(r.folder_id, [...(rowsOf.get(r.folder_id) ?? []), r])
   const people = peopleOf(db)
   const hasProjects = tableExists(db, 'projects')
-  const projectPaths = new Set<string>(hasProjects ? (db.query('SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => r.folder_path) : [])
+  const projectPaths = new Set<string>(hasProjects ? (q(db, 'SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => r.folder_path) : [])
   // the converted folders by id: what is written at the end
   const done = new Map<string, Target>()
   // legacy rows of the whole database (stored paths), for the in-place views
@@ -199,7 +219,7 @@ function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): Co
     if (!isZoneTop(p) || isSystem(p)) continue
     if (!idOf.has(p)) {
       const id = newId()
-      db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, p, now)
+      q(db, 'INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, p, now)
       folders.push({ id, path: p }); pathOf.set(id, p); idOf.set(p, id)
       done.set(id, { limited: true, rules: [{ subject_type: 'everyone', subject_id: null, access: 'none' }] })
       report.legacyMarkers++
@@ -209,7 +229,7 @@ function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): Co
   // of its view; parkedView in team-files/service.ts builds the same chain)
   if (tableExists(db, 'trash_items') && columnExists(db, 'trash_items', 'kind')) {
     type Held = { id: string; original_path: string; storage_path: string }
-    const held = db.query("SELECT id, original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL ORDER BY id DESC").all() as Held[]
+    const held = q(db, "SELECT id, original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL ORDER BY id DESC").all() as Held[]
     for (const own of held) {
       const chain: Held[] = [own]
       let broken = false
@@ -234,10 +254,10 @@ function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): Co
   }
 
   // 3. write: limits first (the trigger lets the legacy marker in only on a limited folder), then the rows in place
-  const setLimited = db.query('UPDATE folders SET limited = ? WHERE id = ?')
-  const del = db.query('DELETE FROM folder_rules WHERE id = ?')
-  const upd = db.query('UPDATE folder_rules SET access = ?, origin = ? WHERE id = ?')
-  const ins = db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at, origin) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)')
+  const setLimited = many(db, 'UPDATE folders SET limited = ? WHERE id = ?')
+  const del = many(db, 'DELETE FROM folder_rules WHERE id = ?')
+  const upd = many(db, 'UPDATE folder_rules SET access = ?, origin = ? WHERE id = ?')
+  const ins = many(db, 'INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at, origin) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)')
   for (const [id, t] of done) {
     if (t.limited) setLimited.run(1, id)
     const path = pathOf.get(id)!
@@ -254,6 +274,7 @@ function convertOnce(db: Database, now: string, strict: ReadonlySet<string>): Co
     }
     for (const w of want.values()) ins.run(newId(), id, w.subject_type, w.subject_id, w.access, now, w.origin ?? null)
   }
+  for (const st of [setLimited, del, upd, ins]) st.done()
   report.limited.sort()
   return report
 }
@@ -369,11 +390,11 @@ export function groupSubsets(groups: readonly string[], seed: string): string[][
  */
 function assertNoWidening(db: Database, report: ConversionReport): Set<string> {
   // (the converted database is read with the marker set inside this savepoint: the loader needs it)
-  db.query('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FOLDER_ACCESS_MODEL_KEY, FOLDER_ACCESS_MODEL)
+  q(db, 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FOLDER_ACCESS_MODEL_KEY, FOLDER_ACCESS_MODEL)
   const violations = new Set<string>()
   const views: { map: (p: string) => string | null; scope: (p: string) => boolean }[] = [{ map: (p) => (isSystem(p) ? null : p), scope: (p) => !isSystem(p) }]
   if (tableExists(db, 'trash_items') && columnExists(db, 'trash_items', 'kind')) {
-    for (const t of db.query("SELECT original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL").all() as { original_path: string; storage_path: string }[]) {
+    for (const t of q(db, "SELECT original_path, storage_path FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL").all() as { original_path: string; storage_path: string }[]) {
       views.push({ map: (p) => (under(p, t.storage_path) ? t.original_path + p.slice(t.storage_path.length) : isSystem(p) || under(p, t.original_path) ? null : p), scope: (p) => under(p, t.storage_path) })
     }
   }
@@ -385,7 +406,7 @@ function assertNoWidening(db: Database, report: ConversionReport): Set<string> {
     const now = RuleSet.fromDb(db, { mapPath: v.map })
     const w = now.world()
     const noOrigin = RuleSet.fromWorld({ rows: w.rows.filter((r) => !r.origin), limited: w.limited })
-    const storedPaths = (db.query('SELECT path FROM folders').all() as { path: string }[]).map((r) => r.path).filter(v.scope)
+    const storedPaths = (q(db, 'SELECT path FROM folders').all() as { path: string }[]).map((r) => r.path).filter(v.scope)
     const boundaries = new Set<string>()
     for (const p of storedPaths) { const at = v.map(p); if (at !== null && !isUsers(at) && !isSystem(at)) boundaries.add(at) }
     for (const r of before) { if (!v.scope(r.path)) continue; const at = v.map(r.path); if (at !== null && !isUsers(at) && !isSystem(at)) boundaries.add(at) }
@@ -427,7 +448,7 @@ function assertNoWidening(db: Database, report: ConversionReport): Set<string> {
 const beforeRows = new WeakMap<Database, LegacyRow[]>()
 /** Keep the rows as they are before converting (stored paths), for the final assertion. */
 export function captureBefore(db: Database): void {
-  beforeRows.set(db, db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as LegacyRow[])
+  beforeRows.set(db, q(db, 'SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as LegacyRow[])
 }
 
 // ---------------- the step: conversion, bookkeeping, marker ----------------
@@ -444,7 +465,7 @@ export function runFolderAccessConversion(db: Database, o: { now?: string } = {}
   const before = beforeRows.get(db)!
   const people = peopleOf(db)
   const report = convertToAdditive(db, { now })
-  db.query('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FOLDER_ACCESS_MODEL_KEY, FOLDER_ACCESS_MODEL)
+  q(db, 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FOLDER_ACCESS_MODEL_KEY, FOLDER_ACCESS_MODEL)
   // scheduled tasks' save folders: the stored fingerprint was of the rules before; recompute it where the folder's
   // readers are the same (by the assertion, all but the narrowed cases), else let it lapse as a rules change would
   if (columnExists(db, 'schedules', 'save_rule') && columnExists(db, 'schedules', 'save_lapse_reason')) {
@@ -452,9 +473,9 @@ export function runFolderAccessConversion(db: Database, o: { now?: string } = {}
     const legacy = new LegacyRuleSet(before)
     const readers = (f: (p: Principal) => Access, segs: string[]) => people.filter((p) => RANK[f({ id: p.id, name: p.name, role: p.role, groups: p.groups })] >= 1).map((p) => p.id).join(',')
     const sameReaders = (segs: string[]) => readers((p) => legacy.access(p, segs), segs) === readers((p) => after.access(p, segs), segs)
-    const upd = db.query('UPDATE schedules SET save_rule = ?, save_sources = ? WHERE id = ?')
-    const lapse = db.query("UPDATE schedules SET save_lapsed_at = ?, save_lapse_reason = 'rules' WHERE id = ?")
-    for (const s of db.query('SELECT id, save_folder, save_rule, save_sources, save_lapsed_at FROM schedules WHERE save_folder IS NOT NULL').all() as { id: string; save_folder: string; save_rule: string | null; save_sources: string | null; save_lapsed_at: string | null }[]) {
+    const upd = many(db, 'UPDATE schedules SET save_rule = ?, save_sources = ? WHERE id = ?')
+    const lapse = many(db, "UPDATE schedules SET save_lapsed_at = ?, save_lapse_reason = 'rules' WHERE id = ?")
+    for (const s of q(db, 'SELECT id, save_folder, save_rule, save_sources, save_lapsed_at FROM schedules WHERE save_folder IS NOT NULL').all() as { id: string; save_folder: string; save_rule: string | null; save_sources: string | null; save_lapsed_at: string | null }[]) {
       if (s.save_lapsed_at) continue
       const segs = segsOf(s.save_folder)
       if (s.save_rule !== fp.legacyFingerprint(before, segs)) continue
@@ -465,7 +486,7 @@ export function runFolderAccessConversion(db: Database, o: { now?: string } = {}
           const list = JSON.parse(s.save_sources) as { type: string; id?: string; rule?: string }[]
           for (const x of list) {
             if (x.type !== 'folder' && x.type !== 'root') continue
-            const p = x.type === 'root' ? '' : (db.query('SELECT path FROM folders WHERE id = ?').get(x.id ?? '') as { path: string } | null)?.path
+            const p = x.type === 'root' ? '' : (q(db, 'SELECT path FROM folders WHERE id = ?').get(x.id ?? '') as { path: string } | null)?.path
             if (p === undefined || p === null) continue
             const ss = segsOf(p)
             if (x.rule !== undefined && x.rule !== fp.legacyFingerprint(before, ss)) continue
@@ -478,13 +499,14 @@ export function runFolderAccessConversion(db: Database, o: { now?: string } = {}
       if (ok) { upd.run(fp.fingerprint(after, segs), sources, s.id); report.schedulesKept++ }
       else { lapse.run(now, s.id); report.schedulesLapsed++ }
     }
+    upd.done(); lapse.done()
   }
   if (tableExists(db, 'projects')) {
-    const used = new Set((db.query('SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => r.folder_path))
+    const used = new Set((q(db, 'SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => r.folder_path))
     for (const r of before) if (r.subject_type === 'user' && r.access === 'none' && isZoneTop(r.path) && !used.has(r.path)) report.exceptionsWithoutProject++
   }
   if (tableExists(db, 'audit_log')) {
-    db.query('INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES (NULL, ?, NULL, ?, ?)').run('folders.additive_conversion', JSON.stringify({
+    q(db, 'INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES (NULL, ?, NULL, ?, ?)').run('folders.additive_conversion', JSON.stringify({
       limited: report.limited, byName: report.byName.map((b) => ({ path: b.path, groups: b.groups, count: b.count })), managedMarkers: report.managedMarkers,
       narrowed: report.narrowed, parked: report.parked, parkedFailedClosed: report.parkedFailedClosed, schedulesKept: report.schedulesKept, schedulesLapsed: report.schedulesLapsed, strict: report.strict,
     }), now)

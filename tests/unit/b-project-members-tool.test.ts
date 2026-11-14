@@ -512,18 +512,10 @@ describe('the attacks', () => {
     expect(audits(r.turnId).map((a) => a.outcome)).toEqual(['changed'])
   })
 
-  test('an older folder: the save would add the floor or bring the creator back: refused, sent to the panel, nothing changed', async () => {
-    // a folder an older build made: the creator's rule only, no floor
-    fs.mkdirSync(path.join(h.team, 'projects/old-floor'), { recursive: true })
-    const row = ensureFolderRow(h.ctx.db, 'projects/old-floor')
-    h.ctx.db.transaction(() => setFolderAccess(h.ctx.db, row.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], 'alice'))()
-    const id = uuidv7()
-    h.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, folder_made) VALUES (?, 'Old floor', 'projects/old-floor', '', 'alice', '2026-01-01T00:00:00Z', 1)").run(id)
-    const r = await turn('alice', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, { projectId: id, answer: 'change' })
-    expect(r.cards).toEqual([])
-    expect(r.content).toContain('"everyone else: no access" rule')
-    expect(r.content).toContain(`/projects/${id}?members=1`)
-    expect(rulesAt('projects/old-floor')).toEqual([{ t: 'user', s: 'alice', a: 'write' }])
+  test('the creator\'s rule missing: the save would bring the creator back: refused, sent to the panel, nothing changed', async () => {
+    // (the other half of this test, a project folder an older build left without "everyone else: no access", cannot
+    // happen any more: the conversion and every writer keep each projects/<name> limited, docs/DECISIONS.md "Folder
+    // access adds up like Google Drive (P2)", invariant 5)
     // the creator's rule taken out by an admin (Admin › Folder permissions of an older build): carol's change would put
     // it back. She is not a member, so she names the project from a chat outside it
     const q = await project('alice', 'No creator rule', [user('erin')])

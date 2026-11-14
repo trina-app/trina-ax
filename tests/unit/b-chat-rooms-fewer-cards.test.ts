@@ -26,6 +26,7 @@ import { fileEvent } from '../../server/src/files/store'
 import { fileTimelineWalk } from '../../server/src/files/timeline'
 import type { TurnToolProvider } from '../../server/src/services'
 import { labeledPath } from '@mycel/shared'
+import { setFolderAccessAt } from '../lib/folder-access'
 
 // a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
 const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
@@ -677,7 +678,9 @@ describe('"이 방에서는 항상 허용" in the side chat', () => {
   test('a member who cannot write the folder: [이번만] covers that one file only ("Always allow" is offered: it is the person\'s own)', async () => {
     const roomId = await teamRoom()
     const dir = folder()
-    const undo = rule(dir, 'user', 'erin', 'read')
+    // erin only views it: the folder is limited and names alice (edit) and erin (view) (access adds up since P2)
+    setFolderAccessAt(h.ctx.db, dir, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'user', subjectId: 'erin', access: 'read' }], null, { limited: true })
+    const undo = () => setFolderAccessAt(h.ctx.db, dir, [], null, { limited: false })
     try {
       const chat = await sideChat('alice', roomId)
       const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), () => 'allow')

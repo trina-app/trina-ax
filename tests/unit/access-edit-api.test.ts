@@ -20,12 +20,15 @@ const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 const RANK = { none: 0, read: 1, write: 2 }
 
 describe('the rules hash', () => {
-  test('the same rules in any order give the same hash; another access, subject or none differ', () => {
-    const a = [rule('everyone', null, 'read'), rule('group', 'g1', 'write'), rule('user', 'bob', 'none')]
+  test('the same rules in any order give the same hash; another access, subject or the limit differ; the markers do not count', () => {
+    const a = [rule('everyone', null, 'read'), rule('group', 'g1', 'write'), rule('user', 'bob', 'read')]
     expect(rulesHash(a)).toBe(rulesHash([...a].reverse()))
-    expect(rulesHash(a)).not.toBe(rulesHash([rule('everyone', null, 'write'), rule('group', 'g1', 'write'), rule('user', 'bob', 'none')]))
-    expect(rulesHash(a)).not.toBe(rulesHash([rule('everyone', null, 'read'), rule('group', 'g2', 'write'), rule('user', 'bob', 'none')]))
-    expect(rulesHash([])).not.toBe(rulesHash([rule('everyone', null, 'none')]))
+    expect(rulesHash(a)).not.toBe(rulesHash([rule('everyone', null, 'write'), rule('group', 'g1', 'write'), rule('user', 'bob', 'read')]))
+    expect(rulesHash(a)).not.toBe(rulesHash([rule('everyone', null, 'read'), rule('group', 'g2', 'write'), rule('user', 'bob', 'read')]))
+    // Limit access is part of it (rules-v2); the legacy and managed markers are not (they are not API rules)
+    expect(rulesHash([])).not.toBe(rulesHash([], true))
+    expect(rulesHash([], true)).toBe(rulesHash([rule('everyone', null, 'none')], true))
+    expect(rulesHash([rule('everyone', null, 'read')])).toBe(rulesHash([rule('everyone', null, 'read'), rule('role', 'admin', 'write')]))
     // no subject id is not the id ''
     expect(rulesHash([rule('role', 'member', 'read')])).not.toBe(rulesHash([rule('everyone', null, 'read')]))
   })
@@ -37,6 +40,7 @@ let seed = 23
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
 const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!
 const ACCESS: Access[] = ['none', 'read', 'write']
+const GRANT: Access[] = ['read', 'write']
 
 test('every change is RuleSet.access before and after, at the folder and the rule folders below; nobody else changes', () => {
   let changed = 0
@@ -50,10 +54,12 @@ test('every change is RuleSet.access before and after, at the folder and the rul
     }))
     const folders = ['', 'a', 'a/b', 'a/b/c', 'a/b/c/d', 'a/e', 'a/e/f', 'g', 'skills', 'skills/x', 'shared', 'users/p3', '.system/trash/x', 'a/b/.MYCEL-TMP-z']
     const rows: RuleRow[] = []
+    // additive worlds (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): grants only, some folders limited
     const someRule = () => {
-      const t = pick(['everyone', 'role', 'group', 'group', 'user'] as const)
-      return { subjectType: t, subjectId: t === 'everyone' ? null : t === 'role' ? pick(['member', 'admin']) : t === 'group' ? pick(groups) : pick(people).id, access: pick(ACCESS) }
+      const t = pick(['everyone', 'group', 'group', 'user'] as const)
+      return { subjectType: t, subjectId: t === 'everyone' ? null : t === 'group' ? pick(groups) : pick(people).id, access: pick(GRANT) }
     }
+    const limited = folders.filter(() => rand() < 0.25)
     for (const f of folders) {
       if (rand() < 0.45) continue
       const seen = new Set<string>()
@@ -64,7 +70,7 @@ test('every change is RuleSet.access before and after, at the folder and the rul
         rows.push({ path: f, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })
       }
     }
-    const rules = ruleWorld(rows)
+    const rules = ruleWorld(rows, limited)
     const at = pick(['', 'a', 'a/b', 'a/b/c', 'a/e', 'g', 'g/new', 'skills', 'skills/x', 'shared'])
     const next = Array.from({ length: Math.floor(rand() * 4) }, someRule).filter((r, i, all) => all.findIndex((x) => x.subjectType === r.subjectType && x.subjectId === r.subjectId) === i)
     const out = editPreview({ rules, people, groupName: (id) => `G ${id}`, personName: (id) => `U ${id}` }, at, next, { team: at === 'shared' ? 'shared' : at === 'skills' ? 'skills' : null })
@@ -82,8 +88,8 @@ test('every change is RuleSet.access before and after, at the folder and the rul
         expect(where, `${world} ${p.id} ${at}`).toEqual([])
         continue
       }
-      // below, the change is the folder's own
-      for (const q of where) expect([rules.access(p, segsOf(q)), after.access(p, segsOf(q))]).toEqual([b, a])
+      // below, it changes the same way (access adds up: only the folder's part changed), not necessarily by the same step
+      for (const q of where) expect(RANK[after.access(p, segsOf(q))] > RANK[rules.access(p, segsOf(q))]).toBe(RANK[a] > RANK[b])
       want.set(p.id, { before: b, after: a, below: where })
     }
     // the changes at the folder: one group per before → after, the first 50 by name, everyone counted once
@@ -117,7 +123,7 @@ test('every change is RuleSet.access before and after, at the folder and the rul
     expect(dirs).toEqual([...dirs].sort((x, y) => (x === y ? 0 : x === 'less' ? -1 : 1)))
     // "follow the folder above": who with no rules of its own there
     expect(out.above).toEqual(at === '' ? null : whoAt({ rules: rules.replacing(at, { rules: [], limited: false }), people, groupName: (id) => `G ${id}`, personName: (id) => `U ${id}` }, segsOf(at)))
-    expect(out.hash).toBe(rulesHash(rules.rulesAt(at)))
+    expect(out.hash).toBe(rulesHash(rules.rulesAt(at), rules.limitedAt(at)))
     changed += want.size
     below += [...want.values()].filter((w) => w.below.length).length
   }
@@ -126,27 +132,24 @@ test('every change is RuleSet.access before and after, at the folder and the rul
   expect(below).toBeGreaterThan(50)
 })
 
-test('converting old role rows changes nobody: member X becomes everyone X (replacing an everyone row), admin rows go', () => {
+test('reading a folder\'s rules and saving them back changes nobody (the limit kept: limited not sent)', () => {
   for (let world = 0; world < 300; world++) {
     const groups = ['g0', 'g1', 'g2']
     const people: Principal[] = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, role: i === 0 ? 'owner' : i === 1 ? 'admin' : 'member', groups: groups.filter(() => rand() < 0.4) }))
     const rows: RuleRow[] = []
+    const limited: string[] = []
     for (const f of ['', 'a', 'a/b', 'a/b/c']) {
+      if (rand() < 0.3) limited.push(f)
       if (rand() < 0.4) continue
-      if (rand() < 0.6) rows.push({ path: f, subject_type: 'role', subject_id: 'member', access: pick(ACCESS) })
-      if (rand() < 0.6) rows.push({ path: f, subject_type: 'role', subject_id: 'admin', access: pick(ACCESS) })
-      if (rand() < 0.6) rows.push({ path: f, subject_type: 'everyone', subject_id: null, access: pick(ACCESS) })
-      if (rand() < 0.5) rows.push({ path: f, subject_type: 'group', subject_id: pick(groups), access: pick(ACCESS) })
-      if (rand() < 0.3) rows.push({ path: f, subject_type: 'user', subject_id: pick(people).id, access: pick(ACCESS) })
+      if (rand() < 0.6) rows.push({ path: f, subject_type: 'everyone', subject_id: null, access: pick(GRANT) })
+      if (rand() < 0.5) rows.push({ path: f, subject_type: 'group', subject_id: pick(groups), access: pick(GRANT) })
+      if (rand() < 0.3) rows.push({ path: f, subject_type: 'user', subject_id: pick(people).id, access: pick(GRANT) })
+      if (rand() < 0.3) rows.push({ path: f, subject_type: 'role', subject_id: 'admin', access: 'write' })
     }
-    const rules = ruleWorld(rows)
+    const rules = ruleWorld(rows, limited)
     const at = pick(['', 'a', 'a/b', 'a/b/c'])
     const now = rules.rulesAt(at)
-    // the conversion the panel makes (web/src/lib/access-edit.ts): the member row's access, else the everyone row's
-    const member = now.find((r) => r.subjectType === 'role' && r.subjectId === 'member')
-    const every = member ?? now.find((r) => r.subjectType === 'everyone')
-    const converted = [...now.filter((r) => r.subjectType === 'user' || r.subjectType === 'group'), ...(every ? [rule('everyone', null, every.access)] : [])]
-    const out = editPreview({ rules, people, groupName: () => null, personName: () => null }, at, converted, { team: null })
+    const out = editPreview({ rules, people, groupName: () => null, personName: () => null }, at, now, { team: null })
     expect(out.changes, `${world} ${JSON.stringify(now)}`).toEqual([])
     expect([out.less, out.more]).toEqual([0, 0])
   }
@@ -175,7 +178,7 @@ describe('the edit panel through the API', () => {
     h.ctx.db.query('INSERT INTO connected_folders (id, name, source) VALUES (?, ?, ?)').run(newId(), 'nas', '/Volumes/nas')
   })
   afterAll(() => h.close())
-  const preview = async (p: string, rules: unknown[], as = admin) => FolderEditPreview.parse(await as.call('POST', '/api/admin/access/edit-preview', { path: p, rules }))
+  const preview = async (p: string, rules: unknown[], as = admin, limited?: boolean) => FolderEditPreview.parse(await as.call('POST', '/api/admin/access/edit-preview', { path: p, rules, ...(limited !== undefined ? { limited } : {}) }))
   const folders = async () => (await admin.call('GET', '/api/admin/folders')).items as Folder[]
   const row = async (p: string) => (await folders()).find((f) => f.path === p)
   const access = (id: string, p: string) => h.ctx.files.rules().access(h.ctx.files.principal(id), segsOf(p))
@@ -223,20 +226,24 @@ describe('the edit panel through the API', () => {
     await admin.call('PUT', `/api/admin/folders/${root.id}/rules`, { rules: [], expectedHash: root.rulesHash })
   })
 
-  test('role rows converted change nothing: skills\' default admin row dropped, a member row as everyone', async () => {
+  test('the markers are not rules of the panel: skills\' managed marker is not shown, saving what is shown changes nothing', async () => {
     const skills = (await row('skills'))!
-    expect(skills.rules.map((r) => `${r.subjectType}:${r.subjectId}:${r.access}`).sort()).toEqual(['everyone:null:read', 'role:admin:write'])
+    expect(skills.rules.map((r) => `${r.subjectType}:${r.subjectId}:${r.access}`).sort()).toEqual(['everyone:null:read'])
     const r = await preview('skills', [rule('everyone', null, 'read')])
     expect([r.changes, r.less, r.more, r.warnings]).toEqual([[], 0, 0, []])
-    await admin.call('POST', '/api/admin/folders', { path: 'docs/old', rules: [rule('role', 'member', 'write'), rule('everyone', null, 'none'), rule('role', 'admin', 'none')] })
+    // a limited folder: its legacy marker is not shown; the same rules, limit not sent (kept), change nothing
+    const made = await admin.call('POST', '/api/admin/folders', { path: 'docs/old', limited: true, rules: [rule('everyone', null, 'write')] })
+    expect(made.limited).toBe(true)
+    expect(made.rules.map((x: { subjectType: string; access: string }) => `${x.subjectType}:${x.access}`)).toEqual(['everyone:write'])
     const o = await preview('docs/old', [rule('everyone', null, 'write')])
     expect([o.changes, o.less, o.more]).toEqual([[], 0, 0])
   })
 
   test('warnings: members\' AI losing the team\'s files or instructions; everyone writing in skills; a root rule for everyone', async () => {
-    const shared = await preview('shared', [rule('everyone', null, 'none'), rule('group', sales, 'write')])
+    // (Limit access in place of "everyone: none")
+    const shared = await preview('shared', [rule('group', sales, 'write')], admin, true)
     expect(shared.warnings).toEqual([{ kind: 'team-files', count: 1 }])
-    const skills = await preview('skills', [rule('everyone', null, 'none')])
+    const skills = await preview('skills', [], admin, true)
     expect(skills.warnings).toEqual([{ kind: 'team-instructions', count: 3 }])
     expect(skills.changes[0]).toMatchObject({ direction: 'less', before: 'read', after: 'none', count: 3 })
     const sub = await preview('skills/finance', [rule('everyone', null, 'write')])
@@ -245,7 +252,7 @@ describe('the edit panel through the API', () => {
     expect((await preview('skills/finance', [rule('group', sales, 'write')])).warnings).toEqual([])
     const root = await preview('', [rule('everyone', null, 'read')])
     expect(root.warnings).toEqual([{ kind: 'root-everyone', count: 3 }])
-    expect((await preview('', [rule('everyone', null, 'none')])).warnings).toEqual([])
+    expect((await preview('', [])).warnings).toEqual([])
   })
 
   test('connected folders and what is inside them say so; a folder that is not there answers as it would be', async () => {

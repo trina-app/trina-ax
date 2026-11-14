@@ -18,21 +18,20 @@ const RULES: R[] = [
   ['shared', 'everyone', null, 'write'],
   ['skills', 'everyone', null, 'read'],
   ['skills', 'role', 'admin', 'write'],
-  ['groups/sales', 'group', 'sales', 'write'],
-  ['groups/sales', 'role', 'member', 'none'],
-  ['groups/sales/archive', 'group', 'sales', 'read'],
+  // (access adds up up to the nearest limited folder: docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+  ['groups/sales', 'group', 'sales', 'write'], // limited (LIMITED below): only sales
+  ['groups/sales/archive', 'group', 'sales', 'read'], // limited too: sales only view here
   ['groups/ops', 'group', 'ops', 'read'],
   ['projects/x', 'group', 'sales', 'read'],
   ['projects/x', 'group', 'ops', 'write'], // several groups: the widest wins
-  ['projects/x', 'user', 'mia', 'none'], // personal beats group
-  ['projects/x', 'everyone', null, 'write'], // everyone is the weakest
-  ['projects/x/drafts', 'user', 'leo', 'write'], // only leo has a rule here; others inherit from projects/x
-  ['projects/y', 'role', 'member', 'read'],
-  ['projects/y', 'everyone', null, 'write'], // role beats everyone
+  ['projects/x', 'user', 'mia', 'none'], // the project exception: mia is out of it and all in it
+  ['projects/x/drafts', 'user', 'leo', 'write'], // leo's rule adds to what projects/x gives
+  ['projects/y', 'everyone', null, 'read'],
   ['projects/z/open', 'everyone', null, 'read'], // an open folder inside a project nobody's a member of by a rule there
   ['users/leo', 'everyone', null, 'write'], // ignored: rules under users/ never apply
   ['users', 'everyone', null, 'write'], // ignored too: users/ itself is read-only and never opens users/<id>/
 ]
+const LIMITED = ['groups/sales', 'groups/sales/archive', 'projects/x', 'projects/y']
 const P: Record<string, Principal> = {
   olga: { id: 'olga', name: 'Olga', role: 'owner', groups: [] },
   adam: { id: 'adam', name: 'Adam', role: 'admin', groups: [] },
@@ -48,18 +47,18 @@ const TABLE: [string, string, Access][] = [
   // root everyone read reaches plain folders, never personal ones
   ['nobody', 'readme.md', 'read'], ['nobody', 'users/leo/a.md', 'none'], ['nobody', 'users', 'read'], ['olga', 'users', 'read'], ['nobody', 'users/nobody/x', 'write'],
   ['leo', 'users/leo/a.md', 'write'], ['mia', 'users/leo/a.md', 'none'],
-  // deepest folder with a rule that applies to the person
+  // the widest rule up to the nearest limited folder
   ['leo', 'groups/sales/plan.md', 'write'], ['leo', 'groups/sales/archive/old.md', 'read'], ['nobody', 'groups/sales/plan.md', 'none'],
-  ['nobody', 'groups/sales/archive/old.md', 'none'], // archive has no rule for them -> groups/sales (role member none)
+  ['nobody', 'groups/sales/archive/old.md', 'none'], // archive and groups/sales are limited: the root never reaches in
   ['ola', 'groups/ops/a', 'read'], ['ola', 'groups/sales/a', 'none'],
-  // personal > group (widest) > role > everyone
-  ['mia', 'projects/x/a', 'none'], ['leo', 'projects/x/a', 'read'], ['ola', 'projects/x/a', 'write'], ['nobody', 'projects/x/a', 'write'],
+  // groups: the widest; the project exception keeps mia out whatever her groups give
+  ['mia', 'projects/x/a', 'none'], ['leo', 'projects/x/a', 'read'], ['ola', 'projects/x/a', 'write'], ['nobody', 'projects/x/a', 'none'],
   ['leo', 'projects/x/drafts/d.md', 'write'], ['ola', 'projects/x/drafts/d.md', 'write'], ['mia', 'projects/x/drafts/d.md', 'none'],
   ['nobody', 'projects/y/a', 'read'],
   // inside a team project (projects/<name>/…) the owner and admins are judged as a member with the same groups, by the
   // rules at or below projects/<name> only (docs/DECISIONS.md "Project contents only for members"): a role rule for
   // members applies to them there, the root's everyone:read does not reach in, projects/ itself stays theirs
-  ['adam', 'projects/y/a', 'read'], ['olga', 'projects/x/a', 'write'], ['adam', 'projects/x/drafts/d.md', 'write'],
+  ['adam', 'projects/y/a', 'read'], ['olga', 'projects/x/a', 'none'], ['adam', 'projects/x/drafts/d.md', 'none'], ['olga', 'projects/x/drafts/d.md', 'none'],
   ['adam', 'projects/z/a', 'none'], ['olga', 'projects/z', 'none'], ['nobody', 'projects/z/a', 'read'], ['adam', 'projects', 'write'], ['olga', 'projects/new.md', 'none'],
   // a rule on a folder inside a project lets members in, never the owner or an admin who does not read projects/<name>
   ['nobody', 'projects/z/open/a.md', 'read'], ['adam', 'projects/z/open/a.md', 'none'], ['olga', 'projects/z/open', 'none'],
@@ -67,7 +66,7 @@ const TABLE: [string, string, Access][] = [
 ]
 
 describe('permission resolution table (tab 2)', () => {
-  const rules = ruleWorld(RULES.map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
+  const rules = ruleWorld(RULES.map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), LIMITED)
   for (const [u, p, want] of TABLE) {
     test(`${u} ${p} -> ${want}`, () => { expect(rules.access(P[u]!, p.split('/'))).toBe(want) })
   }
@@ -84,7 +83,8 @@ describe('permission resolution table (tab 2)', () => {
   })
   test('readLosses reports the top-most folders where read access disappears', () => {
     const before = { principals: Object.values(P), rules }
-    const after = { principals: Object.values(P), rules: ruleWorld(RULES.filter(([p]) => p !== 'groups/sales/archive').map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })).concat([{ path: 'groups/sales', subject_type: 'group', subject_id: 'sales', access: 'none' }]).filter((r) => !(r.path === 'groups/sales' && r.access === 'write'))) }
+    // groups/sales left limited with no rules, its archive's rules gone: sales loses it
+    const after = { principals: Object.values(P), rules: ruleWorld(RULES.filter(([p]) => p !== 'groups/sales/archive' && p !== 'groups/sales').map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), LIMITED.filter((f) => f !== 'groups/sales/archive')) }
     const lost = readLosses(before, after)
     expect(lost.get('leo')).toEqual(['groups/sales'])
     expect(lost.get('mia')).toEqual(['groups/sales'])
@@ -186,7 +186,8 @@ describe('folders API', () => {
     const acc = (who: string, p: string) => h.ctx.files.rules().access(h.ctx.files.principal(who), p.split('/'))
     expect(acc('adam', 'projects/apollo/x.md')).toBe('none')
     for (const who of ['adam', 'olga']) expect(acc(who, 'projects/apollo/open/x.md'), who).toBe('none')
-    expect(acc(alice.id, 'projects/apollo/open/x.md')).toBe('read')
+    // (access adds up: alice's write on the project reaches its open folder)
+    expect(acc(alice.id, 'projects/apollo/open/x.md')).toBe('write')
     expect(acc(bob.id, 'projects/apollo/open/x.md')).toBe('read')
     expect(acc(bob.id, 'projects/apollo/notes/x.md')).toBe('read')
   })

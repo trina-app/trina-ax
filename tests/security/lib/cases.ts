@@ -499,6 +499,8 @@ export const SPECS: Record<string, Spec> = {
   createGroup: { build: (c) => c.post('/api/admin/groups', { name: 'g' + Math.random().toString(36).slice(2, 6), memberIds: [] }), scope: 'byLevel' },
   updateGroup: { build: (c, w) => c.patch(`/api/admin/groups/${w.groups.marketing}`, { description: 'x' }), scope: 'byLevel' },
   deleteGroup: { build: (c, w) => c.del(`/api/admin/groups/${w.groups.finance}`), scope: 'byLevel' },
+  // who keeps access by name after a group change (C1-A): admins only (it names people and folders)
+  originCheck: { build: (c, w) => c.post('/api/admin/groups/origin-check', { changes: [{ userId: 'alice', groupId: w.groups.marketing }] }), scope: 'byLevel' },
   listFolders: { build: (c) => c.get('/api/admin/folders'), scope: 'byLevel' },
   createFolder: { build: (c) => c.post('/api/admin/folders', { path: 'shared/sub' + Math.random().toString(36).slice(2, 6), create: true, rules: [] }), scope: 'byLevel' },
   // shared/ and skills/ keep at least one rule, also for the owner and admins (fix/folders-safety 1b): the admin API
