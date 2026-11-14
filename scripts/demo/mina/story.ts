@@ -193,7 +193,8 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
     fallback: { text: s.fallback.text, question: s.fallback.question },
     end: {
       after: { event: 'chris-reply' },
-      delayMs: 2500,
+      // the agency's toast stays readable for a moment before the card
+      delayMs: 5000,
       title: s.end.title,
       body: s.end.body,
       stats: [

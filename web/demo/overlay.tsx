@@ -159,13 +159,16 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   // a step's prompts go once one was sent (they come back with the next step), and while the AI's card waits
   const [usedFor, setUsedFor] = useState<string | null>(null)
   const cardOpen = [...document.querySelectorAll('[data-testid="ask-card"]')].some(visible)
+  // the AI is still answering on screen (its card not out yet): the guide waits with it
+  const working = !cardOpen && [...document.querySelectorAll('[data-testid="assistant-message"][data-status="streaming"]')].some(visible)
   const suggest = here && usedFor !== step?.id && !cardOpen ? (step?.suggest ?? []).flatMap((id) => server.script.answers.filter((a) => a.id === id)) : []
   const [toasts, setToasts] = useState<Toast[]>([])
 
   useEffect(() => {
     server.onToast = (t) => {
       setToasts((list) => [...list.filter((x) => x.id !== t.id), t])
-      setTimeout(() => setToasts((list) => list.filter((x) => x.id !== t.id)), 12_000)
+      // shorter on phones, where a toast sits over the header
+      setTimeout(() => setToasts((list) => list.filter((x) => x.id !== t.id)), window.matchMedia('(max-width: 767px)').matches ? 7000 : 12_000)
     }
     return () => { server.onToast = null }
   }, [server])
@@ -216,8 +219,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
       if (control !== '[data-testid="ask-card"]') el.click()
       return
     }
-    if (suggest.length === 1) { void pick(suggest[0]!); return }
-    document.querySelector('[data-testid="demo-suggest"]')?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 400 })
+    // the step's prompts: the line sends the first (the buttons stay for the other choice)
+    if (suggest.length) { void pick(suggest[0]!); return }
   }
 
   return (
@@ -225,18 +228,18 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
       <div className="demo-guide" role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
         <div className="demo-bar">
           <span className="demo-badge">{t('demo.bar', { company: server.script.company.name })}</span>
-          {step && !end && (
+          {step && !end && !working && (
             <button type="button" className={here || control || suggest.length ? 'demo-next' : 'demo-next demo-glow'} onClick={() => void act()} data-testid="demo-next" data-away={here || inSideRoom ? undefined : ''}>
-              {here || inSideRoom ? step.text : step.away ?? step.text}
+              {here && cardOpen ? demoWord('card', locale) : here || inSideRoom ? step.text : step.away ?? step.text}
             </button>
           )}
-          {!step && !end && <span className="demo-next demo-wait" data-testid="demo-wait" aria-label="…">…</span>}
+          {(!step || working) && !end && <span className="demo-next demo-wait" data-testid="demo-wait" role="status">{demoWord(working ? 'working' : 'waiting', locale)}</span>}
           <button type="button" className="demo-restart" onClick={() => location.assign('/')} data-testid="demo-restart">{demoWord('restart', locale)}</button>
         </div>
       </div>
       {suggest.length > 0 && step && !end && <Suggestions go={step.go} answers={suggest} sending={sending} onPick={pick} />}
       <div className="demo-toasts" aria-live="polite">
-        {toasts.map((x) => {
+        {toasts.filter((x) => !x.open || !atPlace(server, x.open, path)).map((x) => {
           const who = server.script.people.find((p) => p.id === x.from)
           return (
             <button key={x.id} type="button" className="demo-toast" data-testid="demo-toast"
@@ -262,7 +265,7 @@ function Suggestions({ go, answers, sending, onPick }: { go: DemoGo; answers: De
   const box = [...document.querySelectorAll(boxOf(go))].find(visible)
   const frame = box?.closest('form') ?? box?.parentElement?.parentElement ?? null
   const r = frame?.getBoundingClientRect()
-  const style = r ? { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 10 } : undefined
+  const style = r ? { left: r.left + 6, width: r.width - 12, bottom: window.innerHeight - r.top + 10 } : undefined
   return (
     <div className={r ? 'demo-suggest' : 'demo-suggest demo-suggest-loose'} style={style} data-testid="demo-suggest">
       {answers.map((a) => (

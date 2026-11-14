@@ -193,7 +193,7 @@ export const en = {
     leadDmToast: 'Got a sec? 🙏',
     ceoShip: '🔥 This is it. Ship it.',
     leoHow: 'wait how did you do this so fast 😂',
-    leadGmail: 'Mina, Gmail\'s connected. Ask Trina to send it to Chris.',
+    leadGmail: 'Mina, Gmail\'s connected. Ask Trina to send it to Chris at Fieldnote, our agency.',
     chrisReply: 'Looks great, running it Monday.',
   },
 
