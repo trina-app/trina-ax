@@ -45,7 +45,7 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 ![Admin › AI accounts: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "AI accounts")
 
 #### Invite the team
-Start with a small pilot group, then confirm roles and folder access.
+Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists **Guests**: an outside person you invited into one room or one project. A guest sees only that place, and their AI is off unless you give them a team AI account with a monthly limit or let them use their own sign-in. You can make a guest a team member or remove them there.
 
 #### Add a first skill
 Copy a starter skill and review its result against the sources. [Read about skills](team-skills.md).
@@ -104,6 +104,6 @@ From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI en
 
 ## System
 
-**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
+**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates. The storage block counts the files of chats and rooms you deleted (kept 30 days before they are removed) with Team files, and says how much they are. To keep a small disk from filling, backups leave out folders a tool makes again (such as `node_modules`), and caches nobody used for 14 days are cleared. Your own files are never touched. When an update waits for running tasks to finish, System says so; **Update now** asks whether to wait or update anyway.
 
 ![Admin on a phone: one list of the admin areas, with the five tabs at the bottom](../images/admin/admin-phone.webp "Admin on a phone")

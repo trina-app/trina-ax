@@ -138,7 +138,7 @@ const SHOTS: Shot[] = [
   { file: 'files/files-phone', path: '/files', phone: true, acme: true, as: JORDAN },
   { file: 'files/folder-permissions', path: '/admin/folders', acme: true, crop: 'main' },
   { file: 'files/by-person', path: '/admin/folders', acme: true, prepare: async (p) => {
-    await p.getByText('By person', { exact: true }).first().click(); await p.waitForTimeout(800)
+    await p.getByText('What a person can open', { exact: true }).first().click(); await p.waitForTimeout(800)
     await p.locator('main').getByText('Jordan Lee', { exact: true }).first().click(); await p.waitForTimeout(900)
   }, crop: 'main' },
   // Team skills and connections

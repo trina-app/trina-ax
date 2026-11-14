@@ -18,8 +18,9 @@ Version numbers follow Semantic Versioning. [Read how versions are chosen](../de
 
 - An update that changes only the app installs in the team's update window, when no answer is running.
 - An update that changes root files waits for the update timer, or for `sudo mycel-ctl update`.
-- The update window is in **Admin › Team settings**, in the team's time zone (03:00–05:00 when empty).
-- The timer waits for a quiet moment instead of cutting answers off.
+- The update window is in **Admin › Team settings**, in the team's time zone, picked by city with its UTC offset, such as "Seoul (UTC+9)" (03:00–05:00 when empty).
+- The timer waits for a quiet moment instead of cutting answers off. An update waits for running work to finish, for up to 30 minutes. While it waits, **Admin › System** shows "An update is waiting for N running tasks to finish", and **Update now** asks whether to wait or update anyway. Scheduled runs and long commands start after the update.
+- A server skips a release that cannot open its data yet (for example, a server on a development build that already updated its database further). **Admin › Home** and **Admin › System** say "Version … can't open this server's data yet. Waiting for a newer version." and show no install button.
 
 ```sh
 sudo mycel-ctl status            # versions, units, health, update history

@@ -164,6 +164,18 @@ Start a chat from the project's page, or move a chat in with **Move to project**
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.
 - **Shared chats.** In a team project's settings, its creator or an admin can turn on **Share this project's chats with its members**. From then on, new chats in the project can be seen and continued by its members; the chats you had before stay yours. Every question shows the picture and name of the person who sent it, yours too. Each answer runs as the person who asked, with their access. When the AI is about to read something some of them cannot open, it asks you first (**Read and share** / **Don't read**). A file you attach from your computer (📎, a paste or a drop) is saved in the project folder's **Chat attachments** subfolder (named in the team's language), where the project's people can open it, and a line under it says so; you need write access to the project folder (without it, the box offers team files only), and **✕** before sending moves the file to the trash. Turning the setting off keeps the chats already shared.
 
+## Share a chat
+
+A chat that is not in a project can be shared with people and groups. Choose **Share** in the chat's **⋯** menu, or in the menu of its row in your Trina list. The Share dialog works like Google Drive's:
+
+- Add people and groups. Take one out with **✕**; **Undo** is there until you save. **Save** applies it, and leaving with unsaved changes asks first.
+- Before new people are added, the dialog shows what they would start seeing: answers that used places they cannot open, listed one by one. Choose **Share anyway** only if that is fine.
+- A file you attached from your computer is kept with the chat. Everyone who can see the chat can open it and ask Trina about it, and nobody else can. Files you attached before sharing are shared with the chat. Taking someone out, or making the chat private again, takes the files away from them. Deleting the chat deletes them.
+- The people you shared it with find it in their Trina list and in **Activity**, can continue it or hide it from their list, and are told "This chat is no longer shared with you" when you take them out. In **Settings › Notifications**, **Chats shared with me** turns the phone and browser notice off.
+- A chat in your own project explains why it cannot be shared and offers **Move**. A chat in a team project is shared with the project's members.
+
+A direct chat with someone who left the team says "<name> left the team" and has no message box. The history stays readable.
+
 ## Find anything
 
 Press ⌘K (Ctrl+K on Windows) or choose **Search** under **Ask Trina** to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
