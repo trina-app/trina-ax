@@ -177,6 +177,8 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   if (!apps.switches(app)[ev.switch]) { apps.count(row, 'skipped', day); return answer(200, 'ok') }
   const paused = apps.capCheck(app)
   if (paused) { apps.count(row, 'skipped', day); return answer(429, 'slow_down', { 'retry-after': String(Math.max(1, Math.ceil((Date.parse(paused) - now) / 1000))) }) }
+  // with a secret saved, only a signed request may pin the service account (unsigned ones are refused above anyway)
+  if (ev.pin && app.secret_enc && !signed) delete ev.pin
   if (!apps.post(app, ev, day)) apps.count(row, 'skipped', day)
   return answer(200, 'ok')
 }

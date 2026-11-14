@@ -332,6 +332,9 @@ export class RoomApps {
     const s = this.seal(row.id, token, secret)
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // a new secret: the service account pinned before it (possibly by an unsigned request) is forgotten; the next
+      // signed request pins it again
+      if (secret) this.db.query('UPDATE room_apps SET preset_pin = NULL WHERE id = ?').run(row.id)
       audit(this.db, { actor: userId, action: 'room_app.secret', target: row.id, detail: { ...roomAuditRef(room), set: !!secret } })
     })()
     if (secret?.made) this.saw(row.id, userId)
@@ -346,7 +349,9 @@ export class RoomApps {
     if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
     const s = this.seal(row.id, newToken(), prev)
     this.db.transaction(() => {
-      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // Regenerate also forgets the pinned service account (Zendesk subdomain, Shopify store): whoever knew the old URL
+      // may have pinned it
+      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
     })()
     this.limits.forget(row.id)

@@ -493,3 +493,39 @@ test('security review of #854, Shopify and Typeform: the unsigned topic must agr
   const nb = JSON.stringify(old)
   expect((await post(tf.token, nb, { 'typeform-signature': `sha256=${hmac(s, nb).digest('base64')}` })).status).toBe(200)
 })
+
+test('the pinned service account: Regenerate clears it; saving a secret clears it; with a secret only a signed request pins it (Zendesk and Shopify)', async () => {
+  const { owner, all, add, post, secret } = await setup()
+  const pinOf = (id: string) => (h.ctx.db.query('SELECT preset_pin FROM room_apps WHERE id = ?').get(id) as { preset_pin: string | null }).preset_pin
+  const ticket = (id: string, sub: string) => JSON.stringify({ trina: 'zendesk', event: 'created', id, title: `T${id}`, status: 'Open', priority: '', requester: '', assignee: '', url: `${sub}.zendesk.com/agent/tickets/${id}`, update: '' })
+  const z = await add('zendesk')
+  // an unsigned request pins first (someone who knows the URL)
+  expect((await post(z.token, ticket('1', 'evil'))).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('evil')
+  // Regenerate forgets it; the next request pins its own
+  const rotated = await owner.call('POST', `/api/rooms/${all}/apps/${z.app.id}/rotate`)
+  expect(pinOf(z.app.id)).toBeNull()
+  const token = rotated.address.split('/in/')[1] as string
+  expect((await post(token, ticket('2', 'evil'))).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('evil')
+  // saving a secret forgets it too; an unsigned request is then refused and pins nothing; a signed one pins
+  const key = crypto.randomBytes(24).toString('base64')
+  expect((await secret(z.app.id, { secret: key })).status).toBe(200)
+  expect(pinOf(z.app.id)).toBeNull()
+  expect((await post(token, ticket('3', 'evil'))).status).toBe(401)
+  expect(pinOf(z.app.id)).toBeNull()
+  const b = ticket('4', 'acme'), ts = new Date().toISOString()
+  expect((await post(token, b, { 'x-zendesk-webhook-signature': hmac(key, ts, b).digest('base64'), 'x-zendesk-webhook-signature-timestamp': ts })).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('acme')
+  // taking the secret away keeps the pin (nothing new to trust)
+  expect((await secret(z.app.id, { secret: null })).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('acme')
+
+  // Shopify: the same rules for the store handle
+  const s = await add('shopify')
+  const order = fixture('shopify/orders-create.json')
+  expect((await post(s.token, order, { 'x-shopify-topic': 'orders/create', 'x-shopify-shop-domain': 'evil-shop.myshopify.com', 'x-shopify-event-id': 'p1' })).status).toBe(200)
+  expect(pinOf(s.app.id)).toBe('evil-shop')
+  await owner.call('POST', `/api/rooms/${all}/apps/${s.app.id}/rotate`)
+  expect(pinOf(s.app.id)).toBeNull()
+})

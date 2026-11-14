@@ -27963,8 +27963,9 @@ part. The picker groups, guides, logos and the Slack words in the web app come i
   - **Typeform.** Its signature has no time: a signed response whose `form_response.submitted_at` is older than 2 days
     (or missing) is refused, 401, as Tally's `createdAt`.
   - **Zendesk dedupe** also covers the assignee and priority (a reassignment is a new change).
-  - The pin is set by the first event that posts; with a secret saved only signed requests get that far. It is not
-    cleared by Regenerate.
+  - The pin (owner decision via the coordinator): set by the first event that posts; with a secret saved only a signed
+    request may set it. Regenerate clears it, and so does saving a secret (a pin set by an unsigned request before the
+    secret is forgotten; the next signed request pins again).
 - **Rollback note for 401.** Rolling the server back to a build before this one keeps the column but ignores it: every
   preset row is read as plain Other. Such a build checks a saved secret against `Sentry-Hook-Signature` for every
   non-GitHub kind, so **Stripe, Shopify, Zendesk and Tally (and Typeform) apps with a saved secret answer 401** and their
