@@ -27,7 +27,7 @@ function setup(stallMs: number) {
     db, stallTimeoutMs: stallMs, quarantineReleaseGraceMs: 300_000, log: silentLogger,
     ctx: { config: { mode: 'dev', engine: {} } },
     hub: { publish: (_: string, event: any) => events.push(event) }, relay: { cancelTurn() {} },
-    store: { touchChat() {}, messageRow: () => null, userRef: () => null },
+    store: { touchChat() {}, chatRow: () => null, messageRow: () => null, userRef: () => null },
     publishChat() {}, turnFinished: (e: TurnExec) => released.push(e.id),
     turnQuarantined: (e: TurnExec) => quarantined.push(e.id),
     launcherReady: async () => {}, launcherStopped() {}, shutdownCause: () => 'restart',

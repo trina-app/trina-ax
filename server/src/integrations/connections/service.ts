@@ -63,7 +63,7 @@ interface FlowSecret {
  * can use (invalid), the connection or its app changed meanwhile (changed), an own app's client ID or secret was
  * refused at the token address (client: the person's own app; client_template: the app an admin set on the template),
  * another error there (exchange), a newer sign-in started (superseded). */
-export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded'
+export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded' | 'cancelled'
 /** The sign-in window's answer: done, or why not (null: not a sign-in this browser may finish, e.g. not signed in to
  * the team here, or the link was used already) */
 export type CallbackResult = { ok: true } | { ok: false; reason: FlowFailure | null }
@@ -936,6 +936,16 @@ export class Integrations {
     return { flowId: f.id, state: f.state, expiresAt: f.expires_at, reason: f.reason }
   }
 
+  /** Cancel (Cancel, or the screen stopped waiting): a sign-in of this session still waiting for the service. Its
+   * secrets go and the service's answer is refused afterwards (callback takes only pending flows), so a window left
+   * open cannot connect it later (QA TC-1417). Already answered or over: nothing changes. */
+  cancelFlow(userId: string, session: string, id: string) {
+    this.liveSession(userId, session)
+    const f = this.db.query('SELECT user_id, session_id FROM integration_oauth_flows WHERE id=?').get(id) as Pick<FlowRow, 'user_id' | 'session_id'> | null
+    if (!f || f.user_id !== userId || f.session_id !== session) return fail('not_found')
+    this.db.query("UPDATE integration_oauth_flows SET state='failed', reason='cancelled', secret_enc=NULL WHERE id=? AND state='pending'").run(id)
+  }
+
   /** The browser comes back from the service. It must be signed in as the same person who started (any of their live
    * sessions); a flow started by someone else, or a browser without a session, changes nothing. */
   async callback(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
@@ -943,6 +953,8 @@ export class Integrations {
     const no: CallbackResult = { ok: false, reason: null }
     if (!q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return no
     const f = this.db.query('SELECT * FROM integration_oauth_flows WHERE state_hash=?').get(hash(q.state)) as FlowRow | null
+    // cancelled in the app (cancelFlow) by the person whose browser this is: the window says so
+    if (f?.state === 'failed' && f.reason === 'cancelled' && browser?.userId === f.user_id) return { ok: false, reason: 'cancelled' }
     if (!f || f.state !== 'pending') return no
     if (!browser || browser.userId !== f.user_id) return no
     try { this.liveSession(browser.userId, browser.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return no }

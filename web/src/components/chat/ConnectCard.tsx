@@ -350,8 +350,9 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
                   {t('integrations.signIn.open')}
                 </a>
               )}
-              {['failed', 'expired'].includes(flow.state) && (
-                <Button size="sm" onClick={() => void signIn.start(flow.id)}>
+              {/* waiting too: a window closed before it finished needs a way back (QA TC-1417) */}
+              {flow.state !== 'starting' && (
+                <Button size="sm" onClick={() => void signIn.start(flow.id)} data-testid="connect-signin-retry">
                   {t('common.retry')}
                 </Button>
               )}

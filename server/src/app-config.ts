@@ -258,8 +258,10 @@ export interface AppConfig {
   }
   relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null; auto?: boolean }
-  /** the native app push gateway; absent or null = no native push (the default) */
-  push?: { gatewayUrl?: string | null }
+  /** the native app push gateway; absent or null = no native push (the default). setBy: the operator chose it
+   * (MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl, an address or off), which an owner's or admin's choice in
+   * Settings › Notifications never overrides (notifications/push-gateway-setting.ts); absent or null = the edition default */
+  push?: { gatewayUrl?: string | null; setBy?: 'env' | 'file' | null }
   sourceCode?: SourceCodeConfig
   validateResponses: boolean
   /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
@@ -372,7 +374,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
     update: f.update,
-    push: { gatewayUrl: pushGateway },
+    push: { gatewayUrl: pushGateway, setBy: env[P + 'PUSH_GATEWAY'] !== undefined ? 'env' : f.push?.gatewayUrl !== undefined ? 'file' : null },
     ...(f.sourceCode ? { sourceCode: f.sourceCode } : {}),
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,

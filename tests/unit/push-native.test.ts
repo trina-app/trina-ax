@@ -218,7 +218,7 @@ test('gateway address setting: https host only; a dev server has none, server.js
   for (const ok of ['http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787']) expect(validGatewayUrl(ok)).toBe(ok)
   const dir = path.join(WORK, 'push-native-config'); fs.mkdirSync(dir, { recursive: true })
   const file = (o: object) => { const f = path.join(dir, `server-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f }
-  const load = (extra: Record<string, string>, o: object = {}) => { try { return loadAppConfig({ argv: ['--config', file(o)], env: extra }).push } catch (e) { return (e as Error).name } }
+  const load = (extra: Record<string, string>, o: object = {}) => { try { return { gatewayUrl: loadAppConfig({ argv: ['--config', file(o)], env: extra }).push?.gatewayUrl } } catch (e) { return (e as Error).name } }
   expect(load({})).toEqual({ gatewayUrl: null }) // a developer's server never gets the edition default
   expect(load({}, { push: { gatewayUrl: 'https://push.example.test' } })).toEqual({ gatewayUrl: 'https://push.example.test' })
   expect(load({}, { push: { gatewayUrl: null } })).toEqual({ gatewayUrl: null })
@@ -251,7 +251,7 @@ test('the edition default gateway: Trina servers use push.trina.app unless the o
   expect(SERVICE_HOSTS.pushGatewayUrl).toBe(trina) // this repository is the Trina edition
   const dir = path.join(WORK, 'push-native-default'); fs.mkdirSync(dir, { recursive: true })
   const file = (o: object) => { const f = path.join(dir, `server-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f }
-  const load = (env: Record<string, string>, o: object) => { try { return loadAppConfig({ argv: ['--config', file(o)], env }).push } catch (e) { return (e as Error).name } }
+  const load = (env: Record<string, string>, o: object) => { try { return { gatewayUrl: loadAppConfig({ argv: ['--config', file(o)], env }).push?.gatewayUrl } } catch (e) { return (e as Error).name } }
   const prod = { mode: 'prod', teamRoot: path.join(dir, 'team'), dataDir: path.join(dir, 'data'), logDir: path.join(dir, 'logs') }
   expect(load({}, prod)).toEqual({ gatewayUrl: trina })
   expect(load({}, { office: true })).toEqual({ gatewayUrl: trina })

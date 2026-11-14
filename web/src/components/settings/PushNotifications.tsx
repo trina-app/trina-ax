@@ -142,7 +142,7 @@ export function PushNotifications() {
   // the browser blocked notifications for this site: the status line says so and how to undo it
   const blocked = !app && supported && notificationPermission() === 'denied'
   // One row of 이 기기 (Settings › Notifications): the name, where push stands on this device under it, the action on the
-  // right; what push sends (and, for admins, the phone gateway) in a quieter line below. No frame.
+  // right; what push sends in a quieter line below. No frame.
   let status: ReactNode = null, action: ReactNode = null
   // a phone's switch: whether this device gets push, and whether the switch can change that here (null: no switch)
   let here: { on: boolean; disabled: boolean } | null = null
@@ -154,7 +154,7 @@ export function PushNotifications() {
         : view.action === 'disable' ? <Button busy={busy} onClick={disableAll} data-testid="push-disable">{t('push.disable')}</Button>
           : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>
     } else status = t('push.notConfigured')
-  } else if (settings && !settings.configured) status = t('push.notConfigured')
+  } else if (settings && !settings.configured) status = t('push.notConfiguredBrowser')
   else if (settings?.configured) {
     if (needsInstall) status = <>{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></>
     else if (!supported) status = t(support === 'insecure' ? 'push.insecure' : 'push.unsupported')
@@ -169,13 +169,13 @@ export function PushNotifications() {
   // the reason in words; the status line already says a blocked site
   const failureText = !failure ? null : app ? t('push.failed') : failure.kind === 'denied' && blocked ? null : pushFailureText(failure, t, locale, { admin: isAdmin(me) })
   // under the row: what push sends (about the browser's push service; the phone app's status line says what matters
-  // there), an installed web app's line about the count on its icon, the phone gateway for admins, and why the last
+  // there), an installed web app's line about the count on its icon (where the team's phone notifications go is the
+  // Phone section's row for owners and admins, PhoneGatewayRow.tsx), and why the last
   // change did not work ("다시 시도" only where trying again can help: the team server could not be reached or had a
   // passing fault)
   const notes = <>
     {!app && settings?.configured && <p className="mt-2 text-xs text-faint">{t('push.description')}</p>}
     {badgeHint && <p className="mt-2 text-xs text-faint" data-testid="push-badge-hint">{t(badgeHint)}</p>}
-    {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
     {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
   </>
   if (narrow && here) {
@@ -205,7 +205,9 @@ export function PushNotifications() {
     <div className="py-3.5" data-testid="push-notifications">
       <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-2.5">
         <div className="min-w-0 flex-1">
-          <h4 className={settingName}>{t('push.title')}</h4>
+          {/* in a browser it is this browser's Web Push, named so (QA TC-1537): not the phone app's notifications, which
+              are the Phone section's row */}
+          <h4 className={settingName}>{t(app ? 'push.title' : 'push.titleBrowser')}</h4>
           {status && <p className={clsx('mt-0.5', settingDesc)}>{status}</p>}
         </div>
         {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}

@@ -238,7 +238,11 @@ export class SlackBrokerFeed {
   private async loop() {
     while (!this.stopped) {
       let answer
-      try { answer = await this.o.client.poll(this.ack, this.o.waitMs ?? SLACK_BROKER_POLL_MAX_WAIT_MS, this.abort.signal) } catch (e) {
+      // not connected yet (just started, or after a failure): a poll answered at once, so the state says connected
+      // within a round trip instead of after a long poll's whole wait (QA TC-1415: "Connecting" for 25 s after each
+      // start, which a page read then kept showing)
+      const wait = this.state === 'connected' ? (this.o.waitMs ?? SLACK_BROKER_POLL_MAX_WAIT_MS) : 0
+      try { answer = await this.o.client.poll(this.ack, wait, this.abort.signal) } catch (e) {
         if (this.stopped) return
         const code = e instanceof SlackBrokerError ? e.code : 'unreachable'
         const notServed = code === 'not_hosted' || code === 'not_configured'
