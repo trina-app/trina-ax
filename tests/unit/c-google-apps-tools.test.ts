@@ -171,7 +171,7 @@ describe('calls', () => {
 
   // QA TC-319: Calendar and Docs go through the same gate as Gmail: after outside content the person's own Always allow
   // sends without a card; without it the card still asks
-  test('Calendar and Docs with Always allow hold after outside content like Gmail; without it they ask (QA TC-319)', async () => {
+  test('Calendar and Docs go through the same gate as Gmail: with Always allow no card after a read, without it a card (QA TC-319)', async () => {
     for (const [app, read, write, args] of [
       ['calendar', 'my_gcal__get_events', 'my_gcal__manage_event', { action: 'create', summary: 'sync', attendees: ['out@acme.example'] }],
       ['docs', 'my_gdocs__get_doc_content', 'my_gdocs__modify_doc_text', { document_id: 'doc1', text: 'added' }],
@@ -207,6 +207,9 @@ describe('calls', () => {
     expect(p.notes[0]).toContain('every change in')
     expect(p.notes[0]).toContain('every chat')
     expect(p.notes[0]).toContain('Settings › Connectors')
+    // every language keeps the name in the sentence
+    const { TEXT } = await import('../../server/src/integrations/connections/text')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(TEXT.alwaysNote[l]).toContain('{name}')
     // the grant is the same as before: one Always allow on a send sets the whole app's write rule
     const a = { ...person('always'), notes: [] as string[] }
     await turn('alice', { person: a }).call('my_gmail__send_gmail_message', { to: 'bob@acme.example', subject: 'Hi', body: 'y' })
