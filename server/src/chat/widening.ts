@@ -158,8 +158,8 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   if (!listed.length) return { total, totalCapped: capped, items: [], nextRowid: null }
 
   // 3. the shown answers' text, chat titles and askers, by primary key
-  const shown = db.query(`SELECT m.id, m.content, m.created_at, c.title, u.id AS uid, u.name, u.avatar_version FROM messages m JOIN chats c ON c.id = m.chat_id
-    LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN users u ON u.id = t.user_id WHERE m.id IN (SELECT value FROM json_each(?))`)
+  const shown = db.query(`SELECT m.id, m.content, m.created_at, c.title, u.id AS uid, u.name, pr.avatar_version FROM messages m JOIN chats c ON c.id = m.chat_id
+    LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN users u ON u.id = t.user_id LEFT JOIN user_profiles pr ON pr.user_id = u.id WHERE m.id IN (SELECT value FROM json_each(?))`)
     .all(JSON.stringify(listed.map((x) => x.node.id))) as { id: string; content: string; created_at: string; title: string | null; uid: string | null; name: string | null; avatar_version: number | null }[]
   const byId = new Map(shown.map((r) => [r.id, r]))
   const words = o.words ?? { root: 'the top of the team folder', mine: 'your personal folder', room: "room '{name}'" }
