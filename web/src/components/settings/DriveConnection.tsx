@@ -4,9 +4,9 @@ import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
-import { useWaitLimit } from '../../lib/signInWait'
+import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
-import { Button, LinkButton, confirmDialog } from '../ui'
+import { Button, LinkButton, WaitLine, confirmDialog } from '../ui'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
  * Sheets: integrations/GoogleAppConnector.tsx) are the same steps on their own addresses. `current`: the connection once
@@ -143,7 +143,8 @@ export type DriveFlowState = ReturnType<typeof useDriveFlow>
 export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow }) {
   const t = useT()
   return <div className="space-y-3 rounded-xl border border-line p-4">
-    <p role="status">{t(flow.state === 'ready' ? 'drive.confirmAccount' : 'drive.waiting')}</p>
+    {flow.state === 'ready' ? <p role="status">{t('drive.confirmAccount')}</p>
+      : <WaitLine text={t('drive.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="drive-flow-wait" />}
     {flow.state === 'ready' && <>
       <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>

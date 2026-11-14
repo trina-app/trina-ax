@@ -8,6 +8,15 @@ description: 只需把 Trina AX 应用添加到你的 Slack 工作区一次，�
 
 只需两个简短的步骤。团队的所有者或管理员把应用添加到 Slack 一次，每个人再关联一次自己的 Slack 账号。
 
+:::tip
+**你需要准备的**
+
+- **添加应用**（一次）：Trina AX 中团队的所有者或管理员，以及在你的 Slack 工作区中能批准应用的人（Slack 工作区的管理员或
+  所有者）。不需要复制或粘贴任何内容。
+- **关联你的账号**（每人一次）：你自己的 Slack 账号。不需要复制或粘贴任何内容。
+- **仅限没有“添加到 Slack”的服务器**：你自己的 Slack 应用中的四个值，见[下文](#如果没有添加到-slack)。
+:::
+
 :::note
 本页截图使用的是一个虚构的团队和工作区“Acme”。
 :::
@@ -94,8 +103,52 @@ Trina AX 账号的邮箱相同，**关联**就会把它们关联起来。如果�
 
 **添加到 Slack**只出现在由 Trina 托管服务为你提供服务器的地方：托管的团队，或者你自己安装、并已在托管服务中登记的服务器。
 在其他地方，**管理 › 已连接的应用**中的 Slack 页面会改为显示**连接 Slack 应用**：分四步，用我们的清单（manifest）创建团队自己的
-Slack 应用，并粘贴它的密钥。请按照[设置团队自己的应用](../../../SLACK.md#setting-up-the-teams-own-app-the-owner)（英文）操作。
-只有团队的所有者可以做这一步，因为需要粘贴应用的密钥；管理员会看到“只有团队所有者可以在这里连接 Slack。”
+Slack 应用，并粘贴它的密钥。只有团队的所有者可以做这一步，因为需要粘贴应用的密钥；管理员会看到“只有团队所有者可以在这里连接
+Slack。”请在团队的 `https://` 地址打开这个页面：大家的**使用 Slack 登录**链接会回到那里。
+
+![连接 Slack 应用：1 在 Slack 中创建应用，2 安装到工作区，3 创建应用令牌并复制应用凭据，4 粘贴并开启，以及 Bot User OAuth Token、App-Level Token、Client ID 和 Client Secret 四个输入框](../../images/connect/slack-own-app.webp "连接 Slack 应用")
+
+:::tip
+**你需要准备的，全部来自你的 Slack 应用设置页 api.slack.com/apps**
+
+| Trina AX 中的输入框 | 在 Slack 中的位置 | 样子 |
+|---|---|---|
+| **Bot User OAuth Token** | **Install App**（或 **OAuth & Permissions**），在 **Install to Workspace** 之后 | `xoxb-…` |
+| **App-Level Token** | **Basic Information › App-Level Tokens › Generate Token and Scopes**，范围为 `connections:write` | `xapp-…` |
+| **Client ID** | **Basic Information › App Credentials** | 带一个点的数字 |
+| **Client Secret** | **Basic Information › App Credentials**，点 **Show** | 字母和数字 |
+:::
+
+:::steps
+#### 在 Slack 中创建应用
+选择**在 Slack 中创建应用**。Slack 会打开“Create an app”，所有内容都已按我们的清单填好。选择你的工作区，然后选择
+**Create**。这会创建一个只属于你工作区的应用。
+
+#### 安装到工作区
+选择**安装到工作区**（Slack 的 **Install App** 页面），然后选择 **Install to Workspace** 和 **Allow**。复制以 `xoxb-`
+开头的 **Bot User OAuth Token**。
+
+#### 创建应用令牌并复制应用凭据
+选择**创建应用令牌并复制应用凭据**（Slack 的 **Basic Information** 页面）。在 **App-Level Tokens** 下选择
+**Generate Token and Scopes**，随便起个名字，添加范围 `connections:write`，然后选择 **Generate**。复制以 `xapp-` 开头的令牌。
+在同一页面的 **App Credentials** 下，复制 **Client ID** 和 **Client Secret**（先选择 **Show**）。
+
+#### 粘贴并开启
+把四个值粘贴到对应的输入框中，选择**检查并开启**。Trina AX 会向 Slack 核对它们。如果 Slack 拒绝某个值，会在那个输入框下
+说明，并给出修正它的 Slack 页面。
+:::
+
+然后像上面那样把应用邀请到频道。面向运维人员的详细说明：
+[设置团队自己的应用](../../../SLACK.md#setting-up-the-teams-own-app-the-owner)（英文）。
+
+| 你看到的 | 该怎么做 |
+|---|---|
+| “这不是机器人令牌。”或“Slack 不接受此令牌。” | 从 **Install App** 用 Slack 的复制按钮重新复制 **Bot User OAuth Token**（`xoxb-`）。 |
+| “Slack 不接受此应用令牌。” | 新建一个带有范围 `connections:write` 的 App-Level Token 并粘贴。 |
+| “这两个令牌属于不同的 Slack 应用。” | 两个令牌必须来自同一个 Slack 应用。 |
+| “这不是 Client ID。”或“这不是 Client Secret。” | 从 **Basic Information › App Credentials** 重新复制；这两个输入框可能填反了。 |
+| “请开启 Slack app settings › Socket Mode。” | 清单会开启它；如果有人关掉了，请在 Slack 中重新开启。 |
+| **使用 Slack 登录**失败，并出现重定向错误 | 页面是在团队 `https://` 地址以外的地址保存的。请在团队的地址打开页面，再保存一次。 |
 
 如果团队自己的 Slack 应用已经设置好，你也会看到这四个步骤。要切换的话，所有者先把它移除（**更换令牌**，然后**移除 Slack**），
 再点击**添加到 Slack**。管理员可以关闭和开启团队自己的应用，但只有所有者可以更改或移除它。如果在“管理 › 已连接的应用”中

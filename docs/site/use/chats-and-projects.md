@@ -57,20 +57,21 @@ On a computer, **Trina** on the bar on the left opens your list of Trina chats b
 | **Pinned** | The chats you pinned |
 | **Trina history** | All your other chats, newest first. A chat in a project shows the project's name at the end of its row |
 
-A shared chat shows the faces of the other people who wrote in it at the end of its row (up to 3, 2 on a phone); hover
-them to see their names. A shared chat only you have written in shows a people icon. This is the same in your history,
-on a project's page and in search.
+A small mark says who sees a chat: a lock before the title for a chat only you see in a team project, and the
+people icon for a shared chat. A shared chat others wrote in shows their faces at the end of its row instead (up to 3, 2 on
+a phone); hover them to see their names. This is the same in your history, on a project's page and in search.
 
 **Trina** on the bar also opens the waiting chat while it shows **?**. Chats you deleted are in **Deleted history**, in
 the **⋯** menu next to **Trina history**. The filter button at the top of the list can show only some chats, for example the
 ones that are answering or wait for you. Your projects have their own place: **Projects** on the bar.
 
 On a phone, the **Trina** tab opens on Home. **☰** at the top opens your history: **Search**, **Scheduled**, **Team
-skills**, then **Trina history** (newest first, by date), and **Deleted history** at the bottom.
+skills**, then **Trina history** (your pinned chats first, then newest first, by date), and **Set your status** and
+**Deleted history** at the bottom.
 
 ![The Trina list: Ask Trina, Search, Scheduled and Team skills, then Pinned chats and your Trina history, where two shared chats show the face of the other person who wrote in them](../images/chats/trina-list.webp "Your Trina list")
 
-![On a phone, ☰ on the Trina tab opens Search, Scheduled, Team skills and your Trina history](../images/chats/trina-drawer-phone.webp "The Trina history on a phone")
+![On a phone, ☰ on the Trina tab opens Search, Scheduled, Team skills, your Trina history, and Set your status and Deleted history at the bottom](../images/chats/trina-drawer-phone.webp "The Trina history on a phone")
 
 ### Folders
 
@@ -97,7 +98,7 @@ While the browser tab is in the background, its title counts the chats and rooms
 
 ## Share a chat
 
-You can share any chat of yours with people and groups. They see the whole chat, including what was said before they
+You can share any chat of yours with people and groups, like a file in Google Drive. They see the whole chat, including what was said before they
 were added, and can ask the AI in it themselves.
 
 :::steps
@@ -120,9 +121,10 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   the chat; **Cancel** leaves it as it was.
 - **Files.** Files you attached from your computer before sharing become visible to the people you add, and the dialog
   says how many. In a shared chat anyone in it can attach a file from the computer (at most 50 MB a file): it is kept
-  with the chat, and only the people who see the chat can open it.
+  with the chat, and only the people who see the chat can open it and ask Trina about it. Deleting the chat deletes them.
 - **Who sees answers.** Answers in a shared chat are never hidden from the people in it, including people added later.
-  Before the AI reads something some of them can't open, it asks you first.
+  Each answer runs as the person who asked, with what they may open. Before the AI reads something some of them can't
+  open, it asks you first.
 - **What the others see.** The chat appears in their Trina list, and **Activity** says "Jordan shared a chat with you".
   When you add someone by name they also get a notification on their phone and in their browser (**Settings ›
   Notifications › Chats shared with me** turns it off). They can continue the chat with their own access, or choose
@@ -153,6 +155,8 @@ Only you see your pins. A pin goes when you leave the room or hide it. You can p
 
 The **Chats** list shows every conversation: your pins, your folders, then **Team rooms** (the everyone room first, then
 by name), **Group conversations** and **Direct messages** (the latest first). Conversations you hid are behind **Hidden conversations (N)**.
+
+A direct chat with someone who left the team says "<name> left the team" and has no message box. The history stays readable.
 
 ## Team chat
 
@@ -192,7 +196,23 @@ before you send: **Only show link** (the default) sends just the link; **Show me
 marked as shared by you. A copy goes away if the original is deleted. To take a card off your own message, point at it
 and click **✕** (or choose **Remove preview** in the message's menu).
 
-![Chats on a phone: Mentions & threads, team rooms and direct messages, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
+![Chats on a phone: Mentions & threads, team rooms, a group conversation and a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
+
+### Guests
+
+Someone from outside the team, such as an agency or a client, can join **one** group conversation or **one** project as
+a guest. In a group conversation open its members (the name at the top), **Invite people**, then **Invite a guest**; in
+a project, **Add people** in **Members**. Say who the link is for and whether they get AI, then **Create link**. The link
+works once: send it to them yourself.
+
+![Invite a guest: they'll see only the 'Launch email' room, a box for who it is for, and AI for them: No AI or Their own sign-in](../images/chats/invite-guest.webp "Invite a guest")
+
+- A guest sees only that place: no Files, no other rooms or projects, no team areas.
+- Their AI is off unless you choose **Their own sign-in**, or an admin gives them a **Team AI** account with a monthly limit.
+- A **Guest** tag shows next to their name, and the header says **Includes 1 guest**.
+- Admins see every guest in **Admin › Members & invites › Guests** ([Admin](admin.md#guests)).
+
+![The Launch email group conversation: 4 members · Includes 1 guest, and Morgan Reyes with a Guest tag replying](../images/chats/guest-room.webp "A guest in a group conversation")
 
 ## Projects
 
@@ -211,7 +231,7 @@ Say what the work is and how the AI should help. The first paragraph shows under
 #### Chat in the project
 Start a chat from the project's page, or move a chat in with **Move to project** in the chat title's menu. The AI then gets the project's files and instructions.
 
-![A project page: the message box with + and the 3 people chip, a line about 1 chat only you see with Choose chats to share, the Trina history with a chat Sam Ortiz also wrote in, and Instructions, Files and Members on the side](../images/chats/project.webp "A project's page")
+![A project page: the members' faces, the message box with + and the 3 people chip, Bring in chats, a line about 1 chat only you see with Choose chats to share, the Trina history with a chat Sam Ortiz also wrote in, and Instructions, Files and Members on the side](../images/chats/project.webp "A project's page")
 :::
 
 - Your projects are under **Projects**, on the bar on the left and on the phone's **Projects** tab: **Team projects**
@@ -232,12 +252,13 @@ Start a chat from the project's page, or move a chat in with **Move to project**
   **Files › Trash**, where it is one row with the project's name. **Delete for good** is for admins only.
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.
 - **Chats in a team project are shared with its members.** A small chip after **+** in the project's message box says
-  who will see the chat you're starting ("3 people"). Press it to keep that chat to yourself (**🔒 Only me**); the
-  next new chat starts shared again. Every question shows the picture and name of the person who sent it. Each answer
-  runs as the person who asked, with their access. When the AI is about to read something some of them cannot open, it
-  asks you first (**Read and share** / **Don't read**).
+  who will see the chat you're starting (for example **👥 3 people**). Press it to keep that chat to yourself (**🔒 Only
+  me**); the next new chat starts shared again. A chat only you see shows a lock. Every question shows the picture and
+  name of the person who sent it. Each answer runs as the person who asked, with their access. When the AI is about to
+  read something some of them cannot open, it asks you first (**Read and share** / **Don't read**).
 - **Chats you bring in or move in stay yours.** The project page says how many ("1 chat only you see"), and **Choose
-  chats to share** shares them.
+  chats to share** (or **Share with project members** in a chat's menu) shares them. **Bring in chats** moves other
+  chats in.
 - **Files in project chats.** A file you attach from your computer (**+**, a paste or a drop) in a shared project chat
   is saved in the project folder's **Chat attachments** subfolder (named in the team's language), where the project's
   people can open it, and a line under it says so. You need write access to the project folder (without it, **+**

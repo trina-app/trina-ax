@@ -19,7 +19,7 @@ import { useT } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { Button } from '../ui'
 import { SettingRow, SettingsSection } from '../../pages/admin/common'
-import { AppDetail } from './AppDetail'
+import { AppDetail, ExtLink } from './AppDetail'
 import { CardMenu } from './AppConnectorCard'
 import { driveAdminLine, driveAdminOn } from './DriveConnector'
 import { DriveAdminSettings } from './DriveShares'
@@ -87,10 +87,30 @@ function WhoRow({ count }: { count: number }) {
   )
 }
 
+/** Where the Google sign-in sends people back to (docs/site/use/google-apps.md, for admins of a server they run). */
+export const GOOGLE_APPS_GUIDE = 'https://ax.trina.app/docs/use/google-apps/#set-up-the-google-apps-admins-of-a-server-you-run-yourself'
+
+/** No public address yet (Google Drive and the four Google apps; QA TC-196, TC-2314): why it is needed, where it is set
+ * and by whom (on the server computer by whoever installed it, its installer's public host setting, not in the app;
+ * the owner sees it in System › Connection type, and only the owner sees that page), and the guide. */
+function PublicHostHelp({ name, testId }: { name: string; testId: string }) {
+  const t = useT()
+  const owner = isOwner(useMe())
+  return (
+    <div className="space-y-1 border-l-2 border-line py-1 pl-3 text-sm text-muted" data-testid={testId}>
+      <p>{t('googleAdmin.publicHost.why', { name })}</p>
+      <p>{t(owner ? 'googleAdmin.publicHost.owner' : 'googleAdmin.publicHost.admin', { name })}</p>
+      <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {owner && <Link to="/admin/system/connection" className="inline-flex items-center text-accent-text underline-offset-2 hover:underline max-md:min-h-11" data-testid={`${testId}-system`}>{t('driveAdmin.publicHost.openSystem')}</Link>}
+        <ExtLink href={GOOGLE_APPS_GUIDE} name={t('googleAdmin.publicHost.guide')} testId={`${testId}-guide`}>{t('googleAdmin.publicHost.guide')}</ExtLink>
+      </p>
+    </div>
+  )
+}
+
 /** Google Drive's page in Admin › Connectors. */
 export function DriveAdminPage({ status, onSetUp, onStatus, ownApp }: { status: DriveAdminStatus; onSetUp: () => void; onStatus: (s: DriveAdminStatus) => void; ownApp?: OwnAppProps }) {
   const t = useT()
-  const owner = isOwner(useMe())
   const signIn = useSignIn(ownApp)
   const id = 'google-drive' as const
   const name = builtInName(id)
@@ -109,15 +129,8 @@ export function DriveAdminPage({ status, onSetUp, onStatus, ownApp }: { status: 
         {/* the Google sign-in row says where sign-in comes from, once */}
         {hosted && !signIn && <Note testId="drive-by-service">{t('appConnectors.byService')}</Note>}
         {status.configured && status.source === 'server' && !signIn?.active && <Note testId="drive-by-server">{t('appConnectors.byServer')}</Note>}
-        {/* no public address: what to do next and who does it (QA TC-196). It is set on the server computer by whoever
-            installed it, not in the app; the owner sees it in System › 연결 방식, and only the owner sees that page */}
-        {!status.configured && status.blocked === 'public_host' && (
-          <div className="space-y-1 border-l-2 border-line py-1 pl-3 text-sm text-muted" data-testid="drive-public-host">
-            <p>{t('driveAdmin.publicHost.why')}</p>
-            <p>{t(owner ? 'driveAdmin.publicHost.owner' : 'driveAdmin.publicHost.admin')}</p>
-            {owner && <Link to="/admin/system/connection" className="inline-block text-accent-text underline-offset-2 hover:underline" data-testid="drive-public-host-system">{t('driveAdmin.publicHost.openSystem')}</Link>}
-          </div>
-        )}
+        {/* no public address: what to do next and who does it (QA TC-196) */}
+        {!status.configured && status.blocked === 'public_host' && <PublicHostHelp name={name} testId="drive-public-host" />}
       </>}
       about={t('gapps.admin.driveAbout')} canChange={false}
       developer={t(developerKey(id))} category={t(categoryKey(id))} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
@@ -156,6 +169,7 @@ export function GoogleAppAdminPage({ status, view, onSetUp, onStatus, ownApp }: 
         canSetUp={status.canSetUp} configured={status.configured} testId="gapp-admin-state" setUpTestId="gapp-admin-setup" onSetUp={onSetUp} />}
       status={<>
         {line && <Note testId="gapp-admin-line">{line}</Note>}
+        {!status.configured && status.blocked === 'public_host' && <PublicHostHelp name={name} testId="gapp-public-host" />}
         {/* the Google sign-in row says where sign-in comes from, once */}
         {hosted && !signIn && <Note testId="gapp-by-service">{t('appConnectors.byService')}</Note>}
         {status.configured && status.source === 'drive' && !signIn?.active && <Note testId="gapp-admin-same">{t('gapps.admin.sameAsDriveOn')}</Note>}

@@ -32,11 +32,11 @@ A folder or file you cannot open is invisible: in Files, in AI answers, in searc
 
 ## Chats and projects
 
-A **chat** is a conversation with the AI. It is yours alone until you share it with people or groups; a chat in a team project is shared with the project's members.
+A **chat** is a conversation with the AI. Only the person who started it sees it, until they share it with people or groups. Chats in a team project are seen by the project's members.
 
 A **project** is a folder with instructions, for work that keeps coming back to the same files. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
 
-![The bar on the left: Trina, Chats, Projects, Files and Activity, with the Trina list beside it](../images/concepts/rail.webp "The bar on the left")
+![The bar on the left: Trina, Chats, Projects, Files and Activity, with the Trina list beside it: Ask Trina, Search, Scheduled, Team skills, Pinned and Trina history](../images/concepts/rail.webp "The bar on the left")
 
 ## Skills
 

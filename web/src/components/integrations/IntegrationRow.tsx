@@ -10,10 +10,10 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
-import { useWaitLimit } from '../../lib/signInWait'
+import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { toast } from '../../store/ui'
-import { Badge, Button, LinkButton, confirmDialog } from '../ui'
+import { Badge, Button, LinkButton, WaitLine, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
@@ -296,7 +296,8 @@ export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; on
           {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}
         </p>
       ) : (
-        <p role="status">{t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')}</p>
+        // a spinner and how long it can take (QA TC-2132): the wait ends by itself (useWaitLimit)
+        <WaitLine text={t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="integration-signin-wait" />
       )}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
