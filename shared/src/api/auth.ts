@@ -157,6 +157,8 @@ export const InviteInfo = z.object({
   full: z.boolean().optional(),
   /** a guest invite: the one place the guest joins, by kind and name */
   guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string() }).optional(),
+  /** a guest invite: who the link is for, as the inviter typed it (the form's Name starts with it); absent without one */
+  guestName: z.string().optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

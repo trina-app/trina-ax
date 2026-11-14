@@ -93,7 +93,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, readOnly = false, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, unavailable, readOnly = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -112,6 +112,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   /** key → a short tag a phone shows instead of the row's whole tag (a chat's Share dialog: "You" for "You · Started
    * this chat") */
   phoneTags?: ReadonlyMap<string, string>
+  /** key → a result that cannot be added (a guest in another place: "In the 'Quote prep' room"): shown greyed out with
+   * those words and no Add, with `action` beside it (the owner's and admins' "Make team member") */
+  unavailable?: ReadonlyMap<string, { text: string; action?: ReactNode }>
   /** who is in it, without the search and without × (someone else's shared chat) */
   readOnly?: boolean
   testId?: string
@@ -227,6 +230,20 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
         <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} onMouseDown={(e) => e.preventDefault()} data-testid={`${testId}-results`}>
           {results.map((x) => {
             const added = isIn(x)
+            const away = added ? undefined : unavailable?.get(participantKey(x))
+            if (away)
+              return (
+                <ListRow
+                  key={participantKey(x)}
+                  face
+                  icon={<Face x={x} />}
+                  name={<span className="flex min-w-0 items-baseline gap-1.5 text-muted"><span className="truncate">{x.name}</span><GuestTagFor userId={x.subjectId} /></span>}
+                  // the place wraps rather than being cut beside the button on a phone
+                  meta={<span className="block whitespace-normal break-keep">{away.text}</span>}
+                  actions={away.action}
+                  li={{ 'data-testid': `participant-elsewhere-${x.subjectType}-${x.subjectId}` }}
+                />
+              )
             return (
               <ListRow
                 key={participantKey(x)}

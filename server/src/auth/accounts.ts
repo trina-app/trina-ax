@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/shared'
 import { ROOM_GROUP_MAX, SETUP_TOKEN_HEADER } from '@mycel/shared/api'
 import {
-  type AcceptInviteBody, type ChangePasswordBody, type CreateGuestInviteBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
+  type AcceptInviteBody, type ChangePasswordBody, type CreateGuestInviteBody, type CompletePasswordResetBody, type CreateInviteBody, type GuestInviteLimit, type Invite,
   type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
 } from '@mycel/shared/api'
 import type { z } from 'zod'
@@ -26,7 +26,7 @@ import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPa
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { authOf } from './service'
-import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
+import { assertSeatFree, planManageUrl, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { resolveLayout } from '../system/layout'
@@ -290,7 +290,8 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     id: r.id, role: r.role, groupIds: parseIds(r.group_ids), createdBy: userRef(db, r.created_by), createdAt: r.created_at ?? r.expires_at,
     expiresAt: r.expires_at, usedAt: r.used_at, usedBy: userRef(db, r.used_by),
     leadFor: r.lead_hint ? r.lead_for : null,
-    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: guestPlaceOf(r)! } : {}),
+    // a project's name too (the list names it; whoever reads the list may manage every project); never a room's name
+    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => (pl.kind === 'project' ? { ...pl, name: placeName(db, pl) } : pl))(guestPlaceOf(r)!) } : {}),
     ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
   }
 }
@@ -384,7 +385,7 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}) }
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -442,6 +443,15 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}
+
+/** GET /api/guest-invites/limit: the plan's guest cap now, read before the invite dialog shows its form (a guest never
+ * gets here: the endpoint is off their list). The owner and admins also learn whether every seat is taken ("Make team
+ * member" needs one) and the plan page. */
+export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInviteLimit {
+  const role = c.get('auth')!.user.role
+  const url = planManageUrl()
+  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}) }
+}
 
 /** The plan's guests are all taken (no plan file: never). */
 function guestsFull(db: Database): boolean {

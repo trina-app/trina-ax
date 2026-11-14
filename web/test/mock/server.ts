@@ -2324,7 +2324,7 @@ export class MockServer {
     listPeople: (c) => {
       const mine = c.user.role === 'guest' ? this.guestPeers(c.user.id) : null
       const reach = (u: User) => (mine ? mine.has(u.id) : u.role !== 'guest' || this.guestPeers(u.id).has(c.user.id))
-      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
+      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true, ...((d) => (d.guest ? { guestPlace: d.guest.place } : {}))(this.guestDetail(u)) } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
     },
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
     setMyStatus: (c) => {
@@ -2435,7 +2435,7 @@ export class MockServer {
       // a guest invite names its place (InviteInfo.guestPlace)
       const place = (i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace
       const named = place ? this.guestPlaceNamed(place) : null
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}) }
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -2645,6 +2645,12 @@ export class MockServer {
       this.invites.push(i)
       const { token: _t, guestAi: _a, ...invite } = i as typeof i & { guestName?: string }
       return { status: 201, body: { invite, token, url: `/invite/${token}` } }
+    },
+    // like server/src/auth/accounts.ts guestInviteLimit: the guest cap now; seats and the plan page for the owner and admins
+    guestInviteLimit: (c) => {
+      const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+      const staff = c.user.role === 'owner' || c.user.role === 'admin'
+      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
     },
     updateGuestAi: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -3561,7 +3567,8 @@ export class MockServer {
       this.resetLinks.set(token, { userId: u.id, expiresAt, usedAt: null })
       return { token, url: `/reset-password/${token}`, expiresAt }
     },
-    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
+    // a guest link's project by name (server/src/auth/accounts.ts toInvite; never a room's)
+    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl?.kind === 'project' ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
       // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
