@@ -254,6 +254,19 @@ describe('removed, restored and removed by the owner', () => {
     expect(outcome(await add())).toBe('installed')
   })
 
+  test('the bot scopes check refused (account_inactive after auth.revoke) is the same as "removed"; a rate limit is not (QA TC-2140)', async () => {
+    expect(cfg()!.secret_enc).toBeTruthy()
+    fake.failNext['auth.test'] = { error: 'ratelimited' }
+    await slackOf(h.ctx).checkBotScopes()
+    expect(cfg()).toMatchObject({ last_error: null })
+    expect(cfg()!.secret_enc).toBeTruthy()
+    fake.failNext['auth.test'] = { error: 'account_inactive' }
+    await slackOf(h.ctx).checkBotScopes()
+    expect(cfg()!.secret_enc).toBeNull()
+    expect(cfg()!.last_error).toBe('removed')
+    expect(outcome(await add())).toBe('installed')
+  })
+
   test('the hosting service\'s "removed" of the earlier install, queued while the feed was stopped, does not undo the one added again', async () => {
     // a post refused (token_revoked): removed here, the feed stopped; meanwhile the hosting service hears Slack's own
     // app_uninstalled, forgets that install and queues its notice, which nobody takes now

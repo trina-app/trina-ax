@@ -194,6 +194,19 @@ export class SlackConnector {
 
   constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
+    // every call made with the saved bot token (posts, ephemerals, users.info, conversations.*, the scopes check at start
+    // and every 10 minutes): Slack refusing that token (account_inactive, token_revoked, invalid_auth, not_authed) is
+    // said in Admin as such ("Replace tokens"; the official app: removed), not left "Connected" (QA TC-2140: the scopes
+    // check logged account_inactive and nothing changed, even after a restart). A network error or a rate limit changes
+    // nothing (tokenRefused only takes TOKEN_GONE); a token that is not the saved bot token (one being checked before
+    // a save, the app-level token) says nothing about it.
+    const call = this.api.call.bind(this.api)
+    this.api.call = async (method, token, body, o) => {
+      try { return await call(method, token, body, o) } catch (e) {
+        if (e instanceof SlackApiError && TOKEN_GONE.has(e.code) && token && token === this.botToken()) this.tokenRefused(e, token)
+        throw e
+      }
+    }
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'slack'))
     // a fake Slack (offline tests) never reaches a real hosting service, whatever the environment says
