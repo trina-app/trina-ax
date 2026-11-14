@@ -50,7 +50,18 @@ git commit -am "0.3.0-beta.1"
 # 2) main에 들어간 그 커밋에 태그를 단다. 태그 메시지가 릴리스 노트가 된다(설치의 "새 버전" 안내, GitHub Release).
 git tag -a v0.3.0-beta.1 -m "새 기능: …"
 git push origin v0.3.0-beta.1
+
+# 3) 태그를 단 바로 뒤, dev의 버전을 다음 PATCH로 올린다(server·desktop·web package.json, 예: 0.3.0 → 0.3.1). 작은 PR 하나.
+#    Right after tagging, bump dev to the next patch version (one small PR to dev).
 ```
+
+- 3)의 이유: dev 빌드의 버전은 `<package version>-dev.<UTC 시각>`이다(dev-build.yml). SemVer에서 `0.5.4-dev.N`은
+  pre-release라 `0.5.4`보다 **낮다**. 그래서 dev가 방금 낸 버전에 머물면 dev 빌드가 정식 릴리스보다 옛 것으로 정렬되고,
+  그 릴리스를 받은 서버는 뒤의 dev 빌드를 옛 버전으로 본다. dev-build.yml은 dev 빌드가 그 버전의 릴리스보다 새롭다고
+  여기므로, 태그 뒤 dev를 `0.5.5`로 올려 `0.5.5-dev.N`이 `0.5.4` 뒤에 오게 한다. Docker 예시(docker/env.example 등)는
+  공개된 최신 릴리스를 가리키므로 이때 올리지 않는다(릴리스 PR에서 올린다). 휴대폰 앱 버전은 따로 간다.
+  Why: a dev build is `X.Y.Z-dev.N`, which sorts before `X.Y.Z`; dev-build.yml assumes dev builds are newer than the
+  release, which holds only once dev is on the next version.
 
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
 - 태그의 커밋은 main에 있어야 한다(리뷰된 커밋만 나간다). 아니면 prepare가 비밀값을 읽기 전에 멈춘다(`is not on main`). 손으로 다시 돌릴 때는 "Use workflow from"이 그 태그여야 한다(브랜치면 멈춘다).
