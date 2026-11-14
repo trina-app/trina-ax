@@ -32,6 +32,8 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
+import { cleanDevenv } from './devenv-clean'
+import { busyOwners, srtConfig } from '../devenv/srt/runner'
 import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
@@ -908,6 +910,28 @@ export class OpsService {
       }, WINDOWS_FIRST_MS)
       this.timers.push(firstOffer as unknown as ReturnType<typeof setInterval>)
     }
+    // the dev environment's caches and the build folders of idle chats (system/devenv-clean.ts): 20 minutes after start,
+    // then hourly
+    let cleaning = false
+    const clean = () => {
+      if (cleaning) return
+      cleaning = true
+      void cleanDevenv({
+        base: srtConfig().base, now: () => this.now().getTime(), log: log,
+        busy: () => busyOwners(this.ctx),
+        chatActivity: (id) => {
+          const r = this.ctx.db.query('SELECT c.updated_at AS u, (SELECT MAX(started_at) FROM turns WHERE chat_id = c.id) AS t FROM chats c WHERE c.id = ?').get(id) as { u: string | null; t: string | null } | null
+          return r ? Math.max(Date.parse(r.u ?? '') || 0, Date.parse(r.t ?? '') || 0) : null
+        },
+      }).catch((e) => log.warn('dev environment clean-up failed', { err: e })).finally(() => { cleaning = false })
+    }
+    const firstClean = setTimeout(() => {
+      clean()
+      const hourly = setInterval(clean, 60 * 60_000)
+      ;(hourly as unknown as { unref?: () => void }).unref?.()
+      this.timers.push(hourly)
+    }, 20 * 60_000)
+    this.timers.push(firstClean as unknown as ReturnType<typeof setInterval>)
     // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
     this.timers.push(setInterval(() => {
       try { const r = pruneOld(this.ctx.db); if (Object.values(r).some((n) => n > 0)) log.info('retention sweep', { ...r }) } catch (e) { log.warn('retention sweep failed', { err: e }) }

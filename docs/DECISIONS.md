@@ -27405,6 +27405,47 @@ commit for its own reports (no SDK, same allowlist), and every new shape of repo
   never throwing, rate-limit categories both ways).
 - Version impact: **none** (no team server or app change; relay and push gateway behaviour unchanged).
 
+## Disk: what is kept and what goes on a small team disk (feat/disk-retention, 2026-11-14, the owner: trial servers get a 20 GB data disk)
+
+- **Already there, kept as it is** (checked in the code, not rebuilt): `system/prune.ts` keeps app/current, the running
+  version, state.json's current and previous (Roll back, the bootstrap's way back) and the newest staged update, and
+  removes every other version and engine folder hourly (so 3 × 483 MB on potenlab is current + previous + the staged
+  one); backups are kept 14 days (a hosted plan: 3) with a full archive every 7 days and a chain of incrementals
+  (`system/backup.ts`); the 80 % notice to owner and admins comes at 4 GB free on a 20 GB disk (90 % at 2 GB, a full
+  backup needs 2 GB), so no new low-disk notice.
+- **Why one daily was 1.8 GB:** the weekly full archive (an incremental is only changed files) walked the whole team
+  folder, and a project folder in it holds the project's `node_modules`, `.next` and virtual environment (a chat with a
+  project runs there: `box_shell` description "node_modules ... use team disk"). Nothing was left out except
+  `.system/backups`. `devenv/work` and `devenv/home` are outside the team folder and were never in it. Fix: the backup
+  walk (`system/regenerable.ts`, `backupWalk`: also the archives of `mycel-ctl backup` and the hosting export) skips
+  `node_modules`, `.next`, `.turbo`, `.svelte-kit`, `.parcel-cache`, `__pycache__` and a `.venv`/`venv` that holds a
+  `pyvenv.cfg`, at any depth. NOT `dist`, `build`, `out`, `.cache`, `.git`: they can be a result or history. A restore
+  brings no `node_modules`; `npm install` makes it again. Archives made before stay until their chain is 14 days old.
+- **Migration copies** (`data/backups/pre-migrate-*.db`): the newest 5 stay and every one of the last 14 days
+  (`PRE_MIGRATE_KEEP_NEWEST/DAYS`), whichever keeps more; the newest, the copy before the latest migration that the
+  bootstrap's roll-back names, is always among them. Before: 14 days (a hosted plan: 3) and only the newest beyond that.
+- **Dev environment** (`system/devenv-clean.ts`, hourly from 20 minutes after start, as the server account): of the two
+  options (show the admin and clear on a click, or clear regenerable folders by itself) the second is the safer here,
+  because it can only remove what a command brings back and never a person's file, so there is nothing to confirm and
+  nobody has to remember. (1) Per person caches under `devenv/home/<user>`: `.npm/_cacache`, `.npm/_logs`, `.cache/pip`,
+  `.bun/install/cache` removed whole when idle 14 days or over 1 GiB, `tmp/` entries older than 7 days; not the browser
+  downloads (no network path to fetch them again); never while the person has a run. (2) The regenerable folders (same
+  list as the backup) of a chat's work folder `devenv/work/<chat>`, only when the chat is idle 14 days (no run, no
+  chat or turn change in the database, no other file changed). No work folder is removed here, `out/` and `dist/` stay,
+  project folders (team folders) are never touched. A project's own `node_modules` costs live disk but no backup space;
+  a click-to-clear list for those is not built.
+- **OS side:** `pk_apt_install` (`scripts/system/packages.sh`: the installer, the package sync, the image build) runs
+  `apt-get clean` after a successful install (798 MB of .deb files on potenlab); the journald cap is
+  `SystemMaxUse=100M` (was 200M) in `install-linux.sh` and the image's `journald-ax.conf`; an existing server gets it
+  at its next installer run, not at an update.
+- Not done: devenv is part of "other" in Admin > System (no own row); no cap on the number of project folders.
+- Steady state of a fresh trial team (numbers from potenlab's breakdown, no project data or uploads): app/versions
+  about 1 GB (current + previous; 1.5 GB while one update is staged), engines 0.56 GB, models 0.68 GB, journal at most
+  0.1 GB, apt cache 0, DB copies and backups a few hundred MB (team archives hold only the real files), devenv caches at
+  most 1 GB per person: about 3 GB on a 20 GB disk before the team's own files. The 3 × 483 MB / 0.5 GB engine /
+  0.7 GB models are fixed costs of the product, not growth.
+- Tests: `tests/unit/g-disk-retention.test.ts`, `tests/unit/system-packages.test.ts` (apt-get clean after install).
+
 ## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
 
 Plan: docs/AGENTS/plan/20261114-0900-room-apps.md (revision 2 and the owner's decisions of 2026-11-14). Phase 1 is the

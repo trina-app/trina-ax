@@ -316,6 +316,9 @@ pk_apt_install() {
   if ! why=$(pk_apt_space ${snap[@]+"${snap[@]}"} "$@"); then pk_err "$why; nothing installed"; return 3; fi
   pk__apt install -y -qq --no-install-recommends -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} ${opts[@]+"${opts[@]}"} "$@" \
     || { pk_err "apt-get install failed: $*$([ "${PK_APT_UNIT:-}" != 1 ] || echo " (log: $PK_APT_LOG)")"; return 1; }
+  # the downloaded .deb files are not needed after the install (about 800 MB on a server that installed the browser and
+  # its libraries); a failed clean changes nothing for the install
+  pk__apt clean -qq -o DPkg::Lock::Timeout=300 || true
 }
 # pk_check_floors DISTRO ARCH PROFILE|GROUP...: prints each package that is missing or below its floor; 1 if any
 pk_check_floors() {

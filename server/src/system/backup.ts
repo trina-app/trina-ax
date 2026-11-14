@@ -6,10 +6,11 @@
 // Team folder: team/.system/backups/<id>/{team.tar.zst, manifest.json, deleted.json, dirs.json, meta.json}. A full
 //              archive at most every 7 days, otherwise only the files whose size or mtime changed since the previous
 //              backup (and every folder entry), plus the list of deleted paths and the list of folders. .system/backups itself is never archived; .system/history (file versions)
-//              and the trash are.
+//              and the trash are. Folders a tool makes again (node_modules, .next, a virtual environment: system/regenerable.ts)
+//              are left out at any depth: a project's node_modules was most of a 1.8 GB daily archive.
 // Metadata:    data/backups/<id>.json (the list the UI shows). Retention 14 days; a backup another kept backup builds
-//              on is kept, and so is the newest one. The DB a restore replaced (before-restore-<time>/) and the migration
-//              runner's copies go by the same retention, the newest of each kept.
+//              on is kept, and so is the newest one. The DB a restore replaced (before-restore-<time>/) goes by the same
+//              retention, the newest kept; the migration runner's copies keep the newest 5 and the last 14 days.
 // Restore:     POST /api/admin/restore only puts an older DB back (same Mac; tab 6). The copy is integrity-checked and
 //              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore), with the
 //              folder permissions of the current DB (keepFolderAccess: the team folder stays as it is now). Team-folder
@@ -30,6 +31,7 @@ import { FOLDER_ACCESS_MODEL, FOLDER_ACCESS_MODEL_KEY } from '../policy/access'
 import type { Logger } from '../log'
 import { diskSpace, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
+import { backupWalk } from './regenerable'
 import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
@@ -41,6 +43,9 @@ export const BACKUP_RETENTION_DAYS = 14
  * one), else BACKUP_RETENTION_DAYS (system/limits.ts) */
 const retentionDays = () => backupRetentionDays()
 export const FULL_EVERY_DAYS = 7
+/** the migration runner's copies (data/backups/pre-migrate-*.db): the newest 5 stay, and all of the last 14 days */
+export const PRE_MIGRATE_KEEP_NEWEST = 5
+export const PRE_MIGRATE_KEEP_DAYS = 14
 /** below this much free space backups stop (tab 7 "디스크 단계") */
 export const BACKUP_MIN_FREE_BYTES = 2 * 1024 ** 3
 
@@ -356,7 +361,7 @@ export class BackupManager {
     const dir = this.teamDir(id)
     await fsp.mkdir(dir, { recursive: true, mode: 0o700 })
     await fsp.chmod(L.teamBackupsDir, 0o700).catch(() => {})
-    const tree = await walkTree(L.teamRoot, { exclude: ['.system/backups'] })
+    const tree = await walkTree(L.teamRoot, backupWalk)
     await this.o.afterWalk?.()
     const now = toManifest(tree.files)
     const { changed, deleted } = diffManifest(prevManifest, now)
@@ -439,11 +444,17 @@ export class BackupManager {
       fs.rmSync(this.metaFile(m.id), { force: true })
       removed.push(m.id)
     }
-    // copies the migration runner made: same retention, newest kept
+    // copies the migration runner made: the newest PRE_MIGRATE_KEEP_NEWEST stay, and every one from the last
+    // PRE_MIGRATE_KEEP_DAYS days (whichever keeps more). The newest one is the copy before the latest migration: the
+    // roll-back of an update (mycel-bootstrap's "restore the database backup made before the update") needs it, and it
+    // is always among the newest.
     try {
+      const preCutoff = this.now().getTime() - PRE_MIGRATE_KEEP_DAYS * 86400_000
       const pre = fs.readdirSync(this.o.layout.dbBackupsDir).filter((n) => n.endsWith('.db') && PRE_MIGRATE_RE.test(n.slice(0, -3)))
         .map((n) => ({ n, t: fs.statSync(path.join(this.o.layout.dbBackupsDir, n)).mtimeMs })).sort((a, b) => a.t - b.t)
-      for (const p of pre.slice(0, -1)) if (p.t < cutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
+      // the roll-back picks the newest by name: that one stays whatever its mtime says
+      const newestName = pre.reduce((m, x) => (x.n > m ? x.n : m), '')
+      for (const p of pre.slice(0, Math.max(0, pre.length - PRE_MIGRATE_KEEP_NEWEST)).filter((x) => x.n !== newestName)) if (p.t < preCutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
     } catch {}
     removed.push(...this.pruneBeforeRestore(cutoff))
     removed.push(...this.removeUnfinished())

@@ -903,6 +903,17 @@ export function forgetChatWork(chatId: string) {
   try { fs.rmSync(chatWork(srtConfig().base, chatId), { recursive: true, force: true }) } catch {}
 }
 
+/** People and chats with a run now (this process's, or a waiting or running row), for the disk clean-up
+ * (system/devenv-clean.ts): nothing of theirs is removed meanwhile. */
+export function busyOwners(ctx: AppContext): { users: Set<string>; chats: Set<string> } {
+  const users = new Set<string>(), chats = new Set<string>()
+  for (const a of active.values()) { users.add(a.space.userId); if (a.space.chatId) chats.add(a.space.chatId) }
+  try {
+    for (const r of ctx.db.query('SELECT user_id, chat_id FROM dev_env_runs WHERE ended_at IS NULL').all() as { user_id: string; chat_id: string | null }[]) { users.add(r.user_id); if (r.chat_id) chats.add(r.chat_id) }
+  } catch {}
+  return { users, chats }
+}
+
 /** tests */
 export function _active() { return active }
 export function _forwarders() { return forwarders }

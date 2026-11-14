@@ -78,6 +78,7 @@ import { planInstallState } from './install-plan'
 import { ensureLanCert } from './lan-cert'
 import { resolveLayout } from './layout'
 import { walkTree } from './manifest'
+import { backupWalk } from './regenerable'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
@@ -184,7 +185,7 @@ export async function main(argv: string[]): Promise<number> {
       try {
         // an archive leaves the server: the hosting service's key does not go with it
         withoutHostingKey(tmpDb)
-        const tree = await walkTree(cfg.teamRoot, { exclude: ['.system/backups'] })
+        const tree = await walkTree(cfg.teamRoot, backupWalk)
         const entries: TarEntryInput[] = [
           { name: 'db', type: 'dir' }, { name: 'db/app.sqlite', type: 'file', source: tmpDb },
           { name: 'team', type: 'dir' },
