@@ -1,0 +1,29 @@
+{
+ "id": "evt_1TestSubNew0001",
+ "object": "event",
+ "created": 1794660003,
+ "livemode": true,
+ "type": "customer.subscription.created",
+ "data": {
+  "object": {
+   "id": "sub_1TestSub0002",
+   "object": "subscription",
+   "customer": "cus_Test0002",
+   "status": "active",
+   "items": {
+    "object": "list",
+    "data": [
+     {
+      "id": "si_2",
+      "price": {
+       "id": "price_1",
+       "nickname": "Pro plan (monthly)",
+       "unit_amount": 4900,
+       "currency": "usd"
+      }
+     }
+    ]
+   }
+  }
+ }
+}

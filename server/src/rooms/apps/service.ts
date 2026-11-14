@@ -13,8 +13,8 @@
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import {
-  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP,
-  ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE,
+  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_PRESET_NAMES, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES,
+  ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE, ZENDESK_TEST_SECRET,
   type CreateRoomAppBody, type Locale, type RoomApp, type RoomAppAddress, type RoomAppCreated, type RoomAppKind, type RoomAppList, type RoomAppRefusal,
   type RoomAppSecretResult, type SetRoomAppSecretBody, type UpdateRoomAppBody,
 } from '@mycel/shared/api'
@@ -34,6 +34,7 @@ import { mayManageApps, messageRow, roomAuditRef, threadable, type MessageRow, t
 import { bodyOf, cleanCard, line, type StoredCard } from './card'
 import { AppLimits } from './limits'
 import type { AppEvent } from './parse'
+import { presetOf } from './presets'
 import { appText } from './text'
 
 const TOKEN_KIND = 'room_app_token'
@@ -50,7 +51,7 @@ const THREADS_KEPT_DAYS = 90
 const REFUSAL_EVERY_MS = 60_000
 
 export interface AppRow {
-  id: string; room_id: string; kind: RoomAppKind; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
+  id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; events_seen: string; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
 }
@@ -177,12 +178,30 @@ export class RoomApps {
   // ---------------- reading ----------------
   private locale(): Locale { try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE } }
   row(id: string): AppRow | null { return this.db.query('SELECT * FROM room_apps WHERE id = ?').get(id) as AppRow | null }
-  switches(row: Pick<AppRow, 'kind' | 'events'>): Record<string, boolean> {
+  /** The app's preset when this build knows it (an unknown one: none here; inbound.ts refuses its requests). */
+  presetOf(row: Pick<AppRow, 'kind' | 'preset'>) {
+    const p = row.kind === 'other' ? presetOf(row.preset) : null
+    return p === 'unknown' ? null : p
+  }
+  switches(row: Pick<AppRow, 'kind' | 'events' | 'preset'>): Record<string, boolean> {
     let saved: Record<string, unknown> = {}
     try { saved = JSON.parse(row.events) as Record<string, unknown> } catch { saved = {} }
-    const out = roomAppDefaults(row.kind)
+    const out = roomAppDefaults(row.kind, this.presetOf(row))
     for (const k of Object.keys(out)) if (typeof saved[k] === 'boolean') out[k] = saved[k] as boolean
     return out
+  }
+  /** The switch keys an event has arrived for (only keys of the app's switches). */
+  eventsSeen(row: Pick<AppRow, 'kind' | 'preset' | 'events' | 'events_seen'>): string[] {
+    let v: unknown = []
+    try { v = JSON.parse(row.events_seen ?? '[]') } catch { v = [] }
+    const known = Object.keys(this.switches(row))
+    return Array.isArray(v) ? known.filter((k) => v.includes(k)) : []
+  }
+  /** An event for `key` arrived (inbound.ts, after it was read): remembered once. */
+  sawEvent(row: AppRow, key: string) {
+    if (this.eventsSeen(row).includes(key) || !(key in this.switches(row))) return
+    const next = [...this.eventsSeen(row), key]
+    this.db.query('UPDATE room_apps SET events_seen = ? WHERE id = ?').run(JSON.stringify(next), row.id)
   }
   private shownToday(appId: string, day: string): number {
     return (this.db.query('SELECT shown FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { shown: number } | null)?.shown ?? 0
@@ -203,11 +222,13 @@ export class RoomApps {
     const by = row.created_by ? this.db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(row.created_by) as { id: string; name: string } | null : null
     const paused = row.paused_until && Date.parse(row.paused_until) > now ? row.paused_until : null
     const reason = row.last_refusal as RoomAppRefusal | null
+    const preset = this.presetOf(row)
     return {
-      id: row.id, roomId: row.room_id, kind: row.kind, name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc,
+      id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc,
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
       pausedUntil: paused, canResume: !!paused && !this.capDay(row, day).resumed && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       today: this.shownToday(row.id, day),
     }
@@ -249,7 +270,10 @@ export class RoomApps {
     if (this.base() === null) fail('conflict', appText('noAddress', locale), { params: { reason: 'no_public_address' } })
     // a name the person gave, else the kind's in the team's language (Google Forms and Other; Sentry and GitHub are names)
     const L = this.locale()
-    const name = line(b.name ?? (b.kind === 'google_forms' ? appText('nameForms', L) : b.kind === 'other' ? appText('nameOther', L) : ROOM_APP_DEFAULT_NAMES[b.kind]), 40)
+    // a preset only for Other (it is fixed from here on: a different service is a new app)
+    if (b.preset && b.kind !== 'other') fail('validation', appText('presetNotForKind', locale), { fields: { 'body.preset': 'only with kind other' } })
+    const preset = b.preset ?? null
+    const name = line(b.name ?? (preset ? ROOM_APP_PRESET_NAMES[preset] : b.kind === 'google_forms' ? appText('nameForms', L) : b.kind === 'other' ? appText('nameOther', L) : ROOM_APP_DEFAULT_NAMES[b.kind]), 40)
     this.checkName(name, locale)
     const n = (this.db.query('SELECT COUNT(*) n FROM room_apps WHERE room_id = ?').get(room.id) as { n: number }).n
     if (n >= ROOM_APPS_MAX) fail('conflict', appText('full', locale, { max: ROOM_APPS_MAX }), { params: { reason: 'room_apps_full' } })
@@ -257,9 +281,9 @@ export class RoomApps {
     const id = newId(), now = nowIso(), token = newToken()
     const s = this.seal(id, token, null)
     this.db.transaction(() => {
-      this.db.query(`INSERT INTO room_apps (id, room_id, kind, name, token_hash, token_enc, secret_enc, key_version, events, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`).run(id, room.id, b.kind, name, s.token_hash, s.token_enc, s.key_version, JSON.stringify(roomAppDefaults(b.kind)), userId, now, now)
-      audit(this.db, { actor: userId, action: 'room_app.add', target: id, detail: { ...roomAuditRef(room), kind: b.kind } })
+      this.db.query(`INSERT INTO room_apps (id, room_id, kind, preset, name, token_hash, token_enc, secret_enc, key_version, events, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`).run(id, room.id, b.kind, preset, name, s.token_hash, s.token_enc, s.key_version, JSON.stringify(roomAppDefaults(b.kind, preset)), userId, now, now)
+      audit(this.db, { actor: userId, action: 'room_app.add', target: id, detail: { ...roomAuditRef(room), kind: b.kind, ...(preset ? { preset } : {}) } })
     })()
     const row = this.row(id)!
     return { app: this.out(row), address: this.addressOf(row, userId) }
@@ -276,7 +300,8 @@ export class RoomApps {
     const changed: string[] = []
     let events = this.switches(row)
     if (b.events) {
-      const known = new Set<string>(ROOM_APP_SWITCHES[row.kind].map((s) => s.key))
+      const p = this.presetOf(row)
+      const known = new Set<string>((p ? ROOM_APP_PRESET_SWITCHES[p] : ROOM_APP_SWITCHES[row.kind]).map((s) => s.key))
       for (const k of Object.keys(b.events)) if (!known.has(k)) fail('validation', undefined, { fields: { [`body.events.${k}`]: 'not a switch of this app' } })
       events = { ...events, ...b.events }
       changed.push('events')
@@ -294,14 +319,26 @@ export class RoomApps {
 
   setSecret(userId: string, roomId: string, appId: string, b: SetRoomAppSecretBody, locale: Locale): RoomAppSecretResult {
     const { room, row } = this.mine(userId, roomId, appId)
-    if (row.kind !== 'github' && row.kind !== 'sentry') fail('validation', appText('noSecretForKind', locale), { fields: { body: 'this app takes no secret' } })
+    // which services can sign: GitHub and Sentry, and the presets whose service signs (an unknown preset: none here)
+    const unknownPreset = row.kind === 'other' && presetOf(row.preset) === 'unknown'
+    const preset = this.presetOf(row)
+    const signing = preset ? ROOM_APP_PRESET_SIGNING[preset] : null
+    const canSign = row.kind === 'github' || row.kind === 'sentry' || (!!signing && signing.signing !== 'none')
+    if (!canSign || unknownPreset) fail('validation', appText('noSecretForKind', locale), { fields: { body: 'this app takes no secret' }, params: { reason: 'no_signing' } })
     let secret: { secret: string; made: boolean } | null
-    if ('generate' in b) secret = { secret: newSecret(), made: true }
-    else if (b.secret === null || b.secret === '') secret = null
+    if ('generate' in b) {
+      // a secret Trina makes is for a service with a field to paste it in (GitHub, Typeform, Tally); Stripe, Shopify and
+      // Zendesk make their own, so one made here could never match
+      if (signing?.signing === 'paste' || row.kind === 'sentry') fail('validation', undefined, { fields: { 'body.generate': 'this service makes its own secret: paste it' } })
+      secret = { secret: newSecret(), made: true }
+    } else if (b.secret === null || b.secret === '') secret = null
     else {
-      // what the person pasted: Sentry's Client Secret, or (GitHub) a secret they chose in GitHub
+      // what the person pasted: Sentry's Client Secret, a service's signing secret, or (GitHub) a secret they chose there
       const v = b.secret.trim()
       if (row.kind === 'sentry' && !SENTRY_SECRET_RE.test(v)) fail('validation', appText('sentrySecretShape', locale), { fields: { 'body.secret': 'not a Sentry Client Secret' } })
+      if (preset && signing?.signing === 'paste' && signing.shape && !signing.shape.test(v)) fail('validation', appText('presetSecretShape', locale, { app: ROOM_APP_PRESET_NAMES[preset] }), { fields: { 'body.secret': `not a ${ROOM_APP_PRESET_NAMES[preset]} signing secret` } })
+      if (preset === 'zendesk' && v === ZENDESK_TEST_SECRET) fail('validation', appText('zendeskTestSecret', locale), { fields: { 'body.secret': "Zendesk's public test secret" } })
+      if (v.length > 200 || /[^\x21-\x7e]/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'printable characters only' } })
       if (v.length < 16 || /\s/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'at least 16 characters, no spaces' } })
       secret = { secret: v, made: ROOM_APP_SECRET_RE.test(v) }
     }
@@ -309,6 +346,9 @@ export class RoomApps {
     const s = this.seal(row.id, token, secret)
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // a new secret: the service account pinned before it (possibly by an unsigned request) is forgotten; the next
+      // signed request pins it again
+      if (secret) this.db.query('UPDATE room_apps SET preset_pin = NULL WHERE id = ?').run(row.id)
       audit(this.db, { actor: userId, action: 'room_app.secret', target: row.id, detail: { ...roomAuditRef(room), set: !!secret } })
     })()
     if (secret?.made) this.saw(row.id, userId)
@@ -323,7 +363,9 @@ export class RoomApps {
     if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
     const s = this.seal(row.id, newToken(), prev)
     this.db.transaction(() => {
-      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // Regenerate also forgets the pinned service account (Zendesk subdomain, Shopify store): whoever knew the old URL
+      // may have pinned it
+      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
     })()
     this.limits.forget(row.id)
@@ -345,7 +387,7 @@ export class RoomApps {
       // its paused and leaver notices go with it (a notice of an app that is gone opens nothing)
       this.db.query("DELETE FROM room_app_notices WHERE source_id LIKE ? ESCAPE '\\'").run(likePrefix(row.id))
       this.db.query("DELETE FROM room_app_leaver_notices WHERE source_id LIKE ? ESCAPE '\\'").run(likePrefix(row.id))
-      audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind } })
+      audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind, ...(row.preset ? { preset: row.preset } : {}) } })
     })()
     this.limits.forget(row.id)
   }
@@ -473,7 +515,7 @@ export class RoomApps {
     const dh = sha256(ev.delivery)
     const dh2 = ev.alsoDelivery ? sha256(ev.alsoDelivery) : null
     const keyHash = ev.key ? sha256(ev.key) : null
-    let out: { id: string; root: MessageRow | null; rootChanged: boolean } | null = null
+    let out: { id: string | null; root: MessageRow | null; rootChanged: boolean } | null = null
     db.transaction(() => {
       const window = now - (ev.deliveryMinutes ? ev.deliveryMinutes * 60_000 : DELIVERY_DAYS * DAY)
       for (const h of [dh, dh2]) {
@@ -482,6 +524,8 @@ export class RoomApps {
         if (prior && Date.parse(prior.at) > window) return
       }
       for (const h of [dh, dh2]) if (h) db.query('INSERT OR REPLACE INTO room_app_deliveries (app_id, delivery_hash, at) VALUES (?, ?, ?)').run(row.id, h, at)
+      // the service account this app posts from, pinned on first sight (presets/zendesk.ts, shopify.ts)
+      if (ev.pin) db.query('UPDATE room_apps SET preset_pin = ? WHERE id = ? AND preset_pin IS NULL').run(ev.pin, row.id)
       let root: MessageRow | null = null
       let thread: { root_id: string; state: string | null; last_at: string } | null = null
       if (keyHash) {
@@ -494,11 +538,14 @@ export class RoomApps {
         }
       }
       let rootChanged = false
-      let id: string
+      let id: string | null
       if (root) {
         const reply = ev.reply ?? { title: ev.card.title, details: ev.card.details?.slice(0, 1) }
         const card = cleanCard({ title: reply.title, details: reply.details ?? [], link: ev.card.link, unverified: reply.unverified })
-        id = this.insert(row, { card, root, alsoInRoom: !!ev.back, quiet: !!row.quiet, at })
+        // `onlyStatus`: no reply, the root's status line below is the whole change
+        // `backFrom`: shown in the room too when the thing was in one of those states (a solved ticket opened again)
+        const back = !!ev.back || (!!ev.backFrom && !!thread!.state && !!ev.state && ev.backFrom.includes(thread!.state) && !ev.backFrom.includes(ev.state))
+        id = ev.onlyStatus ? null : this.insert(row, { card, root, alsoInRoom: back, quiet: !!row.quiet, at })
         // the root's status line follows the thing's state
         if (ev.status && ev.state && ev.state !== thread!.state) {
           const stored = JSON.parse(root.app_card ?? '{}') as StoredCard
@@ -513,12 +560,15 @@ export class RoomApps {
         id = this.insert(row, { card: cleanCard(ev.card), quiet: !!row.quiet, at, extra: ev.extra })
         if (keyHash) db.query('INSERT OR REPLACE INTO room_app_threads (app_id, key_hash, root_id, state, last_at) VALUES (?, ?, ?, ?, ?)').run(row.id, keyHash, id, ev.state ?? null, at)
       }
-      this.count(row, 'shown', day)
+      // a status-only change is no new message: not counted toward the cap
+      if (id) this.count(row, 'shown', day)
       db.query('UPDATE room_apps SET last_ok_at = ?, first_ok_at = COALESCE(first_ok_at, ?) WHERE id = ?').run(at, at, row.id)
       out = { id, root, rootChanged }
     })()
     if (!out) return false
-    const o = out as { id: string; root: MessageRow | null; rootChanged: boolean }
+    const o = out as { id: string | null; root: MessageRow | null; rootChanged: boolean }
+    // nothing changed at all (the second event of one payment, its status the same): counted as skipped
+    if (!o.id && !o.rootChanged) return false
     // after the answer (the sender waits for it: Sentry gives a second)
     setImmediate(() => this.after(row.room_id, o.id, o.root, o.rootChanged))
     return true
@@ -529,7 +579,8 @@ export class RoomApps {
   private insert(row: AppRow, o: { card: ReturnType<typeof cleanCard>; root?: MessageRow | null; alsoInRoom?: boolean; quiet?: boolean; example?: boolean; at?: string; extra?: string }): string {
     const db = this.db, id = newId(), at = o.at ?? new Date(this.clock()).toISOString()
     const inTimeline = !o.root || !!o.alsoInRoom
-    const stored: StoredCard = { ...o.card, app: { name: row.name, kind: row.kind }, ...(o.example ? { example: true as const } : {}) }
+    const preset = this.presetOf(row)
+    const stored: StoredCard = { ...o.card, app: { name: row.name, kind: row.kind, ...(preset ? { preset } : {}) }, ...(o.example ? { example: true as const } : {}) }
     const write = () => {
       // a quiet message does not bring the room to the top of the list
       const bump = inTimeline && !o.quiet
@@ -545,16 +596,17 @@ export class RoomApps {
 
   /** After the answer: the message to the members who see it (and its notices), the thread's summary, the root's new
    * status. Never throws: the message is posted. */
-  private after(roomId: string, id: string, root: MessageRow | null, rootChanged: boolean) {
+  private after(roomId: string, id: string | null, root: MessageRow | null, rootChanged: boolean) {
     try {
       const rooms = roomsOf(this.ctx)
-      const msg = messageRow(this.db, roomId, id)
-      if (!msg) return
-      rooms.messageEvent('room.message', msg, rooms.notify(msg))
+      // id null: only the root's status line changed (no new message, nobody notified)
+      const msg = id ? messageRow(this.db, roomId, id) : null
+      if (id && !msg) return
+      if (msg) rooms.messageEvent('room.message', msg, rooms.notify(msg))
       if (root) {
         const r = messageRow(this.db, roomId, root.id)
         if (r && rootChanged) rooms.messageEvent('room.message.updated', r)
-        if (r) rooms.afterReply(r)
+        if (r && msg) rooms.afterReply(r)
       }
     } catch (e) { this.ctx.log.warn('room app message not sent out', { err: e }) }
   }

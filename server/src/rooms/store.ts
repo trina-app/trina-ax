@@ -19,7 +19,7 @@ import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
-import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, type RoomAppRef } from '@mycel/shared/api'
+import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
@@ -598,6 +598,8 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
     const kind = stored.app.kind as RoomAppKind
     out.set(r.id, {
       id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
+      // the service of a preset app (its logo), when this build knows it
+      ...(kind === 'other' && RoomAppPreset.safeParse(stored.app.preset).success ? { preset: stored.app.preset as RoomAppPreset } : {}),
       by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })

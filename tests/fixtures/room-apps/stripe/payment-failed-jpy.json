@@ -1,0 +1,19 @@
+{
+ "id": "evt_3TestFailed0001",
+ "object": "event",
+ "created": 1794660001,
+ "livemode": true,
+ "type": "payment_intent.payment_failed",
+ "data": {
+  "object": {
+   "id": "pi_3TestFailed0001",
+   "object": "payment_intent",
+   "amount": 5000,
+   "currency": "jpy",
+   "last_payment_error": {
+    "message": "Your card was declined.",
+    "code": "card_declined"
+   }
+  }
+ }
+}

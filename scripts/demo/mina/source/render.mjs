@@ -64,6 +64,10 @@ try {
     try {
       const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 1 })
       await page.goto('file://' + file, { waitUntil: 'networkidle' })
+      // load every face the page uses for its own text first (a Korean web font comes in many slices, fetched only for
+      // the letters asked for; without this a fallback face can be shot)
+      await page.evaluate(() => Promise.all([...document.querySelectorAll('body *')].filter((e) => e.childNodes.length && e.textContent?.trim())
+        .map((e) => document.fonts.load(getComputedStyle(e).font, e.textContent ?? '').catch(() => null))))
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       const jpeg = out.endsWith('.jpg') ? { type: 'jpeg', quality: 85 } : { omitBackground: !!clear }

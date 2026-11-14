@@ -1,7 +1,9 @@
 // The demo build's sw.js (web/demo/vite.ts puts it in place of the product's worker), at the demo's base (/ or e.g.
 // /demo/, its scope): the page's pictures and downloads (<img src="/api/…">, links) are asked of the page that holds
 // the demo's in-page server (web/demo/bridge.ts), since there is no team server behind this static site. The app's own
-// public files at root addresses (/favicon.svg, /icons/…) are fetched from under the base. Nothing is cached.
+// public files at root addresses (/favicon.svg, /icons/…) are fetched from under the base. Nothing is cached. Another
+// language's demo inside this scope (/demo/ko/ under /demo/) registers its own worker, whose narrower scope wins for its
+// pages; until it takes over, this one answers the same way (web/demo/bridge.ts waits for the page's own worker).
 const BASE = new URL(self.registration.scope).pathname
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()))

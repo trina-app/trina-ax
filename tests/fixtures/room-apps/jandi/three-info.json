@@ -1,0 +1,22 @@
+{
+ "body": "Deploy finished on [staging](https://ci.example.com/runs/42)",
+ "connectColor": "#00AA00",
+ "connectInfo": [
+  {
+   "title": "Branch",
+   "description": "main"
+  },
+  {
+   "title": "Commit",
+   "description": "a1b2c3d Fix the cart total"
+  },
+  {
+   "title": "Duration",
+   "description": "3 min 12 s"
+  },
+  {
+   "title": "Runner",
+   "description": "linux-2"
+  }
+ ]
+}

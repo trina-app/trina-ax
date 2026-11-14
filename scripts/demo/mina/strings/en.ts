@@ -45,7 +45,7 @@ export const en = {
     writeCaptions: 'Write captions',
     higgsfieldHero: 'Generate photo · pouch and iced Yuzu Ginger by a frosted window, morning light, 16:9',
     higgsfieldCrops: 'Generate photo · same shot, 1:1 and 9:16',
-    gmailSearch: 'Search mail',
+    gmailSearch: 'Search mail "Chris"',
     gmailSend: 'Send email',
   },
 
