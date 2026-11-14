@@ -18,6 +18,8 @@ setDefaultTimeout(60_000)
 let h: Harness
 let projectId: string
 const CUT = '2026-06-01T00:00:00.000Z'
+/** the chats were shared before every answer here (an answer before its chat was shared keeps the older rule) */
+const SHARED_AT = '2025-01-01T00:00:00.000Z'
 const before = (n: number) => new Date(Date.parse(CUT) - (1000 - n) * 60_000).toISOString()
 const after = (n: number) => new Date(Date.parse(CUT) + n * 60_000).toISOString()
 const MKT = { type: 'folder', id: 'f_groups_marketing' } as const
@@ -36,7 +38,7 @@ let n = 0
 /** a shared chat of the project (alice's), titled */
 function sharedChat(title: string): string {
   const id = uuidv7(), now = new Date().toISOString()
-  db().query('INSERT INTO chats (id, user_id, project_id, shared_at, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, 'alice', projectId, now, title, now, now)
+  db().query('INSERT INTO chats (id, user_id, project_id, shared_at, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, 'alice', projectId, SHARED_AT, title, now, now)
   return id
 }
 /** a question and its answer by `runner` at `at`, with its record */
@@ -89,8 +91,8 @@ describe('what is listed', () => {
     expect(r.totalCapped).toBe(false)
     expect(r.nextCursor).toBeNull()
     const by = Object.fromEntries(r.items.map((i) => [i.messageId, i]))
-    expect(by[ids.newMkt]).toMatchObject({ chatTitle: 'Q3 budget questions', askedBy: { id: 'alice', name: 'Alice Kim' }, preview: 'The finance draft', places: [{ name: 'groups/marketing/' }], missedBy: ['Bob Lee'] })
-    expect(by[ids.newBoth]!.places).toEqual([{ name: 'groups/marketing/' }])
+    expect(by[ids.newMkt]).toMatchObject({ chatTitle: 'Q3 budget questions', askedBy: { id: 'alice', name: 'Alice Kim' }, preview: 'The finance draft', places: [{ name: 'Groups › marketing' }], missedBy: ['Bob Lee'] })
+    expect(by[ids.newBoth]!.places).toEqual([{ name: 'Groups › marketing' }])
     expect(by[ids.newOwn]!.places).toEqual([{ hidden: true }])
     expect(JSON.stringify(r)).not.toContain('OLD-HIDDEN-FROM-ALICE')
     expect(JSON.stringify(r)).not.toContain('groups/finance')
@@ -150,6 +152,34 @@ describe('pages, the cursor and who may ask', () => {
   })
 })
 
+describe('found in the security review of #813', () => {
+  test('a newer answer with an x group stays hidden from bob (not listed); one still being written is not listed; a failed one shows no words; a chat shared after its answers keeps the older rule for them', async () => {
+    const before0 = (await list('alice')).total
+    const c = sharedChat('Review')
+    const ae = ['alice', 'erin']
+    answer(c, 'alice', after(500), 'X-GROUP', [{ c: ae, s: [], x: 1 }])
+    const streaming = answer(c, 'alice', after(501), 'STILL WRITING', [{ c: ae, s: [MKT] }])
+    db().query("UPDATE messages SET status = 'streaming' WHERE id = ?").run(streaming)
+    const failed = answer(c, 'erin', after(502), 'FAILED-WORDS', [{ c: ae, s: [MKT] }])
+    db().query("UPDATE messages SET status = 'error' WHERE id = ?").run(failed)
+    // a chat shared after the cutover: its earlier answer (silent, before the share) keeps the older rule: hidden from bob
+    const later = sharedChat('Shared later')
+    db().query('UPDATE chats SET shared_at = ? WHERE id = ?').run(after(900), later)
+    answer(later, 'alice', after(800), 'BEFORE-THE-SHARE', [{ c: ae, s: [MKT] }])
+    const r = await list('alice', { limit: 50 })
+    expect(r.total).toBe(before0 + 1)
+    expect(r.items.find((i) => i.messageId === failed)).toMatchObject({ preview: '' })
+    expect(JSON.stringify(r)).not.toMatch(/X-GROUP|STILL WRITING|FAILED-WORDS|BEFORE-THE-SHARE|groups\//)
+  })
+
+  test("a cursor is the caller's: another manager's page with it is 'changed'", async () => {
+    const first = await list('alice')
+    expect(first.nextCursor).not.toBeNull()
+    const e = await errOf(list('dana', { cursor: first.nextCursor! }))
+    expect([e.status, e.body.params?.reason]).toEqual([409, 'changed'])
+  })
+})
+
 describe('the preview line', () => {
   test('first line, Markdown stripped, at most 120 characters', () => {
     expect(answerPreview('```js\nx\n```')).toBe('x')
@@ -162,19 +192,20 @@ describe('the preview line', () => {
 })
 
 describe('migration 296', () => {
-  test("marks the groups of a turn whose read card was answered 'shared' with y (not x ones), writes the cutover once, adds the index", () => {
+  test("marks y only on the groups of a turn whose read card was answered 'shared' for that many people (not x ones, not another audience), writes the cutover once, adds the index", () => {
     const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/296_b_hidden_answers_cutover.sql'), 'utf8')
-    const update = sql.slice(sql.indexOf('UPDATE shared_answer_reads'), sql.indexOf(';', sql.indexOf('UPDATE shared_answer_reads')) + 1)
+    const update = sql.slice(sql.indexOf('WITH yes'), sql.indexOf(';', sql.indexOf('UPDATE shared_answer_reads')) + 1)
     const c = sharedChat('migration')
-    const yes = answer(c, 'alice', before(10), 'yes', [{ c: ['alice'], s: [MKT] }, { c: ['alice'], s: [FIN], x: 1 }])
+    // the card asked while alice and erin saw the chat (audience 2); a silent read while alice alone did is another group
+    const yes = answer(c, 'alice', before(10), 'yes', [{ c: ['alice', 'erin'], s: [MKT] }, { c: ['alice', 'erin'], s: [FIN], x: 1 }, { c: ['alice'], s: [FIN] }])
     const no = answer(c, 'alice', before(11), 'no', [{ c: ['alice'], s: [MKT] }])
     const turnOf = (id: string) => (db().query('SELECT turn_id t FROM messages WHERE id = ?').get(id) as { t: string }).t
-    db().query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES ('alice', 'chat.shared_read', ?, ?)").run(c, JSON.stringify({ decision: 'shared', turnId: turnOf(yes) }))
+    db().query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES ('alice', 'chat.shared_read', ?, ?)").run(c, JSON.stringify({ decision: 'shared', turnId: turnOf(yes), audience: 2 }))
     db().query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES ('alice', 'chat.shared_read', ?, ?)").run(c, JSON.stringify({ decision: 'declined', turnId: turnOf(no) }))
     db().query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES ('alice', 'chat.shared_read', ?, 'not json')").run(c)
     db().exec(update)
     const reads = (id: string) => JSON.parse((db().query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(id) as { reads: string }).reads)
-    expect(reads(yes)).toEqual([{ c: ['alice'], s: [MKT], y: 1 }, { c: ['alice'], s: [FIN], x: 1 }])
+    expect(reads(yes)).toEqual([{ c: ['alice', 'erin'], s: [MKT], y: 1 }, { c: ['alice', 'erin'], s: [FIN], x: 1 }, { c: ['alice'], s: [FIN] }])
     expect(reads(no)).toEqual([{ c: ['alice'], s: [MKT] }])
     expect(db().query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'shared_answer_reads_chat_msg'").get()).toBeTruthy()
     expect(db().query("SELECT value FROM settings WHERE key = 'hidden_answers_cutover'").get()).toBeTruthy()

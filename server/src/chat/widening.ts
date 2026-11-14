@@ -19,7 +19,7 @@
 import type { Database } from 'bun:sqlite'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { nameSegs, sourceKey, viewersOf, roomName, slackPlaceName, type ReadSource } from './read-scope'
-import { groupsHide, hiddenAnswersCutover, nodeOf, withheldAmong, type Node, type NodeRow, type ViewerJudge } from './shared-answers'
+import { groupsHide, hiddenAnswersCutover, lateHides, nodeOf, withheldAmong, type Node, type NodeRow, type ViewerJudge } from './shared-answers'
 import { getRow } from '../integrations/connections/store'
 import { shareRow } from '../integrations/google-drive/shares'
 
@@ -67,7 +67,7 @@ export function answerPreview(content: string): string {
  * the project's members and sees its chats.
  */
 export function wideningAnswers(db: Database, rules: { now: RuleSet; after: RuleSet }, target: { kind: 'project'; projectId: string }, newPeople: readonly Principal[], viewer: Principal,
-  page: { before?: number | null; limit: number }, o: { subjects?: readonly WideningSubject[]; stats?: WideningStats; words?: PlaceWords } = {}): WideningResult {
+  page: { before?: number | null; limit: number }, o: { subjects?: readonly WideningSubject[]; stats?: WideningStats; words?: PlaceWords; place?: (path: string) => string } = {}): WideningResult {
   const empty: WideningResult = { total: 0, totalCapped: false, items: [], nextRowid: null }
   if (!newPeople.length) return empty
   const stats = o.stats ?? { checks: 0 }
@@ -105,18 +105,20 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   }
 
   // 2. the project's shared chats' messages with their turns' person and records, in order (rowid)
-  const rows = db.query(`SELECT m.rowid AS rid, m.id, m.chat_id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at
+  // (a room's side chat is never one of them; status: an answer still being written is not listed, a failed one is not
+  // previewed to anyone but its runner, as the chat shows it: ChatStore.toMessage)
+  const rows = db.query(`SELECT m.rowid AS rid, m.id, m.chat_id, m.parent_id, m.role, m.status, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at
     FROM chats c JOIN messages m ON m.chat_id = c.id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
-    WHERE c.project_id = ? AND c.shared_at IS NOT NULL AND c.deleted_at IS NULL ORDER BY m.rowid`).all(target.projectId) as (NodeRow & { rid: number; chat_id: string })[]
+    WHERE c.project_id = ? AND c.shared_at IS NOT NULL AND c.deleted_at IS NULL AND c.room_id IS NULL ORDER BY m.rowid`).all(target.projectId) as (NodeRow & { rid: number; chat_id: string; status: string })[]
   const cutover = hiddenAnswersCutover(db)
   const byChat = new Map<string, Node[]>()
-  const meta = new Map<string, { rid: number; chat: string }>()
+  const meta = new Map<string, { rid: number; chat: string; status: string }>()
   for (const r of rows) {
     const n = nodeOf(r, cutover)
     let list = byChat.get(r.chat_id)
     if (!list) byChat.set(r.chat_id, (list = []))
     list.push(n)
-    if (n.answer) meta.set(n.id, { rid: r.rid, chat: r.chat_id })
+    if (n.answer) meta.set(n.id, { rid: r.rid, chat: r.chat_id, status: r.status })
   }
   // the answers hidden from the adder, chat by chat (their walk: rule b with what is above), one rule check per place
   const hiddenFromViewer = new Set<string>()
@@ -135,17 +137,19 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   for (const id of answers) {
     if (++walked > WIDENING_COUNT_CAP) { capped = true; break }
     const n = nodeById.get(id)!
-    if (!n.rec || hiddenFromViewer.has(id)) continue
+    if (!n.rec || hiddenFromViewer.has(id) || meta.get(id)!.status === 'streaming') continue
     const groups = n.rec.reads
     if (!groups.length) continue
     // who among the new people would start seeing it although they miss one of its places
     const widens = new Set<string>()
     for (const p of people) {
       if (n.runner === p.id) continue
-      const misses = groups.some((g) => !g.c.has(p.id) && g.s.some((s) => !newOf(s).has(p.id)))
+      // (an x group: what it read is not all known, so anyone not in it misses it)
+      const misses = groups.some((g) => !g.c.has(p.id) && (g.x || g.s.some((s) => !newOf(s).has(p.id))))
       if (!misses) continue
-      // an older answer no card covered stays hidden from them: it widens nothing (rule b, its own record)
-      if (!n.late && groupsHide(groups, p.id, (s) => newOf(s).has(p.id))) continue
+      // an answer that stays hidden from them anyway widens nothing: an older one no card covered (rule b, its own
+      // record), a newer one by an x group
+      if (n.late ? lateHides(groups, p.id) : groupsHide(groups, p.id, (s) => newOf(s).has(p.id))) continue
       widens.add(p.id)
     }
     if (!widens.size) continue
@@ -158,16 +162,19 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   if (!listed.length) return { total, totalCapped: capped, items: [], nextRowid: null }
 
   // 3. the shown answers' text, chat titles and askers, by primary key
-  const shown = db.query(`SELECT m.id, m.content, m.created_at, c.title, u.id AS uid, u.name, pr.avatar_version FROM messages m JOIN chats c ON c.id = m.chat_id
+  const shown = db.query(`SELECT m.id, m.content, m.status, m.created_at, c.title, u.id AS uid, u.name, pr.avatar_version FROM messages m JOIN chats c ON c.id = m.chat_id
     LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN users u ON u.id = t.user_id LEFT JOIN user_profiles pr ON pr.user_id = u.id WHERE m.id IN (SELECT value FROM json_each(?))`)
-    .all(JSON.stringify(listed.map((x) => x.node.id))) as { id: string; content: string; created_at: string; title: string | null; uid: string | null; name: string | null; avatar_version: number | null }[]
+    .all(JSON.stringify(listed.map((x) => x.node.id))) as { id: string; content: string; status: string; created_at: string; title: string | null; uid: string | null; name: string | null; avatar_version: number | null }[]
   const byId = new Map(shown.map((r) => [r.id, r]))
   const words = o.words ?? { root: 'the top of the team folder', mine: 'your personal folder', room: "room '{name}'" }
+  // a team path in the Files screen's words ("Company shared › Board pack"), never the disk path (people are not
+  // developers): o.place, as the read card says places (chat/place-words.ts)
+  const at = (p: string) => (o.place ? o.place(p) : `${p}/`)
   const placeName = (s: ReadSource): string => {
     switch (s.type) {
       case 'root': return words.root
-      case 'folder': { const p = paths.get(s.id); return p ? `${p}/` : words.root }
-      case 'name': return nameSegs(s.path).join('/') || words.root
+      case 'folder': { const p = paths.get(s.id); return p ? at(p) : words.root }
+      case 'name': { const p = nameSegs(s.path).join('/'); return p ? at(p) : words.root }
       case 'user': return words.mine
       case 'integration': return getRow(db, s.id)?.name ?? '?'
       case 'drive_share': return shareRow(db, s.id)?.name ?? 'Google Drive'
@@ -183,20 +190,25 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
     const seen = new Set<string>()
     const places: WideningItem['places'] = []
     let hidden = false
-    for (const g of x.node.rec!.reads) for (const s of g.s) {
+    for (const g of x.node.rec!.reads) {
+      // not all known: one "a place you can't open" for the people it widens to
+      if (g.x && [...x.widens].some((id) => !g.c.has(id))) hidden = true
+      for (const s of g.s) {
       const k = sourceKey(s)
       if (seen.has(k)) continue
       seen.add(k)
       if (![...x.widens].some((id) => !g.c.has(id) && !newOf(s).has(id))) continue
       if (viewerReads(s)) places.push({ name: placeName(s) })
       else hidden = true
+      }
     }
     if (hidden) places.push({ hidden: true })
     const missedBy = subjects.filter((sub) => sub.people.some((id) => x.widens.has(id))).map((sub) => sub.name)
     items.push({
       chatId: x.chat, chatTitle: r.title ?? '', messageId: x.node.id, at: r.created_at,
       askedBy: r.uid ? { id: r.uid, name: r.name ?? '', ...(r.avatar_version ? { avatarVersion: r.avatar_version } : {}) } : null,
-      preview: answerPreview(r.content), places, missedBy,
+      // a failed or stopped answer: its words are its runner's only, as on the chat page
+      preview: r.status === 'done' || x.node.runner === viewer.id ? answerPreview(r.content) : '', places, missedBy,
     })
   }
   return { total, totalCapped: capped, items, nextRowid: more ? listed[listed.length - 1]!.rid : null }

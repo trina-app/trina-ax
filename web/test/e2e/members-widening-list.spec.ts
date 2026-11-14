@@ -21,7 +21,7 @@ async function world(page: Page) {
   await expect.poll(async () => ((await (await page.request.get(`/api/chats/${chat.id}`)).json()) as { runState: string }).runState).toBe('idle')
   const answer = ((await (await page.request.get(`/api/chats/${chat.id}/messages`)).json()) as { items: { id: string; role: string }[] }).items.find((m) => m.role === 'assistant')!
   await page.request.post('/__test/widening', { headers: H, data: { items: [
-    { chatId: chat.id, chatTitle: 'Q3 budget questions', messageId: answer.id, at: '2026-11-12T03:00:00.000Z', askedBy: { id: 'bob', name: 'Bob' }, preview: 'The finance draft puts Q3 spend at 41 % over plan', places: [{ name: 'groups/finance/' }, { hidden: true }], missedBy: ['김소라'] },
+    { chatId: chat.id, chatTitle: 'Q3 budget questions', messageId: answer.id, at: '2026-11-12T03:00:00.000Z', askedBy: { id: 'bob', name: 'Bob' }, preview: 'The finance draft puts Q3 spend at 41 % over plan', places: [{ name: 'Groups › Finance' }, { hidden: true }], missedBy: ['김소라'] },
   ] } })
   return { projectId, chatId: chat.id, answerId: answer.id }
 }
@@ -44,7 +44,7 @@ test('a computer: the line, the list in place, the answer in a new tab lit; ‹ 
   await expect(page.getByTestId('widening-list-title')).toContainText('김소라')
   const item = page.getByTestId(`widening-item-${w.answerId}`)
   await expect(item).toContainText('Q3 budget questions')
-  await expect(item).toContainText('groups/finance/')
+  await expect(item).toContainText('Groups › Finance')
   const link = item.getByTestId('widening-item-open')
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('href', `/c/${w.chatId}?answer=${w.answerId}`)

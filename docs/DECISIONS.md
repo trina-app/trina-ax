@@ -27023,4 +27023,23 @@ the recommended design after an independent security and UX review.
 - **Budget:** the count plus the first page under 300 ms for 10,000 shared answers in 50 chats, at most 3 queries and
   one rule check per place and person set (`tests/unit/b-widening-answers-bench.test.ts`, fails over budget; 10x by
   hand: `scripts/bench/widening-answers.ts`). New index `shared_answer_reads_chat_msg`.
+- **Security review of #813 (2026-11-14), what changed:**
+  - Migration 296 marks `y` on a group only when its people (`c`) are as many as the card's audit row says (`audience`)
+    in the same turn. A silent read in the same turn by the same set of people lands in the same group and cannot be
+    told apart from the card's: it counts as covered (written down, accepted). "Always allow" (`askAlways`: decision
+    `shared` with no card shown) counts as covered too: the owner's rule "always allow means done".
+  - An answer is new ("late") only when made from the cutover on and not before its chat was shared: a chat shared after
+    the cutover keeps the older rule for the answers its share recorded. A late answer with an `x` group (what it read is
+    not all known: memories, a scope the share's check could not tell) stays with that group's people; the widening list
+    counts an `x` group as missed by anyone outside it.
+  - Rooms: another room as a source is judged when it is a 1:1 or a group chat (its members only); another team room or
+    the everyone room is a team place and shows.
+  - The widening walk: the same caller's same question (project, rules hash, newest record, picks, page) is answered from
+    a 20-second cache, so the dialog's dry run on every pick does not walk again; every list page (the cursor's too)
+    takes a room-send token; the cursor is signed over the caller as well. Side chats (`room_id`) are never listed, an
+    answer still being written is not listed, and a failed or stopped answer has no preview for anyone but its runner.
+  - Places in the list are in the Files screen's words (`chat/place-words.ts`, as the read card: "Groups › Finance"),
+    never the disk path, in every language.
+  - Tests: `tests/security/shared-chats-cutover.test.ts` (the cutover in the past: search, export, the AI transcript;
+    a late `x` answer; `?through=` with another chat's answer, an answer hidden from the caller and a person's message).
 - Version impact: **minor**.

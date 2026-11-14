@@ -504,6 +504,20 @@ describe('found in the second PR review', () => {
   })
 })
 
+describe('another room as a source (security review of #813)', () => {
+  test('an older answer from a 1:1 or group chat bob is not in stays hidden; one from another team room is shown', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'] } })
+    const { roomId: otherTeam } = await teamRoom(['alice', 'erin'])
+    const fromDm = aiAnswer(roomId, 'alice', 'FROM-THE-GROUP-CHAT', { sources: [{ type: 'room', id: dm.id }] })
+    const fromTeam = aiAnswer(roomId, 'alice', 'FROM-A-TEAM-ROOM', { sources: [{ type: 'room', id: otherTeam }] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const items = await timeline('bob', roomId)
+    expect(items.find((m) => m.id === fromDm.answerId)?.withheld).toBe(true)
+    expect(items.find((m) => m.id === fromTeam.answerId)?.body).toBe('FROM-A-TEAM-ROOM')
+  })
+})
+
 describe('from the cutover on nothing is hidden (TC-1404)', () => {
   /** the cutover now: what was made before it is older, what comes after it new */
   const cutNow = async () => { await Bun.sleep(5); setHiddenAnswersCutover(h.ctx.db, new Date().toISOString()); await Bun.sleep(5) }

@@ -21,8 +21,8 @@
 // b): what it used is not known (no scope kept; an AI answer that used the web, a connection, a shared Drive or any tool
 // outside the team files; a shared answer whose chat did not describe it; a source this build does not know), the
 // member's account cannot be loaded, or it holds a person's own folder, browser or connection (`user`), a team
-// connection (`integration`) or a shared Drive (`drive_share`) the member may not read (chat/read-scope.ts viewersOf).
-// One that used team folders only is visible. One that used this room is judged as before (hidden when an older answer
+// connection (`integration`), a shared Drive (`drive_share`) or a 1:1 or group chat (`room`) the member may not read
+// (chat/read-scope.ts viewersOf). One that used team folders or team rooms only is visible. One that used this room is judged as before (hidden when an older answer
 // hidden from the member is in what it read): it may carry what no card covered. The walk only ever shows more than the
 // rule before it, never less.
 import type { Database } from 'bun:sqlite'
@@ -176,8 +176,11 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
     // this room: still judged by the older answers hidden from them in it (an answer that used one carries what a
     // person's own folder or a connection gave, which no card covered; the safer reading of rule b)
     if (s.type === 'room' && s.id === roomId) return !hiddenFrom(s.fromSeq ?? 0, exemptFor(c, s))
-    // a team folder, the top, a name, another room: a card could have covered it (rule b), not judged any more
-    if (!JUDGED.has(s.type)) return true
+    // another room: a team room or the everyone room is a team place a card could have covered (rule b); a 1:1 or a
+    // group chat is its members' only, judged as before (security review of #813)
+    const other = s.type === 'room' && !historyKinds(roomRow(db, s.id)?.kind ?? 'dm')
+    // a team folder, the top, a name, another team room: not judged any more
+    if (!JUDGED.has(s.type) && !other) return true
     const k = sourceKey(s)
     let ok = verdicts.get(k)
     if (ok === undefined) { ok = viewersOf(db, rules, s, [p]).has(p.id); verdicts.set(k, ok) }

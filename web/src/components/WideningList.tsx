@@ -136,7 +136,7 @@ function Item({ a, oneChat, phone, onOpen }: { a: WideningAnswer; oneChat: boole
       </span>
       {a.preview && <span className={clsx('block text-sm break-words text-ink', phone ? 'line-clamp-2' : 'truncate')} data-testid="widening-item-preview">“{a.preview}”</span>}
       <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta text-muted" data-testid="widening-item-places">
-        {named.length > 0 && <span className="inline-flex min-w-0 items-center gap-1"><Folder size={14} className="shrink-0" aria-hidden /><span className="break-all">{named.join(' · ')}</span></span>}
+        {named.length > 0 && <span className="inline-flex min-w-0 items-center gap-1"><Folder size={14} className="shrink-0" aria-hidden /><span className="break-words">{named.join(' · ')}</span></span>}
         {hidden && <span className="inline-flex items-center gap-1"><Lock size={14} className="shrink-0" aria-hidden />{t('share.widenList.placeHidden')}</span>}
       </span>
       {a.missedBy.length > 1 && <span className="block text-meta text-faint">{t('share.widenList.whoMisses', { names: a.missedBy.join(t('rooms.nameSep')) })}</span>}

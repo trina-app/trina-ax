@@ -31,7 +31,7 @@ const access: ProjectAccess = { editable: true, rulesHash: 'h1', people: 2, part
 const preview = (o: Partial<ProjectAccessPreview> = {}): ProjectAccessPreview => ({ people: 3, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...o })
 const LIST: WideningAnswers = {
   total: 2, totalCapped: false, nextCursor: null, items: [
-    { chatId: C1, chatTitle: 'Q3 budget questions', messageId: M1, at: '2026-11-12T03:00:00.000Z', askedBy: { id: 'mia', name: 'Mia' }, preview: 'The finance draft puts Q3 spend at 41 % over', places: [{ name: 'groups/finance/' }], missedBy: ['Bob'] },
+    { chatId: C1, chatTitle: 'Q3 budget questions', messageId: M1, at: '2026-11-12T03:00:00.000Z', askedBy: { id: 'mia', name: 'Mia' }, preview: 'The finance draft puts Q3 spend at 41 % over', places: [{ name: 'Groups › Finance' }], missedBy: ['Bob'] },
     { chatId: C1, chatTitle: '', messageId: M2, at: '2026-11-09T03:00:00.000Z', askedBy: null, preview: 'Two contracts renew', places: [{ hidden: true }], missedBy: ['Bob'] },
   ],
 }
@@ -93,7 +93,7 @@ describe('the warning and the list', () => {
     const first = m.get(`widening-item-${M1}`)
     expect(first.textContent).toContain('Q3 budget questions')
     expect(first.textContent).toContain('The finance draft puts Q3 spend at 41 % over')
-    expect(first.textContent).toContain('groups/finance/')
+    expect(first.textContent).toContain('Groups › Finance')
     const second = m.get(`widening-item-${M2}`)
     expect(second.textContent).toContain(en('chat.untitled'))
     expect(second.textContent).toContain(en('share.widenList.placeHidden'))

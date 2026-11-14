@@ -830,14 +830,17 @@ export const chatsRoutes: RouteModule = {
       const r = projectFor(p, body.target.projectId, true)
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('wideningNotAllowed', locale), { params: { reason: 'widening_not_allowed' } })
       const plan = planAccess(ctx, p, r, body.add, locale)
-      const state = (at: number) => ({ kind: 'widening', target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained: plan.gained, at })
+      // the cursor is signed over who asked too: another person's cursor is "changed"
+      const state = (at: number) => ({ kind: 'widening', caller: auth.user.id, target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained: plan.gained, at })
       let before: number | null = null
       if (body.cursor) {
         const cur = decodeCursor(body.cursor, ['r', 'm'])
         const at = Number(cur?.r)
         if (!cur || !Number.isSafeInteger(at) || confirmMac(ctx, state(at)) !== cur.m) fail('conflict', tr('wideningChanged', locale), { params: { reason: 'changed' } })
         before = at
-      } else roomsOf(ctx).takeSendToken(auth.user.id)
+      }
+      // every page from the room-send budget (429): who may read what is no free probe
+      roomsOf(ctx).takeSendToken(auth.user.id)
       const res = projectWidening(ctx, p, r, body.add, plan, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
       return { total: res.total, totalCapped: res.totalCapped, items: res.items, nextCursor: res.nextRowid === null ? null : encodeCursor({ r: String(res.nextRowid), m: confirmMac(ctx, state(res.nextRowid)) }) }
     })

@@ -21,8 +21,9 @@
 //
 // For an older answer the walk goes down each branch, so an answer built on one hidden from a viewer is hidden from them
 // too, unless that one was left out of its context. An older answer without a row (or with one that cannot be read) is
-// hidden from everyone but its runner (fails closed). An answer from the cutover on is never hidden, also one built on an
-// older hidden answer its runner could see (as if they had copied it by hand: written down, accepted).
+// hidden from everyone but its runner (fails closed). An answer from the cutover on (and not before its chat was shared)
+// is not hidden, also one built on an older hidden answer its runner could see (as if they had copied it by hand:
+// written down, accepted), but for an x group: what it read is not all known, so only that group's people see it.
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
@@ -53,8 +54,11 @@ export function setHiddenAnswersCutover(db: Database, at: string): void {
   cutovers.set(db, at)
 }
 
-/** Made from the cutover on (never hidden)? `createdAt`: the message's created_at. */
-export const afterCutover = (cutover: string | null, createdAt: string | null | undefined): boolean => !!cutover && !!createdAt && createdAt >= cutover
+/** Made from the cutover on (never hidden)? `createdAt`: the message's created_at. `since`: also not before this (a
+ * chat's shared_at: the earlier answers of a chat shared after the cutover were recorded by the share's check, and keep
+ * the rule for older answers). */
+export const afterCutover = (cutover: string | null, createdAt: string | null | undefined, since?: string | null): boolean =>
+  !!cutover && !!createdAt && createdAt >= cutover && (!since || createdAt >= since)
 
 /** One answer's record, as read back. */
 export interface AnswerRecord { reads: ReadGroup[]; left: string[] }
@@ -113,9 +117,10 @@ export function answerRecords(db: Database, chatId: string): Map<string, AnswerR
   return out
 }
 
-export type NodeRow = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null; created_at: string | null }
+export type NodeRow = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null; created_at: string | null; shared_at?: string | null }
 /** One message of a chat as the walk needs it: an answer's record parsed once (`c` as a set; null: none or unreadable);
- * `late`: made from the cutover on (never hidden). */
+ * `late`: made from the cutover on and not before its chat was shared (hidden only by an x group: what it read is not
+ * all known). */
 export interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; late: boolean; rec: { reads: ParsedGroup[]; left: ReadonlySet<string> } | null }
 export interface ParsedGroup { c: ReadonlySet<string>; s: ReadSource[]; x: boolean; y: boolean }
 const NONE: readonly string[] = []
@@ -123,19 +128,22 @@ const NONE: readonly string[] = []
 /** A message row (with its turn's person and record) as the walk needs it; `cutover`: hiddenAnswersCutover. */
 export function nodeOf(m: NodeRow, cutover: string | null): Node {
   const answer = m.role === 'assistant'
-  const late = answer && afterCutover(cutover, m.created_at)
+  const late = answer && afterCutover(cutover, m.created_at, m.shared_at)
   const rec = answer ? parseRecord(m.reads, m.left_out) : null
   return { id: m.id, parent: m.parent_id, answer, runner: m.runner, late, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x, y: !!g.y })), left: new Set(rec.left) } }
 }
 
 /** A chat's messages with their turns' person and records, read and parsed once (any number of viewers then). */
 export function chatNodes(db: Database, chatId: string): Node[] {
-  const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at FROM messages m
-    LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
+  const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at FROM messages m
+    JOIN chats c ON c.id = m.chat_id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
     WHERE m.chat_id = ? ORDER BY m.rowid`).all(chatId) as NodeRow[]
   const cutover = hiddenAnswersCutover(db)
   return rows.map((m) => nodeOf(m, cutover))
 }
+
+/** A late answer (from the cutover on) is hidden from `who` only by an x group they are not in. */
+export const lateHides = (groups: readonly ParsedGroup[], who: string): boolean => groups.some((g) => g.x && !g.c.has(who))
 
 /** An older answer's verdict for one person by its record alone (rule b, without what is above it): hidden unless every
  * group has them in `c`, was covered by a card's yes, or has every place readable by them (`reads`). */
@@ -162,8 +170,9 @@ export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node
   }
   const hiddenHere = (m: Node, above: readonly string[]): boolean => {
     if (!m.answer || (m.runner !== null && m.runner === viewer)) return false
-    // from the cutover on nothing is hidden (rule a)
-    if (m.late) return false
+    // from the cutover on nothing is hidden (rule a), but what an x group read is not all known (memories, a scope the
+    // share's check could not tell): only its `c` sees it, as before
+    if (m.late) return !!m.rec && lateHides(m.rec.reads, viewer)
     if (!m.rec) return true
     // an older answer: a group the viewer was in, one a card's yes covered (not x), or one whose every place the viewer
     // may read now (rule b)

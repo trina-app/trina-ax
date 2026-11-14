@@ -25,6 +25,7 @@ import { mayEditProject, projectFolderName, takenProjectPaths } from './projects
 import type { ProjectRow } from './store'
 import { tr } from './i18n'
 import { wideningAnswers, type WideningResult, type WideningSubject } from './widening'
+import { placeWords } from './place-words'
 import { skillsUnder } from '../skills/switch-on'
 
 const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role === 'admin'
@@ -369,6 +370,17 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
 export function projectWidening(ctx: AppContext, p: Principal, r: ProjectRow, participants: readonly ProjectParticipant[], plan: AccessPlan, page: { before?: number | null; limit: number }, locale: Locale): WideningResult & { subjects: WideningSubject[] } {
   const db = ctx.db
   if (!plan.gained.length || plan.contentsHidden) return { total: 0, totalCapped: false, items: [], nextRowid: null, subjects: [] }
+  // the same question again within a few seconds (the dialog's dry run on every pick, a page asked twice): the answer
+  // kept for this caller, not a new walk (security review of #813: no free repeated walks)
+  // (a new answer or record since: asked again; the newest record's rowid is one look at the table's end)
+  const newest = (db.query('SELECT MAX(rowid) AS n FROM shared_answer_reads').get() as { n: number | null }).n ?? 0
+  const key = JSON.stringify([p.id, r.id, plan.rulesHash, newest, plan.gained, participants.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), page.before ?? null, page.limit, locale])
+  const cache = wideningCache.get(db) ?? new Map<string, { at: number; v: WideningResult & { subjects: WideningSubject[] } }>()
+  wideningCache.set(db, cache)
+  const now = Date.now()
+  const kept = cache.get(key)
+  if (kept && now - kept.at < WIDENING_CACHE_MS) return kept.v
+  for (const [k, v] of cache) if (now - v.at >= WIDENING_CACHE_MS) cache.delete(k)
   const gained = plan.gained.map((id) => loadPrincipal(db, id)).filter((x): x is Principal => !!x)
   const subjects: WideningSubject[] = []
   for (const x of participants) {
@@ -380,8 +392,16 @@ export function projectWidening(ctx: AppContext, p: Principal, r: ProjectRow, pa
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
   const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
-  return { ...wideningAnswers(db, { now: plan.rulesNow, after: plan.rulesAfter }, { kind: 'project', projectId: r.id }, gained, p, page, { subjects, words }), subjects }
+  // places in the Files screen's words, as the read card says them
+  const place = (path: string) => placeWords(db, path, locale, p.id)
+  const v = { ...wideningAnswers(db, { now: plan.rulesNow, after: plan.rulesAfter }, { kind: 'project', projectId: r.id }, gained, p, page, { subjects, words, place }), subjects }
+  if (cache.size < 500) cache.set(key, { at: now, v })
+  return v
 }
+
+/** How long a widening answer is kept for the same caller and question (projectWidening). */
+export const WIDENING_CACHE_MS = 20_000
+const wideningCache = new WeakMap<import('bun:sqlite').Database, Map<string, { at: number; v: WideningResult & { subjects: WideningSubject[] } }>>()
 
 /** What a change of a project's participants does (the dry run's answer, and the AI's members card: chat/project-members.ts). */
 export interface AccessPlan {
