@@ -372,9 +372,13 @@ export function projectWidening(ctx: AppContext, p: Principal, r: ProjectRow, pa
   if (!plan.gained.length || plan.contentsHidden) return { total: 0, totalCapped: false, items: [], nextRowid: null, subjects: [] }
   // the same question again within a few seconds (the dialog's dry run on every pick, a page asked twice): the answer
   // kept for this caller, not a new walk (security review of #813: no free repeated walks)
-  // (a new answer or record since: asked again; the newest record's rowid is one look at the table's end)
-  const newest = (db.query('SELECT MAX(rowid) AS n FROM shared_answer_reads').get() as { n: number | null }).n ?? 0
-  const key = JSON.stringify([p.id, r.id, plan.rulesHash, newest, plan.gained, participants.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), page.before ?? null, page.limit, locale])
+  // asked again after anything that changes the answer (QA TC-1408): a new answer or record (the newest record's rowid),
+  // any access change anywhere (safe_ops_policy.generation: its triggers count every change of users and their roles,
+  // groups and their members, folders and folder rules, connections, shared Drives), and a shared chat of the project
+  // deleted, restored or no longer shared (how many there are, and the newest change among them)
+  const state = db.query(`SELECT (SELECT MAX(rowid) FROM shared_answer_reads) AS n, (SELECT generation FROM safe_ops_policy WHERE id = 1) AS g,
+    (SELECT COUNT(*) || ':' || COALESCE(MAX(updated_at), '') FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL) AS c`).get(r.id) as { n: number | null; g: number | null; c: string }
+  const key = JSON.stringify([p.id, r.id, plan.rulesHash, state.n ?? 0, state.g ?? 0, state.c, plan.gained, participants.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), page.before ?? null, page.limit, locale])
   const cache = wideningCache.get(db) ?? new Map<string, { at: number; v: WideningResult & { subjects: WideningSubject[] } }>()
   wideningCache.set(db, cache)
   const now = Date.now()
