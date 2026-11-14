@@ -225,7 +225,7 @@
 /* answers' pictures shown big (Leo's banner) */
 [data-testid="assistant-message"] img[src*="/api/files/download"] { max-height: 520px !important; }
 
-.demo-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(62px, 1fr)); gap: 6px; margin: 14px 0 0; }
+.demo-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 6px; margin: 14px 0 0; }
 .demo-stats > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: 10px 4px; border: 1px solid var(--c-line); border-radius: 12px; text-align: center; }
 .demo-contrast { margin: 10px 0 0 !important; text-align: center; font-size: 13px !important; }
 .demo-stats dt { font-size: 11.5px; color: var(--c-muted, #8a8178); }
@@ -287,6 +287,10 @@
   .demo-next { order: 0; flex: 1 1 auto; min-width: 0; padding: 10px 14px; border-radius: 12px; font-size: 14px; white-space: normal; line-height: 1.2; }
   .demo-restart { padding: 10px 8px; font-size: 12px; }
   .demo-chip { flex-basis: 100%; padding: 11px 14px; }
+  .demo-stats { gap: 4px; }
+  .demo-stats > div { padding: 8px 2px; }
+  .demo-stats dt { font-size: 10px; }
+  .demo-stats dd { font-size: 18px; }
   /* under the app's top bar, clear of the message box and the guide */
   .demo-toasts { top: calc(env(safe-area-inset-top) + 64px); right: 8px; left: 8px; width: auto; }
 }
