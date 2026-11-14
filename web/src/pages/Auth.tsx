@@ -5,7 +5,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { guestPlacePath, inviteGuest, type GuestPlaceView } from '../lib/guests'
+import { guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -683,6 +683,9 @@ export function InviteWhileSignedIn() {
   )
 }
 
+type DeadReason = NonNullable<InviteInfo['reason']>
+const DEAD_REASONS: readonly DeadReason[] = ['expired', 'used', 'revoked', 'inviter_gone', 'place_gone']
+
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
@@ -713,10 +716,18 @@ export function AcceptInvite() {
   }, [token, attempt])
   const submit = (v: JoinValues) =>
     void run(async () => {
-      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      signedIn(r.me)
-      // a guest opens straight into their one place (components/GuestView.tsx)
-      navigate(guestPlacePath(r.me) ?? '/', { replace: true })
+      try {
+        const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
+        signedIn(r.me)
+        // a guest opens straight into their one place (components/GuestView.tsx)
+        navigate(guestPlacePath(r.me) ?? '/', { replace: true })
+      } catch (e) {
+        // the link stopped working while the form was filled in (its maker lost the room, the project went to the
+        // trash; QA TC-2226): the page says why, as when it is opened, instead of an error under the form
+        const reason = isApiError(e, 'gone') ? e.body.params?.reason : undefined
+        if (typeof reason === 'string' && info && info !== 'missing' && (DEAD_REASONS as readonly string[]).includes(reason)) { setInfo({ ...info, valid: false, reason: reason as DeadReason }); return }
+        throw e
+      }
     })
   if (info === null)
     return (
@@ -724,13 +735,17 @@ export function AcceptInvite() {
         {loadFailed ? <LoadFailed e={loadFailed.e} onRetry={() => setAttempt((n) => n + 1)} /> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
       </AuthFrame>
     )
-  if (info === 'missing' || !info.valid)
+  if (info === 'missing' || !info.valid) {
+    // the true reason when the server says it (InviteInfo.reason: expired, used, turned off, its maker can no longer
+    // invite, the room or project is gone; QA TC-2219, TC-2297, TC-2298); only the reason, nothing about the place
+    const why = info === 'missing' ? null : inviteDeadReason(info)
     return (
       <AuthFrame title={t('invite.title')}>
-        <p className="text-sm text-muted">{t('invite.invalid')}</p>
+        <p className="text-sm text-muted" data-testid="invite-invalid" data-reason={why ?? undefined}>{t(why ? `invite.reason.${why}` : 'invite.invalid')}</p>
         <SignInInstead />
       </AuthFrame>
     )
+  }
   // a guest invite (docs/DECISIONS.md "Guests: only what they were invited to"): where exactly they will be, in place of
   // the role and the date; the form is the members' one. Guests take no seat: `full` never stops one
   const guest = inviteGuest(info)

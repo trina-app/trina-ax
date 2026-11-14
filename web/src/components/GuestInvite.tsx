@@ -17,6 +17,7 @@ import type { Credential, GuestAiChoice, GuestInviteLimit, Person } from '@mycel
 import { api, API, errorText, isApiError } from '../lib/api'
 import { GUEST_LIMIT, GUEST_ONE_PLACE, type GuestPlaceView, type PlaceKind } from '../lib/guests'
 import { noPurchaseLinks } from '../lib/desktop'
+import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { isAdmin, useMe } from '../store/session'
@@ -189,6 +190,9 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
+  const [expiresAt, setExpiresAt] = useState<string | null>(null)
+  // when a link made now would stop (told before Create link: QA TC-2222), in the team's time zone like the link's own
+  const [until] = useState(() => new Date(Date.now() + GUEST_LINK_HOURS * 3600_000).toISOString())
   // the plan's guests are all there: read when the dialog opens, or told by a refused Create link (409 plan_limit
   // reason guest_limit, another invite made meanwhile); the plan page only for the owner and admins (a store app's
   // answer has none: lib/api.ts storeSafeError)
@@ -201,6 +205,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
     try {
       const r = await api.call(API.createGuestInvite, { body: { place: { kind: place.kind, id: place.id }, ai, ...(name.trim() ? { name: name.trim() } : {}) } })
       setUrl(absoluteUrl(r.url))
+      setExpiresAt(r.invite.expiresAt)
     } catch (e) {
       const cap = guestCap(e)
       if (cap) setRefusedFull({ n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) })
@@ -210,7 +215,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
     }
   }
   const who = name.trim()
-  if (url) return <GuestLinkReady url={url} who={who} onClose={onClose} />
+  if (url) return <GuestLinkReady url={url} who={who} expiresAt={expiresAt ?? until} onClose={onClose} />
   // the plan is full: the limit at the top and nothing to fill in
   if (full)
     return (
@@ -255,6 +260,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
           </Field>
           <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} noGuestAi={noGuestAi} />
+          <LinkExpiry iso={until} />
           {error && <p role="alert" className="text-sm break-keep text-danger" data-testid="guest-invite-error">{error}</p>}
         </form>
       )}
@@ -262,9 +268,26 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   )
 }
 
-/** The one-time link, made: the address, and "Copy link" as the dialog's main button (Done beside it). */
-function GuestLinkReady({ url, who, onClose }: { url: string; who: string; onClose: () => void }) {
+/** How long a guest link works: the server's default (CreateGuestInviteBody.expiresInHours), which the dialog keeps. */
+const GUEST_LINK_HOURS = 24 * 7
+
+/** "The link works once, for 7 days (until Nov 22, 2026, 14:30)": the end in the team's time zone (Admin's invite list
+ * and the server use it too). */
+function useUntil(iso: string): string {
+  const locale = useLocale()
+  const tz = useMe()?.server.timeZone
+  return formatDateTime(iso, locale, tz)
+}
+function LinkExpiry({ iso }: { iso: string }) {
   const t = useT()
+  return <p className="text-xs leading-5 break-keep text-muted" data-testid="guest-invite-expiry">{t('guest.invite.expiry', { days: GUEST_LINK_HOURS / 24, date: useUntil(iso) })}</p>
+}
+
+/** The one-time link, made: the address, and "Copy link" as the dialog's main button (Done beside it). */
+function GuestLinkReady({ url, who, expiresAt, onClose }: { url: string; who: string; expiresAt: string; onClose: () => void }) {
+  const t = useT()
+  const until = useUntil(expiresAt)
+  const days = Math.max(1, Math.round((Date.parse(expiresAt) - Date.now()) / 86_400_000))
   const { copied, copy } = useCopy()
   return (
     <Modal
@@ -281,7 +304,7 @@ function GuestLinkReady({ url, who, onClose }: { url: string; who: string; onClo
     >
       <div className="space-y-3" data-testid="guest-invite-ready">
         <code className="block rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-sm break-all select-all" data-testid="guest-invite-url">{url}</code>
-        <p className="text-sm break-keep text-muted">{t('guest.invite.once')}</p>
+        <p className="text-sm break-keep text-muted" data-testid="guest-invite-once">{t('guest.invite.onceUntil', { days, date: until })}</p>
         <LocalLinkNote url={url} />
       </div>
     </Modal>
@@ -362,8 +385,10 @@ export function useGuestsElsewhere(here: { kind: PlaceKind; id: string }): Reado
 
 /** "Make Alex a team member?" (Admin › Members › Guests, and a greyed-out guest's row in an add list): the seats are read first; with every seat taken it says so, with "See plans" (when the
  * server names a plan page), and there is nothing to confirm. A refusal after Confirm (the last seat taken meanwhile)
- * turns it into the same. */
-export function ConvertGuestDialog({ guest: user, onClose, onDone }: { guest: { id: string; name: string }; onClose: () => void; onDone: () => Promise<void> | void }) {
+ * turns it into the same. A removed guest is switched on with it (POST .../convert-guest), which the words say. */
+export function ConvertGuestDialog({ guest: user, onClose, onDone }: { guest: { id: string; name: string; status?: string }; onClose: () => void; onDone: () => Promise<void> | void }) {
+  // a removed guest (account off) is switched on with it, wherever their old place is (a member needs none)
+  const removed = user.status !== undefined && user.status !== 'active'
   const t = useT()
   const locale = useLocale()
   const limit = useGuestLimit()
@@ -410,7 +435,7 @@ export function ConvertGuestDialog({ guest: user, onClose, onDone }: { guest: { 
           <p role="status" className="text-ink" data-testid="guest-convert-full">{t('guest.admin.seatsFull')}</p>
         ) : (
           <>
-            <p className="text-ink">{t('guest.admin.convertBody')}</p>
+            <p className="text-ink">{t(removed ? 'guest.admin.convertBodyRemoved' : 'guest.admin.convertBody')}</p>
             <p className="text-muted" data-testid="guest-convert-ai">{t('guest.admin.convertAi')}</p>
           </>
         )}
