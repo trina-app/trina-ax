@@ -1,0 +1,3 @@
+- Apps in rooms look and read like Slack's: the services' logos (Sentry, GitHub; a plain icon for Google Forms and other apps) with an "APP" tag, a room's apps under ⋯ › Integrations, the "Webhook URL" with Copy and Regenerate, and Remove app.
+- An app's settings are clearer: its own name at the top (you can name an Other app and rename any app), who set it up with "How to connect", a plain status line ("Waiting for the first message", "Last message today 10:58"), one block of warnings with one action each, "Post quietly", and for other apps a "How to send" example to copy. A single on/off switch is no longer shown.
+- "Show an example" now shows a preview inside the guide instead of posting to the room, and the Google Forms guide shows only the code to paste.

@@ -1020,7 +1020,7 @@ function MessageHit({ hit, room, text }: { hit: RoomSearchHit; room: RoomSearchR
   const where = useWhere()(room, hit.author?.id)
   return (
     <>
-      {hit.app ? <AppTile kind={hit.app.kind} name={hit.app.name} size={32} /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
+      {hit.app ? <AppTile kind={hit.app.kind} size="face" /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
           <span className="shrink-0 font-medium text-ink" data-testid="search-message-author">{name}</span>

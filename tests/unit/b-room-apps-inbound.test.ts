@@ -117,7 +117,7 @@ test('Sentry: a new issue is a card; resolved goes to its thread and the card\'s
   const root = ms[0]
   expect(root.appCard).toMatchObject({ kind: `${appText('sentryNew', 'ko')} · checkout-web · error`, title: "TypeError: Cannot read properties of undefined (reading 'total')", details: ['app/cart/summary.ts'],
     status: appText('status', 'ko', { status: appText('statusUnresolved', 'ko') }), link: { url: 'https://acme.sentry.io/issues/42/', host: 'acme.sentry.io' } })
-  // resolved: in the thread, the actor marked unverified (no secret), the root's status line changed
+  // resolved: in the thread, the card flagged unverified (no secret; no mark after the name), the root's status line changed
   expect((await post(token, sentryIssue('resolved'), { 'sentry-hook-resource': 'issue' })).status).toBe(200)
   await settle()
   ms = await messages()
@@ -125,7 +125,7 @@ test('Sentry: a new issue is a card; resolved goes to its thread and the card\'s
   expect(ms[0].appCard.status).toBe(appText('status', 'ko', { status: appText('sentryResolved', 'ko') }))
   expect(ms[0].thread.replyCount).toBe(1)
   const thread = await owner.call('GET', `/api/rooms/${all}/messages/${root.id}/thread`)
-  expect(thread.items[0].appCard.title).toBe(appText('sentryResolvedBy', 'ko', { actor: `Jun ${appText('unverified', 'ko')}` }))
+  expect(thread.items[0].appCard.title).toBe(appText('sentryResolvedBy', 'ko', { actor: 'Jun' }))
   expect(thread.items[0].appCard.unverified).toBe(true)
   // came back: the thread and the room
   expect((await post(token, sentryIssue('unresolved'), { 'sentry-hook-resource': 'issue' })).status).toBe(200)
@@ -148,10 +148,10 @@ test('signatures are optional for GitHub and Sentry; once a secret is set, a mis
   const { owner, add, post, messages, all } = await setup()
   const g = await add('github')
   const pr = (action: string, extra: Record<string, unknown> = {}) => `{"zeta":1,"action":"${action}","pull_request":{"number":7,"title":"Fix cart total","html_url":"https://github.com/acme/web/pull/7","user":{"login":"jun"},"merged":${extra.merged ? 'true' : 'false'}},"repository":{"id":99,"full_name":"acme/web"},"sender":{"login":"jun"},"alpha":2}`
-  // unsigned: taken, the name marked (unverified)
+  // unsigned: taken, the name as sent (the settings say "Not signed" once)
   expect((await post(g.token, pr('opened'), { 'x-github-event': 'pull_request', 'x-github-delivery': 'd1' })).status).toBe(200)
   await settle()
-  expect((await messages())[0].appCard.details[0]).toBe(appText('byActor', 'ko', { actor: `jun ${appText('unverified', 'ko')}` }))
+  expect((await messages())[0].appCard.details[0]).toBe(appText('byActor', 'ko', { actor: 'jun' }))
   // "Make it safer": a secret Trina makes, shown once here and on the address
   const s = await owner.call('PUT', `/api/rooms/${all}/apps/${g.app.id}/secret`, { generate: true })
   expect(s.secret).toMatch(/^tax_whs_[A-Za-z0-9_-]{43}$/)

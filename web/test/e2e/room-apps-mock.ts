@@ -62,10 +62,10 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       return route.fulfill(json({ items: state.apps, available: state.available, max: 10 }))
     }
     if (path === base && method === 'POST') {
-      const b = req.postDataJSON() as { kind: Kind }
-      state.calls.push(`create:${b.kind}`)
+      const b = req.postDataJSON() as { kind: Kind; name?: string }
+      state.calls.push(b.name ? `create:${b.kind}:${b.name}` : `create:${b.kind}`)
       if (!state.available) return route.fulfill(json({ error: { code: 'conflict', message: 'no address', params: { reason: 'no_public_address' } } }, 409))
-      const app = mockApp(b.kind, { id: `019a5f00-0000-7000-8000-0000000b${String(++n).padStart(4, '0')}`, createdAt: new Date(Date.now() - (o.createdAgoMs ?? 0)).toISOString(), firstOkAt: null, lastOkAt: null, today: 0 })
+      const app = mockApp(b.kind, { id: `019a5f00-0000-7000-8000-0000000b${String(++n).padStart(4, '0')}`, createdAt: new Date(Date.now() - (o.createdAgoMs ?? 0)).toISOString(), firstOkAt: null, lastOkAt: null, today: 0, ...(b.name ? { name: b.name } : {}) })
       state.apps.push(app)
       return route.fulfill(json({ app, address: ADDRESS(n) }, 201))
     }
@@ -85,10 +85,11 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
     if (what === 'resume' && method === 'POST') { state.calls.push(`resume:${app.id}`); app.pausedUntil = null; app.canResume = false; return route.fulfill(json(app)) }
     if (what === 'example' && method === 'POST') { state.calls.push(`example:${app.id}`); return route.fulfill({ status: 204, body: '' }) }
     if (!what && method === 'PATCH') {
-      const b = req.postDataJSON() as { events?: Record<string, boolean>; quiet?: boolean }
+      const b = req.postDataJSON() as { events?: Record<string, boolean>; quiet?: boolean; name?: string }
       state.calls.push(`patch:${app.id}:${JSON.stringify(b)}`)
       if (b.events) app.events = { ...app.events, ...b.events }
       if (b.quiet !== undefined) app.quiet = b.quiet
+      if (b.name !== undefined) app.name = b.name
       return route.fulfill(json(app))
     }
     if (!what && method === 'DELETE') {
