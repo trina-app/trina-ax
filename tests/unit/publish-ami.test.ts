@@ -74,6 +74,23 @@ describe('publish-ami: the signed v2 manifest beside its release', () => {
     await expect(publishAmi({ version: '0.5.3', manifest: manifest({ built: '2026-11-14T01:00:00Z' }), store, keys: [PUB], log: () => {} })).rejects.toThrow(/never replaced/)
   })
 
+  test('a re-run after a partial publish: the manifest taken back from the feed is the same bytes, only the pointer goes up', async () => {
+    const feed = path.join(T, 'feed4')
+    const base = dirStore(feed, 'https://127.0.0.1:1')
+    const m = manifest()
+    const name = path.basename(m)
+    // the first attempt stops before team-image.json
+    let puts = 0
+    const failing = { ...base, put: async (k: string, f: string, t: string) => { if (++puts === 4) throw new Error('HTTP 502'); return base.put(k, f, t) } }
+    await expect(publishAmi({ version: '0.5.3', manifest: m, store: failing, keys: [PUB], log: () => {} })).rejects.toThrow(/502/)
+    // the workflow downloads the three files from the feed (step "The manifest on the feed already?") and publishes them
+    const again = path.join(T, 'rerun')
+    fs.mkdirSync(again)
+    for (const x of ['', '.sha256', '.sig']) fs.copyFileSync(path.join(feed, 'server/0.5.3', name + x), path.join(again, name + x))
+    const r = await publishAmi({ version: '0.5.3', manifest: path.join(again, name), store: base, keys: [PUB], log: () => {} })
+    expect(r.uploaded).toEqual([`server/0.5.3/${POINTER}`])
+  })
+
   test('refused before anything goes up: wrong key, wrong sums, another release\'s template or kit, not a v2 name', () => {
     expect(() => checkManifest('0.5.3', manifest({ sign: crypto.generateKeyPairSync('ed25519').privateKey }), [PUB])).toThrow(/not a signature/)
     expect(() => checkManifest('0.5.3', manifest(), [])).toThrow(/not a signature/)
@@ -95,8 +112,8 @@ describe('the workflows', () => {
 
   test('release.yml only starts the image: stable, after the feed, never failing the release, a notice without AWS', () => {
     const j = rel.jobs['build-ami']!
-    expect(j.needs).toEqual(['prepare', 'publish'])
-    for (const c of ["needs.publish.result == 'success'", "needs.prepare.outputs.channel == 'stable'", "needs.prepare.outputs.feed == 'true'", '!inputs.office_only']) expect(j.if).toContain(c)
+    expect(j.needs).toEqual(['prepare', 'publish', 'github-release'])
+    for (const c of ["needs.publish.result == 'success'", "needs.github-release.result == 'success'", "needs.prepare.outputs.channel == 'stable'", "needs.prepare.outputs.feed == 'true'", '!inputs.office_only']) expect(j.if).toContain(c)
     expect(j['continue-on-error']).toBe(true)
     expect(j.permissions).toEqual({ actions: 'write' })
     const run = j.steps.map((s) => s.run ?? '').join('\n')
@@ -117,11 +134,20 @@ describe('the workflows', () => {
     expect(fs.readFileSync(path.join(ROOT, '.github/workflows/team-image.yml'), 'utf8')).toMatch(/configure-aws-credentials@[0-9a-f]{40} # v\d+\.\d+\.\d+/)
     expect(aws.with).toMatchObject({ 'role-to-assume': '${{ vars.AWS_ROLE_ARN }}', 'aws-region': '${{ env.AMI_REGION }}' })
     for (const s of j.steps) if (s.uses) expect(s.uses, s.uses).toMatch(/@[0-9a-f]{40}$/)
-    // the release key: one step writes it (600) and removes it, and an always() step removes it again
+    // the release key: only the short signing step has it (600, removed), not the copy; an always() step removes it again
     const withKey = j.steps.filter((s) => JSON.stringify(s).includes('secrets.RELEASE_SIGNING_KEY }}'))
-    expect(withKey.length).toBe(1)
+    expect(withKey.map((s) => s.name)).toEqual(['Sign the manifest'])
     expect(withKey[0]!.run).toContain('umask 077')
     expect(withKey[0]!.run).toContain('trap \'rm -f "$key"\' EXIT')
+    expect(withKey[0]!.run).not.toContain('build-ami.sh')
+    expect(j.steps.find((s) => s.name?.startsWith('Copy to'))!.run).not.toContain('--sign-key')
+    // the commit checked against the tag, not the tag resolved again
+    expect(j.steps.find((s) => s.uses?.startsWith('actions/checkout@'))!.with).toMatchObject({ ref: '${{ github.sha }}' })
+    expect(j.steps[0]!.run).toContain('if [ "$got" != "$GITHUB_SHA" ]')
+    // an interrupted build is cleaned up from its state file
+    const clean = j.steps.find((s) => s.name === 'Remove what an interrupted build left behind')!
+    expect(clean.if).toContain('cancelled() || failure()')
+    expect(clean.run).toContain('build-ami.sh --cleanup "$s"')
     expect(j.steps.find((s) => s.name === 'Remove the release key')).toMatchObject({ if: 'always()', run: 'rm -f "$RUNNER_TEMP/release-key.pem"' })
     // without settings: a notice and no failure
     expect(j.steps[0]!.run).toContain('::notice::no team image')
@@ -130,14 +156,18 @@ describe('the workflows', () => {
     const run = j.steps.map((s) => s.run ?? '').join('\n')
     expect(run).toContain('--tag ax:built-by=release-ci')
     expect(run).toContain('--manifest-v2 --yes')
-    expect(run).toContain('scripts/image/ami-prune.sh --account "$ACCOUNT" --keep "$AMI_KEEP"')
+    expect(run).toContain('scripts/image/ami-prune.sh --account "$ACCOUNT" --keep "$AMI_KEEP" --protect-template "$TEMPLATE"')
   })
 
   test('the IAM policy docs are JSON and scope deletes to the CI\'s tag', () => {
     const p = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/runbooks/team-image-iam-policy.json'), 'utf8')) as { Statement: { Sid: string; Effect: string; Action: string | string[]; Condition?: Record<string, Record<string, unknown>> }[] }
-    const trust = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/runbooks/team-image-trust-policy.json'), 'utf8')) as { Statement: { Condition: { StringEquals: Record<string, string> } }[] }
-    expect(trust.Statement[0]!.Condition.StringEquals['token.actions.githubusercontent.com:sub']).toBe('repo:trina-app/trina-ax:environment:release')
+    const trust = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/runbooks/team-image-trust-policy.json'), 'utf8')) as { Statement: { Condition: Record<string, Record<string, string>> }[] }
+    expect(trust.Statement[0]!.Condition.StringLike['token.actions.githubusercontent.com:sub']).toBe('repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*')
     const acts = (s: { Action: string | string[] }) => ([] as string[]).concat(s.Action)
+    // a snapshot or image of anyone but Debian never feeds a volume or an instance
+    for (const s of p.Statement.filter((s) => s.Effect === 'Allow' && /snapshot\/\*|image\/\*/.test(JSON.stringify((s as { Resource?: unknown }).Resource)))) {
+      if (acts(s).some((a) => a === 'ec2:CreateVolume' || a === 'ec2:RunInstances')) expect(s.Condition, s.Sid).toBeDefined()
+    }
     for (const s of p.Statement.filter((s) => s.Effect === 'Allow')) {
       expect(acts(s).some((a) => a.startsWith('iam:')), s.Sid).toBe(false)
       if (acts(s).some((a) => /^ec2:(Deregister|Delete|Terminate)/.test(a))) expect(s.Condition, s.Sid).toBeDefined()

@@ -24,6 +24,7 @@
       "Action": [
         "ec2:DescribeImages",
         "ec2:DescribeInstances",
+        "ec2:DescribeLaunchTemplateVersions",
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeSnapshots",
         "ec2:DescribeSubnets",
@@ -53,7 +54,7 @@
       "Sid": "BuilderSecurityGroupInVpc",
       "Effect": "Allow",
       "Action": "ec2:CreateSecurityGroup",
-      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:vpc/*"
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:vpc/<AMI_VPC_ID>"
     },
     {
       "Sid": "BuilderSecurityGroupUse",
@@ -130,12 +131,6 @@
           "aws:RequestTag/ax:managed": "ami-build"
         }
       }
-    },
-    {
-      "Sid": "WorkVolumeFromDebianSnapshot",
-      "Effect": "Allow",
-      "Action": "ec2:CreateVolume",
-      "Resource": "arn:aws:ec2:ap-northeast-2::snapshot/*"
     },
     {
       "Sid": "BuildResourcesUseAndRemove",

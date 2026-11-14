@@ -445,8 +445,9 @@ jobs:
   # says so, and the image's own run fails on its own.
   build-ami:
     name: New-team server image (starts team-image.yml)
-    needs: [prepare, publish]
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable' && needs.prepare.outputs.feed == 'true' && !inputs.office_only }}
+    # github-release too: the image run downloads the signed kit from the GitHub Release
+    needs: [prepare, publish, github-release]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.github-release.result == 'success' && needs.prepare.outputs.channel == 'stable' && needs.prepare.outputs.feed == 'true' && !inputs.office_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     continue-on-error: true
