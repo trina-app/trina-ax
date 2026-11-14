@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 23:44
 - Branch: `feat/folder-access-additive`
-- Status: in progress
+- Status: done (PR open as draft; waiting for the owner's C1 and M6 decisions)
 - Where: Team AX core (`server/src/policy/`, `server/src/admin/`, `server/src/db*.ts`, `server/migrations/`,
   `shared/src/api/`, the writers in `server/src/chat/`, `skills/`, `team-files/`, `system/backup.ts`). Why: folder
   permissions are core (see docs/REPOSITORY-RULES.md).
@@ -71,4 +71,16 @@ restore, origin warnings).
 
 ## Result
 
-(filled in at the end)
+Built as planned with the defaults C1-A, M6-A, 9-A, 12-A (docs/DECISIONS.md "Folder access adds up like Google Drive
+(P2)"). Differences from the spec:
+- The web "Limit access" switch and the group-change warning before saving are not built (they wait for the P1 dialog
+  on dev); the server answers them (`Folder.limited`, `POST /api/admin/groups/origin-check`).
+- The one-time Admin notice is not built; the conversion's audit row holds what it would list.
+- Inside a project's zone the conversion names a person only with what rules at or below `projects/<name>` gave them
+  (otherwise promoting them to admin later would let them in by that name); access through a rule above the project is
+  a listed fail-closed case (7.5-1), as the spec's §7.4 expects.
+- `copy = ∅` applies to `projects/<name>` itself; folders deeper in a project copy from the chain up to it.
+- C1-B, C1-C and M6-B are not built; their open review items are TODO in DECISIONS.
+- The conversion prepares and finalizes its own statements (with Bun 1.3 a cached statement left unfinalized kept the
+  connection open after close, and a restored database could not be opened again in the same process).
+Dry run: QA-Acme (live copy and newest backup) and the demo seed: 0 widened, invariants ok.

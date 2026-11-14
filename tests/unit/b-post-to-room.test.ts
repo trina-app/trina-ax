@@ -375,18 +375,23 @@ describe('injection, retries and changes', () => {
   test('who can see what changes while the card waits: refused, "ask again"', async () => {
     put('groups/marketing/q4.md', 'Q4 numbers')
     const before = authored(rooms.all, 'alice')
+    let groupRule: { id: string; subject_id: string } | null = null
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/q4.md' } }), post({ room: rooms.all, text: 'Q4 is up.' })].join('\n'), {
       answer: 'send',
       // erin may no longer read the marketing folder (the group's rule becomes alice's alone; access adds up, so no
       // "none" rule takes it from her): the people who cannot see it changed
-      meanwhile: () => { h.ctx.db.query("UPDATE folder_rules SET subject_type = 'user', subject_id = 'alice' WHERE subject_type = 'group' AND subject_id = 'marketing' AND folder_id = (SELECT id FROM folders WHERE path = 'groups/marketing')").run() },
+      meanwhile: () => {
+        const g = h.ctx.db.query("SELECT r.id, r.subject_id FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'groups/marketing' AND r.subject_type = 'group'").get() as { id: string; subject_id: string }
+        groupRule = g
+        h.ctx.db.query("UPDATE folder_rules SET subject_type = 'user', subject_id = 'alice' WHERE id = ?").run(g.id)
+      },
     })
     try {
       expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)
-    } finally { h.ctx.db.query("UPDATE folder_rules SET subject_type = 'group', subject_id = 'marketing' WHERE subject_type = 'user' AND subject_id = 'alice' AND folder_id = (SELECT id FROM folders WHERE path = 'groups/marketing')").run() }
+    } finally { const g = groupRule as { id: string; subject_id: string } | null; if (g) h.ctx.db.query("UPDATE folder_rules SET subject_type = 'group', subject_id = ? WHERE id = ?").run(g.subject_id, g.id) }
   })
 
   test('someone added to the room while the card waits, nothing at stake either way: refused too (the card named the number)', async () => {

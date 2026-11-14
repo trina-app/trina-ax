@@ -110,14 +110,15 @@ describe('the contribute line under a member\'s first good run of the landing sk
     const long = '가'.repeat(PPT_SUGGEST_CHARS)
     const first = answer('alice', { skill: LANDING, content: long })
     expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: 'shared' })
-    // shared/ read-only for her (an admin's rule) and no group folder of hers she can write
+    // shared/ read-only for her (an admin's rule: everyone views there now; access adds up, so a narrower rule of her
+    // own would not lower her) and no group folder of hers she can write
     const f = h.ctx.db.query("SELECT id FROM folders WHERE path = 'shared'").get() as { id: string }
-    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_mc_alice', ?, 'user', 'alice', 'read')").run(f.id)
+    h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE folder_id = ? AND subject_type = 'everyone'").run(f.id)
     try {
       expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: null })
       expect(await suggestionFor('alice', first, true)).toEqual({ kind: 'ppt', key: 'ppt' })
     } finally {
-      h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_mc_alice'").run()
+      h.ctx.db.query("UPDATE folder_rules SET access = 'write' WHERE folder_id = ? AND subject_type = 'everyone'").run(f.id)
     }
   })
 
