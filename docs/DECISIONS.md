@@ -24187,6 +24187,15 @@ An update with about 1 GB free stopped both units, ran out of space while copyin
 - Diagnostics follow the `/etc/os-release` link (the system's own root-owned file; the target must be a regular file of
   at most 64 KB); `root/` files and machine-id still use lstat.
 
+## Phones: a room's box is a frame; a row's note goes under its name (fix/phone-row-and-room-box, 2026-11-14, QA TC-1549, TC-1550)
+
+- A room's message box on a phone had been a flat bar under a hairline since the room screen was first built; #795 (one
+  frame for every box) only changed the computer's box, so the phone's was left behind, not decided. It now has the
+  same frame (`rounded-2xl border`) at every width, one line inside it with only + and send.
+- A connection row's note (`ConnectorRow` `note`: "Not in your chats", "Nobody can use it yet") sits under the name on a
+  phone (`more`); at the row's right it left the name one letter. Other admin lists' chips sit beside fixed short
+  labels (Admin's rows, System), so they keep their place.
+
 ## Phones: a room's message box within about 35 % of the screen (fix/phone-composer-height, 2026-11-12, QA TC-252)
 
 With the keyboard up, the text field's cap is 35 % of the app height minus the box's other rows (about 6rem with the
