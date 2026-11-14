@@ -12,7 +12,7 @@ Trina AX has a few building blocks. Every other page uses these words.
 | **Owner** | Everything an admin can, plus team-level choices such as updates, restores, removing members and the team name. |
 | **Admin** | Manage members, groups, folder permissions, the team's AI connections and engines, and team settings. Admins cannot read other people's chats. |
 | **Member** | Chat with the AI, use files and skills they may open, and keep personal folders and skills. |
-| **Guest** | Someone from outside the team in one group conversation or one project, and nowhere else. Their AI is off unless the team turns it on. |
+| **Guest** | Someone from outside the team, in one group chat or one project only. No AI, unless an AI is picked for them. Doesn't take a seat. [Read about guests](../use/guests.md). |
 
 A **group** is a set of people, such as Sales or Finance. Folder rules can name groups or people.
 

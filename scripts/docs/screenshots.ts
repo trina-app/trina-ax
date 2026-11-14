@@ -42,6 +42,7 @@ type Page = {
   screenshot(o: Record<string, unknown>): Promise<Buffer>; waitForTimeout(ms: number): Promise<void>; waitForLoadState(s: string): Promise<void>
   keyboard: { press(k: string): Promise<void>; type(t: string): Promise<void> }; mouse: { move(x: number, y: number): Promise<void> }; evaluate<T>(fn: (arg: string) => T, arg: string): Promise<T>; setViewportSize(s: { width: number; height: number }): Promise<void>
   addStyleTag(o: { content: string }): Promise<unknown>; close(): Promise<void>
+  route(url: string | RegExp, handler: (route: { fulfill(o: { status?: number; contentType?: string; body: string }): Promise<void> }) => Promise<void>): Promise<void>
 }
 type Context = { newPage(): Promise<Page>; close(): Promise<void>; request: { post(url: string, o: { data: unknown }): Promise<{ ok(): boolean; status(): number }> } }
 type Browser = { newContext(o: Record<string, unknown>): Promise<Context>; close(): Promise<void> }
@@ -83,6 +84,12 @@ interface Shot {
   as?: { user: string; password: string }
   /** a fixed part of the page in CSS pixels, instead of `crop` */
   clip?: { x: number; y: number; width: number; height: number }
+  /** a guests shot (docs/site/use/guests.md), with --mock: GUEST_SEED's room, project and guests are made first */
+  guests?: boolean
+  /** before the page loads (answers given in the browser) */
+  before?: (p: Page) => Promise<void>
+  /** the page's address when it is known only after an earlier shot (the guest link) */
+  pathFn?: () => string
 }
 
 /** the settings dialog focuses its close button, which then shows a focus ring in the shot */
@@ -136,6 +143,47 @@ const composer = '[data-testid="composer"] textarea, [data-testid="composer"] [c
 /** the message's hover bar and tooltips stay out of the shot */
 const restMouse = async (p: Page) => { await p.mouse.move(1430, 890); await p.waitForTimeout(300) }
 
+/** Guests (docs/site/use/guests.md), with --mock: the group chat "Quote prep" (Olga, Bob and the guest Alex Rivera),
+ * a project "Launch plan" with the guest Sam Park in it (Team AI), and a team AI account. Made-up people only. */
+const QUOTE_ROOM = '019a5f00-0000-7000-8000-0000000c0001'
+const ALEX = { id: 'alex', name: 'Alex Rivera' }
+const ALEX_SIGN_IN = { user: 'alex', password: 'alex password 1' }
+const GUEST_ROOM = { canRename: true, managerId: 'olga', unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 3, lastSeq: 3, lastMessage: null, muted: false, groupId: null }
+const GUEST_SEED = async (control: (what: string, data: unknown) => Promise<void>) => {
+  await control('team-credential', { label: 'Team Claude' })
+  await control('project', { name: 'Launch plan', by: 'olga' })
+  const at = new Date(Date.now() - 3 * 3600_000).toISOString()
+  await control('rooms', { rooms: [{ ...GUEST_ROOM, id: QUOTE_ROOM, kind: 'group', name: 'Quote prep', memberCount: 3, peers: [{ id: 'bob', name: 'Bob' }, ALEX], createdAt: at, activityAt: at }] })
+  await control('guest', { id: ALEX.id, name: ALEX.name, place: { kind: 'room', id: QUOTE_ROOM } })
+  await control('guest', { id: 'sam', name: 'Sam Park', place: { kind: 'project', name: 'Launch plan' }, ai: { mode: 'team', credentialId: 'c1', limitUsd: 20 } })
+}
+/** the room's messages (the mock server keeps none it did not share from a chat): answered in the browser */
+const quoteMessages = async (p: Page) => {
+  // a fixed morning (10:00 in Seoul), so the three never fall on two days
+  const t0 = Date.parse('2026-11-12T01:00:00.000Z')
+  const msg = (n: number, author: { id: string; name: string }, body: string) => ({ id: `019a5f00-0000-7000-8000-0000000c010${n}`, roomId: QUOTE_ROOM, seq: n, authorKind: 'user', author, askedBy: null, visibility: 'room', body, replyTo: null, mentions: [], files: [], createdAt: new Date(t0 + n * 6 * 60_000).toISOString(), editedAt: null, deletedAt: null })
+  const items = [
+    msg(1, { id: 'bob', name: 'Bob' }, 'Welcome, Alex! The draft quote for the spring order is ready. Could you check the delivery dates?'),
+    msg(2, ALEX, 'Thanks, Bob. Two of the dates are tight for us. I will send our dates by Friday.'),
+    msg(3, { id: 'olga', name: 'Olga' }, 'Great, thank you. We can move the second delivery a week if that helps.'),
+  ]
+  await p.route(new RegExp(`/api/rooms/${QUOTE_ROOM}/messages(\\?|$)`), (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ items, nextCursor: null }) }))
+  // its three people, whoever looks (the mock server lists the viewer and the room's peers)
+  const people = [{ id: 'olga', name: 'Olga' }, { id: 'bob', name: 'Bob' }, ALEX].map((user) => ({ user, joinedAt: new Date(t0 - 86400_000).toISOString() }))
+  await p.route(new RegExp(`/api/rooms/${QUOTE_ROOM}/members(\\?|$)`), (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: people }) }))
+}
+/** the room's add list: the room's title (its people) › Add people */
+const roomAddList = async (p: Page) => {
+  await p.locator('[data-testid="room-members-button"]').click(); await p.waitForTimeout(500)
+  await p.locator('[data-testid="room-invite"]').click(); await p.waitForTimeout(600)
+}
+/** the guest link the invite dialog made, for the invite page's shot */
+let guestLink = ''
+const inviteDialog = async (p: Page) => {
+  await roomAddList(p)
+  await p.locator('[data-testid="invite-guest-row"]').click(); await p.waitForTimeout(500)
+  await p.locator('[data-testid="guest-invite-name"]').fill('Dana Cole'); await blur(p)
+}
 const SHOTS: Shot[] = [
   // Quickstart: `bun run demo`, as alice (the page's own steps)
   { file: 'quickstart/sign-in', set: 'quickstart', path: '/login', signedOut: true, crop: 'form >> xpath=..', pad: 8 },
@@ -258,6 +306,33 @@ const SHOTS: Shot[] = [
   }, crop: '[data-testid="team-settings"]' },
   { file: 'google-own-app/member-reconnect', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleOwnApp: GOOGLE_OWN, googleApps: [{ app: 'gmail', connect: { userId: 'bob', name: 'Bob', email: 'bob@acme.example.com', status: 'needs_reconnect' } }] } },
   { file: 'google-own-app/row-company-phone', set: 'mock', path: '/admin/connectors/gmail', phone: true, mock: { googleOwnApp: GOOGLE_OWN }, prepare: ownAppRow, crop: '[data-testid="gsign-row"]' },
+  // Guests (docs/site/use/guests.md), from the mock server (--mock): the owner Olga, the member Bob, the guests Alex
+  // Rivera (the room "Quote prep") and Sam Park (the project "Launch plan")
+  { file: 'guests/add-people', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, before: quoteMessages, prepare: roomAddList, crop: DIALOG },
+  { file: 'guests/invite-dialog', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, prepare: inviteDialog, crop: DIALOG },
+  { file: 'guests/invite-link', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, prepare: async (p) => {
+    await inviteDialog(p)
+    await p.locator('[data-testid="guest-invite-create"]').click(); await p.waitForTimeout(800)
+    guestLink = new URL(((await p.evaluate((s) => document.querySelector(s)?.textContent ?? '', '[data-testid="guest-invite-url"]')) as string).trim()).pathname
+    // the mock server is at 127.0.0.1, so the link would carry the "this computer only" note: shown as a team's own
+    // address instead, as people see it
+    await p.evaluate((path) => {
+      const el = document.querySelector('[data-testid="guest-invite-url"]')
+      if (el) el.textContent = `https://acme.example.com${path}`
+      document.querySelector('[data-testid="local-link-note"]')?.remove()
+    }, guestLink)
+    await blur(p)
+  }, crop: DIALOG },
+  { file: 'guests/invite-page', path: '/', pathFn: () => guestLink, signedOut: true, set: 'mock', mock: {}, guests: true, crop: 'form >> xpath=..', pad: 24 },
+  { file: 'guests/guest-room', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, as: ALEX_SIGN_IN, before: quoteMessages },
+  { file: 'guests/guest-tag', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, before: quoteMessages, clip: { x: 328, y: 0, width: 952, height: 350 } },
+  { file: 'guests/admin-guests', path: '/admin/members', set: 'mock', mock: {}, guests: true, prepare: async (p) => {
+    await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'start' }), '[data-testid="guests-section"]'); await p.waitForTimeout(400)
+  }, crop: '[data-testid="guests-section"]', pad: 16 },
+  { file: 'guests/one-place', path: '/rooms?new=1', set: 'mock', mock: {}, guests: true, as: BOB, prepare: async (p) => {
+    await p.locator('[data-testid="people-row"]').filter({ hasText: 'Alex Rivera' }).locator('[data-testid="picker-tick"]').click(); await p.waitForTimeout(300)
+    await p.locator('[data-testid="people-row"]').filter({ hasText: 'Olga' }).locator('[data-testid="picker-tick"]').click(); await p.waitForTimeout(500)
+  }, crop: DIALOG },
 ]
 
 /** Shots the Chinese pages show from images/zh/. The connection pages (MCP, Slack, the company's own Google app) keep
@@ -384,6 +459,8 @@ export async function shoot(o: ShootOptions): Promise<string[]> {
   const only = (x: Shot) => !o.only || x.file.startsWith(o.only)
   const todo = o.guides ? guideShots(o.member!).filter(only)
     : SHOTS.filter((x) => only(x) && x.set === o.set && (o.lang === 'en' || ZH_SHOTS.includes(x.file)))
+  // the guests' room, project and people, once, before anyone signs in
+  if (o.set === 'mock' && todo.some((x) => x.guests)) await GUEST_SEED((what, data) => control(signedOut, what, data))
   if (!todo.length) log(`No ${o.set} shot to take${o.only ? ` for --only ${o.only}` : ''}${o.lang === 'zh' ? ' in Chinese' : ''}`)
   const outDir = o.guides ?? (o.lang === 'zh' ? path.join(OUT, 'zh') : OUT)
   for (const s of todo) {
@@ -393,7 +470,8 @@ export async function shoot(o: ShootOptions): Promise<string[]> {
       if (s.mock?.slack) await control(ctx, 'slack', s.mock.slack)
       if (s.mock?.googleOwnApp) await control(ctx, 'google-own-app', s.mock.googleOwnApp)
       for (const g of s.mock?.googleApps ?? []) await control(ctx, 'google-apps', g)
-      await page.goto(o.url + s.path)
+      if (s.before) await s.before(page)
+      await page.goto(o.url + (s.pathFn?.() ?? s.path))
       // a page that keeps a request open (the apps page's downloads) never goes quiet: take it after the wait
       await page.waitForLoadState('networkidle').catch(() => undefined)
       await page.addStyleTag({ content: HIDE })

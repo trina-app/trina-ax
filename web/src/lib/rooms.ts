@@ -95,14 +95,22 @@ export function groupRuns(messages: RoomMessage[], dayOf: (iso: string) => strin
 }
 
 /** The "@word" being typed right before the caret: where its "@" is and what follows it. null: the caret is not in one
- * ("a@b" in an address is not a mention; a space or a new line ends it). */
-export function mentionAt(text: string, caret: number): { start: number; query: string } | null {
+ * ("a@b" in an address is not a mention; a new line ends it). A space ends it too, unless one of `names` (the people the
+ * list offers) starts with what was typed: "@QA Mem" still finds "QA Member", a name of two words (QA M7: the list
+ * closed at the first space, so a full name typed out was sent as plain text and mentioned nobody). */
+export function mentionAt(text: string, caret: number, names: readonly string[] = []): { start: number; query: string } | null {
   const before = text.slice(0, caret)
   const at = before.lastIndexOf('@')
   if (at < 0) return null
   if (at > 0 && !/\s/.test(before[at - 1]!)) return null
   const query = before.slice(at + 1)
-  if (/\s/.test(query) || query.length > 40) return null
+  if (query.length > 40 || query.includes('\n')) return null
+  if (/\s/.test(query)) {
+    const q = query.toLocaleLowerCase()
+    if (!names.some((n) => n.toLocaleLowerCase().startsWith(q))) return null
+    // a whole name and a space after it ("@QA Member "): done typing it, not the start of a longer one (Enter sends)
+    if (/\s$/.test(q) && names.some((n) => n.toLocaleLowerCase() === q.trimEnd())) return null
+  }
   return { start: at, query }
 }
 

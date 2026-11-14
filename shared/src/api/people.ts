@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { UserId } from '../ids'
 import { AVATAR_MAX_BYTES, PROFILE_STATUS_MAX, PROFILE_TITLE_MAX } from '../avatar'
 import { PersonName } from './auth'
+import { GuestPlaceNamed } from './common'
 import { binary, empty, endpoint, stream } from './endpoint'
 import { MyStatus, SetStatusBody, StatusMessage } from './status-message'
 
@@ -21,6 +22,9 @@ export const Person = z.object({
   statusMessage: StatusMessage.optional(),
   /** an outside person in one room or project of the team (the "Guest" tag beside their name); absent for members */
   guest: z.literal(true).optional(),
+  /** a guest's one place, by name (an add list greys them out elsewhere: "In 'Quote prep'"); only a guest the viewer
+   * sees at all, so only a place the viewer is in */
+  guestPlace: GuestPlaceNamed.optional(),
 })
 export type Person = z.infer<typeof Person>
 export const PeopleResponse = z.object({ people: z.array(Person) })

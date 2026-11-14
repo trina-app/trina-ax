@@ -23,6 +23,8 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
+**Members & invites** also lists the guests: people from outside the team who are in one chat or project. [Read about guests](guests.md).
+
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
 **AI accounts** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'

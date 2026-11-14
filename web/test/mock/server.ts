@@ -377,6 +377,9 @@ export class MockServer {
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
    * server) and whether every seat is taken (making a guest a member is then refused, 409 seat_limit) */
   guestCap: number | null = null
+  /** POST /__test/host-sign-in {on}: the engines run on the server's own sign-in (not managed): no guest AI here
+   * (CredentialsResponse.guestAiUnavailable 'host_sign_in') */
+  hostSignIn = false
   seatsFull = false
   /** the messages of those rooms: only what was sent to them here ("대화방에 보내기"), oldest first */
   roomMessages = new Map<string, RoomMessage[]>()
@@ -745,6 +748,7 @@ export class MockServer {
     this.teamAddress = null
     this.guests.clear()
     this.guestCap = null
+    this.hostSignIn = false
     this.seatsFull = false
     this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
@@ -1448,6 +1452,12 @@ export class MockServer {
       const r = this.rooms.find((x) => x.id === place.id)
       if (r && !r.peers.some((x) => x.id === u.id)) { r.peers.push({ id: u.id, name: u.name }); r.memberCount++ }
     }
+  }
+  /** May this person keep AI connections of their own (credentials/policy.ts personalConnectionsAllowed): a guest only
+   * with their own sign-in (AI 'own', whatever the members' switch says), anyone else while the members' switch is on. */
+  personalAllowed(userId: string): boolean {
+    const g = this.guests.get(userId)
+    return g ? g.ai.mode === 'own' : this.credMemberOwn
   }
   /** A guest's place by name (null when it is gone). */
   guestPlaceNamed(place: { kind: 'room' | 'project'; id: string }): { kind: 'room' | 'project'; id: string; name: string } | null {
@@ -2314,7 +2324,7 @@ export class MockServer {
     listPeople: (c) => {
       const mine = c.user.role === 'guest' ? this.guestPeers(c.user.id) : null
       const reach = (u: User) => (mine ? mine.has(u.id) : u.role !== 'guest' || this.guestPeers(u.id).has(c.user.id))
-      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
+      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true, ...((d) => (d.guest ? { guestPlace: d.guest.place } : {}))(this.guestDetail(u)) } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
     },
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
     setMyStatus: (c) => {
@@ -2425,7 +2435,7 @@ export class MockServer {
       // a guest invite names its place (InviteInfo.guestPlace)
       const place = (i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace
       const named = place ? this.guestPlaceNamed(place) : null
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}) }
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -2635,6 +2645,12 @@ export class MockServer {
       this.invites.push(i)
       const { token: _t, guestAi: _a, ...invite } = i as typeof i & { guestName?: string }
       return { status: 201, body: { invite, token, url: `/invite/${token}` } }
+    },
+    // like server/src/auth/accounts.ts guestInviteLimit: the guest cap now; seats and the plan page for the owner and admins
+    guestInviteLimit: (c) => {
+      const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+      const staff = c.user.role === 'owner' || c.user.role === 'admin'
+      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
     },
     updateGuestAi: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -2858,7 +2874,7 @@ export class MockServer {
       if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', undefined, { reason: 'project_personal' })
       if (!/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
       const creator = p.createdBy?.id
-      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}) }))
+      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}), ...(u.role === 'guest' ? { guest: true as const } : {}) }))
         .sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name))
       if (!this.projectManages(p, c.user)) return { people }
       const pm = this.projectMembers.get(p.folderPath)
@@ -3551,7 +3567,8 @@ export class MockServer {
       this.resetLinks.set(token, { userId: u.id, expiresAt, usedAt: null })
       return { token, url: `/reset-password/${token}`, expiresAt }
     },
-    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
+    // a guest link's project by name (server/src/auth/accounts.ts toInvite; never a room's)
+    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl?.kind === 'project' ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
       // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
@@ -3630,7 +3647,8 @@ export class MockServer {
     // a guest: AI off by default (none), their own sign-in still to make (own), or a team AI account (team)
     getAiAccess: (c) => {
       const g = this.guests.get(c.user.id)
-      if (g) return { usable: g.ai.mode === 'team', action: g.ai.mode === 'own' ? 'connect_own' : 'ask_owner', requested: false }
+      // (own: usable once they have a connection of their own, as credentials/resolve.ts reads it for a guest)
+      if (g) return { usable: g.ai.mode === 'team' || (g.ai.mode === 'own' && this.credentials.some((x) => x.owner?.id === c.user.id && !x.disabled)), action: g.ai.mode === 'own' ? 'connect_own' : 'ask_owner', requested: false }
       return { usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false, notReadyTold: this.notReadyTold.has(c.user.id) }
     },
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
@@ -4345,13 +4363,13 @@ export class MockServer {
     officeUpdateStatus: () => null,
     officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없어요.'),
     // ---------------- AI connections (like server/src/routes/credentials.ts) ----------------
-    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
+    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22', ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }),
     sealingKey: () => this.sealer.publicKey(),
     createCredential: async (c) => {
       return { status: 201, body: await this.addCredential(c.user, c.body, false) }
     },
     createMyCredential: async (c) => {
-      if (!this.credMemberOwn) fail('forbidden', 403)
+      if (!this.personalAllowed(c.user.id)) fail('forbidden', 403)
       return { status: 201, body: await this.addCredential(c.user, c.body, true) }
     },
     updateCredential: (c) => {
@@ -4391,13 +4409,13 @@ export class MockServer {
       if (c.body.sharedSubscriptions !== undefined) this.credSharedSubscriptions = c.body.sharedSubscriptions
       return { memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions }
     },
-    myCredentials: (c) => ({ allowed: this.credMemberOwn, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
+    myCredentials: (c) => ({ allowed: this.personalAllowed(c.user.id), allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
     startCredentialLogin: (c) => {
       if (!this.credSharedSubscriptions) fail('forbidden', 403)
       return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId, c.body.kind) }
     },
     startMyCredentialLogin: (c) => {
-      if (!this.credMemberOwn) fail('forbidden', 403)
+      if (!this.personalAllowed(c.user.id)) fail('forbidden', 403)
       return { status: 202, body: this.startLogin(c.user, c.body.label, true, c.body.reconnectId, c.body.kind) }
     },
     submitCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
@@ -5195,7 +5213,7 @@ export class MockServer {
     setTimeout(() => { if (l.state !== 'starting') return; l.state = 'code'; l.url = 'https://auth.openai.com/codex/device'; l.code = 'WXYZ-12AB3'; pub() }, 150)
     setTimeout(() => {
       if (l.state !== 'code') return
-      if (!(personal ? this.credMemberOwn : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
+      if (!(personal ? this.personalAllowed(user.id) : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
       if (reconnectId) { const x = this.credentials.find((y) => y.id === reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
       else { const c = this.newCredential(user, 'chatgpt', label, personal, 'ok'); this.credentials.push(c); l.credential = c }
       // like the server (credentials/store.ts connectionsChanged): open screens ask GET /api/engines again, then "done"
@@ -5784,6 +5802,10 @@ export class MockServer {
       }
     }
     // a guest in one place (a room of POST /__test/rooms, or a project by id or name): signs in as `${id}` / `${id} password 1`
+    else if (p === '/__test/host-sign-in') {
+      this.hostSignIn = body.on !== false
+      return Response.json({ ok: true })
+    }
     else if (p === '/__test/guest') {
       const id = String(body.id ?? 'gina')
       const pl = body.place as { kind: 'room' | 'project'; id?: string; name?: string }

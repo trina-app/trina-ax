@@ -164,6 +164,8 @@ A direct chat with someone who left the team says "<name> left the team" and has
 (everyone in the team, and one room per group), **Group conversations** and **Direct messages**. **Mentions & threads**
 at the top collects the messages that name you and the threads you follow.
 
+To bring in someone from outside the team, choose **Invite a guest** when you add people to a group chat or a project. [Read about guests](guests.md).
+
 ![The Chats list: Mentions & threads, Team rooms with Everyone and Marketing, and a direct message](../images/chats/rooms-list.webp "The Chats list")
 
 #### Ask Trina beside a room
@@ -228,6 +230,7 @@ Start a chat from the project's page, or move a chat in with **Move to project**
   that is only yours. Before it saves, it tells you that they can see and edit its files and instructions, that your
   chats so far stay yours, and that it cannot go back to only you. In some teams only the owner and admins share
   projects.
+- A project can also have one or more guests: people from outside the team who see only this project. Its members can see the chats a guest has there. [Read about guests](guests.md).
 - Only a project's members see what is in it. The owner and admins can change its members, but they do not see its
   chats, files and instructions unless they are members.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.

@@ -204,7 +204,7 @@ test('an invite link creates an account', async ({ page, browser }) => {
   // the username rule is checked while typing (a space, "!"), not by a browser bubble after the button
   await p2.getByTestId('invite-username').fill('new bie!')
   await expect(p2.getByTestId('invite-username')).toHaveAttribute('aria-invalid', 'true')
-  await expect(p2.getByRole('alert')).toContainText('영문·숫자와')
+  await expect(p2.getByRole('alert')).toContainText('띄어쓰기 없이')
   await p2.getByTestId('invite-username').fill('newbie')
   await expect(p2.getByTestId('invite-username')).not.toHaveAttribute('aria-invalid', 'true')
   await p2.getByTestId('invite-password').fill('another password 1')
@@ -269,7 +269,7 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByTestId('auth-locale')).toHaveValue('en')
   // each language is named in its own language
-  await expect(page.getByTestId('auth-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
+  await expect(page.getByTestId('auth-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
   await page.getByTestId('auth-locale').selectOption('id')
   await expect(page.getByRole('heading', { name: 'Masuk' })).toBeVisible()
   await page.reload()

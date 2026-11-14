@@ -1,9 +1,11 @@
 // The small "Guest" tag beside a guest's name (docs/DECISIONS.md "Guests: only what they were invited to"), wherever a
 // name shows: list rows, member lists, mentions, a message's author; and the "Includes 1 guest" line of a room's and a
-// project's header. Who is a guest comes from the people directory (lib/guests.ts personIsGuest).
+// project's header. Who is a guest comes from the people directory (lib/guests.ts personIsGuest), and from a project's
+// people list for someone whose directory does not have them (an owner or admin outside the guest's one place, QA S8).
 import clsx from 'clsx'
 import { useT } from '../i18n'
 import { personIsGuest } from '../lib/guests'
+import type { Person } from '@mycel/shared/api'
 import { usePeople } from '../store/people'
 
 /** The tag itself: a quiet outline, one size below the name, never cut. */
@@ -16,12 +18,15 @@ export function GuestTag({ className }: { className?: string }) {
   )
 }
 
-/** Is this person (by id) a guest, as the directory says? */
-export const useIsGuest = (userId: string | null | undefined): boolean => usePeople((s) => !!userId && personIsGuest(s.byId[userId]))
+type Known = { byId: Record<string, Person>; guestIds: Record<string, true> }
+const known = (s: Known, id: string) => personIsGuest(s.byId[id]) || !!s.guestIds[id]
+
+/** Is this person (by id) a guest, as the directory (or a project's people list) says? */
+export const useIsGuest = (userId: string | null | undefined): boolean => usePeople((s) => !!userId && known(s, userId))
 
 /** How many of these people are guests. */
 export function useGuestCount(ids: readonly string[] | null | undefined): number {
-  return usePeople((s) => (ids ?? []).reduce((n, id) => n + (personIsGuest(s.byId[id]) ? 1 : 0), 0))
+  return usePeople((s) => (ids ?? []).reduce((n, id) => n + (known(s, id) ? 1 : 0), 0))
 }
 
 /** The tag for a person by id: nothing for a team member. */

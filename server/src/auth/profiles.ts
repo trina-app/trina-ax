@@ -1,7 +1,7 @@
 // Profiles and the people directory (docs/DECISIONS.md "프로필과 사람 목록"): the one-line title and status and the
 // photo of each person, in user_profiles (migration 115). A row exists only for people who set something.
 import type { Database } from 'bun:sqlite'
-import { reachFilter } from './guests'
+import { guestDetail, reachFilter } from './guests'
 import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
@@ -63,6 +63,8 @@ export function listPeople(db: Database, now = new Date(), viewerId?: string): P
     // the "Guest" tag: only on a guest the viewer may see at all (reachFilter: the people of the guest's place; nobody
     // else gets the guest in their list)
     ...(r.guest === 1 ? { guest: true as const } : {}),
+    // where that guest is, by name: the viewer sees them only when they share that place, so it is a place of the viewer's
+    ...(r.guest === 1 ? ((d) => (d ? { guestPlace: d.place } : {}))(guestDetail(db, r.id)) : {}),
   }))
 }
 
