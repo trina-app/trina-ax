@@ -3,7 +3,7 @@
 // sharing", or the system Back), the dialog opens again here on the list with the picks it had. A draft older than 30
 // minutes is dropped. One host for every place that opens the Members dialog (the project page, a list card's ⋯, the
 // line under a shared chat's box).
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
 import { useProjects } from '../store/projects'
@@ -15,8 +15,12 @@ export function WideningDraftHost() {
   const draft = useWideningDraft((s) => s.draft)
   const [open, setOpen] = useState<{ draft: WideningDraft; project: Project } | null>(null)
   const here = location.pathname + location.search
+  // only on coming back to that screen (not while it is still the one the answer is opened from)
+  const was = useRef<string | null>(null)
   useEffect(() => {
-    if (!draft?.left || here !== draft.from) return
+    const before = was.current
+    was.current = here
+    if (!draft?.left || here !== draft.from || before === here) return
     if (!freshDraft(draft)) { useWideningDraft.getState().drop(); return }
     useWideningDraft.getState().reopened()
     const kept = useProjects.getState().byId[draft.projectId]

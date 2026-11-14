@@ -198,8 +198,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const openOnPhone = (a: WideningAnswer) => {
     if (!access) return
     useWideningDraft.getState().keep({ projectId: project.id, participants, removeRules: removing, rulesHash: access.rulesHash, scroll: listScroll.current, from: location.pathname + location.search, at: Date.now(), left: true })
+    // (no onClose: the screen under it goes with the navigation, and a dialog closing now would step the history back over
+    // it: lib/backCloses.ts)
     navigate(answerHref(a))
-    onClose()
   }
 
   const save = async () => {

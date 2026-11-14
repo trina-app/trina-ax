@@ -128,11 +128,10 @@ describe('a phone: the way back', () => {
     screen(true)
     routesWith(2)
     useProjects.getState().put(project)
-    let closed = false
     const m = await mount(
       <MemoryRouter initialEntries={['/projects/x']}>
         <Routes>
-          <Route path="/projects/x" element={<ProjectMembersDialog project={project} onClose={() => { closed = true }} onSaved={() => {}} />} />
+          <Route path="/projects/x" element={<ProjectMembersDialog project={project} onClose={() => {}} onSaved={() => {}} />} />
           <Route path="/c/:id" element={<p data-testid="chat-page">chat</p>} />
         </Routes>
       </MemoryRouter>,
@@ -144,7 +143,8 @@ describe('a phone: the way back', () => {
     const open = await m.until(() => m.find(`widening-item-${M1}`)?.querySelector('button') ?? null, 'the item as a button', 2000)
     await m.click(open)
     await m.until(() => m.find('chat-page'), 'the chat page', 2000)
-    expect(closed).toBe(true)
+    expect(m.find('project-members-dialog')).toBeNull()
+    expect(m.find('widening-list')).toBeNull()
     const d = useWideningDraft.getState().draft!
     expect(d).toMatchObject({ projectId: P1, rulesHash: 'h1', from: '/projects/x', left: true })
     expect(d.participants).toContainEqual({ subjectType: 'user', subjectId: 'bob' })

@@ -69,6 +69,7 @@ import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { LocalSpeechTool } from '@mycel/shared/api'
 import type { FileListStatus } from '@mycel/shared/api'
+import { WideningAnswer } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -366,6 +367,9 @@ export class MockServer {
   sharedByClientId = new Map<string, RoomMessage>()
   /** POST /__test/share-changed: a "confirm" key given before this is stale (something changed meanwhile) */
   shareEpoch = 0
+  /** POST /__test/widening {items}: the widening list (POST /api/sharing/widening-answers) of every project, and its
+   * count in the Members dialog's dry run when someone is added; none until set (until the next reset) */
+  widening: WideningAnswer[] | null = null
   messages: Message[] = []
   artifacts: Artifact[] = []
   /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
@@ -574,6 +578,7 @@ export class MockServer {
   fileList: FileListStatus = mockFileList()
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.widening = null
     this.notReadyTold = new Set()
     this.fileList = mockFileList()
     this.presence = new Map()
@@ -2762,7 +2767,17 @@ export class MockServer {
       const skillNames = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).map(([k]) => k.slice(p.folderPath.length + 8).split('/')[0]!).sort()
       const skills = skillNames.length
       const sharedChats = this.chats.filter((x) => x.projectId === p.id && !x.deletedAt && this.sharedChats.has(x.id)).length
-      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split }
+      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split, ...(this.widening?.length ? { hiddenAnswers: this.widening.length } : {}) }
+    },
+    // the widening list (chat/widening.ts): whoever may change the members (projectToEdit); POST /__test/widening's items,
+    // 20 a page (the cursor: where the next page starts)
+    wideningAnswers: (c) => {
+      const p = this.projectToEdit({ ...c, params: { id: c.body.target.projectId } })
+      void p
+      const all = this.widening ?? []
+      const at = c.body.cursor ? Number(c.body.cursor) : 0
+      const n = c.body.limit ?? 20
+      return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
     },
     putProjectParticipants: (c) => {
       const p = this.projectToEdit(c)
@@ -5591,6 +5606,7 @@ export class MockServer {
       this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
       for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
     }
+    else if (p === '/__test/widening') this.widening = (body.items as unknown[]).map((x) => WideningAnswer.parse(x))
     else if (p === '/__test/share-changed') {
       // something changed since the last "confirm" (someone joined, lost access): its key is stale
       this.shareEpoch++
