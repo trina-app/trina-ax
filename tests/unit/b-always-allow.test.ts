@@ -11,6 +11,9 @@ import { API, CARD_ALWAYS_KINDS, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { ALWAYS_VALUE, alwaysHere, alwaysOn, dropAlways, keepAlways, listAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
 import { updateTeamSettings } from '../../server/src/admin/settings'
+import { deleteFilesRefusal } from '../../server/src/chat/delete-files'
+import { postToRoomOff } from '../../server/src/chat/post-to-room'
+import { skillFilesRefusal } from '../../server/src/chat/skill-files'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -178,5 +181,49 @@ describe('in a real answer, once picked: no card', () => {
       expect(next.cards).toEqual([])
       expect(fs.existsSync(abs('skills/aa-skill-2/SKILL.md'))).toBe(true)
     } finally { clear() }
+  })
+})
+
+// owner 2026-11-14 (QA TC-1296): in a scheduled run the task person's own Always allow lets the tools that refused the run
+// ("nobody can answer the card") go on; another member's choice, the team's switch off, and a kind not chosen never do
+describe('scheduled runs: delete_files, post_to_room, skill_files', () => {
+  const exec = (userId: string, extra: Record<string, unknown> = {}) => {
+    const chatId = `chat-sched-${userId}`
+    const spec = { clientKind: 'schedule', userId, chatId, locale: 'en', assistantId: null }
+    return { spec, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false, rt: h.rt(), alwaysPlace: () => place({ userId, chatId, clientKind: 'schedule' }), ...extra } as never
+  }
+  const refusals = (userId: string) => ({
+    del: deleteFilesRefusal(exec(userId)),
+    post: postToRoomOff(exec(userId))?.summary ?? null,
+    skill: skillFilesRefusal(exec(userId), {})?.summary ?? null,
+  })
+  const off = { del: 'scheduled', post: 'post_to_room -> refused: scheduled run', skill: 'skill_files -> refused: scheduled run' }
+
+  test('with no choice: all three refuse the run; with the person\'s own kind: each goes on, only that one', () => {
+    clear()
+    expect(refusals('alice')).toEqual(off)
+    keepAlways(h.ctx.db, 'alice', 'delete_files', null)
+    expect(refusals('alice')).toEqual({ ...off, del: null })
+    keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
+    keepAlways(h.ctx.db, 'alice', 'skill_files', null)
+    expect(refusals('alice')).toEqual({ del: null, post: null, skill: null })
+  })
+
+  test('alice\'s choices do not apply in carol\'s run, and the team\'s switch off ends them in hers', () => {
+    clear()
+    for (const k of ['delete_files', 'post_to_room', 'skill_files'] as const) keepAlways(h.ctx.db, 'alice', k, null)
+    expect(refusals('carol')).toEqual(off)
+    updateTeamSettings(h.ctx.db, { roomAlwaysAllow: false })
+    try { expect(refusals('alice')).toEqual(off) } finally { updateTeamSettings(h.ctx.db, { roomAlwaysAllow: true }) }
+    expect(refusals('alice')).toEqual({ del: null, post: null, skill: null })
+    clear()
+  })
+
+  test('alice\'s choice is not offered to carol in a side chat or after a room read either: carol is offered it, alice has it', () => {
+    clear()
+    keepAlways(h.ctx.db, 'alice', 'room_change', null)
+    expect(alwaysHere(place({ userId: 'alice' }), 'room_change')).toBe('on')
+    expect(alwaysHere(place({ userId: 'carol' }), 'room_change')).toBe('offer')
+    clear()
   })
 })

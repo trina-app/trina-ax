@@ -1,0 +1,1 @@
+- Tests: Always allow in scheduled runs (delete_files, post_to_room, skill_files, move_skill, connection sends) is the task person's own and nobody else's.
