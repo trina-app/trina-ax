@@ -46,7 +46,7 @@ test('the invite page carries the typed name; a project link names its project, 
   expect(info.guestPlace).toEqual({ kind: 'project', name: 'Quote prep' })
   const plain = await mia.client.call('POST', '/api/guest-invites', { place: { kind: 'room', id: room } })
   expect('guestName' in (await h.client().call('GET', `/api/invites/${String(plain.url).split('/invite/')[1]}`))).toBe(false)
-  const items = (await owner.call('GET', '/api/admin/invites')).items as { id: string; guestPlace?: { name?: string } }[]
+  const items = (await owner.call('GET', '/api/admin/invites')).items as { id: string; guestPlace?: { kind: string; id: string; name?: string } }[]
   expect(items.find((i) => i.id === named.invite.id)?.guestPlace?.name).toBe('Quote prep')
   // the owner is not in the room: its name stays out of the list
   expect(items.find((i) => i.id === plain.invite.id)?.guestPlace).toEqual({ kind: 'room', id: room })
