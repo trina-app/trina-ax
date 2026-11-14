@@ -401,6 +401,8 @@ export class DemoServer extends MockServer {
       if (gen !== this.generation) throw new Error('demo was reset')
       this.publish(ev)
     }
+    // the end card's time counts from the visitor's first question, not from when the page opened
+    if (!this.engine.begun) { this.engine.begun = true; this.engine.startedAt = Date.now() }
     await sleep(350)
     pub({ type: 'queue.position', data: { chatId: chat.id, messageId: assistant.id, turnId: assistant.turnId!, position: 0, epoch: this.epoch, revision: ++this.queueRevision } })
     const place = this.placeOf(chat)

@@ -269,5 +269,6 @@
   .demo-next { order: 0; flex: 1 1 auto; min-width: 0; padding: 10px 14px; border-radius: 12px; font-size: 14px; white-space: normal; line-height: 1.2; }
   .demo-restart { padding: 10px 8px; font-size: 12px; }
   .demo-chip { flex-basis: 100%; padding: 11px 14px; }
-  .demo-toasts { top: auto; bottom: calc(var(--demo-bar-h) + 8px); right: 8px; left: 8px; width: auto; }
+  /* under the app's top bar, clear of the message box and the guide */
+  .demo-toasts { top: calc(env(safe-area-inset-top) + 64px); right: 8px; left: 8px; width: auto; }
 }

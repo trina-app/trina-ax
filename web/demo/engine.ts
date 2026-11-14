@@ -34,6 +34,8 @@ export class StoryEngine {
   endClosed = false
   /** when the story started and when the end card came (the card's real elapsed time) */
   startedAt = Date.now()
+  /** the visitor sent their first message (the time counts from then) */
+  begun = false
   endedAt: number | null = null
   private listeners = new Set<() => void>()
   private timers: ReturnType<typeof setTimeout>[] = []
@@ -52,7 +54,6 @@ export class StoryEngine {
     const key = keyOf(h)
     if (this.happened.has(key)) return
     this.happened.add(key)
-    if (key === 'start') this.startedAt = Date.now()
     for (const ev of this.script.events) {
       if (this.due.has(ev.id) || !keysOf(ev.after).includes(key)) continue
       this.due.add(ev.id)

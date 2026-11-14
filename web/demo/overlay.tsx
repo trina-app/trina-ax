@@ -187,7 +187,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     let marked: Element | null = null
     const tick = () => {
       const el = glowSelector ? [...document.querySelectorAll(glowSelector)].reverse().find(visible) ?? null : null
-      if (el === marked) return
+      // (the app may set the element's class again when it re-renders: the glow is put back)
+      if (el === marked) { el?.classList.add('demo-glow'); return }
       marked?.classList.remove('demo-glow')
       el?.classList.add('demo-glow')
       marked = el
@@ -214,9 +215,20 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
       return
     }
     const el = control ? [...document.querySelectorAll<HTMLElement>(control)].reverse().find(visible) : undefined
+    if (el && control === '[data-testid="ask-card"]') {
+      // the card: its first choice (the suggested one, or Send), as the visitor would pick it
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      const send = el.querySelector<HTMLButtonElement>('[data-testid="ask-send"]')
+      if (send) {
+        el.querySelector<HTMLElement>('label, [role="radio"], input[type="radio"]')?.click()
+        await sleep(150)
+        send.click()
+      } else [...el.querySelectorAll<HTMLButtonElement>('button')].filter(visible).pop()?.click()
+      return
+    }
     if (el) {
       el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      if (control !== '[data-testid="ask-card"]') el.click()
+      el.click()
       return
     }
     // the step's prompts: the line sends the first (the buttons stay for the other choice)
