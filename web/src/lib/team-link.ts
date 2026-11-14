@@ -45,8 +45,9 @@ export function forgetJoinToken() {
  * (`name`) inviting to the team (`team`: the team's name, so the message says where the link leads; docs/DECISIONS.md
  * "W3") on the product as the app names it beside its AI ("트리나에서", tabs.ts namedProduct); `about`: one line about
  * the team from the welcome steps' company profile (its `oneLine`; nothing when empty, never a blank "About us:");
- * what the product is for this team in everyday words; the first thing to try: the ONE skill the link opens when it
- * names one (several shared skills are never listed, docs/DECISIONS.md "W5"), else a plain first task; `ownAi`: people
+ * one honest line on what the product is for (never a claim about files or tools the team may not have added); the ONE
+ * skill the link names, as set up for the team (several shared skills are never listed, docs/DECISIONS.md "W5"), else a
+ * plain first task; `ownAi`: people
  * who join sign in to their own AI (the link's `memberAi` is `connect_own`), so it says "본인 AI 계정이 필요해요" before
  * they hit it; the link alone on the last line. `made`: the team skill the lead just made ("Acme에 '견적서 쓰기' 스킬을
  * 만들어 뒀어요…"). The person can edit it before copying (TeamLinkPanel); nothing is ever sent by itself. */
@@ -61,7 +62,7 @@ export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string,
     name ? t('teamLink.msg.hello', { ...product, name, team: o.team }) : t('teamLink.msg.helloNoName', { ...product, team: o.team }),
     about && t('teamLink.msg.about', { about }),
     t('teamLink.msg.what', product),
-    o.skill ? t('teamLink.msg.trySkill', { skill: o.skill }) : t('teamLink.msg.tryAny'),
+    o.skill ? t('teamLink.msg.skill', { skill: o.skill }) : t('teamLink.msg.tryAny'),
     o.ownAi && t('teamLink.msg.ownAi'),
     t('teamLink.msg.join', { url: o.url }),
   ].filter(Boolean).join('\n')

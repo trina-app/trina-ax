@@ -39,7 +39,7 @@ describe('a skill by its title', () => {
   test('the ready-made message and the link\'s lines name the skill by its title; an older answer without one, by name', () => {
     const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toContain(`${namedProduct(ko).product}에서 Acme에 초대할게요.`)
-    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toContain("'광고 문구' 스킬부터 같이 써 봐요.")
+    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toContain("우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.")
     expect(html).toContain(esc(teamLinkMessage(en, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })))
     expect(html).toContain('data-testid="team-link-skill-name">광고 문구<')
     expect(html).not.toContain('ad-copy')
