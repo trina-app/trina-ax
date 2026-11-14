@@ -32,7 +32,7 @@ async function audit(page: Page, where: string) {
 }
 
 /** A team project on marketing/, its setting on (or off) */
-const NOT_FOUND_WHY = '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 프로젝트 멤버와 공유해 달라고 해 주세요.'
+const NOT_FOUND_WHY = '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.'
 async function project(page: Page, share = true) {
   const r = await post(page, '/api/projects', { name: 'Launch', scope: 'team', folderPath: 'marketing', instructions: '' })
   expect(r.status()).toBe(201)

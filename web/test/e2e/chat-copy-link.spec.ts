@@ -12,7 +12,7 @@ const post = (page: Page, path: string, data: object) => page.request.post(path,
 const patch = (page: Page, path: string, data: object) => page.request.patch(path, { headers: { [CSRF_HEADER]: '1' }, data })
 const KO = { shared: /링크를 복사했어요 · \d+명이 열 수 있어요/, private: '링크를 복사했어요 · 나만 열 수 있어요', notFound: '이 채팅을 열 수 없어요.', copy: '링크 복사',
   onlyMe: '나만 열 수 있는 채팅이에요. 링크를 받은 사람은 열 수 없어요.',
-  why: '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 프로젝트 멤버와 공유해 달라고 해 주세요.' }
+  why: '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.' }
 
 async function windowOf(browser: Browser, who?: typeof BOB) {
   const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', viewport: { width: 1360, height: 860 } })
