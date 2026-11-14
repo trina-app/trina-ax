@@ -2,11 +2,12 @@
 
 - Date (UTC): 2026-11-14 11:32
 - Branch: `feat/trial-autostop`
-- Status: in progress
+- Status: done
 - Where: trina-ax (team server, mycel-ctl, relay, shared cloud protocol). Why: the hosting control plane already stops
   idle hosted servers and starts them again, but the team server cannot tell it whether it is idle, and the relay
   does not know a stopped team or ask for it to start (see docs/REPOSITORY-RULES.md: relay and team server are core).
-- Version impact: minor, a new tenant command flag, a relay operator route and a relay page.
+- Version impact: minor, a new tenant command (data-grow) and flag (idle-wait --activity), a relay operator route and
+  a relay page.
 
 ## Goal
 
@@ -43,3 +44,9 @@ counts as "in use". The waking page is in the five app languages.
 `bun run typecheck`, relay tests, the F2 unit tests, mycel-ctl Go tests.
 
 ## Result
+
+Built as planned, plus `mycel-ctl data-grow` (owner decision 2026-11-14: trial teams get a smaller data disk that
+grows when the team starts to pay). Differences from the first F2 branch: a running dev environment job counts as use,
+every push delivery queue is due work, the waking page reloads after the control plane's retry time (3-20 s, about a
+minute for a stopped server) instead of every 3 s, and the relay client's time-jump reconnect is left out. Details in
+docs/DECISIONS.md "Hosted teams that sleep".
