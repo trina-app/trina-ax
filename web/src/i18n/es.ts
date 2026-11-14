@@ -128,6 +128,7 @@ export const es: Record<MessageKey, string> = {
   "guest.ai.limit": "Límite mensual (USD)",
   "guest.ai.noAccount": "El equipo aún no tiene cuentas de IA.",
   "guest.ai.addAccount": "Añadir una cuenta de IA",
+  "guest.ai.hostSignIn": "En este servidor, los invitados no pueden usar la IA.",
   "guest.invite.create": "Crear enlace",
   "guest.invite.readyFor": "Enlace para {name}",
   "guest.invite.ready": "Enlace de invitado",

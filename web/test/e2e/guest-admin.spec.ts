@@ -121,3 +121,18 @@ test('invite links: a used guest link is gone, a project link names its project'
   await expect(list).toContainText('연간 계획')
   await expect(list).not.toContainText('Used Kim')
 })
+
+test("Change AI on an Office Mac (the server's own sign-in): a guest set to their own sign-in shows No AI, the others off", async ({ page }) => {
+  await reset(page)
+  expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: ROOM }, ai: { mode: 'own' } } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/host-sign-in', { data: { on: true } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/members')
+  await menu(page, 'gina').click()
+  await page.getByTestId('guest-ai-gina').click()
+  await expect(page.getByTestId('guest-ai-host')).toBeVisible()
+  await expect(page.getByTestId('guest-ai-none')).toBeChecked()
+  await expect(page.getByTestId('guest-ai-own')).toBeDisabled()
+  await expect(page.getByTestId('guest-ai-team')).toBeDisabled()
+})

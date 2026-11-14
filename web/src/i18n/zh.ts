@@ -128,6 +128,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.ai.limit": "每月上限（美元）",
   "guest.ai.noAccount": "团队还没有 AI 账号。",
   "guest.ai.addAccount": "添加 AI 账号",
+  "guest.ai.hostSignIn": "在此服务器上，访客无法使用 AI。",
   "guest.invite.create": "创建链接",
   "guest.invite.readyFor": "给 {name} 的链接",
   "guest.invite.ready": "访客链接",

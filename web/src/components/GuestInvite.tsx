@@ -48,11 +48,15 @@ export function InviteGuestRow({ place, onOpen }: { place: PlaceKind; onOpen: ()
  * the team's AI accounts (for team; null while they load). Team AI's account and monthly limit sit right under it; with
  * no team AI account it cannot be picked and says where to add one. `legend`: false where the dialog's title already
  * says it ("AI for Alex"). */
-export function GuestAiChoices({ value, onChange, admin, connections, legend = true }: { value: GuestAiChoice; onChange: (v: GuestAiChoice) => void; admin: boolean; connections: Credential[] | null; legend?: boolean }) {
+export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi = false, legend = true }: { value: GuestAiChoice; onChange: (v: GuestAiChoice) => void; admin: boolean; connections: Credential[] | null
+  /** this server runs its AI on its own sign-in (an Office Mac): a guest gets no AI here, so only No AI can be picked */
+  noGuestAi?: boolean; legend?: boolean }) {
   const t = useT()
   const id = useId()
   const modes = (admin ? ['none', 'team', 'own'] : ['none', 'own']) as GuestAiChoice['mode'][]
-  const noAccount = !!connections && !connections.length
+  const noAccount = !noGuestAi && !!connections && !connections.length
+  // no guest AI on this server: No AI stays picked (a guest whose AI was set before shows No AI here)
+  useEffect(() => { if (noGuestAi && value.mode !== 'none') onChange({ mode: 'none' }) }, [noGuestAi]) // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (mode: GuestAiChoice['mode']) => {
     if (mode === value.mode) return
     if (mode === 'team') onChange({ mode, credentialId: connections?.[0]?.id ?? '', limitUsd: 20 })
@@ -68,7 +72,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, legend = t
       {/* no hover fill: on a phone the tapped row kept it and an unpicked choice looked picked */}
       <div role="radiogroup" className="flex flex-col gap-1" data-testid="guest-ai">
         {modes.map((m) => {
-          const off = m === 'team' && noAccount
+          const off = (m === 'team' && noAccount) || (noGuestAi && m !== 'none')
           return (
             <div key={m}>
               <label className={off ? 'flex cursor-not-allowed items-start gap-2.5 px-1 py-1.5' : 'flex cursor-pointer items-start gap-2.5 px-1 py-1.5'}>
@@ -104,6 +108,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, legend = t
           )
         })}
       </div>
+      {noGuestAi && <p className="mt-1 pl-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-host">{t('guest.ai.hostSignIn')}</p>}
     </fieldset>
   )
 }
@@ -111,16 +116,21 @@ export function GuestAiChoices({ value, onChange, admin, connections, legend = t
 /** A team mode choice that can be sent: an account picked and a limit above 0. */
 export const aiChoiceReady = (v: GuestAiChoice) => v.mode !== 'team' || (!!v.credentialId && v.limitUsd > 0)
 
-/** The team's AI accounts a guest may be given (Admin › AI accounts, team ones): read only for the owner and admins. */
-export function useTeamConnections(enabled: boolean): Credential[] | null {
-  const [list, setList] = useState<Credential[] | null>(null)
+/** The team's AI accounts a guest may be given (Admin › AI accounts, team ones), read only for the owner and admins
+ * (`list` null while they load), and `noGuestAi`: this server runs its AI on its own sign-in (an Office Mac, local
+ * login), where a guest is never answered (CredentialsResponse.guestAiUnavailable 'host_sign_in'). */
+export function useTeamConnections(enabled: boolean): { list: Credential[] | null; noGuestAi: boolean } {
+  const [v, setV] = useState<{ list: Credential[] | null; noGuestAi: boolean }>({ list: null, noGuestAi: false })
   useEffect(() => {
     if (!enabled) return
     let live = true
-    api.call(API.listCredentials).then((r) => live && setList(r.items.filter((c) => c.scope === 'team')), () => live && setList([]))
+    api.call(API.listCredentials).then(
+      (r) => live && setV({ list: r.items.filter((c) => c.scope === 'team'), noGuestAi: r.guestAiUnavailable === 'host_sign_in' }),
+      () => live && setV({ list: [], noGuestAi: false }),
+    )
     return () => { live = false }
   }, [enabled])
-  return list
+  return v
 }
 
 /** The plan's guest cap was reached (409 plan_limit reason guest_limit): how many, and the plan page when given. */
@@ -174,7 +184,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   const [name, setName] = useState('')
   const [ai, setAi] = useState<GuestAiChoice>({ mode: 'none' })
   // the team's AI accounts, read at once for the owner and admins: without one, Team AI is off before anyone picks it
-  const connections = useTeamConnections(admin)
+  const { list: connections, noGuestAi } = useTeamConnections(admin)
   const limit = useGuestLimit()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -244,7 +254,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
           <Field label={t('guest.invite.name')}>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
           </Field>
-          <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} />
+          <GuestAiChoices value={ai} onChange={setAi} admin={admin} connections={connections} noGuestAi={noGuestAi} />
           {error && <p role="alert" className="text-sm break-keep text-danger" data-testid="guest-invite-error">{error}</p>}
         </form>
       )}

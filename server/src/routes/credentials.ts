@@ -36,7 +36,9 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
 
   // the add dialog takes the gateway's key format and names the gateway (engine.anthropicGateway; never its address)
   const gateway = () => { const g = anthropicGateway(ctx.config); return g ? { label: gatewayLabel(g) } : null }
-  kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF, anthropicGateway: gateway() }))
+  kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF, anthropicGateway: gateway(),
+    // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): the guest dialogs say so
+    ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }))
   // the provider check inside a create or a replace takes seconds: whoever asked must still be an active owner or admin
   // when the write happens (demoted, disabled or deleted meanwhile: refused, nothing written)
   const stillTeamAdmin = (userId: string) => () => {

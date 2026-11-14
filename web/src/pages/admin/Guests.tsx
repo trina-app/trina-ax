@@ -121,7 +121,7 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
   const locale = useLocale()
   const [ai, setAi] = useState<GuestAiChoice>(() => userGuest(user)?.ai ?? { mode: 'none' })
   // read at once: without a team AI account, Team AI is off before anyone picks it
-  const connections = useTeamConnections(true)
+  const { list: connections, noGuestAi } = useTeamConnections(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const save = async () => {
@@ -144,7 +144,7 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
       footer={<><Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" busy={busy} disabled={!aiChoiceReady(ai)} onClick={() => void save()} data-testid="guest-ai-save">{t('common.save')}</Button></>}>
       <div className="space-y-3" data-testid="guest-ai-dialog">
         {/* the dialog's title says "AI for Alex": no second heading over the choices */}
-        <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} legend={false} />
+        <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} noGuestAi={noGuestAi} legend={false} />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

@@ -130,6 +130,7 @@ export const ko = {
   "guest.ai.limit": "한 달 한도 (USD)",
   "guest.ai.noAccount": "팀에 AI 계정이 아직 없어요.",
   "guest.ai.addAccount": "AI 계정 추가하기",
+  "guest.ai.hostSignIn": "이 서버에서는 게스트가 AI를 쓸 수 없어요.",
   "guest.invite.create": "링크 만들기",
   "guest.invite.readyFor": "{name}님에게 보낼 링크",
   "guest.invite.ready": "게스트 링크",

@@ -128,6 +128,7 @@ export const ja: Record<MessageKey, string> = {
   "guest.ai.limit": "月の上限（米ドル）",
   "guest.ai.noAccount": "チームにはまだAIアカウントがありません。",
   "guest.ai.addAccount": "AIアカウントを追加",
+  "guest.ai.hostSignIn": "このサーバーでは、ゲストはAIを使えません。",
   "guest.invite.create": "リンクを作成",
   "guest.invite.readyFor": "{name}さんへのリンク",
   "guest.invite.ready": "ゲスト用リンク",
