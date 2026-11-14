@@ -27877,6 +27877,12 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2".
   for a guest (no team accounts behind theirs), and its Add account dialog drops the company key and "made for team
   use" words for a guest (`credentials.personalFirstGuest`, `credentials.kind.*-api-key.descGuest`). An `own` guest may
   add their own API key too, as a member may (coordinator, 2026-11-14).
+- **Servers on the host's own sign-in** (engine.authMode not managed: office mode, local dev, self-hosted without AI
+  connections) keep refusing every guest turn, Team AI and own alike. There the engines run with the host's Claude /
+  ChatGPT login inside a sandbox that can read it, no AI connection is used by anyone (no credential broker, often no
+  model proxy), so a guest's turn could only run next to the owner's login. Running a guest on an API-key connection
+  there would be a new engine mode, not a fix. The admin's guest dialogs read `CredentialsResponse.guestAiUnavailable`
+  ('host_sign_in', on `GET /api/admin/credentials`) and say Team AI and their own sign-in cannot work on this server.
 - **Settings opened by its address** by a guest whose AI is off showed 트리나's list behind the dialog (the page under it
   is Home's): a place a guest does not have (`useGuestHidden`) has no list panel.
 - Version impact: **patch** (no API shape change).

@@ -377,6 +377,9 @@ export class MockServer {
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
    * server) and whether every seat is taken (making a guest a member is then refused, 409 seat_limit) */
   guestCap: number | null = null
+  /** POST /__test/host-sign-in {on}: the engines run on the server's own sign-in (not managed): no guest AI here
+   * (CredentialsResponse.guestAiUnavailable 'host_sign_in') */
+  hostSignIn = false
   seatsFull = false
   /** the messages of those rooms: only what was sent to them here ("대화방에 보내기"), oldest first */
   roomMessages = new Map<string, RoomMessage[]>()
@@ -745,6 +748,7 @@ export class MockServer {
     this.teamAddress = null
     this.guests.clear()
     this.guestCap = null
+    this.hostSignIn = false
     this.seatsFull = false
     this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
@@ -4352,7 +4356,7 @@ export class MockServer {
     officeUpdateStatus: () => null,
     officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없어요.'),
     // ---------------- AI connections (like server/src/routes/credentials.ts) ----------------
-    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
+    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22', ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }),
     sealingKey: () => this.sealer.publicKey(),
     createCredential: async (c) => {
       return { status: 201, body: await this.addCredential(c.user, c.body, false) }
@@ -5791,6 +5795,10 @@ export class MockServer {
       }
     }
     // a guest in one place (a room of POST /__test/rooms, or a project by id or name): signs in as `${id}` / `${id} password 1`
+    else if (p === '/__test/host-sign-in') {
+      this.hostSignIn = body.on !== false
+      return Response.json({ ok: true })
+    }
     else if (p === '/__test/guest') {
       const id = String(body.id ?? 'gina')
       const pl = body.place as { kind: 'room' | 'project'; id?: string; name?: string }

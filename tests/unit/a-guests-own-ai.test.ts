@@ -143,3 +143,11 @@ test('own changed to none by an admin: their connection is no longer used, and t
   expect((await owner.try('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'own' })).status).toBe(200)
   expect(resolveCredential(h.ctx.db, { userId: g.id, engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: true, credentialId: id })
 })
+
+test('the guest dialogs learn when a guest\'s AI cannot work here: GET /api/admin/credentials guestAiUnavailable', async () => {
+  const { owner } = await setup()
+  expect((await owner.call('GET', '/api/admin/credentials')).guestAiUnavailable).toBeUndefined()
+  await h.close()
+  const s = await setup({ managed: false })
+  expect((await s.owner.call('GET', '/api/admin/credentials')).guestAiUnavailable).toBe('host_sign_in')
+})
