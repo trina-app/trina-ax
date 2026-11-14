@@ -27078,7 +27078,7 @@ the recommended design after an independent security and UX review.
 - **The sweep** (auth/sweeper.ts, hourly, one run at a time): `deleteDueAccounts` deletes each person whose date
   passed, re-reading the request inside the write, so a cancel or a transfer a moment before wins. A failure stays
   open and is tried at the next run.
-- **Requests open before this build** (migration 295 adds `due_at`): an open request with no date, or with a date from
+- **Requests open before this build** (migration 297 adds `due_at`): an open request with no date, or with a date from
   before its own `requested_at` (re-opened by an older build after a rollback), never counts as due. The sweep first
   gives it a date 7 days from then (audit `account.deletion_dated`) and tells the person in their inbox
   (`account.deletion_due`, its own notice table like the other notice kinds, link to the page). Nobody is deleted at

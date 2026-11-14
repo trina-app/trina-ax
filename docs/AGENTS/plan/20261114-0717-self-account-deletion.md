@@ -26,7 +26,7 @@ In:
 - A self-requested deletion also removes, at once: private chats and memories, the person's trashed files, file
   history and folder records left under `users/<id>/`. The personal folder goes to the owner's archive (owner
   decision); the page says so.
-- Migration `295_b_account_deletion_due.sql`: `due_at` on the request. Open requests at migration time get migration
+- Migration `297_b_account_deletion_due.sql`: `due_at` on the request. Open requests at migration time get migration
   time + 7 days and a new inbox notice to the person (`account.deletion_due`).
 - Asking needs the password (the existing re-check limit: 5 wrong tries per 15 minutes).
 - The hourly sweep deletes accounts whose date has passed (actor null, audit `user.delete` with `why: self_request,
@@ -43,7 +43,7 @@ Out: the Trina Cloud console account and the Play web page (trina-cloud repo); d
 
 1. removeAccount refactor; deleteUser calls it.
 2. Cleanup hooks and the coverage test.
-3. Migration 295, due date, password, sweep, ownership cancel, contract.
+3. Migration 297, due date, password, sweep, ownership cancel, contract.
 4. Web page, inbox and badge text: en first, then ko/id/ja/es.
 5. Docs.
 

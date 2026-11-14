@@ -1,5 +1,5 @@
 // A person's own account deletion request deletes the account by itself on a date (shared/src/api/account-deletion.ts,
-// server/src/auth/deletion-requests.ts deleteDueAccounts, migration 295; docs/DECISIONS.md "Self-service account
+// server/src/auth/deletion-requests.ts deleteDueAccounts, migration 297; docs/DECISIONS.md "Self-service account
 // deletion"): the password is asked every time (wrong: 403, five wrong: 429), the date is 7 days later, nothing goes
 // before it, the sweep deletes on it with no actor, a cancel or becoming the owner stops it, a request from before
 // (no date) gets one 7 days from the sweep and an inbox notice, and what the person asked to be deleted goes at once:
@@ -156,7 +156,7 @@ describe('the date', () => {
   })
 })
 
-describe('requests from before the automatic date (migration 295)', () => {
+describe('requests from before the automatic date (migration 297)', () => {
   test('an open request with no date gets one 7 days from the sweep and a notice to the person; it is not deleted at once', async () => {
     const m = await addMember(h, owner, { username: 'early' })
     const long = new Date(Date.now() - 30 * DAY).toISOString()

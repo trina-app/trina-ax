@@ -1,5 +1,5 @@
 // A person deletes their own account (contract: shared/src/api/account-deletion.ts; tables:
-// server/migrations/244_b_account_deletion_requests.sql, 295_b_account_deletion_due.sql; App Store review 5.1.1(v),
+// server/migrations/244_b_account_deletion_requests.sql, 297_b_account_deletion_due.sql; App Store review 5.1.1(v),
 // Google Play; docs/DECISIONS.md "Self-service account deletion"):
 //   - asking needs the person's password (sessions.verifyPassword: 5 wrong tries per 15 minutes, like every re-check)
 //     and sets the date ACCOUNT_DELETION_GRACE_DAYS later; one row per person (one open request at most); asking while
@@ -125,7 +125,7 @@ export function closeDeletionRequest(ctx: AppContext, userId: string, by: string
 
 /**
  * The sweep's part (auth/sweeper.ts, hourly): open requests with no date of this build get one, 7 days from now, and
- * the person is told (requests open when migration 295 ran, or re-opened by an older build); then each account whose
+ * the person is told (requests open when migration 297 ran, or re-opened by an older build); then each account whose
  * date has passed is deleted, one at a time. The owner is never deleted (their request was cancelled when they became
  * the owner; one left over is cancelled here). A failure leaves the request open for the next sweep.
  */

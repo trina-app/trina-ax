@@ -1,7 +1,7 @@
 // A person deletes their own account (Settings › Profile › Delete account; App Store review 5.1.1(v) and Google Play:
 // an app with accounts lets people delete them inside the app, without waiting for a person). Owner: A
 // (server/src/auth/deletion-requests.ts, registered by server/src/routes/auth.ts; tables:
-// server/migrations/244_b_account_deletion_requests.sql, 295_b_account_deletion_due.sql).
+// server/migrations/244_b_account_deletion_requests.sql, 297_b_account_deletion_due.sql).
 //
 // Asking needs the person's password (the re-check limit: 5 wrong tries per 15 minutes) and sets a date
 // ACCOUNT_DELETION_GRACE_DAYS later. Until then the account works and the person can cancel. On that date the server
