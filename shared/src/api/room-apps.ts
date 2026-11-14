@@ -253,11 +253,14 @@ export const SENTRY_SECRET_RE = /^[0-9a-f]{64}$/i
 
 /** The JSON body for a Zendesk trigger's "Notify webhook" action (Copy body, inside the step where it is pasted): the
  * placeholders are Zendesk's. `event` names the trigger ('created': "Ticket is Created", 'updated': "Ticket is
- * Updated"), so the app's switches new_ticket / updated can tell them apart. */
+ * Updated"), so the app's switches new_ticket / updated can tell them apart. Zendesk does not JSON-escape a
+ * placeholder's value, so everything an outsider writes (title, names, the comment) goes through Liquid's `escape`
+ * (HTML entities: a `"` can't end the string and add keys); the server decodes them and refuses a body that names a
+ * key twice. */
 export function roomAppZendeskBody(event: 'created' | 'updated'): string {
-  return `{"trina":"zendesk","event":"${event}","id":"{{ticket.id}}","title":"{{ticket.title}}","status":"{{ticket.status}}",
- "priority":"{{ticket.priority}}","requester":"{{ticket.requester.name}}","assignee":"{{ticket.assignee.name}}",
- "url":"{{ticket.url}}","update":"{{ticket.latest_public_comment}}"}`
+  return `{"trina":"zendesk","event":"${event}","id":"{{ticket.id}}","title":"{{ticket.title | escape}}","status":"{{ticket.status}}",
+ "priority":"{{ticket.priority}}","requester":"{{ticket.requester.name | escape}}","assignee":"{{ticket.assignee.name | escape}}",
+ "url":"{{ticket.url}}","update":"{{ticket.latest_public_comment | escape}}"}`
 }
 
 /** The Google Forms Apps Script (Copy code), with the address filled in. `sendEmail`: the form's respondent email is

@@ -27946,6 +27946,25 @@ part. The picker groups, guides, logos and the Slack words in the web app come i
   their logo), the paused notice's `roomApp.preset?`, `CreateRoomAppBody.preset?`, `ROOM_APP_PRESET_SWITCHES / _NAMES /
   _SIGNING / _NEEDS`, `ZENDESK_TEST_SECRET`, `roomAppZendeskBody()`. Audit: `room_app.add` / `.remove` carry `preset`.
 - **Logs.** `loggablePath` also drops the query string on `/in/` (a service that puts a token in `?token=`).
+- **After the security review of #854.**
+  - **Zendesk quote injection (blocker).** Zendesk does not JSON-escape placeholder values, so a customer comment
+    `x","id":"123","status":"solved","url":"https://evil.zendesk.com/p","update":"y` made valid JSON whose later
+    duplicate keys won (another ticket's thread and status, a link to another tenant). Now the Copy body passes every
+    outsider-written placeholder (title, requester, assignee, latest comment) through Liquid's `| escape` and the
+    server decodes `&quot; &amp; &lt; &gt; &#39;`; a body whose raw text names any template key more than once is
+    refused (400, also in the tolerant reader); the link is built only as `https://<sub>.zendesk.com/agent/tickets/<the
+    same id>`, and the subdomain is pinned to the app on first sight (`room_apps.preset_pin`, added to the unmerged
+    migration 401): another subdomain gets no link. Live check: that Zendesk applies `| escape` in a webhook body.
+  - **Shopify.** Its topic and event-id headers are outside the HMAC: the topic must agree with the signed body
+    (`orders/paid` ⇒ `financial_status` paid, `orders/cancelled` ⇒ `cancelled_at`, `orders/fulfilled` ⇒
+    `fulfillment_status` fulfilled, `orders/create` ⇒ not cancelled; else skipped, 200), a second delivery key
+    `shopify-body:<sha256(raw)>:<topic>` for 7 days stops a replay under a new event id, and the store handle is
+    pinned per app on first sight (another store: no link).
+  - **Typeform.** Its signature has no time: a signed response whose `form_response.submitted_at` is older than 2 days
+    (or missing) is refused, 401, as Tally's `createdAt`.
+  - **Zendesk dedupe** also covers the assignee and priority (a reassignment is a new change).
+  - The pin is set by the first event that posts; with a secret saved only signed requests get that far. It is not
+    cleared by Regenerate.
 - **Rollback note for 401.** Rolling the server back to a build before this one keeps the column but ignores it: every
   preset row is read as plain Other. Such a build checks a saved secret against `Sentry-Hook-Signature` for every
   non-GitHub kind, so **Stripe, Shopify, Zendesk and Tally (and Typeform) apps with a saved secret answer 401** and their
@@ -27955,8 +27974,8 @@ part. The picker groups, guides, logos and the Slack words in the web app come i
   prefer rolling forward.
 - **Still to check live** (TC-1634, plan "Live checks"): Notion's envelope and property shapes; Typeform's secret field;
   Tally's `data` keys and its real signature; Jotform's content type and fields; Stripe's event names and roles;
-  Shopify's signing key for admin-made webhooks; Zendesk's placeholder escaping, timestamp format and
+  Shopify's signing key for admin-made webhooks; Zendesk's `| escape` filter in a webhook body, its timestamp format and
   `{{ticket.latest_public_comment}}`; JANDI-compatible senders and `200 ok`.
-- Tests: tests/unit/b-room-apps-presets.test.ts, b-room-app-signatures.test.ts; tests/security/lib/room-apps-cases.ts
-  (no_signing, preset fixed).
+- Tests: tests/unit/b-room-apps-presets.test.ts (incl. the quote-injection fixture), b-room-app-signatures.test.ts;
+  tests/security/lib/room-apps-cases.ts (no_signing, preset fixed).
 - Version impact: **minor**.

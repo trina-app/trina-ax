@@ -3,6 +3,9 @@
 // subscriptions; else X-Shopify-Webhook-Id). Signed (optional) X-Shopify-Hmac-SHA256, base64 over the raw bytes. One
 // card per order (`order:<id>`): payment edits its status line, a cancellation or refund joins its thread. The customer's
 // first name and city only (no street, email or phone). The link is Shopify admin's, built from the store's handle.
+// Only the body is signed (security review of #854): the topic must agree with the body (paid ⇒ financial_status paid,
+// cancelled ⇒ cancelled_at, fulfilled ⇒ fulfillment_status fulfilled; else skipped), the body + topic is a second
+// delivery key (a replay under a new event id posts nothing), and the store handle is pinned to the app on first sight.
 import { line } from '../card'
 import type { Arrival, Parsed } from '../parse'
 import { arr, jsonOf, num, obj, sha, str } from '../read'
@@ -17,9 +20,15 @@ function parse(a: Arrival): Parsed {
   const body = obj(jsonOf(a.raw))
   if (!body || !topic) return { refuse: 'format' }
   const L = a.locale
+  // the headers are not signed (only the body is): the event id is one key, the body with its topic a second, so a
+  // signed body replayed under a new X-Shopify-Event-Id posts nothing (7 days, as every delivery key)
   const delivery = line(a.headers.get('x-shopify-event-id') ?? '', 100) || line(a.headers.get('x-shopify-webhook-id') ?? '', 100)
-  const base = { delivery: delivery ? `shopify:${delivery}` : sha(a.raw), ...(delivery ? {} : { deliveryMinutes: 10 }) }
-  const handle = handleOf(a.headers.get('x-shopify-shop-domain') ?? '')
+  const bodyKey = `shopify-body:${sha(a.raw)}:${topic}`
+  const base = { delivery: delivery ? `shopify:${delivery}` : bodyKey, ...(delivery ? { alsoDelivery: bodyKey } : {}) }
+  // the store: pinned to the app on first sight (room_apps.preset_pin); another store's name gets no link
+  const named = handleOf(a.headers.get('x-shopify-shop-domain') ?? '')
+  const handle = named && (!a.pin || a.pin === named) ? named : ''
+  const pin = named && !a.pin ? { pin: named } : {}
   const statusOf = (k: 'statusPaid' | 'statusPending' | 'statusRefunded' | 'statusCancelled' | 'statusFulfilled') => appText('status', L, { status: appText(k, L) })
   const link = (orderId: string) => (handle && /^\d{1,20}$/.test(orderId) ? `https://admin.shopify.com/store/${handle}/orders/${orderId}` : undefined)
 
@@ -36,7 +45,7 @@ function parse(a: Arrival): Parsed {
     const title = amt ? appText('refundedAmount', L, { amount: amt }) : appText('refunded', L)
     const status = statusOf('statusRefunded')
     return { event: {
-      ...base, switch: 'refund', key: `order:${orderId}`, state: 'refunded', status,
+      ...base, ...pin, switch: 'refund', key: `order:${orderId}`, state: 'refunded', status,
       card: { kind: appText('orderOf', L, { order: orderId }), title, details: [], status, link: link(orderId) },
       reply: { title },
     } }
@@ -60,12 +69,17 @@ function parse(a: Arrival): Parsed {
   const status = statusOf(state === 'cancelled' ? 'statusCancelled' : state === 'paid' ? 'statusPaid' : state === 'refunded' ? 'statusRefunded' : 'statusPending')
   const card = { kind: appText('newOrder', L, { order: number }), title: totalText ? title : number, details, status, link: link(id), unverified: !a.signed && !!who }
   const key = `order:${id}`
+  // the topic header is not signed: it must agree with the (signed) body, else nothing is shown
+  if (topic === 'orders/paid' && financial !== 'paid') return { skip: true }
+  if (topic === 'orders/cancelled' && !str(body, 'cancelled_at')) return { skip: true }
+  if (topic === 'orders/fulfilled' && str(body, 'fulfillment_status') !== 'fulfilled') return { skip: true }
+  if (topic === 'orders/create' && str(body, 'cancelled_at')) return { skip: true }
   switch (topic) {
-    case 'orders/create': return { event: { ...base, switch: 'order', key, state, status, card, reply: { title: appText('newOrder', L, { order: number }) } } }
+    case 'orders/create': return { event: { ...base, ...pin, switch: 'order', key, state, status, card, reply: { title: appText('newOrder', L, { order: number }) } } }
     // payment: the order's card changes its status line (no reply of its own)
-    case 'orders/paid': return { event: { ...base, switch: 'paid', key, state: 'paid', status: statusOf('statusPaid'), onlyStatus: true, card: { ...card, status: statusOf('statusPaid') }, reply: { title: appText('orderPaid', L) } } }
-    case 'orders/cancelled': return { event: { ...base, switch: 'cancelled', key, state: 'cancelled', status: statusOf('statusCancelled'), card: { ...card, status: statusOf('statusCancelled') }, reply: { title: appText('orderCancelled', L) } } }
-    case 'orders/fulfilled': return { event: { ...base, switch: 'fulfilled', key, state: 'fulfilled', status: statusOf('statusFulfilled'), card: { ...card, status: statusOf('statusFulfilled') }, reply: { title: appText('orderFulfilled', L) } } }
+    case 'orders/paid': return { event: { ...base, ...pin, switch: 'paid', key, state: 'paid', status: statusOf('statusPaid'), onlyStatus: true, card: { ...card, status: statusOf('statusPaid') }, reply: { title: appText('orderPaid', L) } } }
+    case 'orders/cancelled': return { event: { ...base, ...pin, switch: 'cancelled', key, state: 'cancelled', status: statusOf('statusCancelled'), card: { ...card, status: statusOf('statusCancelled') }, reply: { title: appText('orderCancelled', L) } } }
+    case 'orders/fulfilled': return { event: { ...base, ...pin, switch: 'fulfilled', key, state: 'fulfilled', status: statusOf('statusFulfilled'), card: { ...card, status: statusOf('statusFulfilled') }, reply: { title: appText('orderFulfilled', L) } } }
     default: return { skip: true }
   }
 }
