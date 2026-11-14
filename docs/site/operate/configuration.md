@@ -24,7 +24,7 @@ Settings come from two places. Environment variables win over the file.
 | `MYCEL_PUBLIC_ORIGINS` | Comma-separated browser origins of the installation. A wrong host or port causes cookie and origin errors. |
 | `MYCEL_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. |
 | `MYCEL_EXIT_ADDRESS_CHECK` | `off` stops the server asking the release feed for its own public address. Then every web address the AI opens needs a person. |
-| `MYCEL_PUSH_GATEWAY` | Where phone app notifications are sent. Trina servers use `https://push.trina.app` when this and `push.gatewayUrl` in server.json are unset. `''` or `off` turns phone notifications off; another `https://<host>` uses your own gateway. |
+| `MYCEL_PUSH_GATEWAY` | Where phone app notifications are sent. Trina servers use `https://push.trina.app` when this and `push.gatewayUrl` in server.json are unset. `''` or `off` turns phone notifications off; another `https://<host>` uses your own gateway. When neither is set, owners and admins can choose in Settings › Notifications › Phone instead; when one is set, that wins and the setting there is locked. |
 
 On Linux, put environment overrides in `/etc/default/mycel`.
 

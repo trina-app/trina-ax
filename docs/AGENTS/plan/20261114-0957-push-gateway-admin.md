@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 09:57
 - Branch: `feat/push-gateway-admin`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/notifications/`, `server/src/routes/`, `shared/src/api/`, Settings › Notifications in
   `web/src/components/settings/`). Why: phone push and team settings are core features (docs/REPOSITORY-RULES.md); the
   edition default stays in `editions/trina/branding/service.json`.
@@ -51,3 +51,12 @@ Out: per-person gateways; changes to the gateway itself; a test-send button.
   sign-in or app start.
 - Developer servers: the edition default does not apply there (no change from #815), so "Trina push" on a dev server
   sends nothing.
+
+## Result
+
+Built as planned, plus QA TC-1537: in a browser the "This device" push row is named "Browser notifications" and its
+not-set-up line says phone notifications are a separate setting. Server: `push-gateway-setting.ts`, `GET/PUT
+/api/admin/push-gateway`, `push.setBy` in AppConfig. Web: `PhoneGatewayRow.tsx` in the Phone section (select on a
+computer, the phone's choice row at 390). Tests: tests/unit/push-gateway-setting.test.ts,
+web/test/unit/phone-gateway-row.test.tsx, web/test/e2e/push-gateway-admin.spec.ts (owner/admin/member × 1440/390 ×
+light/dark).
