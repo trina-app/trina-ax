@@ -107,13 +107,15 @@ describe('a read the card confirmed', () => {
   afterAll(() => { leave(); erinLeaves() })
 
   test("the card's yes covers its group (y): a later reader who cannot read the place sees the older answer too (rule b)", async () => {
-    expect(answerRecord(db(), answerId)!.reads.map((g) => g.y)).toEqual([1])
+    // the group of the place the card asked about has y; the team rules everyone reads went in silently (no y)
+    const yOf = () => answerRecord(db(), answerId)!.reads.map((g) => [g.s.map((s) => (s as { id?: string }).id).join(), g.y ?? 0])
+    expect(yOf()).toEqual([['f_skills', 0], ['f_groups_marketing', 1]])
     const forGina = await answerFor('gina', chatId, answerId)
     expect(forGina.withheld).toBeUndefined()
     expect(forGina.content).toContain(CANARY)
     // the rest of this block: the same answer as one no card covered
     noYes(answerId)
-    expect(answerRecord(db(), answerId)!.reads.map((g) => g.y)).toEqual([undefined])
+    expect(yOf()).toEqual([['f_skills', 0], ['f_groups_marketing', 0]])
   })
 
   test('a later reader who cannot read the place gets one line in its place; the question stays', async () => {
