@@ -36,7 +36,7 @@ async function setup() {
     const r = await c.call('POST', `/api/rooms/${all}/apps`, { kind: 'other', ...(preset ? { preset } : {}), ...(name ? { name } : {}) })
     return { app: r.app, token: (r.address as string).split('/in/')[1]! }
   }
-  const post = (token: string, body: string | Uint8Array | FormData, headers: Record<string, string> = {}) =>
+  const post = (token: string, body: string | FormData, headers: Record<string, string> = {}) =>
     h.fetch(`/in/${token}`, { method: 'POST', headers: body instanceof FormData ? headers : { 'content-type': 'application/json', ...headers }, body })
   const messages = async () => ((await owner.call('GET', `/api/rooms/${all}/messages`)).items as any[]).filter((m) => !m.event)
   const thread = async (id: string) => (await owner.call('GET', `/api/rooms/${all}/messages/${id}/thread`)).items as any[]
