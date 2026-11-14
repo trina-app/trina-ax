@@ -1,0 +1,231 @@
+// The content format of the hands-on demo (docs/AGENTS/plan/20261114-0507-mina-demo.md): one story, written as a
+// TypeScript module that default-exports a `DemoScript`. The demo build (`bun run build:demo`) runs the real web app
+// against a scripted backend in the browser and plays this story; nothing here reaches a server or an AI.
+//
+// Where content lives: `scripts/demo/mina/index.ts` (default export) with its pictures and files in
+// `scripts/demo/mina/assets/`. Without that folder the build plays `web/demo/example/index.ts`.
+//
+// Rules for content: fictional company and people only (no real persons, brands or addresses); every person is a
+// plain member (DECISIONS "Demo company"); words in the story's language (Korean first). Keep it short: the whole
+// story is about 10 clicks.
+//
+// Ids: every person, group, room, project, answer and event has a short id of your choice (`[a-z0-9-]+`), used to
+// refer to it elsewhere in the script. The engine turns them into the app's own ids.
+//
+// Text: Markdown, as an AI answer or a chat message shows it. In any text, `{{project:<id>}}` becomes a link to that
+// project's shared chat, `{{room:<id>}}` a link to that room, `{{file:<path>}}` a link to that team file.
+
+/** A person's, group's, room's, project's, answer's or event's id in this script. */
+export type Id = string
+
+/** A file in the content's `assets/` folder (a file name, e.g. "banner-leo.png"). */
+export type Asset = string
+
+export interface DemoScript {
+  /** the format's version; this file describes 1 */
+  version: 1
+  /** the story's language: the app shows its own words in it too */
+  locale: 'ko' | 'en'
+  /** the fictional company: the team's name in the app */
+  company: { name: string }
+  /** the visitor (one of `people`): signed in as them */
+  visitor: Id
+  people: DemoPerson[]
+  /** team groups; a `team` room names its group */
+  groups: DemoGroup[]
+  /** the visitor's rooms: team rooms (#마케팅), DMs, group chats, the everyone room; with what was said before */
+  rooms: DemoRoom[]
+  /** team projects (each has a shared project chat) */
+  projects: DemoProject[]
+  /** team files, created at the start (projects/<name>/…, groups/<group>/…, shared/…) */
+  files: DemoFile[]
+  /** chapter 1: Home's welcome card and its one button */
+  home: {
+    /** the card's title, e.g. "신입사원 미나님, 입사를 축하합니다" */
+    title: string
+    /** the question the card's button sends to the AI; must be the `prompt` of one of `answers` */
+    prompt: string
+    /** the button's label (default: the app's own "묻기") */
+    button?: string
+  }
+  /** the canned AI answers; the visitor's message is matched to `prompt` (trimmed, exact) */
+  answers: DemoAnswer[]
+  /** messages from the story's people, each sent when its trigger happens */
+  events: DemoEvent[]
+  /** the one line in the screen corner that says what to do next, in order */
+  guide: DemoGuideStep[]
+  /** free typing: the visitor sent something that is no scripted prompt. The engine answers this text and adds a
+   * card whose buttons are the prompts the current guide step suggests (or every prompt for that place) */
+  fallback: { text: string; question?: string }
+  /** the end card */
+  end: DemoEnd
+}
+
+export interface DemoPerson {
+  id: Id
+  /** the name shown in the app, e.g. "김미나" */
+  name: string
+  /** a job title, shown in the guide and people's profile line, e.g. "마케팅팀장" */
+  title?: string
+  /** a profile picture in assets/ (square PNG or JPEG); without one the app shows initials */
+  avatar?: Asset
+}
+
+export interface DemoGroup {
+  id: Id
+  /** e.g. "마케팅"; the group's folder is groups/<name>/ */
+  name: string
+  members: Id[]
+}
+
+export interface DemoRoom {
+  id: Id
+  /** team: a group's room (name from the group); dm: two people; group: a named group chat; all: everyone */
+  kind: 'team' | 'dm' | 'group' | 'all'
+  /** a team room's group */
+  group?: Id
+  /** a group chat's name (team rooms take the group's name, DMs the other person's) */
+  name?: string
+  /** who is in it; the visitor must be one of them */
+  members: Id[]
+  /** what was said before the visitor arrived, oldest first */
+  messages?: DemoRoomMessage[]
+}
+
+export interface DemoRoomMessage {
+  from: Id
+  text: string
+  /** files attached to the message (paths of `files`) */
+  files?: string[]
+  /** how long ago it was sent (default: spaced a few minutes apart before the start) */
+  minutesAgo?: number
+}
+
+export interface DemoProject {
+  id: Id
+  /** the project's name; its folder is projects/<name>/ */
+  name: string
+  description?: string
+  members: Id[]
+  /** earlier chats in the project (e.g. Leo's banner chat), shown in the project's chat list */
+  chats?: DemoPastChat[]
+}
+
+export interface DemoPastChat {
+  id: Id
+  title: string
+  /** who asked */
+  by: Id
+  /** question and answer pairs, oldest first */
+  turns: { ask: string; answer: string; files?: string[] }[]
+}
+
+export interface DemoFile {
+  /** the team path, e.g. "projects/겨울 캠페인/banner-v1.png" */
+  path: string
+  /** its content: a file in assets/, or a text */
+  asset?: Asset
+  text?: string
+}
+
+/** Where an answer is given: Home's new chat, a project's chat, the ✦ side chat beside a room, or anywhere. */
+export type DemoPlace = 'home' | { project: Id } | { side: Id } | 'any'
+
+export interface DemoAnswer {
+  id: Id
+  /** the visitor's message that gets this answer (the button sends exactly this) */
+  prompt: string
+  /** a shorter button label for the prompt (default: the prompt) */
+  label?: string
+  /** where this prompt is offered and answered (default 'any') */
+  where?: DemoPlace
+  /** the work shown before the text (tool calls), in order */
+  steps?: DemoStep[]
+  /** the answer, streamed in like a real one */
+  text: string
+  /** files the answer makes (saved to the team folder when it finishes, linked under the answer); a picture shows in
+   * the answer when the text links it with `![](...)` and `{{file:<path>}}` */
+  files?: DemoFile[]
+  /** a card after the text with buttons; the chosen option's reply goes on in the same answer */
+  ask?: DemoAsk
+}
+
+export interface DemoReply {
+  steps?: DemoStep[]
+  text: string
+  files?: DemoFile[]
+  /** another card after this reply (e.g. "보낼까요?" after a draft) */
+  ask?: DemoAsk
+}
+
+export interface DemoAsk {
+  question: string
+  options: { label: string; reply: DemoReply }[]
+}
+
+export interface DemoStep {
+  /** what the step says, e.g. "Higgsfield · 배경 이미지 만들기" or "파일 읽기 · projects/겨울 캠페인/brief.md" */
+  label: string
+  /** the tool's kind for its icon: read, write, glob, grep, web_search, or a connection's name (default: a tool) */
+  tool?: string
+  /** how long it runs (default 700 ms) */
+  ms?: number
+}
+
+/** Something that happened in the story. */
+export type DemoTrigger =
+  /** the demo started (Home is on screen) */
+  | { start: true }
+  /** an answer finished streaming (its cards answered too, when it has some); a list: any of them */
+  | { answer: Id | Id[] }
+  /** the visitor sent an answer to a room with "대화방에 보내기" */
+  | { shared: Id }
+  /** an event's message was posted */
+  | { event: Id }
+  /** the visitor opened a room or a project's chat */
+  | { opened: { room: Id } | { project: Id } }
+
+export interface DemoEvent {
+  id: Id
+  /** when it is sent */
+  after: DemoTrigger
+  /** wait this long after the trigger (default 1500 ms; "typing…" shows meanwhile) */
+  delayMs?: number
+  /** where: a room id */
+  room: Id
+  from: Id
+  text: string
+  /** files attached (paths of `files`, or new ones listed in `newFiles`) */
+  files?: string[]
+  /** files this message brings that did not exist before (e.g. the CEO's final file) */
+  newFiles?: DemoFile[]
+}
+
+export interface DemoGuideStep {
+  id: Id
+  /** the line, e.g. "다음: 팀장 DM 열기 →" */
+  text: string
+  /** where the line takes the visitor when they click it (brings them back if they wandered off) */
+  go: 'home' | { room: Id } | { project: Id } | { side: Id }
+  /** the control to highlight there, as a CSS selector (copy the ones in the example; most are data-testid) */
+  highlight?: string
+  /** answer ids offered as buttons with the line (e.g. the two banner prompts) */
+  suggest?: Id[]
+  /** the step is over when this happens; the next one shows */
+  until: DemoTrigger
+  /** shown from this trigger on (default: when the step before it is over) */
+  after?: DemoTrigger
+}
+
+export interface DemoEnd {
+  /** shown when this happens */
+  after: DemoTrigger
+  /** delay after the trigger (default 2500 ms) */
+  delayMs?: number
+  title: string
+  body?: string
+  /** the sign-up link (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
+  signup: { label: string; url: string }
+  /** closes the card; the visitor looks around freely */
+  explore: { label: string }
+}
