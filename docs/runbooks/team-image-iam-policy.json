@@ -1,0 +1,263 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyTheTwoImageRegions",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:*",
+        "ssm:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-southeast-1"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeImages",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSnapshots",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeTags",
+        "ec2:DescribeVolumes"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DebianSourceImageParameter",
+      "Effect": "Allow",
+      "Action": "ssm:GetParameter",
+      "Resource": "arn:aws:ssm:ap-northeast-2::parameter/aws/service/debian/*"
+    },
+    {
+      "Sid": "BuilderSecurityGroupCreate",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSecurityGroup",
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "BuilderSecurityGroupInVpc",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSecurityGroup",
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:vpc/*"
+    },
+    {
+      "Sid": "BuilderSecurityGroupUse",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:DeleteSecurityGroup"
+      ],
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "BuilderLaunchNewResources",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:instance/*",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "BuilderAndWorkVolumeFromDebianOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:CreateVolume"
+      ],
+      "Resource": [
+        "arn:aws:ec2:ap-northeast-2::image/*",
+        "arn:aws:ec2:ap-northeast-2::snapshot/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:Owner": "136693071363"
+        }
+      }
+    },
+    {
+      "Sid": "BuilderLaunchIntoTheBuildSubnet",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID>",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:network-interface/*"
+      ]
+    },
+    {
+      "Sid": "BuilderLaunchWithTheBuildSecurityGroup",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "WorkVolumeCreate",
+      "Effect": "Allow",
+      "Action": "ec2:CreateVolume",
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:volume/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "WorkVolumeFromDebianSnapshot",
+      "Effect": "Allow",
+      "Action": "ec2:CreateVolume",
+      "Resource": "arn:aws:ec2:ap-northeast-2::snapshot/*"
+    },
+    {
+      "Sid": "BuildResourcesUseAndRemove",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AttachVolume",
+        "ec2:DetachVolume",
+        "ec2:DeleteVolume",
+        "ec2:TerminateInstances"
+      ],
+      "Resource": [
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:instance/*",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "SnapshotOfTheWorkVolume",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSnapshot",
+      "Resource": "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:volume/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "ami-build"
+        }
+      }
+    },
+    {
+      "Sid": "NewImagesAndSnapshotsCarryTheCiTags",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSnapshot",
+        "ec2:RegisterImage",
+        "ec2:CopyImage"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::snapshot/*",
+        "arn:aws:ec2:*::image/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/ax:managed": "ami",
+          "aws:RequestTag/ax:built-by": "release-ci"
+        }
+      }
+    },
+    {
+      "Sid": "RegisterAndCopyOnlyCiImages",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RegisterImage",
+        "ec2:CopyImage"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::snapshot/*",
+        "arn:aws:ec2:*::image/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:managed": "ami",
+          "aws:ResourceTag/ax:built-by": "release-ci"
+        }
+      }
+    },
+    {
+      "Sid": "TagOnCreate",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": [
+        "arn:aws:ec2:*:<ACCOUNT_ID>:security-group/*",
+        "arn:aws:ec2:*:<ACCOUNT_ID>:instance/*",
+        "arn:aws:ec2:*:<ACCOUNT_ID>:volume/*",
+        "arn:aws:ec2:*::snapshot/*",
+        "arn:aws:ec2:*::image/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": [
+            "CreateSecurityGroup",
+            "RunInstances",
+            "CreateVolume",
+            "CreateSnapshot",
+            "RegisterImage",
+            "CopyImage"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "RetagCiCopies",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": [
+        "arn:aws:ec2:*::snapshot/*",
+        "arn:aws:ec2:*::image/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:built-by": "release-ci"
+        }
+      }
+    },
+    {
+      "Sid": "PruneOnlyCiImages",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DeregisterImage",
+        "ec2:DeleteSnapshot"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*::snapshot/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/ax:built-by": "release-ci"
+        }
+      }
+    }
+  ]
+}

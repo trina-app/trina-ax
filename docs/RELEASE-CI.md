@@ -71,6 +71,7 @@ git push origin v0.3.0-beta.1
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것) | 없음 |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
 | 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
+| 4 | build-ami | stable만: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
 
 2의 네 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
@@ -88,6 +89,8 @@ git push origin v0.3.0-beta.1
 | `server/<version>/manifest-linux-<arch>.json` + `.sig` | 묶음의 서명된 파일 목록(다음 릴리스가 root 파일 변경을 판단) | 안 함 |
 | `server/<version>/<version>-linux-<arch>.tar.zst` | 설치된 서버가 받는 업데이트 묶음 | 영구 |
 | `server/<version>/<kit>-<version>-linux-<arch>.tar.gz` | 새 설치용 kit(`docs/INSTALL-LINUX.md` 3장) | 영구 |
+| `server/<version>/teamax-<templateVersion>.v2.ami.json` + `.sha256`, `.sig` | stable 릴리스의 새 팀 서버 이미지(AMI) 목록, 지역별 AMI 하나씩(10장) | json·sig 안 함, sha256 영구 |
+| `server/<version>/team-image.json` | 그 릴리스의 이미지가 어느 목록인지(`templateVersion`, `manifest`, `sha256`). 컨트롤 플레인이 버전으로 찾는 곳 | 안 함 |
 
 Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준다. 나머지는 404다.
 
@@ -338,6 +341,62 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 6. 트리나 AX는 공개 레포다.
    - 공개 레포에서도 fork PR은 비밀값을 받지 않고, release.yml은 PR로 돌지 않는다.
    - 공개 전에 `gh secret list`로 필요한 비밀값만 있는지 본다.
+
+## 10. 새 팀 서버 이미지 (AMI)
+
+새 팀의 서버(EC2)가 시작하는 이미지는 stable 릴리스마다 CI가 만든다(대표 결정 2026-11-14). 사람이 할 일은 처음 한 번의 설정뿐이다.
+
+### 흐름
+
+1. release.yml의 `build-ami` job: stable 릴리스가 피드에 오르면(publish 성공) `team-image.yml`을 그 태그로 시작한다(`gh workflow run`). release.yml 안에서 직접 만들지 않는 이유: 이미지는 최대 3시간 걸리고, release.yml의 concurrency 그룹은 feed.yml(배포 멈추기·promote)과 같다. 멈추기가 이미지를 기다리면 안 된다.
+2. `team-image.yml`(environment `release`, Actions → Team image에서 손으로도 돌릴 수 있다: "Use workflow from"과 tag 모두 그 태그):
+   1. 설정 확인. `AWS_ROLE_ARN`, `AMI_SUBNET_ID`, 두 비밀값 중 하나라도 없으면 notice만 남기고 성공으로 끝난다. 피드에 `server/<version>/team-image.json`이 이미 있으면 할 일이 없다.
+   2. GitHub Release의 서명된 `*-linux-amd64.tar.gz` kit를 받아 `SHA256SUMS.sig`로 확인한다. `mycel-enroll`·`mycel-link`는 같은 태그에서 빌드한다(`native/build.sh`, 고정 Go).
+   3. AWS 로그인: GitHub OIDC(`aws-actions/configure-aws-credentials`, SHA 고정). 저장된 AWS 키는 어디에도 없다. 세션은 4시간.
+   4. `scripts/image/build-ami.sh`로 ap-northeast-2에서 AMI를 만든다(`--tag ax:built-by=release-ci`). 같은 릴리스의 앞선 시도가 만든 AMI가 있으면 그것을 쓴다.
+   5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1`: 싱가포르로 복사하고 v2 목록을 쓴 뒤 릴리스 키로 서명한다. 키는 이 단계 동안만 `$RUNNER_TEMP`의 600 파일로 있고 끝나면 지운다.
+   6. `scripts/release/publish-ami.ts`: 목록, `.sha256`, `.sig`를 `server/<version>/`에 올리고 마지막에 `team-image.json`을 올린다. 올리기 전에 서명을 이 제품의 키로 확인하고, 피드에 다른 바이트가 있으면 덮어쓰지 않고 멈춘다.
+   7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 최근 3개만 남기고 나머지는 등록 해제 + 스냅샷 삭제. 손으로 만든 이미지, `ax:keep=true` 태그가 있는 이미지, 아직 인스턴스가 쓰는 이미지는 지우지 않는다.
+
+컨트롤 플레인은 `<feed>/server/<version>/team-image.json`을 읽어 목록 URL을 알고, 목록의 `.sig`를 `TRINA_RELEASE_KEYS`로 확인한다(trina-cloud F1c).
+
+**네트워크.** 빌더는 러너에서 SSH로 다룬다. 빌드마다 보안 그룹을 새로 만들어 그 러너의 주소(/32)에서만 22번을 열고, 끝나면 지운다. 로그인 키·호스트 키도 빌드마다 새로 만든다. 그래서 `AMI_SUBNET_ID`의 서브넷은 인터넷 게이트웨이로 가는 경로가 있고 NACL이 22번 인바운드를 모든 곳(0.0.0.0/0, GitHub 러너 주소는 매번 다르다)에서, 응답 포트를 허용해야 한다. 기본 VPC의 서브넷이면 그대로 된다. 팀 서브넷은 안 된다(NACL이 SSH를 막는다). SSM으로 바꾸지 않은 이유: Debian AMI에는 SSM 에이전트가 없고, 빌더에 인스턴스 프로필을 주려면 역할에 `iam:PassRole`과 상시 프로필이 필요하다. SSH 방식은 상시로 열린 것이 없다.
+
+### 처음 한 번 (대표)
+
+1. **GitHub OIDC 공급자**(계정에 아직 없으면): IAM → Identity providers → OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
+2. **역할을 만든다**(예: `trina-team-image-ci`).
+   - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. `repo:trina-app/trina-ax:environment:release`만 이 역할을 받는다(다른 브랜치·PR·fork는 못 받는다).
+   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`와 `<AMI_SUBNET_ID>`를 바꾼다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더는 Debian 계정(136693071363)의 이미지로만 띄운다. IAM 권한(`iam:*`, `PassRole`)은 없다.
+   - 최대 세션 시간(MaxSessionDuration)을 **4시간**(14400초)으로 올린다. 워크플로가 4시간을 요청한다.
+   - 계정의 EBS 기본 암호화 키가 고객 관리 키(CMK)면 그 키의 `kms:CreateGrant`, `kms:Decrypt`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:ReEncrypt*`, `kms:DescribeKey`를 더한다(AWS 관리 키 `aws/ebs`면 필요 없다).
+3. **레포 변수**(Settings → Secrets and variables → Actions → Variables, 비밀값이 아니다):
+   ```sh
+   gh variable set AWS_ROLE_ARN  --repo trina-app/trina-ax --body 'arn:aws:iam::<ACCOUNT_ID>:role/trina-team-image-ci'
+   gh variable set AMI_SUBNET_ID --repo trina-app/trina-ax --body 'subnet-…'     # ap-northeast-2, 위 "네트워크"
+   ```
+   계정 번호는 `AWS_ROLE_ARN`에서 읽는다(`build-ami.sh --account`). 비밀값 `RELEASE_SIGNING_KEY`·`CLOUDFLARE_API_TOKEN`은 이미 있는 것을 쓴다.
+4. **environment `release`에 승인자가 있으면** 이미지 run도 승인을 한 번 기다린다(job이 그 environment를 쓴다). 배포 허용 대상 `v*` 태그는 그대로 맞는다(태그로 돈다).
+5. **첫 확인**: 다음 stable 릴리스 뒤 Actions → Team image run을 본다. 또는 이미 나간 stable 태그로 손으로 돌린다(그 태그에 `team-image.yml`이 있어야 한다). 성공하면 `<feed>/server/<version>/team-image.json`이 열린다. `UnauthorizedOperation`으로 멈추면 메시지의 인코딩된 부분을 `aws sts decode-authorization-message`로 풀어 빠진 권한을 본다.
+
+### 실패했을 때
+
+| 어디서 | 상태 | 할 일 |
+|---|---|---|
+| 설정 확인: notice "not set up" | 아무것도 안 함 | 위 "처음 한 번" |
+| build-ami.sh 중간 | 스크립트가 만든 것(빌더, 작업 볼륨, 보안 그룹)을 스스로 지운다 | 다시 실행(Re-run failed jobs) |
+| 취소·시간 초과 | 빌더가 남았을 수 있다 | run의 `ami-build-state` 아티팩트의 상태 파일로 `scripts/image/build-ami.sh --cleanup <파일> --account <id>`. 상태 파일이 없으면 태그 `ax:managed=ami-build`로 찾아 손으로 지운다 |
+| 복사·서명·올리기 | AMI는 남아 있다 | Re-run failed jobs. 같은 릴리스의 AMI를 다시 쓰고, 복사는 client token으로 두 번 생기지 않으며, 이미 올라간 같은 바이트는 건너뛴다 |
+| publish-ami: `names another image already` | 그 릴리스에 다른 이미지가 이미 올라가 있다 | 덮어쓰지 않는다. 다음 릴리스를 기다리거나 사람이 본다 |
+
+**정리(최근 3개)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 3개 안에 있어야 한다(자동 템플릿, F1c). 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(두 지역 모두).
+
+### 비용 (한 번 빌드)
+
+- 빌더 t3a.medium 약 30–45분 ≈ $0.04, 작업·루트 볼륨 gp3 20 GiB × 2 약 1시간 ≈ $0.01, 공인 IPv4 1시간 ≈ $0.005.
+- 싱가포르 복사: 지역 간 전송 약 $0.08/GB × 실제 쓴 블록(이미지 약 4–6 GB) ≈ $0.3–0.5.
+- 합 **≈ $0.4–0.6 / 빌드**. GitHub 러너는 공개 레포라 무료.
+- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 2지역 × 최근 3개 ≈ **월 $1.2–1.8**(정리가 그 이상 쌓이지 않게 한다).
 
 ## User-facing release notes
 

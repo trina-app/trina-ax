@@ -7,6 +7,7 @@
 #                 the Windows installer + latest.yml
 #     publish     sign the Linux builds, office feed (publish.ts), server feed (publish-server.ts), SHA256SUMS + .sig
 #     github-release  the tag's GitHub Release with the kits, the office zip, the Windows installer and SHA256SUMS(.sig)
+#     build-ami   stable only: starts team-image.yml on the tag (the new-team server AMI); a notice when AWS is not set up
 #
 # The Linux server release does not wait for the desktop builds: when build-office or build-windows fails or gets no
 # runner, publish still runs (prepare, test and build-linux must pass), the office feed stays at the previous release,
@@ -438,6 +439,29 @@ jobs:
           if-no-files-found: error
           overwrite: true # a re-run of the job replaces its own artifact
           retention-days: 30
+
+  # the new-team server image (AMI) of a stable release, in its own workflow (team-image.yml: hours long, and this run's
+  # concurrency group would hold back feed.yml's hold meanwhile). Never fails the release: without AWS_ROLE_ARN it only
+  # says so, and the image's own run fails on its own.
+  build-ami:
+    name: New-team server image (starts team-image.yml)
+    needs: [prepare, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable' && needs.prepare.outputs.feed == 'true' && !inputs.office_only }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Start the image build on the tag
+        run: |
+          if [ -z "$AWS_ROLE_ARN" ]; then echo "::notice::no new-team server image for $TAG: the repository variable AWS_ROLE_ARN is not set (docs/RELEASE-CI.md)"; exit 0; fi
+          gh workflow run team-image.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f tag="$TAG"
+          echo "::notice::team-image.yml started for $TAG (Actions → Team image)"
 
   github-release:
     name: GitHub Release
