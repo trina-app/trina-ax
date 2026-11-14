@@ -38,6 +38,7 @@ const OFF = `u${PEOPLE - 1}` // switched off
 const users = Array.from({ length: PEOPLE }, (_, i) => ({ id: `u${i}`, role: i === 0 ? 'owner' : i < 4 ? 'admin' : 'member' }))
 const groups = Array.from({ length: GROUPS }, (_, i) => `g${i}`)
 const folderId = new Map<string, string>()
+const limitedPaths = new Set<string>()
 const rows: { path: string; subject_type: 'everyone' | 'role' | 'group' | 'user'; subject_id: string | null; access: Access }[] = []
 db.transaction(() => {
   for (const u of users) db.query("INSERT INTO users (id, username, name, role, status) VALUES (?, ?, ?, ?, ?)").run(u.id, u.id, `Person ${u.id}`, u.role, u.id === OFF ? 'disabled' : 'active')
@@ -46,8 +47,18 @@ db.transaction(() => {
     if (!id) { id = crypto.randomUUID(); folderId.set(p, id); db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(id, p); fs.mkdirSync(path.join(team, p), { recursive: true }) }
     return id
   }
-  const rule = (p: string, t: 'everyone' | 'role' | 'group' | 'user', s: string | null, a: Access) => {
-    db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), folder(p), t, s, a)
+  // (in the additive form: a "no access" rule means the folder is limited, role member is everyone; docs/DECISIONS.md
+  // "Folder access adds up like Google Drive (P2)")
+  const rule = (p: string, t0: 'everyone' | 'role' | 'group' | 'user', s0: string | null, a: Access) => {
+    const id = folder(p)
+    if (a === 'none') {
+      if (!limitedPaths.has(p)) { limitedPaths.add(p); db.query('UPDATE folders SET limited = 1 WHERE id = ?').run(id); db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(crypto.randomUUID(), id); rows.push({ path: p, subject_type: 'everyone', subject_id: null, access: 'none' }) }
+      return
+    }
+    const member = t0 === 'role' && s0 === 'member'
+    const t = member ? 'everyone' : t0, s = member ? null : s0
+    if (member && !limitedPaths.has(p)) { limitedPaths.add(p); db.query('UPDATE folders SET limited = 1 WHERE id = ?').run(id) }
+    db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), id, t, s, a)
     rows.push({ path: p, subject_type: t, subject_id: s, access: a })
   }
   for (const g of groups) {
@@ -67,6 +78,9 @@ db.transaction(() => {
     else rule(`shared/area${i}/inner`, 'role', 'member', 'read')
   }
   rule('projects/p1', 'user', OFF, 'write') // a rule naming the person who is switched off
+  // a folder the conversion listed the whole company in by name (review 2 M5): 200 people at one limited folder
+  rule('shared/by-name', 'everyone', null, 'none')
+  for (const u of users.slice(4, 204)) rule('shared/by-name', 'user', u.id, 'write')
   for (let i = 0; i < PROJECTS; i++) {
     const own = i % 10 === 0 ? `users/u${5 + i}/projects/mine-${i}` : `projects/p${(i * 4 + 1) % (RULE_FOLDERS * 2)}`
     db.query('INSERT INTO projects (id, name, folder_path) VALUES (?, ?, ?)').run(crypto.randomUUID(), `Project ${i}`, own)
@@ -86,8 +100,9 @@ const paths: string[][] = Array.from({ length: 3000 }, () => {
   const extra = Math.floor(rand() * 4)
   return [...f, ...Array.from({ length: extra }, (_, k) => (k === extra - 1 ? `file-${Math.floor(rand() * 100)}.md` : `sub${k}`))]
 }).concat(Array.from({ length: 300 }, (_, i) => ['users', `u${i}`, 'notes.md']))
-const now = ruleWorld(rows), old = new OldRuleSet(rows)
-for (const p of members) for (const s of paths) if (now.access(p, s) !== old.access(p, s)) throw new Error(`answers differ: ${p.id} ${s.join('/')}`)
+const now = ruleWorld(rows, limitedPaths), old = new OldRuleSet(rows)
+// (since folder access adds up the answers may differ from the old deepest-wins function: only the time is compared;
+// tests/unit/access-additive.test.ts checks the answers against a reference)
 const calls = members.length * paths.length
 function time(fn: (p: Principal, s: string[]) => unknown): number {
   const t = performance.now()
