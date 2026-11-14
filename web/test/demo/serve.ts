@@ -1,12 +1,16 @@
 // The demo walk's static server (web/test/demo/playwright.config.ts): dist-demo mounted at DEMO_BASE (default /), as
 // a site would host it: every address under the base that is not a file gets index.html (deep links, reloads), and
 // each answer carries the CSP the demo needs (DEMO_CSP below; the site sends the same header for its /demo/ path).
-// Run: DEMO_BASE=/demo/ bun test/demo/serve.ts (from web/)
+// Run: DEMO_BASE=/demo/ bun test/demo/serve.ts (from web/). Several demos side by side, as the site hosts the languages:
+// DEMO_MOUNTS="/demo/=dist-demo,/demo/ko/=dist-demo-ko" (the longest base first answers).
 import path from 'node:path'
 
 const PORT = Number(process.env.DEMO_PORT ?? 19243)
-const BASE = `/${(process.env.DEMO_BASE ?? '/').replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/')
-const ROOT = path.resolve(import.meta.dir, '../../dist-demo')
+const slashed = (b: string) => `/${b.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/')
+const MOUNTS = (process.env.DEMO_MOUNTS?.trim()
+  ? process.env.DEMO_MOUNTS.split(',').map((m) => { const [b, d] = m.split('='); return { base: slashed(b!.trim()), root: path.resolve(import.meta.dir, '../..', d!.trim()) } })
+  : [{ base: slashed(process.env.DEMO_BASE ?? '/'), root: path.resolve(import.meta.dir, '../..', process.env.DEMO_OUT?.trim() || 'dist-demo') }])
+  .sort((a, b) => b.base.length - a.base.length)
 
 /** what the demo needs: its own scripts and styles (plus the app's inline style attributes and index.html's one style
  * block), pictures from the page's own server as blob:/data: URLs, its worker (sw.js) and the PDF viewer's worker */
@@ -31,8 +35,11 @@ Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url)
-    if (BASE !== '/' && url.pathname === BASE.slice(0, -1)) return Response.redirect(`${url.origin}${BASE}${url.search}`, 301)
-    if (!url.pathname.startsWith(BASE)) return new Response('not here', { status: 404 })
+    const bare = MOUNTS.find((m) => m.base !== '/' && url.pathname === m.base.slice(0, -1))
+    if (bare) return Response.redirect(`${url.origin}${bare.base}${url.search}`, 301)
+    const mount = MOUNTS.find((m) => url.pathname.startsWith(m.base))
+    if (!mount) return new Response('not here', { status: 404 })
+    const { base: BASE, root: ROOT } = mount
     const rel = decodeURIComponent(url.pathname.slice(BASE.length))
     const file = path.resolve(ROOT, rel)
     const inside = file.startsWith(ROOT + path.sep)
@@ -48,4 +55,4 @@ Bun.serve({
     return new Response(Bun.file(path.join(ROOT, 'index.html')), { headers: { ...headers, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' } })
   },
 })
-console.log(`demo at http://localhost:${PORT}${BASE}`)
+for (const m of MOUNTS) console.log(`demo at http://localhost:${PORT}${m.base} (${path.relative(process.cwd(), m.root)})`)
