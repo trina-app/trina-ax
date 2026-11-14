@@ -73,6 +73,14 @@ export const ROOM_APP_SPECS: Record<string, Spec> = {
           if (p.status !== 400) throw new Error(`a preset was changed: ${p.status}`)
         } finally { await w.as[who].req('DELETE', `${all(w)}/${app}`) }
       }
+      // the services that make their own secret (phase 4: Toss Payments, Channel Talk, PortOne) refuse one Trina makes
+      for (const preset of ['toss_payments', 'channel_talk', 'portone']) {
+        const app = (await w.as[who].ok('POST', all(w), { kind: 'other', preset, name: `${preset} ${crypto.randomUUID().slice(0, 8)}` })).app.id as string
+        try {
+          const s = await w.as[who].req('PUT', `${all(w)}/${app}/secret`, { generate: true })
+          if (s.status !== 400) throw new Error(`a paste-only preset (${preset}) took a secret Trina made: ${s.status}`)
+        } finally { await w.as[who].req('DELETE', `${all(w)}/${app}`) }
+      }
     },
   },
   rotateRoomApp: { build: (c, w) => c.post(`${one(w)}/rotate`), scope: 'room-all-admins' },

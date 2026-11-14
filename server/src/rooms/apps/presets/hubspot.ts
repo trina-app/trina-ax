@@ -53,6 +53,8 @@ function parse(a: Arrival): Parsed {
   const stage = prop(body, 'stage', object === 'deal' ? 'dealstage' : object === 'ticket' ? 'hs_pipeline_stage' : 'lifecyclestage')
   const status = stage ? appText('hubspotStage', L, { stage }) : undefined
   let title = '', kind = '', details: string[] = []
+  // a contact's name came from an unsigned request (HubSpot can't sign): marked, as Shopify's customer
+  let hasName = false
   if (object === 'deal') {
     title = prop(body, 'name', 'dealname') || `#${id}`
     kind = appText('hubspotDeal', L)
@@ -60,7 +62,9 @@ function parse(a: Arrival): Parsed {
     const currency = prop(body, 'currency', 'deal_currency_code')
     if (amount !== null) details = [currency ? money(L, currency, { major: amount }) : String(amount)]
   } else if (object === 'contact') {
-    title = [prop(body, 'firstname'), prop(body, 'lastname')].filter(Boolean).join(' ') || `#${id}`
+    const name = [prop(body, 'firstname'), prop(body, 'lastname')].filter(Boolean).join(' ')
+    hasName = !!name
+    title = name || `#${id}`
     kind = appText('hubspotContact', L)
     const company = prop(body, 'company')
     if (company) details = [company]
@@ -74,7 +78,7 @@ function parse(a: Arrival): Parsed {
     key: `${object}:${id}`,
     ...(stage ? { state: stage.toLowerCase(), status } : {}),
     ...(portalOk && !a.pin ? { pin: portalOk } : {}),
-    card: { kind, title, details, status, link },
+    card: { kind, title, details, status, link, unverified: !a.signed && hasName },
     reply: { title: status ?? appText('hubspotUpdated', L), details: [] },
   } }
 }

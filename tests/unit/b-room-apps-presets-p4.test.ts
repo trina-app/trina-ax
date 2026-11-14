@@ -139,6 +139,9 @@ test('HubSpot: the custom body per object and the all-properties shape; email an
   expect(deal.appCard.link).toBeUndefined()
   const contact = ms.find((m) => m.appCard.title === 'Jamie Rivera')
   expect(contact.appCard).toMatchObject({ kind: appText('hubspotContact', L), details: ['Example Co.'] })
+  // a person's name from an unsigned request (HubSpot can't sign) is marked; a deal's name is not a person
+  expect(contact.appCard.unverified).toBe(true)
+  expect(deal.appCard.unverified).toBeUndefined()
   expect(JSON.stringify(ms)).not.toContain('jamie@example.com')
   expect(JSON.stringify(ms)).not.toContain('555 0100')
   const all = ms.find((m) => m.appCard.title === 'Spring renewal')
@@ -222,6 +225,9 @@ test('Channel Talk: a new chat with the customer\'s name and first message, then
   let replies = await thread(ms[0].id)
   expect(replies.map((r: any) => r.appCard.title)).toEqual([appText('channelCustomerFrom', L, { name: 'Jamie Rivera' })])
   expect(replies[0].appCard.details).toEqual(['The order number is 1042.'])
+  // names from requests without Channel Talk's token are marked
+  expect(ms[0].appCard.unverified).toBe(true)
+  expect(replies[0].appCard.unverified).toBe(true)
   const text = JSON.stringify(ms) + JSON.stringify(replies)
   for (const leak of ['jamie@example.com', '+82 10', 'Seoul', 'Team lunch', 'sam@example.com']) expect(text).not.toContain(leak)
   // team replies on: in the thread with the manager's name
@@ -243,6 +249,11 @@ test('Channel Talk: a new chat with the customer\'s name and first message, then
   expect((await post(token, b, {}, '?token=wrong-token-0')).status).toBe(401)
   expect((await post(token, b, {}, '?token=ct-token-12345&token=ct-token-12345')).status).toBe(401)
   expect((await post(token, b, {}, '?token=ct-token-12345')).status).toBe(200)
+  // with the token: the name is not marked
+  await settle()
+  const signed = (await thread((await messages())[0].id)).at(-1)
+  expect(signed.appCard.details).toEqual(['The order number is 1042.'])
+  expect(signed.appCard.unverified).toBeUndefined()
 })
 
 test('PortOne: Standard Webhooks (whsec_ or not), the payment id and state without an amount, both webhook versions, webhook-id dedupe; other types skipped', async () => {

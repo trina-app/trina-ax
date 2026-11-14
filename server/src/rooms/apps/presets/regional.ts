@@ -33,7 +33,7 @@ const statusOf = (L: Arrival['locale'], k: AppTextKey) => appText('status', L, {
 
 // ---------------- Toss Payments ----------------
 /** Toss's order ids: 6-64 letters, digits, "-" and "_" (its own rule for orderId). */
-const TOSS_ORDER = /^[A-Za-z0-9_-]{1,64}$/
+const TOSS_ORDER = /^[A-Za-z0-9_-]{6,64}$/
 
 function toss(a: Arrival): Parsed {
   const body = obj(jsonOf(a.raw))
@@ -113,7 +113,8 @@ function channel(a: Arrival): Parsed {
       key: `chat:${id}`, ...(state ? { state, status } : {}),
       // a chat that is there already: its status line follows (opened, snoozed, closed), no reply
       onlyStatus: true,
-      card: { kind: customer ? appText('channelChatFrom', L, { name: customer }) : appText('channelNewChat', L), title, details: [], status },
+      // a name from a request without Channel Talk's token: marked, as Shopify's customer
+      card: { kind: customer ? appText('channelChatFrom', L, { name: customer }) : appText('channelNewChat', L), title, details: [], status, unverified: !a.signed && !!customer },
       ...(first ? { extra: first } : {}),
     } }
   }
@@ -133,8 +134,8 @@ function channel(a: Arrival): Parsed {
     return { event: {
       switch: fromUser ? 'customer_message' : 'manager_message', delivery: `channel-message:${id}`,
       key: `chat:${chatId}`,
-      card: { kind: who, title: line(text, 200) || who, details: [] },
-      reply: { title: who, details: [text.split('\n')[0] ?? ''].filter(Boolean) },
+      card: { kind: who, title: line(text, 200) || who, details: [], unverified: !a.signed && !!(fromUser ? customer : manager) },
+      reply: { title: who, details: [text.split('\n')[0] ?? ''].filter(Boolean), unverified: !a.signed && !!(fromUser ? customer : manager) },
       ...(text ? { extra: text } : {}),
     } }
   }
