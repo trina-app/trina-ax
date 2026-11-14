@@ -34,7 +34,7 @@
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isConnectionError } from '../../lib/api'
@@ -543,7 +543,7 @@ export default function Composer({
             // the AI's question: also how phones (Enter makes a new line there) answer from the box
             <Tooltip label={t('composer.sendAnswer')}>
               <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
-                {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} aria-hidden />}
               </button>
             </Tooltip>
           )
@@ -570,13 +570,14 @@ export default function Composer({
               onClick={submit}
               disabled={!canSend}
               aria-label={t('chat.send')}
-              // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+              // ↑ as on phones and in a room's box (a return key was not read as send); phones: Enter makes a new line there,
+              // so the room box's round send instead of the quiet key
               className={clsx('touch-hit flex items-center justify-center transition', phone
                 ? clsx(stacked ? 'size-9' : 'size-10', 'rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
                 : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
               data-testid="send"
             >
-              {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
+              {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} aria-hidden />}
             </button>
           </Tooltip>
         )
