@@ -1,0 +1,2 @@
+- Adding a team in the desktop or phone app: an address with no dot (for example Chinese characters typed by mistake) is refused as not an address, instead of trying to connect and saying the team can't be reached.
+- A thread in a direct message with someone who left the team says why there is no reply box, also on a phone, where the thread covers the room.
