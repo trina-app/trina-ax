@@ -30,9 +30,10 @@ import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from 
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
-import { placeInLine, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
+import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
+import { newId } from '../db'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -226,7 +227,18 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
   const { ctx } = h
   const problem = runProblem(ctx)
   if (problem) return { ok: false, message: `Error: the command could not run (${problem.slice(0, 300)}).`, summary: problem.slice(0, 200) }
-  const rowId = addTicket(ctx.db, { space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
+  // commands of one project run one at a time: wait for the other command first, with a plain line and no slot held
+  const rowId = newId()
+  let waitedProject = false
+  if (projectBusy(o.space.root)) {
+    waitedProject = true
+    h.queueStep?.({ id: rowId, kind: 'command', state: 'waiting', position: null, why: 'project' })
+    if (!await waitProjectFree(o.space.root, h.signal)) {
+      h.queueStep?.({ id: rowId, kind: 'command', state: 'cancelled', position: null })
+      return { ok: false, message: 'Stopped. The command did not run.', summary: 'aborted' }
+    }
+  }
+  addTicket(ctx.db, { id: rowId, space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
   const limitMs = commandWaitFor(o.timeoutMs)
   const ended = waitTicket(ctx.db, rowId, h.userId, { signal: h.signal })
   await startWaiting(ctx)
@@ -239,7 +251,7 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
     end = await ended
   }
   if (end === 'granted') {
-    if (waited) h.queueStep?.({ id: rowId, kind: 'command', state: 'started', position: null })
+    if (waited || waitedProject) h.queueStep?.({ id: rowId, kind: 'command', state: 'started', position: null })
     let done = false
     return { ok: true, release: () => { if (done) return; done = true; releaseCommand(rowId); void startWaiting(ctx).catch(() => {}) } }
   }

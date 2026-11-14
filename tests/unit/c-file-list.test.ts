@@ -13,7 +13,7 @@ import { FakeReader } from '../lib/file-list-fake'
 import { addCred, testCredCtx } from '../lib/credentials'
 import { fileListOf, type FileList } from '../../server/src/file-list/service'
 import { HEADER } from '../../server/src/file-list/view'
-import { ReaderLimit } from '../../server/src/file-list/reader'
+import { ReaderLimit, ReaderUnavailable } from '../../server/src/file-list/reader'
 import { EngineReader } from '../../server/src/file-list/engine-reader'
 import { Units } from '../../server/src/file-list/units'
 import { RuleSet } from '../../server/src/policy/access'
@@ -279,6 +279,17 @@ describe('limits, the cap and the switch', () => {
     reader.fail = null
     expect(await run()).toBe('done')
     expect(fl.status().waiting).toBe(0)
+    expect(fl.status().problem).toBeNull()
+  })
+
+  test('a failing engine: the status says the last run did not finish, until a run goes through', async () => {
+    write('shared/broken-1.md', '# broken one\n')
+    reader.fail = new ReaderUnavailable('engine exited with code 1')
+    expect(await run()).toBe('failed')
+    expect(fl.status().problem).toBe('failed')
+    expect(fl.status().lastRun?.stoppedBy).toBe('failed')
+    reader.fail = null
+    expect(await run()).toBe('done')
     expect(fl.status().problem).toBeNull()
   })
 

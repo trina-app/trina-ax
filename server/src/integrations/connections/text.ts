@@ -40,11 +40,11 @@ export const TEXT = {
   once: t('이번만 보내기', 'Send once', 'Kirim sekali ini', "今回だけ送信", "Enviar esta vez"),
   alwaysAllow: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre"),
   // the line under the three buttons: what Always allow covers, and where it is turned off
-  alwaysNote: t('항상 허용: 앞으로 AI가 묻지 않고 {name}에 보내요. 웹페이지나 파일을 읽은 대화에서도 다시 묻지 않아요. 설정 › 커넥터에서 끌 수 있어요.',
-    "Always allow: from now on Trina sends to {name} without asking, even after reading web pages or files. You can turn it off in Settings › Connectors.",
-    'Selalu izinkan: mulai sekarang Trina mengirim ke {name} tanpa bertanya, bahkan setelah membaca halaman web atau file. Anda bisa mematikannya di Pengaturan › Konektor.',
-    "常に許可：今後トリナは、Webページやファイルを読んだ後でも確認せずに{name}へ送信します。設定 › コネクターでオフにできます。",
-    "Permitir siempre: a partir de ahora Trina envía a {name} sin preguntar, incluso tras leer páginas web o archivos. Puede desactivarlo en Configuración › Conectores."),
+  alwaysNote: t('항상 허용: 이 내용만이 아니라 {name}의 모든 변경(보내기, 고치기, 지우기)을 앞으로 모든 대화에서 AI가 묻지 않고 해요. 웹페이지나 파일을 읽은 대화에서도 다시 묻지 않아요. 설정 › 커넥터에서 끌 수 있어요.',
+    "Always allow every change in {name}, not only this one: from now on, in every chat, Trina sends, edits and deletes in {name} without asking, even after reading web pages or files. You can turn it off in Settings › Connectors.",
+    'Selalu izinkan setiap perubahan di {name}, bukan hanya yang ini: mulai sekarang, di semua obrolan, Trina mengirim, mengubah, dan menghapus di {name} tanpa bertanya, bahkan setelah membaca halaman web atau file. Anda bisa mematikannya di Pengaturan › Konektor.',
+    "{name}のすべての変更を常に許可（この1件だけではありません）：今後はどのチャットでも、Webページやファイルを読んだ後でも、トリナは確認なしで{name}への送信・編集・削除を行います。設定 › コネクターでオフにできます。",
+    "Permitir siempre cada cambio en {name}, no solo este: a partir de ahora, en todos los chats, Trina envía, edita y elimina en {name} sin preguntar, incluso tras leer páginas web o archivos. Puede desactivarlo en Configuración › Conectores."),
   // the card's first line in a chat that read something from outside, for a connection that asks anyway: why the card
   // has no Always allow (TC-328)
   outsideAsksOnce: t('이 대화는 바깥 내용(웹 페이지, 다른 사람의 파일, 서비스의 답 등)을 읽었어요. 그래서 여기서는 바꿀 때마다 물어요.',

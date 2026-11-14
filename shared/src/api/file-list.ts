@@ -17,8 +17,9 @@ export const isFileListName = (name: string): boolean => name.normalize('NFKC').
  *   used), or no engine on the server
  * - no_cheap_model: the team's AI has no small model to read with (a gateway without a haiku model, a Codex catalog
  *   without a mini or nano model), so nothing is read rather than spend a big model's limit
- * - limited: the AI's usage or rate limit, or the team's block budget, stopped the last run; it goes on at the next */
-export const FileListProblem = z.enum(['forced_off', 'no_ai', 'no_cheap_model', 'limited'])
+ * - limited: the AI's usage or rate limit, or the team's block budget, stopped the last run; it goes on at the next
+ * - failed: the last run did not finish (the AI gave no answer or could not be used); the next run tries again */
+export const FileListProblem = z.enum(['forced_off', 'no_ai', 'no_cheap_model', 'limited', 'failed'])
 export type FileListProblem = z.infer<typeof FileListProblem>
 
 /** Why the last run ended: done (nothing left), window (the night's window ended), limit (usage or rate limit), off

@@ -18,7 +18,7 @@ import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { AdminPageHeader, BarTitleProvider, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
 import { systemGroup, systemGroups, type SystemGroupId } from './systemGroups'
@@ -30,7 +30,7 @@ import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 import { noPurchaseLinks } from '../../lib/desktop'
-import { teamAddressShown } from '../../lib/team-address'
+import { addressToTell, teamAddressShown } from '../../lib/team-address'
 import { goBackOffered, releasePaused } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
@@ -443,6 +443,10 @@ const DETAIL_TEXT: Record<string, MessageKey> = {
 /** claim codes as the account console shows them: groups of four letters / digits */
 const claimCodeOk = (c: string) => c === '' || /^[A-Za-z0-9 -]{16,64}$/.test(c.trim())
 
+/** The address the team reaches this server at, as far as the connection status knows it. */
+const connAddress = (d: { address: string | null; publicAddress?: string | null } | null | undefined): string | null =>
+  d?.address ?? (d?.publicAddress ? `https://${d.publicAddress}` : null)
+
 function Connection({ canChange = true }: { canChange?: boolean }) {
   const t = useT()
   const locale = useLocale()
@@ -450,6 +454,26 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   const state = useLoad(() => api.call(API.connection))
   const [change, setChange] = useState<{ mode: Mode; relayUrl: string; teamName: string; claimCode: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // after a saved change that moves the team address (not a relay rename): the address to tell the team (QA TC-1232)
+  // The new address is only known once the server has restarted and registered it, so the page waits for it: `waiting`
+  // is the address before the change.
+  const [tell, setTell] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState<string | null>(null)
+  useEffect(() => {
+    if (!waiting) return
+    const stop = setTimeout(() => setWaiting(null), 5 * 60_000)
+    // a failed read (the server is restarting) is ignored: the card keeps what it shows
+    const poll = setInterval(() => { api.call(API.connection).then(state.setData, () => {}) }, 5000)
+    return () => { clearTimeout(stop); clearInterval(poll) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting])
+  useEffect(() => {
+    const d = state.data
+    const now = connAddress(d)
+    if (!waiting || !teamAddressShown(now) || teamAddressShown(now) === teamAddressShown(waiting)) return
+    setTell(addressToTell(waiting, now))
+    setWaiting(null)
+  }, [state.data, waiting])
   const modes = state.data?.availableModes ?? FALLBACK_MODES
   const teamNameOk = (n: string) => n.length >= 2 && n.length <= 40 && TEAM_NAME_RE.test(n)
   const open = () => {
@@ -505,6 +529,12 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                 </Row>
               )}
             </Rows>
+            {tell && (
+              <div className="mt-3 flex min-w-0 items-center gap-2 border-l-2 border-warn pl-3 text-sm text-ink" role="status" data-testid="connection-tell-team">
+                <span className="min-w-0 flex-1 break-words">{t('system.tellTeam', { address: tell })}</span>
+                <CopyButton text={/^https?:\/\//.test(tell) ? tell : `https://${tell}`} showLabel className="shrink-0" />
+              </div>
+            )}
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-code-sm break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
             {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}
@@ -595,6 +625,8 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               t('common.saved'),
             )
             if (r) {
+              setTell(null)
+              setWaiting(connAddress(state.data))
               state.setData(r)
               setChange(null)
               setConfirming(false)

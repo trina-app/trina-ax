@@ -1527,6 +1527,15 @@ export class MockServer {
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: j } })
       return
     }
+    if (/devqueueproject/i.test(prompt)) {
+      // a command that waits for another command of the same project: a plain line, no place in line, no Cancel; it is not in the runs list
+      const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: null, why: 'project' } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== q.id), q]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: q } })
+      await sleep(3000)
+      const done = { ...q, status: 'ok' as const, endedAt: now(), devEnvRun: { id, kind: 'command' as const, state: 'started' as const, position: null } }
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== q.id), done]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: done } })
+      return
+    }
     srt.waiting = [...srt.waiting.filter((r) => r.id !== id), { id, kind: 'command', name: 'npm run build', by, startedAt: now(), runAt: null, position: 2, memoryMiB: null, lastLine: '', chatId, projectId: null }]
     const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
     const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: 2 } })
@@ -4163,8 +4172,12 @@ export class MockServer {
       if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
       if (!(this.connection.availableModes ?? []).includes(c.body.mode)) fail('conflict', 409, 'This connection mode is not available in this version yet.')
       if (c.body.mode !== 'direct-only' && !(c.body.teamName ?? this.connection.teamName)) fail('validation', 400)
-      this.connection = { ...this.connection, mode: c.body.mode, teamName: c.body.teamName ?? this.connection.teamName, state: c.body.mode === 'direct-only' ? 'disabled' : 'connecting', detail: 'Applies after the server restarts.' }
-      return this.connection
+      const was = this.connection
+      this.connection = { ...was, mode: c.body.mode, teamName: c.body.teamName ?? was.teamName, state: c.body.mode === 'direct-only' ? 'disabled' : 'connecting', detail: 'Applies after the server restarts.' }
+      // like the real server: the answer still has the old address; the new one is registered at the restart, so later reads have it
+      if (c.body.mode === 'self-relay' && c.body.relayUrl) this.connection.address = `https://${this.connection.teamName}.${new URL(c.body.relayUrl).hostname.split('.').slice(1).join('.')}`
+      else if (was.address && this.connection.teamName !== was.teamName) this.connection.address = was.address.replace(`//${was.teamName}.`, `//${this.connection.teamName}.`)
+      return { ...this.connection, address: was.address }
     },
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
