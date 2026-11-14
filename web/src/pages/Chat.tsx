@@ -14,12 +14,16 @@
 // live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
 // Files from this computer dropped anywhere on the screen (its header, the messages, the box) go into the box
 // (components/FileDropZone.tsx); a chat in the trash or a read-only one says why nothing can be attached.
+// `?answer=<messageId>` (an item of the widening list, components/WideningList.tsx): the branch holding that answer, for
+// this view only (the chat's active branch is not changed for anyone), scrolled to it and lit for a moment; an answer
+// no longer there opens the chat at its end with "That answer is no longer here." On a phone, opened from a sharing
+// dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
@@ -34,7 +38,8 @@ import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { CHAT_ROW, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
-import { chatEnd, chatPlace, keepChatPlace, useChats } from '../store/chats'
+import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
+import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
@@ -55,7 +60,7 @@ import { askPrivately, lastOwnQuestion } from '../components/chat/privateAsk'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
-import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -71,6 +76,18 @@ export default function ChatPage() {
 }
 
 function ChatView({ chatId }: { chatId: string }) {
+  // ?answer=: this view shows that answer's branch; what is in memory for the chat may be another branch, so it is read
+  // again (before the first read below)
+  const [params] = useSearchParams()
+  const [focusAnswer] = useState(() => {
+    const id = params.get('answer')
+    if (id) {
+      showThrough(chatId, id)
+      useChats.setState((s) => { const { [chatId]: _, ...threads } = s.threads; return { threads } })
+    }
+    return id
+  })
+  useEffect(() => () => showThrough(chatId, null), [chatId])
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -187,6 +204,27 @@ function ChatView({ chatId }: { chatId: string }) {
 
   const messages = thread.messages
   const running = runningMessage(messages)
+
+  // ?answer=: scroll to it and light it for a moment, once it is read; gone (or hidden from me): say so
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focusAnswer || focused.current || loading || loadError) return
+    focused.current = true
+    const m = messages.find((x) => x.id === focusAnswer)
+    const el = m && !m.withheld ? scroller.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(focusAnswer)}"]`) : null
+    if (!el) { toast({ level: 'info', text: t('share.widenList.gone') }); return }
+    stick.current = false
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'center' })
+      el.setAttribute('data-focused', '')
+      setTimeout(() => el.removeAttribute('data-focused'), 2400)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAnswer, loading, loadError, messages.length])
+  // a phone that came from a sharing dialog's list: the way back to it
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const draft = useWideningDraft((s) => s.draft)
+  const backToSharing = !!focusAnswer && phone && !!draft?.left && freshDraft(draft)
   // the AI's open question in this chat (the message box answers it), and cards only their own buttons answer
   const question = useChats((s) => composerQuestion(s.requests, chatId))
   const choosing = useChats((s) => choiceWaiting(s.requests, chatId))
@@ -436,6 +474,14 @@ function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <FileDropZone className="flex h-full flex-col" empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
+      {backToSharing && (
+        <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-1">
+          {/* like the system Back: the screen that opened the dialog, which opens it again on the list (WideningDraftHost) */}
+          <button type="button" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(draft!.from))} className="touch-hit inline-flex h-11 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent-text hover:bg-hover" data-testid="back-to-sharing">
+            <ChevronLeft size={18} aria-hidden />{t('share.widenList.back')}
+          </button>
+        </div>
+      )}
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
           it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
           the name, and a new chat (✦, as a room's header asks Trina). */}
