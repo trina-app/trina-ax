@@ -77,6 +77,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'team.joined': return true
     // someone started to see a project the person is in (shown always, Notifications.projectJoined)
     case 'project.joined': return true
+    // someone shared a chat with the person (shown always; no push yet, Notifications.chatShared)
+    case 'chat.shared': return true
     // a message, an @mention or a followed thread's reply in a room: each room's level decides, per message and person,
     // whether there is a notice at all (rooms/service.ts notify, shared room-alerts.ts), and the push checks it again
     // (rooms/alerts.ts noticeWanted); a person's default 'none' is 'off' for every room without a level of its own

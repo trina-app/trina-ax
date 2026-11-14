@@ -27050,6 +27050,61 @@ the recommended design after an independent security and UX review.
   connections, shared Drives) and when a shared chat of the project is deleted, restored or no longer shared.
 - Version impact: **minor**.
 
+## Chats shared with people and groups (feat/shared-chats-p3, 2026-11-14, product owner)
+
+Where: Team AX core (`server/src/chat/{chat-audience,people-share,people-guard,shared,turn,prompt,tools,share-chat,widening,chat-groups,nav-folders}.ts`,
+`server/src/routes/chats.ts`, `server/src/admin/{folders,groups,users}.ts`, `server/src/notifications/*`, migration
+`298_b_chat_audience.sql`, `shared/src/api/{entities,chats,notifications}.ts`). Plan:
+`docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 3 (QA TC-1405). The owner's decision: a chat outside
+projects can be shared with chosen people and/or groups (no whole-team option), and then works like a shared project
+chat. This phase is the server and API; the Share dialog, the Activity row's words and "Hide from my list" in menus are
+phase 4.
+
+- **Stored.** `chats.people_shared_at` (project_id NULL, `shared_at` stays NULL so an older build sees an ordinary
+  private chat of its creator: its lists and search never show it to anyone else, and it never becomes a shared project
+  chat); `chat_audience` (people by name, groups); `chat_list_hidden` ("Hide from my list"); `chat_share_notices`;
+  `turns.people_checked`. Who sees it is read per request: the creator and the active people listed or in a listed
+  group (`chat/chat-audience.ts`). `isSharedRow` covers both kinds; `Audiences.ofChat`, `chatFor`, `visibleSharedChat`,
+  `publishChat`, the lists, the Trina list, search, the badge and answer notices all use the same predicate. Admins and
+  the owner are not in it by role: outside it they get the 404 of a missing chat.
+- **Save (`PUT /api/chats/:id/audience`).** Its creator only (403 `chat_share_creator_only` to others in it, 404 to
+  everyone else); Drive's model, the whole list per save. Only newly added entries are checked (an active person; a
+  group that exists, and for a member one of their own groups). Adds that bring in new people run the existing-chat
+  check (`share-chat.ts chatUse`, provenance, memories) for those people only, plus the recorded places through phase
+  1's `wideningAnswers` with a chat target (`hiddenAnswers` = the widening list's `total`), and answer `confirm` with a
+  key over the chat, the list, the new people, the sources, memories and every message. Adds wait while a turn runs or
+  waits (`chat_busy`) and are refused while 1A is on; removals always save, after the removed people's running and queued
+  turns there are stopped (S7). Removing everyone makes it its creator's chat again. First share: the engine session is
+  forgotten, earlier turns are marked (`people_checked = 2`, `shared_checked = SHARED_LATER`: their steps are their
+  runner's) and every earlier answer gets a `shared_answer_reads` record with the people who see it now. Audited
+  (`chat.share {kind: 'people'}` on the first share, `chat.audience` with counts only).
+- **Turns (S4).** `TurnExec.shared` is `{kind: 'project'} | {kind: 'people'}`; every gate stays on `exec.shared`
+  (SHARED_TOOLS, no browser or dev environment, no memories, the read card, the instructions' allowlist). A search
+  without a path searches the one folder everyone in the chat may read (top folders but users/ and skills/, and the
+  folders under groups/ and projects/); none or several: refused, naming the candidates so the AI names one. It never
+  falls back to the sender's whole access. A safe-ops workflow is refused in such a chat.
+- **Who loses it.** Leaving a listed group (or the group deleted, its row removed in the same transaction), a disabled
+  or deleted account (a deleted one's rows go): `afterAccessChange` compares group membership directly
+  (`peopleChatsLost`), stops their turns there and tells their windows by id. A creator's purge deletes their
+  people-shared chats with their other chats (Drive's rule); `GET /api/admin/users/:id/shared-chats` counts the ones with
+  other people's messages for the delete dialog.
+- **S8.** A group's size and the count of people only for the creator and admins when a group is in it
+  (`Chat.shared.audienceHidden` for the others; `GET /api/chats/:id/audience` leaves `members`/`count` out).
+- **Notices.** "{name} shared a chat with you" in the Inbox (`chat.shared`, by name or through a group, at most one per
+  chat and person a day); the chat's title only while the reader still sees it, else "no longer shared" with no link.
+- **Refused.** Side chats, scheduled runs' chats, chats in a project (`share_people_in_project`, `project_personal`),
+  `PATCH {projectId}` on a people-shared chat (`shared_chat_move`), recipients' list folders, POST /share for anyone but
+  the creator of a people-shared chat (404).
+- **Rollback (B2, B3).** At start (`chat/people-guard.ts`): a people-shared chat with a turn an older build ran
+  (`people_checked = 0`) stops being shared, others' queued turns stopped; one an older build moved into a project loses
+  the mark and its rows. Audited `chat.unshared_rollback`.
+- **Not in this phase (follow-ups).** S6 chat-scoped storage of computer uploads (`chat_files`): until it exists a file
+  from the computer is refused in a people-shared chat (`Chat.shared.canUpload` false) and earlier uploads stay their
+  sender's alone, as in a shared project chat; no folder-rule exception anywhere. Push for adds by name and the
+  `chatShared` preference: the push gateway and the phone extension need the new code first, so this phase records the
+  Inbox notice only (nothing is pushed).
+- Version impact: **minor**.
+
 ## Admin › Folder permissions as two lists, like Drive — 폴더 권한은 목록 두 개 (feat/admin-folder-lists, 2026-11-14, product owner)
 
 넣을 곳: Team AX core (`web/src/pages/admin/Folders.tsx`, `web/src/pages/admin/FolderLists.tsx`), 이유: files and permissions are core. Plan: `docs/AGENTS/plan/20261114-0420-admin-folder-lists.md`. Goes with "Folder access adds up like Google Drive (P2)" (#787, which owns the Share dialog, Limit access, Access removed, the group warning and the Admin notice). The owner: the rule tree and rule words are "too unfamiliar and hard"; sharing should feel like Google Drive shared drives, and Drive has no admin table of rules (its admins change a folder in its own Share dialog).
@@ -27241,6 +27296,51 @@ default" above: self-hosted operators may want to change the phone push address,
 - **Other apps' messages are read in full (TC-1419).** `slack_read_channel` / `slack_read_thread` (and the asked thread) read a message's `text` only, so another app's alert (a contact form's "새 문의가 접수되었습니다" with its details in Block Kit, a monitor's legacy attachment) reached the AI empty. `read.ts messageRaw` adds what the message's blocks say (section text and fields, header, context, rich_text with links, mentions and emoji, markdown) and its attachments (pretext, author, title with its link, text, "title: value" fields, footer, their blocks; the fallback when nothing else), leaving out what only repeats the text (Slack's rich_text copy of a typed message) and what carries no words (buttons, images, inputs). At most 4,000 characters, 100 parts and 6 levels deep before the message's own 1,500-character cut; the same slackPlain reading (markup in words, every `<` made harmless) and indent as the text, inside the data block.
 - Tests: `tests/unit/c-slack-broker.test.ts` (connected within a round trip), `tests/unit/c-slack.test.ts` (`connectingFor`; the Slack lines' language), `tests/unit/c-integrations-oauth.test.ts` (cancel: own session only, late answer refused), `tests/unit/c-slack-read.test.ts` (blocks and attachments of real-shaped alerts; cut, depth, markup), the security route matrix (`cancelIntegrationFlow`), `web/test/unit/slack-screens.test.tsx` (one state; re-read; slow line; Add to Slack wait), `web/test/e2e/connected-apps-state.spec.ts`.
 - Version impact: **minor** (three new routes; a new optional field on `GET /api/admin/slack`).
+
+## Sentry reporter options for the control plane: level, fingerprint, message events, kept Korean titles, route tags, check-ins (feat/sentry-report-cp-options, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`shared/src/sentry-report.ts`), 이유: the Trina Cloud control plane copies this file at a pinned
+commit for its own reports (no SDK, same allowlist), and every new shape of report is a privacy decision made here.
+
+- **Still the allowlist.** `buildEvent` adds only `fingerprint` and, for `kind: 'message'`, `message.formatted` (in place
+  of `exception`, no frames). `level` is `warning` when asked, `error` by default, `fatal` still wins. The relay and the
+  push gateway set none of these, so their events are unchanged; `TAG_VALUE_RE` is unchanged.
+- **Fingerprint:** at most 4 parts, each a code (`TAG_VALUE_RE`, and not shaped like data: no `@`, no 7+ digits in a
+  row, no IPv4 address, no 20+ character run with a digit in it, so emails, phone and resident numbers, dates, keys,
+  UUIDs and provider ids are refused while codes and versions pass) or a route pattern. One part that is neither, or a fifth
+  part, and the event goes without a fingerprint (Sentry's own grouping): a partly kept fingerprint would merge issues
+  that should stay apart. Callers build it from codes (kind, step, route, error type), never from ids of payments,
+  providers or people.
+- **Route tag (`ROUTE_VALUE_RE`):** only the `route` tag (and a fingerprint part) may hold `/`, and only as a router's
+  pattern: `/api/teams/:id`, `/t/:slug/api/*`. Literal parts are lowercase words of at most 24 characters with at most
+  two digits and no dot, `@`, capital, `%`, space or query, so a host, a file, an email, a numeric or random id and a
+  query string are refused; parameter names are short letters only (`:id`, `:teamId`); at most 128 characters. This
+  is not a proof: any real path whose parts look like words passes (`/u/kimminsu/files`, a token made only of
+  letters), so callers pass the router's pattern (Hono's `c.req.routePath`), never the request path, and the control
+  plane checks that in its own tests.
+- **`keepText: true` keeps Korean words, nothing else.** For alert titles written in code (`예약 작업 실패: <task>`).
+  Hangul stays (not its invisible fillers); every other rule still runs, quoted text included (`"김철수"` → `[text]`),
+  emails and hosts with a Korean domain (`홍길동@회사.한국`, `www.회사.한국`: the email and host rules read letters of
+  any script), Korean secret labels (`비밀번호`, `비번`, `암호`, `토큰`, `인증번호`: the value after them goes, in both
+  modes), and any other non-ASCII
+  script or symbol still becomes `[text]`. Only `true` opts in. Callers may pass it only for a message whose words
+  are all written in code: never for text that can hold a name, a file name, a message or anything a person typed. A
+  name in Hangul cannot be told from a Korean word, so this rests on the caller; the control plane checks its alert
+  titles in its own tests.
+- **`checkIn(dsn, slug, body, {fetch, timeoutMs})`:** a cron check-in from code to Sentry's HTTP endpoint. It never
+  throws or logs and returns `sent | off | paused | failed`, so a job's result, timing and retries never depend on it;
+  nothing is sent without a key, a valid slug or a valid status. The body is an allowlist (`cleanCheckInBody`):
+  `status`, `check_in_id` (UUID or 32 hex), `duration`, `environment`, and `monitor_config` with `schedule` (crontab
+  by the same rule as `relay-checkin.sh`, or interval), `checkin_margin`, `max_runtime`, `timezone` (IANA name),
+  `failure_issue_threshold`, `recovery_threshold`; anything else is dropped. Sending only the final status (with
+  `duration`) is enough; `in_progress` works but is not required.
+- **Rate limits are per category.** `pauseSeconds` takes the categories that apply (errors and `default` by default,
+  as before). A `monitor` limit (or one for every category, or a 429) pauses check-ins to that project; a limit for
+  errors only does not pause check-ins, and a check-in limit never pauses `ErrorReporter`.
+- Tests: `tests/unit/sentry-report.test.ts` (levels, fingerprint rules, message events, keepText with leak canaries,
+  a full event with every new option leaking nothing, route patterns against real paths, check-in body allowlist,
+  never throwing, rate-limit categories both ways).
+- Version impact: **none** (no team server or app change; relay and push gateway behaviour unchanged).
 
 ## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
 

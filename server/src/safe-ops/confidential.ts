@@ -37,6 +37,8 @@ export function markConfidentialTurn(db: Database, turnId: string | null) {
   // a shared project chat is never confidential (docs/DECISIONS.md "Shared project chats"): its people would all see
   // what a 1A workflow read; the workflow is refused instead
   if (db.query('SELECT 1 FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id = ? AND c.shared_at IS NOT NULL AND c.project_id IS NOT NULL').get(turnId)) throw new ToolError('A safe workflow cannot run in a shared project chat: its people would all see what it reads. Ask in a chat of your own.', 'safe_ops_unavailable')
+  // nor a chat shared with people and groups (docs/DECISIONS.md "Chats shared with people and groups")
+  if (db.query('SELECT 1 FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id = ? AND c.people_shared_at IS NOT NULL AND c.project_id IS NULL').get(turnId)) throw new ToolError('A safe workflow cannot run in a shared chat: everyone in it would see what it reads. Ask in a chat of your own.', 'safe_ops_unavailable')
   const r = db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT t.chat_id, 1 FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id=? ON CONFLICT(chat_id) DO UPDATE SET material=1').run(turnId)
   if (!r.changes) throw new ToolError('No conversation for this safe workflow.', 'safe_ops_unavailable')
 }

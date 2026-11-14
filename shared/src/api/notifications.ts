@@ -73,8 +73,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
  * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
- * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.paused'])
+ * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
+ * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices), and room_app.paused to the people who manage an app in a room that paused for the day
+ * (room_app_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'chat.shared', 'room_app.paused'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -152,6 +154,11 @@ export const InboxNotification = z.object({
   /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
    * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */
   merges: z.object({ n: z.number().int().positive() }).optional(),
+  /** 'chat.shared' only (docs/DECISIONS.md "Chats shared with people and groups"; chat_share_notices): someone shared a
+   * chat with me, by name or through a group. `name`: who shared it, by display name while their account is there;
+   * `title`: the chat's title, read now and only while I still see the chat (link 'chat' then opens it); `gone`: I no
+   * longer see it ("This chat is no longer shared with you": no title, no link). Never stored text. Older servers omit it */
+  chatShared: z.object({ name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";
    * the link opens Skills › 검토 at that person. Never a skill's name. Older servers omit it */
