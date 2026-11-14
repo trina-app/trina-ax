@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, ApiError, uuidv7, type WideningAnswers } from '@mycel/shared/api'
+import { API, ApiError, uuidv7, type ChatAudienceSubject, type WideningAnswers } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 import { answerPreview } from '../../server/src/chat/widening'
@@ -49,7 +49,7 @@ function answer(chatId: string, runner: string, at: string, content: string, rea
   n++
   return a
 }
-const addBob = [{ subjectType: 'user' as const, subjectId: 'erin' }, { subjectType: 'user' as const, subjectId: 'bob' }]
+const addBob: ChatAudienceSubject[] = [{ subjectType: 'user', subjectId: 'erin' }, { subjectType: 'user', subjectId: 'bob' }]
 const list = (user: string, body: Partial<{ add: typeof addBob; cursor: string; limit: number }> = {}) =>
   h.api(user).call(API.wideningAnswers, { body: { target: { kind: 'project', projectId }, add: addBob, ...body } }) as Promise<WideningAnswers>
 const errOf = async (p: Promise<unknown>) => { try { await p } catch (e) { return e as ApiError } throw new Error('expected an error') }
