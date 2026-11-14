@@ -68,9 +68,9 @@ test('the guest limit: full or not for anyone who may invite; seats and the plan
   const seats = (await owner.call('GET', '/api/admin/users')).items.filter((u: { role: string }) => u.role !== 'guest').length
   setPlanForTests(plan({ maxGuests: 1, maxActiveMembers: seats, account: 'https://plans.example.com/acme' }))
   expect(await mia.client.call('GET', '/api/guest-invites/limit')).toEqual({ full: true, limit: 1 })
-  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: true, limit: 1, seatsFull: true, manageUrl: 'https://plans.example.com/acme' })
+  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: true, limit: 1, used: 1, seatsFull: true, manageUrl: 'https://plans.example.com/acme' })
   setPlanForTests(plan({ maxGuests: 2, maxActiveMembers: seats + 1 }))
-  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: false, limit: 2, seatsFull: false })
+  expect(await owner.call('GET', '/api/guest-invites/limit')).toEqual({ full: false, limit: 2, used: 1, seatsFull: false })
   // a guest never invites: the endpoint is off their list
   expect((await g.client.try('GET', '/api/guest-invites/limit')).status).toBe(403)
 })
