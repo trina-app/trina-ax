@@ -372,6 +372,7 @@ describe('from the cutover on nothing is hidden (TC-1404)', () => {
     db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
     try { oldId = (await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))).done.id }
     finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+    await Bun.sleep(5)
     setHiddenAnswersCutover(db(), new Date().toISOString())
   })
   afterAll(() => { setHiddenAnswersCutover(db(), OLD_RULE); leave() })

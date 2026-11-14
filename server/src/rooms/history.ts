@@ -22,7 +22,9 @@
 // outside the team files; a shared answer whose chat did not describe it; a source this build does not know), the
 // member's account cannot be loaded, or it holds a person's own folder, browser or connection (`user`), a team
 // connection (`integration`) or a shared Drive (`drive_share`) the member may not read (chat/read-scope.ts viewersOf).
-// One that used team folders or rooms only is visible. The walk only ever shows more than the rule before it, never less.
+// One that used team folders only is visible. One that used this room is judged as before (hidden when an older answer
+// hidden from the member is in what it read): it may carry what no card covered. The walk only ever shows more than the
+// rule before it, never less.
 import type { Database } from 'bun:sqlite'
 import type { RoomKind } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -41,8 +43,9 @@ const failed = new WeakMap<Database, Map<string, number>>()
 
 /** What an old answer used, as kept; closed: not all of it is known (hidden from every later member). */
 interface Scope { sources: ReadSource[]; closed: boolean }
-type Candidate = { id: string; seq: number; see: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; thread_root_id: string | null; ai_scope: string | null; source_scope: string | null; created_at: string | null }
-/** The sources an older message is still judged by (rule b): what no card could cover. Team folders and rooms are not. */
+type Candidate = { id: string; seq: number; see: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; thread_root_id: string | null; ai_scope: string | null; source_scope: string | null; created_at: string | null; q_seq: number | null }
+/** The sources an older message is still judged by (rule b): what no card could cover. Team folders are not; this room
+ * is judged by the older answers hidden in it (walk). */
 const JUDGED: ReadonlySet<string> = new Set(['user', 'integration', 'drive_share'])
 const KNOWN: ReadonlySet<string> = new Set(['folder', 'root', 'user', 'integration', 'drive_share', 'room', 'name'])
 
@@ -124,20 +127,56 @@ export function wouldSeeFrom(ctx: AppContext, roomId: string, userId: string, fr
 export class HistoryOutOfTime extends Error {}
 
 /** The walk: every candidate in seq order, the ones hidden from the member (with the seq that decides who sees them).
- * Linear in the room's old answers; each place is checked once. A message from the cutover on is never hidden (rule a),
- * but for a reply in the thread of an older one hidden from them; an older one by rule b (the file's header). */
+ * Linear in the room's old answers: the hidden ones so far are kept sorted by who-sees seq (a range is a look from the
+ * end), each place is checked once, and each person's member row and hidden rows are read once. A message from the
+ * cutover on is never hidden (rule a), but for a reply in the thread of an older one hidden from them; an older one by
+ * rule b (the file's header). */
 function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, joinedAt: number, who: Principal | null, deadline?: number): { id: string; see: number }[] {
   const db = ctx.db
   const cutover = hiddenAnswersCutover(db)
   const candidates = db.query(`SELECT m.id, m.seq, COALESCE(m.thread_root_seq, m.seq) see, m.author_kind, m.author_id, m.asked_by, m.thread_root_id, m.source_scope, m.created_at,
-      (SELECT t.scope FROM room_ai_turns t WHERE t.answer_id = m.id LIMIT 1) ai_scope
+      (SELECT t.scope FROM room_ai_turns t WHERE t.answer_id = m.id LIMIT 1) ai_scope, (SELECT q.seq FROM room_messages q WHERE q.id = m.reply_to_id AND q.room_id = m.room_id) q_seq
     FROM room_messages m WHERE m.room_id = ? AND (m.author_kind = 'ai' OR m.answer_at IS NOT NULL OR m.source_scope IS NOT NULL)
       AND COALESCE(m.thread_root_seq, m.seq) <= ? AND m.visibility = 'room' AND m.event IS NULL ORDER BY m.seq`).all(roomId, joinedAt) as Candidate[]
   const hidden: { id: string; see: number }[] = []
+  /** the same, sorted by see (a thread reply's is its first message's, so not always the newest) */
+  const bySee: { id: string; see: number }[] = []
   const ids = new Set<string>()
   const verdicts = new Map<string, boolean>()
-  const reads = (p: Principal, s: ReadSource): boolean => {
-    // a team folder, the top, a name, a room: a card could have covered it (rule b), not judged any more
+  const readerRows = new Map<string, Set<string>>()
+  const memberRows = new Map<string, ReturnType<typeof memberRow>>()
+  const rowOf = (u: string) => { if (!memberRows.has(u)) memberRows.set(u, memberRow(db, roomId, u)); return memberRows.get(u)! }
+  /** is an answer hidden from them at or after `from`, one not in `exempt`? (from the end: the newest see first) */
+  const hiddenFrom = (from: number, exempt: Set<string> | null): boolean => {
+    for (let i = bySee.length - 1; i >= 0 && bySee[i]!.see >= from; i--) if (!exempt?.has(bySee[i]!.id)) return true
+    return false
+  }
+  const keep = (h: { id: string; see: number }) => {
+    hidden.push(h)
+    let lo = 0, hi = bySee.length
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (bySee[mid]!.see <= h.see) lo = mid + 1; else hi = mid }
+    bySee.splice(lo, 0, h)
+  }
+  /** the answers hidden from the person whose question (or message) `c` was, when what they read was read in their
+   * membership now (their rows are then what they could not see when they read it: rows only become fewer while they
+   * stay); else none. An AI answer's reads happened during its question (a turn stops when its asker leaves): they
+   * joined before the question. A person's message (a shared answer, an AI app's) read at a time not known: the
+   * oldest message read must be newer than their join (it did not exist before). */
+  const exemptFor = (c: Candidate, s: ReadSource & { type: 'room' }): Set<string> | null => {
+    const r = c.author_kind === 'ai' ? c.asked_by : c.author_id
+    if (!r || r === userId) return null
+    const row = rowOf(r)
+    const since = c.author_kind === 'ai' ? c.q_seq : s.fromSeq ?? null
+    if (!row || since === null || row.visible_from_seq >= since) return null
+    let rows = readerRows.get(r)
+    if (!rows) readerRows.set(r, (rows = new Set((db.query('SELECT message_id FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').all(roomId, r) as { message_id: string }[]).map((x) => x.message_id))))
+    return rows
+  }
+  const reads = (p: Principal, s: ReadSource, c: Candidate): boolean => {
+    // this room: still judged by the older answers hidden from them in it (an answer that used one carries what a
+    // person's own folder or a connection gave, which no card covered; the safer reading of rule b)
+    if (s.type === 'room' && s.id === roomId) return !hiddenFrom(s.fromSeq ?? 0, exemptFor(c, s))
+    // a team folder, the top, a name, another room: a card could have covered it (rule b), not judged any more
     if (!JUDGED.has(s.type)) return true
     const k = sourceKey(s)
     let ok = verdicts.get(k)
@@ -155,7 +194,7 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
       if (afterCutover(cutover, c.created_at)) continue
       try {
         const scope = scopeOf(c)
-        visible = !!who && !!scope && !scope.closed && scope.sources.every((s) => reads(who, s))
+        visible = !!who && !!scope && !scope.closed && scope.sources.every((s) => reads(who, s, c))
       } catch (e) {
         // one answer that cannot be judged is hidden; the walk goes on
         ctx.log.warn('room history: an answer not judged', { err: e })
@@ -163,7 +202,7 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
       }
     }
     if (visible) continue
-    hidden.push({ id: c.id, see: c.see })
+    keep({ id: c.id, see: c.see })
     ids.add(c.id)
   }
   return hidden

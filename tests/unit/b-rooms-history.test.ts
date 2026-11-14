@@ -5,8 +5,9 @@
 // answer from before it (the old room AI's, or one shared from a person's own AI chat) is still one line for a later
 // member (RoomMessage.withheld), and hidden everywhere else (its thread, quotes, reactions, sources, the rooms list, the
 // Inbox, the readers of the person's own AI chat and of AI apps, the room AI's context), only where no card could have
-// covered it (rule b): its scope was not kept or not known, or it used a person's own folder, a connection or a shared
-// Drive the member cannot open; one that used team folders or rooms only is shown. An answer that used a hidden one
+// covered it (rule b): its scope was not kept or not known, it used a person's own folder, a connection or a shared
+// Drive the member cannot open, or it used the room where an older answer hidden from them was; one that used team
+// folders only is shown. An answer that used a hidden one
 // stays private while such a member is in the room. The tests below are about such older answers (the cutover is set
 // after them) unless they say otherwise. Answers are written straight into the database where the engine
 // is not the point (the fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner).
@@ -216,7 +217,7 @@ describe('what an old answer used', () => {
     expect(w(marketing).body).toBe('SHARED-MARKETING')
   })
 
-  test('an older answer that used the room (one hidden from them in it) is shown: rooms are not judged any more (rule b)', async () => {
+  test('an answer built on one hidden from them is hidden too; one whose context started after it is not', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const a = aiAnswer(roomId, 'alice', 'SECRET-A', { sources: [ALICE_OWN] })
     const b = aiAnswer(roomId, 'erin', 'BUILT-ON-A', { sources: [{ type: 'room', id: roomId, fromSeq: a.seq - 1 }] })
@@ -225,7 +226,7 @@ describe('what an old answer used', () => {
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const items = await timeline('bob', roomId)
     const w = (id: string) => items.find((m) => m.id === id)!.withheld ?? false
-    expect([w(a.answerId), w(b.answerId), w(c.answerId)]).toEqual([true, false, false])
+    expect([w(a.answerId), w(b.answerId), w(c.answerId)]).toEqual([true, true, false])
   })
 })
 
@@ -290,9 +291,7 @@ describe('when it is worked out', () => {
     db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
     const late = aiAnswer(roomId, 'alice', 'LATE-IN-OLD-THREAD', { sources: [ALICE_OWN] }, { threadRootId: root.id })
     openHistories(h.ctx)
-    // (the answer built on the deleted one used the room: shown, rule b)
-    expect(hiddenRows(roomId, 'bob').sort()).toEqual([gone.answerId, late.answerId].sort())
-    void onGone
+    expect(hiddenRows(roomId, 'bob').sort()).toEqual([gone.answerId, onGone.answerId, late.answerId].sort())
     const thread = await h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })
     expect(thread.items.find((m) => m.id === late.answerId)).toMatchObject({ withheld: true, body: '' })
     expect(JSON.stringify(thread)).not.toContain('LATE-IN-OLD-THREAD')
@@ -506,13 +505,15 @@ describe('found in the second PR review', () => {
 })
 
 describe('from the cutover on nothing is hidden (TC-1404)', () => {
+  /** the cutover now: what was made before it is older, what comes after it new */
+  const cutNow = async () => { await Bun.sleep(5); setHiddenAnswersCutover(h.ctx.db, new Date().toISOString()); await Bun.sleep(5) }
   afterAll(() => setHiddenAnswersCutover(h.ctx.db, OLD_RULE))
 
   test('an older answer with a closed scope stays hidden from a later member; a new one that used the same is shown; replies in a hidden thread stay hidden', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const old = aiAnswer(roomId, 'alice', 'OLD-CLOSED-CANARY', { sources: [ALICE_OWN] })
     const oldFolder = aiAnswer(roomId, 'alice', 'OLD-FOLDER-CANARY', { sources: [folder('groups/marketing')] })
-    setHiddenAnswersCutover(h.ctx.db, new Date(Date.now() - 1000).toISOString())
+    await cutNow()
     const fresh = aiAnswer(roomId, 'alice', 'NEW-OWN-CANARY', { sources: [ALICE_OWN] })
     const web = aiAnswer(roomId, 'alice', 'NEW-WEB-CANARY', { sources: [], outside: true })
     const reply = aiAnswer(roomId, 'erin', 'NEW-REPLY-IN-OLD-THREAD', { sources: [] }, { threadRootId: old.answerId })
@@ -536,7 +537,7 @@ describe('from the cutover on nothing is hidden (TC-1404)', () => {
     expect(wouldSeeFrom(h.ctx, roomId, 'carol', old.seq - 1)).toBe(false)
     expect(wouldSeeFrom(h.ctx, roomId, 'carol', after.seq)).toBe(true)
     // from the cutover on: a new answer that used the same is no reason
-    setHiddenAnswersCutover(h.ctx.db, new Date(Date.now() - 1000).toISOString())
+    await cutNow()
     const fresh = aiAnswer(roomId, 'alice', 'WSF-NEW', { sources: [ALICE_OWN] })
     expect(wouldSeeFrom(h.ctx, roomId, 'carol', fresh.seq - 1)).toBe(true)
     expect(wouldSeeFrom(h.ctx, roomId, 'carol', old.seq - 1)).toBe(false)
