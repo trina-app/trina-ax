@@ -1,4 +1,4 @@
-// "Share…" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405; plan
+// "Share" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405; plan
 // docs/AGENTS/plan/20261114-shared-chats-everywhere.md UX 1): Google Drive's dialog shape and save model. Its creator
 // adds people and groups (the people-and-groups search of the project dialogs, components/ProjectParticipants.tsx; no
 // whole-team option) and takes them out with ✕ (a 44 px box on a phone); the creator's row says "Started this chat" and
@@ -15,7 +15,7 @@
 // taking everyone out says the chat becomes mine alone again. The fixed note under it all says what sharing means.
 //
 // Someone else's shared chat: who it is shared with, read only, "Only {name} can change who sees this chat." A chat of
-// mine in a personal project: why it can't be shared and Move…; once moved out, this dialog opens again on it.
+// mine in a personal project: why it can't be shared and Move; once moved out, this dialog opens again on it.
 // On a phone the dialog is the app's bottom sheet (ui.tsx Modal); an answer of the widening list opens on the same
 // screen, the draft kept first (store/wideningDraft.ts), and "‹ Back to sharing" reopens this dialog on the list with
 // the picks (components/WideningDraftHost.tsx).
@@ -55,7 +55,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   returnTo?: HTMLElement | null
   /** a phone's way back from an answer of the widening list: the picks and the list as they were */
   initial?: WideningDraft
-  /** a chat of mine in a personal project: the dialog explains and offers Move… */
+  /** a chat of mine in a personal project: the dialog explains and offers Move */
   personal?: boolean
 }) {
   const t = useT()
@@ -314,7 +314,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   )
 }
 
-/** Share… again on a chat that just moved (out of a personal project): the Share dialog outside projects, the project
+/** Share again on a chat that just moved (out of a personal project): the Share dialog outside projects, the project
  * members' share in a team project, nothing in another personal one. */
 function shareAgain(c: Chat) {
   if (!c.projectId) return openChatShare(c)
@@ -322,14 +322,14 @@ function shareAgain(c: Chat) {
   if (p && isTeamProject(p)) openShareChat(c.id)
 }
 
-/** What a Share… item opens (lib/sharedChat.ts shareKindOf): the project members' share for my private chat in a team
+/** What a Share item opens (lib/sharedChat.ts shareKindOf): the project members' share for my private chat in a team
  * project, this dialog for the rest. */
 export function startShare(chat: Target['chat'], kind: ShareKind) {
   if (kind === 'project') openShareChat(chat.id)
   else openChatShare(chat, { personal: kind === 'personal' })
 }
 
-/** What the Share… items open, from anywhere (the title menu, every row's "⋯", the line under the box, the move dialog
+/** What the Share items open, from anywhere (the title menu, every row's "⋯", the line under the box, the move dialog
  * after a move): one dialog for the app (ChatShareHost, App.tsx). */
 type Target = { chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>; personal: boolean; seq: number; returnTo: HTMLElement | null }
 const useChatShareHost = create<{ open: Target | null; seq: number }>(() => ({ open: null, seq: 0 }))

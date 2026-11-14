@@ -230,7 +230,7 @@ describe('sharing', () => {
     // POST /share (a project's members) on a chat outside projects: the revised words
     const e = await errOf(h.api('alice').call(API.shareChat, { params: { id: await newChat() }, body: {} }))
     expect(e.body.params?.reason).toBe('project_not_sharing')
-    expect(e.body.message).toContain('Share…')
+    expect(e.body.message).toContain('Use Share to share')
   })
 })
 

@@ -1,4 +1,4 @@
-// "Share…" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405): the
+// "Share" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405): the
 // Drive-model Share dialog (components/chat/ChatShareDialog.tsx) at 1440 and 390 px wide. Every exit: Save is off with
 // no change; a pick says "new"; ✕ on a saved row strikes it out with Undo; ✕/Esc with unsaved changes asks "Discard
 // changes?" (Keep editing keeps the picks, Discard leaves); a failed save keeps the picks with the error above the
@@ -6,7 +6,7 @@
 // its target; on a phone an answer opens on the same screen and "‹ Back to sharing" brings the dialog back with the
 // picks). The person it is shared with finds it in their list and in Activity ("Olga shared a chat with you" with its
 // title), continues it, hides it from their list (opening it brings it back), and sees "This chat is no longer shared
-// with you" with Go to Home when taken out while it is open. A personal project's chat explains and offers Move…, after
+// with you" with Go to Home when taken out while it is open. A personal project's chat explains and offers Move, after
 // which the dialog opens again; the admin's delete-account dialog counts the person's shared chats. axe on each dialog.
 // The mock (test/mock/server.ts "chats shared with people and groups"): POST /__test/chat-share {confirm, fail}, POST
 // /__test/widening {items}.
@@ -68,7 +68,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await page.goto(`/c/${chatId}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await page.getByTestId('chat-menu').click()
-      await expect(page.getByTestId('chat-share')).toHaveText('공유…')
+      await expect(page.getByTestId('chat-share')).toHaveText('공유')
       await page.getByTestId('chat-share').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog.getByTestId('chat-share-dialog')).toBeVisible()
@@ -141,7 +141,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         await row.click()
       }
       await expect(bob).toHaveURL(new RegExp(`/c/${w.chatId}`))
-      // no Share… for him; he may hide it, and continue it
+      // no Share for him; he may hide it, and continue it
       await bob.getByTestId('chat-menu').click()
       await expect(bob.getByTestId('chat-share')).toHaveCount(0)
       await expect(bob.getByTestId('chat-hide')).toBeVisible()
@@ -311,7 +311,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await bob2.context().close()
     })
 
-    test('a personal project: why not, Move… out, the dialog again; the row menu offers Share…', async ({ page }) => {
+    test('a personal project: why not, Move out, the dialog again; the row menu offers Share', async ({ page }) => {
       await reset(page)
       await signIn(page)
       await world(page)
@@ -337,7 +337,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         const row = list.locator('li', { has: page.locator(`a[href="/c/${c.chatId}"]`) }).first()
         await row.hover()
         await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()
-        await expect(page.getByTestId('chat-row-share')).toHaveText('공유…')
+        await expect(page.getByTestId('chat-row-share')).toHaveText('공유')
         await page.getByTestId('chat-row-share').click()
         await expect(page.getByRole('dialog').getByTestId('chat-share-dialog')).toBeVisible()
       }

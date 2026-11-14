@@ -655,7 +655,7 @@ export const chatsRoutes: RouteModule = {
     // "프로젝트 멤버와 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
     // of what it contains, every branch (chat/share-chat.ts); a shared chat answers 409 already_shared to whoever sees it
     kit.handle(API.shareChat, ({ c, params, body, auth }) => shareChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
-    // Share… for a chat outside projects (chat/people-share.ts): who sees it, its creator's save, a recipient's "Hide
+    // Share for a chat outside projects (chat/people-share.ts): who sees it, its creator's save, a recipient's "Hide
     // from my list". Anyone who cannot see the chat gets the 404 of a missing chat first (chatFor)
     kit.handle(API.getChatAudience, ({ c, params, auth }) => chatAudienceView(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view')))
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))

@@ -236,7 +236,7 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
       if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
     } },
-  // Share… for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
+  // Share for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
   // admins and the owner too, the 404 of a missing chat); her own empty list is refused (her chat is in her personal project:
   // project_personal) and nothing is shared; a hide on her own chat is refused (chat_hide_creator)
   getChatAudience: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/audience`), scope: 'own-alice-chat',

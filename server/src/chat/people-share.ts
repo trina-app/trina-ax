@@ -1,4 +1,4 @@
-// "Share…" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405; plan
+// "Share" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405; plan
 // docs/AGENTS/plan/20261114-shared-chats-everywhere.md phase 3). Its creator picks people and groups (no whole-team
 // option); then it works like a shared project chat: each turn is its sender's (SHARED_TOOLS only, the read card, no
 // memories), everyone in it sees the whole chat and may continue it. Who sees it is read per request

@@ -11,10 +11,10 @@
 // shared). With nothing to offer the title is a plain heading. A shared chat also offers "Continue in a chat only you
 // see" (docs/DECISIONS.md "Team project chats shared by default"): a new "Only me" chat in the same project with my
 // last question in its box, where my memories and apps work (the AI points here when asked for one in a shared chat).
-// "Share…" (docs/DECISIONS.md "Chats shared with people and groups"; lib/sharedChat.ts shareKindOf) is one item for both
+// "Share" (docs/DECISIONS.md "Chats shared with people and groups"; lib/sharedChat.ts shareKindOf) is one item for both
 // kinds: a chat outside projects that is mine opens the Share dialog (components/chat/ChatShareDialog.tsx), my private
 // chat in a team project the project members' share, my chat in a personal project the dialog that explains and offers
-// Move…. A chat someone shared with me offers "Hide from my list" (its creator never hides it), and "Continue in a chat
+// Move. A chat someone shared with me offers "Hide from my list" (its creator never hides it), and "Continue in a chat
 // only you see" opens Home's box there (no project) with my last question.
 import { EyeOff, FolderInput, Link2, Lock, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
 import type { Chat } from '@mycel/shared/api'

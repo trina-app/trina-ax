@@ -7,7 +7,7 @@
 // - a failed save keeps the picks with the error above the button; a refusal says the server's words;
 // - the server's check comes back in place: the lines, "Share anyway", which sends the key back; another pick asks
 //   again; the widening line opens the list with the chat as its target;
-// - someone else's shared chat: read only, who can change it; a personal project: why, and Move….
+// - someone else's shared chat: read only, who can change it; a personal project: why, and Move.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { ChatAudience, PutChatAudienceResult } from '@mycel/shared/api'
@@ -259,7 +259,7 @@ describe('not mine to change, or not here', () => {
     await m.unmount()
   })
 
-  test('a personal project: why, and Move…', async () => {
+  test('a personal project: why, and Move', async () => {
     routes = { 'GET /api/projects': () => json(200, { items: [] }) }
     const m = await mount(<MemoryRouter><ChatShareDialog chat={{ ...chat, projectId: '01900000-0000-7000-8000-0000000000a1' }} personal onClose={() => {}} /></MemoryRouter>)
     expect(m.get('chat-share-personal').textContent).toContain(en('chat.share.personalProject'))
