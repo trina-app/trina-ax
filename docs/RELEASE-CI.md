@@ -202,7 +202,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
    bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/". "bucket objects can be listed: yes"도 본다(이게 안 되면 publish가 멈춘다)
    ```
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
-6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그로 제한하고 (2) 필요하면 승인자를 정한 뒤, 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다. environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다). 2026-11-14 현재 이 보호는 아직 설정되지 않았다(10장 "처음 한 번").
+6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그와 `main`(feed.yml)으로 제한하고, (2) 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다(권장). 승인자는 두지 않는다: 태그 push가 승인이다(대표 결정 2026-11-14). environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다). 2026-11-14 설정됨(10장 "처음 한 번").
 
 ## 5. beta → stable
 
@@ -365,11 +365,11 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 
 ### 처음 한 번 (대표)
 
-**1–3을 마치기 전에는 `AWS_ROLE_ARN`을 넣지 않는다.** (2026-11-14 대표가 1–6을 마쳤다.) 보호가 없으면 push 권한이 있는 누구나 아무 브랜치에서 `environment: release`를 쓰는 workflow로 OIDC 토큰을 받을 수 있다. 이 레포 설정은 대표만 바꾼다.
+**1–3을 마치기 전에는 `AWS_ROLE_ARN`을 넣지 않는다.** (2026-11-14 대표가 1–6을 마쳤다.) 보호가 없으면 push 권한이 있는 누구나 아무 브랜치에서 `environment: release`를 쓰는 workflow로 OIDC 토큰을 받을 수 있다. 보호는 세 겹이다: (1) `v*` 태그 ruleset(태그를 만들고 옮길 수 있는 사람을 제한), (2) environment의 배포 대상(`v*` 태그와 `main`만), (3) AWS 역할의 OIDC subject(`team-image.yml`의 `v*` 태그 run만). 승인자는 두지 않는다. 이 레포 설정은 대표만 바꾼다.
 
 1. **environment `release` 보호**: Settings → Environments → `release`.
    - Deployment branches and tags → **Selected branches and tags** → 태그 규칙 `v*`와 브랜치 `main`. `main`이 필요한 이유: feed.yml(배포 멈추기·promote)이 main에서 돌고 이 environment를 쓴다. 이미지 역할은 신뢰 정책이 `team-image.yml`의 `v*` 태그 run만 받으므로 `main`을 허용해도 main의 run은 역할을 받지 못한다.
-   - **Required reviewers**: 대표(필요하면 한 명 더). release.yml의 prepare·publish와 이미지 run이 각각 승인을 기다린다.
+   - **Required reviewers는 두지 않는다**(대표 결정 2026-11-14): 태그 push가 곧 승인이다. 그래서 release.yml·이미지 run은 승인을 기다리지 않는다.
    - (권장) 레포 비밀값 `RELEASE_SIGNING_KEY`·`CLOUDFLARE_API_TOKEN`을 이 environment의 비밀값으로 옮긴다. 지금은 레포 비밀값이라 environment 보호가 키를 지키지 못한다.
 2. **`v*` 태그 ruleset**: Settings → Rules → Rulesets → New tag ruleset, 대상 `v*`, Restrict creations·updates·deletions. 우회 목록에는 admin과 maintain 역할을 넣는다(릴리스 태그는 maintain 계정이 push한다).
 3. **OIDC subject에 workflow를 넣는다**(레포 설정, 한 번). 기본 subject `repo:…:environment:release`는 release.yml·feed.yml도 받는다. subject에 `job_workflow_ref`를 넣으면 역할이 `team-image.yml`의 `v*` 태그 run만 믿을 수 있다:
