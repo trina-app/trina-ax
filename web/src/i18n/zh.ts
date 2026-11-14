@@ -1469,7 +1469,7 @@ export const zh: Record<MessageKey, string> = {
   "push.denied": "浏览器已阻止此网站的通知。请在浏览器的网站设置中允许后重试。无痕窗口无法开启通知。",
   "push.deniedApp": "此应用的通知已关闭。请在手机“设置”中允许后重试。",
   "push.phoneGateway": "手机应用推送：已开启。提醒经由{host}发送到 Apple 和 Google，只包含通用文字。",
-  "push.phoneOff": "手机应用通知已关闭：团队服务器没有设置通知地址。服务器负责人在设置中添加后即会开启。",
+  "push.phoneOff": "此团队服务器上的手机应用通知已关闭。服务器负责人可以在其设置中开启。",
   "push.failed": "无法保存推送设置。请检查网络连接后重试。",
   "push.ask": "有新消息和 @Trina 回答时通知你？",
   "push.turnOn": "开启通知",
