@@ -1,0 +1,96 @@
+{
+ "eventId": "a4cb511e-d513-4fa5-baee-b815d718dfd1",
+ "eventType": "FORM_RESPONSE",
+ "createdAt": "2026-11-14T09:00:00.000Z",
+ "data": {
+  "responseId": "2wgx4n",
+  "submissionId": "2wgx4n",
+  "respondentId": "dwQKYm",
+  "formId": "VwbNEw",
+  "formName": "Webhook payload",
+  "createdAt": "2026-11-14T09:00:00.000Z",
+  "fields": [
+   {
+    "key": "question_mVGEg3",
+    "label": "Your name",
+    "type": "INPUT_TEXT",
+    "value": "Jamie Rivera"
+   },
+   {
+    "key": "question_nPaXpY",
+    "label": "Email",
+    "type": "INPUT_EMAIL",
+    "value": "jamie@example.com"
+   },
+   {
+    "key": "question_3EKz4n",
+    "label": "Plan",
+    "type": "MULTIPLE_CHOICE",
+    "value": [
+     "5c7a-1"
+    ],
+    "options": [
+     {
+      "id": "5c7a-1",
+      "text": "Team"
+     },
+     {
+      "id": "5c7a-2",
+      "text": "Solo"
+     }
+    ]
+   },
+   {
+    "key": "question_w4Q4Xn",
+    "label": "Extras",
+    "type": "CHECKBOXES",
+    "value": [
+     "e1",
+     "e2"
+    ],
+    "options": [
+     {
+      "id": "e1",
+      "text": "Support"
+     },
+     {
+      "id": "e2",
+      "text": "Training"
+     }
+    ]
+   },
+   {
+    "key": "question_w4Q4Xn_e1",
+    "label": "Extras (Support)",
+    "type": "CHECKBOXES",
+    "value": true
+   },
+   {
+    "key": "question_w4Q4Xn_e2",
+    "label": "Extras (Training)",
+    "type": "CHECKBOXES",
+    "value": true
+   },
+   {
+    "key": "question_file",
+    "label": "Logo",
+    "type": "FILE_UPLOAD",
+    "value": [
+     {
+      "id": "f1",
+      "name": "logo.png",
+      "url": "https://storage.tally.so/private/logo.png",
+      "mimeType": "image/png",
+      "size": 1234
+     }
+    ]
+   },
+   {
+    "key": "question_skip",
+    "label": "Skipped",
+    "type": "INPUT_TEXT",
+    "value": null
+   }
+  ]
+ }
+}
