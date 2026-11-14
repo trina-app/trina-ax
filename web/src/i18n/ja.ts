@@ -5624,6 +5624,7 @@ export const ja: Record<MessageKey, string> = {
   "roomApps.statusPaused": "一時停止中: 今日のメッセージが{cap}件に達しました。明日また始まります。",
   "roomApps.statusPausedTeam": "一時停止中: チームのアプリは今日合わせて{cap}件のメッセージに達しました。{time}まですべてのアプリが一時停止します。",
   "roomApps.pausedBodyTeam": "チームのアプリは今日合わせて{cap}件のメッセージに達しました。{time}まですべてのアプリが一時停止します。",
+  "roomApps.pausedBodyTeamEnded": "その日、チームのアプリは合わせて{cap}件のメッセージに達しました。午前0時にまた始まりました。",
   "roomApps.listPausedTeam": "チームの上限に到達 · {time}まで",
   "roomApps.movedWait": "{app}が新しい Webhook URL を使うのを待っています。",
   "roomApps.movedWaitOther": "新しい Webhook URL へのメッセージを待っています。",

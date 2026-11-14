@@ -5668,6 +5668,7 @@ export const id: Record<MessageKey, string> = {
   "roomApps.statusPaused": "Dijeda: sudah mencapai {cap} pesan hari ini. Mulai lagi besok.",
   "roomApps.statusPausedTeam": "Dijeda: aplikasi tim Anda mencapai {cap} pesan hari ini. Semua aplikasi dijeda sampai {time}.",
   "roomApps.pausedBodyTeam": "Aplikasi tim Anda mencapai {cap} pesan hari ini. Semua aplikasi dijeda sampai {time}.",
+  "roomApps.pausedBodyTeamEnded": "Aplikasi tim Anda mencapai {cap} pesan hari itu. Semuanya mulai lagi tengah malam.",
   "roomApps.listPausedTeam": "Batas tim tercapai · sampai {time}",
   "roomApps.movedWait": "Menunggu {app} memakai Webhook URL baru.",
   "roomApps.movedWaitOther": "Menunggu pesan di Webhook URL baru.",

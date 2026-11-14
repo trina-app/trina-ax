@@ -141,6 +141,8 @@ test("the paused notice: the app's own cap, the team's cap with its number and t
   const p = { appId: 'a', name: 'A9', roomId: 'r', roomKind: 'team' as const, roomName: 'ops', kind: 'other' as const, day: '2026-11-15', skipped: 1234, canResume: false }
   expect(pausedNoticeText({ ...p, cap: 500, pausedUntil: null }, t, 'en')).toBe('A9 paused in #ops. It reached 500 messages today. 1,234 more were skipped and won\'t appear. It starts again tomorrow.')
   expect(pausedNoticeText({ ...p, cap: 5000, team: true, timeZone: 'Asia/Seoul', pausedUntil: '2026-11-15T15:00:00.000Z' }, t, 'en')).toMatch(/^A9 paused in #ops\. Your team's apps reached 5,000 messages today\. All apps are paused until Nov 16(,| at) 00:00\.$/)
+  // a team notice whose pause ended: the team's sentence, no "until"
+  expect(pausedNoticeText({ ...p, cap: 5000, team: true, pausedUntil: null }, t, 'en')).toBe("A9 paused in #ops. Your team's apps reached 5,000 messages that day. They started again at midnight.")
 })
 
 test('the side chat\'s chip follows the apps that posted: forms only, else what happened today; none without apps', () => {

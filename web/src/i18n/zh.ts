@@ -5594,6 +5594,7 @@ export const zh: Record<MessageKey, string> = {
   "roomApps.statusPaused": "已暂停：今天已达到{cap}条消息。明天重新开始。",
   "roomApps.statusPausedTeam": "已暂停：你们团队的应用今天共达到{cap}条消息。所有应用暂停到{time}。",
   "roomApps.pausedBodyTeam": "你们团队的应用今天共达到{cap}条消息。所有应用暂停到{time}。",
+  "roomApps.pausedBodyTeamEnded": "你们团队的应用当天共达到{cap}条消息。已在午夜重新开始。",
   "roomApps.listPausedTeam": "已达到团队上限 · 暂停到{time}",
   "roomApps.movedWait": "正在等待{app}使用新的 Webhook URL。",
   "roomApps.movedWaitOther": "正在等待新 Webhook URL 收到消息。",

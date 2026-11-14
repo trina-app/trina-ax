@@ -5668,6 +5668,7 @@ export const en: Record<MessageKey, string> = {
   "roomApps.statusPaused": "Paused: it reached {cap} messages today. Starts again tomorrow.",
   "roomApps.statusPausedTeam": "Paused: your team's apps reached {cap} messages today. All apps are paused until {time}.",
   "roomApps.pausedBodyTeam": "Your team's apps reached {cap} messages today. All apps are paused until {time}.",
+  "roomApps.pausedBodyTeamEnded": "Your team's apps reached {cap} messages that day. They started again at midnight.",
   "roomApps.listPausedTeam": "Team limit reached · until {time}",
   "roomApps.movedWait": "Waiting for {app} to use the new Webhook URL.",
   "roomApps.movedWaitOther": "Waiting for a message on the new Webhook URL.",

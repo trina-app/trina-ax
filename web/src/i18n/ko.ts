@@ -5668,6 +5668,7 @@ export const ko = {
   "roomApps.statusPaused": "멈춤: 오늘 메시지 {cap}개에 도달했어요. 내일 다시 시작해요.",
   "roomApps.statusPausedTeam": "멈춤: 오늘 팀의 앱 메시지가 모두 합쳐 {cap}개에 도달했어요. {time}까지 모든 앱이 멈춰요.",
   "roomApps.pausedBodyTeam": "오늘 팀의 앱 메시지가 모두 합쳐 {cap}개에 도달했어요. {time}까지 모든 앱이 멈춰요.",
+  "roomApps.pausedBodyTeamEnded": "그날 팀의 앱 메시지가 모두 합쳐 {cap}개에 도달했어요. 자정에 다시 시작했어요.",
   "roomApps.listPausedTeam": "팀 한도 도달 · {time}까지",
   "roomApps.movedWait": "{app}이(가) 새 Webhook URL을 쓰기를 기다리는 중이에요.",
   "roomApps.movedWaitOther": "새 Webhook URL로 메시지가 오기를 기다리는 중이에요.",

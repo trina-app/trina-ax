@@ -4,7 +4,7 @@ import { plainLabel, ROOM_APP_DAILY_CAP, ROOM_APP_TEAM_DAILY_CAP, type InboxNoti
 import { teamTimeZone } from '../../admin/settings'
 import type { AppContext } from '../../context'
 import { groupName, mayManageApps, memberRow, roomRow, type RoomRow } from '../store'
-import { leaverSource, roomAppsOf, type AppRow } from './service'
+import { leaverSource, roomAppsOf, teamDay, type AppRow } from './service'
 
 export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: string): NonNullable<InboxNotification['roomApp']> | null {
   const m = /^(.+)\.(\d{4}-\d{2}-\d{2})$/.exec(sourceId)
@@ -19,11 +19,14 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
   const out = apps.out(row)
   const d = ctx.db.query('SELECT skipped, paused_by FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { skipped: number; paused_by: string | null } | null
   const skipped = d?.skipped ?? 0
-  // the team's cap: said as the team's, with its number and no Resume now (still paused: what holds it now)
-  const team = out.pausedUntil ? out.pausedBy === 'team' : d?.paused_by === 'team'
+  // the team's cap: said as the team's, with its number and no Resume now. Today's notice while paused: what holds it
+  // now; an earlier day's (or one whose pause ended): what paused it that day
+  const live = !!out.pausedUntil && day === teamDay(ctx.db, apps.clock()).day
+  const team = live ? out.pausedBy === 'team' : d?.paused_by === 'team'
+  const ownCap = live ? out.pausedCap ?? ROOM_APP_DAILY_CAP : ROOM_APP_DAILY_CAP
   return {
     appId, name: plainLabel(row.name, 40), kind: row.kind, ...(apps.presetOf(row) ? { preset: apps.presetOf(row)! } : {}), roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null,
-    day, cap: team ? ROOM_APP_TEAM_DAILY_CAP : out.pausedCap ?? ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: !team && inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
+    day, cap: team ? ROOM_APP_TEAM_DAILY_CAP : ownCap, skipped, pausedUntil: out.pausedUntil, canResume: live && !team && inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
     ...(team ? { team: true as const, timeZone: teamTimeZone(ctx.db) } : {}),
   }
 }

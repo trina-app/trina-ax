@@ -31,7 +31,7 @@ export function pausedNoticeText(p: Paused, t: T, locale: Locale): string {
   const title = p.roomName ? t('roomApps.pausedTitle', { app: p.name, room: p.roomKind === 'team' ? `#${p.roomName}` : p.roomName }) : t('roomApps.pausedTitleNoRoom', { app: p.name })
   const cap = formatNumber(p.cap, locale)
   const skipped = formatNumber(p.skipped, locale)
-  if (p.team && p.pausedUntil) return `${title}. ${t('roomApps.pausedBodyTeam', { cap, time: limitResetText(new Date(p.pausedUntil), locale, p.timeZone) })}`
+  if (p.team) return `${title}. ${p.pausedUntil ? t('roomApps.pausedBodyTeam', { cap, time: limitResetText(new Date(p.pausedUntil), locale, p.timeZone) }) : t('roomApps.pausedBodyTeamEnded', { cap })}`
   const at = startsAtTime(p.pausedUntil, locale)
   // Google Forms counts responses, and the ones it skipped are still in the form
   const forms = p.kind === 'google_forms'
