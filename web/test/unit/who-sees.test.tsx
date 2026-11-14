@@ -93,40 +93,45 @@ describe('the project box', () => {
     useSession.setState({ status: { kind: 'signed-in', me: meAs(role, o.confidential) } } as never)
     let opened = 0
     const m = await mount(<MemoryRouter><NewChatComposer projectId={p.id} project={p} onMembers={() => { opened++ }} aiLine={false} /></MemoryRouter>)
-    const el = m.get('who-sees')
-    // a team project's line is under the box on every screen (with the "Only me" switch); any other project's is in the
-    // box's row (computers)
-    const row = m.find('team-chat-line') ?? m.get('composer-footer')
-    const out = { text: el.textContent, button: el.tagName === 'BUTTON', inRow: !!row.querySelector('[data-testid="who-sees"]') }
-    // a button says what it opens (its tooltip, read as its description)
-    if (out.button) expect(el.getAttribute('title')).toBe(ko('chat.whoOpens'))
-    if (out.button) await m.click(el)
+    // a team project: one chip in the box's row right after + (QA TC-1401), the "Only me" switch named by who sees the
+    // chat being started (a fixed chip when it cannot be shared); any other project: the line in the row under the box
+    // (computers), which opens the members dialog for whoever may change them while the chat is shared
+    const chip = m.find('only-me-toggle') ?? m.find('chat-visibility')
+    let out: { text: string | null; where: string; toggle?: boolean; button?: boolean }
+    if (chip) {
+      out = { text: m.get('chat-visibility-why').textContent, where: m.get('composer-tools').contains(chip) ? 'tools' : 'elsewhere', toggle: chip.tagName === 'BUTTON' }
+      expect(m.find('who-sees')).toBeNull()
+    } else {
+      const el = m.get('who-sees')
+      out = { text: el.textContent, where: m.get('composer-footer').contains(el) ? 'footer' : 'elsewhere', button: el.tagName === 'BUTTON' }
+      if (out.button) await m.click(el)
+    }
     await m.unmount()
     return { ...out, opened }
   }
 
   test('an admin vs a member caller, each alone in a shared project of theirs', async () => {
     // the owner or an admin alone: the count (which includes every admin) is 1
-    expect(await box(project({ audience: 1, alone: true }), 'owner')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 1, alone: true }), 'owner')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', where: 'tools', toggle: true, opened: 0 })
     // a member alone: the owner and the admins are counted, and nobody else sees it by a rule
-    expect(await box(project({ audience: 3, alone: true }), 'member')).toEqual({ text: '나와 관리자만 봐요', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 3, alone: true }), 'member')).toEqual({ text: '나와 관리자만 봐요', where: 'tools', toggle: true, opened: 0 })
     // someone else added
-    expect(await box(project({ audience: 4 }), 'member')).toEqual({ text: '새 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 4 }), 'member')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
     // an admin on a member's project: someone else sees it by a rule (the member), so the count
-    expect(await box(project({ audience: 3, createdBy: { id: 'jun', name: 'Jun' } }), 'admin')).toEqual({ text: '새 채팅은 이 프로젝트의 3명이 보고 이어 쓸 수 있어요.', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 3, createdBy: { id: 'jun', name: 'Jun' } }), 'admin')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 3명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
   })
 
-  test('clickable only when the person may change the members and the new chat will be shared', async () => {
-    // a member of someone else's project: the same words, nothing to open
-    expect(await box(project({ audience: 4, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')).toEqual({ text: '새 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.', button: false, inRow: true, opened: 0 })
-    // a team project an older build left not sharing its chats: the new chat is mine alone, and members do not change that
-    expect(await box(project({ audience: 4, shareChats: false }), 'owner')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
+  test('a switch only while the new chat can be shared; the members dialog opens from a personal box\'s line only when shared', async () => {
+    // a member of someone else's project: the same words, the switch too
+    expect(await box(project({ audience: 4, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
+    // a team project an older build left not sharing its chats: the new chat is mine alone, no switch
+    expect(await box(project({ audience: 4, shareChats: false }), 'owner')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', where: 'tools', toggle: false, opened: 0 })
     // a personal project: never shared, never clickable
-    expect(await box(project({ folderPath: 'users/mia/projects/notes', audience: 1, shareChats: undefined, membersEditable: undefined }), 'member')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
-    // safe operations (1A): a new chat is never shared
-    expect(await box(project({ audience: 4 }), 'owner', { confidential: true })).toEqual({ text: '팀 보안 설정 때문에 지금은 새 채팅을 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ folderPath: 'users/mia/projects/notes', audience: 1, shareChats: undefined, membersEditable: undefined }), 'member')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', where: 'footer', button: false, opened: 0 })
+    // safe operations (1A): a new chat is never shared, no switch
+    expect(await box(project({ audience: 4 }), 'owner', { confidential: true })).toEqual({ text: '팀 보안 설정 때문에 지금은 새 채팅을 나만 볼 수 있어요.', where: 'tools', toggle: false, opened: 0 })
     // a folder in the trash: no shared new chat either (the page shows no box then)
-    expect(await box(project({ audience: 2, inTrash: true }), 'admin')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ audience: 2, inTrash: true }), 'admin')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', where: 'footer', button: false, opened: 0 })
   })
 
   test('the box of a chat without a project (Home) has no line: its page says it', async () => {
