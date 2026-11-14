@@ -8,7 +8,8 @@ import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHE
 import { appChip, appPlainText, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
 import { mayManageApps } from '../../src/store/roomApps'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
-import { startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
+import { pausedNoticeText, startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
+import { translate } from '../../src/i18n'
 import { middleCut } from '../../src/components/rooms/apps/AppsDialog'
 
 test('the apps screens use Slack\'s words in every language: "Webhook URL" with Copy and Regenerate (owner decision 3, plan 20261114-1522)', () => {
@@ -118,7 +119,28 @@ test('the status line: paused, a refusal newer than the last message, connected,
   expect(appStatus({ ...base, firstOkAt: '2026-11-05T10:00:00Z', lastOkAt: '2026-11-05T10:05:00Z' }).kind).toBe('ok')
   expect(appStatus({ ...base, firstOkAt: '2026-11-05T10:00:00Z', lastOkAt: '2026-11-05T10:05:00Z', lastRefusal: { at: '2026-11-05T10:06:00Z', reason: 'signature' } })).toEqual({ kind: 'refused', at: '2026-11-05T10:06:00Z', reason: 'signature' })
   expect(appStatus({ ...base, firstOkAt: '2026-11-05T10:00:00Z', lastOkAt: '2026-11-05T10:07:00Z', lastRefusal: { at: '2026-11-05T10:06:00Z', reason: 'signature' } }).kind).toBe('ok')
-  expect(appStatus({ ...base, pausedUntil: '2099-01-01T00:00:00Z' }).kind).toBe('paused')
+  expect(appStatus({ ...base, pausedUntil: '2099-01-01T00:00:00Z' })).toEqual({ kind: 'paused', until: '2099-01-01T00:00:00Z', by: 'app', cap: 500 })
+  expect(appStatus({ ...base, pausedUntil: '2099-01-01T00:00:00Z', pausedBy: 'team', pausedCap: 5000, timeZone: 'Asia/Seoul' })).toEqual({ kind: 'paused', until: '2099-01-01T00:00:00Z', by: 'team', cap: 5000, timeZone: 'Asia/Seoul' })
+})
+
+test('after Regenerate the status waits for the new Webhook URL until a message arrives after it (QA TC-2086)', () => {
+  const base = { lastRefusal: null, firstOkAt: '2026-11-05T10:00:00Z', lastOkAt: '2026-11-05T10:05:00Z', pausedUntil: null }
+  expect(appStatus({ ...base, rotatedAt: '2026-11-05T11:00:00Z' })).toEqual({ kind: 'moved', at: '2026-11-05T11:00:00Z' })
+  // never had a message: waits for the new one too
+  expect(appStatus({ ...base, firstOkAt: null, lastOkAt: null, rotatedAt: '2026-11-05T11:00:00Z' }).kind).toBe('moved')
+  // a refusal of the old URL does not count; one on the new URL does
+  expect(appStatus({ ...base, rotatedAt: '2026-11-05T11:00:00Z', lastRefusal: { at: '2026-11-05T10:30:00Z', reason: 'signature' } }).kind).toBe('moved')
+  expect(appStatus({ ...base, rotatedAt: '2026-11-05T11:00:00Z', lastRefusal: { at: '2026-11-05T11:01:00Z', reason: 'signature' } }).kind).toBe('refused')
+  // the first message on the new URL
+  expect(appStatus({ ...base, lastOkAt: '2026-11-05T11:02:00Z', rotatedAt: '2026-11-05T11:00:00Z' }).kind).toBe('ok')
+  expect(appStatus({ ...base, rotatedAt: null }).kind).toBe('ok')
+})
+
+test("the paused notice: the app's own cap, the team's cap with its number and the end in the team's zone (QA TC-2067)", () => {
+  const t = ((k: string, v?: Record<string, string | number>) => translate('en', k as never, v)) as never
+  const p = { appId: 'a', name: 'A9', roomId: 'r', roomKind: 'team' as const, roomName: 'ops', kind: 'other' as const, day: '2026-11-15', skipped: 1234, canResume: false }
+  expect(pausedNoticeText({ ...p, cap: 500, pausedUntil: null }, t, 'en')).toBe('A9 paused in #ops. It reached 500 messages today. 1,234 more were skipped and won\'t appear. It starts again tomorrow.')
+  expect(pausedNoticeText({ ...p, cap: 5000, team: true, timeZone: 'Asia/Seoul', pausedUntil: '2026-11-15T15:00:00.000Z' }, t, 'en')).toMatch(/^A9 paused in #ops\. Your team's apps reached 5,000 messages today\. All apps are paused until Nov 16(,| at) 00:00\.$/)
 })
 
 test('the side chat\'s chip follows the apps that posted: forms only, else what happened today; none without apps', () => {

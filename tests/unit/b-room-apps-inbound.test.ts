@@ -309,7 +309,8 @@ test('the day\'s cap pauses the app until the team\'s midnight: a quiet line, a 
   const ms = await messages()
   expect(ms.at(-1)).toMatchObject({ app: { quiet: true }, appCard: { title: appText('pausedLine', 'ko', { app: o.app.name, cap: ROOM_APP_DAILY_CAP }) } })
   const listed = (await owner.call('GET', `/api/rooms/${all}/apps`)).items[0]
-  expect(listed).toMatchObject({ pausedUntil: next, canResume: true })
+  expect(listed).toMatchObject({ pausedUntil: next, canResume: true, pausedBy: 'app', pausedCap: ROOM_APP_DAILY_CAP })
+  expect(listed.timeZone).toBeUndefined()
   // the owner (who manages it in the everyone room) is told; a member is not
   const ownerInbox = (await owner.call('GET', '/api/notifications')).items as any[]
   const notice = ownerInbox.find((n) => n.code === 'room_app.paused')
@@ -331,7 +332,43 @@ test('the day\'s cap pauses the app until the team\'s midnight: a quiet line, a 
   const other = await add('other', all, owner, 'Other two')
   h.ctx.db.query("INSERT INTO room_app_days (app_id, day, room_id, kind, shown) VALUES (?, ?, ?, 'other', ?) ON CONFLICT(app_id, day) DO UPDATE SET shown = excluded.shown").run(o.app.id, nd, all, ROOM_APP_TEAM_DAILY_CAP)
   expect((await post(other.token, JSON.stringify({ text: 'team full' }))).status).toBe(429)
-  expect((await owner.call('GET', `/api/rooms/${all}/apps`)).items.find((a: any) => a.id === other.app.id).canResume).toBe(false)
+  // QA TC-2067: said as the team's cap everywhere, with its number (5,000, not the app's 500) and no Resume now
+  const two = (await owner.call('GET', `/api/rooms/${all}/apps`)).items.find((a: any) => a.id === other.app.id)
+  expect(two).toMatchObject({ canResume: false, pausedBy: 'team', pausedCap: ROOM_APP_TEAM_DAILY_CAP, timeZone: expect.any(String) })
+  await settle()
+  const line = (await messages()).at(-1)
+  expect(line.app).toMatchObject({ id: other.app.id, quiet: true })
+  expect(line.appCard.title).toBe(apps.teamCapText('ko', two.pausedUntil))
+  expect(line.appCard.title).toContain('5,000')
+  expect(line.appCard.title).not.toContain('Other two')
+  expect(apps.teamCapText('en', two.pausedUntil)).toMatch(/^Your team's apps reached 5,000 messages today\. All apps are paused until .+\.$/)
+  const teamNotice = ((await owner.call('GET', '/api/notifications')).items as any[]).find((n) => n.code === 'room_app.paused' && n.roomApp?.appId === other.app.id)
+  expect(teamNotice.roomApp).toMatchObject({ cap: ROOM_APP_TEAM_DAILY_CAP, team: true, canResume: false, timeZone: expect.any(String) })
+  const refused = await owner.try('POST', `/api/rooms/${all}/apps/${other.app.id}/resume`)
+  expect(refused.status).toBe(409)
+})
+
+test('Regenerate: the status waits for the service to use the new Webhook URL until a message arrives on it (QA TC-2086)', async () => {
+  const { owner, add, post, all } = await setup()
+  const a = await add('github')
+  const ping = JSON.stringify({ zen: 'Keep it logically awesome.', hook_id: 1 })
+  expect((await post(a.token, ping, { 'x-github-event': 'ping', 'x-github-delivery': 'd1' })).status).toBe(200)
+  const before = (await owner.call('GET', `/api/rooms/${all}/apps`)).items[0]
+  expect(before.rotatedAt).toBeNull()
+  expect(before.lastOkAt).not.toBeNull()
+  const r = await owner.call('POST', `/api/rooms/${all}/apps/${a.app.id}/rotate`)
+  expect(r.app.rotatedAt).not.toBeNull()
+  expect(Date.parse(r.app.rotatedAt)).toBeGreaterThanOrEqual(Date.parse(before.lastOkAt))
+  // the service still sends to the old URL: 404, and the app still waits
+  expect((await post(a.token, ping, { 'x-github-event': 'ping', 'x-github-delivery': 'd2' })).status).toBe(404)
+  const waiting = (await owner.call('GET', `/api/rooms/${all}/apps`)).items[0]
+  expect(waiting.lastOkAt).toBe(before.lastOkAt)
+  expect(Date.parse(waiting.lastOkAt)).toBeLessThanOrEqual(Date.parse(waiting.rotatedAt))
+  // the first message on the new URL: lastOkAt passes rotatedAt
+  await new Promise((res) => setTimeout(res, 5))
+  expect((await post(r.address.split('/in/')[1], ping, { 'x-github-event': 'ping', 'x-github-delivery': 'd3' })).status).toBe(200)
+  const after = (await owner.call('GET', `/api/rooms/${all}/apps`)).items[0]
+  expect(Date.parse(after.lastOkAt)).toBeGreaterThan(Date.parse(after.rotatedAt))
 })
 
 test('Google Forms: a response is a card with the respondent\'s email by default (a switch turns it off); an edit goes to its thread', async () => {

@@ -58,7 +58,7 @@ export const APP_TEXT = {
   full: t('이 방에는 앱이 {max}개 있어요. 하나를 빼야 다른 앱을 추가할 수 있어요.', 'This room has {max} apps. Remove one to add another.', 'Ruangan ini punya {max} aplikasi. Hapus satu untuk menambah yang lain.', 'このルームにはアプリが{max}個あります。別のアプリを追加するには1つ削除してください。', 'Esta sala tiene {max} aplicaciones. Quite una para añadir otra.', "此房间已有 {max} 个应用。请先移除一个再添加。"),
   notPaused: t('이 앱은 멈춰 있지 않아요.', "This app isn't paused.", 'Aplikasi ini tidak dijeda.', 'このアプリは一時停止していません。', 'Esta aplicación no está en pausa.', "此应用没有暂停。"),
   alreadyResumed: t('오늘은 이미 한 번 다시 켰어요. 내일 다시 시작해요.', 'It was already turned back on once today. It starts again tomorrow.', 'Aplikasi ini sudah dinyalakan lagi sekali hari ini. Mulai lagi besok.', '今日はすでに一度再開しています。明日また始まります。', 'Ya se volvió a activar una vez hoy. Vuelve a empezar mañana.', "今天已经重新开启过一次。明天会重新开始。"),
-  teamCap: t('오늘 이 팀의 모든 앱 메시지가 {cap}개에 도달했어요. 내일 다시 시작해요.', "This team's apps reached {cap} messages today. They start again tomorrow.", 'Aplikasi tim ini mencapai {cap} pesan hari ini. Mulai lagi besok.', 'このチームのアプリは今日 {cap} 件のメッセージに達しました。明日また始まります。', 'Las aplicaciones de este equipo llegaron a {cap} mensajes hoy. Vuelven a empezar mañana.', "本团队的应用今天已达到 {cap} 条消息。明天会重新开始。"),
+  teamCap: t('오늘 팀의 앱 메시지가 모두 합쳐 {cap}개에 도달했어요. {time}까지 모든 앱이 멈춰요.', "Your team's apps reached {cap} messages today. All apps are paused until {time}.", 'Aplikasi tim Anda mencapai {cap} pesan hari ini. Semua aplikasi dijeda sampai {time}.', 'チームのアプリは今日合わせて {cap} 件のメッセージに達しました。{time} まですべてのアプリが一時停止します。', 'Las aplicaciones de su equipo llegaron a {cap} mensajes hoy. Todas las aplicaciones están en pausa hasta {time}.', "你们团队的应用今天共达到 {cap} 条消息。所有应用暂停到 {time}。"),
   noSecretForKind: t('이 앱에는 비밀값을 쓸 수 없어요.', "This app doesn't take a secret.", 'Aplikasi ini tidak memakai rahasia.', 'このアプリにはシークレットを設定できません。', 'Esta aplicación no admite un secreto.', "此应用不使用密钥。"),
   // presets (plan 20261114-1522 "Presets"): the vendors' names stay as they are
   notionUpdated: t('페이지가 업데이트됨', 'Page updated', 'Halaman diperbarui', 'ページが更新されました', 'Página actualizada', "页面已更新"),
@@ -125,6 +125,9 @@ export const APP_TEXT = {
 } satisfies Record<string, T>
 
 export type AppTextKey = keyof typeof APP_TEXT
+const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es', zh: 'zh-CN' }
+/** A count as the locale writes it ("5,000", "5.000"). */
+export const appNumber = (n: number, locale: Locale) => new Intl.NumberFormat(TAG[locale] ?? TAG.en).format(n)
 /** A text in the locale with {name} filled in (the values are plain text already). */
 export function appText(key: AppTextKey, locale: Locale, vars: Record<string, string | number> = {}): string {
   const s = APP_TEXT[key][locale] ?? APP_TEXT[key].en

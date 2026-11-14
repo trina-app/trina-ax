@@ -135,6 +135,10 @@ export const InboxNotification = z.object({
     /** an Other app's service (its logo); older servers omit it */
     preset: RoomAppPresetSeen,
     day: z.string(), cap: z.number().int().positive(), skipped: z.number().int().nonnegative(), pausedUntil: IsoTime.nullable(), canResume: z.boolean(),
+    /** the team's cap paused it (all the team's apps together reached it; `cap` is the team's then): nothing to resume
+     * until `pausedUntil`, said in the team's `timeZone`. Older servers omit it */
+    team: z.literal(true).optional(),
+    timeZone: z.string().optional(),
   }).optional(),
   /** 'room_app.leaver' only (the people who may manage the app, docs/DECISIONS.md "Apps posting in rooms"): someone who
    * was shown the app's address (or a secret Trina made) left the room or the team, or is no longer an admin of a team

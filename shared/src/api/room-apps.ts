@@ -220,6 +220,16 @@ export const RoomApp = z.object({
   pausedUntil: IsoTime.nullable(),
   /** "Resume now" is offered: paused for its own cap, and not resumed today yet */
   canResume: z.boolean(),
+  /** while paused, why: 'app' (its own daily cap, ROOM_APP_DAILY_CAP) or 'team' (all the team's apps together reached
+   * ROOM_APP_TEAM_DAILY_CAP: every app waits for the team's midnight, nothing to resume). Older servers omit it */
+  pausedBy: z.enum(['app', 'team']).optional(),
+  /** while paused, the number it reached: the team's cap, or the app's (twice it after "Resume now" that day) */
+  pausedCap: z.number().int().positive().optional(),
+  /** the team's time zone, while paused by the team's cap (the end of the pause is said in it) */
+  timeZone: z.string().optional(),
+  /** when the Webhook URL was last regenerated (null: never). Until a message arrives after it (lastOkAt), the status
+   * says it waits for the service to use the new one. Older servers omit it */
+  rotatedAt: IsoTime.nullable().optional(),
   /** messages shown today (the team's day) */
   today: z.number().int().nonnegative(),
   /** the switch keys an event has arrived for at least once (also while its switch is off): the settings say "Not set

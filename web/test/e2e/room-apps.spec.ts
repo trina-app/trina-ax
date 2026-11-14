@@ -176,12 +176,17 @@ for (const vp of SIZES) {
       await page.getByTestId('apps-quiet').locator('..').click()
       await expect.poll(() => apps.calls.at(-1)).toBe('patch:app-sentry:{"quiet":true}')
       await page.getByTestId('apps-new-address').click()
-      await expect(page.getByRole('alertdialog').or(page.getByRole('dialog').last())).toContainText('The old URL stops working right away. Paste the new Webhook URL into Sentry · checkout.')
+      // the service's plain name, not the name the app was given (QA TC-2086)
+      await expect(page.getByRole('alertdialog').or(page.getByRole('dialog').last())).toContainText('The old URL stops working right away. Paste the new Webhook URL into Sentry.')
       await page.getByRole('button', { name: 'Regenerate', exact: true }).last().click()
-      await expect(page.getByTestId('apps-new-address-done')).toBeVisible()
+      await expect(page.getByTestId('apps-new-address-done')).toHaveText('New Webhook URL ready. Copy it and paste it into Sentry.')
       expect(apps.calls).toContain('rotate:app-sentry')
-      // back to the list: the paused one resumes
+      // until a message arrives on the new URL the status waits for it, not "Last message …" (QA TC-2086)
+      await expect(page.getByTestId('apps-status')).toHaveAttribute('data-state', 'moved')
+      await expect(page.getByTestId('apps-status')).toHaveText('Waiting for Sentry to use the new Webhook URL. Paste it into Sentry.')
+      // back to the list: the row says it too; the paused one resumes
       await page.getByTestId('apps-back').click()
+      await expect(page.getByTestId('apps-list-row').first()).toContainText('Waiting for Sentry to use the new Webhook URL.')
       await page.getByTestId('apps-list-row').nth(1).click()
       await expect(page.getByTestId('apps-status')).toContainText('Paused: it reached 500 responses today.')
       await page.getByTestId('apps-resume').click()
@@ -198,6 +203,22 @@ for (const vp of SIZES) {
       await page.getByRole('button', { name: 'Remove', exact: true }).click()
       await expect.poll(() => apps.calls).toContain('delete:app-github')
       await expect(page.getByTestId('apps-list-row')).toHaveCount(2)
+    })
+
+    test('the team\'s cap: the team\'s number and the end of the pause, no Resume now (QA TC-2067)', async ({ page }) => {
+      const until = '2099-01-01T15:00:00.000Z'
+      const team = mockApp('other', { id: 'app-a9', name: 'A9', pausedUntil: until, canResume: false, today: 433, pausedBy: 'team', pausedCap: 5000, timeZone: 'Asia/Seoul' })
+      const own = mockApp('sentry', { pausedUntil: until, canResume: true, today: 500, pausedBy: 'app', pausedCap: 500 })
+      await open(page, { size: vp.size, apps: [team, own] })
+      await (await menuItem(page)).click()
+      await expect(page.getByTestId('apps-list-row').first()).toContainText('Team limit reached · until Jan 2')
+      await page.getByTestId('apps-list-row').first().click()
+      await expect(page.getByTestId('apps-status')).toHaveText(/^Paused: your team's apps reached 5,000 messages today\. All apps are paused until Jan 2(,| at) 00:00\.$/)
+      await expect(page.getByTestId('apps-resume')).toHaveCount(0)
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(1).click()
+      await expect(page.getByTestId('apps-status')).toContainText('Paused: it reached 500 messages today.')
+      await expect(page.getByTestId('apps-resume')).toBeVisible()
     })
 
     test('cards: the APP tag, plain text, the one link; the thread with short replies and Summarize this thread', async ({ page }) => {

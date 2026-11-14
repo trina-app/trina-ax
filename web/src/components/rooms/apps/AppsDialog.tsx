@@ -19,9 +19,10 @@ import clsx from 'clsx'
 import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, Info, PauseCircle, Plus } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { limitResetText } from '@mycel/shared'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
-import { dateBucket, formatShortDateTime, intlTag } from '../../../lib/format'
+import { dateBucket, formatNumber, formatShortDateTime, intlTag } from '../../../lib/format'
 import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, waitsForEvent, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
 import { useRooms } from '../../../store/rooms'
@@ -57,6 +58,27 @@ function useWhen() {
 /** The address cut in its middle for the field ("https://acme.trina.app/in/tax_in_Ab…9xQ"): the whole one is copied. */
 export function middleCut(s: string, head = 34, tail = 6): string {
   return s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`
+}
+
+/** After Regenerate, until a message arrives on the new Webhook URL (QA TC-2086): "Waiting for GitHub to use the new
+ * Webhook URL." and where to paste it, by the service's plain name (not the name the app was given). */
+function useMovedText() {
+  const t = useT()
+  return (a: RoomApp, part: 'wait' | 'paste') => {
+    const s = svc(a)
+    const k = part === 'wait' ? 'movedWait' : 'movedPaste'
+    return s === 'other' ? t(`roomApps.${k}Other`) : s === 'google_forms' ? t(`roomApps.${k}Forms`) : t(`roomApps.${k}`, { app: t(`roomApps.kind.${s}`) })
+  }
+}
+
+/** "Paused: it reached 500 messages today …" or, when the team's cap holds it, "Paused: your team's apps reached 5,000
+ * messages today. All apps are paused until Nov 16, 00:00." (the team's midnight, in the team's time zone). */
+function usePausedText() {
+  const t = useT()
+  const locale = useLocale()
+  return (s: Extract<ReturnType<typeof appStatus>, { kind: 'paused' }>, forms: boolean) => s.by === 'team'
+    ? t('roomApps.statusPausedTeam', { cap: formatNumber(s.cap, locale), time: limitResetText(new Date(s.until), locale, s.timeZone) })
+    : t(forms ? 'roomApps.statusPausedForms' : 'roomApps.statusPaused', { cap: formatNumber(s.cap, locale) })
 }
 
 type View = { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; service: AppService; appId?: string; step?: 'optional' }
@@ -213,6 +235,8 @@ function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: strin
 // ---------------- 5. the list ----------------
 function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: string) => void; onAdd: () => void }) {
   const t = useT()
+  const locale = useLocale()
+  const moved = useMovedText()
   const left = list.max - list.items.length
   return (
     <div className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-list">
@@ -222,6 +246,7 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
         {list.items.map((a) => {
           const kind = t(`roomApps.kind.${svc(a)}`)
           const by = a.createdBy ? t('roomApps.setUpBy', { name: a.createdBy.name }) : t('roomApps.setUpByGone')
+          const st = appStatus(a)
           return (
             <ListRow
               key={a.id}
@@ -229,7 +254,10 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
               lead={<AppTile service={svc(a)} size="row" />}
               strong
               name={a.name}
-              meta={a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span> : a.pausedUntil ? `${t('roomApps.paused')} · ${t('roomApps.startsTomorrow')}` : a.name !== kind ? `${kind} · ${by}` : by}
+              meta={a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span>
+                : st.kind === 'paused' ? (st.by === 'team' ? t('roomApps.listPausedTeam', { time: limitResetText(new Date(st.until), locale, st.timeZone) }) : `${t('roomApps.paused')} · ${t('roomApps.startsTomorrow')}`)
+                : st.kind === 'moved' ? <span data-testid="apps-list-moved">{moved(a, 'wait')}</span>
+                : a.name !== kind ? `${kind} · ${by}` : by}
               tag={a.pausedUntil ? <span className="inline-flex items-center gap-1 text-warn"><PauseCircle size={12} aria-hidden />{t('roomApps.paused')}</span> : t('roomApps.today', { count: a.today })}
               end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />}
               testId="apps-list-row"
@@ -296,12 +324,16 @@ function StatusLine({ app, place, onAgain, onResume }: { app: RoomApp | null; pl
   const t = useT()
   const when = useWhen()
   const raw = app ? appStatus(app) : { kind: 'none' as const }
-  // settings put a refusal among the warnings; the line then says the last message shown, or that it waits
-  const s = place === 'settings' && raw.kind === 'refused' ? (app?.firstOkAt && app.lastOkAt ? { kind: 'ok' as const, first: app.firstOkAt, last: app.lastOkAt } : { kind: 'none' as const }) : raw
+  // settings put a refusal among the warnings; the line then says what it would without it (the last message shown,
+  // waiting for the new Webhook URL, or waiting)
+  const s = place === 'settings' && raw.kind === 'refused' && app ? appStatus({ ...app, lastRefusal: null }) : raw
   const forms = !!app && FORM_SERVICES.includes(svc(app))
   const refused = useRefusedText()
+  const moved = useMovedText()
+  const paused = usePausedText()
   const [icon, text, tone] = s.kind === 'refused' ? [<AlertCircle key="i" size={15} aria-hidden />, refused(app ? svc(app) : 'other', s), 'text-danger']
-    : s.kind === 'paused' ? [<PauseCircle key="i" size={15} aria-hidden />, t(forms ? 'roomApps.statusPausedForms' : 'roomApps.statusPaused', { cap: 500 }), 'text-warn']
+    : s.kind === 'paused' ? [<PauseCircle key="i" size={15} aria-hidden />, paused(s, forms), 'text-warn']
+    : s.kind === 'moved' && app ? [<WaitingDot key="i" />, `${moved(app, 'wait')} ${moved(app, 'paste')}`, '']
     : s.kind === 'ok' ? [<Check key="i" size={15} aria-hidden />, place === 'guide' ? t('roomApps.connected', { time: when(s.first) }) : t('roomApps.statusOk', { when: when(s.last) }), 'text-ok']
     : [<WaitingDot key="i" />, t('roomApps.waiting'), '']
   return (
@@ -322,7 +354,7 @@ function StatusLine({ app, place, onAgain, onResume }: { app: RoomApp | null; pl
  * again now and then, and at once when a message from it reaches the room: the status line follows live. */
 function useLive(roomId: string, app: RoomApp | null) {
   const s = app ? appStatus(app).kind : null
-  const watching = !!app && (s === 'none' || s === 'refused')
+  const watching = !!app && (s === 'none' || s === 'refused' || s === 'moved')
   const appId = app?.id ?? null
   const arrived = useRooms((st) => (appId && st.timeline?.roomId === roomId ? st.timeline.messages.some((m) => m.app?.id === appId && !m.app.example) : false))
   useEffect(() => {
@@ -758,7 +790,8 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
     // what the service does with the old URL, where it does something (plan "States")
     const body = service === 'google_forms' ? t('roomApps.newAddressBodyForms')
       : service === 'typeform' || service === 'shopify' || service === 'notion' ? t(`roomApps.newAddressBodyPreset.${service}`)
-      : t('roomApps.newAddressBody', { app: app.name })
+      : service === 'other' ? t('roomApps.newAddressBodyOther')
+      : t('roomApps.newAddressBody', { app: t(`roomApps.kind.${service}`) })
     const ok = await confirmDialog({ title: t('roomApps.newAddressTitle'), body, confirm: t('roomApps.newAddressConfirm') })
     if (!ok) return
     try {
@@ -850,7 +883,7 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
           {/* while the warning above offers it, not twice */}
           {!leaver && <button type="button" onClick={() => void rotate()} disabled={!available} className="touch-hit text-sm font-medium text-accent-text hover:underline disabled:opacity-40" data-testid="apps-new-address">{t('roomApps.newAddress')}</button>}
         </div>
-        {fresh && <p className="text-xs text-muted" role="status" data-testid="apps-new-address-done">{t('roomApps.newAddressDone', { app: app.name })}</p>}
+        {fresh && <p className="text-xs text-muted" role="status" data-testid="apps-new-address-done">{service === 'other' ? t('roomApps.newAddressDoneOther') : service === 'google_forms' ? t('roomApps.newAddressDoneForms') : t('roomApps.newAddressDone', { app: t(`roomApps.kind.${service}`) })}</p>}
       </section>
       <div className="border-t border-line px-5 py-3 max-sm:px-4">
         <button type="button" onClick={() => void remove()} className="touch-hit text-sm font-medium text-danger hover:underline" data-testid="apps-remove">{t('roomApps.remove')}</button>

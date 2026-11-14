@@ -18,6 +18,7 @@ import {
   type CreateRoomAppBody, type Locale, type RoomApp, type RoomAppAddress, type RoomAppCreated, type RoomAppKind, type RoomAppList, type RoomAppRefusal,
   type RoomAppSecretResult, type SetRoomAppSecretBody, type UpdateRoomAppBody,
 } from '@mycel/shared/api'
+import { limitResetText } from '@mycel/shared'
 import { PRODUCT } from '@mycel/shared/product'
 import type { AppContext } from '../../context'
 import { newId, nowIso } from '../../db'
@@ -35,7 +36,7 @@ import { bodyOf, cleanCard, line, type StoredCard } from './card'
 import { AppLimits } from './limits'
 import type { AppEvent } from './parse'
 import { presetOf } from './presets'
-import { appText } from './text'
+import { appNumber, appText } from './text'
 
 const TOKEN_KIND = 'room_app_token'
 const SECRET_KIND = 'room_app_secret'
@@ -54,6 +55,7 @@ export interface AppRow {
   id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; events_seen: string; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
+  rotated_at: string | null
 }
 
 export const sha256 = (s: string | Uint8Array) => crypto.createHash('sha256').update(s).digest('hex')
@@ -213,6 +215,23 @@ export class RoomApps {
       AND (d.app_id = ? OR (d.room_id = ? AND d.kind = ? AND NOT EXISTS (SELECT 1 FROM room_apps a WHERE a.id = d.app_id)))`).get(day, row.id, row.room_id, row.kind) as { shown: number; resumed: number }
     return { shown: r.shown, resumed: !!r.resumed }
   }
+  /** Why the app is paused (it is): the team's cap when that is what holds it (paused for it, or the team is full now:
+   * Resume now could not help), else its own. */
+  pausedBy(row: Pick<AppRow, 'id'>, day: string): 'app' | 'team' {
+    if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) return 'team'
+    const r = this.db.query('SELECT paused_by FROM room_app_days WHERE app_id = ? AND day = ?').get(row.id, day) as { paused_by: string | null } | null
+    return r?.paused_by === 'team' ? 'team' : 'app'
+  }
+  /** The number the pause is about: the team's cap, else the app's own (twice it after Resume now that day). */
+  pausedCap(row: Pick<AppRow, 'id' | 'room_id' | 'kind' | 'resumed_on'>, day: string, by: 'app' | 'team'): number {
+    return by === 'team' ? ROOM_APP_TEAM_DAILY_CAP : ROOM_APP_DAILY_CAP * (this.capDay(row, day).resumed || row.resumed_on === day ? 2 : 1)
+  }
+  /** "until Nov 16, 00:00": the end of a pause in the team's time zone (24-hour time, as usage limits say it). */
+  pauseEnd(until: string, locale: Locale): string { return limitResetText(new Date(until), locale, teamTimeZone(this.db)) }
+  /** The team's cap refusal and room line: "Your team's apps reached 5,000 messages today. All apps are paused until …". */
+  teamCapText(locale: Locale, until: string): string {
+    return appText('teamCap', locale, { cap: appNumber(ROOM_APP_TEAM_DAILY_CAP, locale), time: this.pauseEnd(until, locale) })
+  }
   teamShownToday(day: string): number {
     return (this.db.query('SELECT COALESCE(SUM(shown), 0) n FROM room_app_days WHERE day = ?').get(day) as { n: number }).n
   }
@@ -223,11 +242,14 @@ export class RoomApps {
     const paused = row.paused_until && Date.parse(row.paused_until) > now ? row.paused_until : null
     const reason = row.last_refusal as RoomAppRefusal | null
     const preset = this.presetOf(row)
+    const pausedBy = paused ? this.pausedBy(row, day) : null
     return {
       id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc,
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
-      pausedUntil: paused, canResume: !!paused && !this.capDay(row, day).resumed && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      pausedUntil: paused, canResume: pausedBy === 'app' && !this.capDay(row, day).resumed,
+      ...(pausedBy ? { pausedBy, pausedCap: this.pausedCap(row, day, pausedBy) } : {}), ...(pausedBy === 'team' ? { timeZone: teamTimeZone(this.db) } : {}),
+      rotatedAt: row.rotated_at ?? null,
       eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       today: this.shownToday(row.id, day),
@@ -367,7 +389,9 @@ export class RoomApps {
     this.db.transaction(() => {
       // Regenerate also forgets the pinned service account (Zendesk subdomain, Shopify store): whoever knew the old URL
       // may have pinned it
-      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // rotated_at: the status waits for the service to use the new URL until a message arrives after it
+      const at = new Date(this.clock()).toISOString()
+      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, rotated_at = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, at, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
     })()
     this.limits.forget(row.id)
@@ -400,7 +424,7 @@ export class RoomApps {
     const { day } = teamDay(this.db, now)
     if (!row.paused_until || Date.parse(row.paused_until) <= now) fail('conflict', appText('notPaused', locale), { params: { reason: 'not_paused' } })
     if (row.resumed_on === day || this.capDay(row, day).resumed) fail('conflict', appText('alreadyResumed', locale), { params: { reason: 'already_resumed' } })
-    if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) fail('conflict', appText('teamCap', locale, { cap: ROOM_APP_TEAM_DAILY_CAP }), { params: { reason: 'team_cap' } })
+    if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) fail('conflict', this.teamCapText(locale, row.paused_until!), { params: { reason: 'team_cap' } })
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET paused_until = NULL, resumed_on = ?, updated_at = ? WHERE id = ?').run(day, nowIso(), row.id)
       this.db.query(`INSERT INTO room_app_days (app_id, day, room_id, kind, resumed) VALUES (?, ?, ?, ?, 1) ON CONFLICT(app_id, day) DO UPDATE SET resumed = 1`).run(row.id, day, row.room_id, row.kind)
@@ -487,15 +511,19 @@ export class RoomApps {
     const team = this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP
     if (!own && !team) return null
     const paused = this.db.query('UPDATE room_apps SET paused_until = ? WHERE id = ? AND (paused_until IS NULL OR paused_until <= ?)').run(next, row.id, new Date(now).toISOString()).changes > 0
-    if (paused) this.paused(this.row(row.id) ?? row, day, team && !own)
+    if (paused) this.paused(this.row(row.id) ?? row, day, team, next)
     return next
   }
-  private paused(row: AppRow, day: string, team: boolean) {
-    const cap = team ? ROOM_APP_TEAM_DAILY_CAP : ROOM_APP_DAILY_CAP
+  /** `team`: the team's cap is reached (its line and notice then, even when the app's own cap is too: Resume now could
+   * not help). */
+  private paused(row: AppRow, day: string, team: boolean, until: string) {
+    const cap = this.pausedCap(row, day, team ? 'team' : 'app')
+    this.db.query(`INSERT INTO room_app_days (app_id, day, room_id, kind, paused_by) VALUES (?, ?, ?, ?, ?) ON CONFLICT(app_id, day) DO UPDATE SET paused_by = excluded.paused_by`).run(row.id, day, row.room_id, row.kind, team ? 'team' : 'app')
     const room = this.db.query('SELECT * FROM rooms WHERE id = ?').get(row.room_id) as RoomRow | null
     if (!room) return
     audit(this.db, { actor: null, action: 'room_app.paused', target: row.id, detail: { ...roomAuditRef(room), cap, team } })
-    try { this.postLine(row, appText('pausedLine', this.locale(), { app: row.name, cap })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    const L = this.locale()
+    try { this.postLine(row, team ? this.teamCapText(L, until) : appText('pausedLine', L, { app: row.name, cap: appNumber(cap, L) })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
     // who is told: the people in the room who manage it, and the person who added it while they are in it
     const members = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id) as { user_id: string }[]).map((m) => m.user_id)
     const to = members.filter((u) => u === row.created_by || mayManageApps(this.db, room, u))

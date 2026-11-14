@@ -13,6 +13,7 @@ export interface MockApp {
   id: string; roomId: string; kind: Kind; preset?: RoomAppPreset; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
   lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true; eventsSeen?: string[]
+  pausedBy?: 'app' | 'team'; pausedCap?: number; timeZone?: string; rotatedAt?: string | null
 }
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },
@@ -93,7 +94,7 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       app.signed = b.secret !== null
       return route.fulfill(json({ app, ...(b.generate ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) }))
     }
-    if (what === 'rotate' && method === 'POST') { state.calls.push(`rotate:${app.id}`); return route.fulfill(json({ app, address: ADDRESS(90 + ++n) })) }
+    if (what === 'rotate' && method === 'POST') { state.calls.push(`rotate:${app.id}`); app.rotatedAt = new Date().toISOString(); return route.fulfill(json({ app, address: ADDRESS(90 + ++n) })) }
     if (what === 'resume' && method === 'POST') { state.calls.push(`resume:${app.id}`); app.pausedUntil = null; app.canResume = false; return route.fulfill(json(app)) }
     if (what === 'example' && method === 'POST') { state.calls.push(`example:${app.id}`); return route.fulfill({ status: 204, body: '' }) }
     if (!what && method === 'PATCH') {
