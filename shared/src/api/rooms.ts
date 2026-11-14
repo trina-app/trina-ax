@@ -331,7 +331,7 @@ export type RoomEventLine = z.infer<typeof RoomEventLine>
  * web draws a chip only for its own origin or the team address. */
 export interface MessageLinkRef { roomId: string; messageId: string; rootId: string | null; host: string; href: string }
 /** At most this many message links of one message get a card; a message with more links than this (of any kind) gets
- * none (Slack's rule). */
+ * none, its message links only chips (Slack's rule). */
 export const MESSAGE_LINK_PREVIEWS_MAX = 5
 /** A snapshot's (and a card's) text, at most this many characters. */
 export const MESSAGE_LINK_TEXT_MAX = 4000
@@ -397,7 +397,8 @@ export const RoomLinkPreview = z.object({
   files: z.object({ count: z.number().int().nonnegative(), first: z.object({ name: z.string(), kind: z.string() }).optional() }),
   /** a snapshot ("Show message"): who chose to show it (null: an account that is gone) */
   sharedBy: UserRef.nullable().optional(),
-  /** the sender removed its card ("Remove preview"): the link stays a chip, no card (body '', no files) */
+  /** no card, only the chip (body '', no files): the sender removed it ("Remove preview"), or the message has more
+   * links than MESSAGE_LINK_PREVIEWS_MAX */
   removed: z.literal(true).optional(),
 })
 export type RoomLinkPreview = z.infer<typeof RoomLinkPreview>

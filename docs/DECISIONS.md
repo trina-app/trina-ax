@@ -28184,7 +28184,7 @@ words and components.
   private previews), the link's room and thread its own. The place is named as the viewer names it, never stored.
   Batched per read: the linked rows, rooms, files, people and apps once (once per live event for all members), the
   viewer's member rows in one query; at most 100 linked messages per read, 5 cards per message, none when a message has
-  more than 5 links of any kind (Slack's rule).
+  more than 5 links of any kind (Slack's rule: its message links stay chips, QA TC-2356).
 - **No trace for no access**: a link the viewer may not see, one to nothing and another team's all give a message with
   no `linkPreviews` field; the web leaves the address the plain link it was, and the room opens on its usual "can't be
   found". The web draws a chip and a card only for its own host or the team address (a look-alike address of another

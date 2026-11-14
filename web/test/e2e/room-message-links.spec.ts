@@ -140,6 +140,23 @@ test('the box asks about a link some here cannot see: Only show link by default,
 
 test.describe('a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  test('the box\'s line: the choice under its sentence; the card\'s ✕ clear of its time', async ({ page }) => {
+    const target = id(95)
+    await openRoom(page, { audience: [{ messageId: target, someoneCannotSee: true, snapshotAllowed: true, preview: preview(target, { place: { kind: 'dm', name: null, peers: [] }, body: '우리끼리 얘기', files: { count: 0 }, sharedBy: OLGA }) }] })
+    await page.getByTestId('room-input').fill(`이거요 ${link(target)}`)
+    const line = page.getByTestId('message-link-choice-line')
+    await expect(line).toBeVisible()
+    const sentence = (await line.getByRole('status').boundingBox())!
+    const only = (await page.getByTestId('message-link-only').boundingBox())!
+    expect(only.y).toBeGreaterThanOrEqual(sentence.y + sentence.height - 1)
+    await shoot(page, 'message-links-choice-390')
+    await page.getByTestId('message-link-show').click()
+    const card = page.getByTestId('message-link-choice-card')
+    const time = (await card.locator('time').boundingBox())!
+    const x = (await page.getByTestId('message-link-choice-undo').boundingBox())!
+    expect(time.x + time.width).toBeLessThanOrEqual(x.x)
+    await shoot(page, 'message-links-show-390')
+  })
   test('Copy link in the long-press sheet; the card fits the message without a sideways scroll', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await openRoom(page)

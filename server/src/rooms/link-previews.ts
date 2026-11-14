@@ -69,6 +69,8 @@ export function cardLinks(text: string): MessageLinkRef[] {
  * people and apps, read once. Only what each viewer may see differs (per viewer: their member rows, canSee). */
 export interface LinkPrep {
   links: Map<string, MessageLinkRef[]>
+  /** messages with more links than MESSAGE_LINK_PREVIEWS_MAX: chips only, no card (Slack's rule) */
+  chipsOnly: Set<string>
   stored: Map<string, StoredLinkPreviews>
   originals: Map<string, MessageRow>
   rooms: Map<string, RoomRow>
@@ -82,10 +84,17 @@ export interface LinkPrep {
 
 export function prepareLinkPreviews(db: Database, rows: readonly MessageRow[]): LinkPrep | null {
   const links = new Map<string, MessageLinkRef[]>()
+  const chipsOnly = new Set<string>()
   const stored = new Map<string, StoredLinkPreviews>()
   const ids = new Set<string>()
   for (const r of rows) {
-    const l = cardLinks(linkText(r))
+    const text = linkText(r)
+    let l = cardLinks(text)
+    // more links than a card is drawn for: the message links still read as chips (their place), with no card
+    if (!l.length && text.includes('/rooms/')) {
+      l = parseMessageLinks(text).slice(0, MESSAGE_LINK_PREVIEWS_MAX)
+      if (l.length) chipsOnly.add(r.id)
+    }
     if (!l.length) continue
     const kept: MessageLinkRef[] = []
     for (const x of l) {
@@ -115,7 +124,7 @@ export function prepareLinkPreviews(db: Database, rows: readonly MessageRow[]): 
   const snapshotPeople = [...stored.values()].flatMap((s) => (s.snapshots ?? []).map((x) => x.authorId))
   const senders = rows.filter((r) => stored.get(r.id)?.snapshots?.length).map((r) => r.author_id)
   const people = refsOf(db, [...[...originals.values()].flatMap((m) => [m.author_id]), ...snapshotPeople, ...senders])
-  return { links, stored, originals, rooms, files, people, apps: appRefsOf(db, live), dmOk: new Map() }
+  return { links, chipsOnly, stored, originals, rooms, files, people, apps: appRefsOf(db, live), dmOk: new Map() }
 }
 
 /** The viewer's member rows of the linked rooms (with has_hidden), one query. */
@@ -153,14 +162,16 @@ export function linkPreviewsFor(db: Database, prep: LinkPrep | null, rows: reado
     const links = prep.links.get(r.id)
     if (!links) continue
     const stored = prep.stored.get(r.id)
+    const chipsOnly = prep.chipsOnly.has(r.id)
     const hidden = new Set(stored?.hidden ?? [])
     const list: RoomLinkPreview[] = []
     for (const link of links) {
       const m = prep.originals.get(link.messageId)
       const room = m ? prep.rooms.get(m.room_id) : undefined
       const sees = !!m && seesLinked(db, link, m, room, mine.get(m.room_id), prep.dmOk)
-      // the sender removed its card: a chip still for who sees the original (its place only), nothing for anyone else
-      if (hidden.has(link.messageId)) {
+      // the sender removed its card, or the message has too many links for cards: a chip still for who sees the
+      // original (its place only), nothing for anyone else
+      if (chipsOnly || hidden.has(link.messageId)) {
         if (!sees) continue
         const n = nameOf(room!)
         list.push({ roomId: m!.room_id, messageId: m!.id, rootId: m!.thread_root_id, place: { kind: room!.kind, name: n.name, peers: n.peers }, author: null, authorKind: m!.author_kind, mentions: [], createdAt: m!.created_at, editedAt: null, deleted: !!m!.deleted_at, body: '', files: { count: 0 }, removed: true })
