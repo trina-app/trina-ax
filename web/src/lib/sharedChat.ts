@@ -109,6 +109,12 @@ export const refusalReason = (e: unknown): string | null =>
 export const noLongerMemberOf = (e: unknown): string | null =>
   e instanceof ApiError && e.status === 404 && e.body.params?.reason === 'no_longer_member' && typeof e.body.params.project === 'string' ? e.body.params.project : null
 
+/** A 404 for a chat shared with people and groups that the caller was taken out of (or whose group they left, or that
+ * was made private again): "This chat is no longer shared with you" in place of the generic not-found (QA TC-2009). The
+ * server says so only to someone who was in it; everyone else gets the plain 404. */
+export const noLongerSharedWith = (e: unknown): boolean =>
+  e instanceof ApiError && e.status === 404 && e.body.params?.reason === 'no_longer_shared'
+
 /** The refusal in the person's words: a reason the screens name, else null (the caller shows the server's own message).
  * `where`: safe operations refuse a chat ("continue in a chat of your own") and the project setting differently. */
 export function refusalKey(e: unknown, where: 'chat' | 'project'): MessageKey | null {

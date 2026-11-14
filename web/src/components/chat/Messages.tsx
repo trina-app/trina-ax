@@ -382,13 +382,16 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
     ...(canEdit ? [{ label: t('chat.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: startEdit, testId: 'side-message-edit' }] : []),
   ] : []
   const branched = m.branch.count > 1
+  // someone else's file from their computer that I may not open is left out (the server leaves it out too): never a
+  // nameless "0 B" tile (QA TC-2022). A team file I may not open still says "unavailable"
+  const shownAttachments = m.attachments.filter((a) => !(a.unavailable && a.source !== 'team'))
   return (
     <div className={clsx('group flex min-w-0 flex-col items-end gap-2', pressMenu && 'relative max-md:pointer-coarse:select-none max-md:pointer-coarse:[-webkit-touch-callout:none]')} data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)} {...press.handlers}>
       {pressMenu && <PressSheet signal={press.signal} items={pressItems} />}
       {showAuthor && <MessageAuthor author={m.author} />}
-      {m.attachments.length > 0 && (
+      {shownAttachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
-          {m.attachments.map((a) => (
+          {shownAttachments.map((a) => (
             <AttachmentView key={a.id} a={a} chatId={chatId} />
           ))}
         </div>

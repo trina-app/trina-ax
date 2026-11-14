@@ -36,7 +36,7 @@ import { toast } from '../../store/ui'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../../store/wideningDraft'
 import { MembersField, ParticipantPicker, participantKey, sameParticipants, useParticipantOptions, type ParticipantOption } from '../ProjectParticipants'
 import { answerHref, WideningList } from '../WideningList'
-import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMediaQuery } from '../ui'
+import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
 import { MoveToProjectDialog } from './ChatProject'
 import { placeName } from './ShareToRoom'
 import { openShareChat } from './ShareChat'
@@ -47,9 +47,12 @@ type Ask = Extract<PutChatAudienceResult, { status: 'confirm' }> & { seq: number
 export const audienceKey = (subjects: readonly ProjectParticipant[]) => subjects.map(participantKey).sort().join(',')
 const subjectsOf = (a: ChatAudience): ProjectParticipant[] => a.subjects.map(({ subjectType, subjectId }) => ({ subjectType, subjectId }))
 
-export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
+export function ChatShareDialog({ chat, onClose, initial, personal = false, returnTo }: {
   chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>
   onClose: () => void
+  /** where focus goes when it closes (the control that opened it: a menu's trigger once the menu item is gone; QA
+   * TC-2271) */
+  returnTo?: HTMLElement | null
   /** a phone's way back from an answer of the widening list: the picks and the list as they were */
   initial?: WideningDraft
   /** a chat of mine in a personal project: the dialog explains and offers Move… */
@@ -117,6 +120,14 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
   const addedNames = useMemo(() => adding.map(nameOf).filter(Boolean).join(t('rooms.nameSep')), [adding, nameOf, t])
   const groupAdded = adding.some((x) => x.subjectType === 'group')
   const removesAll = saved.length > 0 && picks.length === 0
+  // someone taken out by name who stays in a group still picked keeps the chat through it (QA TC-2264): the server says
+  // which of the listed groups each person is in (ChatAudienceRow.inGroups: only groups I am in, admins any)
+  const pickedKeys = useMemo(() => new Set(picks.map(participantKey)), [picks])
+  const keepsThrough = useMemo(() => (audience?.subjects ?? []).flatMap((row) => {
+    if (row.subjectType !== 'user' || pickedKeys.has(`user:${row.subjectId}`) || !row.inGroups?.length) return []
+    const groups = row.inGroups.filter((g) => pickedKeys.has(`group:${g}`)).map((g) => nameOf({ subjectType: 'group', subjectId: g })).filter(Boolean)
+    return groups.length ? [{ id: row.subjectId, text: t('chat.share.keepsThrough', { name: row.name, groups: groups.join(t('rooms.nameSep')) }) }] : []
+  }), [audience, pickedKeys, nameOf, t])
   // a confirm is about the picks it was asked for: another pick asks again
   const askedFor = useRef('')
   useEffect(() => { if (ask && askedFor.current !== audienceKey(picks)) setAsk(null) }, [picks, ask])
@@ -150,6 +161,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
       toast({ level: 'success', text: !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved') })
       // a first share: my earlier files from the computer that could not go with it (too large, no room, changed since)
       if (r.filesNotCopied) toast({ level: 'warn', text: t('chat.share.filesNotCopied', { n: r.filesNotCopied }) })
+      // someone taken out by name who still sees it through a group (QA TC-2264)
+      for (const k of r.keptThrough ?? []) toast({ level: 'info', text: t('chat.share.keepsThrough', { name: k.name, groups: k.groups.join(t('rooms.nameSep')) }) })
       setAudience(r.audience)
       onClose()
     } catch (e) {
@@ -195,6 +208,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
       key={sheet}
       open
       onClose={() => void close()}
+      returnTo={returnTo}
       width={480}
       title={listing ? (
         <span className="flex min-w-0 items-center gap-1">
@@ -210,8 +224,10 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
           {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
-          <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:flex-1" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()} className="max-sm:flex-1" data-testid="chat-share-save">{label}</Button>
+          {/* a phone: Cancel as wide as its word, the main button the rest; a long label ("Compartir de todos modos")
+              wraps inside it instead of spilling out (QA TC-2270) */}
+          <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:shrink-0" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
+          <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()} className="text-center max-sm:h-auto max-sm:min-h-11 max-sm:min-w-0 max-sm:flex-1 max-sm:py-2 max-sm:whitespace-normal" data-testid="chat-share-save">{label}</Button>
         </>
       )}
     >
@@ -227,6 +243,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
         </div>
       ) : (
         <div className="space-y-3" data-testid="chat-share-dialog">
+          {/* what the check found and who keeps access, read out when it appears (the lines below are shown; QA TC-2271) */}
+          <p className="sr-only" role="status" aria-live="polite" data-testid="chat-share-live">{editable ? [warning, ask?.earlierFiles ? t('chat.share.earlierFiles', { n: ask.earlierFiles }) : null, ...keepsThrough.map((k) => k.text)].filter(Boolean).join(' ') : ''}</p>
           {loadError ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
           {!audience && !loadError && <Skeleton lines={3} />}
           {audience && (
@@ -279,6 +297,12 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
                   <span>{t('chat.shareChat.memories')}</span>
                 </p>
               )}
+              {keepsThrough.map((k) => (
+                <p key={k.id} className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-keeps-through">
+                  <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
+                  <span>{k.text}</span>
+                </p>
+              ))}
               {removesAll && <p className="text-sm leading-6 break-keep text-warn" data-testid="chat-share-only-you">{t('chat.share.onlyYou')}</p>}
               {/* the fixed note; shorter while a warning says the rest */}
               <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(warning ? 'chat.share.noteShort' : 'chat.share.note')}</p>
@@ -307,10 +331,15 @@ export function startShare(chat: Target['chat'], kind: ShareKind) {
 
 /** What the Share… items open, from anywhere (the title menu, every row's "⋯", the line under the box, the move dialog
  * after a move): one dialog for the app (ChatShareHost, App.tsx). */
-type Target = { chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>; personal: boolean; seq: number }
+type Target = { chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>; personal: boolean; seq: number; returnTo: HTMLElement | null }
 const useChatShareHost = create<{ open: Target | null; seq: number }>(() => ({ open: null, seq: 0 }))
-export const openChatShare = (chat: Target['chat'], o: { personal?: boolean } = {}) =>
-  useChatShareHost.setState((s) => ({ open: { chat, personal: !!o.personal, seq: s.seq + 1 }, seq: s.seq + 1 }))
+export const openChatShare = (chat: Target['chat'], o: { personal?: boolean } = {}) => {
+  // the control that opened it, found now: a menu item goes with its menu, so focus returns to the menu's trigger
+  // (QA TC-2271); else whatever had focus (the line under the box)
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  const returnTo = menuOpener() ?? (active instanceof HTMLElement && active !== document.body ? active : null)
+  useChatShareHost.setState((s) => ({ open: { chat, personal: !!o.personal, seq: s.seq + 1, returnTo }, seq: s.seq + 1 }))
+}
 
 export function ChatShareHost() {
   const open = useChatShareHost((s) => s.open)
@@ -324,7 +353,7 @@ export function ChatShareHost() {
     else if (at.current.key !== here.key) useChatShareHost.setState({ open: null })
   }, [open, here.key])
   if (!open) return null
-  return <ChatShareDialog key={open.seq} chat={open.chat} personal={open.personal} onClose={() => useChatShareHost.setState({ open: null })} />
+  return <ChatShareDialog key={open.seq} chat={open.chat} personal={open.personal} returnTo={open.returnTo} onClose={() => useChatShareHost.setState({ open: null })} />
 }
 
 /** The names a chat shared with people and groups is shared with ("Sam, Sales"), for someone not told how many see it

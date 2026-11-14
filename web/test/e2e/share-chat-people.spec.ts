@@ -10,6 +10,8 @@
 // which the dialog opens again; the admin's delete-account dialog counts the person's shared chats. axe on each dialog.
 // The mock (test/mock/server.ts "chats shared with people and groups"): POST /__test/chat-share {confirm, fail}, POST
 // /__test/widening {items}.
+import fs from 'node:fs'
+import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
@@ -19,6 +21,15 @@ import { activityRows, chatList, isPhone } from './nav'
 const H = { [CSRF_HEADER]: '1' }
 const BOB = { username: 'bob', password: 'bob password 1' }
 const SORA_PASSWORD = 'sora-Password-1'
+
+/** QA screenshots (SHOTS_DIR set by hand): light, then dark */
+async function shots(page: Page, name: string) {
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.screenshot({ path: `${process.env.SHOTS_DIR}/${name}-${scheme}.png` })
+  }
+  await page.emulateMedia({ colorScheme: 'light' })
+}
 
 async function audit(page: Page, where: string) {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
@@ -269,14 +280,35 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await bob.goto(`/c/${w.chatId}`)
       await expect(bob.getByTestId('assistant-message').first()).toBeVisible()
       await expect.poll(async () => ((await (await bob.request.get('/api/chats')).json()) as { items: { id: string }[] }).items.some((c) => c.id === w.chatId)).toBe(true)
-      // Olga takes him out while it is open: "no longer shared with you" and the way Home
+      // he is typing when Olga takes him out while it is open: "no longer shared with you", what he typed kept with Copy
+      // (QA TC-2032), and the way Home
+      await bob.getByTestId('composer-input').fill('반쯤 쓴 질문: 3분기 예산에서')
       expect((await saveAudience(page, w.chatId, [{ subjectType: 'user', subjectId: 'sora' }])).ok()).toBeTruthy()
       await expect(bob.getByTestId('chat-not-found')).toHaveAttribute('data-gone', 'shared')
       await expect(bob.getByTestId('chat-not-found')).toContainText('이 채팅은 더 이상 나와 공유되어 있지 않아요.')
+      await expect(bob.getByTestId('chat-gone-draft-text')).toHaveText('반쯤 쓴 질문: 3분기 예산에서')
+      await expect(bob.getByTestId('chat-gone-draft').getByRole('button', { name: '복사' })).toBeVisible()
       await audit(bob, 'lost access')
+      if (process.env.SHOTS_DIR) await shots(bob, `2032-lost-open-${vp.name}`)
+      // the link opened cold later says the same (QA TC-2009), not the general "can't be opened" page
+      await bob.goto('/')
+      await bob.goto(`/c/${w.chatId}`)
+      await expect(bob.getByTestId('chat-not-found')).toHaveAttribute('data-gone', 'shared')
+      await expect(bob.getByTestId('chat-not-found')).toContainText('이 채팅은 더 이상 나와 공유되어 있지 않아요.')
+      await expect(bob.getByTestId('chat-not-found-why')).toHaveCount(0)
+      await expect(bob.getByTestId('chat-gone-draft-text')).toHaveText('반쯤 쓴 질문: 3분기 예산에서')
+      if (process.env.SHOTS_DIR) await shots(bob, `2009-lost-cold-${vp.name}`)
       await bob.getByTestId('chat-gone-home').click()
       await expect(bob).toHaveURL(/\/$/)
       await bob.context().close()
+      // a chat Bob was never in: the general page, which no longer speaks of a project's members
+      const other = await chatOf(page, 'Never shared')
+      const bob2 = await as(browser, BOB)
+      await bob2.goto(`/c/${other.chatId}`)
+      await expect(bob2.getByTestId('chat-not-found-why')).toHaveText('만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.')
+      await expect(bob2.getByTestId('chat-not-found')).not.toHaveAttribute('data-gone', 'shared')
+      if (process.env.SHOTS_DIR) await shots(bob2, `2034-general-not-found-${vp.name}`)
+      await bob2.context().close()
     })
 
     test('a personal project: why not, Move… out, the dialog again; the row menu offers Share…', async ({ page }) => {
@@ -329,5 +361,96 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(page.getByTestId('member-delete-shared-chats')).toContainText('1개')
       await audit(page, 'delete account dialog')
     })
+
+    // QA 11-15 (TC-2264, TC-2271): someone taken out by name who is in a picked group keeps it through the group, the
+    // dialog and the save say so; after Discard the focus is back on the menu button that opened it
+    test('taken out by name, kept through a group; Discard gives the focus back to the menu button', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const w = await world(page)
+      const groupId = (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id
+      expect((await page.request.patch(`/api/admin/groups/${groupId}`, { headers: H, data: { memberIds: ['olga', 'bob'] } })).ok()).toBeTruthy()
+      expect((await saveAudience(page, w.chatId, [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'group', subjectId: groupId }])).ok()).toBeTruthy()
+      const dialog = await openShare(page, w.chatId)
+      await expect(dialog.getByTestId('participant-user-bob')).toBeVisible()
+      await dialog.getByTestId('participant-remove-user-bob').click()
+      await expect(dialog.getByTestId('chat-share-keeps-through')).toHaveText('Bob님은 재무팀에 있어서 계속 볼 수 있어요.')
+      await expect(dialog.getByTestId('chat-share-live')).toContainText('Bob님은 재무팀에 있어서 계속 볼 수 있어요.')
+      await audit(page, 'share dialog, kept through a group')
+      if (process.env.SHOTS_DIR) await shots(page, `2264-keeps-through-${vp.name}`)
+      await dialog.getByTestId('chat-share-save').click()
+      await expect(page.getByTestId('toast').filter({ hasText: 'Bob님은 재무팀에 있어서 계속 볼 수 있어요.' })).toBeVisible()
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/2264-saved-toast-${vp.name}.png` })
+      // Bob still sees it
+      expect(((await (await page.request.get(`/api/chats/${w.chatId}/audience`)).json()) as { count?: number }).count).toBe(2)
+      // a pick, then Discard: the focus goes back to the title menu's button, not the page
+      await openShare(page, w.chatId)
+      await pick(page, '김소라', 'sora')
+      await page.getByTestId('chat-share-cancel').click()
+      await page.getByRole('dialog', { name: '변경 사항을 버릴까요?' }).getByTestId('dialog-confirm').click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(page.getByTestId('chat-menu')).toBeFocused()
+    })
+
+    // QA 11-15 (TC-2023): a photo with its place, attached in a chat shared with people: the server keeps it without its
+    // Exif (smaller) and says how many bytes arrived; the box no longer calls it "did not arrive whole"
+    test('a photo with its place attaches in a chat shared with people', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const w = await world(page)
+      expect((await saveAudience(page, w.chatId, [{ subjectType: 'user', subjectId: 'bob' }])).ok()).toBeTruthy()
+      await page.goto(`/c/${w.chatId}`)
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      const photo = fs.readFileSync(path.resolve(import.meta.dirname, '../../../tests/fixtures/exif/portrait-o1.jpg'))
+      await page.getByTestId('file-input').setInputFiles({ name: 'site.jpg', mimeType: 'image/jpeg', buffer: photo })
+      await expect(page.getByTestId('attachment-chip')).toHaveAttribute('data-status', 'done')
+      await expect(page.getByText('파일이 다 도착하지 않았어요', { exact: false })).toHaveCount(0)
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/2023-gps-attached-${vp.name}.png` })
+    })
+
+    // QA 11-15 (TC-2263): the person who shared it has their account turned off: the line under the box says who shared
+    // it with me, not "Only you can see this chat."
+    test('the sharer\'s account turned off: the line under the box says who shared it', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      await world(page)
+      const bob = await as(browser, BOB)
+      const s = await chatOf(bob, 'Bob plan')
+      expect((await saveAudience(bob, s.chatId, [{ subjectType: 'user', subjectId: 'olga' }])).ok()).toBeTruthy()
+      await bob.context().close()
+      expect((await page.request.patch('/api/admin/users/bob', { headers: H, data: { status: 'disabled' } })).ok()).toBeTruthy()
+      await page.goto(`/c/${s.chatId}`)
+      await expect(page.getByTestId('who-sees')).toHaveText('Bob님이 나와 공유한 채팅이에요. 지금은 다른 사람은 볼 수 없어요.')
+      if (process.env.SHOTS_DIR) await shots(page, `2263-footer-${vp.name}`)
+    })
   })
 }
+
+// QA 11-15 (TC-2270): the Share dialog's buttons at 390 in every language: the main button's words stay inside it
+// ("Compartir de todos modos" spilled out), Cancel beside it
+test.describe('the Share dialog\'s buttons at 390 in every language', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' })
+  for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+    test(locale, async ({ page }) => {
+      await reset(page, { teamLocale: locale, usersFollowTeam: true })
+      await signIn(page)
+      const w = await chatOf(page, 'Q3 budget questions')
+      // the check comes back, so the main button reads "Share anyway" (the longest label)
+      expect((await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { memories: true } } })).ok()).toBeTruthy()
+      await page.goto(`/c/${w.chatId}`)
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await page.getByTestId('chat-menu').click()
+      await page.getByTestId('chat-share').click()
+      const dialog = page.getByRole('dialog')
+      await page.getByTestId('chat-share-picker-search').fill('Bob')
+      await page.getByTestId('participant-add-user-bob').click()
+      await dialog.getByTestId('chat-share-save').click()
+      await expect(dialog.getByTestId('chat-share-memories')).toBeVisible()
+      for (const id of ['chat-share-save', 'chat-share-cancel']) {
+        const fits = await dialog.getByTestId(id).evaluate((b) => b.scrollWidth <= b.clientWidth + 1 && b.getBoundingClientRect().right <= window.innerWidth)
+        expect({ locale, id, fits }).toEqual({ locale, id, fits: true })
+      }
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/2270-${locale}-390-share.png` })
+    })
+  }
+})

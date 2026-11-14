@@ -8,6 +8,7 @@ import type { z } from 'zod'
 import type { Group, GroupBody, Locale, UpdateGroupBody } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
+import { rememberAudience } from '../chat/chat-audience'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { failOnePlace, guestsAmong } from '../auth/guests'
@@ -172,6 +173,10 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
   if (from.seen) from.seen.originKept = kept
   let pruned: Pruned[] = []
   ctx.db.transaction(() => {
+    // chats shared with the group: who is in them through it, before its members go with it (their old link says it is
+    // no longer shared with them, chat/chat-audience.ts)
+    for (const c of ctx.db.query("SELECT a.chat_id FROM chat_audience a JOIN chats c ON c.id = a.chat_id WHERE a.subject_type = 'group' AND a.subject_id = ? AND c.people_shared_at IS NOT NULL AND c.project_id IS NULL").all(id) as { chat_id: string }[])
+      rememberAudience(ctx.db, c.chat_id, (ctx.db.query("SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0").all(id) as { user_id: string }[]).map((m) => m.user_id))
     const ruled = foldersWithRuleOf(ctx.db, 'group', id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // a project folder in projects/ never ends with no rules (admin/folders.ts keepProjectFloors)

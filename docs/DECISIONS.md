@@ -28131,6 +28131,44 @@ and JANDI" (#854) and its web PR. No migration: presets are `room_apps.preset` (
   and HubSpot no_signing).
 - Version impact: **minor**.
 
+## A link to a chat you were taken out of says so (fix/qa-1115-sharing, 2026-11-15, QA TC-2009/TC-2032/TC-2034)
+
+Where: `server/src/chat/{chat-audience,shared,people-share,chat-files,store}.ts`, `server/src/admin/{folders,groups}.ts`,
+migration `404_b_chat_audience_past.sql`, `shared/src/api/{entities,chats}.ts`, `web/src/pages/Chat.tsx`,
+`web/src/components/chat/{ChatShareDialog,Messages}.tsx`, `web/src/lib/{sharedChat,upload}.ts`.
+
+- **The rule.** A chat shared with people and groups answers someone who does not see it now with the 404 of a missing
+  chat, as before, with one exception, the same as a shared project chat's `no_longer_member` (#768/#794): a person who
+  was one of its people answers with reason `no_longer_shared` and the words "This chat is no longer shared with you".
+  Who was in it is recorded in `chat_audience_past` (chat, person, when; never the creator): every save of the audience
+  records everyone who saw it before or after the save, leaving a listed group records the person (`afterAccessChange`
+  → `peopleChatsLost`), and deleting a listed group records its active members before they go. Audit rows were not
+  used: `chat.audience` keeps counts only, by design.
+- **Who gets the reason.** Only an active member account (not a guest) with a row there, while the chat exists, is not
+  in the trash and is in no project; this covers a chat made private again (everyone taken out). Everyone else (an
+  outsider, the owner and admins outside it, a guest, a deleted chat, a chat moved into a project) gets the identical
+  plain 404, so its existence is never told to someone who was not in it. It tells a former member only what they knew
+  (that they were in it) and that it still exists. A deleted chat stays the plain 404 for everyone, as a deleted shared
+  project chat (TC-2034).
+- **The generic page** no longer says "share it with the project's members" (it may be a chat outside projects): "Ask
+  the person who sent the link to share it with you."
+- **Typed text is kept.** The box's draft is stored per chat (lib/localData.ts); the "no longer shared" page shows it
+  with Copy, never drops it (TC-2032).
+- **Related fixes in the same PR.** The share check counts only earlier uploads that will be copied (the rule `copyEarlier`
+  uses: TC-2022), reading a file only when its state says it may have changed (a picture, another size, written since
+  it was attached), at most 100 MB a check, with the verdict kept by path, inode, size and mtime for the save; a computer upload a viewer may not open is left out of their message instead of a
+  nameless "0 B" tile (team references still say "unavailable"); an upload whose picture metadata the server cut out
+  answers `Attachment.receivedSize` (the bytes it received, checked whole before the cut), which the sender's
+  whole-file check uses (TC-2023; the chunked path checks the sha256 before the cut already). `ChatAudienceRow.inGroups`
+  (the listed groups a listed person is in: creator and admins only, only groups the viewer is in, admins any) and
+  `keptThrough` on a save say who keeps access through a group when taken out by name (TC-2264); someone kept only
+  through groups the creator is not in is not mentioned (that would tell group membership). The footer of a
+  recipient whose chat nobody else sees now (its creator's account off) says who shared it, not "Only you" (TC-2263).
+- Tests: tests/security/people-shared-chats.test.ts (the reason for former members, identical 404 for outsiders, a
+  deleted chat, a group left and deleted), tests/unit/b-chat-files.test.ts (GPS photo on both upload paths, the count,
+  the hidden tile), web unit tests for the page, the dialog and the upload check.
+- Version impact: **patch**.
+
 ## Message links and their previews — 메시지 링크 미리보기 (feat/message-link-previews, 2026-11-15, the owner, plan docs/AGENTS/plan/20261114-1705-message-link-previews.md)
 
 The owner asked for Slack's behaviour: copy a message's link, paste it, and the message shows under it as a card that

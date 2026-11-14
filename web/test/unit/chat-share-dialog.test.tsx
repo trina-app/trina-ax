@@ -266,3 +266,67 @@ describe('not mine to change, or not here', () => {
     await m.unmount()
   })
 })
+
+describe('QA 11-15: kept through a group, the focus, the live line', () => {
+  const SALES = { subjectType: 'group' as const, subjectId: 'g1', name: 'Sales', members: 3 }
+  test('taking someone out by name who is in a picked group says they keep access through it, and the save says it again (TC-2264)', async () => {
+    let closed = 0
+    routesWith(audience([{ ...SORA, inGroups: ['g1'] }, SALES]), () => json(200, { status: 'saved', chat: chatOut, audience: audience([SALES]), keptThrough: [{ name: 'Sora', groups: ['Sales'] }] }))
+    useUi.setState({ toasts: [] })
+    const m = await open(() => closed++)
+    await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+    expect(m.find('chat-share-keeps-through')).toBeNull()
+    await m.click('participant-remove-user-sora')
+    const line = await m.until(() => m.find('chat-share-keeps-through'), 'the kept line', 2000)
+    expect(line.textContent).toBe(en('chat.share.keepsThrough', { name: 'Sora', groups: 'Sales' }))
+    expect(en('chat.share.keepsThrough', { name: 'Sora', groups: 'Sales' })).toBe('Sora keeps access through Sales.')
+    // read out too
+    expect(m.get('chat-share-live').textContent).toContain('Sora keeps access through Sales.')
+    // the group taken out as well: nothing keeps her in
+    await m.click('participant-remove-group-g1')
+    await m.until(() => !m.find('chat-share-keeps-through'), 'no kept line', 2000)
+    await m.click('participant-undo-group-g1')
+    await m.until(() => m.find('chat-share-keeps-through'), 'the kept line again', 2000)
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'saved', 2000)
+    expect(useUi.getState().toasts.map((t) => t.text)).toContainEqual('Sora keeps access through Sales.')
+    useUi.setState({ toasts: [] })
+    await m.unmount()
+  })
+
+  test('the check\'s warning is in a polite live region (TC-2271)', async () => {
+    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: false, hiddenAnswers: 0, confirmKey: 'k3', provenance: { people: 1, places: [{ kind: 'mine' }], otherPlaces: false } }
+    routesWith(audience(), () => json(200, confirm))
+    const m = await open()
+    const live = m.get('chat-share-live')
+    expect(live.getAttribute('aria-live')).toBe('polite')
+    expect(live.textContent).toBe('')
+    await addBob(m)
+    await m.click('chat-share-save')
+    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 2000)
+    expect(m.get('chat-share-live').textContent).toBe(warning.textContent)
+    await m.unmount()
+  })
+
+  test('after Discard the focus goes back to what opened it (TC-2271)', async () => {
+    routesWith(audience())
+    let closed = 0
+    const trigger = document.createElement('button')
+    trigger.textContent = 'Share'
+    document.body.appendChild(trigger)
+    // opened from a menu item, which goes with its menu: focus must not fall back to it (or to the page)
+    const item = document.createElement('button')
+    document.body.appendChild(item)
+    item.focus()
+    const m = await mount(<MemoryRouter initialEntries={[`/c/${C1}`]}><ChatShareDialog chat={chat} returnTo={trigger} onClose={() => closed++} /><DialogHost /></MemoryRouter>)
+    document.body.removeChild(item)
+    await m.until(() => m.find('participant-user-mia'), 'the creator\'s row', 2000)
+    await addBob(m)
+    await m.click('chat-share-cancel')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard ask', 2000))
+    await m.until(() => closed === 1, 'closed', 2000)
+    await m.unmount()
+    expect(document.activeElement).toBe(trigger)
+    document.body.removeChild(trigger)
+  })
+})

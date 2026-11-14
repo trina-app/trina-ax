@@ -178,7 +178,8 @@ describe('a file from the computer in a chat shared with people', () => {
     // as if it were moved into a project and shared there (any audience other than its people)
     db().query("UPDATE chats SET shared_at = ? WHERE id = ?").run(new Date().toISOString(), id)
     const m = db().query("SELECT chat_id, attachments, author_id FROM messages WHERE chat_id = ? AND role = 'user' AND instr(attachments, ?) > 0").get(id, f) as { chat_id: string; attachments: string; author_id: string }
-    expect(h.rt().store.attachmentsOf(m, 'erin')[0]).toMatchObject({ unavailable: true, name: '' })
+    // left out for someone who may not open it, never a nameless "0 B" tile (QA TC-2022)
+    expect(h.rt().store.attachmentsOf(m, 'erin')).toEqual([])
     expect(h.rt().store.attachmentsOf(m, 'alice')[0]).toMatchObject({ id: f, name: 'bob-only.txt' })
     db().query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(id)
   })
@@ -194,6 +195,66 @@ describe('a file from the computer in a chat shared with people', () => {
     expect((await lastMessage('alice', c)).attachments[0]).toMatchObject({ id: own.body.id })
     expect((await lastMessage('alice', c)).attachments[0]!.source).toBeUndefined()
     expect(db().query('SELECT COUNT(*) AS n FROM chat_files WHERE chat_id = ?').get(c)).toEqual({ n: 0 })
+    // bob does not get an empty tile for it (QA TC-2022)
+    expect((await lastMessage('bob', c)).attachments).toEqual([])
+  })
+
+  test('the share check counts only the earlier uploads that will be copied (QA TC-2022)', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const kept = await upload('alice', c, 'kept.txt', 'as attached')
+    const edited = await upload('alice', c, 'edited-later.txt', 'as attached')
+    await ask('alice', c, `two\n${fake({ say: 'ok' })}`, [kept.body.id, edited.body.id])
+    fs.writeFileSync(path.join(h.team, ...edited.body.path.split('/')), 'changed later')
+    const asked = await put('alice', c, [bob])
+    expect(asked).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    const saved = await put('alice', c, [bob], asked.status === 'confirm' ? asked.confirmKey : undefined)
+    expect(saved.status === 'saved' && saved.filesNotCopied).toBe(1)
+    const seen = (await lastMessage('bob', c)).attachments
+    expect(seen.map((a) => a.name)).toEqual(['kept.txt'])
+    // the sender still sees both
+    expect((await lastMessage('alice', c)).attachments.map((a) => a.name)).toEqual(['kept.txt', 'edited-later.txt'])
+  })
+
+  test('the check reads a file only when its state says it may have changed: an edit of the same size is still caught', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const same = await upload('alice', c, 'same-size.txt', 'abcdefgh')
+    await ask('alice', c, `same\n${fake({ say: 'ok' })}`, [same.body.id])
+    const p = path.join(h.team, ...same.body.path.split('/'))
+    const later = new Date(Date.now() + 5000)
+    // written since but the same bytes again: counted (read, its verdict kept)
+    fs.writeFileSync(p, 'abcdefgh')
+    fs.utimesSync(p, later, later)
+    expect(await put('alice', c, [bob])).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    // edited to other bytes of the same size: read again (another state), not counted; the save says it did not go
+    fs.writeFileSync(p, 'ABCDEFGH')
+    const later2 = new Date(Date.now() + 9000)
+    fs.utimesSync(p, later2, later2)
+    const asked = await put('alice', c, [bob])
+    if (asked.status === 'confirm') expect(asked.earlierFiles).toBeUndefined()
+    const saved = asked.status === 'confirm' ? await put('alice', c, [bob], asked.confirmKey) : asked
+    expect(saved.status === 'saved' && saved.filesNotCopied).toBe(1)
+    expect((await lastMessage('bob', c)).attachments).toEqual([])
+  })
+
+  test('a photo with GPS: the upload says how many bytes arrived before the place was cut out, on both upload paths (QA TC-2023)', async () => {
+    const photo = fs.readFileSync(path.join(import.meta.dir, '../fixtures/exif/portrait-o1.jpg'))
+    const id = await sharedChat('gps')
+    const up = await upload('alice', id, 'gps.jpg', photo)
+    expect(up.status).toBe(201)
+    expect(up.body.receivedSize).toBe(photo.length)
+    expect(up.body.size).toBeLessThan(photo.length)
+    // the chunked path: the sha256 of what arrived is checked before the cut, and the answer says the same
+    const sha = new Bun.CryptoHasher('sha256').update(photo).digest('hex')
+    const s = await h.api('alice').call(API.createUploadSession, { body: { target: { kind: 'attachment', chatId: id, name: 'gps2.jpg' }, size: photo.length, sha256: sha } })
+    expect((await h.req('alice', `/api/upload-sessions/${s.id}/chunks/0`, { method: 'PUT', body: new Uint8Array(photo), headers: { 'content-type': 'application/octet-stream' } })).status).toBe(200)
+    const done = await h.api('alice').call(API.completeUploadSession, { params: { id: s.id } })
+    expect(done).toMatchObject({ kind: 'attachment', attachment: { source: 'chat', receivedSize: photo.length } })
+    // a file kept as it came says nothing more
+    const plain = await upload('alice', id, 'plain.txt', 'plain')
+    expect(plain.body.receivedSize).toBeUndefined()
+    // what others get has no receivedSize (it is the upload's answer only)
+    await ask('alice', id, `p\n${fake({ say: 'ok' })}`, [up.body.id])
+    expect((await lastMessage('bob', id)).attachments[0]!.receivedSize).toBeUndefined()
   })
 
   test('a photo\'s place and camera are cut out before others get it, on upload and on the copy at the share', async () => {

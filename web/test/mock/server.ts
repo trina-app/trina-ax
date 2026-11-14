@@ -147,6 +147,26 @@ const MOCK_CLAUDE_AUTHORIZE = 'https://claude.com/cai/oauth/authorize?code=true&
 const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>, params?: Record<string, string | number | boolean>): never => {
   throw new Fail(code, status, msg, fields, params)
 }
+/** A JPEG without its APP1 (Exif) segments, as the server keeps a picture in a chat shared with people
+ * (server/src/uploads/metadata.ts cleanImage, short); anything else as it came. */
+function withoutExif(d: Uint8Array): Uint8Array {
+  if (d[0] !== 0xff || d[1] !== 0xd8) return d
+  const parts: Uint8Array[] = [d.subarray(0, 2)]
+  let i = 2
+  while (i + 4 <= d.length && d[i] === 0xff) {
+    const m = d[i + 1]!
+    if (m === 0xda) break
+    const end = i + 2 + ((d[i + 2]! << 8) | d[i + 3]!)
+    if (m !== 0xe1) parts.push(d.subarray(i, end))
+    i = end
+  }
+  if (parts.length === 1 && i === 2) return d
+  parts.push(d.subarray(i))
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let o = 0
+  for (const p of parts) { out.set(p, o); o += p.length }
+  return out
+}
 /** Like server/src/admin/users.ts temporaryFor: a typed temporary password must be ASCII, 8+ and not a common one. */
 function checkTemp(pw: string | undefined): void {
   if (pw === undefined) return
@@ -5480,12 +5500,14 @@ export class MockServer {
 
   makeAttachment(chatId: string, name: string, data: Uint8Array, mime: string, user: User): Attachment {
     if (this.peopleChats.has(chatId) || this.peopleShared.has(chatId)) {
-      // kept with the chat (server/src/chat/chat-files.ts): no team path
+      // kept with the chat (server/src/chat/chat-files.ts): no team path; a JPEG's Exif (place, camera) cut out, and the
+      // answer says how many bytes arrived before that (Attachment.receivedSize, QA TC-2023)
       const k = mime || mimeOf(name) || 'application/octet-stream'
-      const kept: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: data.byteLength, mime: k, kind: k.startsWith('image/') ? 'image' : /\.(txt|md)$/i.test(name) ? 'text' : 'other', source: 'chat', data }
+      const clean = withoutExif(data)
+      const kept: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: clean.byteLength, mime: k, kind: k.startsWith('image/') ? 'image' : /\.(txt|md)$/i.test(name) ? 'text' : 'other', source: 'chat', data: clean }
       this.attachments.set(kept.id, kept)
       const { data: _k, ...shown } = kept
-      return shown
+      return clean.byteLength !== data.byteLength ? { ...shown, receivedSize: data.byteLength } : shown
     }
     const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: `users/${user.id}/.attachments/${chatId}/${name}`, size: data.byteLength, mime: mime || 'application/octet-stream', kind: mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : 'other', data }
     this.attachments.set(a.id, a)
@@ -5918,6 +5940,8 @@ export class MockServer {
   peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
   /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
   peopleHidden = new Set<string>()
+  /** who was one of a chat's people (chat_audience_past): their link says "no longer shared with you" (QA TC-2009) */
+  peoplePast = new Map<string, Set<string>>()
   peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[]; earlierFiles?: number } | null = null
   peopleFail = 0
   /** POST /__test/chat-share {filesNotCopied}: the next first share says this many earlier files could not go with it */
@@ -5930,7 +5954,8 @@ export class MockServer {
     const ps = this.peopleShared.get(chatId)
     const s = this.sharedChats.get(chatId)
     if (!ps || !s) return []
-    const out = new Set([s.by.id])
+    // its creator too, while their account is on (server/src/chat/chat-audience.ts peopleAudience)
+    const out = new Set(this.users.some((u) => u.id === s.by.id && u.status === 'active') ? [s.by.id] : [])
     for (const x of ps.subjects) {
       if (x.subjectType === 'user') { if (this.users.some((u) => u.id === x.subjectId && u.status === 'active')) out.add(x.subjectId) }
       else for (const id of this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []) if (this.users.some((u) => u.id === id && u.status === 'active')) out.add(id)
@@ -5967,7 +5992,7 @@ export class MockServer {
         shared: {
           kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
           answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
-          mine: true, canDelete: creator, canUpload: false,
+          mine: true, canDelete: creator, canUpload: !this.allConfidential,
         },
       }
     }
@@ -5975,6 +6000,7 @@ export class MockServer {
     this.reset = (o) => {
       this.peopleShared = new Map()
       this.peopleHidden = new Set()
+      this.peoplePast = new Map()
       this.peopleConfirm = null
       this.peopleFail = 0
       this.peopleNotCopied = 0
@@ -6032,7 +6058,8 @@ export class MockServer {
       return ps.subjects.flatMap((x): ChatAudience['subjects'] => {
         if (x.subjectType === 'user') {
           const u = this.users.find((y) => y.id === x.subjectId)
-          return u ? [{ subjectType: 'user' as const, subjectId: u.id, name: u.name }] : []
+          const inGroups = full ? ps.subjects.filter((g) => g.subjectType === 'group' && (viewer.role !== 'member' || !!this.groups.find((y) => y.id === g.subjectId)?.memberIds.includes(viewer.id)) && !!this.groups.find((y) => y.id === g.subjectId)?.memberIds.includes(x.subjectId)).map((g) => g.subjectId) : []
+          return u ? [{ subjectType: 'user' as const, subjectId: u.id, name: u.name, ...(inGroups.length ? { inGroups } : {}) }] : []
         }
         const g = this.groups.find((y) => y.id === x.subjectId)
         if (!g) return []
@@ -6064,6 +6091,17 @@ export class MockServer {
       return chat
     }
     h.getChatAudience = (c) => audienceOf(sees(c.params.id!, c.user), c.user)
+    // someone who was one of its people and does not see it now: the 404 says why (server/src/chat/shared.ts chatFor)
+    for (const name of ['getChat', 'listMessages'] as const) {
+      over(name, (c, base) => {
+        try { return base(c) } catch (e) {
+          const chat = this.chats.find((x) => x.id === c.params.id)
+          const was = !!chat && !chat.deletedAt && !chat.projectId && (this.chatOwners.get(chat.id) ?? this.sharedChats.get(chat.id)?.by.id) !== c.user.id && !!this.peoplePast.get(chat.id)?.has(c.user.id)
+          if (e instanceof Fail && e.status === 404 && was) fail('not_found', 404, '이 채팅은 더 이상 나와 공유되어 있지 않아요.', undefined, { reason: 'no_longer_shared' })
+          throw e
+        }
+      })
+    }
     h.putChatAudience = (c) => {
       const chat = sees(c.params.id!, c.user)
       const no = (status: number, reason: string, message: string): never => fail(status === 400 ? 'validation' : 'conflict', status, message, undefined, { reason })
@@ -6105,12 +6143,22 @@ export class MockServer {
       const after = resolve(wanted)
       const gained = after.filter((id) => !was.has(id))
       const lost = [...was].filter((id) => !after.includes(id))
+      // taken out by name, still in through a group listed (QA TC-2264)
+      const afterGroups = wanted.filter((x) => x.subjectType === 'group').map((x) => this.groups.find((g) => g.id === x.subjectId)).filter((g): g is NonNullable<typeof g> => !!g)
+      const keptThrough = removed.filter((x) => x.subjectType === 'user' && after.includes(x.subjectId)).map((x) => ({
+        name: this.users.find((u) => u.id === x.subjectId)?.name ?? '',
+        groups: afterGroups.filter((g) => g.memberIds.includes(x.subjectId) && (c.user.role !== 'member' || g.memberIds.includes(c.user.id))).map((g) => g.name),
+      })).filter((k) => k.groups.length)
       const k = `ok:${key(wanted)}`
       const ask = this.peopleConfirm
       if (gained.length && ask && c.body.confirmKey !== k) {
         return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}), confirmKey: k,
           provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
       }
+      // who saw it, before or after (never its creator)
+      const past = this.peoplePast.get(chat.id) ?? new Set<string>()
+      for (const id of [...was, ...after]) if (id !== c.user.id) past.add(id)
+      this.peoplePast.set(chat.id, past)
       // the people who lose it hear it is gone (its id alone), before the rows change
       for (const id of lost) this.sharedSend((uid) => (uid === id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
       if (!wanted.length) {
@@ -6128,7 +6176,7 @@ export class MockServer {
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
       const notCopied = !ps ? this.peopleNotCopied : 0
       if (!ps) this.peopleNotCopied = 0
-      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user), ...(notCopied ? { filesNotCopied: notCopied } : {}) }
+      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user), ...(notCopied ? { filesNotCopied: notCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
     }
     const hide = (c: Ctx, on: boolean) => {
       const chat = sees(c.params.id!, c.user)
@@ -6682,19 +6730,20 @@ export class MockServer {
     }
     over('uploadAttachment', async (c, base) => {
       const chatId = (c.body as { chatId?: string }).chatId
-      if (!shared(chatId)) return base(c)
+      // (a chat shared with people keeps the file with the chat: makeAttachment)
+      if (!shared(chatId) || this.peopleShared.has(chatId!)) return base(c)
       const data = new Uint8Array(await c.file!.arrayBuffer())
       await this.uploadAnswer()
       return { status: 201, body: saveShared(chatId!, c.body.name ?? c.file!.name, data, c.user) }
     })
     over('createUploadSession', (c, base) => {
       const target = c.body.target as { kind: string; chatId?: string }
-      if (target.kind === 'attachment' && shared(target.chatId)) uploadFolder(target.chatId!, c.user)
+      if (target.kind === 'attachment' && shared(target.chatId) && !this.peopleShared.has(target.chatId!)) uploadFolder(target.chatId!, c.user)
       return base(c)
     })
     over('completeUploadSession', async (c, base) => {
       const s = this.uploads.get(c.params.id!)
-      if (!s || s.target.kind !== 'attachment' || !shared(s.target.chatId)) return base(c)
+      if (!s || s.target.kind !== 'attachment' || !shared(s.target.chatId) || this.peopleShared.has(s.target.chatId)) return base(c)
       const out = await base(c) as { kind: 'attachment'; attachment: Attachment }
       // the base kept it as an upload of the person's own folder: it goes to the project folder instead
       const a = this.attachments.get(out.attachment.id)!

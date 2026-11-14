@@ -73,7 +73,13 @@ export function cleanPicture(name: string, bytes: Uint8Array, quarantined: boole
 }
 
 /** A computer upload of a chat's question (attachments row) that a first share copies (ChatFiles.copyEarlier) */
-type EarlierRow = { id: string; user_id: string; path: string; name: string; thumb_path: string | null; sha256: string | null }
+type EarlierRow = { id: string; user_id: string; path: string; name: string; size: number; thumb_path: string | null; sha256: string | null; created_at: string }
+/** At most this many bytes are read in full by one Share check (earlierUploads); a file past it that would need reading
+ * is not counted (the count never says more than will go) */
+export const EARLIER_CHECK_BYTES = 100 * 1024 * 1024
+/** The verdicts of earlier uploads read in full, by file and its state (path, inode, size, mtime): a Share check asked
+ * again, and the save after it, read a file once */
+const EARLIER_VERDICT_MAX = 500
 
 /** The attachment a message carries for a chat file: no team path (it is in no folder), source 'chat'. */
 export const chatFileAttachment = (r: ChatFileRow): Attachment => ({
@@ -83,8 +89,13 @@ export const chatFileAttachment = (r: ChatFileRow): Attachment => ({
 
 const services = new WeakMap<AppContext, ChatFiles>()
 
+/** A file's state for the verdict cache: the same path, inode, size and mtime, and the bytes it must match */
+const earlierKey = (st: { abs: string; ino: number; size: number; mtimeMs: number }, att: Pick<EarlierRow, 'sha256'>) => `${st.abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}\0${att.sha256 ?? ''}`
+
 export class ChatFiles {
   constructor(readonly ctx: AppContext) {}
+  /** earlierVerdict: `${abs}\0${ino}\0${size}\0${mtimeMs}\0${sha256}` -> would it be copied (read in full) */
+  private earlier = new Map<string, boolean>()
   root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'chat-files') }
   private dir(chatId: string) { return path.join(this.root(), chatId) }
   private abs(f: Pick<ChatFileRow, 'chat_id' | 'id'>) { return path.join(this.dir(f.chat_id), f.id) }
@@ -120,7 +131,8 @@ export class ChatFiles {
     const bad = clean.includes('/') || clean.includes('\\') ? 'names cannot contain "/"' : badSegment(clean)
     if (bad) fail('validation', undefined, { fields: { 'body.name': bad } })
     // the multipart limit for a chunked upload too (it may be up to 20 GB elsewhere)
-    if (fs.statSync(src).size > CHAT_FILE_MAX) fileError('payload_too_large', 'chatFileTooLarge', undefined, { reason: 'chat_file_too_large' })
+    const received = fs.statSync(src).size
+    if (received > CHAT_FILE_MAX) fileError('payload_too_large', 'chatFileTooLarge', undefined, { reason: 'chat_file_too_large' })
     const pic = cleanPicture(clean, new Uint8Array(fs.readFileSync(src)), this.ctx.files.quarantine.hasHash(sha256))
     if (!pic) { fs.rmSync(src, { force: true }); return fail('validation', tr('roomPhotoUnreadable', personLocale(this.ctx.db, userId))) }
     let stored = sha256
@@ -135,7 +147,8 @@ export class ChatFiles {
     fs.utimesSync(dst, t, t)
     const row = await this.record(userId, chatId, id, clean, dst, stored, null, pic.kind)
     audit(this.ctx.db, { actor: userId, action: 'chat.file_add', target: chatId, detail: { size: row.size, kind: row.kind } })
-    return chatFileAttachment(row)
+    // the sender checks the upload arrived whole against what was received, not against the cleaned picture (QA TC-2023)
+    return { ...chatFileAttachment(row), ...(row.size !== received ? { receivedSize: received } : {}) }
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
@@ -214,10 +227,82 @@ export class ChatFiles {
     return true
   }
 
-  /** The computer uploads in this chat's questions (in their sender's own folder) that a first share copies here
-   * (copyEarlier): how many, for the Share check ("N files you attached will be visible to them"). */
-  earlierUploads(chatId: string): number {
-    return this.earlierRows(chatId).length
+  /** The computer uploads in this chat's questions (in their sender's own folder) that a first share would copy here
+   * (copyEarlier): how many, for the Share check ("N files you attached will be visible to them"). Only the ones that
+   * would go, by copyEarlier's rule (QA TC-2022): gone, not a plain file, too large, no storage room, edited since it was
+   * attached, or a picture that cannot be cleaned is not counted. Without reading a file when its state says enough: a
+   * file that is not a picture, of the size it was attached with and not written since it was attached, is the same
+   * bytes. Others (a picture, a file written since) are read in full, at most EARLIER_CHECK_BYTES for the whole check,
+   * and the verdict is kept by the file's state for the save (copyEarlier) and a check asked again; one past the limit
+   * is not counted. */
+  async earlierUploads(chatId: string): Promise<number> {
+    const rows = this.earlierRows(chatId)
+    if (!rows.length) return 0
+    const rules = this.ctx.files.rules()
+    let n = 0
+    let budget = EARLIER_CHECK_BYTES
+    for (const att of rows) {
+      try {
+        const st = await this.statEarlier(att, rules)
+        const picture = attachmentKind(att.name) === 'image'
+        const untouched = st.size === att.size && st.mtimeMs <= Date.parse(att.created_at)
+        if (!picture && untouched && att.sha256) { n++; continue }
+        const known = this.earlier.get(earlierKey(st, att))
+        if (known !== undefined) { if (known) n++; continue }
+        if (st.size > budget) continue
+        budget -= st.size
+        await this.readEarlier(att, rules)
+        n++
+      } catch { /* would not be copied */ }
+    }
+    return n
+  }
+
+  /** The earlier upload's file as its sender may read it now (moved or deleted on the Files screen: left as it was): a
+   * plain file, at most CHAT_FILE_MAX, room for it in the team's storage. Throws when it would not be copied. */
+  private async statEarlier(att: EarlierRow, rules: ReturnType<AppContext['files']['rules']>): Promise<{ abs: string; ino: number; size: number; mtimeMs: number }> {
+    const who = loadPrincipal(this.ctx.db, att.user_id)
+    if (!who) throw new Error('sender gone')
+    const src = authorize(this.ctx.files.fx, rules, who, att.path, 'read')
+    const st = await fs.promises.lstat(src.abs)
+    if (!st.isFile() || st.nlink > 1) throw new Error('not a plain file')
+    if (st.size > CHAT_FILE_MAX) throw new Error('too large')
+    assertStorageRoom(st.size)
+    return { abs: src.abs, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs }
+  }
+
+  /** An earlier upload as copyEarlier copies it: read as its sender may read it now, the bytes that were attached (not
+   * one edited or replaced since), at most CHAT_FILE_MAX, room for it in the team's storage, a picture's metadata cut
+   * out. Throws when it would not be copied. The verdict is kept by the file's state (earlierUploads). */
+  private async readEarlier(att: EarlierRow, rules: ReturnType<AppContext['files']['rules']>): Promise<NonNullable<ReturnType<typeof cleanPicture>>> {
+    const who = loadPrincipal(this.ctx.db, att.user_id)
+    if (!who) throw new Error('sender gone')
+    // the file as its sender may read it now (moved or deleted on the Files screen: left as it was)
+    const src = authorize(this.ctx.files.fx, rules, who, att.path, 'read')
+    const h = await fs.promises.open(src.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+    let bytes: Uint8Array
+    let key = ''
+    try {
+      const st = await h.stat()
+      if (!st.isFile() || st.nlink > 1) throw new Error('not a plain file')
+      if (st.size > CHAT_FILE_MAX) throw new Error('too large')
+      assertStorageRoom(st.size)
+      key = earlierKey({ abs: src.abs, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs }, att)
+      // known not to go in this very state: not read again
+      if (this.earlier.get(key) === false) throw new Error('known not to be copied')
+      bytes = new Uint8Array(await h.readFile())
+      if (bytes.byteLength !== st.size) throw new Error('changed while read')
+    } finally { await h.close() }
+    const keep = (ok: boolean) => {
+      if (this.earlier.size >= EARLIER_VERDICT_MAX) this.earlier.delete(this.earlier.keys().next().value!)
+      this.earlier.set(key, ok)
+    }
+    // only the bytes that were attached: a file edited or replaced on the Files screen since stays its sender's
+    if (att.sha256 && createHash('sha256').update(bytes).digest('hex') !== att.sha256) { keep(false); throw new Error('changed since it was attached') }
+    const pic = cleanPicture(att.name, bytes, this.ctx.files.quarantine.hasHash(att.sha256 ?? ''))
+    keep(!!pic)
+    if (!pic) throw new Error('picture metadata not removable')
+    return pic
   }
   private earlierRows(chatId: string): EarlierRow[] {
     const ids = new Set<string>()
@@ -226,7 +311,7 @@ export class ChatFiles {
       try { for (const a of JSON.parse(m.attachments) as Attachment[]) if (a.source !== 'team' && a.source !== 'chat') ids.add(a.id) } catch { /* none */ }
     }
     if (!ids.size) return []
-    return this.ctx.db.query(`SELECT id, user_id, path, name, thumb_path, sha256 FROM attachments WHERE chat_id = ? AND id IN (${[...ids].map(() => '?').join(',')})`).all(chatId, ...ids) as EarlierRow[]
+    return this.ctx.db.query(`SELECT id, user_id, path, name, size, thumb_path, sha256, created_at FROM attachments WHERE chat_id = ? AND id IN (${[...ids].map(() => '?').join(',')})`).all(chatId, ...ids) as EarlierRow[]
   }
 
   /**
@@ -250,24 +335,7 @@ export class ChatFiles {
     for (const att of rows) {
       const id = newId()
       try {
-        const who = loadPrincipal(db, att.user_id)
-        if (!who) throw new Error('sender gone')
-        // the file as its sender may read it now (moved or deleted on the Files screen: left as it was)
-        const src = authorize(this.ctx.files.fx, rules, who, att.path, 'read')
-        const h = await fs.promises.open(src.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
-        let bytes: Uint8Array
-        try {
-          const st = await h.stat()
-          if (!st.isFile() || st.nlink > 1) throw new Error('not a plain file')
-          if (st.size > CHAT_FILE_MAX) throw new Error('too large')
-          assertStorageRoom(st.size)
-          bytes = new Uint8Array(await h.readFile())
-          if (bytes.byteLength !== st.size) throw new Error('changed while read')
-        } finally { await h.close() }
-        // only the bytes that were attached: a file edited or replaced on the Files screen since stays its sender's
-        if (att.sha256 && createHash('sha256').update(bytes).digest('hex') !== att.sha256) throw new Error('changed since it was attached')
-        const pic = cleanPicture(att.name, bytes, this.ctx.files.quarantine.hasHash(att.sha256 ?? ''))
-        if (!pic) throw new Error('picture metadata not removable')
+        const pic = await this.readEarlier(att, rules)
         const sha = createHash('sha256').update(pic.bytes).digest('hex')
         await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
         const dst = this.abs({ chat_id: chatId, id })

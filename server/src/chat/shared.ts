@@ -27,7 +27,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
-import { inPeopleAudience, isPeopleRow, peopleAudience, hiddenByMe } from './chat-audience'
+import { inPeopleAudience, isPeopleRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
 import { isGuest } from '../auth/guests'
 
 /** A chat row that is a shared project chat (made shared and still in a project) or a chat outside projects shared with
@@ -334,11 +334,17 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
   const L = o.locale ?? 'en'
   const r = rt.store.chatRow(id)
   if (!r || r.room_id) return fail('not_found')
+  // someone taken out of a chat shared with people and groups (by its creator, by leaving a listed group, or made private
+  // again) opens it: one plain reason (QA TC-2009; chat/chat-audience.ts wasInPeopleChat); a deleted chat and everyone
+  // else get the one 404 of a missing chat
+  const notShared = (): never => (wasInPeopleChat(rt.db, r, userId)
+    ? fail('not_found', tr('chatNoLongerShared', L), { params: { reason: 'no_longer_shared' } })
+    : fail('not_found'))
   // a chat shared with chosen people and groups (chat/chat-audience.ts): its creator and the people in it now; everyone
   // else (an admin or the owner outside it too) gets the 404 of a missing chat. Delete and restore are its creator's.
   if (isPeopleRow(r)) {
     const creator = r.user_id === userId
-    if (!inPeopleAudience(rt.db, r, userId)) return fail('not_found')
+    if (!inPeopleAudience(rt.db, r, userId)) return notShared()
     if (r.deleted_at && (!o.deleted || mode === 'continue' || !creator)) return fail('not_found')
     if (mode === 'manage' && !creator) return fail('forbidden', tr('sharedChatDeleteNo', L), { params: { reason: 'shared_chat_manage' } })
     // while 1A is on every conversation is confidential, and a shared chat never is: read-only until it is off
@@ -346,7 +352,7 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
     return { row: r, shared: true, kind: 'people', project: null, creator, editor: false }
   }
   if (!isSharedRow(r)) {
-    if (r.user_id !== userId) return fail('not_found')
+    if (r.user_id !== userId) return notShared()
     if (r.deleted_at && (!o.deleted || mode === 'continue')) return fail('not_found')
     return { row: r, shared: false, kind: null, project: null, creator: true, editor: false }
   }
