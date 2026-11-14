@@ -4,6 +4,7 @@ import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
+import { useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, confirmDialog } from '../ui'
 
@@ -108,6 +109,16 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null) } }
     finally { if (g === generation.current) setBusy(false) }
   }
+  // the window was closed (or left) before Google answered: after a while the wait ends, the flow is cancelled on the
+  // server, and Connect is back with a line that says so (reason "timeout"; QA TC-1417)
+  useWaitLimit(!!flow && ['pending', 'exchanging'].includes(flow.state), flow?.flowId, () => {
+    if (!flow) return
+    const id = flow.flowId
+    generation.current++
+    setFlow(null); setAuthorizationUrl(null); popup.current?.close()
+    setError(true); setReason('timeout')
+    void calls.current.cancel(id).catch(() => { /* it expires there by itself */ })
+  })
   const inProgress = !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state)
   return { flow, authorizationUrl, busy, setBusy, error, setError, reason, popupBlocked, generation, start, resume, cancel, complete, inProgress }
 }
@@ -138,7 +149,11 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
     </>}
     {flow.state !== 'ready' && d.authorizationUrl && <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-accent-text hover:underline" onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>{t('drive.openGoogle')}</a>}
-    <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>
+    {/* waiting: Try again (a new window, the server replaces the flow) beside Cancel, always (QA TC-1417) */}
+    <div className="flex flex-wrap gap-2">
+      {flow.state !== 'ready' && <Button disabled={d.busy} onClick={() => void d.start()} data-testid="drive-flow-retry">{t('common.retry')}</Button>}
+      <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>
+    </div>
   </div>
 }
 

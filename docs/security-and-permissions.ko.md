@@ -1,6 +1,6 @@
 # 보안과 권한
 
-[English](security-and-permissions.md)
+[English](security-and-permissions.md) · [简体中文](security-and-permissions.zh.md)
 
 “입사 정책을 요약해 줘”라는 같은 질문이라도 인사 폴더 권한이 있는 사람만 그 파일을 읽을 수 있습니다. 서버가 파일 요청마다 질문한 사람의 접근 권한을 확인합니다. 스킬은 접근할 수 있는 지침일 뿐 권한을 추가하지 않습니다.
 

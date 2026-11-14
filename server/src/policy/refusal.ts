@@ -127,27 +127,27 @@ export function cardNext(end: CardEnd, where = 'in a chat'): string {
 
 // ---------------- screen names, as the person's app shows them ----------------
 type L5 = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): L5 => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): L5 => ({ ko, en, id, ja, es, zh })
 // the web app's own labels (web/src/i18n: sidebar.files, files.trash, sidebar.settings, admin.title, admin.folders,
 // admin.groups, rooms.title, sideChat.open, integrations.title, admin.integrations)
 const LABEL = {
-  files: t('파일', 'Files', 'File', 'ファイル', 'Archivos'),
-  trash: t('휴지통', 'Trash', 'Sampah', 'ゴミ箱', 'Papelera'),
-  settings: t('설정', 'Settings', 'Pengaturan', '設定', 'Configuración'),
-  admin: t('관리자', 'Admin', 'Admin', '管理', 'Administración'),
-  folders: t('폴더 권한', 'Folder permissions', 'Izin folder', 'フォルダーの権限', 'Permisos de carpetas'),
-  groups: t('부서', 'Groups', 'Grup', 'グループ', 'Grupos'),
-  rooms: t('대화', 'Conversations', 'Percakapan', 'トーク', 'Conversaciones'),
-  sideChat: t('✦ {name}에게 따로 묻기', '✦ Ask {name} privately', '✦ Tanya {name} secara pribadi', '✦ {name}に個別に質問', '✦ Preguntar a {name} en privado'),
+  files: t('파일', 'Files', 'File', 'ファイル', 'Archivos', '文件'),
+  trash: t('휴지통', 'Trash', 'Sampah', 'ゴミ箱', 'Papelera', '回收站'),
+  settings: t('설정', 'Settings', 'Pengaturan', '設定', 'Configuración', '设置'),
+  admin: t('관리자', 'Admin', 'Admin', '管理', 'Administración', '管理'),
+  folders: t('폴더 권한', 'Folder permissions', 'Izin folder', 'フォルダーの権限', 'Permisos de carpetas', '文件夹权限'),
+  groups: t('부서', 'Groups', 'Grup', 'グループ', 'Grupos', '小组'),
+  rooms: t('대화', 'Conversations', 'Percakapan', 'トーク', 'Conversaciones', '聊天'),
+  sideChat: t('✦ {name}에게 따로 묻기', '✦ Ask {name} privately', '✦ Tanya {name} secara pribadi', '✦ {name}に個別に質問', '✦ Preguntar a {name} en privado', '✦ 私下问{name}'),
   // the person's own connections: Connectors, a section of Settings (web integrations.title)
-  connectors: t('커넥터', 'Connectors', 'Konektor', 'コネクター', 'Conectores'),
+  connectors: t('커넥터', 'Connectors', 'Konektor', 'コネクター', 'Conectores', '连接器'),
   // the team's: Admin › Connected apps (web admin.integrations)
-  connected: t('연결한 서비스', 'Connected apps', 'Aplikasi terhubung', '連携サービス', 'Apps conectadas'),
+  connected: t('연결한 서비스', 'Connected apps', 'Aplikasi terhubung', '連携サービス', 'Apps conectadas', '已连接的应用'),
   // a shared project chat's title menu (web chat.continuePrivately)
-  continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ves tú'),
+  continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ves tú', '在只有你能看到的对话中继续'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
-const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA')
+const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA', 'AI')
 
 /** Where a person does something themselves, by the names their app shows (`L`). */
 export const SCREEN = {

@@ -62,7 +62,7 @@ const RATE_OWN = 'Slack asked to wait before reading more. Try again in a minute
 const NO_SLACK_CARD = 'Slack is reached only through the user\'s Slack link, never through connect_service: there is no card for Slack, so never offer or call one for it.'
 const NEEDS_UPDATE = 'Reading Slack needs the Slack app\'s permissions updated first: the team\'s owner or an admin does that once in Admin › Connected apps › Slack (Update Slack permissions).'
 
-interface Msg { ts?: unknown; user?: unknown; bot_id?: unknown; username?: unknown; text?: unknown; thread_ts?: unknown; reply_count?: unknown; subtype?: unknown; files?: unknown }
+interface Msg { ts?: unknown; user?: unknown; bot_id?: unknown; username?: unknown; text?: unknown; thread_ts?: unknown; reply_count?: unknown; subtype?: unknown; files?: unknown; blocks?: unknown; attachments?: unknown }
 export interface Conversation { id: string; kind: 'channel' | 'private' | 'dm' | 'group'; name: string | null; botIn: boolean; dmUser: string | null }
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
@@ -89,6 +89,103 @@ export function slackPlain(raw: string, names: ReadonlyMap<string, string>): str
   return clean(s).replace(/</g, '‹')
 }
 
+/** How much of a message's blocks and attachments is read (characters of Slack markup, before the message's own cut),
+ * and how many of them and how deep: a message is data, never a way to make the server walk a huge tree. */
+const RICH_CHARS = 4000
+const RICH_PARTS = 100
+const RICH_DEPTH = 6
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null)
+const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null)
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v.slice(0, RICH_PARTS) : [])
+/** a text object ({ type: 'mrkdwn' | 'plain_text', text }) */
+const textOf = (v: unknown) => str(obj(v)?.text)
+
+/** One rich_text element's words, in Slack's markup (slackPlain reads it after): text, links, mentions, emoji. */
+function richElements(els: unknown, depth: number): string {
+  if (depth > RICH_DEPTH) return ''
+  const out: string[] = []
+  for (const raw of list(els)) {
+    const e = obj(raw)
+    if (!e) continue
+    switch (e.type) {
+      case 'text': if (typeof e.text === 'string') out.push(e.text); break
+      case 'link': if (str(e.url)) out.push(str(e.text) ? `<${e.url}|${e.text}>` : `<${e.url}>`); break
+      case 'user': if (str(e.user_id)) out.push(`<@${e.user_id}>`); break
+      case 'usergroup': out.push('@group'); break
+      case 'channel': if (str(e.channel_id)) out.push(`<#${e.channel_id}>`); break
+      case 'broadcast': if (str(e.range)) out.push(`@${e.range}`); break
+      case 'emoji': if (str(e.name)) out.push(`:${e.name}:`); break
+      case 'date': if (str(e.fallback)) out.push(e.fallback as string); break
+      // rich_text_section, _list, _quote, _preformatted: their own elements, a list's items one per line
+      default: if (Array.isArray(e.elements)) out.push(richElements(e.elements, depth + 1) + (e.type === 'rich_text_list' ? '' : '\n'))
+    }
+  }
+  return out.join('')
+}
+
+/** The words of a message's blocks (Block Kit), in Slack's markup: section (its text and fields), header, context,
+ * rich_text, markdown; buttons, images and inputs carry nothing to read. */
+function blocksText(blocks: unknown, depth = 0): string[] {
+  const out: string[] = []
+  for (const raw of list(blocks)) {
+    const b = obj(raw)
+    if (!b) continue
+    if (b.type === 'section') {
+      const t = textOf(b.text)
+      if (t) out.push(t)
+      const fields = list(b.fields).map(textOf).filter(Boolean)
+      if (fields.length) out.push(fields.join('\n'))
+    } else if (b.type === 'header') { const t = textOf(b.text); if (t) out.push(t) }
+    else if (b.type === 'context') { const t = list(b.elements).map(textOf).filter(Boolean).join(' '); if (t) out.push(t) }
+    else if (b.type === 'rich_text') { const t = richElements(b.elements, depth + 1).trim(); if (t) out.push(t) }
+    else if (b.type === 'markdown') { const t = str(b.text); if (t) out.push(t) }
+  }
+  return out
+}
+
+/** The words of a message's legacy attachments (an alert's colored box): pretext, title, text, fields as "title: value",
+ * footer; its fallback when it says nothing else; its own blocks. */
+function attachmentsText(attachments: unknown): string[] {
+  const out: string[] = []
+  for (const raw of list(attachments)) {
+    const a = obj(raw)
+    if (!a) continue
+    const parts: string[] = []
+    for (const k of ['pretext', 'author_name']) { const v = str(a[k]); if (v) parts.push(v) }
+    const title = str(a.title)
+    if (title) parts.push(str(a.title_link) ? `<${a.title_link}|${title}>` : title)
+    const t = str(a.text)
+    if (t) parts.push(t)
+    for (const f of list(a.fields)) { const o = obj(f); const ft = str(o?.title), fv = str(o?.value); if (ft || fv) parts.push([ft, fv].filter(Boolean).join(': ')) }
+    parts.push(...blocksText(a.blocks, 1))
+    const footer = str(a.footer)
+    if (footer) parts.push(footer)
+    if (!parts.length && str(a.fallback)) parts.push(a.fallback as string)
+    if (parts.length) out.push(parts.join('\n'))
+  }
+  return out
+}
+
+/** A message as Slack markup to read: its text, then what its blocks and attachments say that the text does not
+ * (another app's alert often has only a line of text, its details in blocks: QA TC-1419). Capped (RICH_CHARS); read as
+ * data like any message text (slackPlain, the message's cut and indent in messageLines). */
+export function messageRaw(m: Pick<Msg, 'text' | 'blocks' | 'attachments'>): string {
+  const own = typeof m.text === 'string' ? m.text : ''
+  const norm = (x: string) => x.replace(/\s+/g, ' ').trim()
+  const seen = norm(own)
+  const extra: string[] = []
+  let size = 0
+  for (const part of [...blocksText(m.blocks), ...attachmentsText(m.attachments)]) {
+    const n = norm(part)
+    // a block that only repeats the text (Slack's own rich_text copy of what was typed) adds nothing
+    if (!n || seen.includes(n) || extra.some((x) => norm(x).includes(n))) continue
+    if (size + part.length > RICH_CHARS) { extra.push(`${part.slice(0, Math.max(0, RICH_CHARS - size))}…`); break }
+    extra.push(part); size += part.length + 1
+  }
+  return [own, ...extra].filter((x) => x.trim()).join('\n')
+}
+
 const timeOf = (ts: string) => { const d = new Date(Number(ts) * 1000); return Number.isFinite(d.getTime()) ? `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC` : ts }
 
 /** Names of the Slack people in these messages (users.info, cached 10 minutes by the connector; at most 30 asked). */
@@ -96,7 +193,7 @@ async function namesOf(s: SlackConnector, token: string, msgs: Msg[]): Promise<M
   const ids = new Set<string>()
   for (const m of msgs) {
     if (typeof m.user === 'string' && /^[UW][A-Z0-9]{2,40}$/.test(m.user)) ids.add(m.user)
-    if (typeof m.text === 'string') for (const x of m.text.matchAll(/<@([UW][A-Z0-9]{2,40})/g)) ids.add(x[1]!)
+    for (const x of messageRaw(m).matchAll(/<@([UW][A-Z0-9]{2,40})/g)) ids.add(x[1]!)
   }
   const out = new Map<string, string>()
   let asked = 0
@@ -120,7 +217,7 @@ async function namesOf(s: SlackConnector, token: string, msgs: Msg[]): Promise<M
 export function messageLines(msgs: Msg[], names: ReadonlyMap<string, string>, maxChars: number): string {
   const lines = msgs.filter((m) => typeof m.ts === 'string' && TS.test(m.ts)).map((m) => {
     const who = typeof m.user === 'string' ? names.get(m.user) ?? m.user : typeof m.username === 'string' ? clean(m.username) : typeof m.bot_id === 'string' ? 'a bot' : 'someone'
-    let body = typeof m.text === 'string' ? slackPlain(m.text, names) : ''
+    let body = slackPlain(messageRaw(m), names)
     if (body.length > MESSAGE_CHARS) body = `${body.slice(0, MESSAGE_CHARS)}… (cut)`
     // a message's own lines are indented under it: no line of a message can pass for another message (its author and
     // time) or start a line of its own in the instructions

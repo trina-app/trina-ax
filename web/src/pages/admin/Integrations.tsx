@@ -46,12 +46,14 @@ import { Loadable, SettingRow, SettingsSection, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
 import AdminSlack from './Slack'
+import { slackView, useSlackRecheck } from '../../lib/slackState'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'slack' } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
 
-/** Slack's row on the right: added (on, off, a problem), or removed in Slack (Reconnect: Add to Slack again) */
-export const slackRowStatus = (s: SlackAdmin): RowStatus => (!s.tokens ? 'reconnect' : !s.enabled ? 'off' : s.state === 'error' ? 'attention' : 'on')
+/** Slack's row on the right: added (on, connecting, off, a problem or a connection that does not come), or removed in
+ * Slack (Reconnect: Add to Slack again). The same reading as Slack's page (lib/slackState.ts). */
+export const slackRowStatus = (s: SlackAdmin): RowStatus => slackView(s).row
 /** Slack is in Connected (else a card in Discover): added, or removed in Slack and not added again */
 export const slackAdded = (s: SlackAdmin) => s.tokens || s.lastError === 'removed'
 
@@ -91,6 +93,8 @@ export default function AdminIntegrations() {
   // a page: /admin/connectors/<id> (a Google connector, a listed service) or /admin/connectors/mcp/<id> (a team
   // connection), in place of the list; the way back returns to the list
   const { sub, item } = useParams()
+  // connecting: read again until it is connected (or a problem), as Slack's page does
+  useSlackRecheck(sub ? null : slack.data, slack.reload)
   const navigate = useNavigate()
   const upTo = useUpTo()
   const open: Open | null = !sub ? null

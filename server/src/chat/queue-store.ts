@@ -25,7 +25,7 @@ export class QueueStore {
    * stays NULL; rows from before keep theirs, which nothing reads any more). */
   claim(turnId: string, userId: string, now = new Date().toISOString()): { dispatchedAt: string } | null {
     return this.db.transaction(() => {
-      const result = this.db.query("UPDATE turns SET status = 'running', started_at = ?, dispatched_at = ? WHERE id = ? AND user_id = ? AND status = 'queued'")
+      const result = this.db.query("UPDATE turns SET status = 'running', started_at = ?, dispatched_at = ?, people_checked = 1, shared_checked = CASE WHEN shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ? AND user_id = ? AND status = 'queued'")
         .run(now, now, turnId, userId)
       if (!result.changes) return null
       this.settle(userId)

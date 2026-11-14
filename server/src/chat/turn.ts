@@ -112,6 +112,10 @@ import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './st
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 
+/** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
+ * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
+export const noSearchPath = (p: unknown): boolean => typeof p !== 'string' || p.replace(/\\/g, '/').split('/').every((s) => s.trim() === '' || s.trim() === '.')
+
 /** One answer has no time limit (owner decision 2026-11-14, docs/DECISIONS.md "No time limit on one answer"): it ends
  * when the engine is done, at the tool rounds, at a budget or at Stop. Only a stalled engine is ended: nothing from it
  * for this long (no output line, no step or progress, no model-proxy event), counted only while the engine has the
@@ -2649,7 +2653,7 @@ export class TurnExec {
   sharedSearchRefusal(tool: string, args: unknown): string | null {
     if (this.shared?.kind !== 'people' || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return null
     const a = args as Record<string, unknown>
-    if (typeof a.path === 'string' && a.path.trim() !== '' && a.path.trim() !== '.') return null
+    if (!noSearchPath(a.path)) return null
     const place = this.peopleSearchPlace()
     return 'refuse' in place ? place.refuse : null
   }
@@ -2695,7 +2699,7 @@ export class TurnExec {
   sharedArgs(tool: string, args: unknown): unknown {
     if (!this.shared || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return args
     const a = args as Record<string, unknown>
-    if (typeof a.path === 'string' && a.path.trim() !== '' && a.path.trim() !== '.') return args
+    if (!noSearchPath(a.path)) return args
     if (this.shared.kind === 'project') return { ...a, path: this.shared.project.folder_path }
     const place = this.peopleSearchPlace()
     // (refused before it runs; a path nobody can read is the safe stand-in should it ever get here)
@@ -3573,7 +3577,7 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     const db = this.rt.db
     const ok = db.transaction(() => {
-      const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL WHERE id=? AND status='running'").run(this.id)
+      const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL, people_checked=0, shared_checked=CASE WHEN shared_checked = 1 THEN 0 ELSE shared_checked END WHERE id=? AND status='running'").run(this.id)
       if (!r.changes) return false
       db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
       return true
@@ -3601,7 +3605,7 @@ export class TurnExec {
     const now = new Date().toISOString()
     try { if (this.registered) this.activeCore?.turns.revoke(this.id, 'error', this.error.message) } catch {}
     try {
-      this.rt.db.query("UPDATE turns SET status = 'error', ended_at = ?, error = ? WHERE id = ? AND status IN ('queued','running')").run(now, this.error.message, this.id)
+      this.rt.db.query("UPDATE turns SET status = 'error', ended_at = ?, error = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ? AND status IN ('queued','running')").run(now, this.error.message, this.id)
       this.rt.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(this.error), now, this.spec.assistantId)
     } catch (e) { this.rt.log.error('recording the failed turn end failed', { err: e, turn: this.id }) }
   }

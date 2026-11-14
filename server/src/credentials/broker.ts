@@ -142,7 +142,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       }
       // the owner and admins hear about it when it leaves the family without a usable team connection
       if (teamCredentialSummary(cc.db, familyOfKind(row.kind), cc.allowedKinds, new Date(cc.now())).usable === 0 || row.owner_user_id) {
-        notifyAboutConnection(cc, row, { level: 'warn', code: 'credential_limited', message: { ko: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ko') }).ko, en: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'en') }).en, id: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'id') }).id, ja: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ja') }).ja, es: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'es') }).es }, link: '/admin/credentials' })
+        notifyAboutConnection(cc, row, { level: 'warn', code: 'credential_limited', message: { ko: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ko') }).ko, en: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'en') }).en, id: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'id') }).id, ja: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ja') }).ja, es: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'es') }).es, zh: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'zh') }).zh }, link: '/admin/credentials' })
       }
     },
 

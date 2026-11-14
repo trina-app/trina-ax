@@ -106,6 +106,19 @@ test('native screens speak Korean or English; offline is told apart from an unre
   expect(Object.keys(IOS_USAGE.ko).sort()).toEqual(Object.keys(IOS_USAGE.en).sort())
 })
 
+test('a Chinese phone gets the Simplified Chinese screens, whatever its region or script', () => {
+  for (const code of ['zh', 'zh-Hans', 'zh-CN', 'zh-SG', 'zh-TW', 'zh-HK', 'zh_Hant', 'ZH']) expect(stringsFor(code).retry).toBe('重试')
+  for (const code of ['zu', 'zha', 'en', 'ja']) expect(stringsFor(code).retry).not.toBe('重试')
+  const zh = stringsFor('zh'), en = stringsFor('en')
+  expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort())
+  for (const [k, v] of Object.entries(zh)) {
+    expect(v, k).toMatch(/[\u4e00-\u9fff]/)
+    // the same {placeholders} as English
+    expect(v.match(/\{\w+\}/g) ?? [], k).toEqual(en[k as keyof typeof en].match(/\{\w+\}/g) ?? [])
+  }
+  expect(Object.keys(IOS_USAGE.zh).sort()).toEqual(Object.keys(IOS_USAGE.en).sort())
+})
+
 const env = { ...process.env }
 afterEach(() => { process.env = { ...env } })
 const mobileRoot = path.join(import.meta.dir, '../../mobile')
@@ -118,6 +131,7 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
   for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryUsageDescription']) {
     expect(c.ios?.infoPlist?.[key]).toBeTruthy()
     expect((c.locales?.ko as { ios: Record<string, string> }).ios[key]).toMatch(/[가-힣]/)
+    expect((c.locales?.['zh-Hans'] as { ios: Record<string, string> }).ios[key]).toMatch(/[\u4e00-\u9fff]/)
   }
   expect(c.android).toMatchObject({ package: 'app.trina.ax', versionCode: 1 })
   // camera and microphone for the team page as on iOS; no overlay windows

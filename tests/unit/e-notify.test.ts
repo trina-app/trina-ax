@@ -287,7 +287,7 @@ describe('the test notification (Settings › Notifications)', () => {
     expect(main).toContain("ipcMain.handle('bridge:notify-test', (e) => (fromApp(e) ? win!.testNotify() : 'unsupported'))")
     expect(preload).toContain("testNotify: () => ipcRenderer.invoke('bridge:notify-test'),")
     expect(win).toContain("return this.notifier.test({ title: t(L, 'notify.test.title'), body: t(L, 'notify.test.body') })")
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(STRINGS[l]['notify.test.title']).toContain('{app}')
       expect(STRINGS[l]['notify.test.body'].length).toBeGreaterThan(5)
     }

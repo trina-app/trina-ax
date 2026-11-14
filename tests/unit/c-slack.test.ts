@@ -97,7 +97,7 @@ describe('setup (the owner)', () => {
     expect(Object.fromEntries(Object.entries(SLACK).map(([k, e]) => [k, e.auth]))).toEqual({
       slackAdmin: 'admin', saveSlackTokens: 'owner', setSlackEnabled: 'admin', removeSlack: 'admin', startSlackInstall: 'admin',
       mySlack: 'user', unlinkSlack: 'user', previewSlackLink: 'user', confirmSlackLink: 'user', startSlackSignIn: 'user', cancelSlackLink: 'user',
-      recheckSlackReadScopes: 'admin',
+      recheckSlackReadScopes: 'admin', cancelSlackSignIn: 'user', cancelSlackInstall: 'admin',
     })
   })
 
@@ -164,7 +164,11 @@ describe('setup (the owner)', () => {
     const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
     expect(on.json.enabled).toBe(true)
     await fake.connected()
+    // how long it has been connecting (QA TC-1415: the screens turn a long wait into a problem): a number while
+    // connecting, null once connected
+    expect(on.json.state === 'connecting' ? typeof on.json.connectingFor : null).toBe(on.json.state === 'connecting' ? 'number' : null)
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json.connectingFor).toBeNull()
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.botName === 'acme-helper')).toBe(true)
     expect(fake.sockets()).toBe(1)
     const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'slack.%' ORDER BY id").all() as { action: string }[]).map((r) => r.action)
@@ -331,6 +335,18 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(params(url.href)).toMatchObject({ response_type: 'code', scope: 'openid profile', client_id: fake.clientId, team: 'T0ACME', redirect_uri: 'https://team.acme.example/api/integrations/slack/oauth/callback' })
     // stored hashed only
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_signin_flows').all())).not.toContain(params(url.href).state!)
+  })
+
+  test('Cancel in the app ends the waiting sign-in: the window left open links nothing and says so (QA TC-1417)', async () => {
+    const p = params((await start('carol')).json.authorizationUrl)
+    // someone else's cancel is not this one's
+    expect((await call('erin', 'DELETE', '/api/slack/signin/flow')).status).toBe(204)
+    expect((h.ctx.db.query("SELECT state FROM slack_signin_flows WHERE user_id = 'carol' ORDER BY created_at DESC").get() as { state: string }).state).toBe('pending')
+    expect((await call('carol', 'DELETE', '/api/slack/signin/flow')).status).toBe(204)
+    const code = 'code-carol-cancelled'
+    fake.codes[code] = { user: 'U0NOMAIL', nonce: p.nonce! }
+    expect(await back('carol', { state: p.state!, code })).toBe('signin_cancelled_here')
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'carol'").get()).toBeNull()
   })
 
   test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept', async () => {
@@ -1171,6 +1187,35 @@ describe('secrets and accounts', () => {
 })
 
 describe('text', () => {
+  test('what the app says in Slack follows the person\'s Trina language, not the language their answers are in; else the team\'s, then English (QA TC-1418)', () => {
+    const db = h.ctx.db
+    const before = db.query("SELECT locale, locale_follows_team, prefs FROM users WHERE id = 'bob'").get() as { locale: string; locale_follows_team: number; prefs: string | null }
+    const team = db.query("SELECT value FROM settings WHERE key = 'defaultLocale'").get() as { value: string } | null
+    try {
+      // Korean screens, answers in English: the status lines ("Working on it…", "Answering as …", "Open in …") in Korean
+      db.query("UPDATE users SET locale = 'ko', locale_follows_team = 0, prefs = ? WHERE id = 'bob'").run(JSON.stringify({ answerLocale: 'en' }))
+      const c = slackOf(h.ctx)
+      expect(c.localeOf('bob')).toBe('ko')
+      expect(sayText('working', c.localeOf('bob'))).toBe('답을 만들고 있어요…')
+      // "Posted to the thread." and "Asked by …" read the same language (the asker's)
+      expect(sayText('posted', c.localeOf('bob'))).toBe('스레드에 올렸어요.')
+      expect(sayText('askedBy', c.localeOf('bob'), { name: 'Bob' })).toContain('Bob님의 질문')
+      db.query("UPDATE users SET locale = 'ja' WHERE id = 'bob'").run()
+      expect(c.localeOf('bob')).toBe('ja')
+      // nobody known (a person not linked): the team's default
+      db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify('es'))
+      expect(c.localeOf(null)).toBe('es')
+      expect(c.localeOf('nobody-here')).toBe('es')
+      // no team default either: English
+      db.query("DELETE FROM settings WHERE key = 'defaultLocale'").run()
+      expect(c.localeOf(null)).toBe('en')
+    } finally {
+      db.query("UPDATE users SET locale = ?, locale_follows_team = ?, prefs = ? WHERE id = 'bob'").run(before.locale, before.locale_follows_team, before.prefs)
+      if (team) db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(team.value)
+      else db.query("DELETE FROM settings WHERE key = 'defaultLocale'").run()
+    }
+  })
+
   test('e-mails compare in NFC, trimmed, in lower case; a full-width look-alike is another address', () => {
     expect(normEmail(' Jose\u0301@Acme.Example ')).toBe(normEmail('jos\u00e9@acme.example'))
     expect(normEmail('ａｌｉｃｅ@acme.example')).not.toBe(normEmail('alice@acme.example'))
@@ -1342,7 +1387,7 @@ describe('text', () => {
     expect(sayText('cannotStart', 'en', { reason: 'internal' })).toBe('Could not start the answer. Something went wrong on the server. Ask again in a moment.')
     expect(sayText('cannotStart', 'ko', { reason: 'forbidden' })).not.toContain('forbidden')
     expect(sayText('cannotStart', 'en', { reason: 'You used up this month\'s budget.' })).toBe('Could not start the answer. You used up this month\'s budget.')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
     expect(refusal('missing_scope', 'ko', { scopes: 'users:read' })).not.toContain('매니페스트')
   })
 })

@@ -76,7 +76,7 @@ Trina provides the workspace, not the AI: connect Claude or OpenAI accounts and 
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [Releases](https://github.com/trina-app/trina-ax/releases/latest) · [Changes](CHANGELOG.md) · [Support](SUPPORT.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Development](docs/DEVELOPMENT.md) · [Configuration](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
-The app speaks English, Korean, Indonesian, Japanese and Spanish. Fictional company and people in every picture.
+The app speaks English, Korean, Indonesian, Japanese, Spanish and Simplified Chinese. Fictional company and people in every picture.
 
 ## License
 

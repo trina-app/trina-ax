@@ -14,8 +14,9 @@
 --     text; the chat id so the notice can name the chat while the reader still sees it). notification_inbox has a fixed
 --     event_type CHECK list and tables are never rebuilt, so these notices get their own table, as project_notices
 --     (284) do. At most one per chat, person and day (the `day` column and its unique index).
--- Additive only (reader 1). Numbered 297: 294 (b_project_leavers) is the highest component B migration on dev; 295 is
--- taken by another open branch and 296 by the phase 1 cutover (b_hidden_answers_cutover, PR #813).
+-- Additive only (reader 1). Numbered 298: 294 (b_project_leavers) is the highest component B migration on dev before this
+-- round; 295 is taken by another open branch, 296 by the phase 1 cutover (b_hidden_answers_cutover) and 297 by
+-- b_account_deletion_due.
 ALTER TABLE chats ADD COLUMN people_shared_at TEXT;
 ALTER TABLE turns ADD COLUMN people_checked INTEGER NOT NULL DEFAULT 0;
 

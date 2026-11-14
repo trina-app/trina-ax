@@ -2,6 +2,7 @@
 // Implements: CHATS (chats, messages, stop, regenerate, edit, branch, turn cards, projects)
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
+import { registerChatAccountCleanup } from '../chat/account-cleanup'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
@@ -39,7 +40,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { chatAudienceView, chatWidening, hideChat, peopleSharedChatsOf, putChatAudience, unhideOnOpen } from '../chat/people-share'
+import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -89,6 +90,25 @@ const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProjec
 /** Manage without reading (docs/DECISIONS.md "Project contents only for members"): see it, its members, rename,
  * delete, restore. The owner and admins for every team project; its creator while they may edit it. */
 const mayManage = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayManageProject(ctx.files, p, r)
+
+/** POST /api/projects/access-preview: at most this many per person per minute (QA TC-1408). The Members dialog asks
+ * 400 ms after the last pick, so a person picking fast stays far below it. */
+export const PREVIEW_PER_MINUTE = 60
+const previewsOf = new WeakMap<AppContext, Map<string, number[]>>()
+/** One dry run of `userId`, or 429 past PREVIEW_PER_MINUTE in the last minute (in memory, per server: a restart forgets
+ * it). */
+export function previewLimit(ctx: AppContext, userId: string, now = Date.now()): void {
+  const previews = previewsOf.get(ctx) ?? new Map<string, number[]>()
+  previewsOf.set(ctx, previews)
+  const recent = (previews.get(userId) ?? []).filter((t) => now - t < 60_000)
+  if (recent.length >= PREVIEW_PER_MINUTE) {
+    previews.set(userId, recent)
+    fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (now - recent[0]!)) / 1000)) })
+  }
+  recent.push(now)
+  previews.set(userId, recent)
+  if (previews.size > 10_000) for (const [k, ts] of previews) if (!ts.some((t) => now - t < 60_000)) previews.delete(k)
+}
 
 /** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
  * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
@@ -204,6 +224,8 @@ export const chatsRoutes: RouteModule = {
   name: 'chats',
   owner: 'B',
   async init(ctx) {
+    // what a deleted account leaves of this component goes with it (auth/account-removal.ts)
+    registerChatAccountCleanup(ctx)
     const rt = installChatRuntime(ctx)
     ctx.services.realtime = rt.hub
     await rt.recover()
@@ -838,6 +860,9 @@ export const chatsRoutes: RouteModule = {
     // change of an existing one's participants (its creator or an admin)
     kit.handle(API.previewProjectAccess, ({ c, body, auth }) => {
       const locale = c.get('locale')
+      // a light limit per person (QA TC-1408): the dialog asks again on every pick, the widening count walks the
+      // project's shared answers; a burst beyond it is 429 (the dialog keeps its last count)
+      previewLimit(ctx, auth.user.id)
       const p = principal(ctx, auth)
       if (!body.projectId) {
         assertMayCreateTeamProject(ctx.db, p, locale)
@@ -856,20 +881,24 @@ export const chatsRoutes: RouteModule = {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       // one chat's (the Share dialog, chat/people-share.ts chatWidening): its creator only; anyone else who sees it 403,
-      // everyone else the 404 of a missing chat. A cursor is signed over the chat, the picks, the people they bring and
-      // the position, as for a project
+      // everyone else the 404 of a missing chat. A cursor is signed over who asked, the chat, the picks, the people they
+      // bring and the position, as for a project
       if (body.target.kind === 'chat') {
         const a = chatOf(rt, c, auth, body.target.chatId, 'view')
         if (!a.creator || a.kind === 'project') fail('forbidden', tr('wideningNotAllowed', locale), { params: { reason: 'widening_not_allowed' } })
+        // the picks checked as a save checks them: no probe of who is active or of other people's groups
+        checkWideningAdd(ctx, p, a.row, body.add, locale)
         const gained = resolveSubjects(ctx.db, body.add.map((x) => ({ type: x.subjectType, id: x.subjectId })))
-        const cstate = (at: number) => ({ kind: 'widening', target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained, at })
+        const cstate = (at: number) => ({ kind: 'widening', caller: auth.user.id, target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained, at })
         let before: number | null = null
         if (body.cursor) {
           const cur = decodeCursor(body.cursor, ['r', 'm'])
           const at = Number(cur?.r)
           if (!cur || !Number.isSafeInteger(at) || confirmMac(ctx, cstate(at)) !== cur.m) fail('conflict', tr('wideningChanged', locale), { params: { reason: 'changed' } })
           before = at
-        } else roomsOf(ctx).takeSendToken(auth.user.id)
+        }
+        // every page from the room-send budget (429), as for a project
+        roomsOf(ctx).takeSendToken(auth.user.id)
         const res = chatWidening(ctx, p, a.row, body.add, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
         return { total: res.total, totalCapped: res.totalCapped, items: res.items, nextCursor: res.nextRowid === null ? null : encodeCursor({ r: String(res.nextRowid), m: confirmMac(ctx, cstate(res.nextRowid)) }) }
       }

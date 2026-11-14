@@ -62,7 +62,7 @@ People join by pasting the invite link (or the team link) into the app's first s
 
 - **Desktop app**: needs a certificate the computer trusts. A self-signed certificate fails the first check.
 - **Phone app**: needs https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
-- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **Phone notifications** go through Trina's push service (`https://push.trina.app`) by default. To turn them off, set `MYCEL_PUSH_GATEWAY=off` (or `''`); to use a gateway of your own, set it to that `https://` address. Without the variable, an owner or admin can also choose this in Settings › Notifications › Phone.
 - **The team address** is in Settings › Apps for everyone signed in, with a copy button.
 - **Tapped links**: the apps open `*.trina.app` invite links directly (universal links, app links). On a domain of your own a tapped link opens the browser; the join page's **Open in the app** (`trina-ax://open?url=…`) opens the desktop or phone app. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 

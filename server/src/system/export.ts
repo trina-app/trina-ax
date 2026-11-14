@@ -65,6 +65,7 @@ export const MD_WORDS: Record<Locale, { untitled: string; user: string; withheld
   id: { untitled: '(tanpa judul)', user: 'Pengguna', withheld: '(Disembunyikan: jawaban ini memakai materi yang tidak bisa Anda buka)' },
   ja: { untitled: "（無題）", user: "ユーザー", withheld: "（開けない資料を参照した回答のため表示されません）" },
   es: { untitled: "(sin título)", user: "Usuario", withheld: "(Oculta: esta respuesta usó material que usted no puede abrir)" },
+  zh: { untitled: "（无标题）", user: "用户", withheld: "（已隐藏：这条回答使用了你无法打开的资料）" },
 }
 
 /** One chat as Markdown, headings in the language of the person exporting. `withheld`: answers hidden from them (a

@@ -7,5 +7,6 @@ import { es } from './es'
 import { id } from './id'
 import { ja } from './ja'
 import { ko, type MessageKey } from './ko'
+import { zh } from './zh'
 
-export const BUNDLED: Partial<Record<Locale, Record<MessageKey, string>>> = { ko, en, id, ja, es }
+export const BUNDLED: Partial<Record<Locale, Record<MessageKey, string>>> = { ko, en, id, ja, es, zh }

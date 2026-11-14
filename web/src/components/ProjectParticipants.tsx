@@ -352,12 +352,17 @@ export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): string 
   return t('projects.whoMembers', { n: c.n })
 }
 
+/** How long the count waits after the last pick before it asks the server (QA TC-1408). */
+export const ACCESS_COUNT_DEBOUNCE_MS = 400
+
 /** The server's count for the line under the picker; `hiddenAnswers`: the answers of its shared chats the people who
  * gain it would start seeing although they used places some of them can't open (the widening warning) */
 export interface AccessCount { n: number; hiddenAnswers?: number }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
- * of its folder taken out too), asked again 300 ms after the last change; null while asking or when it failed. */
+ * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
+ * answers the people added would start seeing, a walk of the project's shared chats); null while asking or when it
+ * failed. */
 export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
   const key = participants.map(participantKey).sort().join(',')
@@ -368,7 +373,7 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
     setN(null)
     const h = setTimeout(() => {
       api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }), () => {})
-    }, 300)
+    }, ACCESS_COUNT_DEBOUNCE_MS)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, removing, o.projectId, o.enabled])

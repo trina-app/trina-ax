@@ -19,7 +19,6 @@ import { useNavigate } from 'react-router-dom'
 import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare } from '@mycel/shared/api'
 import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
 import { api, ApiError } from '../../lib/api'
-import { mobileApp, openExternal } from '../../lib/mobile'
 import { useT, type MessageKey } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { Button, Field, inputCls, Modal, useCopy } from '../ui'
@@ -27,6 +26,8 @@ import type { DriveConnectionState } from '../settings/DriveConnection'
 import { LogoTile } from './ConnectorsView'
 import { AppConnectorCard, CardMenu } from './AppConnectorCard'
 import { connectionLogo } from './ConnectionRow'
+import { BrowserWait } from './BrowserWait'
+import { googleLink } from './googleLink'
 import { Tooltip } from '../Tooltip'
 import { dropOverCls } from '../FileDropZone'
 import { useFileDrop } from '../chat/ComposerFiles'
@@ -89,16 +90,8 @@ export function useDriveParts(s: DriveConnectionState) {
   const steps = (
     <>
       {flow && flow.state !== 'ready' && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" role="status" data-testid="drive-waiting">
-          <span className="text-muted">{t('drive.waitingShort')}</span>
-          {d.authorizationUrl && (
-            <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline"
-              onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>
-              {t('drive.openGoogle')}
-            </a>
-          )}
-          <Button size="sm" variant="ghost" className="ml-auto" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
-        </div>
+        <BrowserWait text={t('drive.waitingShort')} testId="drive-waiting" retryTestId="drive-retry-wait" cancelTestId="drive-cancel" busy={d.busy}
+          onRetry={s.start} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (
         <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="drive-confirm-step">
@@ -107,7 +100,7 @@ export function useDriveParts(s: DriveConnectionState) {
           <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
         </div>
       )}
-      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t('drive.failed')}</p>}
+      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t(d.reason === 'timeout' ? 'connect.wait.timedOut' : 'drive.failed')}</p>}
       {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
     </>
   )

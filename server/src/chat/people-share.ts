@@ -50,6 +50,26 @@ import { notificationsOf } from '../notifications/service'
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
 
+/** The entries someone adds to a chat's audience, checked (the save and the widening list: the same rule): an active
+ * person; a group that exists and, for a member, one of their own (admins any). Else 400 unknown_subject. */
+export function checkNewSubjects(ctx: AppContext, me: Principal, added: readonly AudienceSubject[], locale: Locale): void {
+  for (const s of added) {
+    const ok = s.type === 'user'
+      ? !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.id)
+      : !!ctx.db.query('SELECT 1 FROM groups WHERE id = ?').get(s.id) && (isAdmin(me.role) || me.groups.includes(s.id))
+    if (!ok) fail('validation', tr('chatShareUnknownPerson', locale), { params: { reason: 'unknown_subject' } })
+  }
+}
+
+/** The widening list's `add` for a chat, checked like a save: at most CHAT_AUDIENCE_MAX entries (400 audience_full), and
+ * the entries not in the chat's audience yet as checkNewSubjects. */
+export function checkWideningAdd(ctx: AppContext, me: Principal, chat: Pick<ChatRow, 'id'>, add: readonly { subjectType: 'user' | 'group'; subjectId: string }[], locale: Locale): void {
+  const keys = new Set(add.map((x) => `${x.subjectType}:${x.subjectId}`))
+  if (keys.size > CHAT_AUDIENCE_MAX) fail('validation', tr('chatShareAudienceFull', locale), { params: { reason: 'audience_full' } })
+  const there = new Set(subjectsOf(ctx.db, chat.id).map(subjectKey))
+  checkNewSubjects(ctx, me, add.map((x) => ({ type: x.subjectType, id: x.subjectId })).filter((s) => !there.has(subjectKey(s))), locale)
+}
+
 /** A scheduled task's run made this chat (or ran in it). */
 const scheduledRun = (ctx: AppContext, r: Pick<ChatRow, 'id' | 'title_source'>): boolean =>
   r.title_source === 'schedule' || !!ctx.db.query('SELECT 1 FROM turns WHERE chat_id = ? AND schedule_id IS NOT NULL LIMIT 1').get(r.id)
@@ -68,10 +88,14 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   const rows: ChatAudience['subjects'] = []
   for (const s of subjects) {
     if (s.type === 'user') {
-      const u = db.query(`SELECT u.name, p.title, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id
-        WHERE u.id = ? AND u.deleted_at IS NULL`).get(s.id) as { name: string; title: string | null; avatar_version: number | null } | null
+      const u = db.query(`SELECT u.name, u.status, p.title, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id
+        WHERE u.id = ? AND u.deleted_at IS NULL`).get(s.id) as { name: string; status: string; title: string | null; avatar_version: number | null } | null
       if (!u) continue
-      rows.push({ subjectType: 'user', subjectId: s.id, name: u.name, ...(u.title ? { title: u.title } : {}), ...(u.avatar_version ? { avatarVersion: u.avatar_version } : {}) })
+      // a disabled account does not see the chat: left out, but for its creator and admins, who see it marked inactive
+      // (their save keeps the row, so the person is back in when enabled again)
+      const inactive = u.status !== 'active'
+      if (inactive && !full) continue
+      rows.push({ subjectType: 'user', subjectId: s.id, name: u.name, ...(u.title ? { title: u.title } : {}), ...(u.avatar_version ? { avatarVersion: u.avatar_version } : {}), ...(inactive ? { inactive: true as const } : {}) })
     } else {
       const g = db.query('SELECT name FROM groups WHERE id = ?').get(s.id) as { name: string } | null
       if (!g) continue
@@ -186,12 +210,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       // nothing may start or run while new people come in (a turn of the private chat would run without the read card)
       if (rt.activeTurn(r.id) || db.query("SELECT 1 FROM turns WHERE chat_id = ? AND status IN ('queued','running')").get(r.id)) fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
       // only the newly added entries are checked: an existing row of a group the creator left since stays valid
-      for (const s of added) {
-        const ok = s.type === 'user'
-          ? !!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.id)
-          : !!db.query('SELECT 1 FROM groups WHERE id = ?').get(s.id) && (isAdmin(me.role) || me.groups.includes(s.id))
-        if (!ok) fail('validation', tr('chatShareUnknownPerson', locale), { params: { reason: 'unknown_subject' } })
-      }
+      checkNewSubjects(ctx, me, added, locale)
     }
     const after = [...existing].filter((k) => !removed.some((s) => subjectKey(s) === k)).map((k) => { const i = k.indexOf(':'); return { type: k.slice(0, i) as AudienceSubject['type'], id: k.slice(i + 1) } }).concat(added)
     const nowPeople = new Set(before.shared ? before.people : [userId])

@@ -4,6 +4,16 @@ Team servers call this service to send a native push to the iOS/Android app. Onl
 and Google (FCM) credentials. It talks to APNs (over HTTP/2) and FCM HTTP v1 directly; it does not use the Expo push
 service. It runs on Bun with its state in one SQLite file, behind a TLS terminator.
 
+- Who uses it: Trina team servers send through `https://push.trina.app` by default (installed servers and office
+  Macs; the edition's `pushGatewayUrl` in `editions/trina/branding/service.json`), so self-hosted teams with the store
+  app get phone pushes without a setting. An operator opts out with `MYCEL_PUSH_GATEWAY=off` (or `''`), or with
+  `push.gatewayUrl` `null` / `"off"` in server.json; another `https://<host>` sends through a gateway of their own. The
+  neutral core has no default. Decision: docs/DECISIONS.md "Trina team servers use push.trina.app by default".
+- Without either setting, an owner or admin chooses in Settings › Notifications › Phone: the default, off, or Custom
+  (an address of the team's own gateway, for their own build of the app). Custom is saved only when `GET /health` at
+  that address answers `{"ok":true}`. The operator's variable or server.json wins and locks that choice. Decision:
+  docs/DECISIONS.md "Owners and admins choose where phone notifications go".
+
 - Contract: [`shared/src/cloud-protocol/push-gateway.ts`](../shared/src/cloud-protocol/push-gateway.ts) (MIT, no
   imports). `POST /v1/send` takes a JSON body signed with the team's Ed25519 key (`Authorization: MycelPush …`).
   `GET /health` answers `{"ok":true}`. Every other path answers 404.
@@ -44,6 +54,15 @@ This is not a Cloudflare Worker because APNs accepts only HTTP/2. Cloudflare's o
 HTTP version is its
 [2019 changelog](https://developers.cloudflare.com/workers/platform/changelog/historical-changelog/): "Cloudflare
 communicates with origin servers using HTTP/1.1".
+
+## State on disk
+
+One SQLite file (`PUSH_GATEWAY_DB`) in WAL mode with `synchronous = NORMAL`: a write does not wait for the disk. With
+SQLite's default (`FULL`) every one of a send's 4 to 5 writes waited for the disk on the only thread, and a load test
+on the production server (2 vCPU, gp3 disk, fake providers) stopped at about 75 sends a second with the CPU idle. With
+`NORMAL` it sent 400 a second (p99 279 ms). A power loss can drop the last few commits; they are rate-limit
+counters, dedupe entries and first-seen records that expire within a day, so at worst a retry sends once more. A
+crash of the gateway process alone loses nothing.
 
 ## Tests and typecheck
 

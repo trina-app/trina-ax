@@ -284,7 +284,7 @@ export interface MonitorOptions {
 const ALERT = {
   ko: (p: number) => `저장 공간을 ${p}% 쓰고 있어요. 휴지통을 비우거나 오래된 파일·버전을 정리해 주세요(관리자 > 시스템에서 항목별 사용량을 볼 수 있어요).`,
   en: (p: number) => `${p}% of the storage is used. Empty the trash or clean up old files and versions (Admin > System shows what uses the space).`,
-  id: (p: number) => `${p}% penyimpanan sudah terpakai. Kosongkan tempat sampah atau rapikan berkas dan versi lama (Admin > Sistem menunjukkan rinciannya).`, ja: (p: number) => `ストレージの${p}%を使用しています。ゴミ箱を空にするか、古いファイルやバージョンを整理してください（管理 > システムで容量の内訳を確認できます）。`, es: (p: number) => `Se usa el ${p}% del almacenamiento. Vacíe la papelera o elimine archivos y versiones antiguos (Administración > Sistema muestra qué ocupa espacio).`,
+  id: (p: number) => `${p}% penyimpanan sudah terpakai. Kosongkan tempat sampah atau rapikan berkas dan versi lama (Admin > Sistem menunjukkan rinciannya).`, ja: (p: number) => `ストレージの${p}%を使用しています。ゴミ箱を空にするか、古いファイルやバージョンを整理してください（管理 > システムで容量の内訳を確認できます）。`, es: (p: number) => `Se usa el ${p}% del almacenamiento. Vacíe la papelera o elimine archivos y versiones antiguos (Administración > Sistema muestra qué ocupa espacio).`, zh: (p: number) => `存储已用${p}%。请清空回收站或清理旧文件和旧版本（“管理 > 系统”中可以看到空间的使用情况）。`,
 }
 
 const GRACE_ALERT: Record<Locale, (date: string) => string> = {
@@ -293,6 +293,7 @@ const GRACE_ALERT: Record<Locale, (date: string) => string> = {
   id: (d) => `Penyimpanan melewati batas paket. Jika pemakaian belum di bawah batas pada ${d}, penyimpanan, unggahan, dan penulisan berkas AI ditolak setelah waktu itu. Membaca, mengunduh, dan menghapus tetap berfungsi, dan tidak ada data yang dihapus. Berkas yang dihapus tetap ada di tempat sampah dan masih dihitung, jadi kosongkan juga tempat sampah.`,
   ja: (d) => `ストレージがプランの上限を超えました。${d}までに使用量を上限より減らさないと、その後は保存、アップロード、AIによるファイル書き込みが拒否されます。読み取り、ダウンロード、削除は引き続き使え、データは削除されません。削除したファイルはゴミ箱に残って使用量に含まれるため、ゴミ箱も空にしてください。`,
   es: (d) => `El almacenamiento supera el límite del plan. Si el uso no baja del límite antes del ${d}, después de esa hora se rechazan los guardados, las cargas y las escrituras de archivos de la IA. Leer, descargar y eliminar siguen funcionando, y no se borra ningún dato. Los archivos eliminados quedan en la papelera y siguen contando, así que vacíe también la papelera.`,
+  zh: (d) => `存储已超出套餐限额。如果在${d}之前用量没有降到限额以下，从那时起保存、上传和 AI 写入文件都会被拒绝。查看、下载和删除仍可使用，不会删除任何数据。已删除的文件仍在回收站中并计入用量，所以也请清空回收站。`,
 }
 
 /** The grace period starts when writes are refused already: the hard cap, or the real disk. */
@@ -302,6 +303,7 @@ const REFUSED_ALERT: Record<Locale, string> = {
   id: 'Penyimpanan melewati batas paket: penyimpanan, unggahan, dan penulisan berkas AI ditolak. Membaca, mengunduh, dan menghapus tetap berfungsi, dan tidak ada data yang dihapus. Berkas yang dihapus tetap ada di tempat sampah dan masih dihitung, jadi kosongkan juga tempat sampah.',
   ja: 'ストレージがプランの上限を超えているため、保存、アップロード、AIによるファイル書き込みは拒否されます。読み取り、ダウンロード、削除は引き続き使え、データは削除されません。削除したファイルはゴミ箱に残って使用量に含まれるため、ゴミ箱も空にしてください。',
   es: 'El almacenamiento supera el límite del plan: se rechazan los guardados, las cargas y las escrituras de archivos de la IA. Leer, descargar y eliminar siguen funcionando, y no se borra ningún dato. Los archivos eliminados quedan en la papelera y siguen contando, así que vacíe también la papelera.',
+  zh: "存储已超出套餐限额：保存、上传和 AI 写入文件都会被拒绝。查看、下载和删除仍可使用，不会删除任何数据。已删除的文件仍在回收站中并计入用量，所以也请清空回收站。",
 }
 
 export class StorageMonitor {
@@ -346,7 +348,7 @@ export class StorageMonitor {
     const ends = new Date(since + GRACE_MS).toISOString()
     const at = timeIn(ends, teamTimeZone(this.o.db))
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes, graceEndsAt: ends }, 'storage.grace')
-    this.o.notify(refused ? REFUSED_ALERT : { ko: GRACE_ALERT.ko(at), en: GRACE_ALERT.en(at), id: GRACE_ALERT.id(at), ja: GRACE_ALERT.ja(at), es: GRACE_ALERT.es(at) })
+    this.o.notify(refused ? REFUSED_ALERT : { ko: GRACE_ALERT.ko(at), en: GRACE_ALERT.en(at), id: GRACE_ALERT.id(at), ja: GRACE_ALERT.ja(at), es: GRACE_ALERT.es(at), zh: GRACE_ALERT.zh(at) })
     return true
   }
 
@@ -366,7 +368,7 @@ export class StorageMonitor {
     setSetting(this.o.db, ALERT_KEY, new Date(this.now()).toISOString())
     const p = Math.floor(s.percent)
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes })
-    this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p) })
+    this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p), zh: ALERT.zh(p) })
     return true
   }
 

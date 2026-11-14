@@ -8963,7 +8963,8 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
   `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
   the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
-  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  is no built-in default (superseded on 2026-11-14 for the Trina edition: "Trina team servers use push.trina.app by
+  default" below): phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
   gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
   Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
   nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
@@ -27042,13 +27043,18 @@ the recommended design after an independent security and UX review.
     never the disk path, in every language.
   - Tests: `tests/security/shared-chats-cutover.test.ts` (the cutover in the past: search, export, the AI transcript;
     a late `x` answer; `?through=` with another chat's answer, an answer hidden from the caller and a person's message).
+- **QA TC-1408 (fix/widening-count-limits):** the Members dialog asks the dry run (whose widening count walks the
+  project's shared answers) 400 ms after the last pick, not 300; the dry run takes at most 60 a minute per person (429,
+  the dialog keeps its last count); the 20-second kept answer is asked again after any access change anywhere
+  (`safe_ops_policy.generation`, which its triggers bump for users and roles, groups and members, folders and rules,
+  connections, shared Drives) and when a shared chat of the project is deleted, restored or no longer shared.
 - Version impact: **minor**.
 
 ## Chats shared with people and groups (feat/shared-chats-p3, 2026-11-14, product owner)
 
 Where: Team AX core (`server/src/chat/{chat-audience,people-share,people-guard,shared,turn,prompt,tools,share-chat,widening,chat-groups,nav-folders}.ts`,
 `server/src/routes/chats.ts`, `server/src/admin/{folders,groups,users}.ts`, `server/src/notifications/*`, migration
-`297_b_chat_audience.sql`, `shared/src/api/{entities,chats,notifications}.ts`). Plan:
+`298_b_chat_audience.sql`, `shared/src/api/{entities,chats,notifications}.ts`). Plan:
 `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 3 (QA TC-1405). The owner's decision: a chat outside
 projects can be shared with chosen people and/or groups (no whole-team option), and then works like a shared project
 chat. This phase is the server and API; the Share dialog, the Activity row's words and "Hide from my list" in menus are
@@ -27146,8 +27152,7 @@ written there. Builds on "Chats shared with people and groups" (phase 3, the ser
 - **Admin.** The delete-account dialog counts the person's shared chats with others' messages and says to disable the
   account instead to keep them (`GET /api/admin/users/:id/shared-chats`; a count that can't be read leaves the line out).
 - **Audit screen.** `chat.share` reads "Shared a chat" for both kinds, its details say with whom ("The project's
-  members" or "People and groups chosen by its creator", from `detail.kind`; an older entry is a project's); the two
-  actions phase 3 added (`chat.audience`, `chat.unshared_rollback`) have words too.
+  members" or "People and groups chosen by its creator", from `detail.kind`; an older entry is a project's).
 - **Not in this phase.** No "Chats shared with me" preference: it governs the push, which waits for the push gateway
   (phase 3's follow-up). No upload line under the chips: computer files stay refused in a people-shared chat until
   chat-scoped storage (S6).
@@ -27162,3 +27167,230 @@ written there. Builds on "Chats shared with people and groups" (phase 3, the ser
 - **Independent review (opus), fixed:** a limited folder with nobody added is listed ("Owner and admins only"; its rules are empty in the API); a group's own folder is hidden only while it is as made *and not limited*; on the person page `groups/`, `projects/` and `connected/` (containers everyone passes through in Files) are never "Can't open", and project folders the person is not in fold into one count line like other groups' folders; "Limited" has its own word in ko/id (액세스 제한됨, Akses dibatasi) apart from General access "Restricted" (제한됨, Dibatasi); a folder that is not limited says "+ the folder above" (access adds up); the invite preview of an admin is the one line; the empty states no longer contradict the hidden list or a search; 15 more dead `rules.*`/`accessTree.*`/`accessEdit.*` words removed (`accessView.summaryNone` stays: the honorific tests use it). Known and accepted: the team root, `groups/` and `connected/` with no sharing of their own get none from here (Files has no Share dialog on them, as before for members); deleting a folder's whole rule row is no longer a button (clearing it in the Share dialog does the same for access).
 - **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
 - Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
+
+## Simplified Chinese app language (feat/locale-zh, 2026-11-14, the owner)
+
+- Add Simplified Chinese (`zh`, 简体中文) as the sixth app language, so a Trina Cloud sign-up can make a team whose
+  default language is `zh`. Same coverage as Japanese and Spanish (2026-10-29): the web dictionary
+  (`web/src/i18n/zh.ts`), every server table and positional text helper, step labels, chat errors, push lock-screen
+  lines, relay pages, the generated offline page, the desktop shell and the macOS menu bar. The phone app's native
+  setup screens stay Korean and English, as they are for the other languages.
+- **Every Chinese tag is `zh`**: `zh`, `zh-CN`, `zh-Hans`, `zh-SG`, and also `zh-TW`, `zh-HK`, `zh-Hant`
+  (`asLocale`). Simplified Chinese is the only Chinese we have, and a Traditional Chinese reader reads it better than
+  English. A Traditional Chinese dictionary would get its own code then. Precedence is unchanged: account choice,
+  team default, English; browser or OS language only before a team language exists.
+- Wording: plain mainland Chinese for office workers, 你 rather than 您, full-width punctuation, no space between a
+  Chinese word and a filled-in value. ICU messages keep English's `one` and `other` branches (Chinese selects
+  `other`), and `check:i18n` checks zh's placeholders and plural forms as for ja/es. Skill names are quoted “…”.
+- Dates and numbers use `Intl` with `zh-CN`. Chinese screens take the Simplified Chinese system face first
+  (PingFang SC, Microsoft YaHei, Noto Sans SC): the default stack starts with Korean faces, which draw Han
+  characters in their Korean shapes.
+- No migration: language columns are text checked by the shared `Locale` schema.
+
+## Trina team servers use push.trina.app by default — 트리나 팀 서버는 기본으로 push.trina.app (feat/push-gateway-default, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `scripts/edition-service.ts`, `shared/src/service-hosts.ts`) and the
+Trina edition's `editions/trina/branding/service.json`, 이유: the server reads its config in the core, and an edition's
+hosted-service addresses go through service.json (docs/EDITION-BRANDING.md). Plan:
+`docs/AGENTS/plan/20261114-0826-push-gateway-default.md`. The owner, on hardening push.trina.app so self-hosted teams
+with the store app get phone pushes: "저거 해보자" (2026-11-14).
+
+- **Why.** The store app's APNs and FCM keys live only on push.trina.app. A self-hosted Trina team server sent no phone
+  push until its operator found and set `MYCEL_PUSH_GATEWAY`, so most self-hosted teams had none.
+- **The default is an edition value.** `service.json` gets an optional `pushGatewayUrl` (`https://<host>`; `""` or
+  missing = none), written into `SERVICE_HOSTS.pushGatewayUrl` by `bun scripts/edition-service.ts … --apply`. Trina:
+  `https://push.trina.app`; the neutral core keeps none, so phone push stays off there until the operator sets one.
+- **Order** (`resolvePushGateway`): `MYCEL_PUSH_GATEWAY` when it is set at all, else `push.gatewayUrl` in server.json
+  when the key is there, else the edition default. An unset variable is not an empty one: `''` or `off` (any case) turns
+  phone push off, as do `null`, `""` and `"off"` in server.json. The address check is unchanged (`https://<host>` or
+  `http://127.0.0.1:<port>`).
+- **Installed servers and office Macs only.** The default applies with `mode: "prod"` or `office: true`. A developer's
+  dev server and the tests keep none, so local runs never register phones with the real gateway.
+- **What people see.** Owners and admins still see one line in Settings › Notifications. The "off" line no longer says
+  that no address is set (it may have been turned off on purpose): "Phone app notifications are off on this team
+  server. Whoever runs the server can turn them on in its settings."
+- **Not changed:** the gateway, the request contract and its limits; hosted servers (their server.json already names
+  the gateway). A changed gateway address leaves old device rows unused as before (`nativeConfigKey`), so phones
+  register again at the next sign-in or app start.
+- Tests: tests/unit/push-native.test.ts (Trina default, neutral none, `''`/`off`/`null`, explicit address, dev vs
+  prod/office), tests/unit/edition-service.test.ts (optional field, applied value matches the edition file).
+- Version impact: **minor** (phone push turns on by itself on Trina team servers; no API or data change).
+
+## Self-service account deletion — 내 계정 삭제 (feat/self-account-deletion, 2026-11-14, the owner, QA TC-1524..1532)
+
+- **Ask:** Apple 5.1.1(v) and Google Play want a person to delete their account inside the app without waiting for a
+  person; privacy law wants it done in days and the retention stated. Before, Settings › Profile › Delete account only
+  asked the team owner (2026-11-05, "계정 삭제 요청"), and nothing happened if nobody acted.
+- **The request deletes the account by itself 7 days later** (`ACCOUNT_DELETION_GRACE_DAYS`, owner decision). Until
+  then the account works and the person can press "Keep my account". The page shows the date before and after asking.
+  The owner and the admins (an admin: members only) get the inbox entry with the date and a Members badge "Deleted on
+  <date>", and can delete sooner in Admin › Members. They cannot stop it.
+- **Password every time.** Asking needs the person's password, checked by `sessions.verifyPassword` (the re-check
+  limit: 5 wrong tries per 15 minutes per person, audited `auth.reauth_failed`). A stolen session cannot delete the
+  account or guess the password faster than the other re-checks. Every live account has a password
+  (`insertUser`), so there is no "no password" branch.
+- **The owner never.** The owner still cannot ask (409: hand the team over first). Becoming the owner cancels an open
+  request (`account.deletion_cancel`, detail `{by: 'ownership'}`, actor the old owner). The sweep cancels a leftover
+  one instead of deleting. On a hosted team the owner's page adds one line: the whole team can be deleted on the
+  account page where they signed up (the console, not this repo).
+- **removeAccount** (admin/users.ts): the body of the members screen's delete, callable with no actor. `actorId` null
+  means the server. Folder floors, AI assignment pruning, access-change notices and the audit take null. The
+  personal folder's move into the owner's archive is recorded as the owner's (`archiveFolder(owner)`). The audit
+  `user.delete` gets `why: 'self_request', automatic: true`, actor NULL, and counts only.
+- **The sweep** (auth/sweeper.ts, hourly, one run at a time): `deleteDueAccounts` deletes each person whose date
+  passed, re-reading the request inside the write, so a cancel or a transfer a moment before wins. A failure stays
+  open and is tried at the next run.
+- **Requests open before this build** (migration 297 adds `due_at` and `due_for`): a date counts only while `due_for`
+  (the `requested_at` it was set for) equals `requested_at`. A request with no date, or one re-opened by an older build
+  after a rollback (it changes `requested_at` and keeps the old date), never counts as due. The sweep first
+  gives it a date 7 days from then (audit `account.deletion_dated`) and tells the person in their inbox
+  (`account.deletion_due`, its own notice table like the other notice kinds, link to the page). Nobody is deleted at
+  the first sweep without a warning. The review recommended migration time + 7 days; the first sweep runs 5 s after
+  the start, so it is the same date, and the rollback case is covered too.
+- **A date that passed while the server was down** (stopped over the date, or a restored copy whose dates passed): the
+  sweep does not delete at its first run. The date moves to 24 hours after this process started its sweeps
+  (`markSweepStart`) and the person is told (audit `account.deletion_dated` with `late`). A restore also undoes cancels
+  made after the backup; the 24 hours give the person and the operator time (docs/BACKUP-RESTORE.md).
+- **Owners' leftover requests** are cancelled by the sweep before any dating, never announced or deleted.
+- **Disabled during the 7 days:** still deleted on the date, because they asked. They get no inbox notice they cannot
+  read; the Members badge still shows the date. Re-enabling them lets them press Keep my account.
+- **A crash between the write and the rest.** The `user.delete` audit row is written in the same write as the tombstone
+  and completed afterwards (`unfinished` until then). Once after every start, `finishRemovals` finishes what a cut-off
+  deletion left: a personal folder still at `users/<id>` goes where its record says (the owner's archive, or removed),
+  and for a person who asked, private chats and trashed files go too (`finishedAtStart` in the record). A transfer with
+  no owner to take it keeps the files and their history (the history purge is skipped while the folder is there), and
+  the next start moves them once there is an owner.
+- **What a self-requested deletion removes at once** (and an early delete by the owner or an admin of someone who
+  asked): private chats and memories (not after `chatTrashRetentionDays`), the files they had put in the trash from
+  their personal folder (before the folder moves, or they would follow it into the archive), and the file history and
+  folder records left under `users/<id>/`. The standard guideline wants data destroyed within 5 days once no longer
+  needed; the 7 days to change one's mind come before. A deletion the person did not ask for keeps the old timing.
+- **Personal folder → the owner's archive** (owner decision), as before. The page says so: "Delete them before then if
+  you want them gone."
+- **Cleanup hooks** (auth/account-removal.ts): the users row stays as a tombstone, so ON DELETE CASCADE never runs.
+  Each area registers in its route module's init the rows it keeps per person: A (accounts), sessions (and through
+  them external-app grants and sign-in flows), sign-in networks, own notices, card choices, web access. B (chat),
+  inbox, phone devices, push and notification settings, schedules, site grants, dev-environment rows, room follows,
+  onboarding drafts. C (connections), Drive sign-in revoked at Google (`forgetAccount`: Disconnect without the
+  active-account check; not revoked while the same grant serves something else), sign-in flows, Slack link. The hooks
+  run after the account is gone and once 5 s after every start for accounts deleted earlier (a delete by user id;
+  twice is once). `tests/unit/a-account-removal-coverage.test.ts` reads every column that points at users(id); each
+  is removed or in `KEPT_WITH_ACCOUNT` with its reason (shared chats and room messages under the tombstone name, team
+  history, usage). A new table with a user column fails there until someone decides. `file_versions`, `trash_items`
+  and `folders` have no user column; the due test checks them by path.
+- **What the page lists** (plain lines, no new card): who is told; deleted (sign-in, profile, private chats and
+  memories, own AI and app connections, schedules, notifications); the personal folder to the owner; stays with the
+  team (team-folder files, shared chats, messages in rooms under their name: the tombstone keeps the name); kept for a
+  while (the deletion record in the activity log for `auditRetentionDays`, copies in backups up to 8 weeks).
+- **Backups and restores.** Backups keep a deleted person's data until they rotate out (hosted: daily 14 days, weekly
+  full 8 weeks, update and manual 30 days). The page and the privacy policy say "up to 8 weeks". A database restore
+  brings back accounts deleted after the backup. docs/BACKUP-RESTORE.md "Accounts deleted after the backup" says to
+  list them first (Activity log, or the audit rows) and delete them again; the restore dialog says it too.
+- **App Review account.** Reviewers try Delete account, so the reviewer member deletes itself 7 days later.
+  mobile/STORE-SUBMISSION.md: after each review, keep or recreate it; the reviewer note describes the new flow.
+- Not here: the Trina Cloud console account and the public Play web page (trina-cloud), deleting backups early,
+  e-mail to the person (in-app only).
+- Tests: tests/unit/a-account-deletion-due.test.ts (password, lock, date, nothing before it, the sweep with no actor,
+  what goes at once, the archive with its history, cancel, ownership, early delete, undated and rolled-back requests
+  and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
+  (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
+
+## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/notifications/push-gateway-setting.ts`, `server/src/routes/push.ts`,
+`shared/src/api/push.ts`, `web/src/components/settings/PhoneGatewayRow.tsx`), 이유: phone push and team settings are
+core features; the edition default stays in `editions/trina/branding/service.json`. Plan:
+`docs/AGENTS/plan/20261114-0957-push-gateway-admin.md`. The owner, after "Trina team servers use push.trina.app by
+default" above: self-hosted operators may want to change the phone push address, so open it in the admin page
+(2026-11-14).
+
+- **One row.** Settings › Notifications › Phone gets "Phone notifications" for owners and admins (members see no row and
+  the page never asks for it). Three choices: **Trina push (default)**, phones with the store app get notifications;
+  **Off**; **Custom**, which shows an address field with one line under it: "Works only with your own build of the app.
+  The store app can't receive these." Default and Off save at once; Custom saves with its button. A neutral build with no
+  edition default shows Off and Custom only.
+- **Checked before it is saved.** Custom is saved only when `GET <address>/health` answers `{"ok":true}` (the gateway's
+  own health answer). Otherwise nothing is saved and the row says why: not an address of the rule, a private or local
+  address, no answer, or an answer that is not a gateway's. The address rule is app-config's (`https://<host>`, or
+  `http://127.0.0.1:<port>` for a gateway on the same machine, never on a hosted server). The check is a GET to an address
+  an admin typed, so every address the name resolves to must be public (web_fetch's rule), no redirect is followed, at
+  most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
+  (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
+- **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
+  shows the value, has no control, and one line says where it is set ("Set in the server's settings
+  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
+  set it as `push.setBy`.
+- **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
+  the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
+  change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):
+  phones register again at their next sign-in or app start. A developer's server still gets no edition default.
+- **Audit:** `push.gateway` with the new choice, the custom host and the choice before; the same choice again writes
+  nothing.
+- **Removed:** the one-line gateway note under "Device push notifications" and in the desktop app's row ("Phone app
+  push: on…" / "…off on this team server"): the new row says it, in one place.
+- **Browser and phone told apart (QA TC-1537).** In a browser the row under "This device" is now "Browser
+  notifications", and its not-set-up line says so ("Browser notifications aren't set up on this team server yet. Phone
+  notifications are a separate setting."), so it is not read as phone push being off. The phone app keeps "Device push
+  notifications" for its own device.
+- API: `GET`/`PUT /api/admin/push-gateway` (admin). Tests: tests/unit/push-gateway-setting.test.ts (setBy, resolution,
+  lock, health reasons, routes, audit, no restart), web/test/unit/phone-gateway-row.test.tsx (choices, Custom refused
+  then saved, lock, member).
+- Version impact: **minor** (a new admin setting and endpoint; no migration).
+
+## Connected apps: one Slack state, rows that look clickable, a connect wait that can always be left; Slack lines in the person's language; other apps' messages read (fix/connected-apps-state, 2026-11-14, QA)
+
+넣을 곳: Team AX core (`web/src/lib/slackState.ts`, `web/src/lib/signInWait.ts`, `web/src/lib/browserHandoff.ts`, `web/src/components/integrations/BrowserWait.tsx`, `ConnectionRow.tsx`, `server/src/integrations/slack/`, `server/src/integrations/connections/service.ts`), 이유: the owner hit three rough edges in Admin › Connected apps on potenlab.trina.app (QA TC-1415, TC-1416, TC-1417), Slack's status lines in English in a Korean Slack (TC-1418), and other apps' alerts read empty (TC-1419).
+
+- **Slack: one state for the list and the page (TC-1415).** The row said "On" for every state but `error` (`connecting` included) while Slack's page said "Connecting"; both now read `slackView` (`lib/slackState.ts`): the row's status (On, Connecting, Off, Needs attention, Reconnect) and the page's badge come from one function. The server sends `connectingFor` (seconds in `connecting`, its own clock, memory only; optional for older servers). Connecting for `SLACK_CONNECTING_SLOW_S` (120 s) is a problem, not a wait: the row says Needs attention, the page "Not answering" with "Slack hasn't answered for N minutes. Turn it off and on again. If it still doesn't connect, check that this server can reach the internet." While it connects, the list and the page read the state again (every 4 s, every 30 s once slow), so a page opened during a reconnect moves on to Connected by itself instead of keeping its first answer.
+- **Why potenlab showed "Connecting".** The official app's long-poll feed (`broker.ts SlackBrokerFeed`) starts in `connecting` and said `connected` only when its first poll came back, which with no Slack event is the whole 25 s long-poll wait. Every restart (the dev server installs each dev build, several an hour), Turn off / on and Add to Slack started a new feed, and Slack's page read its state once: opened inside those 25 s it kept "Connecting" for good, while the list mapped it to "On". The connection itself was fine (the hosting service saw this server poll every ~25 s; answers were posted). The feed's first poll (and the first after a failure) now asks with `waitMs: 0`, answered at once, so `connected` comes within a round trip.
+- **Rows that look clickable (TC-1416).** `ConnectionRow` with `onOpen` (Connected and Discover rows): the list rows' hover fill (`List.tsx rowOpenHover`, bleeding out as a page list's does, `pageBleed`), a pointer, a trailing › like the other admin lists, and the open button's area stretched over the whole row (its `::after`; `end`'s own controls stay above it), with the keyboard's ring drawn on that area.
+- **A connect wait can always be left (TC-1417).** Every wait for a sign-in in a browser window has Try again and Cancel from its start (`BrowserWait`; MCP sign-in's Try again no longer waits for a focus event the desktop app may not send) and ends by itself after `SIGN_IN_WAIT_MS` (5 minutes, shorter than the server's 10-minute flows): Connect is back with "Signing in didn't finish, so this stopped waiting." Google (Drive, Gmail, Calendar, Docs, Sheets, the team account, shared Drives) cancels its flow on the server, as Cancel does. MCP sign-in gets `DELETE /api/integrations/flows/:id` (this session's own flow, still pending): its secrets go and the service's late answer is refused, its window saying it was cancelled in the app, so a window left open cannot connect it afterwards. A sign-in the service had already answered (`exchanging`) is not stopped by it: after Cancel or the timeout the screen reads the flow again, and one that ended connected is shown connected, never as cancelled. Add to Slack, "Update Slack permissions" and Sign in with Slack used to leave the button spinning in the desktop app (the navigation goes to the system browser and the page stays): they now wait with Try again / Cancel, read the state again when the window is used again, stop waiting on a page brought back from history, and end by themselves. Their Cancel and their timeout end the flow on the server too (security review of #822): `DELETE /api/admin/slack/install/flow` (admin) and `DELETE /api/slack/signin/flow` (user) mark this person's waiting flow of this session `failed`/`cancelled_here`, and the window that comes back later is told "This was cancelled in the app" (`install_cancelled_here`, `signin_cancelled_here`) and changes nothing. Without it a window left open could finish within its 10 minutes after the app said it was cancelled, and an install of another workspace would have dropped everyone's links. AI apps: when the 10 minutes of looking for the new app end, the dialog says "Not connected yet" with Check again instead of spinning on.
+- **Slack's own lines in the person's language (TC-1418).** What the app says in Slack for a person ("Working on it…", "Answering as …", "Open in …", link prompts, notices) came from `chat/runtime userLocale`, which takes the person's answer language (`prefs.answerLocale`) first: someone with Korean screens and answers in English got English status lines in a Korean Slack. `SlackConnector.localeOf` now reads the person's Trina language (`users.locale`, which is the team's default for someone who follows it), then the team's default, then English. The answer itself still follows the answer language. That covers every line the app writes for a question: working…, "Answering as", "Open in", "Posted to the thread.", "Asked by" (all read `localeOf` of the asker; an unlinked person gets the team's default).
+- **Other apps' messages are read in full (TC-1419).** `slack_read_channel` / `slack_read_thread` (and the asked thread) read a message's `text` only, so another app's alert (a contact form's "새 문의가 접수되었습니다" with its details in Block Kit, a monitor's legacy attachment) reached the AI empty. `read.ts messageRaw` adds what the message's blocks say (section text and fields, header, context, rich_text with links, mentions and emoji, markdown) and its attachments (pretext, author, title with its link, text, "title: value" fields, footer, their blocks; the fallback when nothing else), leaving out what only repeats the text (Slack's rich_text copy of a typed message) and what carries no words (buttons, images, inputs). At most 4,000 characters, 100 parts and 6 levels deep before the message's own 1,500-character cut; the same slackPlain reading (markup in words, every `<` made harmless) and indent as the text, inside the data block.
+- Tests: `tests/unit/c-slack-broker.test.ts` (connected within a round trip), `tests/unit/c-slack.test.ts` (`connectingFor`; the Slack lines' language), `tests/unit/c-integrations-oauth.test.ts` (cancel: own session only, late answer refused), `tests/unit/c-slack-read.test.ts` (blocks and attachments of real-shaped alerts; cut, depth, markup), the security route matrix (`cancelIntegrationFlow`), `web/test/unit/slack-screens.test.tsx` (one state; re-read; slow line; Add to Slack wait), `web/test/e2e/connected-apps-state.spec.ts`.
+- Version impact: **minor** (three new routes; a new optional field on `GET /api/admin/slack`).
+
+## Sentry reporter options for the control plane: level, fingerprint, message events, kept Korean titles, route tags, check-ins (feat/sentry-report-cp-options, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`shared/src/sentry-report.ts`), 이유: the Trina Cloud control plane copies this file at a pinned
+commit for its own reports (no SDK, same allowlist), and every new shape of report is a privacy decision made here.
+
+- **Still the allowlist.** `buildEvent` adds only `fingerprint` and, for `kind: 'message'`, `message.formatted` (in place
+  of `exception`, no frames). `level` is `warning` when asked, `error` by default, `fatal` still wins. The relay and the
+  push gateway set none of these, so their events are unchanged; `TAG_VALUE_RE` is unchanged.
+- **Fingerprint:** at most 4 parts, each a code (`TAG_VALUE_RE`, and not shaped like data: no `@`, no 7+ digits in a
+  row, no IPv4 address, no 20+ character run with a digit in it, so emails, phone and resident numbers, dates, keys,
+  UUIDs and provider ids are refused while codes and versions pass) or a route pattern. One part that is neither, or a fifth
+  part, and the event goes without a fingerprint (Sentry's own grouping): a partly kept fingerprint would merge issues
+  that should stay apart. Callers build it from codes (kind, step, route, error type), never from ids of payments,
+  providers or people.
+- **Route tag (`ROUTE_VALUE_RE`):** only the `route` tag (and a fingerprint part) may hold `/`, and only as a router's
+  pattern: `/api/teams/:id`, `/t/:slug/api/*`. Literal parts are lowercase words of at most 24 characters with at most
+  two digits and no dot, `@`, capital, `%`, space or query, so a host, a file, an email, a numeric or random id and a
+  query string are refused; parameter names are short letters only (`:id`, `:teamId`); at most 128 characters. This
+  is not a proof: any real path whose parts look like words passes (`/u/kimminsu/files`, a token made only of
+  letters), so callers pass the router's pattern (Hono's `c.req.routePath`), never the request path, and the control
+  plane checks that in its own tests.
+- **`keepText: true` keeps Korean words, nothing else.** For alert titles written in code (`예약 작업 실패: <task>`).
+  Hangul stays (not its invisible fillers); every other rule still runs, quoted text included (`"김철수"` → `[text]`),
+  emails and hosts with a Korean domain (`홍길동@회사.한국`, `www.회사.한국`: the email and host rules read letters of
+  any script), Korean secret labels (`비밀번호`, `비번`, `암호`, `토큰`, `인증번호`: the value after them goes, in both
+  modes), and any other non-ASCII
+  script or symbol still becomes `[text]`. Only `true` opts in. Callers may pass it only for a message whose words
+  are all written in code: never for text that can hold a name, a file name, a message or anything a person typed. A
+  name in Hangul cannot be told from a Korean word, so this rests on the caller; the control plane checks its alert
+  titles in its own tests.
+- **`checkIn(dsn, slug, body, {fetch, timeoutMs})`:** a cron check-in from code to Sentry's HTTP endpoint. It never
+  throws or logs and returns `sent | off | paused | failed`, so a job's result, timing and retries never depend on it;
+  nothing is sent without a key, a valid slug or a valid status. The body is an allowlist (`cleanCheckInBody`):
+  `status`, `check_in_id` (UUID or 32 hex), `duration`, `environment`, and `monitor_config` with `schedule` (crontab
+  by the same rule as `relay-checkin.sh`, or interval), `checkin_margin`, `max_runtime`, `timezone` (IANA name),
+  `failure_issue_threshold`, `recovery_threshold`; anything else is dropped. Sending only the final status (with
+  `duration`) is enough; `in_progress` works but is not required.
+- **Rate limits are per category.** `pauseSeconds` takes the categories that apply (errors and `default` by default,
+  as before). A `monitor` limit (or one for every category, or a 429) pauses check-ins to that project; a limit for
+  errors only does not pause check-ins, and a check-in limit never pauses `ErrorReporter`.
+- Tests: `tests/unit/sentry-report.test.ts` (levels, fingerprint rules, message events, keepText with leak canaries,
+  a full event with every new option leaking nothing, route patterns against real paths, check-in body allowlist,
+  never throwing, rate-limit categories both ways).
+- Version impact: **none** (no team server or app change; relay and push gateway behaviour unchanged).

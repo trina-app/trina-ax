@@ -1081,7 +1081,7 @@ describe('updates carry the list', () => {
     expect(at({ result: 'ok', list: 'other' }, 'admin').text.en).toBe('Not yet brought to this version\'s list. Automatic updates are off, so nothing does it by itself: sudo mycel-ctl update')
     expect(at({ result: 'ok', list: 'other' }, 'hosted').text.en).toBe('Not yet brought to this version\'s list. The hosting service\'s next update does it.')
     expect(at({ result: 'incomplete', detail: 'download' }, 'hosted').text.en).not.toContain('timer')
-    for (const by of ['timer', 'admin', 'hosted'] as const) for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const by of ['timer', 'admin', 'hosted'] as const) for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(SYSTEM_PACKAGES_TEXT.pending(by)[l].length).toBeGreaterThan(10)
       expect(SYSTEM_PACKAGES_TEXT.ok('t', 'v')[l]).toContain('v')
     }

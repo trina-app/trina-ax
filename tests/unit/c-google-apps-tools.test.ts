@@ -209,7 +209,7 @@ describe('calls', () => {
     expect(p.notes[0]).toContain('Settings › Connectors')
     // every language keeps the name in the sentence
     const { TEXT } = await import('../../server/src/integrations/connections/text')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(TEXT.alwaysNote[l]).toContain('{name}')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(TEXT.alwaysNote[l]).toContain('{name}')
     // the grant is the same as before: one Always allow on a send sets the whole app's write rule
     const a = { ...person('always'), notes: [] as string[] }
     await turn('alice', { person: a }).call('my_gmail__send_gmail_message', { to: 'bob@acme.example', subject: 'Hi', body: 'y' })

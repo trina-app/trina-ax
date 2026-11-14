@@ -108,7 +108,7 @@ export type ChatNotify = 'card' | 'answer'
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
-  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." },
+  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." }, zh: { queue_full: '现在请求较多，请稍后再发送。', queue_full_user: '你已经有3个问题在等待。请等之前的回答结束后再发送。' },
 }
 
 export interface ChatRuntimeOptions {
@@ -732,7 +732,7 @@ export class ChatRuntime {
     try {
       const now = new Date().toISOString()
       this.db.transaction(() => {
-        this.db.query("UPDATE turns SET status='error', ended_at=?, error='dispatch failed' WHERE id=? AND status IN ('queued','running')").run(now, spec.turnId)
+        this.db.query("UPDATE turns SET status='error', ended_at=?, error='dispatch failed', people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id=? AND status IN ('queued','running')").run(now, spec.turnId)
         this.db.query("UPDATE messages SET status='error', error=?, updated_at=? WHERE id=? AND status='streaming'")
           .run(JSON.stringify(engineError('crash', spec.locale)), now, spec.assistantId)
         this.queueStore.settle(spec.userId)
@@ -840,7 +840,7 @@ export class ChatRuntime {
     const spec = this.queued[i]!
     const now = new Date().toISOString()
     this.db.transaction(() => {
-      this.db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ? AND status='queued'").run(now, spec.turnId)
+      this.db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ? AND status='queued'").run(now, spec.turnId)
       this.db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ? AND status='streaming'").run(now, spec.assistantId)
       this.queueStore.settle(spec.userId)
     })()
@@ -907,10 +907,12 @@ export class ChatRuntime {
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
       // without a record is hidden from everyone but its runner: chat/shared-answers.ts)
       if (isSharedRow(chat)) newAnswerRecord(this.db, chat.id, assistantId)
-      // shared_checked and people_checked: this build runs the turn, with the read gate of shared chats of both kinds
-      // (the rollback guards: chat/shared.ts unshareUncheckedChats, chat/people-share.ts unsharePeopleChecked)
+      // shared_checked and people_checked stay 0 while it waits: they are set when THIS build starts it (queue-store.ts
+      // claim, turns.ts create) or ends it without running it. A queued turn an older build picks up after a rollback
+      // runs without the shared chats' gates and keeps 0, so the rollback guards see it (chat/shared.ts
+      // unshareUncheckedChats, chat/people-guard.ts unsharePeopleChecked; they pass turns still queued)
       this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked, people_checked)
-        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
+        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
       // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
       const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : '')
@@ -1148,7 +1150,7 @@ export class ChatRuntime {
          -- a scheduled run of a free-text task nobody confirmed (queued before the upgrade): never runs (schedules.ts)
          OR EXISTS(SELECT 1 FROM schedules s WHERE s.id=t.schedule_id AND s.template_id IS NULL AND s.confirmed_at IS NULL))`).all() as { id: string; message_id: string | null }[]
       for (const t of bad) {
-        this.db.query("UPDATE turns SET status='stopped',ended_at=? WHERE id=?").run(now,t.id)
+        this.db.query("UPDATE turns SET status='stopped',ended_at=?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id=?").run(now,t.id)
         if (t.message_id) this.db.query("UPDATE messages SET status='stopped',updated_at=? WHERE id=? AND status='streaming'").run(now,t.message_id)
       }
       this.queueStore.repair()
@@ -1159,12 +1161,12 @@ export class ChatRuntime {
     // queued turns of chats in the trash never run (stop would have caught them; a crash between writes may not)
     this.db.query(`UPDATE messages SET status = 'stopped', updated_at = ? WHERE status = 'streaming' AND id IN (SELECT t.message_id FROM turns t JOIN chats c ON c.id = t.chat_id
       WHERE t.status = 'queued' AND c.deleted_at IS NOT NULL)`).run(now)
-    this.db.query(`UPDATE turns SET status = 'stopped', ended_at = ? WHERE status = 'queued'
+    this.db.query(`UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE status = 'queued'
       AND (chat_id IN (SELECT id FROM chats WHERE deleted_at IS NOT NULL) OR chat_id NOT IN (SELECT id FROM chats))`).run(now)
     const seen = new Set<string>()
     for (const t of queued) {
       if (!t.message_id || !t.user_message_id || seen.has(t.chat_id)) {
-        this.db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ?").run(now, t.id)
+        this.db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ?").run(now, t.id)
         if (t.message_id) this.db.query("UPDATE messages SET status = 'stopped' WHERE id = ? AND status = 'streaming'").run(t.message_id)
         continue
       }
@@ -1220,7 +1222,7 @@ export class ChatRuntime {
     let answer: unknown
     try { answer = JSON.parse(r?.prefs ?? '{}')?.answerLocale } catch {}
     const l = (answer ?? r?.locale) as string | undefined
-    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' ? l : DEFAULT_LOCALE
+    return l === 'en' || l === 'id' || l === 'ko' || l === 'ja' || l === 'es' || l === 'zh' ? l : DEFAULT_LOCALE
   }
 
   /** The launcher's answers for the last purge run (tests wait on it; chat/forget.ts never rejects). */

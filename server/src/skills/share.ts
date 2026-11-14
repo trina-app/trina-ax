@@ -85,99 +85,111 @@ export interface ShareCaller { id: string; role: Role }
 // ---------------------------------------------------------------- text
 
 const TEXT = {
-  judgeTitle: { ko: '내 스킬 살펴보기', en: 'Looking at my skills', id: 'Melihat skill saya', ja: '自分のスキルを確認', es: 'Revisando mis habilidades' },
+  judgeTitle: { ko: '내 스킬 살펴보기', en: 'Looking at my skills', id: 'Melihat skill saya', ja: '自分のスキルを確認', es: 'Revisando mis habilidades', zh: '正在查看我的技能' },
   judgeAsk: {
     ko: '이 스킬들이 팀에 맞는지 봐 주세요.', en: 'See which of these skills fit the team.', id: 'Lihat skill mana yang cocok untuk tim.',
-    ja: 'どのスキルがチームに合うか見てください。', es: 'Mire cuáles de estas habilidades sirven al equipo.',
+    ja: 'どのスキルがチームに合うか見てください。', es: 'Mire cuáles de estas habilidades sirven al equipo.', zh: '看看这些技能中哪些适合团队。',
   },
   checking: {
     ko: '아직 팀에 맞는지 보는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'Still checking which skills fit the team. Try again in a moment.',
     id: 'Masih memeriksa skill mana yang cocok untuk tim. Coba lagi sebentar lagi.', ja: 'まだチームに合うか確認しています。少ししてからもう一度どうぞ。',
     es: 'Aún se está revisando qué habilidades sirven al equipo. Inténtelo de nuevo en un momento.',
+    zh: '仍在检查哪些技能适合团队。请稍后重试。',
   },
   gone: {
     ko: '이 공유 제안은 끝났어요. 스킬을 다시 찾아 주세요.', en: 'This share proposal has ended. Look for the skills again.',
     id: 'Usulan berbagi ini sudah berakhir. Cari skill-nya lagi.', ja: 'この共有の提案は終了しました。もう一度スキルを探してください。',
     es: 'Esta propuesta ya terminó. Vuelva a buscar las habilidades.',
+    zh: '这个共享提议已结束。请重新查找技能。',
   },
   applied: {
     ko: '이 공유 제안은 이미 팀에 넣었어요.', en: 'This share proposal was already shared with the team.',
-    id: 'Usulan ini sudah dibagikan ke tim.', ja: 'この提案はすでにチームに共有しました。', es: 'Esta propuesta ya se compartió con el equipo.',
+    id: 'Usulan ini sudah dibagikan ke tim.', ja: 'この提案はすでにチームに共有しました。', es: 'Esta propuesta ya se compartió con el equipo.', zh: '这个共享提议已经共享给团队了。',
   },
   busy: {
     ko: '이 공유 제안을 넣는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'This share proposal is being shared right now. Try again in a moment.',
     id: 'Usulan ini sedang dibagikan. Coba lagi sebentar lagi.', ja: 'この提案を共有しているところです。少ししてからもう一度どうぞ。',
     es: 'Esta propuesta se está compartiendo ahora. Inténtelo de nuevo en un momento.',
+    zh: '这个共享提议正在共享中。请稍后重试。',
   },
   folderExists: {
     ko: "팀 스킬에 '{name}' 폴더가 이미 있어요. 따로 두기로 다른 이름을 골라 주세요.", en: "The team skills already have a '{name}' folder. Choose \"keep separate\" for another name.",
     id: "Skill tim sudah punya folder '{name}'. Pilih \"simpan terpisah\" untuk nama lain.", ja: "チームのスキルに「{name}」フォルダーがすでにあります。「別にする」で別の名前を選んでください。",
     es: "Las habilidades del equipo ya tienen una carpeta '{name}'. Elija \"dejar aparte\" para otro nombre.",
+    zh: "团队技能中已有“{name}”文件夹。请选择“分开保留”并使用其他名称。",
   },
   sameName: {
     ko: "같은 이름의 팀 스킬 '{title}'이 있어요. 합치기나 따로 두기를 골라 주세요.", en: "A team skill '{title}' has the same name. Choose merge or keep separate.",
     id: "Ada skill tim '{title}' dengan nama yang sama. Pilih gabungkan atau simpan terpisah.", ja: "同じ名前のチームスキル「{title}」があります。「まとめる」か「別にする」を選んでください。",
     es: "Una habilidad del equipo '{title}' tiene el mismo nombre. Elija combinar o dejar aparte.",
+    zh: "有一个同名的团队技能“{title}”。请选择合并或分开保留。",
   },
   nameTaken: {
     ko: "'{name}'은 이미 쓰는 이름이에요. 다른 이름을 골라 주세요.", en: "'{name}' is already in use. Choose another name.",
-    id: "'{name}' sudah dipakai. Pilih nama lain.", ja: "「{name}」はすでに使われています。別の名前を選んでください。", es: "'{name}' ya está en uso. Elija otro nombre.",
+    id: "'{name}' sudah dipakai. Pilih nama lain.", ja: "「{name}」はすでに使われています。別の名前を選んでください。", es: "'{name}' ya está en uso. Elija otro nombre.", zh: "“{name}”已被使用。请选择其他名称。",
   },
   denied: {
     ko: '팀 스킬 폴더에 넣을 권한이 없어요.', en: 'You may not save into the team skills folder.',
-    id: 'Kamu tidak boleh menyimpan ke folder skill tim.', ja: 'チームのスキルフォルダーに保存する権限がありません。', es: 'No puede guardar en la carpeta de habilidades del equipo.',
+    id: 'Kamu tidak boleh menyimpan ke folder skill tim.', ja: 'チームのスキルフォルダーに保存する権限がありません。', es: 'No puede guardar en la carpeta de habilidades del equipo.', zh: '你不能保存到团队技能文件夹。',
   },
   notSaved: {
     ko: '팀 스킬에 넣지 못했어요: {path}에 이미 파일이 있거나 바뀌었어요.', en: 'It could not be saved to the team skills: a file at {path} is already there or changed.',
     id: 'Tidak bisa disimpan ke skill tim: sudah ada atau berubah berkas di {path}.', ja: 'チームのスキルに保存できませんでした: {path} にすでにファイルがあるか、変更されています。',
     es: 'No se pudo guardar en las habilidades del equipo: ya hay un archivo en {path} o cambió.',
+    zh: '无法保存到团队技能：{path}处已有文件或文件已更改。',
   },
   stagedGone: {
     ko: '이 스킬의 파일을 더 이상 찾을 수 없어요. 스킬을 다시 찾아 주세요.', en: 'The files of this skill are no longer there. Look for the skills again.',
     id: 'Berkas skill ini sudah tidak ada. Cari skill-nya lagi.', ja: 'このスキルのファイルが見つかりません。もう一度スキルを探してください。',
     es: 'Los archivos de esta habilidad ya no están. Vuelva a buscar las habilidades.',
+    zh: '这个技能的文件已不存在。请重新查找技能。',
   },
   mergeGone: {
     ko: "합칠 팀 스킬 '{title}'을 찾을 수 없어요. 따로 두기를 골라 주세요.", en: "The team skill '{title}' to merge into is not there. Choose keep separate.",
     id: "Skill tim '{title}' yang mau digabung tidak ada. Pilih simpan terpisah.", ja: "まとめる先のチームスキル「{title}」が見つかりません。「別にする」を選んでください。",
     es: "La habilidad del equipo '{title}' para combinar no está. Elija dejar aparte.",
+    zh: "要合并到的团队技能“{title}”不存在。请选择分开保留。",
   },
   toolInvalid: {
     ko: '이 도구 주소로는 연결 템플릿을 만들 수 없어요.', en: 'A connection template cannot be made from this tool address.',
-    id: 'Template koneksi tidak bisa dibuat dari alamat alat ini.', ja: 'このツールのアドレスでは接続テンプレートを作れません。', es: 'No se puede crear una plantilla de conexión con esta dirección.',
+    id: 'Template koneksi tidak bisa dibuat dari alamat alat ini.', ja: 'このツールのアドレスでは接続テンプレートを作れません。', es: 'No se puede crear una plantilla de conexión con esta dirección.', zh: '无法用这个工具地址创建连接模板。',
   },
   proposedCodex: {
     ko: 'Codex에서 스킬 {n}개를 공유하자고 했어요 · 확인', en: 'Codex proposed sharing {n} skills · Review',
-    id: 'Codex mengusulkan berbagi {n} skill · Periksa', ja: 'Codex からスキル {n} 件の共有の提案があります · 確認', es: 'Codex propuso compartir {n} habilidades · Revisar',
+    id: 'Codex mengusulkan berbagi {n} skill · Periksa', ja: 'Codex からスキル {n} 件の共有の提案があります · 確認', es: 'Codex propuso compartir {n} habilidades · Revisar', zh: 'Codex 提议共享{n}个技能 · 查看',
   },
   proposed: {
     ko: 'Claude Code에서 스킬 {n}개를 공유하자고 했어요 · 확인', en: 'Claude Code proposed sharing {n} skills · Review',
-    id: 'Claude Code mengusulkan berbagi {n} skill · Periksa', ja: 'Claude Code からスキル {n} 件の共有の提案があります · 確認', es: 'Claude Code propuso compartir {n} habilidades · Revisar',
+    id: 'Claude Code mengusulkan berbagi {n} skill · Periksa', ja: 'Claude Code からスキル {n} 件の共有の提案があります · 確認', es: 'Claude Code propuso compartir {n} habilidades · Revisar', zh: 'Claude Code 提议共享{n}个技能 · 查看',
   },
   // a share to a group (docs/DECISIONS.md "Group skills")
   proposedGroup: {
     ko: "{who}님이 '{group}' 부서에 스킬 {n}개를 공유하자고 했어요 · 확인", en: "{who} proposed sharing {n} skills with the group '{group}' · Review",
     id: "{who} mengusulkan berbagi {n} skill dengan grup '{group}' · Periksa", ja: "{who}さんがグループ「{group}」にスキル {n} 件の共有を提案しました · 確認",
     es: "{who} propuso compartir {n} habilidades con el grupo '{group}' · Revisar",
+    zh: "{who}提议与小组“{group}”共享{n}个技能 · 查看",
   },
   notGroupWriter: {
     ko: '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.', en: 'Only a member of this group who may write its skills folder can do this.',
     id: 'Hanya anggota grup ini yang boleh menulis folder skill-nya yang bisa melakukan ini.', ja: 'このグループのスキルフォルダーに書き込めるメンバーだけができます。',
     es: 'Solo un miembro de este grupo que pueda escribir en su carpeta de habilidades puede hacerlo.',
+    zh: '只有这个小组中能写入其技能文件夹的成员才能这样做。',
   },
   targetGone: {
     ko: '이 공유 제안의 부서가 없어졌어요. 스킬을 다시 찾아 주세요.', en: 'The group of this share proposal is gone. Look for the skills again.',
     id: 'Grup usulan berbagi ini sudah tidak ada. Cari skill-nya lagi.', ja: 'この共有の提案のグループがなくなりました。もう一度スキルを探してください。',
     es: 'El grupo de esta propuesta ya no existe. Vuelva a buscar las habilidades.',
+    zh: '这个共享提议的小组已不存在。请重新查找技能。',
   },
   targetFixed: {
     ko: '이미 일부를 넣은 공유 제안은 보낼 곳을 바꿀 수 없어요.', en: 'Part of this share proposal already went in: where it goes cannot change now.',
     id: 'Sebagian usulan ini sudah masuk: tujuannya tidak bisa diubah lagi.', ja: 'この提案の一部はすでに入っています。行き先は変えられません。',
     es: 'Parte de esta propuesta ya se agregó: ya no se puede cambiar el destino.',
+    zh: '这个共享提议的一部分已经加入：现在不能更改去向。',
   },
 } satisfies Record<string, Record<Locale, string>>
 /** The team rule's file name in the team's language (skills/<name>.md, a file without a header: a team rule). */
-export const RULE_NAME: Record<Locale, string> = { ko: '일하는-방식', en: 'how-we-work', id: 'cara-kerja', ja: '仕事の進め方', es: 'como-trabajamos' }
+export const RULE_NAME: Record<Locale, string> = { ko: '일하는-방식', en: 'how-we-work', id: 'cara-kerja', ja: '仕事の進め方', es: 'como-trabajamos', zh: '工作方式' }
 const fill = (s: string, p: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_m, k: string) => String(p[k] ?? ''))
 
 function localeOf(ctx: AppContext, id: string): Locale {

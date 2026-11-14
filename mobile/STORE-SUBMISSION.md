@@ -45,8 +45,8 @@ What the owner provides or decides before each store step. Engineering steps and
 - Run the push gateway (push-gateway/README.md): `bun push-gateway/src/bun.ts` behind TLS at `push.trina.app`, with
   `APNS_PRIVATE_KEY`, `APNS_KEY_ID` (and later `FCM_SERVICE_ACCOUNT`) in its environment. A Cloudflare Worker cannot
   reach APNs (HTTP/2 only).
-- Team servers need the release with migrations 243 and 245 (`/api/push/devices`) and `push.gatewayUrl: "https://push.trina.app"`
-  in server.json (or `MYCEL_PUSH_GATEWAY`): phone push is off until then. Owners see it in Settings › Notifications.
+- Team servers need the release with migrations 243 and 245 (`/api/push/devices`). Trina servers send through
+  `https://push.trina.app` by default (`MYCEL_PUSH_GATEWAY=off` turns it off). Owners see it in Settings › Notifications.
 - Who and where on the iPhone (1.0.1) needs the gateway release that marks room pushes mutable (`push-gateway/src/apns.ts`)
   and team servers with migration 263 (`/api/push/devices/:id/label`). With either missing the phone shows the generic
   line, as before. Check on TestFlight: a DM and a mention show "name" and "name · #room" (a thread "› 스레드"), never the
@@ -61,11 +61,17 @@ What the owner provides or decides before each store step. Engineering steps and
 - **Reviewer account** on `https://qa-test.trina.app` (a member, not the owner) with a demo folder and a few files;
   keep the server up during the whole review. App Review Information: the team address to type on the first screen,
   username, password.
+- **After every review: check the reviewer account.** Reviewers try Delete account, and the account is then deleted
+  by itself 7 days later, so the next review cannot sign in. Sign in as the reviewer and press "Keep my account", or
+  recreate the account with the same username and password in Admin › Members & invites (the username is free again
+  after a deletion), and put the demo files back.
 - **Review notes** (draft): "Trina AX is the client of a team's own workspace server; accounts are created by the team
   admin. Enter https://qa-test.trina.app on the first screen. Native features: push notifications (asked after sign-in;
   a conversation message says who wrote it and where, never the message itself), the iOS share sheet for downloaded files, the native photo/camera picker for attachments, voice
-  input, an offline / cannot-reach screen with retry. Account deletion: Settings › Profile › Delete account (계정 삭제) opens
-  "Request account deletion"; the team owner is notified in the app and removes the account; the personal files are archived for the owner."
+  input, an offline / cannot-reach screen with retry. Account deletion: Settings › Profile › Delete account (계정 삭제) shows
+  the date and what is deleted; the person confirms with their password and the account is deleted automatically 7
+  days later (they can cancel until then; the team owner is told and can delete it sooner). Files in the personal
+  folder go to the team owner's archive."
 - **Screenshots**: 6.9-inch iPhone (1320 × 2868 or 1290 × 2796), at least the first screen, a chat, files and
   notifications, with the fictional data. No iPad (iPhone only in v1).
 - Age rating, content rights and export compliance (answered by `ITSAppUsesNonExemptEncryption=false`).
@@ -81,6 +87,7 @@ What the owner provides or decides before each store step. Engineering steps and
   (`MYCEL_MOBILE_GOOGLE_SERVICES`) and the service-account JSON for the gateway (`FCM_SERVICE_ACCOUNT`). Without them
   the app works without push.
 - Data safety form (camera and microphone for chat attachments and voice input, the push token, what the team server
-  holds), the privacy policy link, content rating, target audience, and the reviewer account on
+  holds; account deletion: in the app, Settings › Profile › Delete account, plus the public web page for people
+  without the app, which the hosting repository serves), the privacy policy link, content rating, target audience, and the reviewer account on
   `https://qa-test.trina.app`. A personal account created after 2023-11-13 needs a closed test with 12 testers for
   14 days before production; an organization account does not, according to third-party reports.

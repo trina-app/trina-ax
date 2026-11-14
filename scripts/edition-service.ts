@@ -1,5 +1,6 @@
 // Edition build input: the hosted service's addresses (shared/src/service-hosts.ts). editions/<name>/branding/service.json
-// sets exactly the four values below, and this tool writes them into SERVICE_HOSTS (anchored fields, once each; nothing
+// sets the four values below, and optionally pushGatewayUrl (the phone push gateway team servers use when their operator
+// sets none; "" or missing = no default). This tool writes them into SERVICE_HOSTS (anchored fields, once each; nothing
 // else changes).
 //
 //   bun scripts/edition-service.ts editions/<name>/branding/service.json            check; say whether it would change
@@ -7,7 +8,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const keys = ['teamDomain', 'officialRelayUrl', 'accountHost', 'statusHost'] as const
+const required = ['teamDomain', 'officialRelayUrl', 'accountHost', 'statusHost'] as const
+const keys = [...required, 'pushGatewayUrl'] as const
 export type EditionService = Record<(typeof keys)[number], string>
 
 const HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
@@ -15,7 +17,7 @@ const HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,6
 export function parseEditionService(value: unknown): EditionService {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid service configuration')
   const o = value as Record<string, unknown>
-  if (Object.keys(o).length !== keys.length || keys.some((k) => !(k in o))) throw new Error(`Only ${keys.join(', ')} may be configured`)
+  if (required.some((k) => !(k in o)) || Object.keys(o).some((k) => !(keys as readonly string[]).includes(k))) throw new Error(`Only ${keys.join(', ')} may be configured (pushGatewayUrl optional)`)
   for (const k of ['teamDomain', 'accountHost', 'statusHost'] as const) if (typeof o[k] !== 'string' || !HOST.test(o[k] as string)) throw new Error(`Invalid ${k}`)
   const relay = o.officialRelayUrl
   if (typeof relay !== 'string' || !/^wss:\/\/[a-z0-9.-]+\/[a-z0-9/_-]*$/.test(relay) || !HOST.test(new URL(relay).hostname)) throw new Error('Invalid officialRelayUrl')
@@ -23,7 +25,10 @@ export function parseEditionService(value: unknown): EditionService {
   const inDomain = (h: string) => h === domain || h.endsWith(`.${domain}`)
   // the official relay is recognised by its domain (server/src/relay-client/index.ts)
   if (!inDomain(new URL(relay).hostname)) throw new Error('officialRelayUrl must be under teamDomain')
-  return { teamDomain: domain, officialRelayUrl: relay, accountHost: o.accountHost as string, statusHost: o.statusHost as string }
+  // the gateway's own address: https://<host>, nothing after it (server/src/notifications/push-native.ts validGatewayUrl)
+  const push = o.pushGatewayUrl ?? ''
+  if (typeof push !== 'string' || (push !== '' && !(/^https:\/\/[a-z0-9.-]+$/.test(push) && HOST.test(push.slice(8))))) throw new Error('Invalid pushGatewayUrl')
+  return { teamDomain: domain, officialRelayUrl: relay, accountHost: o.accountHost as string, statusHost: o.statusHost as string, pushGatewayUrl: push }
 }
 
 export function editionService(source: string, value: unknown): string {

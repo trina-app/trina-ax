@@ -13,8 +13,11 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { roomsOf } from '../../server/src/rooms/service'
 import { unsharePeopleChecked } from '../../server/src/chat/people-guard'
+import { unshareUncheckedChats } from '../../server/src/chat/shared'
+import { noSearchPath } from '../../server/src/chat/turn'
 import { peopleAudience, peopleChatsLost } from '../../server/src/chat/chat-audience'
 import { buildTurnPrompt, sharedSection } from '../../server/src/chat/prompt'
+import { runAccountCleanups } from '../../server/src/auth/account-removal'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -161,6 +164,10 @@ describe('sharing', () => {
     for (const it of list.items) { expect(it.chatId).toBe(id); expect(it.missedBy).toEqual(['Carol Park']) }
     expect(await reason(h.api('bob').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [carol] } }))).toEqual([403, 'widening_not_allowed'])
     expect((await errOf(h.api('dana').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [carol] } }))).status).toBe(404)
+    // its picks are checked as a save checks them: no probe of who is active or of other people's groups
+    expect(await reason(h.api('alice').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [{ subjectType: 'user', subjectId: 'nobody' }] } }))).toEqual([400, 'unknown_subject'])
+    expect(await reason(h.api('alice').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [finance] } }))).toEqual([400, 'unknown_subject'])
+    expect(await reason(h.api('alice').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: Array.from({ length: 101 }, (_, i) => ({ subjectType: 'user' as const, subjectId: `u${i}` })) } }))).toEqual([400, 'audience_full'])
   })
 
   test('removing someone stops their turn first and drops the chat from their windows; removing everyone makes it private', async () => {
@@ -269,6 +276,8 @@ describe('who sees it follows groups and accounts', () => {
     try {
       expect(audience()).toEqual(['alice'])
       expect(db().query("SELECT COUNT(*) AS n FROM chat_audience WHERE chat_id = ? AND subject_id = 'erin'").get(id)).toEqual({ n: 1 })
+      // the who-sees list: marked inactive for the creator; left out for the others in it
+      expect((await h.api('alice').call(API.getChatAudience, { params: { id } })).subjects.find((x) => x.subjectId === 'erin')).toMatchObject({ inactive: true })
     } finally { db().query("UPDATE users SET status = 'active' WHERE id = 'erin'").run() }
     expect(await status('erin', `/api/chats/${id}`)).toBe(200)
   })
@@ -282,6 +291,11 @@ describe('turns in a people-shared chat', () => {
     expect(typeof buildTurnPrompt).toBe('function')
   })
 
+  test('a path of only separators or "." is no path', () => {
+    for (const p of [undefined, '', '.', '/', './', '//', ' / ', '.\\', '\\', '/./']) expect({ p, none: noSearchPath(p) }).toEqual({ p, none: true })
+    for (const p of ['shared', '/shared', './projects/falcon']) expect({ p, none: noSearchPath(p) }).toEqual({ p, none: false })
+  })
+
   test("a search without a path never runs over the sender's whole access", async () => {
     const id = await newChat()
     await share('alice', id, [bob])
@@ -292,6 +306,11 @@ describe('turns in a people-shared chat', () => {
     expect(r.done.content).not.toContain('users/alice')
     expect(r.done.content).not.toContain('groups/')
     expect(r.done.content).not.toContain('Draft Q4')
+    for (const path of ['/', './']) {
+      const slash = await ask('alice', id, fake({ tool: 'grep', args: { pattern: 'Draft', path }, sayResult: true }))
+      expect(slash.done.content).toContain('Not searched')
+      expect(slash.done.content).not.toContain('Draft Q4')
+    }
     // with a folder everyone reads, it runs
     const named = await ask('alice', id, fake({ tool: 'grep', args: { pattern: 'Falcon', path: 'projects/falcon' }, sayResult: true }))
     expect(named.done.content).toContain('projects/falcon')
@@ -372,7 +391,49 @@ describe('notices, hiding, lists', () => {
   })
 })
 
+describe('a removed account', () => {
+  test("a recipient's audience row, hidden row and notices go with the account cleanup", async () => {
+    const id = await newChat()
+    const ghost = 'ghost-' + crypto.randomUUID().slice(0, 8)
+    db().query("INSERT INTO users (id, username, name, role) VALUES (?, ?, 'Ghost', 'member')").run(ghost, ghost)
+    await share('alice', id, [{ subjectType: 'user', subjectId: ghost }])
+    db().query('INSERT INTO chat_list_hidden (user_id, chat_id, at) VALUES (?, ?, ?)').run(ghost, id, new Date().toISOString())
+    expect(db().query('SELECT COUNT(*) AS n FROM chat_share_notices WHERE user_id = ?').get(ghost)).toEqual({ n: 1 })
+    db().query("UPDATE users SET status = 'disabled', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), ghost)
+    await runAccountCleanups(h.ctx, ghost)
+    for (const [t, c] of [['chat_audience', 'subject_id'], ['chat_list_hidden', 'user_id'], ['chat_share_notices', 'user_id']] as const)
+      expect(db().query(`SELECT COUNT(*) AS n FROM ${t} WHERE ${c} = ?`).get(ghost), t).toEqual({ n: 0 })
+  })
+})
+
 describe('rollback guard', () => {
+  test('a queued turn waits unmarked; one an older build ran (done, mark left 0) unshares the chat; one still queued does not', async () => {
+    const id = await newChat()
+    await share('alice', id, [bob])
+    // a turn this build ran is marked when it started
+    const ran = await ask('bob', id, `x\n${fake({ say: 'y' })}`)
+    expect(db().query('SELECT people_checked, shared_checked FROM turns WHERE id = ?').get(ran.started.turnId)).toEqual({ people_checked: 1, shared_checked: 1 })
+    // a queued turn as this build writes it (createTurn: 0 until it starts): passed over while it waits
+    const t = crypto.randomUUID()
+    db().query("INSERT INTO turns (id, chat_id, user_id, engine, status, people_checked, shared_checked) VALUES (?, ?, 'bob', 'claude-code', 'queued', 0, 0)").run(t, id)
+    expect(unsharePeopleChecked(db()).unshared).not.toContain(id)
+    // an older build picked it up and ran it (its gates off), leaving the mark at 0
+    db().query("UPDATE turns SET status = 'done' WHERE id = ?").run(t)
+    expect(unsharePeopleChecked(db()).unshared).toContain(id)
+    expect(await status('bob', `/api/chats/${id}`)).toBe(404)
+  })
+
+  test('the same for a shared project chat (shared_checked)', async () => {
+    const p = await h.api('alice').call(API.createProject, { body: { name: `Guard ${Math.random().toString(36).slice(2, 6)}`, participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+    const id = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    expect((await h.api('alice').call(API.getChat, { params: { id } })).shared).toBeTruthy()
+    const t = crypto.randomUUID()
+    db().query("INSERT INTO turns (id, chat_id, user_id, engine, status, people_checked, shared_checked) VALUES (?, ?, 'bob', 'claude-code', 'queued', 0, 0)").run(t, id)
+    expect(unshareUncheckedChats(db())).not.toContain(id)
+    db().query("UPDATE turns SET status = 'done' WHERE id = ?").run(t)
+    expect(unshareUncheckedChats(db())).toContain(id)
+  })
+
   test('a turn an older build ran unshares it; a move into a project by an older build undoes the share', async () => {
     const ran = await newChat()
     await share('alice', ran, [bob])
