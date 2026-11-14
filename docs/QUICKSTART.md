@@ -34,7 +34,7 @@ The files are Korean; the UI starts in English. To choose a different port, fres
 bun run demo --port 19761 --data "$HOME/.trina-evaluation-new" --locale ko
 ```
 
-The data path must not exist. Busy ports and existing directories are refused. Each default run creates a new dedicated directory and prints its path and supervisor PID. Profile → Language supports English, Korean, Indonesian, Japanese and Spanish.
+The data path must not exist. Busy ports and existing directories are refused. Each default run creates a new dedicated directory and prints its path and supervisor PID. Profile → Language supports English, Korean, Indonesian, Japanese, Spanish and Simplified Chinese (简体中文).
 
 ## 3. Reach a first result without a model
 

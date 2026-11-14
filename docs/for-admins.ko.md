@@ -35,7 +35,7 @@ Linux 서버에서는 AI가 영상·오디오 파일(1GB까지)을 Claude Code �
 
 업데이트 전에 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)와 기본값 변경을 읽고 백업하세요. Linux·사무실 Mac은 트리나 피드를 사용합니다. 앱 롤백이 DB·파일 롤백은 아닙니다. Linux 서버는 지금 버전과 되돌리기용 이전 버전만 남기고 더 오래된 버전은 스스로 지우므로, 앱은 디스크를 1–1.5 GB쯤 씁니다([업데이트](INSTALL-LINUX.md#8-업데이트)). [설정](CONFIGURATION.md) · [문제 해결](TROUBLESHOOTING.md).
 
-현재 브라우저·모바일 웹과 Windows 설치 파일을 사용합니다. Mac 서버 ZIP과 데스크톱 DMG는 다릅니다. 현재 소스는 EN/KO/ID/JA/ES를 지원합니다. HWP 시각 미리보기는 선택해서 설치하는 플러그인(관리 > 플러그인)이며 Debian 12에서 지원하지 않고 기본 번들에는 실행 도구가 없습니다. 설치 파일을 받기 전에 릴리스 설명을 확인하세요. [지원](../SUPPORT.md).
+현재 브라우저·모바일 웹과 Windows 설치 파일을 사용합니다. Mac 서버 ZIP과 데스크톱 DMG는 다릅니다. 현재 소스는 EN/KO/ID/JA/ES/ZH(简体中文)를 지원합니다. HWP 시각 미리보기는 선택해서 설치하는 플러그인(관리 > 플러그인)이며 Debian 12에서 지원하지 않고 기본 번들에는 실행 도구가 없습니다. 설치 파일을 받기 전에 릴리스 설명을 확인하세요. [지원](../SUPPORT.md).
 
 Linux 서버에서 AI가 만드는 PDF는 릴리스에 함께 들어 있는 Noto Sans CJK 글꼴로 한글·일본어·중국어를 그립니다. 따로 설치할 것은 없습니다. 사무실 Mac은 Mac의 글꼴(Apple SD Gothic Neo, Hiragino Sans, PingFang)을 씁니다. PDF마다 쓰인 언어에 맞춥니다. 일본어 문서는 일본어 글꼴을, 중국어 문서는 중국어 글꼴을 먼저 씁니다(같은 한자라도 나라마다 모양이 다릅니다). 한글·일본어·중국어가 없는 문서는 팀 언어를 따릅니다.
 
