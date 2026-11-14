@@ -52,5 +52,5 @@ Cut: option A (brand-guide only), the handover prompt, the get-started checklist
 **Pictures.** Three Higgsfield photos (gpt_image_2_6, medium, 2k; 3 credits): the 16:9 hero, then 1:1 and 9:16 with
 the hero as a reference so the pouch stays the same. The pouch's label is blank in the photos and printed on in HTML,
 so no AI-made letters show. Type is Fraunces (headline, wordmark) with Pretendard (both SIL Open Font License 1.1,
-loaded only while rendering); Leo's draft uses Arial on purpose. The campaign PNGs are full colour (a 256-colour
-palette bands the frosted window). To render again, see the top of [`source/render.mjs`](source/render.mjs).
+loaded only while rendering); Leo's draft uses Arial on purpose. The campaign pictures are JPEG at quality 85 with
+full colour detail (4:4:4); a 256-colour palette banded the frosted window. To render again, see the top of [`source/render.mjs`](source/render.mjs).

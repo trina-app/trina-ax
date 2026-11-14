@@ -87,6 +87,27 @@ describe('demo story engine', () => {
     expect(e.pickAsset({ path: 'y.md', text: 'hi' })).toBeUndefined()
   })
 
+  test('a message that waits for a visit after something else (DemoEvent.requires): an earlier visit does not count', () => {
+    const script = { ...example, events: [...example.events,
+      { id: 'shout', after: { event: 'dm-1' }, delayMs: 0, room: example.rooms[0]!.id, from: example.people[1]!.id, text: 'hi' },
+      { id: 'seen', after: { opened: { room: 'all' } }, requires: { event: 'shout' }, delayMs: 0, room: example.rooms[0]!.id, from: example.people[1]!.id }] }
+    const posted: DemoEvent[] = []
+    const waits: (() => void)[] = []
+    const e = new StoryEngine(script, (ev) => posted.push(ev), (fn) => waits.push(fn))
+    const flush = () => { while (waits.length) waits.shift()!() }
+    e.fire({ opened: { room: 'all' } })
+    flush()
+    expect(posted.map((p) => p.id)).toEqual([])
+    e.fire({ event: 'dm-1' })
+    flush()
+    e.fire({ event: 'shout' })
+    // still on the room, or back in it: the visit after the shoutout counts, once
+    e.fire({ opened: { room: 'all' } })
+    e.fire({ opened: { room: 'all' } })
+    flush()
+    expect(posted.map((p) => p.id)).toEqual(['shout', 'seen'])
+  })
+
   test('a step the visitor went past is over (a later step already happened)', () => {
     const { e, flush } = engine()
     e.answered('company')

@@ -52,15 +52,22 @@ export class StoryEngine {
 
   fire(h: Happening) {
     const key = keyOf(h)
-    if (this.happened.has(key)) return
+    // a place opened again (the guide line watches it all the time) only wakes the messages that wait on a visit
+    const again = this.happened.has(key)
+    if (again && !('opened' in h)) return
     this.happened.add(key)
+    let news = !again
     for (const ev of this.script.events) {
       if (this.due.has(ev.id) || !keysOf(ev.after).includes(key)) continue
+      if (ev.requires && !this.has(ev.requires)) continue
+      if (again && !ev.requires) continue
       this.due.add(ev.id)
+      news = true
       this.wait(() => this.post(ev), ev.delayMs ?? 1500)
     }
+    if (!news) return
     const end = this.script.end
-    if (!this.endShown && keysOf(end.after).includes(key)) {
+    if (!again && !this.endShown && keysOf(end.after).includes(key)) {
       this.wait(() => { this.endShown = true; this.endedAt = Date.now(); this.changed() }, end.delayMs ?? 2500)
     }
     this.changed()

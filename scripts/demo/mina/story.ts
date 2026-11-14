@@ -165,6 +165,15 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       // ④ the agency answers the mail
       // ④ the agency answers the mail: Sara passes it on in #Marketing
       { id: 'chris-reply', after: { answer: 'mail' }, delayMs: 3000, typingMs: 1200, room: 'mkt-room', from: 'sara', text: s.events.chrisRelayed.replace('{reply}', s.events.chrisReply) },
+      // ⑤ the close: the CEO's shoutout in #Everyone (its unread mark pulls the visitor in), the team piles on
+      { id: 'ceo-shoutout', after: { event: 'chris-reply' }, delayMs: 2500, typingMs: 1800, room: 'all', from: 'daniel', text: s.events.ceoShoutout },
+      // (the visitor is in #Everyone after the shoutout: the reactions start where they can be seen)
+      { id: 'everyone-seen', after: { opened: { room: 'all' } }, requires: { event: 'ceo-shoutout' }, delayMs: 700, room: 'all', from: 'daniel' },
+      {
+        id: 'shout-reactions', after: { event: 'everyone-seen' }, delayMs: 200, room: 'all', from: 'tom', on: { event: 'ceo-shoutout' },
+        reactions: [{ from: 'tom', emoji: '🎉', afterMs: 0 }, { from: 'aiko', emoji: '🔥', afterMs: 550 }, { from: 'omar', emoji: '👏', afterMs: 550 }, { from: 'leo', emoji: '🙌', afterMs: 550 }, { from: 'sara', emoji: '🎉', afterMs: 550 }],
+      },
+      { id: 'sara-welcome', after: { event: 'shout-reactions' }, delayMs: 700, typingMs: 1400, room: 'all', from: 'sara', text: s.events.saraWelcome },
     ],
     guide: [
       { id: 'ask', text: s.guide.ask.text, away: s.guide.ask.away, go: 'home', highlight: '[data-testid="member-welcome-ask"]', until: { answer: 'company' } },
@@ -174,14 +183,15 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       { id: 'share', text: s.guide.share.text, away: s.guide.share.away, go: { project: 'launch' }, highlight: '[data-testid="share-to-room"]', until: { shared: 'mkt-room' } },
       { id: 'room', text: s.guide.room.text, away: s.guide.room.away, go: { room: 'mkt-room' }, until: { opened: { room: 'mkt-room' } } },
       { id: 'mail', text: s.guide.mail.text, away: s.guide.mail.away, go: { side: 'mkt-room' }, after: { event: 'gmail' }, suggest: ['mail'], until: { answer: 'mail' } },
+      { id: 'everyone', text: s.guide.everyone.text, away: s.guide.everyone.away, go: { room: 'all' }, after: { event: 'ceo-shoutout' }, until: { event: 'everyone-seen' } },
     ],
     fallback: { text: s.fallback.text, question: s.fallback.question },
     end: {
-      after: { event: 'chris-reply' },
-      delayMs: 3000,
+      after: { event: 'sara-welcome' },
+      delayMs: 2000,
       title: s.end.title,
       contrast: s.end.usually,
-      signup: { label: s.end.signup, url: 'https://ax.trina.app' },
+      signup: { label: s.end.signup, url: 'https://ax.trina.app/pricing' },
     },
   }
 }

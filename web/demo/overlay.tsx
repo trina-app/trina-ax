@@ -41,6 +41,7 @@ export function mountOverlay(server: DemoServer, signupUrl: string) {
   // story over: such a link moves inside the app instead (the app's own handler may run too; the same address twice
   // is one move). Other links (a file's preview, downloads) are left to the app.
   window.addEventListener('click', (ev) => {
+    if (apiLink(ev)) return
     if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return
     const href = inAppLink(ev.target)
     if (!href) return
@@ -48,6 +49,39 @@ export function mountOverlay(server: DemoServer, signupUrl: string) {
     navigate(href)
   }, true)
   watchOpened(server)
+}
+
+const endTitle = (title: string, time: string) => (title.includes('{time}') ? title.replace('{time}', time) : `${title} · ${time}`)
+
+/** A link to the page's own server (/api/…: a download, an image's "open original") that the browser would follow:
+ * no team server is behind the site, and under a base path the worker cannot answer a page it does not hold. The file
+ * is fetched from the page's server and saved, or opened in a new tab, as a blob. */
+function apiLink(ev: MouseEvent): boolean {
+  const a = (ev.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  if (!a || ev.defaultPrevented) return false
+  const url = new URL(a.href, location.href)
+  if (url.origin !== location.origin || !url.pathname.startsWith('/api/')) return false
+  ev.preventDefault()
+  const name = a.getAttribute('download')
+  // a new tab now, while the click still counts as the visitor's (filled once the file is here)
+  const tab = name === null ? window.open('', '_blank') : null
+  void (async () => {
+    const res = await fetch(url.href)
+    if (!res.ok) { tab?.close(); return }
+    const blob = await res.blob()
+    const href = URL.createObjectURL(blob)
+    if (tab) tab.location.href = href
+    else {
+      const save = document.createElement('a')
+      save.href = href
+      save.download = name || decodeURIComponent(url.pathname.split('/').pop() ?? 'file')
+      document.body.append(save)
+      save.click()
+      save.remove()
+    }
+    setTimeout(() => URL.revokeObjectURL(href), 60_000)
+  })()
+  return true
 }
 
 /** the in-app address of a link to a chat, room or project under `target`, or null */
@@ -61,11 +95,9 @@ function inAppLink(target: EventTarget | null): string | null {
 
 /** "opened" happenings: the visitor is on a room's page or in a project (its page or one of its chats) */
 function watchOpened(server: DemoServer) {
-  let last = ''
+  // every tick, not only on a move: a message that waits on a visit (DemoEvent.requires) may come while the visitor is there
   setInterval(() => {
     const path = appPathNow()
-    if (path === last) return
-    last = path
     const room = /^\/rooms\/([^/]+)/.exec(path)?.[1]
     const proj = /^\/projects\/([^/]+)/.exec(path)?.[1] ?? server.chats.find((c) => c.id === /^\/c\/([^/]+)/.exec(path)?.[1])?.projectId ?? undefined
     const r = room && server.storyId('room', room)
@@ -227,8 +259,13 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const pick = async (a: DemoAnswer) => {
     if (!step || sending) return
     setSending(true)
+    // the prompt is put away while it is sent, and comes back if it never went or was stopped (the answer streaming
+    // hides it meanwhile; an answer that finished moves the story on)
     setUsedFor(step.id)
-    try { await sendPrompt(server, step.go, a) } finally { setSending(false) }
+    try { await sendPrompt(server, step.go, a) } finally {
+      setSending(false)
+      setTimeout(() => setUsedFor((u) => (u === step.id ? null : u)), 1500)
+    }
   }
 
   /** the guide line does its step: it presses the ringed control (the card: its first choice; a row: its button), sends
@@ -292,7 +329,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           <span className="demo-badge">{t('demo.bar', { company: server.script.company.name })}</span>
           {end ? (
             <span className="demo-end-line" data-testid="demo-end">
-              <span><strong>{server.script.end.title}</strong> · {elapsed}{server.script.end.contrast ? ` · ${server.script.end.contrast}` : ''}</span>
+              <span><strong>{endTitle(server.script.end.title, elapsed)}</strong>{server.script.end.contrast ? ` (${server.script.end.contrast})` : ''}</span>
               <a className="demo-next" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{server.script.end.signup.label} →</a>
             </span>
           ) : step && !working ? (

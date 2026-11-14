@@ -21,6 +21,11 @@ const sitePathOf = (to: string) => {
 /** before the app's modules run (web/demo/main.tsx); nothing at the root */
 export function installBase() {
   if (BASE === '/') return
+  // the base without its slash ("/demo"): the worker's scope is "/demo/", so the slashed address is the demo's
+  if (!`${location.pathname}/`.startsWith(BASE) || location.pathname === BASE.slice(0, -1)) {
+    location.replace(BASE + location.search + location.hash)
+    throw new Error('demo: moving to its base')
+  }
   for (const k of ['pushState', 'replaceState'] as const) {
     const real = History.prototype[k]
     History.prototype[k] = function (this: History, data: unknown, unused: string, url?: string | URL | null) {
@@ -45,4 +50,26 @@ export function installBase() {
     },
   })
   Object.assign(globalThis, { __mycelDemoWindow: win, __mycelDemoLocation: loc })
+}
+
+/** The session keys the demo's app wrote (the site's own keys on the same origin are left alone): a new run forgets
+ * them (web/demo/boot.ts), so every tab starts the story fresh. */
+const SESSION_KEYS = 'mycel-demo:session-keys'
+export function keepSession() {
+  const real = Storage.prototype.setItem
+  Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
+    if (this === window.sessionStorage && key !== SESSION_KEYS) {
+      try {
+        const keys = new Set(JSON.parse(this.getItem(SESSION_KEYS) ?? '[]') as string[])
+        if (!keys.has(key)) real.call(this, SESSION_KEYS, JSON.stringify([...keys, key]))
+      } catch { /* a broken list: the key is kept */ }
+    }
+    return real.call(this, key, value)
+  }
+}
+export function forgetSession() {
+  try {
+    for (const key of JSON.parse(sessionStorage.getItem(SESSION_KEYS) ?? '[]') as string[]) sessionStorage.removeItem(key)
+    sessionStorage.removeItem(SESSION_KEYS)
+  } catch { /* storage blocked */ }
 }

@@ -177,6 +177,9 @@ export const en = {
     chrisReply: 'Looks great, running it Monday.',
     /** Sara passes on the agency's reply in #Marketing; {reply} is chrisReply */
     chrisRelayed: 'Chris just replied to your email: "{reply}" 🎉 Great first day, Mina.',
+    /** the CEO in #Everyone; @Mina Lee is a real mention (the app highlights it) */
+    ceoShoutout: 'Shoutout to @Mina Lee: day one, and Monday\'s launch campaign is done 🎉',
+    saraWelcome: 'Welcome to the team, Mina 💛',
   },
 
   /** each step's line, and `away`: the line while the visitor is somewhere else */
@@ -188,12 +191,14 @@ export const en = {
     share: { text: 'Send it to #Marketing →', away: 'Your new banner is ready to share →' },
     room: { text: 'Open #Marketing: the team is reacting →', away: 'Open #Marketing: the team is reacting →' },
     mail: { text: 'Ask ✦ Trina to email Chris →', away: 'Chris still needs the banner →' },
+    everyone: { text: 'See what Daniel posted in #Everyone →', away: 'See what Daniel posted in #Everyone →' },
   },
 
   fallback: { text: 'This demo follows suggested prompts. Try this one:', question: 'Next step' },
 
   end: {
-    title: 'That\'s Mina\'s first day',
+    /** {time}: the visitor's real time from their first message */
+    title: 'Mina\'s first day: launch campaign shipped in {time}',
     body: 'From "what do we do here?" to a launch banner the CEO approved and the agency is running. Day one.',
     stats: {
       time: 'Time',
@@ -203,8 +208,8 @@ export const en = {
       emails: 'Email sent',
     },
     /** one line under the numbers: what this usually takes */
-    usually: 'Without Trina: about 2 days',
-    signup: 'Start your team\'s free trial',
+    usually: 'usually ~2 days',
+    signup: 'See plans & start free',
     explore: 'Look around',
   },
 }

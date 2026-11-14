@@ -172,6 +172,13 @@ export class DemoServer extends MockServer {
 
   // ---------------- rooms ----------------
 
+  /** a story message's posted room message, by event id (reactions on another event's message) */
+  private posted = new Map<string, RoomMessage>()
+  /** "@<a member's name>" in a story message is a real mention (the app highlights it, and mine stands out) */
+  private mentionsIn(text: string): string[] {
+    return this.script.people.filter((p) => !p.outside && text.includes(`@${p.name}`)).map((p) => p.id)
+  }
+
   addRoomMessage(room: Room, from: string, text: string, paths: string[], at: string, read: boolean): RoomMessage {
     const list = this.roomMessages.get(room.id) ?? []
     const files: RoomFile[] = paths.map((p) => {
@@ -185,7 +192,7 @@ export class DemoServer extends MockServer {
     const seq = Math.max(room.lastSeq, 0, ...list.map((x) => x.seq)) + 1
     const message = RoomMessage.parse({
       id: uuidv7(), roomId: room.id, seq, authorKind: 'user', author: this.ref(from), askedBy: null, visibility: 'room', body: this.resolve(text), replyTo: null,
-      mentions: [], files, createdAt: at, editedAt: null, deletedAt: null,
+      mentions: this.mentionsIn(text), files, createdAt: at, editedAt: null, deletedAt: null,
     })
     list.push(message)
     this.roomMessages.set(room.id, list)
@@ -216,13 +223,15 @@ export class DemoServer extends MockServer {
         if (gen !== this.generation) return
       }
       message = this.addRoomMessage(room, ev.from, ev.text, ev.files ?? [], now(), false)
+      this.posted.set(ev.id, message)
       this.publish({ type: 'room.message', data: { roomId: room.id, message } })
       this.publish({ type: 'room.updated', data: { roomId: room.id, change: 'updated', room } })
     }
     if (room && ev.reactions?.length) {
-      const target = ev.on === 'visitor'
+      const on = ev.on
+      const target = on === 'visitor'
         ? [...(this.roomMessages.get(room.id) ?? [])].reverse().find((m) => m.author?.id === this.script.visitor)
-        : message
+        : on && on !== 'self' ? this.posted.get(on.event) : message
       for (const r of ev.reactions) {
         await sleep(r.afterMs ?? 2500)
         if (gen !== this.generation) return

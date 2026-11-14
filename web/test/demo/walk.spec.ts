@@ -140,9 +140,20 @@ for (const { branch, byGuide } of runs) {
     await shot(page, `${branch}-8-confirm`)
     if (byGuide) await guide(page).click()
     else await choose(card, answer('mail').ask!.options[0]!.label)
-    // the end: Chris's reply in the room, then the guide line becomes the end line
+    // ⑤ Chris's reply in the room, then the CEO's shoutout in #Everyone: its unread row, or the guide line, takes the
+    // visitor there; the team's reactions pile up on it and Sara welcomes Mina
+    await expect(guide(page)).toHaveText(step('everyone').text, { timeout: 60_000 })
+    const everyone = page.locator('a[href^="/rooms/"]:visible').filter({ hasText: script.groups.find((g) => g.id === script.rooms.find((r) => r.id === 'all')!.group)?.name ?? 'Everyone' }).first()
+    if (!byGuide && await everyone.isVisible().catch(() => false)) await everyone.click()
+    else await guide(page).click()
+    const shout = page.locator('[data-testid="room-message"]').filter({ hasText: 'Shoutout' }).last()
+    await expect(shout).toBeVisible()
+    for (const emoji of ['🎉', '🔥', '👏', '🙌']) await expect(shout.getByText(emoji).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid="room-message"]').filter({ hasText: 'Welcome to the team' })).toBeVisible({ timeout: 20_000 })
+    // the end: the guide line becomes the end line (the real time, what it usually takes, the plans link)
     await expect(page.getByTestId('demo-end')).toBeVisible({ timeout: 40_000 })
-    await expect(page.getByTestId('demo-signup')).toHaveAttribute('href', /^https?:\/\//)
+    await expect(page.getByTestId('demo-end')).toContainText(/shipped in \d+:\d\d \(usually ~2 days\)/)
+    await expect(page.getByTestId('demo-signup')).toHaveAttribute('href', script.end.signup.url)
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('target', '_blank')
     await shot(page, `${branch}-9-end`)
     // no card of the demo's own anywhere
@@ -188,6 +199,45 @@ test('"Start over" begins the story again', async ({ page }) => {
   await page.goto('rooms/somewhere')
   await expect(page.getByTestId('member-welcome-ask-button')).toBeVisible()
   expect(new URL(page.url()).pathname).toBe(new URL(test.info().project.use.baseURL!).pathname)
+})
+
+test('Stop while the guide line\'s prompt streams: the guide line sends it again', async ({ page }) => {
+  await page.goto(START)
+  await follow(page, step('ask').text)
+  await expect(page.getByTestId('answer-sources')).toBeVisible({ timeout: 40_000 })
+  await follow(page)
+  await expect(page).toHaveURL(/\/rooms\//)
+  await follow(page, step('project').text)
+  const leoChat = script.projects[0]!.chats![0]!.title
+  await follow(page, `Open “${leoChat}” →`)
+  await follow(page, step('banner').text)
+  await expect(page.getByTestId('stop').first()).toBeVisible({ timeout: 20_000 })
+  await page.getByTestId('stop').first().click()
+  await expect(page.getByTestId('stop')).toHaveCount(0)
+  // the prompt is back on the guide line, and pressing it sends it again
+  await expect(guide(page)).toHaveText(step('banner').text)
+  await page.waitForTimeout(1800)
+  const sent = await page.getByTestId('user-message').count()
+  await guide(page).click()
+  await expect(page.getByTestId('user-message')).toHaveCount(sent + 1, { timeout: 20_000 })
+})
+
+test('a picture downloads and opens on its own (under a base path too)', async ({ page, context }, info) => {
+  // (the viewer's "open original" is a computer's control)
+  test.skip(info.project.name.startsWith('390'), 'no "open original" on phones')
+  await page.goto(START)
+  await expect(page.getByTestId('member-welcome-title')).toBeVisible()
+  await page.locator('nav a[href^="/rooms"]').first().click()
+  const mkt = script.groups.find((g) => g.id === script.rooms.find((r) => r.id === 'mkt-room')!.group)!.name
+  await page.locator('a[href^="/rooms/"]:visible').filter({ hasText: mkt }).first().click()
+  await page.locator('[data-testid="room-message"] img').first().click()
+  await expect(page.getByTestId('image-viewer')).toBeVisible()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('image-viewer-download').click()])
+  expect(download.suggestedFilename()).toMatch(/\.(png|jpe?g)$/)
+  expect((await download.createReadStream()) !== null).toBe(true)
+  const [tab] = await Promise.all([context.waitForEvent('page'), page.getByTestId('image-viewer-open').click()])
+  await tab.waitForURL(/^blob:/)
+  await expect.poll(() => tab.evaluate(() => (document.querySelector('img') as HTMLImageElement | null)?.naturalWidth ?? 0)).toBeGreaterThan(100)
 })
 
 test('Stop while a card waits closes it and leaves the story where it was', async ({ page }) => {

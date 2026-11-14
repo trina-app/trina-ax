@@ -53,9 +53,11 @@ function demoBaseSource(): Plugin {
         if (next === out) throw new Error('demo: lib/screenHistory.ts no longer takes its window as expected')
         out = next
       }
-      if (file.endsWith('/web/src/lib/pwa.ts')) {
-        const next = out.replace("register('/sw.js', { scope: '/' })", "register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })")
-        if (next === out) throw new Error('demo: lib/pwa.ts no longer registers /sw.js as expected')
+      // the app's worker (lib/pwa.ts) and push (lib/push.ts) register the worker at the base
+      if (file.endsWith('/web/src/lib/pwa.ts') || file.endsWith('/web/src/lib/push.ts')) {
+        const next = out.replaceAll("register('/sw.js', { scope: '/' })", "register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })")
+          .replaceAll("getRegistration('/')", 'getRegistration(import.meta.env.BASE_URL)')
+        if (next === out) throw new Error(`demo: ${file} no longer registers /sw.js as expected`)
         out = next
       }
       return out === code ? null : { code: out, map: null }
@@ -86,7 +88,7 @@ function demoPages(): Plugin {
       })
     },
     // the page starts the demo's entry, which then loads the app's own src/main.tsx
-    transformIndexHtml: { order: 'pre', handler: (html) => html.replace('/src/main.tsx', '/demo/main.tsx').replace('href="/manifest.webmanifest"', `href="${demoBase()}manifest.webmanifest"`) },
+    transformIndexHtml: { order: 'pre', handler: (html) => html.replace('/src/main.tsx', '/demo/main.tsx').replace(/\s*<link rel="manifest"[^>]*>/, '') },
     // the mock loads the HWP renderer from the server's folder (Bun only): never in the browser
     transform(code, id) {
       if (!id.endsWith('/test/mock/server.ts')) return null

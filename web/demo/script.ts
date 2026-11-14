@@ -222,7 +222,11 @@ export interface DemoEvent {
   /** v2: emoji reactions that pile up, one by one: on this event's message, or with `on: 'visitor'` on the visitor's
    * latest message in the room (e.g. on Mina's post). `afterMs`: after the previous one (default 2500) */
   reactions?: { from: Id; emoji: string; afterMs?: number }[]
-  on?: 'self' | 'visitor'
+  /** the message the reactions go on: this event's (default), the visitor's latest in the room, or another event's */
+  on?: 'self' | 'visitor' | { event: Id }
+  /** sent only once this has happened too (checked when `after` happens; an `opened` trigger counts every visit, so
+   * "the visitor opened #Everyone after the shoutout" is `after: { opened: { room } }, requires: { event }`) */
+  requires?: DemoTrigger
   /** files attached (paths of `files`, or new ones listed in `newFiles`) */
   files?: string[]
   /** files this message brings that did not exist before (e.g. the CEO's final file) */
@@ -260,9 +264,10 @@ export interface DemoEnd {
   after: DemoTrigger
   /** delay after the trigger (default 2500 ms) */
   delayMs?: number
-  /** e.g. "That's Mina's first day" */
+  /** e.g. "Mina's first day: launch campaign shipped in {time}" ({time}: the visitor's real time; without it the
+   * time follows the title) */
   title: string
-  /** a short line after the time, e.g. "Without Trina: about 2 days" */
+  /** what this usually takes, after the line in brackets, e.g. "usually ~2 days" */
   contrast?: string
   /** the sign-up link, opened in a new tab (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
   signup: { label: string; url: string }
