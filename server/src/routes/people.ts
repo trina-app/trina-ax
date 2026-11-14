@@ -9,6 +9,7 @@ import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvata
 import { clearStatus, countWrite, setStatus, startStatusClock, tellAfterWrite } from '../auth/status-messages'
 import { teamTimeZone } from '../admin/settings'
 import { presenceFor } from '../realtime/presence'
+import { sharesPlace } from '../auth/guests'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
 const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
@@ -20,9 +21,11 @@ export const peopleRoutes: RouteModule = {
     // statuses start and clear by themselves: the clock tells open windows when one does (auth/status-messages.ts)
     const clock = startStatusClock(ctx)
     // the signed-in person comes from the session, never from the request: nobody can change another person's profile
-    kit.handle(API.listPeople, () => ({ people: listPeople(ctx.db) }))
+    kit.handle(API.listPeople, ({ auth }) => ({ people: listPeople(ctx.db, new Date(), auth.user.id) }))
 
-    kit.handle(API.personAvatar, ({ c, params, query }) => {
+    kit.handle(API.personAvatar, ({ c, auth, params, query }) => {
+      // a guest and a person outside their one place do not see each other (auth/guests.ts): as an unknown person
+      if (!sharesPlace(ctx.db, auth.user.id, params.id)) fail('not_found')
       const a = readAvatar(ctx.db, params.id) ?? fail('not_found')
       const etag = `"${a.version}"`
       // the current version in the address: cached for good; anything else only briefly (it would show an old photo)

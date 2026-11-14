@@ -29,7 +29,7 @@ export const trialLine = (trial: 'used' | 'ended'): MessageKey => trial === 'use
  * team's AI, hear that (with "AI 연결하기" beside it); null: the server's words for a member ("관리자에게 알려 주세요"), or an error that is not about AI access. Only while no AI
  * answers the person (`noAi`: GET /api/me/ai-access loaded and not usable): the server says "no connection" per engine,
  * so with another engine connected (or AI connected since) its own words ("이 엔진에 쓸 AI 연결이 없어요") stay. */
-export function noAiErrorKey(reason: ChatErrorReason | null, role: 'owner' | 'admin' | 'member' | undefined, noAi: boolean): MessageKey | null {
+export function noAiErrorKey(reason: ChatErrorReason | null, role: 'owner' | 'admin' | 'member' | 'guest' | undefined, noAi: boolean): MessageKey | null {
   if (!reason || !isNoAiReason(reason) || !noAi) return null
   if (role === 'owner' || role === 'admin') return `aiConnect.error.${reason as 'no_credential' | 'credential_unusable' | 'trial_credit_used' | 'trial_ended'}`
   return null

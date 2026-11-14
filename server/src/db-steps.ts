@@ -45,6 +45,22 @@ WHEN OLD.id IS NOT NEW.id
 BEGIN UPDATE safe_ops_policy SET generation=generation+1 WHERE id=1; END`
 }
 
+/** The safe-ops policy generation must also advance when an account becomes a guest or stops being one (users.guest,
+ * 122_a_guests.sql; docs/DECISIONS.md "Guests: only what they were invited to"): it changes what the person reads. */
+function safeOpsUsersSql(): string {
+  return `CREATE TRIGGER safe_ops_users_update AFTER UPDATE ON users
+WHEN OLD.id IS NOT NEW.id
+ OR OLD.username IS NOT NEW.username
+ OR OLD.password_hash IS NOT NEW.password_hash
+ OR OLD.role IS NOT NEW.role
+ OR OLD.guest IS NOT NEW.guest
+ OR OLD.status IS NOT NEW.status
+ OR OLD.must_change_password IS NOT NEW.must_change_password
+ OR OLD.deleted_at IS NOT NEW.deleted_at
+ OR OLD.temp_password_expires_at IS NOT NEW.temp_password_expires_at
+BEGIN UPDATE safe_ops_policy SET generation=generation+1 WHERE id=1; END`
+}
+
 export const POST_MIGRATION_STEPS: readonly PostMigrationStep[] = [
   {
     // the one-time conversion to additive folder access (policy/convert-additive.ts). A fresh database has no rules: it
@@ -67,6 +83,16 @@ export const POST_MIGRATION_STEPS: readonly PostMigrationStep[] = [
       if (f !== null && !/\blimited\b/.test(f)) { db.exec('DROP TRIGGER safe_ops_folders_update'); db.exec(safeOpsFoldersSql()) }
       if (r !== null && !/\borigin\b/.test(r)) { db.exec('DROP TRIGGER safe_ops_folder_rules_update'); db.exec(safeOpsRulesSql()) }
     },
+  },
+  {
+    // the safe-ops users trigger sees users.guest (only where both the trigger and the column exist)
+    name: 'safeOpsUsersGuest',
+    gate: (db) => {
+      if (!columnExists(db, 'users', 'guest')) return false
+      const u = triggerSql(db, 'safe_ops_users_update')
+      return u !== null && !/\bguest\b/.test(u)
+    },
+    run: (db) => { db.exec('DROP TRIGGER safe_ops_users_update'); db.exec(safeOpsUsersSql()) },
   },
 ]
 

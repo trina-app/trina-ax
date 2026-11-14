@@ -131,7 +131,7 @@ export function resultSuggestion(ctx: AppContext, userId: string, chatId: string
   return null
 }
 
-const isMember = (ctx: Db, userId: string) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'member' AND status = 'active' AND deleted_at IS NULL").get(userId)
+const isMember = (ctx: Db, userId: string) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'member' AND guest = 0 AND status = 'active' AND deleted_at IS NULL").get(userId)
 
 /** This answer made an intro deck (the chat's artifact under DECK_ARTIFACT_KEY, saved with this message). */
 function madeDeck(ctx: Db, chatId: string, messageId: string): boolean {

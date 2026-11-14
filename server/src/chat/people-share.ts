@@ -55,7 +55,8 @@ const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
 export function checkNewSubjects(ctx: AppContext, me: Principal, added: readonly AudienceSubject[], locale: Locale): void {
   for (const s of added) {
     const ok = s.type === 'user'
-      ? !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.id)
+      // a guest is never shared a chat with (their one place is a room or a project): the same answer as an unknown person
+      ? !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(s.id)
       : !!ctx.db.query('SELECT 1 FROM groups WHERE id = ?').get(s.id) && (isAdmin(me.role) || me.groups.includes(s.id))
     if (!ok) fail('validation', tr('chatShareUnknownPerson', locale), { params: { reason: 'unknown_subject' } })
   }

@@ -55,6 +55,8 @@ import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
+import { isGuestUser } from '../credentials/guest-ai'
+import { GUEST_TURN_TOOLS } from './guest-tools'
 
 export interface Tool {
   name: string
@@ -133,6 +135,8 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
+  // a guest's turn: only the tools of chat/guest-tools.ts, and no connection provider at all
+  const guest = isGuestUser(exec.rt.db, exec.spec.userId)
   const tools = new Map<string, Tool>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
@@ -147,6 +151,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // or for a merge only on its team skills)
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
+    if (guest && !GUEST_TURN_TOOLS.has(t.name)) return false
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts)
     if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
@@ -212,7 +217,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
-  for (const p of confidential || exec.restricted || exec.shared ? [] : providers) {
+  for (const p of confidential || exec.restricted || exec.shared || guest ? [] : providers) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }

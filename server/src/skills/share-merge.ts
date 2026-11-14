@@ -246,7 +246,7 @@ export function startWaitingMerges(ctx: AppContext, rt: ChatRuntime, ownerId: st
     rows = ctx.db.query('SELECT id, user_id, share_id, name, title, target_path, target_title, text, chat_id FROM skill_share_merges WHERE user_id = ? AND chat_id IS NULL ORDER BY created_at, id').all(ownerId) as Row[]
   } catch { return null }
   if (!rows.length) return null
-  const who = ctx.db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(ownerId) as { id: string; role: string } | null
+  const who = ctx.db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(ownerId) as { id: string; role: string } | null
   if (!who) return null
   let chatId: string
   try {

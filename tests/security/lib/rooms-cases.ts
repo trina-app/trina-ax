@@ -80,6 +80,9 @@ export const ROOM_SPECS: Record<string, Spec> = {
   // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): alice and erin are in it (frank too, held back by his
   // password change); the owner and the admin are not, so they get 404 like everyone outside it. Inviting someone who
   // is in it already changes nothing (the world stays as it is); a disabled or unknown id is refused alike.
+  // a guest invite into that group chat (docs/DECISIONS.md "Guests: only what they were invited to"): only the people
+  // in it; the owner and the admin, not in it, are refused (403)
+  createGuestInvite: { build: (c, w) => c.post('/api/guest-invites', { place: { kind: 'room', id: w.ids.groupRoom } }), scope: 'room-group' },
   inviteRoomMembers: {
     build: (c, w) => c.post(`/api/rooms/${w.ids.groupRoom}/members`, { userIds: ['frank'] }), scope: 'room-group',
     check: async (r, w, who) => {

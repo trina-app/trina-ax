@@ -57,6 +57,9 @@ export function buildVectors() {
       // the onboarding block is opt-in by the reader
       { command: 'status', args: { onboarding: true }, argv: tenantCommandArgv('status', { onboarding: true }) },
       { command: 'idle-wait', args: { max: 600 }, argv: tenantCommandArgv('idle-wait', { max: 600 }) },
+      // F2 sleep: a true flag is a bare --activity
+      { command: 'idle-wait', args: { max: 0, activity: true }, argv: tenantCommandArgv('idle-wait', { max: 0, activity: true }) },
+      { command: 'data-grow', args: {}, argv: tenantCommandArgv('data-grow', {}) },
       { command: 'reset-link', args: { owner: true }, argv: tenantCommandArgv('reset-link', { owner: true }) },
       { command: 'relay-key-proof', args: { teamId }, argv: tenantCommandArgv('relay-key-proof', { teamId }) },
       // camelCase argument names become --kebab-case flags
@@ -71,6 +74,8 @@ export function buildVectors() {
         { command: 'apply-plan', args: {}, stdin: { ...PLAN, speechFreeHours: 200 } },
         { command: 'apply-plan', args: {}, stdin: { ...PLAN, speechFreeHours: null } },
         { command: 'idle-wait', args: { max: 600 }, stdin: null },
+        { command: 'idle-wait', args: { max: 0, activity: true }, stdin: null },
+        { command: 'data-grow', args: {}, stdin: null },
         { command: 'update', args: { version: '0.3.1' }, stdin: null },
         { command: 'reset-link', args: { username: 'kim' }, stdin: null },
         // the team server's username rule: dots and @ too

@@ -9,6 +9,7 @@ import { isSchema, type BinaryBody, type Endpoint, type MultipartBody, type Para
 import type { AppEnv } from './env'
 import { HttpError, fail } from './errors'
 import { msg } from '../auth/messages'
+import { GUEST_ENDPOINTS } from '../auth/guest-endpoints'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
 import { demoGuard } from '../demo/guard'
@@ -80,6 +81,8 @@ export function enforceAuth(ep: Endpoint, auth: AuthInfo | null) {
   if (!auth) fail('unauthorized')
   if (auth!.user.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required')
   const role = auth!.user.role
+  // a guest: only the endpoints of the guest allow-list (auth/guest-endpoints.ts), whatever their auth level
+  if (role === 'guest' && !GUEST_ENDPOINTS.has(ep)) fail('forbidden')
   if ((ep.auth === 'admin' || ep.auth === 'admin-reauth') && role !== 'admin' && role !== 'owner') fail('forbidden')
   if ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && role !== 'owner') fail('forbidden')
 }

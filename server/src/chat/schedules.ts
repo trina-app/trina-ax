@@ -501,7 +501,7 @@ export class Schedules {
   }
 
   private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void, how: 'scheduled' | 'manual' = 'scheduled'): string | null {
-    const user = this.db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id) as { id: string; role: string } | null
+    const user = this.db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id) as { id: string; role: string } | null
     if (!user) return null
     const locale = this.rt.userLocale(s.user_id)
     if (budgetBlock(this.db, s.user_id, locale, now)) { this.rt.log.info('scheduled task skipped: budget used up', { schedule: s.id }); return null }

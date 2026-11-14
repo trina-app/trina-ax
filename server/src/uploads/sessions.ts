@@ -4,6 +4,7 @@
 // completing needs no assembly. While chunks arrive in order the sha256 is computed on the way, so complete only
 // hashes what came out of order. An unfinished session is removed 24 hours after its last chunk (a laptop that slept
 // overnight resumes where it stopped), and at the latest 7 days after it started (its part file holds disk room).
+import { isGuestUser } from '../credentials/guest-ai'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -100,6 +101,9 @@ export class UploadSessions {
       this.attachments.assertUploadChat(userId, t.chatId, sha256, size)
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
+    } else if (isGuestUser(this.ctx.db, userId)) {
+      // a guest: no speech to text (a team cost outside the guest's own limit; POST /api/transcribe is off their list too)
+      throw new HttpError('forbidden')
     } else if (!this.transcribe) {
       throw new HttpError('unavailable')
     } else {

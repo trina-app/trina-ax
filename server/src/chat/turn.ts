@@ -84,6 +84,7 @@ import { runApiAgent } from '../engine/api-agent'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
+import { isGuestUser } from '../credentials/guest-ai'
 import { createTrialMeter, HOSTED_CHAT_ID, HOSTED_CHAT_MAX_TOKENS, hostedChatConf, hostedChatState } from '../credentials/hosted-chat'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
@@ -105,7 +106,7 @@ import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
-import { audienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
@@ -623,6 +624,12 @@ export class TurnExec {
     // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so), else, while the hosting service's
     // trial credit is active (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"), runs on the app's own API engine with
     // the trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
+    // a guest (credentials/guest-ai.ts): never the API engine (the team's key) and never an engine that runs on this
+    // server's own sign-in (a self-hosted install without AI connections): "no AI connection", before anything starts
+    if (isGuestUser(rt.db, spec.userId)) {
+      const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
+      if (!managedHere) { this.error = engineError('no_credential', spec.locale); return }
+    }
     const route = this.route(confs)
     const trial = route === 'trial'
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
@@ -763,8 +770,10 @@ export class TurnExec {
     // sub-agents (docs/DECISIONS.md "Sub-agents"): Claude only, while the team allows them, never in an approved
     // template run (its scope is fixed); see LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS for confidential chats in office mode
     const confidential = confidentialChat(rt.db, spec.chatId)
-    const webSearch = !this.templateScope && !this.restricted && !confidential
-    const subagents = !!claude && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
+    // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
+    const guestTurn = isGuestUser(rt.db, spec.userId)
+    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
+    const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -1175,7 +1184,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId)
+        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -1255,6 +1264,8 @@ export class TurnExec {
     const confs = rt.engines.get()
     const codex = confs.codex
     if (!codex || confs.problems.codex) return false
+    // a guest: only Codex on an AI connection their guests row allows, never this server's own sign-in
+    if (codex.auth !== 'managed' && isGuestUser(rt.db, spec.userId)) return false
     return codex.auth !== 'managed' || hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)
   }
 
@@ -1269,6 +1280,9 @@ export class TurnExec {
     const managed = (e: CredEngine) => e === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : confs.codex?.auth === 'managed'
     if (!managed(engine)) return 'own'
     const r = connectionRoute(rt.ctx, { id: spec.userId }, engine, { problems: confs.problems, allowed: credentialsOf(rt.ctx).allowedKinds })
+    // a guest never takes the trial credit (connectionRoute already says so; checked again where it would run)
+    if (r === 'trial' && isGuestUser(rt.db, spec.userId)) return 'own'
+    // the other engine only where it runs on AI connections too (a guest never runs on this server's own sign-in)
     return r === 'own' || r === 'trial' || managed(r) ? r : 'own'
   }
 
@@ -2613,7 +2627,8 @@ export class TurnExec {
     if (!this.shared) return []
     if (this.shared.kind === 'people') return peopleAudience(this.rt.db, this.shared.chat)
     const p = this.rt.store.projectRow(this.shared.project.id)
-    return p ? audienceOf(this.rt.db, this.rt.files, p) : []
+    const owner = (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id ?? this.spec.userId
+    return p ? chatAudienceOf(this.rt.db, this.rt.files, p, owner) : []
   }
 
   /**

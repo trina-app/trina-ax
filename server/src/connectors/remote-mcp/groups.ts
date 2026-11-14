@@ -95,7 +95,7 @@ const quote = (s: string) => JSON.stringify(s.length > 100 ? s.slice(0, 100) + '
 const show = (p: { name: string; username: string }) => `${quote(p.name)} (${quote(p.username)})`
 const listOf = (items: string[], max = 10) => items.slice(0, max).join(', ') + (items.length > max ? ` and ${items.length - max} more` : '')
 
-const PERSON = 'SELECT id, name, username, role, status FROM users WHERE deleted_at IS NULL'
+const PERSON = `SELECT id, name, username, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE deleted_at IS NULL`
 type Found = { person: Person } | { clash: [Person, Person] } | null
 /** A person by id or username (any case), not deleted; disabled people too, as the web's member check allows. A ref
  * that is one person's id and another person's username names nobody: the caller says so. */
@@ -255,7 +255,7 @@ function peopleList(ctx: AppContext, args: unknown): GroupOutcome {
   const input = PeopleListInput.safeParse(args ?? {})
   if (!input.success) return fail('Invalid tool input: send nothing, or query (text).')
   const q = (input.data.query ?? '').normalize('NFC').toLowerCase()
-  const all = (ctx.db.query("SELECT id, name, username, role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id").all() as Omit<Person, 'status'>[])
+  const all = (ctx.db.query("SELECT id, name, username, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id").all() as Omit<Person, 'status'>[])
     .filter((p) => !q || p.name.normalize('NFC').toLowerCase().includes(q) || p.username.toLowerCase().includes(q))
   const shown = all.slice(0, GROUP_LIMITS.listPeople)
   const groups = new Map<string, string[]>()

@@ -66,7 +66,7 @@ export async function requestAccountDeletion(c: Context<AppEnv>, ctx: AppContext
   const due = new Date(nowMs + GRACE_MS).toISOString()
   const opened = ctx.db.transaction(() => {
     // read again after the (slow) password check: an owner by now cannot ask
-    const row = ctx.db.query('SELECT role FROM users WHERE id = ? AND deleted_at IS NULL').get(user.id) as { role: string } | null
+    const row = ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND deleted_at IS NULL`).get(user.id) as { role: string } | null
     if (!row) return fail('forbidden')
     if (row.role === 'owner') fail('conflict', msg('deletionOwner', locale))
     if (stateOf(ctx, user).state === 'pending') return false
@@ -84,7 +84,7 @@ export async function requestAccountDeletion(c: Context<AppEnv>, ctx: AppContext
   return stateOf(ctx, user)
 }
 
-const row = (ctx: AppContext, id: string) => (ctx.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role ?? 'member'
+const row = (ctx: AppContext, id: string) => (ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(id) as { role: string } | null)?.role ?? 'member'
 
 export function cancelAccountDeletion(c: Context<AppEnv>, ctx: AppContext): AccountDeletionRequest {
   const { user } = c.get('auth')!
@@ -160,7 +160,7 @@ async function dueRun(ctx: AppContext): Promise<{ dated: number; deleted: number
     WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND ${datedSql('r.')} AND r.due_at < ?`).all(new Date(started).toISOString()) as { user_id: string }[]
   const later = new Date(Math.max(started + LATE_MS, nowMs)).toISOString()
   for (const u of late) if (setDate(ctx, u.user_id, later, { late: true })) datedNow++
-  const ready = ctx.db.query(`SELECT r.user_id, u.role FROM account_deletion_requests r JOIN users u ON u.id = r.user_id
+  const ready = ctx.db.query(`SELECT r.user_id, CASE WHEN u.guest = 1 THEN 'guest' ELSE u.role END AS role FROM account_deletion_requests r JOIN users u ON u.id = r.user_id
     WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND ${datedSql('r.')} AND r.due_at <= ?
     ORDER BY r.due_at`).all(now) as { user_id: string; role: string }[]
   let deleted = 0, failed = 0

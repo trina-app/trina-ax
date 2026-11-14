@@ -27305,6 +27305,51 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
   (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
 
+## Guests: only what they were invited to — 게스트 (feat/guest-invites-p1, 2026-11-14, the owner; phase 1, server only)
+
+- **Ask:** a team brings an outside person (a client, a freelancer) into one conversation or one project without that
+  person seeing the rest of the team. Phase 1 is the security core and the server side of the invite; the screens are
+  phase 2. Plan: docs/AGENTS/plan/20261114-1016-guest-invites-p1.md.
+- **Exactly one place** (owner, final): one group chat (`rooms.kind 'group'`) or one team project. Never several.
+  Putting a guest into a second place (another group chat, a new group chat with them, another project's people, a
+  group, a second invite) is 409 `conflict` with `params.reason: 'guest_one_place'` and the message "A guest can be in
+  one room or project only. To add them to more, make them a team member." (ko "게스트는 방이나 프로젝트 한 곳에만 들어갈
+  수 있어요. 여러 곳에 넣으려면 팀원으로 초대해 주세요."). The way out is "convert to member"
+  (`POST /api/admin/users/:id/convert-guest`, takes a seat: 409 seat_limit). No "move place" endpoint (owner: lean).
+  DMs never count as a place: a guest may DM only the people of their place. Removed from the place (taken out of the
+  chat, left it, the chat archived, out of the project's people, the project trashed): the account is switched off.
+- **Deny by default.** A guest may call only the endpoints in `server/src/auth/guest-endpoints.ts` (built from the
+  `API.*` objects; `enforceAuth` answers 403 to every other one, so a new endpoint is closed to guests until added on
+  purpose). Raw routes check themselves (the realtime socket, the remote MCP connector: refused). Inside the allowed
+  endpoints everything is narrowed: folders (below), people, presence, rooms, DMs, projects, project chats, AI.
+- **Folders:** for a guest only person rules inside `projects/<name>` count; everyone, role and group rules never
+  apply; nothing outside the members-only zone opens (shared/, skills/, connected/, any team folder); a folder deeper
+  than `projects/<name>` only once they read `projects/<name>` itself. Their own `users/<id>/` stays write. The policy
+  keys off the guest ids it loads with the rules (`users.guest = 1`), not only the Principal's role, so a Principal
+  built anywhere with role 'member' still fails closed (review must-fix 1).
+- **Stored as role 'member' + `users.guest = 1`** (migration `122_a_guests.sql`, reader level 8): `users.role` has a
+  CHECK that cannot be widened without rebuilding `users` (104 foreign keys, `foreign_keys = ON` inside the migration;
+  `writable_schema` is refused in defensive mode), and tables are never rebuilt. Every read of the role goes through
+  the guest-aware `CASE` (USER_COLS, USER_COLS_U, loadPrincipal, every raw `SELECT role`); a test keeps a reviewed list
+  of the SQL that reads `role`. An older build would read a guest as a member, so it refuses the database.
+- **AI is off by default:** `guests.ai` `none | team | own`. `team` = the one team connection in
+  `guests.team_credential_id` under a `block` budget of their own (the limit), never an
+  `engine_credential_assignments` row (one would make a team-wide connection assigned-only for every member). `own` =
+  their own Claude/Codex sign-in, whatever the member-own switch says. Never the hosted trial credit, the team's API
+  key, group or team-wide connections. A self-hosted server whose engines use the host's own sign-in never answers a
+  guest. Only the owner or an admin may give the `team` choice.
+- **Invites:** `POST /api/guest-invites` (or the admin invite with role guest) carries one place and the AI choice. A
+  member invites into a group chat they are in; into a project only its creator (while they read it) or an admin;
+  the owner and admins into a group chat only when they are in it. The same rule is checked again at accept, with the
+  place still open and the team connection still a team one; accept is one write. Guests take no seats. The plan's cap
+  (`PlanFile.maxGuests`, owner: Free 3, Starter 10, Team 30, Business 100; set by the control plane later, a plan file
+  without it allows 3; no plan = self-hosted = no cap) is 409 `plan_limit` reason `guest_limit` at create and accept.
+- **Other choices:** one guest type, no expiry, a member is never made a guest, guests join no groups and never the
+  everyone room (no joined line), other members' project chats stay hidden from a guest while the guest's own project
+  chats follow the team default (visible to the project's members; phase 2 tells the guest), connectors stay off,
+  deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
+  and skills/.
+
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
 
 넣을 곳: Team AX core (`server/src/notifications/push-gateway-setting.ts`, `server/src/routes/push.ts`,
@@ -27594,6 +27639,63 @@ guides, "Apps posting here") are phase 2.
     live-tool check of TC-1546 first).
   - Tests: web/test/unit/room-apps.test.ts, web/test/e2e/room-apps.spec.ts (1440 and 390), web/test/e2e/shots-room-apps.spec.ts
     (ROOM_APPS_SHOTS).
+
+## Hosted teams that sleep: idle facts, the relay's sleep flag and wake, data disk grow (feat/trial-autostop, 2026-11-14, the owner)
+
+- Owner decision (2026-11-14): an idle hosted trial team's server stops by itself to save cost, and starts again when
+  someone opens the team. On the hosting service a trial team is one EC2 instance, so "sleep" is a stop (the disk
+  stays) and a wake is a boot of about a minute. The control plane decides and drives the instance (the hosting
+  repo); this repo gives it the facts and the visitor side. This ports the F2 sleep work (feat/f2-sleep, 2026-10-31,
+  never merged) onto dev.
+- **What the team server reports** (`server/src/system/activity.ts`, `status.json` `activity`, `admin.js cloud-idle`,
+  `mycel-ctl idle-wait --activity`). One clock per server, kept in `status/last-activity` (written at most once a
+  minute, read back at start, never later than now): a stopped EC2 instance wakes with a fresh boot, and a clock
+  that started at boot would make every wake (a backup, a schedule, a bot) cost a full idle limit of running time.
+  Use: a signed-in request (session middleware; every chunk of an upload is one), a connector call with a live token
+  (`/mcp`) or an upload through a live upload link, an open realtime connection (web, desktop, mobile), a running or queued answer, a queued or
+  running background job, a backup in progress, and (new here) a dev environment job that waits or runs
+  (`dev_env_runs` kind `job`) count as use. A dev environment *server* (a preview) does not: one left running would
+  keep a trial team awake for ever; it stops with the server and is started again from the chat. Requests nobody
+  signed in to make (health checks, probes, bots) do not count.
+- Due work = the next enabled schedule (pending occurrence or retry first) and the next push retry that has not
+  expired, in every push delivery queue (`push_deliveries`, `room_push_deliveries`, `handover_push_deliveries`,
+  `chat_answer_push_deliveries`; `PUSH_RETRY_TABLES`). A team with due work within 15 min is not sleepable
+  (`SLEEP_SCHEDULE_GUARD_SEC`); the control plane decides whether it wakes a sleeping team for it.
+- Fail closed: a failed read is "due now" or "one busy job"; a stale `status.json` (3 min) or an older server is "not
+  sleepable"; an older mycel-ctl refuses `--activity` (usage error), which the control plane reads as "not sleepable".
+  Durations, not times (the guest clock can be behind after a resume).
+- **Relay** (`relay/src/wake.ts`, `relay.ts`): one fact, `teams.sleeping_since` (a new registry migration), set by
+  `POST /ops/v1/teams/:id/sleep` just before the stop and cleared when the team server authenticates. A request for a
+  sleeping team with no live connection asks the control plane (`POST <RELAY_WAKE_URL>/relay/v1/wake`, the relay's
+  own Ed25519 wake key, its own signing domain), once per team per 10 s, 30 a minute in all, 5 s timeout. The control
+  plane answers waking, awake, busy or unknown; the relay does not decide. Only a person wakes a team (`mayWake`): a
+  real browser's page load (`Sec-Fetch-Mode: navigate`, which crawlers and link previews do not send), or a request
+  with a cookie or an `Authorization` header (a signed-in page, the apps, the connector), and a WebSocket; never HEAD,
+  OPTIONS or `/robots.txt`, `/favicon.ico` and the like. Anything else gets the offline page and no wake, so a scanner
+  or an uptime check cannot keep an idle trial running. Over the relay's own 30-a-minute budget the visitor still gets
+  the waking page (it reloads and asks again).
+- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Starting your team…" (about a
+  minute, six languages), which reloads the same address after the control plane's `retryAfterSec` kept to 3-20 s
+  (the control plane answers 20 for a stopped EC2 instance; the first branch reloaded every 3 s, which for a
+  one-minute boot was 20 reloads and wake calls). The page does not echo the address, so an OAuth callback's `code`
+  never goes into HTML. Everything else (desktop and phone apps, API, webhooks) waits up to `RELAY_WAKE_HOLD_MS` (20 s)
+  and gets a retryable 503 `team_waking` with the control plane's Retry-After (1-30 s); WebSockets close 1013. busy is
+  shown at once; unknown or an error shows the cloud offline page as before. No `RELAY_WAKE_URL` = off.
+- Not ported: the relay client's time-jump reconnect (first branch, `server/src/relay-client/time-jump.ts`). A trial
+  team's server is stopped and started (a fresh boot that connects at once), not suspended to disk.
+- **`mycel-ctl data-grow`** (owner decision 2026-11-14: new trial teams get a 20 GB data disk, grown when the team
+  starts to pay). The hosting service grows the EBS volume online and calls `data-grow` when `df` still shows the old
+  size (the image's udev rule normally grows the file system already). It resolves the data folder's block device
+  (`findmnt -n -o SOURCE --mountpoint /var/lib/mycel`: the data folder itself must be the mount, so an unmounted data
+  disk never sends resize2fs to the root file system; anything that is not a `/dev/...` device is refused), runs
+  `resize2fs <dev>` (online, at most 75 s, under hostd's 90 s; nothing to do when the sizes match), and prints `{ grown, beforeBytes, afterBytes }`
+  from statfs before and after. Errors: non-zero exit, the reason on stderr, as every tenant command.
+- Tests: `tests/unit/f2-sleep-activity.test.ts` (activity clock, every push queue, dev environment jobs, cloud-idle,
+  the contract), `tests/unit/f2-relay-wake.test.ts` (wake client, settings, page loads, the waking page's refresh and
+  copy), `tests/relay/f-sleep.test.ts` (real Node relay, fake team server and fake control plane),
+  `native/cmd/mycel-ctl/tenant_test.go` (`idle-wait --activity`), `native/cmd/mycel-ctl/datagrow_test.go`,
+  `tests/unit/cloud-protocol.test.ts` and the vectors (`--activity`, `data-grow`).
+- Version impact: **minor** (a new tenant command and flag, a relay operator route, a relay page).
 
 ## Chats shared with me: a push that names the sharer — 나에게 공유된 채팅 알림 (feat/shared-chats-push, 2026-11-14, product owner)
 

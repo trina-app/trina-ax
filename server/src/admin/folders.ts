@@ -20,6 +20,7 @@ import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
 import { teamDefaultLocale } from './settings'
+import { failOnePlace, guestPlace, guestsAmong, projectFolder } from '../auth/guests'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
@@ -200,6 +201,7 @@ export function writeFolderAccess(db: Database, folderId: string, next: { rules:
   }
   const f = getFolder(db, folderId)
   if (!f) throw new Error('writeFolderAccess: no such folder row')
+  guestRulesInPlace(db, f.path, folderId, next.rules)
   const limited = next.limited ?? f.limited === 1
   if ((f.limited === 1) !== limited) db.query('UPDATE folders SET limited = ? WHERE id = ?').run(limited ? 1 : 0, folderId)
   const existing = db.query('SELECT id, subject_type, subject_id, access, origin FROM folder_rules WHERE folder_id = ?').all(folderId) as { id: string; subject_type: string; subject_id: string | null; access: Access; origin: string | null }[]
@@ -224,6 +226,22 @@ export function writeFolderAccess(db: Database, folderId: string, next: { rules:
   }
   const ins = db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
   for (const w of want.values()) ins.run(newId(), folderId, w.subject_type, w.subject_id, w.access, actor, now, w.origin ?? null)
+}
+
+/**
+ * One place per guest (docs/DECISIONS.md "Guests: only what they were invited to"): a person rule that gives a guest
+ * access is written only at or below their own project's folder. A new one anywhere else (the members panel, the AI's
+ * change_project_members, Admin › Folder permissions, a new project's people) is refused in the same write with 409
+ * guest_one_place; a rule they already have there may be kept or changed.
+ */
+function guestRulesInPlace(db: Database, folderPath: string, folderId: string, rules: readonly FolderRuleInput[]): void {
+  const named = rules.filter((r) => r.subjectType === 'user' && r.subjectId && r.access !== 'none').map((r) => r.subjectId!)
+  for (const id of guestsAmong(db, named)) {
+    if (db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ? AND access <> 'none'").get(folderId, id)) continue
+    const place = guestPlace(db, id)
+    const own = place?.kind === 'project' ? projectFolder(db, place.id) : null
+    if (!own || !(folderPath === own || folderPath.startsWith(own + '/'))) failOnePlace(teamDefaultLocale(db))
+  }
 }
 
 /**
@@ -329,7 +347,7 @@ export interface AccessState {
 
 /** Active people (with groups) and the current rules. */
 export function captureState(db: Database): AccessState {
-  const users = db.query("SELECT id, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id").all() as { id: string; name: string; role: Role }[]
+  const users = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name, id").all() as { id: string; name: string; role: Role }[]
   const mem = db.query('SELECT group_id, user_id FROM group_members').all() as { group_id: string; user_id: string }[]
   const groups = new Map<string, string[]>()
   for (const m of mem) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
@@ -533,8 +551,20 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   syncRoomsNow(ctx)
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin
   checkDriveShareOwners(ctx)
+  // the hooks of other areas (admin/guests.ts: a guest no longer in their one place is switched off)
+  runAccessHooks(ctx, by.actor)
   return out
 }
+
+/** The other areas' access-change hooks alone (a folder trashed from Files: a project gone without a rule change). */
+export function runAccessHooks(ctx: AppContext, actor: string | null): void {
+  for (const h of accessHooks) { try { h(ctx, actor) } catch (e) { ctx.log.warn('access change hook failed', { err: e }) } }
+}
+
+type AccessHook = (ctx: AppContext, actor: string | null) => void
+const accessHooks: AccessHook[] = []
+/** Run `h` after every afterAccessChange (registered once, at module load of the area that needs it). */
+export function onAccessChange(h: AccessHook): void { if (!accessHooks.includes(h)) accessHooks.push(h) }
 
 /**
  * The access_changed notice goes to one person and names folders: only folders that person can see now, or could see
