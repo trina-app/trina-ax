@@ -301,6 +301,9 @@ export const RoomQuote = z.object({
   fileCount: z.number().int().nonnegative(),
   deleted: z.boolean(),
   withheld: z.literal(true).optional(),
+  /** a quoted message an app posted (docs/DECISIONS.md "Apps posting in rooms"): the app (author null); `excerpt` is its
+   * plain text, shown as text (no links found in it) */
+  app: RoomAppRef.optional(),
 })
 export type RoomQuote = z.infer<typeof RoomQuote>
 

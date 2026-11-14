@@ -70,7 +70,7 @@ import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 import { AppTile } from './apps/AppParts'
 import { AppSender } from './apps/AppSender'
-import { appPlainText } from '../../lib/roomApps'
+import { appPlainText, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -550,9 +550,10 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   return (
     <div className={clsx('mt-0.5 mb-1 block max-w-full border-l-2 border-line-strong pl-2 text-left text-xs', onJump && 'relative hover:border-ink')} data-testid="message-quote">
       {onJump && <button type="button" onClick={onJump} aria-labelledby={`${ids}n ${ids}t`} className="absolute inset-0 -left-0.5 rounded-sm" data-testid="message-quote-jump" />}
-      <span id={`${ids}n`} className="block truncate font-medium text-muted">{nameOf(q.author) ?? t('rooms.goneUser')}</span>
+      <span id={`${ids}n`} className="block truncate font-medium text-muted">{q.app ? q.app.name : nameOf(q.author) ?? t('rooms.goneUser')}</span>
       <span id={`${ids}t`} className="block truncate text-faint [&_a]:relative">
-        {q.deleted || !q.excerpt ? what : <LinkedText text={q.excerpt} cut={q.excerpt.length >= ROOM_QUOTE_EXCERPT_MAX} oneLine />}
+        {/* an app's words are plain text: no link found in them (its body's escapes are undone by the server) */}
+        {q.deleted || !q.excerpt ? what : q.app ? unescapeAppBody(q.excerpt) : <LinkedText text={q.excerpt} cut={q.excerpt.length >= ROOM_QUOTE_EXCERPT_MAX} oneLine />}
       </span>
     </div>
   )

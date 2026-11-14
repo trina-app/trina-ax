@@ -3,7 +3,7 @@
 // copies its address; the status line follows the app live: waiting, connected, a refusal with its reason; Show an
 // example), the list and one app's settings (switches, Quiet, Get a new address, Remove), the paused state with Resume
 // now, the cards in the timeline (the "App" tag, plain text, the one link) and their thread (short replies, "Summarise
-// this thread"), a member's view (no ⋯ item; "Ask Olga to change what shows here"), and the no-internet-address state
+// this thread"), a member's view (no ⋯ item; "Ask Mina to change what shows here.), and the no-internet-address state
 // for the owner and for an admin. The room and its apps are answered through page.route (rooms-mock.ts,
 // room-apps-mock.ts).
 import { expect, test, type Page } from '@playwright/test'
@@ -43,7 +43,7 @@ async function open(page: Page, o: { size: { width: number; height: number }; ki
     await page.route(/\/api\/me$/, async (route) => {
       const r = await route.fetch()
       const me = await r.json() as { user: { role: string } }
-      me.user.role = o.role!
+      if (me?.user) me.user.role = o.role!
       await route.fulfill({ response: r, json: me })
     })
   }
@@ -147,9 +147,9 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-left')).toHaveCount(0)
       await page.getByTestId('apps-list-row').first().click()
       await expect(page.getByTestId('apps-status')).toContainText('Last message')
-      await page.getByTestId('apps-switch-alert').check({ force: true })
+      await page.getByTestId('apps-switch-alert').locator('..').click()
       await expect.poll(() => apps.calls.at(-1)).toBe('patch:app-sentry:{"events":{"alert":true}}')
-      await page.getByTestId('apps-quiet').check({ force: true })
+      await page.getByTestId('apps-quiet').locator('..').click()
       await expect.poll(() => apps.calls.at(-1)).toBe('patch:app-sentry:{"quiet":true}')
       await page.getByTestId('apps-new-address').click()
       await expect(page.getByRole('alertdialog').or(page.getByRole('dialog').last())).toContainText('The old one stops working right away. Paste the new address into Sentry.')
@@ -189,7 +189,7 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('app-quiet-line')).toContainText('was paused')
       // the sender's popover: who set it up, and Manage
       await page.getByTestId('app-sender-button').first().click()
-      await expect(page.getByRole('menu')).toContainText('Set up by Olga · Sentry')
+      await expect(page.getByRole('menu')).toContainText('Set up by Mina · Sentry')
       await page.getByTestId('app-sender-manage').click()
       await expect(page.getByTestId('apps-settings')).toBeVisible()
       await page.keyboard.press('Escape')
@@ -208,7 +208,7 @@ for (const vp of SIZES) {
       await page.keyboard.press('Escape')
       await page.mouse.click(5, 5)
       await page.getByTestId('app-sender-button').first().click()
-      await expect(page.getByTestId('app-sender-ask')).toHaveText('Ask Olga to change what shows here.')
+      await expect(page.getByTestId('app-sender-ask')).toHaveText('Ask Mina to change what shows here.')
       await expect(page.getByTestId('app-sender-manage')).toHaveCount(0)
     })
 

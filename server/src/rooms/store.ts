@@ -285,7 +285,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       // them) shows no content; a hidden answer says so (withheld)
       const shown = q && canSee(db, q, viewer) && !q.deleted_at && !q.event
       const hidden = !shown && !!q && !q.deleted_at && !q.event && isHiddenFor(db, q, viewer.user_id)
-      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}) }
+      // a quoted app message (rooms/apps): its plain text (the body escapes Markdown marks and addresses) and the app
+      const qApp = shown && q.app_card ? appRefsOf(db, [q]).get(q.id) : undefined
+      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(qApp ? unescapeMarkdown(q.body).replace(/<(https:\/\/[^>\s]+)>/g, '$1').replace(/\s+/g, ' ').trim() : q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}), ...(qApp ? { app: qApp } : {}) }
     }
     const thread = threads.get(r.id)
     const reacted = reactions.get(r.id)

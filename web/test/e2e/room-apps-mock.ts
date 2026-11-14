@@ -106,7 +106,7 @@ export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name'> & { by?: {
   const text = [[card.kind, card.title].filter(Boolean).join(' · '), ...(card.details ?? []), card.status ?? ''].filter(Boolean).join('\n')
   return {
     author: null,
-    app: { id: app.id, name: app.name, kind: app.kind, by: app.by === undefined ? { id: 'olga', name: 'Olga' } : app.by, ...(app.quiet ? { quiet: true } : {}), ...(app.example ? { example: true } : {}) },
+    app: { id: app.id, name: app.name, kind: app.kind, by: app.by === undefined ? { id: 'mina', name: 'Mina' } : app.by, ...(app.quiet ? { quiet: true } : {}), ...(app.example ? { example: true } : {}) },
     appCard: { details: [], ...card },
     body: `${app.name}: ${text}`,
     ...more,

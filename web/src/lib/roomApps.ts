@@ -3,7 +3,7 @@
 import type { RoomApp, RoomAppKind, RoomMessage } from '@mycel/shared/api'
 
 /** The server's body escapes Markdown marks (and "@", and "://") so older apps show it as text; the other way. */
-export const unescapeAppBody = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/:])/g, '$1')
+export const unescapeAppBody = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/:])/g, '$1').replace(/<(https:\/\/[^>\s]+)>/g, '$1')
 
 /** An app message's words as plain text (Copy, "Ask Trina about this"): the card's lines, then its link. */
 export function appPlainText(m: Pick<RoomMessage, 'app' | 'appCard' | 'body'>): string {
