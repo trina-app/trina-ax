@@ -27292,6 +27292,49 @@ guides, "Apps posting here") are phase 2.
     naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
 - Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
   tests/security/lib/room-apps-cases.ts.
+- **Phases 2–4: the screens (feat/room-apps-p2, QA TC-1546, TC-1547, TC-1412).** Words as owner decision 6 ("Add an
+  app", "Apps posting here · N", the "App" tag); Trina's own words never say "webhook" (a web unit test greps every
+  `roomApps.*` key of the six languages; `roomApps.vendorLabel.*` are the services' own labels, quoted in the language's
+  marks, and still to be checked against the live tools with screenshots in TC-1546).
+  - **Where:** the room's ⋯ (`RoomMenu` action `apps`, after Rename) for those who manage the room's apps
+    (`store/roomApps.ts mayManageApps`, the server's rule); one dialog (`components/rooms/apps/AppsDialog.tsx`, a sheet on a
+    phone, loaded on first open by `AppsHost`) with the picker (letter tiles), the four guides, the list and one app's
+    settings. The room page reads the list for managers only (a member would get 403), so the ⋯ can say how many post
+    there; `?apps=<id>` opens an app's settings (the notices' links).
+  - **Guide:** nothing is added before the first Copy (address, Forms code, GitHub secret or a saved Sentry secret); the
+    copy happens in the click with a `ClipboardItem` promise (Safari), and when no copy is possible the text is shown to
+    copy by hand. The status line follows the app live: it reads the list every 4 s while the app waits for its first
+    message or shows a refusal, and at once when a message from it reaches the room (no new realtime event).
+    "Nothing yet?" after 2 minutes for GitHub and Other; "Show an example" once the app exists. Signatures are an
+    optional, folded "Optional: make it safer" step (owner decision 9); Sentry's alert rules a second folded step.
+    Forms: the respondent's email note in step 4 (owner decision 12) and the copied code's `SEND_EMAIL` follows the
+    switch.
+  - **Settings:** the status line (last message, refusal with "Set up again", paused with "Resume now", no internet
+    address, and "Someone who left knows this address · Get a new address" from `RoomApp.leaverKnows`), the switches
+    (one PATCH each, on screen at once, back with "Couldn't save. Try again."), Quiet, Address (Copy / "Get a new
+    address" with its confirm) and Remove with the plan's words.
+  - **Cards:** one component, `components/rooms/AppCard.tsx` `AppCardText` (`card`, `reply`, `quiet`), plain text with
+    only the card's checked link ("Open in Sentry ↗": a button on a computer, a link on the status line on a phone);
+    the sender is `AppSender` (the app's name, `SenderTag` "App" / "Example", a popover: "Set up by Mina · Sentry" and
+    Manage for managers, "Ask Mina to change what shows here." for everyone else). `RoomAppRef.by` (who added it, while
+    in the team) was added for that popover. Search hits and the rooms list name the app; a quoted app message
+    (`RoomQuote.app`) shows its plain text, never links found in it.
+  - **AI chips (phase 3):** the side chat's starters get one chip chosen from the app messages on screen ("Summarise
+    today's responses" when they are forms only, else "What happened today?"), read from the timeline so members get it
+    too; an app's thread has "Summarise this thread", which opens the side chat with the root quoted and sends the
+    question at once (`SideSeed.ask`); a quoted app message's quick questions start with it.
+  - **Notices:** the paused notice (`room_app.paused`) reads "{app} paused in {room}. It reached 500 messages today. N
+    more were skipped and won't appear. It starts again tomorrow." ("at 09:00" when the team's midnight is another time
+    where the reader is), with Resume now and Open settings; on a computer it opens as itself while it can be resumed.
+  - **Self-installed (phase 4):** "Add an app" without an internet address shows who can fix it (the owner: "Turn on the
+    Trina relay…" and Open connection settings; everyone else: "Ask the team owner…"), with How it works
+    (docs/site/use/room-apps.md); existing apps' list and settings say "This server has no internet address now".
+    `ConnectionStatus.appsAnywhere` (a country or network list on the server's own address and at least one app) shows
+    "Apps can reach this server from anywhere at its /in/ addresses…" in Admin › System › Connection.
+  - Not done: the relay's `relay.address_moved` line for apps and per-step screenshots inside the guides (they need the
+    live-tool check of TC-1546 first).
+  - Tests: web/test/unit/room-apps.test.ts, web/test/e2e/room-apps.spec.ts (1440 and 390), web/test/e2e/shots-room-apps.spec.ts
+    (ROOM_APPS_SHOTS).
 
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
 

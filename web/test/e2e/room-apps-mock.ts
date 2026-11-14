@@ -11,7 +11,7 @@ type Kind = 'sentry' | 'github' | 'google_forms' | 'other'
 export interface MockApp {
   id: string; roomId: string; kind: Kind; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
-  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number
+  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true
 }
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },
@@ -42,7 +42,7 @@ export interface AppsState {
 }
 
 /** Answer /api/rooms/<room>/apps…; everything else goes on to the room's own routes (routeRoom, registered before). */
-export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available?: boolean } = {}): Promise<AppsState> {
+export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available?: boolean; createdAgoMs?: number } = {}): Promise<AppsState> {
   let n = 0
   let pending: ((a: MockApp) => void) | null = null
   const state: AppsState = {
@@ -65,7 +65,7 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       const b = req.postDataJSON() as { kind: Kind }
       state.calls.push(`create:${b.kind}`)
       if (!state.available) return route.fulfill(json({ error: { code: 'conflict', message: 'no address', params: { reason: 'no_public_address' } } }, 409))
-      const app = mockApp(b.kind, { id: `019a5f00-0000-7000-8000-0000000b${String(++n).padStart(4, '0')}`, createdAt: new Date().toISOString(), firstOkAt: null, lastOkAt: null, today: 0 })
+      const app = mockApp(b.kind, { id: `019a5f00-0000-7000-8000-0000000b${String(++n).padStart(4, '0')}`, createdAt: new Date(Date.now() - (o.createdAgoMs ?? 0)).toISOString(), firstOkAt: null, lastOkAt: null, today: 0 })
       state.apps.push(app)
       return route.fulfill(json({ app, address: ADDRESS(n) }, 201))
     }

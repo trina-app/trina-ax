@@ -5539,4 +5539,5 @@ export const ja: Record<MessageKey, string> = {
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
   "roomApps.leaverKnows": "退出した人がこのアドレスを知っています",
+  "roomApps.leaverNotice": "退出した人が {app} のアドレスを知っています",
 }

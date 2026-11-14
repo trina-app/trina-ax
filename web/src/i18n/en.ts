@@ -5583,4 +5583,5 @@ export const en: Record<MessageKey, string> = {
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
   "roomApps.leaverKnows": "Someone who left knows this address",
+  "roomApps.leaverNotice": "Someone who left knows the address of {app}",
 }

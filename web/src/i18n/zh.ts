@@ -5510,4 +5510,5 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.room_app.resume": "今天重新开启了应用",
   "audit.act.room_app.message_delete": "删除了群聊中的应用消息",
   "roomApps.leaverKnows": "已离开的人知道这个地址",
+  "roomApps.leaverNotice": "已离开的人知道 {app} 的地址",
 }

@@ -62,3 +62,19 @@ export function PausedNoticeExtras({ item, onRead, onChanged }: { item: InboxNot
     </div>
   )
 }
+
+// The "someone who left knows the address" notice (notifications 'room_app.leaver'): "Someone who left knows the address
+// of Sentry · Get a new address", the link opening the app's settings in its room (where "Get a new address" is).
+type Leaver = NonNullable<InboxNotification['roomAppLeaver']>
+export const leaverNoticeText = (l: Leaver, t: T) => t('roomApps.leaverNotice', { app: l.name })
+export const leaverNoticeLink = (l: Leaver | undefined) => (l?.roomId ? `/rooms/${encodeURIComponent(l.roomId)}?apps=${encodeURIComponent(l.appId)}` : null)
+export function LeaverNoticeExtras({ item, onRead }: { item: InboxNotification; onRead: () => void }) {
+  const t = useT()
+  const to = leaverNoticeLink(item.roomAppLeaver)
+  if (!to) return null
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="notification-room-app-leaver">
+      <Link to={to} onClick={onRead} className="inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover max-md:h-11" data-testid="notification-room-app-new-address">{t('roomApps.newAddress')}</Link>
+    </div>
+  )
+}

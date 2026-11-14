@@ -256,9 +256,9 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   )
 }
 
-function Fold({ summary, children, testId }: { summary: string; children: ReactNode; testId: string }) {
+function Fold({ summary, children, testId, className }: { summary: string; children: ReactNode; testId: string; className?: string }) {
   return (
-    <details className="group rounded-lg border border-line" data-testid={testId}>
+    <details className={clsx('group rounded-lg border border-line', className)} data-testid={testId}>
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-medium text-ink md:min-h-9 [&::-webkit-details-marker]:hidden">
         <ChevronRight size={14} aria-hidden className="shrink-0 text-faint transition group-open:rotate-90" />
         {summary}
@@ -361,7 +361,7 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted" id="apps-address-label">{t('roomApps.addressLabel')}</p>
         <div className="flex gap-2 max-sm:flex-col">
-          <div aria-labelledby="apps-address-label" title={address ?? undefined} className={clsx(inputCls, 'flex min-w-0 flex-1 items-center truncate font-mono text-code-sm select-all', !address && 'font-sans text-faint')} data-testid="apps-address">
+          <div aria-labelledby="apps-address-label" title={address ?? undefined} className={clsx(inputCls, 'flex min-w-0 flex-1 items-center truncate font-mono text-code-sm select-all', !address && 'font-sans text-faint!')} data-testid="apps-address">
             {address ? middleCut(address) : t('roomApps.addressPlaceholder')}
           </div>
           <Button variant="primary" onClick={() => void copyAddress()} busy={busy && copied === null} className="shrink-0 max-sm:w-full" data-testid="apps-copy-address">
@@ -440,7 +440,7 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
       <div className="border-t border-line pt-3">
         <StatusLine app={app} kind={kind} place="guide" />
         {nothingYet && (
-          <Fold summary={t('roomApps.nothingYet')} testId="apps-nothing-yet">
+          <Fold summary={t('roomApps.nothingYet')} testId="apps-nothing-yet" className="mt-2">
             <ul className="list-disc space-y-1 pl-5">
               {kind === 'github' ? <>
                 <li>{t('roomApps.checkJson', { json: v('githubJson') })}</li>

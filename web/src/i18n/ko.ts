@@ -5583,6 +5583,7 @@ export const ko = {
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
   "roomApps.leaverKnows": "나간 사람이 이 주소를 알고 있어요",
+  "roomApps.leaverNotice": "나간 사람이 {app} 앱의 주소를 알고 있어요",
 } as const
 
 export type MessageKey = keyof typeof ko
