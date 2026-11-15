@@ -13,7 +13,9 @@ import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState,
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
 import { inOneDrive, lookRoots, lookWide, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
-import type { IndexedFile } from '../common/work-index'
+import { execFile } from 'node:child_process'
+import { considered, neverListed } from '@mycel/shared/file-scan'
+import { macPath, parseMdfind, RECENT_DAYS, type IndexedFile } from '../common/work-index'
 import type { Place } from '../common/work-places'
 import { macHints, windowsFixedDrives, windowsIndex } from './work-index-run'
 import { fullDiskState, macDatalessSet, macPlaceIndex, macRecent, MAC_FULL_DISK_SETTINGS, widePlaces } from './work-places-run'
@@ -75,6 +77,19 @@ export const NODE_WORK_FS: WorkFs = {
       close: () => h.close(),
     }
   },
+}
+
+/** A Mac without the wide look: the documents Spotlight says were opened lately in one folder the person let the app see
+ * (its question came with the folder's first read, so this one raises none), with what Spotlight knows of the newest
+ * 300. A walk cut by its limits still lists them (common/work-files.ts LookOptions.recentIn). [] when Spotlight does
+ * not answer within 4 s. */
+async function macOpenedIn(real: string): Promise<IndexedFile[]> {
+  const out = await new Promise<string>((done) => execFile('/usr/bin/mdfind', ['-onlyin', real, '-0', `kMDItemLastUsedDate >= $time.today(-${RECENT_DAYS})`], { timeout: 4000, maxBuffer: 16 << 20 }, (_e, o) => done(String(o ?? ''))))
+  const root = real.endsWith('/') ? real : real + '/'
+  const paths = parseMdfind(out).map(macPath).filter((x) => x.startsWith(root) && considered(posix.basename(x).normalize('NFC'), x.slice(root.length).split('/').slice(0, -1).map((part) => part.normalize('NFC'))) && !x.slice(root.length).split('/').some((part) => !part || neverListed(part.normalize('NFC')))).slice(0, 1000)
+  const known = await macHints(paths.slice(0, 300), { deadline: Date.now() + 4000, stopped: () => false })
+  const byPath = new Map(known.map((k) => [k.path, k]))
+  return paths.map((x) => ({ ...(byPath.get(x) ?? { path: x, used: null, modified: null, useCount: null, size: null, origins: [], authors: [], org: null }), queried: true }))
 }
 
 /** A wide look (part 5) ends by this long, whatever is left (the list must come quickly). */
@@ -157,7 +172,8 @@ export class WorkFilesController {
       // Windows: Windows Search with the recent lists; a Mac walks (faster than listing through Spotlight) and asks
       // Spotlight about the newest documents
       index: async () => (process.platform === 'win32' ? (win ??= windowsIndex(roots.map((r) => r.path), downloads)) : null),
-      ...(process.platform === 'darwin' ? { enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until) } : {}),
+      // a Mac: Spotlight's last-opened documents of each walked folder join the walk (never cut away by its limits)
+      ...(process.platform === 'darwin' ? { enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until), recentIn: (real: string) => macOpenedIn(real) } : {}),
       newId: () => randomBytes(12).toString('base64url'),
     })
   }
@@ -202,6 +218,9 @@ export class WorkFilesController {
     }
     // a Mac with Full Disk Access: Spotlight for each place at once (no question per folder now), the walk for the three
     const pre = new Map(places.map((x) => [x.path, macPlaceIndex({ path: x.path, id: x.kind }, deadline)]))
+    // the recent lists (Spotlight's last-opened across home, the shared file lists, Office's): asked for once, at the
+    // start; each walked folder gets its part (a walk cut by its limits keeps the files opened lately), the rest after
+    const recent = macRecent(home, deadline).catch(() => [] as IndexedFile[])
     return lookWide(roots, NODE_WORK_FS, {
       ...common,
       index: async (_real, root) => (root.place !== undefined ? (pre.get(root.path) ?? null) : null),
@@ -209,7 +228,8 @@ export class WorkFilesController {
       // every root (iCloud's Desktop & Documents with Optimize Storage keeps folders in the cloud too); outside a cloud
       // drive only folders are asked about (scanRoots)
       placeholders: (paths) => macDatalessSet(paths),
-      recent: () => macRecent(home, deadline),
+      recent: () => recent,
+      recentIn: () => recent,
     })
   }
 

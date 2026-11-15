@@ -70,7 +70,7 @@ export async function fakeApp(page: Page, o: { version?: number; refuse?: string
     }
   }, o)
 }
-export const files = (list: Meta[]) => list.map((m, i) => ({ id: `id${i}`, name: m.name, root: m.root ?? 'documents', ...(m.place !== undefined ? { place: m.place } : {}), ...(m.cloud ? { cloud: true } : {}), folder: m.folder ?? '', ext: m.name.split('.').pop()!, size: m.size ?? 40, modified: m.modified ?? Date.parse('2026-11-03T12:00:00Z') }))
+export const files = (list: Meta[]) => list.map((m, i) => ({ id: `id${i}`, name: m.name, root: m.root ?? 'documents', ...(m.place !== undefined ? { place: m.place } : {}), ...(m.cloud ? { cloud: true } : {}), folder: m.folder ?? '', ext: m.name.split('.').pop()!, size: m.size ?? 40_000, modified: m.modified ?? Date.parse('2026-11-03T12:00:00Z') }))
 export const roots = (...rs: Root[]) => rs.map((r) => ({ cut: false, tooBig: 0, checked: 100, oneDrive: false, ...r }))
 export const OK3 = roots({ id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'ok' })
 export const look = (page: Page, f: Meta[], r = OK3) => page.evaluate(([a, b]) => (window as unknown as { __look: (f: unknown[], r: unknown[]) => void }).__look(a as unknown[], b as unknown[]), [files(f), r] as const)

@@ -16,8 +16,14 @@ It looks in these places:
 - **Messenger downloads**: the folders where KakaoTalk, Telegram, WhatsApp, Teams and others save the files you receive.
 - **Files you opened lately**, anywhere in your home folder. On Windows also on your other drives and on network drives.
 
-It shows only **recent** files (opened or changed in about the last six months) that look like your company's or that
-your team's AI picks, at most 50. You can find any other file it saw with the search.
+It shows only **recent** files (opened or changed in about the last six months) that clearly look like work, at most 50.
+When your team's AI answers, it decides for the names it saw: a file it leaves out is not shown. Without AI, a file is
+shown only when its name or folder names your company, it came from your company's own address or workspace (such as
+`yourcompany.slack.com`), someone in your team wrote it, or it is a document you opened lately. A file downloaded from
+Google Docs, Notion or Slack is not a work file for that reason alone. It never shows pieces of a saved web page
+(a "…_files" folder), files inside an app's or a tool's folder, names a program gave ("Untitled", "f(3).txt"), chat
+exports, notes of a few lines, or a "(1)" copy next to its original; of a numbered series in one folder it shows the
+newest. If nothing clearly looks like work, it says so. You can find any other file it saw with the search.
 
 What stays on your computer:
 

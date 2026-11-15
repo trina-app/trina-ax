@@ -145,6 +145,9 @@ export interface WorkFileMeta {
   place?: string
   /** part 5: online only (its content is in the cloud; adding it downloads it then) */
   cloud?: boolean
+  /** in a recent-documents list (a Mac's shared file lists, Office's; Windows' Recent folder, Office's): the person
+   * opened it, even when no date of it is known */
+  listed?: boolean
 }
 
 /** scan(): cancelled (the person said no in the app's own dialog) · busy (a dialog or a look is under way) · unavailable
