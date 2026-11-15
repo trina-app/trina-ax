@@ -890,6 +890,23 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
+  test('a failed AI read (offline, 5xx: read as usable so nothing warns) never records the AI step done, on arrival or after it', async () => {
+    signIn('owner')
+    progress = { ...fresh(), steps: { ai: 'skipped', profile: null, result: null, invite: null } } as WelcomeProgress
+    const route = routes['GET /api/me/ai-access']!
+    routes['GET /api/me/ai-access'] = () => json(503, { error: { code: 'unavailable', message: 'down' } })
+    useAiAccess.getState().reset()
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) !== undefined || null, 'a step')
+      await m.settle(60)
+      expect(useAiAccess.getState().usable).toBe(true)
+      expect(useAiAccess.getState().answered).toBe(false)
+      expect(progress!.steps.ai).toBe('skipped')
+      expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body?.step?.id === 'ai' && c.body.step.state === 'done')).toEqual([])
+    } finally { await m.unmount(); routes['GET /api/me/ai-access'] = route; useAiAccess.getState().reset(); useWelcome.getState().reset() }
+  })
+
   test('AI connected in the AI step: recorded once, then on to 회사 소개 (2/6); AI from the start: five steps', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }

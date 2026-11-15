@@ -220,6 +220,21 @@ export const forgetStepsSeen = () => {
     }
   } catch { /* none kept */ }
 }
+/**
+ * A link out of the steps to another page of the app (the AI step's "Other AI services … Admin › AI accounts", the team
+ * files step's "Open" of the project it made) carries the step it left in the history entry's state, so that page shows
+ * one way back (components/onboarding/SetupReturn.tsx: "← Back to getting started", "Continue setup" once AI answers
+ * after the AI step). The steps resume where they stopped on their own (resumeStep), so the way back is only /welcome.
+ * The state belongs to that history entry: a reload or Back to it keeps it, a move to another page does not (the setup
+ * row stays the way back from everywhere else).
+ */
+export const setupReturnState = (step: WelcomeStep) => ({ setupStep: step }) as const
+/** The step a page was opened from (setupReturnState), or null. */
+export function setupReturnStep(state: unknown): WelcomeStep | null {
+  const s = (state as { setupStep?: unknown } | null)?.setupStep
+  return typeof s === 'string' && (s === 'ai' || (WELCOME_COUNTED as readonly string[]).includes(s)) ? (s as WelcomeStep) : null
+}
+
 /** A landing takes the owner to the steps while they were started, are neither finished nor hidden, and have a step to
  * open (resumeStep: with only a put-off invite left there is none, and the steps would send Home again). */
 export const resumesOnLanding = (p: WelcomeProgress | null, computer = true) => showResume(p, computer)
