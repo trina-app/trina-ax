@@ -8,7 +8,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
-import { checkLatestMacYml, fetchManifest, manifestForFolder, offerMac, type StatfsLike } from '../../server/src/office/update'
+import { checkLatestMacYml, dropUnnamedMac, fetchManifest, manifestForFolder, offerMac, type StatfsLike } from '../../server/src/office/update'
 import { macOfferedIn, MAC_ZIP_RE } from '../../server/src/office/desktop'
 import { serveDownload } from '../../server/src/routes/downloads'
 import { readWindowsState, refreshWindowsApp, type WindowsAppOptions } from '../../server/src/system/windows-app'
@@ -86,7 +86,7 @@ describe('a team server offers the Mac app update', () => {
     const r = await refreshWindowsApp(opts(s, p.files))
     expect(r.kind).toBe('none') // no Windows app in this release
     expect(readWindowsState(s.data).mac?.last).toMatchObject({ kind: 'offered', version: '0.5.5' })
-    expect(fs.readdirSync(s.downloads).sort()).toEqual([p.zipName, 'latest-mac.yml', 'stable.json'].sort())
+    expect(fs.readdirSync(s.downloads).sort()).toEqual(['.mac-zip.json', p.zipName, 'latest-mac.yml', 'stable.json'].sort())
     expect(macOfferedIn(s.downloads)).toEqual({ version: '0.5.5', zip: p.zipName })
     // what the Mac app's electron-updater reads, and the zip it names
     expect(await (await get(s.downloads, 'latest-mac.yml')).text()).toBe(p.yml)
@@ -148,6 +148,39 @@ describe('a team server offers the Mac app update', () => {
     const r = publish('0.5.8')
     await refreshWindowsApp(opts(s, r.files, { version: '0.5.8', statfs: disk(0.1) }))
     expect(readWindowsState(s.data).mac?.last?.kind).toBe('no-room')
+  })
+})
+
+describe('a team server keeps its Mac files honest', () => {
+  test('a damaged zip of the same size is noticed and fetched again; an unchanged one is not read again', async () => {
+    const s = server('damaged')
+    const p = publish('0.5.5')
+    await refreshWindowsApp(opts(s, p.files))
+    const f = path.join(s.downloads, p.zipName)
+    const bad = Buffer.from(p.zip); bad[0] ^= 1
+    fs.writeFileSync(f, bad)
+    fs.utimesSync(f, new Date(), new Date(Date.now() + 5000))
+    await refreshWindowsApp(opts(s, p.files, { force: true }))
+    expect(readWindowsState(s.data).mac?.last?.kind).toBe('offered')
+    expect(sha(fs.readFileSync(f))).toBe(sha(p.zip))
+    // the sidecar is never served
+    expect((await get(s.downloads, '.mac-zip.json')).status).toBe(404)
+  })
+
+  test('a release without a Mac app after one with it: the older Mac update is no longer offered', async () => {
+    const s = server('dropped')
+    const p = publish('0.5.5')
+    await refreshWindowsApp(opts(s, p.files))
+    const { mac: _, ...noMac } = publish('0.5.6').r
+    dropUnnamedMac(s.downloads, noMac as OfficeRelease)
+    expect(macOfferedIn(s.downloads)).toBeNull()
+    expect(fs.existsSync(path.join(s.downloads, p.zipName))).toBe(false)
+    // a newer Mac app than such a release stays
+    const t = server('kept')
+    const q = publish('0.5.7')
+    await refreshWindowsApp(opts(t, q.files, { version: '0.5.7' }))
+    dropUnnamedMac(t.downloads, noMac as OfficeRelease)
+    expect(macOfferedIn(t.downloads)?.version).toBe('0.5.7')
   })
 })
 

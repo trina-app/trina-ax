@@ -35,7 +35,7 @@ import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { AppConfig } from '../app-config'
 import { DEFAULT_FEED, OFFICE_RELEASE_KEYS, ReleaseError, type Channel, type OfficeRelease } from '../office/release'
-import { fetchManifest, manifestForFolder, NotPublished, offerMac, offerWindows, readIndex, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
+import { dropUnnamedMac, fetchManifest, manifestForFolder, NotPublished, offerMac, offerWindows, readIndex, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
 import { isHosted } from './deployment'
 import { compareVersions } from './update'
 
@@ -193,7 +193,7 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
   /** the Mac app's update from the same verified release (see the header); never throws */
   const macStep = async (r: OfficeRelease) => {
     const m = r.mac
-    if (!m) return
+    if (!m) { try { dropUnnamedMac(o.downloadsDir ?? downloadsDirOf(o.dataDir), r, log) } catch {} ; return }
     const mac = st.mac ?? { last: null, failed: null }
     st.mac = mac
     const record = (x: WindowsAppResult) => { mac.last = { ...x, at: now().toISOString() }; log(`Mac app: ${x.kind} ${x.version ?? ''}${x.message ? `: ${x.message}` : ''}`) }

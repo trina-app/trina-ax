@@ -779,7 +779,7 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
 /** Offer the release's Mac app update to the desks: data/downloads/<zip> and latest-mac.yml. */
 export async function deliverMac(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<string | null> {
   const m = r.mac
-  if (!m) return null
+  if (!m) { try { dropUnnamedMac(path.join(officePaths(home).data, 'downloads'), r, d.log) } catch {} ; return null }
   let res: MacOffer
   try { res = await offerMac(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'mac'), m, d, { ...o, signed: manifestForFolder(path.join(officePaths(home).data, 'downloads'), r) }) }
   finally { try { fs.rmdirSync(updatePaths(home).download) } catch {} }
@@ -805,16 +805,13 @@ export type MacOffer = { kind: 'offered' | 'current' | 'newer'; version: string 
 export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike; signed?: SignedText } = {}): Promise<MacOffer> {
   const now = macOfferedIn(dir)
   if (now && compareVersions(now.version, m.version) > 0) return { kind: 'newer', version: now.version }
-  const sized = (() => { try { return fs.statSync(path.join(dir, m.zip.file)).size === m.zip.size } catch { return false } })()
-  // already offered: the release's latest-mac.yml (pinned by the signed manifest; it pins the zip's sha512) names the zip
-  // that is there with its size. The 200 MB zip is not read again every run (it was checked when it was put there, and
-  // the Mac app checks it against the signed release before installing)
-  if (now && now.zip === m.zip.file && sized && (() => { try { return sha256File(path.join(dir, 'latest-mac.yml')) === m.latestYml.sha256 } catch { return false } })()) {
+  // the zip in place is the release's: its SHA-256, read again only when its size or time changed since it was last read
+  // (.mac-zip.json, never served), so the 200 MB file is not read every run and a damaged copy is still replaced
+  const inPlace = macZipMatches(dir, m.zip)
+  if (now && now.zip === m.zip.file && inPlace && (() => { try { return sha256File(path.join(dir, 'latest-mac.yml')) === m.latestYml.sha256 } catch { return false } })()) {
     placeSignedManifest(dir, o.signed)
     return { kind: 'current', version: m.version }
   }
-  // only latest-mac.yml is not the release's: the zip in place is used when it is the release's (read once here)
-  const inPlace = sized && sha256File(path.join(dir, m.zip.file)) === m.zip.sha256
   const room = roomFor(tmp, (inPlace ? 0 : m.zip.size) + m.latestYml.size, o.statfs)
   if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Mac app ${m.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
   if (!MAC_ZIP_RE.test(m.zip.file)) throw new UpdateFailure(`${m.zip.file} is not a Mac app update zip name`)
@@ -836,6 +833,7 @@ export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<
         fs.chmodSync(tz, 0o600)
         if (fs.statSync(tz).size !== m.zip.size) throw new UpdateFailure(`${m.zip.file} changed while it was offered`)
         fs.renameSync(tz, path.join(dir, m.zip.file))
+        rememberMacZip(dir, m.zip.file, m.zip.sha256)
       }
       placeSignedManifest(dir, o.signed)
       fs.renameSync(t, path.join(dir, 'latest-mac.yml'))
@@ -844,6 +842,42 @@ export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<
     for (const f of fs.readdirSync(dir)) if (f !== m.zip.file && MAC_ZIP_RE.test(f)) fs.rmSync(path.join(dir, f), { force: true })
   } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
   return { kind: 'offered', version: m.version }
+}
+
+const MAC_ZIP_SEEN = '.mac-zip.json'
+
+/** `dir/<zip>` has the release's bytes: by the remembered SHA-256 while size and time are unchanged, else read again */
+export function macZipMatches(dir: string, zip: ReleaseFile): boolean {
+  const f = path.join(dir, zip.file)
+  let st: fs.Stats
+  try { st = fs.statSync(f) } catch { return false }
+  if (st.size !== zip.size) return false
+  let seen: { file?: string; size?: number; mtimeMs?: number; sha256?: string } = {}
+  try { seen = JSON.parse(fs.readFileSync(path.join(dir, MAC_ZIP_SEEN), 'utf8')) } catch {}
+  if (seen.file === zip.file && seen.size === st.size && seen.mtimeMs === st.mtimeMs) return seen.sha256 === zip.sha256
+  const sha = sha256File(f)
+  rememberMacZip(dir, zip.file, sha)
+  return sha === zip.sha256
+}
+
+function rememberMacZip(dir: string, file: string, sha256: string) {
+  try {
+    const st = fs.statSync(path.join(dir, file))
+    fs.writeFileSync(path.join(dir, MAC_ZIP_SEEN), JSON.stringify({ file, size: st.size, mtimeMs: st.mtimeMs, sha256 }), { mode: 0o600 })
+  } catch {}
+}
+
+/** A release without a Mac app (its Mac build failed) after one with it: the folder stops offering the older Mac update
+ * (latest-mac.yml, its zip), because the manifest placed next to it no longer names it and the desks could not check it.
+ * Not when the folder offers a newer Mac app than the release (manifestForFolder keeps that one's manifest). */
+export function dropUnnamedMac(dir: string, r: OfficeRelease, log: (s: string) => void = () => {}) {
+  if (r.mac) return
+  const m = macOfferedIn(dir)
+  if (!m || compareVersions(m.version, r.version) > 0) return
+  fs.rmSync(path.join(dir, 'latest-mac.yml'), { force: true })
+  fs.rmSync(path.join(dir, m.zip), { force: true })
+  fs.rmSync(path.join(dir, MAC_ZIP_SEEN), { force: true })
+  log(`Mac app ${m.version} update no longer offered: release ${r.version} has no Mac app`)
 }
 
 /** electron-updater's latest-mac.yml of the Mac app: the version, `path` = the update zip with its sha512, and file
