@@ -1,7 +1,7 @@
 // 팀장 넘기기: the one confirm (docs/DECISIONS.md "W6"), opened from Home's card, its Inbox notice and Admin › Members'
 // ··· menu. It says who gets the role (the owner's own words for the lead link, or the account's name and username),
-// what moves with it, lists the connections made with my own accounts (each ticked: ended at the transfer; unticked:
-// kept, a company seat) and who can still reset passwords outside the app, then asks for my password again
+// what moves with it, lists the connections made with my own accounts (each kept for the team unless I tick its
+// "Disconnect when I hand over", QA TC-3095) and who can still reset passwords outside the app, then asks for my password again
 // (POST /api/admin/transfer-ownership, owner-reauth). A race (the owner changed meanwhile, 409 owner_changed, or my role
 // is gone already) closes it with "이미 팀장이 바뀌었어요". The names are text only, never markup.
 import { useEffect, useState } from 'react'
@@ -37,13 +37,13 @@ export interface HandoverViewProps {
   /** the list could not be read: the transfer still works, the line says where to end them later */
   failed?: boolean
   recovery: HandoverRecovery | null
-  /** the connections left unticked (kept) */
-  kept: ReadonlySet<string>
+  /** the connections I ticked to disconnect at the transfer; every other one is kept (the default) */
+  ending: ReadonlySet<string>
   onToggle: (c: HandoverConnection) => void
 }
 
 /** The dialog's lines, without loading or sending (tests render it as it is). */
-export function HandoverView({ target, leadFor, connections, failed, recovery, kept, onToggle }: HandoverViewProps) {
+export function HandoverView({ target, leadFor, connections, failed, recovery, ending, onToggle }: HandoverViewProps) {
   const t = useT()
   const locale = useLocale()
   const name = target.name
@@ -60,17 +60,20 @@ export function HandoverView({ target, leadFor, connections, failed, recovery, k
       {!!connections?.length && (
         <fieldset data-testid="handover-connections">
           <legend className="mb-1.5 text-label text-muted">{isolate(locale, 'handover.connections', { name }, ['name'])}</legend>
-          <ul className="space-y-0.5">
+          <ul className="divide-y divide-line">
             {connections.map((c) => {
-              const on = !kept.has(connKey(c))
+              // kept unless I ask: the box is the action ("Disconnect when I hand over"), never a "kept" box left unticked
+              const on = ending.has(connKey(c))
+              const id = `handover-conn-line-${c.kind}-${c.id}`
               return (
-                <li key={connKey(c)}>
-                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg py-1.5 text-sm">
-                    <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={on} onChange={() => onToggle(c)} data-testid={`handover-conn-${c.kind}-${c.id}`} />
-                    <span className="min-w-0 flex-1">
-                      <span className="text-ink">{connectionLine(t, c)}</span>
-                      <span className="text-muted"> · {t(on ? 'handover.conn.ends' : 'handover.conn.keeps')}</span>
-                    </span>
+                <li key={connKey(c)} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4" data-testid={`handover-row-${c.kind}-${c.id}`} data-ending={on || undefined}>
+                  <span className="min-w-0 flex-1" id={id}>
+                    <span className="block text-ink">{connectionLine(t, c)}</span>
+                    <span className={on ? 'block text-label text-danger' : 'block text-label text-muted'} data-testid={`handover-status-${c.kind}-${c.id}`}>{t(on ? 'handover.conn.willEnd' : 'handover.conn.kept')}</span>
+                  </span>
+                  <label className="flex shrink-0 cursor-pointer items-center gap-2 text-label text-ink max-md:min-h-11">
+                    <input type="checkbox" className="size-4 shrink-0" checked={on} onChange={() => onToggle(c)} aria-describedby={id} data-testid={`handover-conn-${c.kind}-${c.id}`} />
+                    {t('handover.conn.endToggle')}
                   </label>
                 </li>
               )
@@ -101,7 +104,7 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
   const locale = useLocale()
   const state = useHandover((s) => s.state)
   const [read, setRead] = useState<'loading' | 'done' | 'failed'>('loading')
-  const [kept, setKept] = useState<ReadonlySet<string>>(new Set())
+  const [ending, setEnding] = useState<ReadonlySet<string>>(new Set())
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -112,7 +115,7 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
     return () => { live = false }
   }, [])
   const connections = read === 'done' ? (state?.connections ?? []) : null
-  const toggle = (c: HandoverConnection) => setKept((s) => {
+  const toggle = (c: HandoverConnection) => setEnding((s) => {
     const next = new Set(s)
     if (!next.delete(connKey(c))) next.add(connKey(c))
     return next
@@ -121,7 +124,8 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
     if (!password || busy || read === 'loading') return
     setBusy(true)
     setError(null)
-    const end = (connections ?? []).filter((c) => !kept.has(connKey(c))).map((c) => ({ kind: c.kind, id: c.id }))
+    // only what I ticked is ended; nothing ticked keeps everything (the server's default too: no `end` = keep)
+    const end = (connections ?? []).filter((c) => ending.has(connKey(c))).map((c) => ({ kind: c.kind, id: c.id }))
     try {
       const r = await api.call(API.transferOwnership, { body: { userId: target.id, password, end } })
       markTransferredHere()
@@ -162,7 +166,7 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
       }
     >
       <div className="space-y-4" data-testid="handover-dialog">
-        <HandoverView target={target} leadFor={leadFor} connections={connections} failed={read === 'failed'} recovery={state?.recovery ?? null} kept={kept} onToggle={toggle} />
+        <HandoverView target={target} leadFor={leadFor} connections={connections} failed={read === 'failed'} recovery={state?.recovery ?? null} ending={ending} onToggle={toggle} />
         <Field label={t('system.passwordAgain')} error={error}>
           <input
             data-autofocus
