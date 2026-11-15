@@ -28340,6 +28340,20 @@ words and components.
 - **Left as is:** a room is "archived" only when its last member (the guest too) has gone, so a room guest never sees an archived room alone; a removed guest signing in fresh in another browser still gets "wrong username or password" (fix pending in another PR).
 - Version impact: **patch** (no API change).
 
+## Guest walkthrough A: links hold a place, what guests see, the invite page — 게스트 워크스루 A (fix/guest-walk-a, 2026-11-15)
+
+넣을 곳: Team AX core (`server/src/auth/guest-invites.ts`, `server/src/auth/accounts.ts`, `server/src/auth/account-removal.ts`, `server/src/rooms/store.ts`, `web/src/pages/Auth.tsx`, `web/src/components/GuestInvite.tsx`, `web/src/store/session.ts`), 이유: an independent guest walkthrough (owner, 11-15) found guests offered actions the server refuses, a cap that refused only after the form, and guests told the wrong thing when their account ended.
+
+- **Open guest links hold a guest place** (M4, owner decision): Create link needs `active guests + open links + 1 ≤ maxGuests`. An open link is one nobody used, revoked or let run out whose maker may still invite into a place that is still open (`openGuestLinks`, the accept's own rule), so a link that stopped by itself holds nothing. Refused: 409 `plan_limit` reason `guest_limit` with `params.pending` and words that say to cancel a link. `GuestInviteLimit.full` counts the links too, with `pending`, so the dialog says it is full before the form. Switching a guest back on and a restored project still check active guests only (no link is handed out there); a link made before the cap dropped is still refused at accept (M3 below).
+- **A full guest link keeps who sent it** (M3): `InviteInfo.inviterName` stays for a guest link while the guests are full; the page shows "{inviter} invited you to {team}" and one line ("can't take more guests now, let the person who invited you know"), no form. A refusal at accept turns the page into the same.
+- **Guests are not offered what the server refuses** (M1, M2, S1): no "Suggest as skill" (answers, side chat, My files), `Room.canRename` false for a guest (`mayRename`, one rule for the room and the PATCH), and no "Send to a chat room" for a guest with no conversation.
+- **A guest's ended sign-in says how** (S5, S6): when a guest's account is switched off or deleted, their session token hashes are noted for 7 days (24 h for others, unchanged) with 'left' (they left their place themselves: the actor is the guest) or 'removed'. The 401 then carries `params: { reason: 'account_removed', guest, team }`, only to that token's holder; a guest switched back on gets the plain 401. The web shows "You left {team}" or "You're no longer in {team}" at once, also when the app is opened later, before any password.
+- **Admin's invite list names a guest link's room** (S8): `Invite.guestPlace.name` for a group chat too. Admin's guest rows already name it; the list is the owner's and admins'. "Copy link" on a listed link was left out: links are kept only as a hash, so an old link cannot be shown again.
+- **The guest link comes with a message** (S7): who sends it, the one place, their own AI account when that is their AI, the link and its end, in the inviter's language. Copy message is the main action.
+- **The guest's invite page** (S9, S10): on a phone Continue in the browser is the main button and the app a link; the page follows the browser's language (one of ours) unless one was picked, and the new account keeps it.
+- **A guest's AI switched off while signed in** (N7): one info toast; a deleted Team AI account (the guest keeps the AI place) says nothing new.
+- Version impact: **minor** (new optional API fields `GuestInviteLimit.pending`, error `params.pending`, 401 `params.guest`/`team`; `Invite.guestPlace.name` for rooms).
+
 ## Free plan removed (owner 2026-11-14): trial with a card only
 
 - **Owner decision (2026-11-14): the hosted Free plan is gone.** Trina Cloud has only the 14-day trial, which starts

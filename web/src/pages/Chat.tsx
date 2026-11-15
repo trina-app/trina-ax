@@ -48,6 +48,8 @@ import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
+import { useRooms } from '../store/rooms'
+import { isGuestMe } from '../lib/guests'
 import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
@@ -138,7 +140,10 @@ function ChatView({ chatId }: { chatId: string }) {
   // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
   const choose = canChooseEngine(me)
   // "대화방에 보내기" only from a chat known not to be confidential (Safe operations 1A: every chat while the server says so)
-  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential
+  // a guest with no conversation to send to (a project's guest, usually): no button that opens an empty list (guest
+  // walkthrough S1). A member always has the everyone room
+  const guestNowhere = useRooms((s) => isGuestMe(me) && s.loaded && !s.failed && s.rooms.length === 0)
+  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential && !guestNowhere
   const actions = useChatActions()
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on

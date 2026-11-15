@@ -1526,6 +1526,18 @@ export class MockServer {
     const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
     if (this.guestCap !== null && used >= this.guestCap) throw new Fail('plan_limit', 409, `The plan's guest limit (${this.guestCap}) is reached.`, undefined, { reason: 'guest_limit', limit: this.guestCap, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
   }
+  /** guest links nobody used, turned off or let run out: each holds a guest place (server/src/auth/guest-invites.ts
+   * openGuestLinks; guest walkthrough M4) */
+  openGuestLinks(): number {
+    return this.invites.filter((i) => i.role === 'guest' && !i.usedAt && !(i as { deadReason?: string }).deadReason && Date.parse(i.expiresAt) > Date.now()).length
+  }
+  /** a new guest link needs a place no open link holds (assertGuestLinkFree) */
+  assertGuestLinkFree() {
+    this.assertGuestFree()
+    const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+    const pending = this.openGuestLinks()
+    if (this.guestCap !== null && used + pending + 1 > this.guestCap) throw new Fail('plan_limit', 409, `Guests are limited to ${this.guestCap}, and counting invite links not used yet, every place is taken.`, undefined, { reason: 'guest_limit', limit: this.guestCap, pending, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
+  }
 
   me(u: User, sid: string): Me {
     const prefs = { ...((u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {}) }
@@ -2362,7 +2374,8 @@ export class MockServer {
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     // a guest: their one room and their DMs only (server/src/auth/guests.ts)
-    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
+    // a guest never renames a room (server/src/rooms/store.ts mayRename): canRename false for them
+    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id).map((r) => ({ ...r, canRename: false })) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
@@ -2490,7 +2503,9 @@ export class MockServer {
       // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
       const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
       if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
+      // a guest link while the guests are full keeps its inviter (guest walkthrough M3)
+      const guestsFull = i!.role === 'guest' && this.guestCap !== null && this.users.filter((u) => u.role === 'guest' && u.status === 'active').length >= this.guestCap
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(guestsFull ? { full: true } : {}), ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -2661,7 +2676,7 @@ export class MockServer {
       return { status: 'sent', message, cut }
     },
     // the rooms' own reads: what was sent here, the room's people, no AI at work
-    getRoom: (c) => this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404),
+    getRoom: (c) => ((r) => (c.user.role === 'guest' ? { ...r, canRename: false } : r))(this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)),
     listRoomMessages: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
@@ -2699,7 +2714,7 @@ export class MockServer {
         if (!staff && pr.createdBy?.id !== c.user.id) fail('forbidden', 403)
       }
       if (c.body.ai.mode === 'team' && !staff) fail('forbidden', 403)
-      this.assertGuestFree()
+      this.assertGuestLinkFree()
       const token = 'inv' + uuidv7().replace(/-/g, '')
       const i = { id: uuidv7(), role: 'guest' as const, groupIds: [] as string[], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInHours ?? 168) * 3600_000).toISOString(), usedAt: null, usedBy: null, leadFor: null, guestPlace: place, guestAi: c.body.ai as GuestAiChoice, ...(c.body.name ? { guestName: c.body.name as string } : {}), token }
       this.invites.push(i)
@@ -2710,7 +2725,9 @@ export class MockServer {
     guestInviteLimit: (c) => {
       const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
-      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
+      const pending = this.guestCap === null ? 0 : this.openGuestLinks()
+      const full = this.guestCap !== null && used + pending >= this.guestCap
+      return { full, limit: this.guestCap, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
         ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {
@@ -3646,7 +3663,8 @@ export class MockServer {
       return { token, url: `/reset-password/${token}`, expiresAt }
     },
     // a guest link's project by name (server/src/auth/accounts.ts toInvite; never a room's)
-    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl?.kind === 'project' ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
+    // a guest link names its project or room (server/src/auth/accounts.ts toInvite)
+    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
       // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops

@@ -157,8 +157,9 @@ export default function Members() {
   const roomTitle = useRoomTitle()
   const guestWhere = (pl: NonNullable<Invite['guestPlace']>) => {
     const room = pl.kind === 'room' ? myRooms.find((r) => r.id === pl.id) : undefined
-    // a project's name comes with the link (Invite.guestPlace.name); a room's only when I am in it
-    const name = pl.kind === 'project' ? pl.name || projectsById[pl.id]?.name : room && roomTitle(room)
+    // the place's name comes with the link (Invite.guestPlace.name; an older server sent a project's only); a room
+    // with no name of its own: its title when I am in it (guest walkthrough S8)
+    const name = pl.name || (pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room))
     return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
   }
   // only the links that still work: a used or expired one says nothing new (the person is in the lists below)
