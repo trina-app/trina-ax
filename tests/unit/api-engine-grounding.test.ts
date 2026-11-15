@@ -194,11 +194,12 @@ describe('a chat turn with the api engine keeps only real team links', () => {
     const name = conflictCopyName('Report.pptx', 'Budi', new Date(2026, 9, 29, 9, 5))
     mkdirSync(path.join(h.team, 'shared'), { recursive: true })
     writeFileSync(path.join(h.team, 'shared', name), 'x')
-    const real = fileShareUrl(`shared/${name}`, 'preview')
-    const madeUp = fileShareUrl('shared/Report (final).pptx', 'preview')
+    // (a download link: a file's preview link is its /f/<id> link since TC-3093, which keeps no name)
+    const real = fileShareUrl(`shared/${name}`, 'download')
+    const madeUp = fileShareUrl('shared/Report (final).pptx', 'download')
     const before = seen.length
     script.push(
-      sse({ calls: [{ id: 'c1', name: 'share_file', args: JSON.stringify({ path: `shared/${name}`, mode: 'preview' }) }] }),
+      sse({ calls: [{ id: 'c1', name: 'share_file', args: JSON.stringify({ path: `shared/${name}`, mode: 'download' }) }] }),
       sse({ text: [`Open [Report.pptx](${real.slice(0, 30)}`, `${real.slice(30)}) or [this](${madeUp}).`] }),
     )
     const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' as EngineId } })

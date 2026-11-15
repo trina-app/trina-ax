@@ -8,14 +8,15 @@
 // complete yet (an open `[...](...` or the last word); flush() gives back the rest at the end of each completion.
 import { FILE_VIEW_PATH } from '@mycel/shared/api'
 
-const ROUTE = new RegExp(`^(?:${FILE_VIEW_PATH.replace(/\//g, '\\/')}(?:$|[?#])|\\/api\\/files\\/)`)
+// (a file's link /f/<id> too: docs/DECISIONS.md "A member shares their own files")
+const ROUTE = new RegExp(`^(?:${FILE_VIEW_PATH.replace(/\//g, '\\/')}(?:$|[?#])|\\/api\\/files\\/|\\/f\\/[A-Za-z0-9_-]+$)`)
 // URL characters with balanced parentheses (CommonMark): file names such as 'Report (final).pptx' or a conflict copy
 // 'name (conflict copy - person date).ext' keep their '(' and ')' when a model decodes or retypes the link. An
 // unbalanced ')' ends the URL, so '(see /files/view?path=a)' does not take the closing parenthesis.
 const urlChars = (c: string) => `(?:${c}|\\(${c}*\\))`
 const FREE = `[^\\s<>()\\[\\]"'\`]`
 // a URL in free text: absolute http(s), or a relative team-route path (not part of a longer path or word)
-const URL_SRC = `(?:https?:\\/\\/${urlChars(FREE)}+|(?<![\\w.\\/])\\/(?:files\\/view|api\\/files\\/)${urlChars(FREE)}*)`
+const URL_SRC = `(?:https?:\\/\\/${urlChars(FREE)}+|(?<![\\w.\\/])\\/(?:files\\/view|api\\/files\\/|f\\/[A-Za-z0-9_-])${urlChars(FREE)}*)`
 const URL_RE = new RegExp(URL_SRC, 'g')
 // a Markdown link or image: [label](url "title"), or a bare URL (also <url>)
 const LINK_RE = new RegExp(`(!?)\\[([^\\]\\n]*)\\]\\(\\s*<?(${urlChars('[^\\s()<>]')}+)>?(?:\\s+"[^"\\n]*")?\\s*\\)|<?(${URL_SRC})>?`, 'g')

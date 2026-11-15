@@ -32,6 +32,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   aiSubagents: true,
   /** the AI's cards may offer "Always allow" (chat/always-allow.ts; rooms/ai-grants.ts) */
   roomAlwaysAllow: true,
+  /** members share files they own (files/shares.ts): on unless an admin turns it off */
+  memberFileShares: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */
   projectCreators: 'members',
   /** Home's "what my group often asks" (chat/often-asked.ts): on unless an admin turns it off (the owner's call, 2026-11-11) */

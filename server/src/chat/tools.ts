@@ -47,6 +47,7 @@ import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
+import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
@@ -189,6 +190,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // (chat/post-to-room.ts): in their own chat and in a shared one (as the turn's own person, SHARED_TOOLS), never in a
   // confidential, draft or template chat, a scheduled run or a question from Slack (postToRoomOff)
   if (!postToRoomOff(exec)) add(postToRoomTool(exec))
+  // the person's own files for teammates, view only, after their yes on one server card every time
+  // (chat/share-with-person.ts): the same places as post_to_room (SHARED_TOOLS in a shared chat), never a scheduled run
+  if (!shareWithPersonOff(exec)) add(shareWithPersonTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.

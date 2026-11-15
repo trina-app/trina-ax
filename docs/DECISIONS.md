@@ -26655,6 +26655,9 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   who start seeing a project its own way), no "Copy link" (no per-folder link), members do not share (only the owner
   and admins change access; members see the count and "An admin changes who can open it."). The model copied is the
   shared drive's (the team owns the folders, the owner and admins act like Managers).
+  **Amended 2026-11-15 (the owner, QA TC-3093, "A member shares their own files" below):** members do not share
+  **folders**; a member shares a **file** they own with chosen people, and a file's Copy link is its `/f/<id>` link.
+  "No Copy link" stays for folders.
 - Tests: web unit `folder-sharing.test.ts` (General access picks, the downgrade captions against the permission
   function), `folder-sharing-panel.test.tsx` (role menu, Access removed + Add, the lasting General access line);
   e2e `folder-access.spec.ts` (the dialog, Remove access, the Downgrade world before and after Save, Access removed),
@@ -29849,6 +29852,86 @@ Two follow-ups to "asked once, reads only what is added":
   has counts only (scanned, found, people, done), never a path or a key.
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
+
+## A member shares their own files — 내 파일을 고른 사람과 공유 (feat/file-share-links, 2026-11-15, the owner, QA TC-3093)
+
+Plan: docs/AGENTS/plan/20261115-1407-file-share-links.md (reviewed; P1 here). In a shared chat a member asked the AI to
+share two photos with a teammate; `share_file` only made a `/files/view?path=` link, which grants nothing, and the
+teammate got "not found". The owner decided: a member shares their **own** file with chosen people or groups, Drive
+style; anyone else who opens the link gets **Ask for access**, which the owner answers in one step; removing access
+takes it away. This overrides "only the owner and admins share" (#787) for a member's own files; team folders' rules
+stay as they are.
+
+- **Who owns a file** (no file had an owner): a personal file's person (`users/<id>/`); a team file's adder, found by
+  walking `file_events` back from the current path (`files/shares.ts creatorOf`): the newest create or upload at the
+  path with no later delete or move-away; a move's own create (`movedFrom`) and a trash restore (`originalPath`) are
+  followed back, never an authorship, so a move (an admin's too) never makes the mover the owner; a copy is the
+  copier's; no event or a delete first: nobody. `file_shares.owner_id` comes from the walk, never from who made the
+  link (`created_by`). Who may share: the owner with edit access now (members only while "Members can share files they
+  own" is on, Admin › Team settings, default on); the team owner and admins for any team file. Never a folder, never a
+  guest, never oneself; a member adds only their own groups. View only (open, preview, download of the current bytes).
+- **The link** `/f/<id>`: 16 random bytes, base64url, made on the first Share or Copy link, kept through renames and
+  moves (`TeamFiles.move` rewrites `file_shares.path` in the move's transaction), parked with the trash item and back
+  on restore, deleted with a purge. Pinned to the file by inode, device, size, mtime and the last sha256 recorded through
+  the app. Only an event that keeps the **same** file re-pins it (a save, an upload over it, a version restore, a
+  conflict, the trash restore of that row); a plain create or upload, a copy or another trash restore at its path makes
+  the row **dead** (its link answers no access, its grants and waiting requests go). Review of #979 (blocker): a file
+  uploaded where a shared one had been deleted outside the app inherited its link. A file changed outside the app: the
+  inode verified last time with the size, mtime and ctime recorded is the same file (nothing hashed); anything else is
+  checked once: a different size makes the row dead, else the hash decides (files up to 32 MB, dead above; a match
+  re-pins, a mismatch makes the row dead), never per request. An inode number alone proves nothing (Linux reuses a
+  freed one for the next file at once: CI found it), nor do an equal size and mtime on another inode (re-review of
+  #979). A move's rename never re-pins: up to 32 MB the next open hashes once; above, the times are taken again only
+  while the size and mtime are still the recorded ones. **Known limit:** on a team folder on a network filesystem
+  (SMB, NFS, AFP) the times may not be kept or may be coarse; the no-hash path still trusts an unchanged inode, size,
+  mtime and ctime there (always hashing on such a mount was not cheap to detect: statfs gives a type number that
+  differs by system).
+- **Who it opens for** (`FileShares.open`): whoever the folder rules let read it (`RuleSet.access`, unchanged), and the
+  people and groups on it (groups read live) while the owner can still edit the file. Guests never, through a link.
+  `RuleSet.decide` is not changed: grants are read only by the id endpoints, which serve the current bytes
+  (`/api/files/shared/:id/download`); no versions, history, extracted text, path, folder or neighbours. Search, the AI's
+  file tools and the file list stay on RuleSet and never see a file through a grant.
+- **The link page** never shows the file's name, type or owner to someone it does not open for (`no_access`, with
+  `canAsk` and `askedAt`); an unknown id says so (no fake "sent", no same-timing promise: the review dropped both;
+  ids are not guessed). The owner's own file in the trash: "This file is in the trash".
+- **Notices:** `file.shared` names who gave THIS person access (their own grant or their group's). Someone told of a
+  request who may not share the file now (an admin without edit access there) changes nothing by answering (403).
+- **Ask for access** goes to the owner, or for a team file with no owner known to the team owner and admins; never to a
+  member while members' sharing is off (403 `file_request_off`). One waiting request per person and file, 5 a day to
+  one owner, 20 an hour in all (429); a note of at most 500 characters, control characters out, shown as plain text.
+  The owner's Activity row (`file.access_requested`, one per person and file, brought back up by a new ask) has
+  **Share** and **Decline**; Share adds the person, Decline tells them "Your request to open a file wasn't approved."
+  (`file.access_answered`, nothing about the file). Activity only in P1: no push (P2: a generic gateway line, the
+  sharer named through the label fetch, never the file name).
+- **A grant never widens past what its owner chose.** A move by someone other than the owner to where fewer people can
+  read it removes the grants **inside the move's own step** (`TeamFiles.relocate` → `sharesNarrowedByMove`; a failure
+  fails the move; audit `file.unshare` reason `moved_narrower`; the owner is told after: `file.unshared_by_move`).
+  The owner's own move keeps them; the move confirm (409 `audience_narrowed`) carries `linkPeople`, "N people have this
+  file by its link." An admin narrowing a folder's rules: the folder Share dialog's preview carries `linkPeople` ("N
+  people have files here by link.") with **Remove those links too**, ticked by default; the save sends
+  `removeFileLinks` and removes them in its own step (audit `file.unshare` reason `folder_narrowed`). A narrowing save
+  while files there are shared by link must send `removeFileLinks` (true or false): without it, 409
+  `file_links_decide` (nothing saved), so a missing field never keeps the links silently.
+- **The AI: `share_with_person(paths, people)`** (chat/share-with-person.ts). The rules of every action that reaches
+  others are post_to_room's, in one helper both tools import (chat/shared-actions.ts: the person whose turn it is acts,
+  their card is theirs alone, other viewers see the step's verb alone, not offered in a template or restricted run, a
+  confidential chat or a question from Slack, several matches picked on the asker's card in a shared chat, no server
+  words in a shared chat's refusals). Two differences, because it grants access: the card is shown **every time**
+  (Always allow never skips it; never in a scheduled run), and in a chat someone else wrote in each file must be one the
+  asker attached, named in their own message, or the AI made in this turn. Its paths are not reads for the shared
+  chat's read card (it brings nothing into the chat). Then the AI replies with the links. Audited `file.share` via ai.
+  **`share_file`** says it gives nobody access, and a file's preview link is now its `/f/<id>` link.
+- **Audit:** `file.share`, `file.unshare`, `file.access_request` (never the note), `file.access_approved`,
+  `file.access_declined`, `file.shares_removed_all`; target `file-share:<id>`; a team file by its path, a personal
+  file only as `personal: true`. **The team owner's emergency revoke:** Admin › Team settings, **Remove all file shares**
+  (every grant and waiting request, at once); the switch off stops new shares and requests to members.
+- **Unchanged:** `users/<id>/` stays private to its person by path (admins too); a shared file opens only by its link.
+  Folders keep #787's dialog. Guests keep their one place.
+- **P2:** push, "Shared with me", Admin's list of every file share, phone universal links for `/f/*` (store build),
+  guests in a place the sharer is in, the recipient's AI reading a shared file.
+- Migration `355_c_file_shares.sql` (C; additive, reader 1; 354 is taken by feat/old-files-key-scan). Tests:
+  `tests/unit/c-file-shares.test.ts`, `tests/security/file-shares.test.ts`, `tests/unit/b-share-with-person.test.ts`,
+  web e2e `file-share-links.spec.ts`. Version impact: **minor** (a feature, endpoints, a migration).
 
 ## Share in the title row — 공유 버튼은 제목 줄 오른쪽에 (feat/project-share-button, 2026-11-15, the owner, QA TC-3283 and the next row)
 

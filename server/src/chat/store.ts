@@ -174,7 +174,8 @@ export class ChatStore {
     // members' names): the others see its verb alone, sent, cancelled or refused (QA TC-3091 review)
     if (view && !view.runner) for (let i = 0; i < steps.length; i++) {
       const st = steps[i]!
-      if (st.tool === 'post_to_room') { const { detail: _d, posted: _p, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
+      // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
+      if (st.tool === 'post_to_room' || st.tool === 'share_with_person') { const { detail: _d, posted: _p, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
       if (st.detail !== undefined || st.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = st; steps[i] = rest }
     }
     if (!steps.some((s) => s.tool === 'attachment')) return steps

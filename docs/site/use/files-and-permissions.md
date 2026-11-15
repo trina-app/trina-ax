@@ -63,6 +63,17 @@ After the update that made access add up, some folders list their people by name
 
 ![What a person can open: each folder with Viewer or Editor and why, then what they can't open](../images/files/by-person.webp "What a person can open")
 
+## Share a file
+
+You can share a file you own with chosen people, without changing who can open its folder: **Files › a file's ⋯ › Share**. Add people or groups and press **Share**. They can view the file and download it; they don't see the rest of the folder. Each person you add sees it in **Activity**.
+
+- **People with access** lists the owner and each person or group with **Can view**. **✕** removes someone's access (asked first).
+- A team file also opens for everyone who can open its folder.
+- **Copy link** gives the file's own link. People with access open it; anyone else sees **You need access** and can **Ask for access** with a note. The request comes to the owner in **Activity** with **Share** and **Decline**. The link page never shows the file's name to someone who can't open it.
+- Moving a file somewhere fewer people can open says how many people have it by its link.
+
+Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working). The team owner can **Remove all file shares** there at once.
+
 ## Working with files
 
 ![The Files screen: the team folder with Company-wide, Groups, Projects, Team skills and Personal](../images/files/files.webp "The Files screen")

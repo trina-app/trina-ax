@@ -7,6 +7,7 @@ import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInpu
 import { editHwpFile, editHwpFileText } from './edit-hwp'
 import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
+import { fileSharesOf } from '../files/shares'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { authorize } from '../policy/authorize'
@@ -143,16 +144,21 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
 
   reg.register({
     name: 'share_file',
-    description: 'Get a link to a file or folder in the team folder for the user: mode "preview" opens it in the app, "download" saves it. ' +
-      'Whoever opens the link is checked again with their own access, so a link never shares more than they may see.',
+    // (docs/DECISIONS.md "A member shares their own files": a link gives nobody access; share_with_person does)
+    description: 'Get a link the user can open or pass on to a file or folder in the team folder: mode "preview" opens it in the app, "download" saves it. ' +
+      'It gives nobody access: it opens only for people who can already open the file (others get an "Ask for access" page for a file). ' +
+      'To let a teammate open one of the user\'s own files, use share_with_person.',
     input: ShareFileInput,
     describe: (a) => `share_file ${a.mode} ${a.path}`,
     run(a, t) {
       const r = authorize(c.files.fx, c.files.rules(), t.user, a.path, 'read')
       if (r.st!.isDirectory() && a.mode === 'download') throw new ToolError('folders can only be shared with mode "preview"')
-      const url = fileShareUrl(r.rel, a.mode)
+      // a file's preview link is its /f/<id> link (stable through renames; others get "Ask for access"); a folder, a
+      // download and a guest keep the path link
+      let url = fileShareUrl(r.rel, a.mode)
+      if (a.mode === 'preview' && !r.st!.isDirectory()) { try { url = fileSharesOf(ctx).linkFor(t.user.id, r.rel).url } catch {} }
       const name = r.segs[r.segs.length - 1] ?? 'team folder'
-      return { text: `${url}\nShow it as a Markdown link, e.g. [${name}](${url}).`, summary: `share_file ${a.mode} ${r.rel}`, structured: { url } }
+      return { text: `${url}\nShow it as a Markdown link, e.g. [${name}](${url}). The link gives nobody access: it opens only for people who can already open it (use share_with_person to let a teammate open one of the user's own files).`, summary: `share_file ${a.mode} ${r.rel}`, structured: { url } }
     },
   })
 

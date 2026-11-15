@@ -979,7 +979,7 @@ test.describe('phone', () => {
     await page.keyboard.press('Enter')
     const items = panel.getByRole('menu').getByRole('menuitem')
     // a Markdown file is edited from here on a phone (QA TC-259)
-    await expect(items).toHaveText(['고치기', '파일 화면에서 열기', '내려받기'])
+    await expect(items).toHaveText(['고치기', '파일 화면에서 열기', '공유', '내려받기'])
     await expect(items.first()).toBeFocused()
     await page.keyboard.press('ArrowUp')
     await expect(items.last()).toBeFocused()

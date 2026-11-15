@@ -37,9 +37,11 @@ export function readDesktopLink(raw: string): TeamInput | null {
 
 /** An id in a page address: the server's ids (uuidv7) and nothing that could move the path (no `.`, `%`, `/`, `\`). */
 const PAGE_ID = '[A-Za-z0-9_-]{1,64}'
+/** A file's link id (shared/src/api/file-shares.ts FileLinkId: 16 random bytes, base64url). */
+const FILE_LINK_ID = '[A-Za-z0-9_-]{22}'
 /** The team pages a link from outside may open in the app (web/src/App.tsx routes): a chat, a room, a room's thread,
- * a project. Nothing else (settings, admin, files, sign-in pages). */
-const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID})$`)
+ * a project, a file's link (/f/<id>, QA TC-3093). Nothing else (settings, admin, files, sign-in pages). */
+const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID}|f/${FILE_LINK_ID})$`)
 const ROOM_PATH = /^\/rooms\//
 const MESSAGE_ID = new RegExp(`^${PAGE_ID}$`)
 

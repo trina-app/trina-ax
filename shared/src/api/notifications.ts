@@ -92,11 +92,11 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver', 'file.shared', 'file.access_requested', 'file.access_answered', 'file.unshared_by_move'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
@@ -206,6 +206,19 @@ export const InboxNotification = z.object({
    * `title`: the chat's title, read now and only while I still see the chat (link 'chat' then opens it); `gone`: I no
    * longer see it ("This chat is no longer shared with you": no title, no link). Never stored text. Older servers omit it */
   chatShared: z.object({ name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
+  /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
+   * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
+   * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and
+   * `state` (pending until someone answers; Share / Decline while pending and the viewer may share). file.access_answered
+   * (to the requester, on a decline): nothing about the file (no name, no link). file.unshared_by_move (to the owner):
+   * `by` moved `name` somewhere fewer people can open, so the people it was shared with lost it. Names are read now;
+   * `gone`: the file or the request is no longer there (no name, no link). Older servers omit it */
+  fileShare: z.object({
+    by: z.string().nullable(), name: z.string().nullable(), linkId: z.string().nullable(),
+    note: z.string().optional(), requestId: z.string().optional(),
+    state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
+    canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
+  }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";
    * the link opens Skills › 검토 at that person. Never a skill's name. Older servers omit it */
