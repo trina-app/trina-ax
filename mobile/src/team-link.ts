@@ -205,6 +205,13 @@ export function relayAnswer(status: number, relayError: string | null | undefine
   return null
 }
 
+/** Trina is updating (503): the update's stand-in while the database is migrated (x-mycel-updating: 1,
+ * server/src/system/updating-page.ts) or the relay while a hosted team's server is updated (team_maintenance). The
+ * failure screen then says so instead of "Could not reach your team"; it still retries by itself. */
+export function updatingAnswer(status: number, updating: string | null | undefined, relayError: string | null | undefined): boolean {
+  return status === 503 && (updating === '1' || relayError === 'team_maintenance')
+}
+
 /**
  * A renamed team (the relay answers 308 with the new address, control-plane D40): the new origin, only when it is
  * another `<name>.<teamDomain>` (or `<name>.localhost` for development) with the same scheme and port as the address

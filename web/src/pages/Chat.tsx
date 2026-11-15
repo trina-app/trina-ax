@@ -395,16 +395,23 @@ function ChatView({ chatId }: { chatId: string }) {
     if (othersTurn) throw new Error(t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }))
     const clientMessageId = uuidv7()
     const r = await send({ chatId, content: text, attachments, author, clientMessageId })
-    try {
-      await r.sent
-    } catch (e) {
-      if (!refusalReason(e) && !isApiError(e, 'conflict')) return // shown on the message ("not sent", send again)
+    const refused = (e: unknown): Error | null => {
+      if (!refusalReason(e) && !isApiError(e, 'conflict')) return null // shown on the message ("not sent", send again)
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
       if (local) discardLocal(chatId, local.id)
       void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
       const key = refusalKey(e, 'chat')
-      throw new Error(key ? t(key) : errorText(e, locale, t('error.network')))
+      return new Error(key ? t(key) : errorText(e, locale, t('error.network')))
     }
+    // Trina is updating: the message waits on screen with its note and goes when the server is back (store/chats.ts),
+    // so the box is free again now; a refusal after the update says why in a notice (the box may hold new text by then)
+    const first = await Promise.race([r.sent.then(() => null, (e: unknown) => ({ e })), untilWaitingForUpdate(chatId, clientMessageId, r.sent)])
+    if (first === 'updating') {
+      r.sent.catch((e: unknown) => { const err = refused(e); if (err) toast({ level: 'warn', text: err.message }) })
+      return
+    }
+    const err = first ? refused(first.e) : null
+    if (err) throw err
   }
 
   /** Sent from the message box while the AI waits for the answer to its question: the text answers it, like the card's
@@ -742,4 +749,15 @@ function ChatOfTrashedProject({ projectId }: { projectId: string }) {
       </EmptyState>
     </div>
   )
+}
+
+/** Settles 'updating' once the message sent with `clientMessageId` waits for Trina's update (store/chats.ts deliver);
+ * never while it was sent or refused before (`sent` ends the watch). */
+function untilWaitingForUpdate(chatId: string, clientMessageId: string, sent: Promise<void>): Promise<'updating'> {
+  return new Promise((resolve) => {
+    const waits = (s: ReturnType<typeof useChats.getState>) => !!s.threads[chatId]?.messages.some((m) => m.local?.clientMessageId === clientMessageId && m.local.updating)
+    if (waits(useChats.getState())) { resolve('updating'); return }
+    const stop = useChats.subscribe((s) => { if (waits(s)) { stop(); resolve('updating') } })
+    void sent.then(stop, stop)
+  })
 }

@@ -12,7 +12,7 @@ import clsx from 'clsx'
 import { CircleAlert, Loader2, WifiOff } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
 import { create } from 'zustand'
-import { errorText, isConnectionError, isTeamWaking } from '../lib/api'
+import { errorText, isConnectionError, isServerUpdating, isTeamWaking } from '../lib/api'
 import { useAutoRetry } from '../lib/autoRetry'
 import { useLocale, useT } from '../i18n'
 import { useUi } from '../store/ui'
@@ -111,6 +111,22 @@ export function LoadError({ error, onRetry, text, soft, what, minor, className }
       <div ref={root} className={clsx('flex justify-center py-3', className)} data-testid="load-error" data-what={what} data-state="waiting">
         <Loader2 size={16} className="animate-spin text-faint" aria-label={t('conn.retrying')} />
       </div>
+    )
+  }
+  if (connection && isServerUpdating(error)) {
+    // Trina is updating: the same words as the page a browser gets meanwhile (server/src/system/updating-page.ts); it
+    // reads again by itself as for any connection error
+    return (
+      <CalmNotice
+        rootRef={root}
+        className={className}
+        testId="load-error"
+        what={what}
+        state="updating"
+        icon={<Loader2 size={16} className="animate-spin" />}
+        title={t('conn.updating')}
+        detail={t('conn.updatingDetail')}
+      />
     )
   }
   if (connection && isTeamWaking(error)) {

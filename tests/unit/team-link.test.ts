@@ -166,6 +166,18 @@ describe('where the apps show the team address', () => {
   })
 })
 
+describe('Trina is updating (QA TC-2260)', () => {
+  test('the update\'s stand-in (x-mycel-updating) or the relay\'s team_maintenance, on a 503 only', () => {
+    for (const m of [shared, phone]) {
+      expect(m.updatingAnswer(503, '1', null)).toBe(true)
+      expect(m.updatingAnswer(503, null, 'team_maintenance')).toBe(true)
+      expect(m.updatingAnswer(503, null, 'team_offline')).toBe(false)
+      expect(m.updatingAnswer(503, null, null)).toBe(false)
+      expect(m.updatingAnswer(502, '1', null)).toBe(false)
+    }
+  })
+})
+
 describe('what the relay answered', () => {
   test('x-relay-error: unknown name, suspended team, offline team; anything else is not the relay', () => {
     for (const m of [shared, phone]) {

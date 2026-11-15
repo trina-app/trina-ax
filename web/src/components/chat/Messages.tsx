@@ -451,8 +451,9 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
         )
       )}
       {m.local?.state === 'sending' && (
-        <span className="flex items-center gap-1 text-xs text-faint" role="status">
-          <Loader2 size={12} className="animate-spin" aria-hidden /> {t('chat.sending')}
+        // while Trina is updating it waits and goes by itself when the server is back (store/chats.ts deliver)
+        <span className="flex items-center gap-1 text-xs text-faint" role="status" data-testid={m.local.updating ? 'send-waiting-update' : undefined}>
+          <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden /> {m.local.updating ? t('conn.updatingUnsent') : t('chat.sending')}
         </span>
       )}
       {m.local?.state === 'failed' && (

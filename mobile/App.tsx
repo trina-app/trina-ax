@@ -417,7 +417,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
     </View>
   </View>
 }
-type Failure = 'offline' | 'unreachable'
+type Failure = 'offline' | 'unreachable' | 'updating'
 function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
@@ -577,7 +577,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   // again, the page loads again, as Try again does (the source is still the page that failed: a tapped push's chat)
   const reconnect = useRef<Reconnect | null>(null)
   if (!reconnect.current) reconnect.current = new Reconnect(
-    async () => { const c = await checkTeam(address.origin, service.teamDomain); return c.ok || c.reason !== 'unreachable' },
+    // (Trina is updating: the screen says so, and keeps trying)
+    async () => { const c = await checkTeam(address.origin, service.teamDomain); if (!c.ok && c.updating) setFailed(f => (f ? 'updating' : f)); return c.ok || c.reason !== 'unreachable' },
     () => setFailed(null))
   useEffect(() => {
     const again = reconnect.current!
@@ -610,8 +611,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page; the
   // app also does by itself once the team answers (reconnect above)
   if (failed) return <Center>
-    <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header">{failed === 'offline' ? t.offlineTitle : t.unreachableTitle}</Text>
-    <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : t.unreachableHint}</Text>
+    <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header" testID={failed === 'updating' ? 'updating-title' : undefined}>{failed === 'offline' ? t.offlineTitle : failed === 'updating' ? t.updatingTitle : t.unreachableTitle}</Text>
+    <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : failed === 'updating' ? t.updatingHint : t.unreachableHint}</Text>
     <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
     <Pressable style={s.link} onPress={changeTeam} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   // the team address the app connected to (drawn here: a page can draw anything) and "another team": on the sign-in

@@ -6,6 +6,7 @@ import { currentLocale, t } from '../i18n'
 import { noPurchaseLinks } from './desktop'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
 import { xhrFetch } from './xhr'
+import { noteAnswer } from './serverUpdating'
 
 const WINDOW_KEY = 'mycel.windowId'
 
@@ -84,7 +85,12 @@ const afterWrite = async <R,>(init: RequestInit | undefined, run: () => Promise<
 }
 
 // uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
-const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => storeSafeError(await fetch(input, inWindow(init))))) as typeof fetch
+// (an answer that says Trina is updating starts the window's wait for it: lib/serverUpdating.ts)
+const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => {
+  const res = await fetch(input, inWindow(init))
+  noteAnswer(res)
+  return storeSafeError(res)
+})) as typeof fetch
 
 export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => afterWrite(init, () => xhrFetch(input, inWindow(init), onSent)) })
 export { API, ApiError }
@@ -99,11 +105,16 @@ export const isApiError = (e: unknown, code?: ErrorCode): e is ApiError => e ins
  * the server's JSON. It passes by itself, so a list that could not be read tries again by itself
  * (components/LoadError.tsx). A reason the server gives (a quarantined file, the queue draining) is not this. */
 export const isConnectionError = (e: unknown) =>
-  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && (e.body.params?.reason === undefined || isTeamWaking(e)))
+  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && (e.body.params?.reason === undefined || isTeamWaking(e) || isServerUpdating(e)))
 
 /** The relay says the team's server is starting after a pause (a free trial's server turns off when unused): not an
  * error to fear. It is a connection error too (it passes by itself), but the words say "Resuming your team". */
 export const isTeamWaking = (e: unknown) => e instanceof ApiError && e.status === 503 && e.body.params?.reason === 'team_waking'
+
+/** Trina is updating (an update migrates the server's database, or the control plane updates a hosted team's server):
+ * a connection error too, it passes by itself, but the words say "Trina is updating" and what waits goes when it is
+ * back (lib/serverUpdating.ts). */
+export const isServerUpdating = (e: unknown) => e instanceof ApiError && e.status === 503 && e.body.params?.reason === 'updating'
 
 /**
  * Text for an error, in the UI language. Server messages are already in the user's language (tab 4), but before

@@ -2,7 +2,7 @@ import { fetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import { parseTeamAddress } from './address'
 import type { Slot } from './device'
-import { relayAnswer, relayRename } from './team-link'
+import { relayAnswer, relayRename, updatingAnswer } from './team-link'
 export { parseTeamAddress, readTeamInput } from './address'
 export { sameTeam } from './protocol'
 const KEY = 'team-ax.origin', SINCE = 'team-ax.since', LEFT = 'team-ax.left-sessions'
@@ -30,16 +30,16 @@ export async function saveTeamUrl(origin: string | null) {
 /** How a team address answered GET /api/health: a relay's own answers are told apart (src/team-link.ts relayAnswer), and
  * a team renamed at its relay (308) is followed once, only to another name under the same team domain (relayRename);
  * `origin` is then the new address. Any other redirect is not a team server. */
-export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended' }
+export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended'; updating?: true }
 export async function checkTeam(origin: string, teamDomain: string | null = null): Promise<TeamCheck> {
   const first = await health(origin)
-  if (first.kind !== 'redirect') return first.kind === 'ok' ? { ok: true, origin, renamed: false } : { ok: false, reason: first.kind }
+  if (first.kind !== 'redirect') return first.kind === 'ok' ? { ok: true, origin, renamed: false } : { ok: false, reason: first.kind, ...(first.updating ? { updating: true as const } : {}) }
   const renamed = relayRename(origin, first.location, { teamDomain, loopbackHttp: false })
   if (!renamed) return { ok: false, reason: 'notTeam' }
   const second = await health(renamed)
-  return second.kind === 'ok' ? { ok: true, origin: renamed, renamed: true } : { ok: false, reason: second.kind === 'redirect' ? 'notTeam' : second.kind }
+  return second.kind === 'ok' ? { ok: true, origin: renamed, renamed: true } : second.kind === 'redirect' ? { ok: false, reason: 'notTeam' } : { ok: false, reason: second.kind, ...(second.updating ? { updating: true as const } : {}) }
 }
-type Health = { kind: 'ok' | 'unreachable' | 'notTeam' | 'unknown' | 'suspended' } | { kind: 'redirect'; location: string | null }
+type Health = { kind: 'ok' | 'unreachable' | 'notTeam' | 'unknown' | 'suspended'; updating?: boolean } | { kind: 'redirect'; location: string | null }
 async function health(origin: string): Promise<Health> {
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 8000)
   try {
@@ -48,7 +48,7 @@ async function health(origin: string): Promise<Health> {
     if (response.status >= 300 && response.status < 400) return { kind: 'redirect', location: response.headers.get('location') }
     const relay = relayAnswer(response.status, response.headers.get('x-relay-error'))
     if (relay === 'unknown' || relay === 'suspended') return { kind: relay }
-    if (relay === 'offline' || response.status >= 500) return { kind: 'unreachable' }
+    if (relay === 'offline' || response.status >= 500) return { kind: 'unreachable', updating: updatingAnswer(response.status, response.headers.get('x-mycel-updating'), response.headers.get('x-relay-error')) }
     if (!response.ok || Number(response.headers.get('content-length') ?? 0) > 4096) return { kind: 'notTeam' }
     const reader = response.body?.getReader()
     if (!reader) return { kind: 'notTeam' }

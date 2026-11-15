@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
+import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { keepFaces } from '../lib/sharedChat'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
@@ -451,6 +452,17 @@ export const useChats = create<ChatsState>((set, get) => {
         return
       } catch (e) {
         if (session !== generation) return
+        // Trina is updating (lib/serverUpdating.ts): the message stays "sending" with a note and goes once the server
+        // is back, with the same clientMessageId (the server keeps the first one; the update's stand-in kept none)
+        if (waitsForUpdate(e)) {
+          setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'sending', undefined, true) }))
+          await waitForUpdate()
+          if (session !== generation || !outbox.has(localId)) return
+          setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'sending') }))
+          job.firstTry = Date.now()
+          attempt = -1
+          continue
+        }
         if (isNetworkError(e) && Date.now() - job.firstTry < SEND_RETRY_MS) {
           await sleep(Math.min(8000, 1000 * 2 ** attempt))
           continue
