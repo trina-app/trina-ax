@@ -1,5 +1,5 @@
 // Settings on a phone at 390×844 (QA TC-261–263, docs/AGENTS/plan/20261111-1748-phone-settings-rows.md): sections are
-// rows and switches, not a web page's buttons (Memory, Security & devices, Notifications, Profile, AI accounts, sign
+// rows and switches, not a web page's buttons (Memory, Security & devices, Notifications, Profile, AI providers, sign
 // out); in the phone app what only works on a computer is not offered (connecting a service, AI app setup, Mac and
 // Windows downloads); and there are no duplicate entries or loops (Activity, the AI's sites in one page, the "just for
 // you" line, the schedule-review row). A computer keeps every section as it was.
@@ -207,7 +207,7 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     expect(patched).toBe(0)
   })
 
-  test('4. AI accounts — an Add account row', async ({ page }) => {
+  test('4. AI providers — an Add account row', async ({ page }) => {
     await me(page, 'settings-row-providers')
     const addRow = page.getByTestId('my-credential-add-claude')
     await expect(addRow).toBeVisible()

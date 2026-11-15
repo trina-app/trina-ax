@@ -28763,6 +28763,23 @@ Disk Access) are part 5.
   managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
 - Version impact: **patch** (wording only; no API or data change).
 
+## Admin and Settings: one name, "AI providers" (chore/rename-ai-providers, 2026-11-15)
+
+Owner, 2026-11-15: "Shouldn't it match the personal settings? How about AI provider?" **Supersedes** the split in the
+entry above (admin "Providers", Settings "AI accounts") and "Plain words for members" (2026-11-11).
+
+- Both pages are **AI providers** (ko AI 제공사, ja AIプロバイダー, es Proveedores de IA, id Penyedia AI, zh AI 提供商):
+  `admin.providers` (en was "Providers") and `settings.providers` (was "AI accounts" and its translations), the Admin
+  Home tile, every hint and server message that names either page, and the docs and docs site in en and zh (the
+  docs page `use/ai-accounts.md` keeps its address, its title is AI providers).
+- The pages differ in whose they are, not in name: Admin lists the team's connections, Settings your own. Where one
+  list shows both (a phone's Settings, with the admin list inside it) the team's is **Team AI providers**
+  (`admin.team.providers`; ko 팀 AI 제공사), as Team connected apps is.
+- Rows inside still say "account" where they mean an account: the Add account button, "Your AI account ...", the
+  guest's AI account. Settings search finds the page by "AI accounts" and "providers" too (`settings.find.credentials`).
+- Kept: the stored legacy chat-error words in `shared/src/api/errors.ts`.
+- Version impact: **patch** (wording only).
+
 ## Find work files, part 5: wider places, Full Disk Access first on a Mac (feat/find-work-files-wide, 2026-11-15)
 
 Owner, 2026-11-15: "Documents, Desktop and Downloads aren't where real company files are", then "doesn't this mean we
@@ -29014,6 +29031,44 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
   **Will be disconnected**, and its box is the action, **Disconnect when I hand over**, off by default; a box left
   unticked never sits beside the word "kept". [Transfer] without touching anything ends nothing. The server already
   treats a missing `end` as "keep" (`TransferOwnershipBody.end` defaults to `[]`), now pinned by a test. The new owner
-  can still disconnect anything later in Admin › Providers or Connected apps.
+  can still disconnect anything later in Admin › AI providers or Connected apps.
 - The [Transfer] button keeps the shared `danger` variant of every destructive confirm; it is disabled until the
   password is typed (the screenshot was that state).
+
+## The welcome card brings work files from this computer (feat/welcome-find-files, 2026-11-15, product owner)
+
+Owner, 2026-11-15: the invited person's welcome card gets an optional fourth row for "Find work files on this computer",
+in the desktop app only, never blocking "You're all set". Until now Find work files had two ways in, My files and the
+setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Home). Plan:
+`docs/AGENTS/plan/20261115-1400-welcome-find-files.md`.
+
+- **The row** (MemberWelcome.tsx `FilesRow`): "Bring work files from this computer", "Optional · only the files you pick;
+  only you see them, in My files › From this computer", **Find files**. Shown only where My files' line is
+  (`useMyWorkFiles` in FindWorkFiles.tsx, shared by both): the desktop app with the bridge's version, not a guest (guests
+  have no card anyway). Not in a browser, a phone's app, the Mac App Store build or an older desktop app; not on a narrow
+  window (like My files' line), where a dialog already open stays as it is (it keeps its place in the tree).
+- **The same dialog as My files** (`useMyWorkFiles`, no second copy): the member's own AI picks (`rank: 'own'`), nothing
+  ticked, files to My files › From this computer, the run's result with Open and Undo; a run started on the card is the
+  one My files' line reopens, and the other way round.
+- **Done** = a file is in the person's My files › From this computer (`steps.files`, optional in the contract, absent
+  from older servers; `welcomeOf` looks on disk: at most 200 folders, hidden names and links not counted, the person's
+  folder and From this computer must be real folders, not links). No migration
+  and no new field to write: Undo (the files go to the trash) makes it not done again, and a file added from My files
+  before counts too. A new file up marks it on the card at once; closing the dialog and Undo read the card again. Done:
+  **Open** (My files › From this computer), as the rooms and hi rows.
+- **Optional, not counted** (as the photo): `countedSteps` and the server's `allSet` stay hi + asked, so "1 of 3" is the
+  same on the web, a phone and the desktop app, and "You're all set" never waits for it.
+- **Exits** (the walk, PR): Cancel in the app's own window, the dialog's ✕ or Escape at any step, list Cancel, Not now
+  on the Full Disk Access screen (the three folders, then the app's window: its Cancel), Close after Add, Undo then
+  Close: all back to the card, which reads its rows again. Open (after Add, or on the done row) goes to My files › From
+  this computer; Home is one tap back. How (the guide) opens in the browser.
+- i18n: `memberWelcome.files`, `memberWelcome.filesHint`, `memberWelcome.filesButton` in the six languages. Guide:
+  `docs/site/use/find-work-files.md` (and zh) names the row.
+- Tests: `tests/unit/b-member-welcome.test.ts` (files done on disk, folders, hidden names and links not counted, the
+  file route's delete (Undo's way) makes it not done, a linked From this computer not followed, all set without it), web unit `member-welcome.test.tsx` (no row in a browser, an older app or the Mac App Store
+  build, a phone's width; the row optional and "1 of 3"; done with Open; the all-set card shows no row; Cancel back to
+  the card and read again), e2e `welcome-find-work-files.spec.ts` (the stand-in bridge: every exit back to the card, Add
+  done, Undo not done, a reload, Not now then Cancel, a narrow window keeps the open dialog, a run started on the card
+  reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
+  (1440 and 390, light and dark).
+- Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).

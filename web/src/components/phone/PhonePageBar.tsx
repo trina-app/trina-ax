@@ -2,7 +2,7 @@
 // ("‹ Admin", "‹ Settings"), the page's name in the middle, and one action at most on the right. Admin's pages and root,
 // Settings' sections and the top bar's pages under a tab (PhoneTopBar.tsx) all use it, so there is one look. The name
 // stays centred (the two sides are equal columns) while the label fits whole beside it; a label that does not (an
-// engine's page under "Team AI accounts") keeps its name and the title moves over, centred in the room left, as iOS does
+// engine's page under "Team AI providers") keeps its name and the title moves over, centred in the room left, as iOS does
 // with a wide left button; only when even that does not fit is ‹ alone (never "Admin…": its name is still read out).
 // The title is cut last. Every button is 44 px. A tab's own top (Files at the team folder) has no ‹ (`onBack` left
 // out); `heading`: the title is the page's h1 (the page has no other).

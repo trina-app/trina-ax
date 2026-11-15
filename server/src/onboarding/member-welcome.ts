@@ -11,15 +11,18 @@
 // team's creator never gets a row: their start is the welcome steps.
 //
 // welcomeOf is the card on Home, for the caller only: who invited them, how many people are here, their rooms and four
-// rows (the rooms: done; hi: any message of theirs in a room; photo: optional; asked: the "what can I do here" chat),
-// and for an admin "팀 파일 정리하기" while no folder plan was applied (files-organize.ts; not counted).
+// rows (the rooms: done; hi: any message of theirs in a room; photo: optional; asked: the "what can I do here" chat;
+// files: optional, a file in their My files › From this computer, which the desktop app's row shows), and for an admin "팀 파일 정리하기" while no folder plan was applied (files-organize.ts; not counted).
 // It shows for MEMBER_WELCOME_DAYS after joining, until hidden or done; once every counted row is done it says "You're
 // all set" for ALL_SET_MS, then it is gone for good.
 //
 // While the card's days last, the person's connection template notices wait (notifications/service.ts offerTemplates)
 // until they open Connected apps (templatesSeen: the templates are listed there, so the offers are recorded without a
 // notice) or the days are over (the 30-second pass sends them then).
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Database } from 'bun:sqlite'
+import { FROM_COMPUTER_DIR } from '@mycel/shared'
 import { MEMBER_WELCOME_DAYS, type MemberWelcome, type WelcomeRoom } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getTeamSettings } from '../admin/settings'
@@ -85,6 +88,36 @@ function saidHi(db: Database, userId: string): boolean {
     AND x.seq > m.visible_from_seq AND x.author_id = m.user_id AND x.author_kind = 'user' AND x.event IS NULL) LIMIT 1`).get(userId)
 }
 
+/** How many folders fromComputerHasFile looks into before it says no (a run makes a few levels: root, then folders). */
+const FILES_LOOK_DIRS = 200
+
+/**
+ * A file is in their My files › From this computer (where "Find work files on this computer" puts what they add): the
+ * optional files row is done. Read on disk, so Undo (the files go to the trash) makes it not done again. Symbolic
+ * links are never followed (the person's folder and From this computer must be real folders); a folder that cannot be
+ * read counts as empty.
+ */
+function fromComputerHasFile(ctx: AppContext, userId: string): boolean {
+  const root = ctx.files?.fx?.root
+  if (!root) return false
+  // the person's folder and From this computer must be real folders, not links to somewhere else
+  const own = path.join(root, 'users', userId)
+  const start = path.join(own, FROM_COMPUTER_DIR)
+  try { if (![own, start].every((p) => fs.lstatSync(p).isDirectory())) return false } catch { return false }
+  const queue = [start]
+  for (let seen = 0; queue.length && seen < FILES_LOOK_DIRS; seen++) {
+    const dir = queue.shift()!
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue
+      if (e.isFile()) return true
+      if (e.isDirectory()) queue.push(path.join(dir, e.name))
+    }
+  }
+  return false
+}
+
 /** The caller's card, or null when it does not show (not invited, an owner now, hidden, done a while ago, the days are over). */
 export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): MemberWelcome | null {
   const db = ctx.db
@@ -95,7 +128,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
   // a guest has no welcome card: it shows the team (its head count, its owner, its rooms)
   if (!me || me.role === 'owner' || me.role === 'guest') return null
   if (r.done_at && Date.parse(r.done_at) + ALL_SET_MS < now) return null
-  const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at }
+  const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at, files: fromComputerHasFile(ctx, userId) }
   const allSet = steps.hi && steps.asked
   if (allSet && !r.done_at) db.query('UPDATE member_welcome SET done_at = ? WHERE user_id = ? AND done_at IS NULL').run(new Date(now).toISOString(), userId)
   const ref = (id: string | null) => id ? db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null : null

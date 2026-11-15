@@ -1,4 +1,4 @@
-// Admin › Providers (pages/admin/Engines.tsx): one quiet row per engine that opens in place, no tabs; ?engine=<id> opens
+// Admin › AI providers (pages/admin/Engines.tsx): one quiet row per engine that opens in place, no tabs; ?engine=<id> opens
 // a row. The team's AI settings it used to have in a second tab are in Team settings (TeamAiSettings.tsx), groups whose
 // Save shows only once something in them changed; the old ?tab=team address opens them at #ai (focus=limits:
 // #ai-limits).
@@ -13,7 +13,7 @@ async function start(page: Page) {
   await signIn(page)
 }
 
-test('Providers: one row per engine with its state, what is missing, check again and the switch; a row opens in place', async ({ page }) => {
+test('AI providers: one row per engine with its state, what is missing, check again and the switch; a row opens in place', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
   await page.goto('/admin/providers')
@@ -62,7 +62,7 @@ test('Providers: one row per engine with its state, what is missing, check again
   expect(realErrors(errors)).toEqual([])
 })
 
-// QA TC-2838: on Admin › Providers itself, a provider with no account says to add one below (its Add account button),
+// QA TC-2838: on Admin › AI providers itself, a provider with no account says to add one below (its Add account button),
 // never a pointer to the page it is on (the server's own line says "below" too since #944)
 test('no Codex account yet: its line points at Add account below, not at this page', async ({ page }) => {
   await start(page)
@@ -197,7 +197,7 @@ test('a usage-limits link opens Team settings at Usage limits, with the focus on
   await expect(page.getByRole('heading', { level: 2, name: t['budgets.title'] })).toBeFocused()
 })
 
-test('Providers and the AI groups of Team settings fit a phone: nothing runs off the side, the switches stay in reach', async ({ page }) => {
+test('AI providers and the AI groups of Team settings fit a phone: nothing runs off the side, the switches stay in reach', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 390, height: 800 })
   // a phone (TC-267): ?engine= opens the engine's own page

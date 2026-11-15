@@ -13,7 +13,7 @@ export const isFileListName = (name: string): boolean => name.normalize('NFKC').
 
 /** Why no run can start now:
  * - forced_off: the server's host turned it off (server.json)
- * - no_ai: no AI the team can use for it: no team AI account (Admin › AI accounts; a person's own account is never
+ * - no_ai: no AI the team can use for it: no team AI account (Admin › AI providers; a person's own account is never
  *   used), or no engine on the server
  * - no_cheap_model: the team's AI has no small model to read with (a gateway without a haiku model, a Codex catalog
  *   without a mini or nano model), so nothing is read rather than spend a big model's limit
@@ -39,7 +39,7 @@ export const FileListRun = z.object({
 export type FileListRun = z.infer<typeof FileListRun>
 
 /** Whose AI sign-in the runs use (Admin › Team settings › File list): every night's run spends a little of its limit.
- * - team: a team AI account (Admin › AI accounts), its name and who signed it in (with a shared subscription usually
+ * - team: a team AI account (Admin › AI providers), its name and who signed it in (with a shared subscription usually
  *   an admin's own Claude account)
  * - server: the AI's sign-in on the server's own computer (a development or office server) */
 export const FileListSignIn = z.object({
@@ -47,7 +47,7 @@ export const FileListSignIn = z.object({
   /** the model the reader asks for (Claude Code's "haiku", or a Codex model), when known */
   model: z.string().nullable(),
   kind: z.enum(['team', 'server']),
-  /** the AI account's name in Admin › AI accounts */
+  /** the AI account's name in Admin › AI providers */
   label: z.string().nullable(),
   /** the person who signed it in, when known */
   by: z.string().nullable(),

@@ -108,7 +108,7 @@ describe('sealing key', () => {
 })
 
 describe('notices about a person\'s own connection (QA 2026-11-13)', () => {
-  test('a member\'s own key refused: the member is sent to Settings › AI accounts, the owner and admins to Admin; a team key: admins only', () => {
+  test('a member\'s own key refused: the member is sent to Settings › AI providers, the owner and admins to Admin; a team key: admins only', () => {
     const mine = addCred(t.cc, 'openai-api-key', 'sk-proj-' + 'M'.repeat(48), { owner: 'alice', label: 'Alice key' })
     t.notices.length = 0
     markInvalid(t.cc, mine, 'upstream_401', 401)
@@ -117,7 +117,7 @@ describe('notices about a person\'s own connection (QA 2026-11-13)', () => {
     expect(toAlice).toHaveLength(1)
     expect(toAlice[0]!.to).toEqual(['alice'])
     expect(toAlice[0]!.n).toMatchObject({ code: 'credential_rejected', link: OWN_CONNECTIONS_LINK })
-    expect(toAlice[0]!.n.message.en).toBe("Your AI account 'Alice key' was refused. Replace its key or token in Settings › AI accounts.")
+    expect(toAlice[0]!.n.message.en).toBe("Your AI account 'Alice key' was refused. Replace its key or token in Settings › AI providers.")
     expect(JSON.stringify(toAlice[0]!.n.message)).not.toMatch(/관리자|Admin/)
     expect(toAdmins).toHaveLength(1)
     expect([...toAdmins[0]!.to!].sort()).toEqual(['carol', 'dana'])
@@ -130,7 +130,7 @@ describe('notices about a person\'s own connection (QA 2026-11-13)', () => {
     t.notices.length = 0
     markNeedsReconnect(t.cc, carols, 'refresh_invalid_grant')
     expect(t.notices.map((x) => [x.to, x.n.link])).toEqual([[['dana'], '/admin/credentials'], [['carol'], OWN_CONNECTIONS_LINK]])
-    expect(t.notices[1]!.n.message.ko).toBe("내 AI 계정 'Carol plan'을(를) 다시 연결해야 해요(설정 › AI 계정).")
+    expect(t.notices[1]!.n.message.ko).toBe("내 AI 계정 'Carol plan'을(를) 다시 연결해야 해요(설정 › AI 제공사).")
     // a team connection: the owner and admins, as before
     const team = addCred(t.cc, 'openai-api-key', 'sk-proj-' + 'T'.repeat(48), { label: 'Team key' })
     t.notices.length = 0

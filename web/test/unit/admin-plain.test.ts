@@ -1,4 +1,4 @@
-// Admin › Home and Providers in plain words: an engine's untested version or failed lockdown test, and the server's
+// Admin › Home and AI providers in plain words: an engine's untested version or failed lockdown test, and the server's
 // internals (socket paths, sandbox, launcher, …), are for Admin › System › Diagnostics only (pages/admin/plain.ts).
 import { expect, test } from 'bun:test'
 import type { EngineStatus } from '@mycel/shared/api'
