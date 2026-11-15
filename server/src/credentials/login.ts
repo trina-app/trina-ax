@@ -11,6 +11,11 @@
 // Progress goes over the WebSocket (credential.login) and GET .../credential-logins/:id, to the starter only. The
 // tokens never pass the browser or the relay and nothing stays on the engine account (the folder goes in every case).
 // One sign-in at a time per team (either kind); 16 minutes; a server restart forgets running sign-ins.
+// The slot is not held by a browser that went away (QA TC-2581: a closed tab kept everyone waiting 16 minutes): the
+// dialog reads the sign-in every 3 seconds (GET .../credential-logins/:id) and that read is its heartbeat. A sign-in
+// whose starter has not been heard from for LOGIN_IDLE_MS (5 minutes) is ended ('expired', reason 'idle') when someone asks for the
+// slot, so a phone that only paused the page while its person approved elsewhere keeps its sign-in when nobody waits.
+// A closed tab also says goodbye itself (a keepalive DELETE on pagehide). A busy answer says how long it can still take.
 import crypto from 'node:crypto'
 import type { CredentialAssignment, CredentialLogin, CredentialLoginKind, Locale, LoginBusyParams } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -30,6 +35,8 @@ import { connectionsChanged, fingerprintOf, getRow, metaOf, noticeMember, notice
 import { recordSignIn } from '../auth/team-sign-ins'
 
 export const LOGIN_TIMEOUT_MS = 16 * 60_000
+/** no read from the starter's dialog for this long: their browser is gone, and the slot goes to whoever asks for it */
+export const LOGIN_IDLE_MS = 5 * 60_000
 /** forget finished sign-ins after this (GET of an old one = 404) */
 const KEEP_FINISHED_MS = 30 * 60_000
 /** the code the Claude page shows after approval: <authorization code>#<state> (the launcher checks the same) */
@@ -58,6 +65,8 @@ interface Login {
   label: string; assignments: CredentialAssignment[]; priority: number; reconnectId: string | null
   state: CredentialLogin['state']; url: string | null; code: string | null; expiresAt: string
   credentialId: string | null; reason: string | null; endedAt: number | null
+  /** the last time the starter's dialog was heard from (start, a read, the code): the heartbeat */
+  seenAt: number
   /** the token is being checked and stored: a cancel now would not stop it */
   storing: boolean
   cancel(): void
@@ -70,6 +79,8 @@ export interface LoginDeps {
   launcher(kind: CredentialLoginKind): Promise<{ sock: string; bin: string; proxyPort: number } | null>
   /** how long a sign-in may take (default LOGIN_TIMEOUT_MS; tests) */
   timeoutMs?: number
+  /** how long without a read from the starter's dialog before the slot may go to someone else (default LOGIN_IDLE_MS; tests) */
+  idleMs?: number
   /** Claude: how long after the code the token may take (default: the launcher's 90 s; tests) */
   exchangeTimeoutMs?: number
 }
@@ -90,9 +101,22 @@ export function serverLoginDeps(ctx: AppContext, bin: (kind: CredentialLoginKind
 
 class Logins {
   readonly all = new Map<string, Login>()
+  /** a start is waiting for the launcher: no other start may pass the one-at-a-time check meanwhile */
+  private claiming = false
   constructor(private cc: CredCtx, private deps: LoginDeps) {}
 
   private timeout() { return this.deps.timeoutMs ?? LOGIN_TIMEOUT_MS }
+  private idle() { return this.deps.idleMs ?? LOGIN_IDLE_MS }
+  /** End the running sign-ins whose starter's browser went quiet (no read for idle()): asked for only when someone
+   * wants the slot. One storing its token right now finishes by itself. */
+  private endIdle() {
+    const now = this.cc.now()
+    for (const l of this.all.values()) {
+      // 'checking': the pasted code is being exchanged (up to 90 s), an approved sign-in that is about to be stored
+      if (l.endedAt !== null || l.storing || l.state === 'checking' || now - l.seenAt <= this.idle()) continue
+      l.cancel(); this.end(l, 'expired', 'idle')
+    }
+  }
   private api(l: Login): CredentialLogin {
     const row = l.credentialId ? getRow(this.cc.db, l.credentialId) : null
     return { loginId: l.loginId, kind: l.kind, state: l.state, url: l.url, code: l.code, expiresAt: l.expiresAt, credential: row ? toCredential(this.cc, row, l.locale) : null, reason: l.reason }
@@ -130,6 +154,15 @@ class Logins {
     this.send(l)
   }
 
+  /** Whether the one slot is taken now (GET /api/me/credential-login-slot), never whose. Someone waiting for it is
+   * someone asking for it: a quiet sign-in gives way here as it would to a start. */
+  slot(): { busy: boolean; expiresAt?: string } {
+    this.endIdle()
+    if (this.claiming) return { busy: true, expiresAt: new Date(this.cc.now() + this.timeout()).toISOString() }
+    const running = [...this.all.values()].find((l) => l.endedAt === null)
+    return running ? { busy: true, expiresAt: running.expiresAt } : { busy: false }
+  }
+
   /** `showBusy`: the caller is the owner or an admin (the admin door): a busy answer says whose sign-in it is and how to stop it */
   async start(i: { userId: string; locale: Locale; personal: boolean; showBusy?: boolean; label: string; assignments: CredentialAssignment[]; priority: number; reconnectId?: string; kind?: CredentialLoginKind }): Promise<CredentialLogin> {
     const { cc } = this
@@ -141,18 +174,30 @@ class Logins {
       const r = getRow(cc.db, i.reconnectId)
       if (!r || r.kind !== kind || (i.personal && r.owner_user_id !== i.userId) || (!i.personal && r.owner_user_id !== null)) fail('not_found')
     }
+    this.endIdle()
+    // another start is between its check and its entry (waiting for the launcher): the slot is taken already
+    if (this.claiming) fail('busy', ct('loginBusy', i.locale), { params: { reason: 'login_busy', expiresAt: new Date(cc.now() + this.timeout()).toISOString() } satisfies LoginBusyParams })
     const running = [...this.all.values()].find((l) => l.endedAt === null)
     if (running) {
-      const starter = (cc.db.query('SELECT name FROM users WHERE id = ?').get(running.userId) as { name: string } | null)?.name ?? ''
-      fail('busy', ct('loginBusy', i.locale), i.showBusy ? { params: { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter } satisfies LoginBusyParams } : undefined)
+      // how long it can still take, for everyone (the truth: it ends by expiresAt at the latest, sooner if its browser
+      // goes away). Its starter gets its id to stop it from here (their own tab may be gone); the owner and admins (the
+      // admin door) also whose it is, to stop any. A member hears nothing about whose sign-in it is.
+      const mine = running.userId === i.userId
+      const starter = i.showBusy ? (cc.db.query('SELECT name FROM users WHERE id = ?').get(running.userId) as { name: string } | null)?.name ?? '' : null
+      const params: LoginBusyParams = { reason: 'login_busy', expiresAt: running.expiresAt, ...(mine ? { mine: true } : {}),
+        ...(mine || i.showBusy ? { loginId: running.loginId, personal: running.personal } : {}), ...(starter !== null ? { starter } : {}) }
+      fail('busy', ct(mine ? 'loginBusyMine' : 'loginBusy', i.locale), { params })
     }
-    const where = await this.deps.launcher(kind)
+    // the slot is claimed before the wait, so two starts at once cannot both pass the check above
+    this.claiming = true
+    let where: Awaited<ReturnType<LoginDeps['launcher']>>
+    try { where = await this.deps.launcher(kind) } finally { this.claiming = false }
     if (!where) return fail('engine_unavailable', ct(kind === 'chatgpt' ? 'loginUnavailable' : 'claudeLoginUnavailable', i.locale))
     const loginId = crypto.randomBytes(18).toString('base64url')
     const l: Login = {
       loginId, kind, userId: i.userId, locale: i.locale, personal: i.personal, label: i.label, assignments: i.personal ? [] : i.assignments, priority: i.priority,
       reconnectId: i.reconnectId ?? null, state: 'starting', url: null, code: null, expiresAt: new Date(cc.now() + this.timeout()).toISOString(),
-      credentialId: null, reason: null, endedAt: null, storing: false, cancel: () => {}, sendCode: () => {},
+      credentialId: null, reason: null, endedAt: null, seenAt: cc.now(), storing: false, cancel: () => {}, sendCode: () => {},
     }
     this.all.set(loginId, l)
     audit(cc.db, { actor: i.userId, action: 'credential.login', target: loginId, detail: { kind, state: 'starting', ...(i.reconnectId ? { reconnect: i.reconnectId } : {}) } })
@@ -330,6 +375,7 @@ class Logins {
     if (l.kind !== 'anthropic-oauth' || l.endedAt !== null || l.state !== 'code') return fail('conflict', ct('loginNotWaiting', locale))
     const c = code.trim()
     if (!claudeLoginCodeOk(c)) return fail('validation', ct('badLoginCode', locale), { fields: { 'body.sealed': 'not the code Claude shows' } })
+    l.seenAt = this.cc.now()
     l.state = 'checking'
     l.sendCode(c)
     this.send(l)
@@ -340,6 +386,8 @@ class Logins {
     this.prune()
     const l = this.all.get(loginId)
     if (!l || l.userId !== userId || (personal !== undefined && l.personal !== personal)) return fail('not_found')
+    // the starter's dialog is still there (its 3-second read is the heartbeat)
+    l.seenAt = this.cc.now()
     return this.api(l)
   }
 
