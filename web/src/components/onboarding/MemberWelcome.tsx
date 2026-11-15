@@ -60,6 +60,8 @@ export function roomList(rooms: Welcome['rooms'], everyone: string, locale: stri
 export const countedSteps = (s: Welcome['steps']) => ({ done: [s.rooms, s.hi, s.asked].filter(Boolean).length, total: 3 })
 
 const tap = 'max-md:min-h-11'
+/** a row's quiet Open link (the rooms, hi and files rows) */
+const openLink = clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)
 
 export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const t = useT()
@@ -138,7 +140,7 @@ function RoomsRow({ welcome }: { welcome: Welcome }) {
   const locale = useLocale()
   return (
     <Row id="rooms" done title={t('memberWelcome.rooms', { rooms: roomList(welcome.rooms, t('rooms.all'), locale) })} hint={t('memberWelcome.roomsHint', { place: t('tabs.chats') })}>
-      <Link to="/rooms" className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-rooms-open">
+      <Link to="/rooms" className={openLink} data-testid="member-welcome-rooms-open">
         {t('memberWelcome.roomsOpen')}
       </Link>
     </Row>
@@ -171,7 +173,7 @@ function HiRow({ welcome, name }: { welcome: Welcome; name: string }) {
   return (
     <Row id="hi" done={welcome.steps.hi} title={t('memberWelcome.hi')} hint={t('memberWelcome.hiHint', { room })}>
       {welcome.steps.hi ? (
-        everyone && <Link to={`/rooms/${everyone.id}`} className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-hi-open">{t('memberWelcome.roomsOpen')}</Link>
+        everyone && <Link to={`/rooms/${everyone.id}`} className={openLink} data-testid="member-welcome-hi-open">{t('memberWelcome.roomsOpen')}</Link>
       ) : (
         everyone && <Button size="sm" className={tap} busy={busy} onClick={() => void say()} data-testid="member-welcome-hi-button">{text}</Button>
       )}
@@ -230,7 +232,7 @@ function FilesRow({ done }: { done: boolean }) {
       {!f.narrow && (
         <Row id="files" done={done} optional title={t('memberWelcome.files')} hint={t('memberWelcome.filesHint', { place: t('files.findWork.myPlace') })}>
           {done ? (
-            <Link to={`/files?path=${encodeURIComponent(folder)}`} className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-files-open">{t('memberWelcome.roomsOpen')}</Link>
+            <Link to={`/files?path=${encodeURIComponent(folder)}`} className={openLink} data-testid="member-welcome-files-open">{t('memberWelcome.roomsOpen')}</Link>
           ) : (
             <Button size="sm" className={tap} onClick={f.start} data-testid="member-welcome-files-button">{t('memberWelcome.filesButton')}</Button>
           )}

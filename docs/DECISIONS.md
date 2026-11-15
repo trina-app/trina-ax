@@ -29008,11 +29008,12 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
 ## The welcome card brings work files from this computer (feat/welcome-find-files, 2026-11-15, product owner)
 
 Owner, 2026-11-15: the invited person's welcome card gets an optional fourth row for "Find work files on this computer",
-in the desktop app only, never blocking "You're all set". Reverses part 5's "NOT on the member welcome card" (memory
-note; the parts' entries above named only My files and the setup). Placement: Team AX core (Home).
+in the desktop app only, never blocking "You're all set". Until now Find work files had two ways in, My files and the
+setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Home). Plan:
+`docs/AGENTS/plan/20261115-1400-welcome-find-files.md`.
 
-- **The row** (MemberWelcome.tsx `FilesRow`): "Bring work files from this computer", "Optional · only the files you pick,
-  and only you see them in My files › From this computer", **Find files**. Shown only where My files' line is
+- **The row** (MemberWelcome.tsx `FilesRow`): "Bring work files from this computer", "Optional · only the files you pick;
+  only you see them, in My files › From this computer", **Find files**. Shown only where My files' line is
   (`useMyWorkFiles` in FindWorkFiles.tsx, shared by both): the desktop app with the bridge's version, not a guest (guests
   have no card anyway). Not in a browser, a phone's app, the Mac App Store build or an older desktop app; not on a narrow
   window (like My files' line), where a dialog already open stays as it is (it keeps its place in the tree).
@@ -29020,7 +29021,8 @@ note; the parts' entries above named only My files and the setup). Placement: Te
   ticked, files to My files › From this computer, the run's result with Open and Undo; a run started on the card is the
   one My files' line reopens, and the other way round.
 - **Done** = a file is in the person's My files › From this computer (`steps.files`, optional in the contract, absent
-  from older servers; `welcomeOf` looks on disk: at most 200 folders, hidden names and links not counted). No migration
+  from older servers; `welcomeOf` looks on disk: at most 200 folders, hidden names and links not counted, the person's
+  folder and From this computer must be real folders, not links). No migration
   and no new field to write: Undo (the files go to the trash) makes it not done again, and a file added from My files
   before counts too. A new file up marks it on the card at once; closing the dialog and Undo read the card again. Done:
   **Open** (My files › From this computer), as the rooms and hi rows.
@@ -29032,10 +29034,11 @@ note; the parts' entries above named only My files and the setup). Placement: Te
   this computer; Home is one tap back. How (the guide) opens in the browser.
 - i18n: `memberWelcome.files`, `memberWelcome.filesHint`, `memberWelcome.filesButton` in the six languages. Guide:
   `docs/site/use/find-work-files.md` (and zh) names the row.
-- Tests: `tests/unit/b-member-welcome.test.ts` (files done on disk, folders, hidden names and links not counted, Undo,
-  all set without it), web unit `member-welcome.test.tsx` (no row in a browser, an older app or the Mac App Store
-  build, a phone's width; the row optional and "1 of 3"; done with Open; all set; Cancel back to the card and read
-  again), e2e `welcome-find-work-files.spec.ts` (the stand-in bridge: every exit back to the card, Add done, Undo not
-  done, a reload, Not now then Cancel, a narrow window keeps the open dialog), `shots-welcome-find-work-files.spec.ts`
+- Tests: `tests/unit/b-member-welcome.test.ts` (files done on disk, folders, hidden names and links not counted, the
+  file route's delete (Undo's way) makes it not done, a linked From this computer not followed, all set without it), web unit `member-welcome.test.tsx` (no row in a browser, an older app or the Mac App Store
+  build, a phone's width; the row optional and "1 of 3"; done with Open; the all-set card shows no row; Cancel back to
+  the card and read again), e2e `welcome-find-work-files.spec.ts` (the stand-in bridge: every exit back to the card, Add
+  done, Undo not done, a reload, Not now then Cancel, a narrow window keeps the open dialog, a run started on the card
+  reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
   (1440 and 390, light and dark).
 - Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).

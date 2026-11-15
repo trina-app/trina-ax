@@ -161,7 +161,32 @@ test('a dialog open on a wide window stays as it is when the window is made narr
   await expect(row(page)).toHaveCount(0)
 })
 
-test('it never holds back "You\'re all set": hi and asked done, no files', async ({ page }) => {
+test('a run started on the card, its dialog closed while it uploads, is the one My files\' line reopens (Undo there)', async ({ page }) => {
+  await fakeApp(page)
+  await reset(page)
+  await welcomeCard(page)
+  await home(page)
+  await look(page, WORK)
+  await page.getByTestId('member-welcome-files-button').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  await page.request.post('/__test/upload-delay', { data: { ms: 1500 } })
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'running')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByTestId('member-welcome')).toBeVisible()
+  // My files' line opens the same run, not a new look
+  // in the app, not a reload (the run lives in the page)
+  await page.evaluate(() => { history.pushState({}, '', '/files?path=users%2Fbob'); window.dispatchEvent(new PopStateEvent('popstate')) })
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work-run')).toBeVisible()
+  expect((await app(page)).scans).toBe(1)
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await expect(page.getByTestId('find-work-undo')).toBeVisible()
+})
+
+test('the all-set card (the server\'s allSet, which never counts files: tests/unit/b-member-welcome) shows no files row', async ({ page }) => {
   await fakeApp(page)
   await reset(page)
   await welcomeCard(page, { hi: true, asked: true }, true)

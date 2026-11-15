@@ -93,13 +93,18 @@ const FILES_LOOK_DIRS = 200
 
 /**
  * A file is in their My files › From this computer (where "Find work files on this computer" puts what they add): the
- * optional files row is done. Read on disk, so Undo (the files go to the trash) makes it not done again. Folders and
- * symbolic links are never followed outside the folder; a folder that cannot be read counts as empty.
+ * optional files row is done. Read on disk, so Undo (the files go to the trash) makes it not done again. Symbolic
+ * links are never followed (the person's folder and From this computer must be real folders); a folder that cannot be
+ * read counts as empty.
  */
 function fromComputerHasFile(ctx: AppContext, userId: string): boolean {
   const root = ctx.files?.fx?.root
   if (!root) return false
-  const queue = [path.join(root, 'users', userId, FROM_COMPUTER_DIR)]
+  // the person's folder and From this computer must be real folders, not links to somewhere else
+  const own = path.join(root, 'users', userId)
+  const start = path.join(own, FROM_COMPUTER_DIR)
+  try { if (![own, start].every((p) => fs.lstatSync(p).isDirectory())) return false } catch { return false }
+  const queue = [start]
   for (let seen = 0; queue.length && seen < FILES_LOOK_DIRS; seen++) {
     const dir = queue.shift()!
     let entries: fs.Dirent[]

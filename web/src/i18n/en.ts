@@ -5524,7 +5524,7 @@ export const en: Record<MessageKey, string> = {
   "memberWelcome.photoHint": "Optional · so people know who's talking",
   "memberWelcome.photoButton": "Add photo",
   "memberWelcome.files": "Bring work files from this computer",
-  "memberWelcome.filesHint": "Optional · only the files you pick, and only you see them in {place}",
+  "memberWelcome.filesHint": "Optional · only the files you pick; only you see them, in {place}",
   "memberWelcome.filesButton": "Find files",
   "memberWelcome.organize": "Sort the team's files",
   "memberWelcome.organizeHint": "Upload them, and AI reads them and puts them in folders in {shared}",

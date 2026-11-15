@@ -272,9 +272,17 @@ describe('the card', () => {
     expect((await welcome(m.client)).steps.files).toBe(false)
     fs.writeFileSync(path.join(base, 'Documents', 'Clients', 'Quote.xlsx'), 'q')
     expect((await welcome(m.client)).steps.files).toBe(true)
-    // Undo takes the files back (to the trash): not done again
-    fs.rmSync(path.join(base, 'Documents', 'Clients', 'Quote.xlsx'))
+    // Undo takes the files back through the file route (to the trash, outside the folder): not done again
+    await m.client.call('DELETE', `/api/files?path=${encodeURIComponent(`users/${m.id}/${FROM_COMPUTER_DIR}/Documents/Clients/Quote.xlsx`)}`)
+    expect(fs.existsSync(path.join(base, 'Documents', 'Clients', 'Quote.xlsx'))).toBe(false)
     expect((await welcome(m.client)).steps.files).toBe(false)
+    // From this computer itself a link to a folder with files: not followed
+    const elsewhere = fs.mkdtempSync(path.join(h.ctx.files.fx.root, '..', 'elsewhere-'))
+    fs.writeFileSync(path.join(elsewhere, 'other.txt'), 'x')
+    fs.rmSync(base, { recursive: true, force: true })
+    fs.symlinkSync(elsewhere, base)
+    expect((await welcome(m.client)).steps.files).toBe(false)
+    fs.rmSync(base)
     // all set without it
     const room = await everyone(m.client)
     await m.client.call('POST', `/api/rooms/${room.id}/messages`, { body: 'hello', clientMessageId: cm() })

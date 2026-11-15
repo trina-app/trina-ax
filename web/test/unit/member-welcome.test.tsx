@@ -293,7 +293,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
       expect(m.get('member-welcome-files').getAttribute('data-optional')).toBe('true')
       expect(m.get('member-welcome-files').getAttribute('data-done')).toBeNull()
       expect(text(m, 'member-welcome-files')).toContain('Bring work files from this computer')
-      expect(text(m, 'member-welcome-files')).toContain('only you see them in My files › From this computer')
+      expect(text(m, 'member-welcome-files')).toContain('only you see them, in My files › From this computer')
       expect(text(m, 'member-welcome-files-button')).toBe('Find files')
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
     } finally { await m.unmount() }
@@ -321,7 +321,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
     } finally { await m.unmount() }
   })
 
-  test('it never holds back "You\'re all set": hi and asked done, no files', async () => {
+  test('the all-set card (the server\'s allSet, which never counts files: tests/unit/b-member-welcome) shows no files row', async () => {
     setApp(bridge())
     welcome = card({ steps: { rooms: true, hi: true, photo: false, asked: true, files: false }, allSet: true })
     signIn()
