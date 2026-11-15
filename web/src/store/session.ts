@@ -14,7 +14,8 @@ import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
-import { accountRemoved, type SignedOutReason } from '../lib/signedOut'
+import { accountRemoved, guestRemoval, type SignedOutReason } from '../lib/signedOut'
+import { meGuest } from '../lib/guests'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -54,11 +55,25 @@ interface SessionState {
 /** A guest turned off while signed in: the team's name, kept in this browser until the next sign-in, so the sign-in page
  * still says why on a later visit (the server's answer to their password is only "wrong"). */
 const REMOVED_KEY = 'mycel.removedFrom'
+/** ...and 'left' when the guest left their place themselves (guest walkthrough S5) */
+const REMOVED_HOW_KEY = 'mycel.removedHow'
 export function removedFrom(): string | null {
   try { return localStorage.getItem(REMOVED_KEY) } catch { return null }
 }
-function rememberRemoved(team: string | null) {
-  try { if (team) localStorage.setItem(REMOVED_KEY, team); else localStorage.removeItem(REMOVED_KEY) } catch { /* storage blocked: said only this time */ }
+export function removedHow(): 'left' | 'removed' {
+  try { return localStorage.getItem(REMOVED_HOW_KEY) === 'left' ? 'left' : 'removed' } catch { return 'removed' }
+}
+function rememberRemoved(team: string | null, how: 'left' | 'removed' = 'removed') {
+  try {
+    if (team) { localStorage.setItem(REMOVED_KEY, team); localStorage.setItem(REMOVED_HOW_KEY, how) }
+    else { localStorage.removeItem(REMOVED_KEY); localStorage.removeItem(REMOVED_HOW_KEY) }
+  } catch { /* storage blocked: said only this time */ }
+}
+/** The signed-out status for a guest whose account ended (the 401 said so): their own screen, before any password. */
+function guestSignedOut(g: { how: 'left' | 'removed'; team: string | null }, team?: string): Extract<AuthStatus, { kind: 'signed-out' }> {
+  const name = g.team ?? team ?? null
+  if (name) rememberRemoved(name, g.how)
+  return { kind: 'signed-out', reason: g.how, ...(name ? { team: name } : {}) }
 }
 
 function applyMe(me: Me) {
@@ -203,14 +218,18 @@ export const useSession = create<SessionState>((set, get) => ({
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-    if (reason === 'removed' && team) rememberRemoved(team)
+    if ((reason === 'removed' || reason === 'left') && team) rememberRemoved(team, reason)
     set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
     // ended from elsewhere (the live link said so, or it was refused): the server tells this sign-in's own holder when
-    // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974)
-    if (reason === 'ended' || reason === 'expired') {
+    // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974); a guest
+    // also learns whether they left their place themselves (guest walkthrough S5)
+    if (reason === 'ended' || reason === 'expired' || reason === 'removed') {
       api.call(API.me).then(() => {}, (e) => {
         const st = get().status
-        if (accountRemoved(e) && st.kind === 'signed-out' && st.reason === reason) set({ status: { kind: 'signed-out', reason: 'removed' } })
+        if (st.kind !== 'signed-out' || st.reason !== reason) return
+        const g = guestRemoval(e)
+        if (g) set({ status: guestSignedOut(g, st.team) })
+        else if (accountRemoved(e) && reason !== 'removed') set({ status: { kind: 'signed-out', reason: 'removed' } })
       })
     }
   },
@@ -226,6 +245,12 @@ export const useSession = create<SessionState>((set, get) => ({
         get().signedIn(me)
         // an admin made this guest a team member while they are signed in: said once, in words (their windows already widen)
         if (before.kind === 'signed-in' && before.me.user.role === 'guest' && me.user.role !== 'guest') toast({ level: 'info', text: tNow('guest.nowMember') })
+        // their AI was switched off meanwhile: the AI place leaves the menu, so one quiet line says why (guest walkthrough
+        // N7), not a tab that is simply gone
+        else {
+          const was = meGuest(before.me)?.ai, now = meGuest(me)?.ai
+          if (was && was !== 'none' && now === 'none') toast({ level: 'info', text: tNow('guest.aiTurnedOff') })
+        }
       }
     } catch {
       /* signed out or offline: the realtime connection reports that */
@@ -379,9 +404,12 @@ async function readMe(get: Get, set: Set): Promise<void> {
         const locale = pickLocale(storedLocale(), s.defaultLocale)
         await wordsFor(locale)
         useLocaleStore.getState().setLocale(locale)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
+        // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)
+        const g = guestRemoval(e)
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
       } catch {
-        set({ status: { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
+        const g = guestRemoval(e)
+        set({ status: g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
       }
       return
     }

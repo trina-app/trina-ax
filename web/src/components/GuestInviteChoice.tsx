@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useT } from '../i18n'
 import { ListRow } from './list/List'
 import { useRoomTitle } from './rooms/RoomIcon'
-import { GuestInviteDialog, GuestsFull, SeePlansLink, guestsFullOf, useGuestLimit, type InvitePlace } from './GuestInvite'
+import { GuestInviteDialog, GuestsFull, SeePlansLink, guestsFullOf, useGuestLimit, type GuestCap, type InvitePlace } from './GuestInvite'
 import { Button, ErrorNote, Modal, Skeleton, TabPanel, Tabs } from './ui'
 import { isAdmin, useMe } from '../store/session'
 import { readManagedList, useProjects } from '../store/projects'
@@ -46,7 +46,7 @@ export function InviteKindTabs({ value, onChange, panels }: { value: InviteKind;
   )
 }
 
-type Cap = { n: number; manageUrl?: string }
+type Cap = GuestCap
 
 /** The Guest half's state. `picked`: Guest is the choice now (the cap is read the first time it is). */
 export function useGuestChoice(picked: boolean) {
@@ -76,7 +76,7 @@ export function GuestChoicePanel({ choice, panels, admin }: { choice: GuestChoic
   return (
     <TabPanel base={panels} value="guest" className="space-y-4">
       <p className="text-sm leading-6 break-keep text-muted" data-testid="invite-guest-line">{t('members.inviteGuestLine')}</p>
-      {choice.limit === undefined ? <Skeleton lines={3} /> : choice.full ? <GuestsFull n={choice.full.n} admin={admin} /> : <GuestPlacePicker onPick={choice.pick} />}
+      {choice.limit === undefined ? <Skeleton lines={3} /> : choice.full ? <GuestsFull n={choice.full.n} admin={admin} pending={choice.full.pending} /> : <GuestPlacePicker onPick={choice.pick} />}
     </TabPanel>
   )
 }

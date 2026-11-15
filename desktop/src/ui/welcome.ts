@@ -22,6 +22,8 @@ function takeState(s: WelcomeState) {
   // ④ appears: an error from before (a refused link, an address that failed) is not about this link
   if (s.link && s.link.id !== state.link?.id) error = ''
   const newLinkError = s.linkError && s.linkError !== state.linkError && !s.link
+  // the line was taken back (the team it named left the list): it leaves the screen too, unless something else replaced it
+  if (state.linkError && !s.linkError && error === state.linkError) error = ''
   state = s
   // a link from outside that cannot open a team: said on ① (never over ④)
   if (newLinkError) {
