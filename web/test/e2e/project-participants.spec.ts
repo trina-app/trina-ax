@@ -169,7 +169,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   // deleting it moves it to the trash with its folder (no box to tick); its creator keeps it there, with Restore (QA TC-1062)
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-delete').click()
-  await expect(b.getByRole('dialog')).toContainText("'주간 보고'을(를) 휴지통으로 옮길까요?")
+  await expect(b.getByRole('dialog')).toContainText("'주간 보고'를 휴지통으로 옮길까요?")
   await expect(b.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await expect(b.getByTestId('project-delete-trash-folder')).toHaveCount(0)
   await b.getByTestId('dialog-confirm').click()

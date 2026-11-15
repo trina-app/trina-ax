@@ -68,17 +68,17 @@ export function koEnding(value: string): KoEnding | null {
 }
 
 /** The particle marks a Korean text may put after a placeholder, with their forms: [after a consonant, after a vowel].
- * "(으)로" also takes its vowel form after ㄹ. */
+ * In order: 을(를), (을)를, 이(가), 은(는), 와(과), 과(와), (으)로; "(으)로" also takes its vowel form after ㄹ. */
 const MARKS: Record<string, [string, string]> = {
-  '을(를)': ['을', '를'], // 을(를)
-  '(을)를': ['을', '를'], // (을)를
-  '이(가)': ['이', '가'], // 이(가)
-  '은(는)': ['은', '는'], // 은(는)
-  '와(과)': ['과', '와'], // 와(과)
-  '과(와)': ['과', '와'], // 과(와)
-  '(으)로': ['으로', '로'], // (으)로
+  '\uc744(\ub97c)': ['\uc744', '\ub97c'],
+  '(\uc744)\ub97c': ['\uc744', '\ub97c'],
+  '\uc774(\uac00)': ['\uc774', '\uac00'],
+  '\uc740(\ub294)': ['\uc740', '\ub294'],
+  '\uc640(\uacfc)': ['\uacfc', '\uc640'],
+  '\uacfc(\uc640)': ['\uacfc', '\uc640'],
+  '(\uc73c)\ub85c': ['\uc73c\ub85c', '\ub85c'],
 }
-const RO = '(으)로'
+const RO = '(\uc73c)\ub85c'
 
 /** The marks as a regular expression alternative (for a text's "{name}을(를)"), longest first. */
 export const KO_PARTICLE_MARKS: readonly string[] = Object.keys(MARKS)

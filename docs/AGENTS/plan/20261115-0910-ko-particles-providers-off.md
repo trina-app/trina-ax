@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 09:10
 - Branch: `fix/ko-particles-providers-off`
-- Status: in progress
+- Status: done
 - Where: shared/src (one particle helper), web/src/i18n (text filling), server/src/admin/engines.ts. Why: the web app
   fills every Korean text through one function, and the Providers line is built on the server.
 - Version impact: patch, two wording fixes, no new feature or API change.
@@ -48,3 +48,6 @@ tests, `bun run test:web`, `bun run build:web`, connector e2e specs. Screens in 
 
 ## Result
 
+Built as planned. Unknown Latin names keep "을(를)". On Admin › Providers the all-off line comes from the server
+(managedAllOff); one account switched off beside a refused one still shows the reasons line. Tests that asserted the old
+"을(를)" after Hangul names (a project, a skill) now expect the fitted particle.

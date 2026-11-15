@@ -71,7 +71,7 @@ test('Korean workspace: HWP is recommended and installs through the permission p
 
   await catalogRow(page, 'app.trina.office-starter').getByTestId('plugin-catalog-install').click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: '회사에 업무 시작 스킬을(를) 설치할까요?' })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: '회사에 업무 시작 스킬을 설치할까요?' })).toBeVisible()
   await expect(dialog.getByTestId('plugin-permissions')).toContainText('회사 스킬 폴더를 읽을 수 있는 모든 사람에게 AI 지침(스킬)을 더해요')
   // official without a plugin key: the package matches the list that came with this release
   await expect(dialog.getByTestId('plugin-plan-release')).toContainText('공식 빌드예요.')
