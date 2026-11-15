@@ -110,7 +110,7 @@ describe('engines', () => {
     try {
       const r = await check('claude-code')
       expect(r).toMatchObject({ authMode: 'managed', status: 'not_logged_in' })
-      expect(r.detail).toContain('AI 연결')
+      expect(r.detail).toContain('계정 추가')
       const cc = credentialsOf(h.ctx)
       setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true) // this case explicitly exercises a shared team subscription
       const id = addCred(cc, 'anthropic-oauth', 'sk-ant-oat01-' + 'f'.repeat(40))

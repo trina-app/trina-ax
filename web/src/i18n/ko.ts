@@ -749,6 +749,7 @@ export const ko = {
   'connect.signInWhere': "로그인하면 새 창에 로그인 페이지가 열려요. 연결하려던 서비스가 맞는지 확인해 주세요. AI는 비밀번호를 볼 수 없어요.",
   "connect.wait.timedOut": "로그인이 끝나지 않아 기다리기를 멈췄어요. 준비되면 다시 연결하세요.",
   "connect.wait.limit": "{n}분이 지나면 기다리기를 저절로 멈춰요.",
+  "connect.wait.google": "Google에서 이 앱을 쓸 수 없다고 나오면(예: 회사 계정 전용) Google 창을 닫고 다시 시도를 눌러 회사 계정을 고르세요. {n}분이 지나면 기다리기를 저절로 멈춰요.",
   'connect.noKey': "키는 필요 없어요. {host}에 연결해요.",
   'connect.kindMcp': "MCP 서버",
   'connect.kindHttp': "HTTP API",
