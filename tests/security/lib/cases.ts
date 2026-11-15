@@ -716,6 +716,7 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (r.status < 300 && (r.json?.scope !== 'personal' || r.json?.owner?.id !== USER_OF[who])) throw new Error('a personal connection made for someone else') } },
   deleteMyCredential: { build: (c, w) => c.del(`/api/me/credentials/${w.ids.aliceOwnCredential}`), scope: 'own-alice' },
   startMyCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/me/credential-logins', { label: '', acknowledgedPlanNotice: true }), scope: 'self' },
+  myCredentialLoginSlot: { build: (c) => c.get('/api/me/credential-login-slot'), scope: 'self' },
   getMyCredentialLogin: { build: (c) => c.get('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelMyCredentialLogin: { build: (c) => c.del('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   submitMyCredentialLoginCode: { build: (c) => c.post('/api/me/credential-logins/nonexistent-login-id-0000/code', { sealed: FAKE_SEALED }), scope: 'nobody' },

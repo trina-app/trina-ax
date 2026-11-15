@@ -6,11 +6,14 @@
 // (server/src/office/desktop.ts), built from the same PRODUCT.
 import { PRODUCT } from '../shared/src/product'
 import { winSignOptions } from './scripts/win-sign'
+import { DESKTOP_APP_ID } from './src/common/app-id'
 
 const A = PRODUCT.artifactBase
 
 export default {
-  appId: 'com.treesoop.mycel',
+  // the shortcuts carry it as their AppUserModelID; main.ts gives the running app the same one (src/common/app-id.ts),
+  // or Windows drops its notifications
+  appId: DESKTOP_APP_ID,
   productName: PRODUCT.displayName,
   // the packaged package.json carries the name too (Electron's app name before main.ts sets it)
   extraMetadata: { productName: PRODUCT.displayName, description: `${PRODUCT.displayName} desktop app` },

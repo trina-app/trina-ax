@@ -367,3 +367,32 @@ describe("macOS's question about notifications", () => {
     expect(win).toMatch(/this\.win\.on\('focus', \(\) => \{[\s\S]{0,400}if \(this\.app\) this\.notifier\.ask\(\)/)
   })
 })
+
+// Windows shows a toast only when the running app's AppUserModelID matches the Start menu shortcut's. The installer
+// writes electron-builder's appId there; Electron's default is "electron.app.<name>", so without the main process's
+// app.setAppUserModelId every toast was dropped silently (QA TC-342). desktop/src/common/app-id.ts.
+describe('Windows AppUserModelID', () => {
+  test('Windows (NSIS): the installer appId; macOS, Linux and the Microsoft Store build: none', async () => {
+    const { DESKTOP_APP_ID, windowsAppUserModelId } = await import('../../desktop/src/common/app-id')
+    expect(windowsAppUserModelId({ platform: 'win32' })).toBe(DESKTOP_APP_ID)
+    expect(windowsAppUserModelId({ platform: 'win32', windowsStore: false })).toBe(DESKTOP_APP_ID)
+    expect(windowsAppUserModelId({ platform: 'win32', windowsStore: true })).toBeNull()
+    expect(windowsAppUserModelId({ platform: 'darwin' })).toBeNull()
+    expect(windowsAppUserModelId({ platform: 'linux' })).toBeNull()
+  })
+
+  test('the id is the one already on installed machines and the one electron-builder writes into the shortcuts', async () => {
+    const { DESKTOP_APP_ID } = await import('../../desktop/src/common/app-id')
+    const builder = (await import('../../desktop/electron-builder.config')).default as { appId: string }
+    expect(DESKTOP_APP_ID).toBe('com.treesoop.mycel')
+    expect(builder.appId).toBe(DESKTOP_APP_ID)
+  })
+
+  test('main.ts sets it at start, before the window and any notification', () => {
+    const main = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const set = main.indexOf('app.setAppUserModelId(')
+    expect(set).toBeGreaterThan(-1)
+    expect(main).toContain('windowsAppUserModelId({ platform: process.platform, windowsStore: process.windowsStore })')
+    expect(set).toBeLessThan(main.indexOf('app.whenReady()'))
+  })
+})
