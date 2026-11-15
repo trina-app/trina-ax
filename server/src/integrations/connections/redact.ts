@@ -116,13 +116,29 @@ function formsOf(values: readonly string[]): { chars: Set<string>; longest: numb
   return { chars, longest }
 }
 
+const BASE64_CHAR = /[A-Za-z0-9+/=_-]/
+/** A run that looks like a piece of base64 rather than a word: at least 8 base64 characters with a digit, a + or /,
+ * or a capital letter after the first. "Something" and "everything" do not; "c2stUksx" does. */
+const looksEncoded = (run: string) => run.length >= 8 && [...run].every((c) => BASE64_CHAR.test(c)) && /[0-9+/]|.[A-Z]/.test(run)
+
 /** How many characters at the end of `text` could be the start of a written form of one of the values (escaped,
- * base64): the run of characters such a form is made of, at most as long as the longest form. */
+ * base64): the run of characters such a form is made of, at most as long as the longest form. A base64 form may also
+ * be split by a space (hide.ts): the run goes on across a single space or tab when what comes before it looks like
+ * base64 (looksEncoded), so its first part waits too (QA TC-3096). Prose has no such runs and flows on. */
 export function formCarryLength(text: string, values: readonly string[]): number {
   if (!values.length) return 0
   const { chars, longest } = formsOf(values)
   let n = 0
   for (let i = text.length - 1; i >= 0 && n < longest && chars.has(text[i]!); i--) n++
+  for (;;) {
+    const gap = text.length - n - 1
+    if (gap < 1 || (text[gap] !== ' ' && text[gap] !== '\t')) break
+    let start = gap
+    while (start > 0 && BASE64_CHAR.test(text[start - 1]!)) start--
+    const run = text.slice(start, gap)
+    if (!looksEncoded(run) || n + 1 + run.length > longest) break
+    n += 1 + run.length
+  }
   return n
 }
 

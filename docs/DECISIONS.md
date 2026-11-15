@@ -29612,9 +29612,13 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
   or a JSON-escaped `\n`, `\r`, `\t`, between their characters (between whole escapes for the escaped forms), never
   before or after. The whole match, breaks included, becomes `[hidden key]`. The value as written stays strict: letters
   with spaces between them are ordinary text ("QA FAKE KEY" is not the key), and so is a key split as written.
-- **The live answer.** `redact.ts formCarryLength` also counts line breaks (not spaces) in the run of encoded-form
-  characters it holds back, so text that arrives in pieces with a line break inside a base64 run does not let out its
-  first part. Prose waits for at most the word after a line break; Korean and Japanese text still flow. A part already
+- **The live answer.** `redact.ts formCarryLength` also counts line breaks in the run of encoded-form characters it
+  holds back, and goes on across a single space or tab when the run before it looks like base64 (8 or more base64
+  characters with a digit, a + or /, or a capital after the first; review of #984), so text that arrives in pieces
+  with a line break or a space inside a base64 run does not let out its first part. Prose waits for at most the word
+  after a line break ("something wonderful" is not held as one run); Korean and Japanese text still flow. Known gap: a
+  base64 piece of only lowercase letters before the space (no digit, no capital) is let out while it streams; the
+  saved answer has it hidden. A part already
   shown before a tool call (the stream lets out everything before the tool's card) is not taken back while the turn
   runs; the saved answer has the whole form hidden (open question: hold an encoded run back across a tool call).
 - Tests: `tests/unit/c-integrations-secret-breaks.test.ts` (every cut place, wrapped, JSON-escaped breaks; no change to

@@ -93,6 +93,20 @@ describe('no false positives on ordinary text', () => {
     for (const t of texts) expect(hide(t), t).toBe(t)
   })
 
+  test('the live answer: a base64 key split by a space does not let its first part out while it streams', () => {
+    const r = redactorOf([KEY])
+    const form = b64(KEY)
+    for (const at of [8, 11, 16]) {
+      const s = new RedactingText(() => r)
+      const out = [s.push('Here: '), s.push(form.slice(0, at)), s.push(' '), s.push(form.slice(at)), s.push(' — done'), s.flush()]
+      expect(out.join(''), `cut at ${at}`).toBe(`Here: ${HIDDEN} — done`)
+      for (const p of out) expect(p.includes(form.slice(0, 8)), `cut at ${at}: ${JSON.stringify(p)}`).toBe(false)
+    }
+    // prose with long words still flows: only the last word waits
+    expect(formCarryLength('Everything is something wonderful', [KEY])).toBe('wonderful'.length)
+    expect(formCarryLength('Saved c2stUksxMTE1 ', [KEY])).toBe('c2stUksxMTE1 '.length)
+  })
+
   test('the live answer: a line break in prose waits for at most the word after it; Korean text flows', () => {
     expect(formCarryLength('Done.\n', [KEY])).toBe(1)
     expect(formCarryLength('Saved it.\n\nNext', [KEY])).toBe(6)
