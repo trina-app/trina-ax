@@ -18,6 +18,7 @@
 // No API calls here: the step gives them (the "이미 있어요" listing), so the tests need no server.
 import { TEAM_FILES_LIMITS, type RankFileEntry, type TeamFileReason } from '@mycel/shared/api'
 import { considered, neverListed } from '@mycel/shared/file-scan'
+import type { WorkCloudProvider } from '@mycel/shared'
 import { extOf, joinPath } from './paths'
 
 const L = TEAM_FILES_LIMITS
@@ -112,8 +113,9 @@ export interface LocalDoc {
   ext: string
   size: number
   modified: number
-  /** its content, read when it goes up (never by the walk or the list) */
-  open: () => Promise<File>
+  /** its content, read when it goes up (never by the walk or the list); `onCloud`: the desktop app is getting it from its
+   * cloud first */
+  open: (o?: { onCloud?: (cloud: WorkCloudProvider) => void }) => Promise<File>
   personal: boolean
   /** what the computer's index knew of it (Find work files on this computer; absent from a folder walk) */
   hints?: { used?: number; useCount?: number; origins?: string[]; authors?: string[]; org?: string; listed?: boolean }

@@ -345,7 +345,10 @@ function registerIpc() {
   ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
   // TC-3300: the files the person ticked, asked again in the app's own window before any is read (ids only, never a path)
   ipcMain.handle('bridge:work-files-add', (e, ids: unknown) => (fromApp(e) && e.senderFrame && Array.isArray(ids) && ids.length <= 100 && ids.every((id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id)) ? win!.workFiles.add(e.senderFrame.origin, ids as string[]) : { state: 'refused' }))
-  ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
+  // a file coming from its cloud first: the page hears so while it waits (bridge:work-files-reading, to the asking frame)
+  const readWorkFile = (frame: Electron.WebFrameMain, fileId: string) =>
+    win!.workFiles.read(frame.origin, fileId, (cloud) => { try { if (!frame.isDestroyed() && !frame.detached) frame.send('bridge:work-files-reading', { id: fileId, cloud }) } catch { /* the page is gone */ } })
+  ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? readWorkFile(e.senderFrame, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
   ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())
   // "Choose it yourself": a folder macOS kept the app out of, picked in the system's folder window (only a root's id)
   ipcMain.handle('bridge:work-files-pick', (e, id: unknown) => (fromApp(e) && e.senderFrame && (id === 'documents' || id === 'desktop' || id === 'downloads') ? win!.workFiles.pickRoot(e.senderFrame.origin, id) : { state: 'unavailable' }))

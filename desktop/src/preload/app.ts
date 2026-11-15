@@ -66,7 +66,12 @@ const bridge: DesktopBridge = {
           stop: () => ipcRenderer.send('bridge:work-files-stop'),
           onProgress: on('bridge:work-files-progress'),
           add: (ids: string[]) => ipcRenderer.invoke('bridge:work-files-add', Array.isArray(ids) ? ids.slice(0, 101).map(String) : []),
-          read: (id: string) => ipcRenderer.invoke('bridge:work-files-read', String(id)),
+          // `onCloud`: the app is getting this file from its cloud first (bridge:work-files-reading, for this id only)
+          read: (id: string, o?: { onCloud?: (cloud: any) => void }) => {
+            const onCloud = typeof o?.onCloud === 'function' ? o.onCloud : null
+            const off = onCloud ? on('bridge:work-files-reading')((p) => { if (p && p.id === String(id) && typeof p.cloud === 'string') onCloud(p.cloud) }) : null
+            return ipcRenderer.invoke('bridge:work-files-read', String(id)).finally(() => off?.())
+          },
           openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
           pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),
           ...(info.workFilesWide && info.platform === 'darwin'

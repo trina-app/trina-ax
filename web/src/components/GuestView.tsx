@@ -12,7 +12,7 @@ import { Info, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useT } from '../i18n'
-import { guestPlacePath, isGuestMe, meGuest } from '../lib/guests'
+import { guestFolderHref, guestPlacePath, isGuestMe, meGuest } from '../lib/guests'
 import { readProjectList, useProjects } from '../store/projects'
 import { useRooms } from '../store/rooms'
 import { useAiAccess } from '../store/aiAccess'
@@ -130,6 +130,19 @@ export function useGuestPlacePath(): string | null {
   if (listed.size === 1) return `/projects/${[...listed][0]}`
   if (!roomsLoaded) return null
   return groupRoom ? `/rooms/${groupRoom}` : '/rooms'
+}
+
+/**
+ * For a guest: where a team folder opens (guestFolderHref, from the projects they see), or null where nothing does;
+ * undefined for anyone else (the 파일 screen is theirs). Links in answers and the preview's "open in Files" use it, so
+ * a guest is never sent to /files (which goes Home for them).
+ */
+export function useGuestFolderHref(): ((path: string) => string | null) | undefined {
+  const me = useMe()
+  const guest = isGuestMe(me)
+  const byId = useProjects((s) => (guest ? s.byId : null))
+  useEffect(() => { if (guest) void readProjectList({ minAgeMs: 60_000 }).catch(() => {}) }, [guest])
+  return useMemo(() => (guest ? (path: string) => guestFolderHref(path, Object.values(byId ?? {})) : undefined), [guest, byId])
 }
 
 /** Home for a guest whose invite gives them no AI (useGuestAiOff), and where a guest's sign-in lands: their one place. */

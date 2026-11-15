@@ -10,6 +10,7 @@ import { formatSize } from '../lib/format'
 import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
+import { FromCloudLine } from './FromCloud'
 import { useLocale, useT } from '../i18n'
 import { Button, IconButton, ProgressBar } from './ui'
 import { StoragePlansLink, storagePlansUrl } from './StoragePlansLink'
@@ -159,7 +160,8 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
       {running && (
         <ProgressBar value={pct / 100} label={v.name ?? t('files.folderUpload.label')} />
       )}
-      {running && now && (
+      {running && now?.cloud && <FromCloudLine active={[now]} className="truncate text-faint" />}
+      {running && now && !now.cloud && (
         <p className="truncate text-faint">
           {now.name} · {uploadLabel(now, t)}
         </p>
