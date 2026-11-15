@@ -37,11 +37,15 @@ describe('the same file again', () => {
     const again = await up('IMG_0001.jpg', 'photo one')
     expect(again.status).toBe(201)
     expect(again.body).toMatchObject({ path: 'shared/photos/IMG_0001.jpg', size: 9 })
+    // the answer says nothing new was made (Find work files' Undo leaves such a file alone); a new file never says so
+    expect(again.body.kept).toBe(true)
     expect(names()).toEqual(['IMG_0001.jpg'])
     expect(events('shared/photos/IMG_0001.jpg')).toBe(before)
     expect((A.ctx.db.query("SELECT COUNT(*) AS n FROM file_versions WHERE path = 'shared/photos/IMG_0001.jpg'").get() as { n: number }).n).toBe(0)
     // other content under the name: a new name, as before
-    expect((await up('IMG_0001.jpg', 'photo two')).body.path).toBe('shared/photos/IMG_0001 (2).jpg')
+    const second = (await up('IMG_0001.jpg', 'photo two')).body
+    expect(second.path).toBe('shared/photos/IMG_0001 (2).jpg')
+    expect(second.kept).toBeUndefined()
     // fail and replace are not changed
     expect((await up('IMG_0001.jpg', 'photo one', 'fail')).status).toBe(409)
     expect((await up('IMG_0001.jpg', 'photo one', 'replace')).status).toBe(201)

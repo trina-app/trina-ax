@@ -28464,7 +28464,8 @@ Placement: Team AX core.
   that just opened" while it is up; Cancel there closes the page's dialog with nothing looked at, sent or read.
 - **The list.** Two groups: "Looks like work" (the AI's picks in its order with their reason word; without an AI answer
   or with no pick, the name rules' order, `forAi`) and "May be personal (n) · Not sent to AI", folded. A search over
-  everything found, the files not picked too. **Nothing is ticked**, by the app or the AI. "Select all n" ticks the
+  everything found, the files not picked too ("n more documents · Find them by name" under the AI's picks). The app still
+  busy with a question (asked again too soon) is said in a line, not a silent close. **Nothing is ticked**, by the app or the AI. "Select all n" ticks the
   shown work files up to 100 (`perUpload`), never a personal-looking one, and the cap line says when it stopped there. Add
   stays off at no tick and over 1 GB (the app's own limit per look; "Up to 1 GB at a time"). A ticked personal-looking file
   says who sees it ("Only you see it in My files"; the team's name in the setup). Lines above the list: a folder macOS
@@ -28491,13 +28492,21 @@ Placement: Team AX core.
   Chinese words match inside a part; a few short words only as the whole part (인사, 人事). The setup's own folder walk uses
   the same matcher.
 - **Undo (review MUST).** The result says "Added n files to My files › From this computer" with Open, Undo and that the
-  computer's files stay as they are. Undo moves to the trash only what the run made: the files that landed (their path
-  now: an upload never replaces a file, a same-named one gets a name of its own, so an older file is never touched) and
-  the folders the run made (mkdir answered, not 409), deepest first and only when empty now. The line after it names the
-  date from the trash's own answer (`purgeAt`: the team's trash period, not "30 days"). Closing the dialog while files go
-  up keeps the run (its row on the file screen); the line opens on that run again, so Undo stays reachable.
+  computer's files stay as they are. Undo moves to the trash only what the run made: the files that landed new (their
+  path now: an upload never replaces a file, a same-named one gets a name of its own) and the folders the run made (mkdir
+  answered, not 409), deepest first and only when empty now. An upload the server answered with a file that was there
+  already (keepSame: this person's own upload of the same bytes within 24 hours, at the name or a "(k)" name) says so in
+  its answer, `kept: true` on the FileEntry (review: Undo would have trashed it), and is not the run's. The line after
+  Undo names the date from the trash's own answer (`purgeAt`: the team's trash period, not "30 days"). Closing the dialog
+  while files go up keeps the run (its row on the file screen); the line opens on that run again, so Undo stays
+  reachable (the run's record is kept by its FolderUpload, which stays the same while its store entry is replaced).
+- **A file that did not go says why.** A refused read keeps the app's reason with the row: "Changed on this computer since
+  the look", "Over the 100 files or 1 GB of one look", or (the look expired or was replaced) "Look again to add this
+  file"; the setup's run rows say the same. A file read for its upload is let go once it is up or has failed (after a
+  stop, once the server dropped its unfinished upload). "다시" in the setup sends what is left of such a run again.
 - **Exits** (the walk report, PR): the page's dialog ✕ or Escape at any step stops a look still running (`stop()`) and
-  drops the AI's pick; the app's dialog Cancel; Stop while looking (the list so far, "Stopped early"); list Cancel; Allow
+  drops the AI's pick (a stop sent while the app's own dialog is up counts for no look: React's double start in
+  development); the app's dialog Cancel; Stop while looking (the list so far, "Stopped early"); list Cancel; Allow
   in Settings (the app opens Files & Folders; the list stays); How (the guide in the browser); Look again; Add; Stop
   uploading (what went up stays); Open (My files › From this computer); Undo; Close. In the setup, Cancel and an
   answer of no in the app go back to the step's start.
@@ -28507,8 +28516,9 @@ Placement: Team AX core.
   all and its cap, 1 GB, the six languages' personal words and phrases, a run that reads each file once as it goes and
   names only the folders it made, Undo's scope, the label), `web/test/unit/team-files.test.ts` (the walk keeps no File),
   `tests/unit/b-onboarding-file-rank.test.ts` (members' own instructions, the fence, the fixed answer, the route for
-  members and admins), `tests/security/lib/onboarding-files-cases.ts` (rankOwnFiles), `web/test/e2e/find-work-files.spec.ts`
+  members and admins), `tests/unit/c-uploads-same.test.ts` (`kept` only on a kept file),
+  `tests/security/lib/onboarding-files-cases.ts` (rankOwnFiles), `web/test/e2e/find-work-files.spec.ts`
   (a stand-in bridge: Cancel, nothing ticked, the lines, the personal group never sent, search, nothing read before Add,
-  Add and Undo, Select all at 100, no AI, a refused read, every folder blocked and Look again, an older app, the owner's
+  Add, closing and opening again during the upload, Undo, Select all at 100, no AI, a refused read, every folder blocked and Look again, an older app, the owner's
   setup into the team home), `web/test/e2e/shots-find-work-files.spec.ts` (screens at 1440 and 390, light and dark).
 - Version impact: **minor** (a new API route for members, new screens).

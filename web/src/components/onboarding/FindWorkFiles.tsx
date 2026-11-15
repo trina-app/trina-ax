@@ -22,11 +22,11 @@ import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse } from '@myce
 import type { WorkFileScan, WorkRootId, WorkRootResult } from '@mycel/shared'
 import { api, API, errorText } from '../../lib/api'
 import { desktop } from '../../lib/desktop'
-import type { FolderPlan } from '../../lib/folderUpload'
+import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, forAi, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { docsFromScan, FROM_COMPUTER, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, undoRun, workFilesBridge, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { docsFromScan, FROM_COMPUTER, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, undoRun, WorkFileReadError, workFilesBridge, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -105,8 +105,12 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [openPersonal, setOpenPersonal] = useState(false)
   const live = useRef(true)
   const rankAbort = useRef<AbortController | null>(null)
-  // the page's dialog closed (✕, Escape, another page): a look still running stops, the AI's pick is let go
-  useEffect(() => () => { live.current = false; rankAbort.current?.abort(); bridge.stop() }, [bridge])
+  // the page's dialog closed (✕, Escape, another page): a look still running stops, the AI's pick is let go (set again
+  // on a mount: React's practice unmount in development runs this once before the real one)
+  useEffect(() => {
+    live.current = true
+    return () => { live.current = false; rankAbort.current?.abort(); bridge.stop() }
+  }, [bridge])
 
   useEffect(() => {
     const off = bridge.onProgress((p) => { if (live.current) setPhase((x) => (x.s === 'asking' || x.s === 'looking' ? { s: 'looking', ...p } : x)) })
@@ -114,7 +118,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       let r: WorkFileScan
       try { r = await scanOnce(bridge) } catch { r = { state: 'unavailable' } }
       if (!live.current) return
-      // the person said no in the app's own window (or one was up already): nothing happened, the page closes
+      // the app is still busy with a question or a look (asked again too soon): said, nothing else happens
+      if (r.state === 'busy') return setPhase({ s: 'error', text: t('files.findWork.busy') })
+      // the person said no in the app's own window: nothing happened, the page closes
       if (r.state !== 'done') return onClose()
       setRoots(r.roots)
       setStopped(r.stopped)
@@ -156,6 +162,8 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     return forAi(docs, Number.POSITIVE_INFINITY)
   }, [picks, byKey, docs])
   const personal = useMemo(() => docs.filter((d) => d.personal), [docs])
+  /** found but in neither group (the AI did not pick them): found by name */
+  const rest = docs.length - work.length - personal.length
   const found = q ? findDocs(docs, q) : null
   const pad = phone ? 'px-0' : 'px-4'
   const frame = phone ? 'border-y border-line' : 'rounded-xl border border-line bg-surface'
@@ -202,7 +210,14 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       </div>
     )
   }
-  if (phase.s === 'error') return <ErrorNote>{phase.text}</ErrorNote>
+  if (phase.s === 'error') {
+    return (
+      <div className="space-y-4" data-testid="find-work" data-screen="error">
+        <p className="text-sm text-ink" role="status">{phase.text}</p>
+        <div className="flex justify-end"><Button onClick={onClose} data-testid="find-work-close">{t('common.close')}</Button></div>
+      </div>
+    )
+  }
 
   const allow = (
     <>
@@ -268,6 +283,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
                   </button>
                 </div>
                 <ul className="border-t border-line" data-testid="find-work-work">{rows(work)}</ul>
+                {rest > 0 && <p className={clsx('border-t border-line py-2.5 text-label text-faint', pad)} data-testid="find-work-rest">{t('files.findWork.rest', { n: rest })}</p>}
               </>
             )}
             {personal.length > 0 && (
@@ -292,6 +308,19 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   )
 }
 
+/** Why a file of a run did not go: the desktop app's reason for a refused read (moved or changed since the look, the look
+ * too old or replaced, its limits), else the file screen's words. */
+export function failedReason(r: { local?: string; error?: unknown }, t: ReturnType<typeof useT>, locale: ReturnType<typeof useLocale>): string {
+  if (r.error instanceof WorkFileReadError) {
+    if (r.error.reason === 'changed') return t('files.findWork.why.changed')
+    if (r.error.reason === 'limit') return t('files.findWork.why.limit')
+    return t('files.findWork.why.lookAgain')
+  }
+  if (r.local === 'unreadable') return t('files.folderUpload.unreadable')
+  if (r.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(L.fileBytes, locale) })
+  return errorText(r.error, locale, t('error.network'))
+}
+
 // ---------------------------------------------------------------- My files
 
 /** "이미 있어요" for a folder: the documents whose path in `base` is taken by a file of the same size. Listed from `base`
@@ -313,8 +342,9 @@ async function alreadyThere(docs: readonly LocalDoc[], base: string): Promise<Se
   })
 }
 
-/** The run into My files: each landed file and each folder it made, for Undo. */
-const made = new WeakMap<Run, RunMade>()
+/** The runs into My files (by their FolderUpload, which stays the same while the run's store entry is replaced on every
+ * change): each file it made and each folder it made, for Undo. */
+const made = new WeakMap<FolderUpload, RunMade>()
 
 /**
  * My files on the desktop app (Windows, the Mac app from the website): one quiet line, "Find work files on this computer",
@@ -335,7 +365,7 @@ export function FindWorkFilesEntry({ here }: { here: string }) {
   // a run of this screen still going (the dialog was closed while it uploaded): its progress, then its result and Undo
   const reopen = () => {
     const going = taggedRun(TAG)
-    setRun(going && going.view.status === 'running' && made.has(going) ? going : null)
+    setRun(going && going.view.status === 'running' && made.has(going.run) ? going : null)
     setOpen(true)
   }
   const add = (docs: LocalDoc[]) => {
@@ -343,10 +373,11 @@ export function FindWorkFilesEntry({ here }: { here: string }) {
     const plan: FolderPlan = { files: docs.map((d) => ({ rel: `${FROM_COMPUTER}/${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }
     const r = startFolderUpload(plan, own, (view) => toast({ level: 'error', text: `${errorText(view.refusal, currentLocale(), tNow('error.network'))} ${tNow('files.folderUpload.stopped', { n: view.waiting })}`, ...storagePlansAction(view.refusal) }), {
       tag: TAG,
-      onLanded: (p) => record.files.push(p),
+      // a file of the person's that was there already (kept, nothing new made) is not the run's to take back
+      onLanded: (p, kept) => { if (!kept) record.files.push(p) },
       onMade: (p) => record.folders.push(p),
     })
-    made.set(r, record)
+    made.set(r.run, record)
     setRun(r)
   }
   return (
@@ -380,7 +411,7 @@ function RunResult({ run: start, onClose, phone }: { run: Run; onClose: () => vo
   const folder = runFolder(start.view.base)
   const failed = run.run.rows().filter((r) => r.state === 'failed')
   const takeBack = async () => {
-    const record = made.get(start)
+    const record = made.get(start.run)
     if (!record) return
     setUndo({ s: 'busy' })
     try {
@@ -399,13 +430,18 @@ function RunResult({ run: start, onClose, phone }: { run: Run; onClose: () => vo
   return (
     <div className="space-y-4" data-testid="find-work-run" data-status={v.status}>
       <h2 className="text-display font-semibold text-ink" role="status" data-testid="find-work-run-title">
-        {undo.s === 'done' ? t('files.findWork.undone', { n: undo.n }) : running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('files.findWork.added', { n: v.done, place: words.path(folder, ' › ') })}
+        {undo.s === 'done' && undo.n > 0 ? t('files.findWork.undone', { n: undo.n }) : undo.s === 'done' ? t('files.findWork.undoFailed', { n: undo.failed }) : running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('files.findWork.added', { n: v.done, place: words.path(folder, ' › ') })}
       </h2>
       {undo.s === 'done' && undo.until && <p className="text-sm text-muted" data-testid="find-work-undone-until">{t('files.findWork.undoneUntil', { date: until(undo.until)! })}</p>}
-      {undo.s === 'done' && undo.failed > 0 && <ErrorNote>{t('files.findWork.undoFailed', { n: undo.failed })}</ErrorNote>}
+      {undo.s === 'done' && undo.n > 0 && undo.failed > 0 && <ErrorNote>{t('files.findWork.undoFailed', { n: undo.failed })}</ErrorNote>}
       {undo.s === 'error' && <ErrorNote>{undo.text}</ErrorNote>}
       {!running && undo.s !== 'done' && failed.length > 0 && (
-        <ErrorNote>{t('files.findWork.notAdded', { n: failed.length })}</ErrorNote>
+        <ErrorNote>
+          {t('files.findWork.notAdded', { n: failed.length })}
+          <ul className="mt-1 space-y-0.5" data-testid="find-work-failed">
+            {failed.slice(0, 5).map((r) => <li key={r.rel} className="truncate">{r.rel.split('/').pop()} · {failedReason(r, t, locale)}</li>)}
+          </ul>
+        </ErrorNote>
       )}
       {undo.s !== 'done' && !running && <p className="text-label text-muted">{t('files.findWork.originalsStay')}</p>}
       <div className={phone ? 'flex flex-col-reverse gap-2 [&>*]:w-full' : 'flex flex-wrap items-center justify-end gap-3'}>

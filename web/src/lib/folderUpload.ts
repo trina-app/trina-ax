@@ -301,6 +301,7 @@ export class FolderUpload {
     this.abort.abort()
     await this.run
     await this.discard()
+    for (const i of this.items) if (i.open) i.file = undefined
   }
 
   /** The person closed the panel: open sessions count against their limit and hold storage for a day otherwise. */
@@ -324,9 +325,11 @@ export class FolderUpload {
           if (!item.file && item.open) {
             try {
               item.file = await item.open()
-            } catch {
+            } catch (e) {
+              // why it could not be read stays with the row (the desktop app's reason: changed, expired, a limit)
               item.state = 'failed'
               item.local = 'unreadable'
+              item.error = e
               this.onChange()
               continue
             }
@@ -343,6 +346,9 @@ export class FolderUpload {
       } catch (e) {
         item.loaded = 0
         item.phase = null
+        // a file read on demand is not kept in memory after a failure (read again when it goes again); after a stop it
+        // stays until cancel() has let the server drop its unfinished upload
+        if (item.open && !signal.aborted) item.file = undefined
         if (signal.aborted) item.state = 'queued'
         else if (isStorageRefusal(e)) {
           item.state = 'queued'

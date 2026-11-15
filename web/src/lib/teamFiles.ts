@@ -48,28 +48,20 @@ const PERSONAL_LATIN = [
   'health check', 'lease', 'tenancy', 'mortgage', 'divorce', 'password', 'passwords', 'personal', 'private', 'hr',
   // es
   'nomina', 'nominas', 'salario', 'sueldo', 'declaracion de la renta', 'declaracion de impuestos', 'extracto bancario', 'cuenta bancaria',
-  'tarjeta de credito', 'curriculum', 'pasaporte', 'dni', 'nie', 'carnet de conducir', 'permiso de conducir', 'partida de nacimiento',
+  'tarjeta de credito', 'pasaporte', 'dni', 'nie', 'carnet de conducir', 'permiso de conducir', 'partida de nacimiento',
   'historial medico', 'informe medico', 'receta medica', 'seguro medico', 'vida laboral', 'contrato de alquiler', 'hipoteca', 'divorcio',
-  'contrasena', 'contrasenas', 'personal', 'privado',
+  'contrasena', 'contrasenas', 'privado',
   // id
   'gaji', 'slip gaji', 'rincian gaji', 'ktp', 'npwp', 'paspor', 'kartu keluarga', 'akta kelahiran', 'akta nikah', 'surat nikah', 'buku tabungan',
   'rekening koran', 'mutasi rekening', 'kartu kredit', 'daftar riwayat hidup', 'riwayat hidup', 'rekam medis', 'surat keterangan sehat',
   'hasil lab', 'bpjs', 'spt tahunan', 'pajak penghasilan', 'surat cerai', 'kata sandi', 'pribadi', 'rahasia',
 ]
 const PERSONAL_PHRASES: readonly string[][] = PERSONAL_LATIN.map((p) => p.split(' '))
-/** Korean, Japanese and Chinese words matched inside a part of the path. */
-const PERSONAL_CJK = [
-  // ko
-  '급여', '월급', '연봉', '임금대장', '인사기록', '인사평가', '인사카드', '인사발령', '주민등록', '주민번호', '신분증', '운전면허', '여권', '비자', '이력서', '자기소개서',
-  '경력증명', '재직증명', '원천징수', '연말정산', '종합소득세', '건강검진', '진단서', '처방전', '보험금', '통장', '계좌', '카드명세서', '비밀번호', '개인정보', '가족관계',
-  '혼인관계', '등본', '초본', '근로계약', '임대차', '전세계약', '월세계약', '이혼', '퇴직', '징계',
-  // ja
-  '給与', '給料', '給与明細', '賞与', '源泉徴収', '確定申告', '年末調整', '履歴書', '職務経歴書', 'パスポート', '旅券', 'マイナンバー', '住民票', '戸籍', '免許証',
-  '身分証', '健康診断', '診断書', '処方箋', '保険証', '通帳', '口座', '明細書', '賃貸契約', '離婚', 'パスワード', '個人情報',
-  // zh
-  '工资', '工资单', '薪资', '薪水', '薪酬', '奖金', '个税', '个人所得税', '纳税', '简历', '护照', '签证', '身份证', '户口', '驾照', '驾驶证', '体检', '病历', '诊断书',
-  '处方', '社保', '公积金', '银行卡', '银行流水', '对账单', '信用卡', '租房合同', '租赁合同', '离婚', '密码', '个人信息', '隐私',
-]
+/** Korean, Japanese and Chinese words matched inside a part of the path (one line each: the i18n test allows them by name). */
+const PERSONAL_KO = ['급여', '월급', '연봉', '임금대장', '인사기록', '인사평가', '인사카드', '인사발령', '주민등록', '주민번호', '신분증', '운전면허', '여권', '비자', '이력서', '자기소개서', '경력증명', '재직증명', '원천징수', '연말정산', '종합소득세', '건강검진', '진단서', '처방전', '보험금', '통장', '계좌', '카드명세서', '비밀번호', '개인정보', '가족관계', '혼인관계', '등본', '초본', '근로계약', '임대차', '전세계약', '월세계약', '이혼', '퇴직', '징계']
+const PERSONAL_JA = ['給与', '給料', '給与明細', '賞与', '源泉徴収', '確定申告', '年末調整', '履歴書', '職務経歴書', 'パスポート', '旅券', 'マイナンバー', '住民票', '戸籍', '免許証', '身分証', '健康診断', '診断書', '処方箋', '保険証', '通帳', '口座', '明細書', '賃貸契約', '離婚', 'パスワード', '個人情報']
+const PERSONAL_ZH = ['工资', '工资单', '薪资', '薪水', '薪酬', '奖金', '个税', '个人所得税', '纳税', '简历', '护照', '签证', '身份证', '户口', '驾照', '驾驶证', '体检', '病历', '诊断书', '处方', '社保', '公积金', '银行卡', '银行流水', '对账单', '信用卡', '租房合同', '租赁合同', '离婚', '密码', '个人信息', '隐私']
+const PERSONAL_CJK = [...PERSONAL_KO, ...PERSONAL_JA, ...PERSONAL_ZH]
 /** Short words that are personal only as the whole part ("인사" is HR, "인사말" a greeting). */
 const PERSONAL_WHOLE = /^(인사|인사팀|인사부|인사총무|인사자료|人事|人事部|人事资料)$/
 

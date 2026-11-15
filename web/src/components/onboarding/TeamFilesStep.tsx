@@ -40,7 +40,7 @@ import { useWelcome } from '../../store/welcome'
 import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
-import { FindWorkFiles } from './FindWorkFiles'
+import { failedReason, FindWorkFiles } from './FindWorkFiles'
 import { workFilesBridge } from '../../lib/workFiles'
 import { TickFold, TickRow, TickSearch } from './TickList'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
@@ -732,7 +732,7 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
   const reason = (r: (typeof rows)[number]) => {
     if (r.state === 'queued') return t('welcome.teamFiles.notSent')
     if (r.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(L.fileBytes, locale) })
-    if (r.local === 'unreadable') return t('files.folderUpload.unreadable')
+    if (r.local === 'unreadable') return failedReason(r, t, locale)
     if (r.local) return t(`files.name.${r.local}`)
     return errorText(r.error, locale, t('error.network'))
   }
@@ -751,7 +751,9 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
     }
     if (!notSent.length && v.canRetry) return retryFolderUpload(run)
     const files = left.filter((r) => r.file && !r.local).map((r) => ({ rel: r.rel, file: r.file! }))
-    if (files.length) startStepRun({ files, folders: [], unreadable: [], skipped: 0 }, v.base)
+    if (files.length) return void startStepRun({ files, folders: [], unreadable: [], skipped: 0 }, v.base)
+    // files read only when they go (Find work files on this computer): the same run sends what is left
+    if (v.canRetry) retryFolderUpload(run)
   }
   const pct = (r: (typeof rows)[number]) => (r.state === 'done' ? 100 : r.size ? Math.min(99, Math.round((r.loaded / r.size) * 100)) : 0)
   return (
