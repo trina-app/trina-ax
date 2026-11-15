@@ -413,7 +413,7 @@ export class WorkFilesController {
   async read(origin: string, id: string, onCloud?: (cloud: WorkCloudProvider) => void): Promise<WorkFileRead> {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return { ok: false, reason: 'unknown' }
     // only an added file is ever read (WorkFileSessions); each such read shows the strip while it runs
-    if (!this.sessions.isAdded(origin, id)) return this.sessions.read(origin, id, onCloud)
+    if (!this.sessions.isAdded(origin, id)) return this.sessions.read(origin, id)
     this.inFlight++
     this.tellReading(true)
     try {

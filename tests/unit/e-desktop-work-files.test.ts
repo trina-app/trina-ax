@@ -369,6 +369,7 @@ describe('reading a listed file afterwards', () => {
       const sessions = new WorkFileSessions(f.fs, 'darwin', undefined, { cloudHintMs: 10 })
       const r = await scanRoots([{ id: 'documents', path: icloud, oneDrive: false }], f.fs, opts())
       sessions.begin(TEAM, r.found)
+      sessions.allow(TEAM, [...r.found.keys()])
       const id = (name: string) => r.files.find((x) => x.name === name)!.id
       const open = f.fs.open
       f.fs.open = async (p) => { if (p.endsWith('slow.pdf')) await new Promise((x) => setTimeout(x, 60)); return open(p) }
