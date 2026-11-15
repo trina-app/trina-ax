@@ -30,6 +30,7 @@ import { attachContextMenu, contextMenuOpen } from './context-menu'
 import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
 import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
+import { WorkFilesController } from './work-files'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
@@ -128,6 +129,12 @@ export class AppWindow {
   private configuredSessions = new WeakSet<Session>()
   /** each team page session's folder window picks (common/folder-access.ts), forgotten when the person changes */
   private folderGrants = new WeakMap<Session, FolderGrants>()
+  /** "Find work files on this computer" (./work-files.ts): the app's own consent dialog, the look, the reads by id */
+  readonly workFiles = new WorkFilesController({
+    win: () => (this.win.isDestroyed() ? null : this.win),
+    locale: () => this.o.locale(),
+    progress: (p) => this.send(this.app, 'bridge:work-files-progress', p),
+  })
   /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
    * address; a team switch closes them all */
   private notifier = makeNotifier({
@@ -696,6 +703,8 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    // a look of this team page: its ids read nothing any more, one still running gives nothing
+    this.workFiles.forget()
     // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),
     // and the dock's count was this team's (the next team page sets its own)
     this.notifier.closeAll()
@@ -842,6 +851,7 @@ export class AppWindow {
    * "W6"): a sign-out or another person signing in on this team forgets them. */
   private folderPerson(me: MeResult) {
     if (this.app && !this.app.webContents.isDestroyed()) this.folderGrants.get(this.app.webContents.session)?.person(me)
+    this.workFiles.person(me)
   }
 
   /**

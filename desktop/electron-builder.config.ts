@@ -44,11 +44,13 @@ export default {
       NSMicrophoneUsageDescription: 'Voice input in chats uses the microphone.',
       LSApplicationCategoryType: 'public.app-category.productivity',
       NSLocalNetworkUsageDescription: 'Connects straight to your team server inside the office.',
-      // the team page's folder window (docs/DECISIONS.md "W6"): a folder picked there counts as consent; these say why
-      // if macOS asks anyway
-      NSDesktopFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents.',
-      NSDocumentsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents.',
-      NSDownloadsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents.',
+      // what macOS shows under its own question for each folder: "Find work files on this computer" reads Documents,
+      // Desktop and Downloads after the app's own dialog (docs/DECISIONS.md "Find work files on this computer"), and the
+      // team page's folder window reads a folder picked there (W6). Only names, types and dates are read until the person
+      // adds files; file names may go to the team's AI, so the text promises nothing about names
+      NSDesktopFolderUsageDescription: 'Looks for work files here. File contents stay on this Mac until you choose to add them.',
+      NSDocumentsFolderUsageDescription: 'Looks for work files here. File contents stay on this Mac until you choose to add them.',
+      NSDownloadsFolderUsageDescription: 'Looks for work files here. File contents stay on this Mac until you choose to add them.',
       CFBundleLocalizations: ['en', 'ko', 'zh-Hans', 'ja', 'es', 'id'],
     },
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
