@@ -1023,7 +1023,7 @@ describe('the Mac dmg window', () => {
     ])
     const svg = readFileSync(join(import.meta.dir, '../../desktop/scripts/dmg-background.svg'), 'utf8')
     expect(svg).toContain(`viewBox="0 0 ${one.w} ${one.h}"`)
-    expect(svg).toContain('(centre 180,190)')
-    expect(svg).toContain('Applications (480,190)')
+    // the art's two spots are drawn around the same centres
+    for (const c of dmg.contents) expect(svg).toContain(`<circle cx="${c.x}" cy="${c.y}"`)
   })
 })

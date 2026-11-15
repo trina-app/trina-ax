@@ -68,6 +68,8 @@ export default {
     // on macOS 26), so 452 shows the art's 420; the art runs 20 lower for the shorter title bar of older systems. The icon
     // centres (points from the top left of the art) sit over the art's two spots.
     background: 'build-resources/background.png',
+    // No x/y: with a background, electron-builder 26.0.12 ignores them and writes x 400, y (1440 - height) / 2 from the
+    // bottom of the screen; on a smaller screen macOS keeps the title bar below the menu bar.
     window: { width: 660, height: 452 },
     iconSize: 128,
     iconTextSize: 12,
