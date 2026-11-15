@@ -386,6 +386,25 @@ describe('diagnostics of an installed Linux server', () => {
       expect(d.checks.find((x) => x.id === 'sandbox')).toBeDefined()
     } finally { statfs.mockRestore(); configureStorageGuard(null) }
   })
+  test('one Linux disk unreadable (QA TC-3099): the other still shows its levels, the unreadable one a warning', async () => {
+    fw({})
+    const L = resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux')
+    expect(L.teamRoot.startsWith(L.dataDir)).toBe(false)
+    const GiB = 1024 ** 3
+    const statfs = spyOn(fs, 'statfsSync').mockImplementation(((p: string) => {
+      if (String(p).startsWith(L.dataDir)) throw new DiskSpaceUnknown('could not read the free disk space of data')
+      const b = 80 * GiB / 4096
+      return { type: 0, bsize: 4096, frsize: 4096, blocks: b, bfree: b / 2, bavail: b / 2, files: 0, ffree: 0 }
+    }) as unknown as typeof fs.statfsSync)
+    try {
+      const c = (await ops().diagnostics('en')).checks
+      const team = c.find((x) => x.id === 'disk.team')!, data = c.find((x) => x.id === 'disk.data')!
+      expect(team.status).toBe('ok')
+      expect(team.detail).not.toBe(M.diskUnknown.en)
+      expect(data.status).toBe('warn')
+      expect(data.detail).toBe(M.diskUnknown.en)
+    } finally { statfs.mockRestore(); configureStorageGuard(null) }
+  })
   test('the public exit address (QA 0.2.12 N5): unknown, turned off, known by family or by the relay; never the address itself', async () => {
     const env = 'MYCEL_EXIT_ADDRESS_CHECK'
     const before = process.env[env]

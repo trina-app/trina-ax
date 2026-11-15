@@ -2,12 +2,12 @@
 // 1.3.12 returns statfs with bsize 0 and shifted fields, so backups and updates saw "0 MB free" with 129 GB free. Such
 // a reading is replaced by `df -k -P`; good readings stay exactly what statfs says. Neither readable = "unknown", which
 // never blocks a backup or an update as if the disk were full; a really low disk still does.
-import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { afterAll, afterEach, describe, expect, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { diskStat, DiskSpaceUnknown, parseDfK, plausibleStatfs } from '../../server/src/system/disk-stat'
-import { diskSpace, diskSpaceOrUnknown, resolveLayout } from '../../server/src/system/layout'
+import { diskStat, DiskSpaceUnknown, parseDfK, plausibleStatfs, primeDiskStat, setDfRunnerForTests } from '../../server/src/system/disk-stat'
+import { diskSpace, diskSpaceOrUnknown, primeDiskSpace, resolveLayout } from '../../server/src/system/layout'
 import { configureStorageGuard, diskAlmostFull, snapshotOf, storageSnapshot } from '../../server/src/system/storage'
 import type { AppConfig } from '../../server/src/app-config'
 import { openDb } from '../../server/src/db'
@@ -66,6 +66,8 @@ describe('parseDfK', () => {
     expect(parseDfK('Filesystem 1024-blocks Used Available Capacity Mounted on\n')).toBeNull()
     expect(parseDfK('Filesystem 1024-blocks Used Available Capacity Mounted on\nmap auto_home 0 0 0 100% /System/Volumes/Data/home\n')).toBeNull()
     expect(parseDfK('Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/x - - - - /\n')).toBeNull()
+    // not 1 KiB blocks (df without -k): the numbers would be read 2x too large
+    expect(parseDfK('Filesystem 512-blocks Used Available Capacity Mounted on\n/dev/disk1s5s1 489620264 20102080 270568000 7% /\n')).toBeNull()
   })
 })
 
@@ -104,10 +106,11 @@ describe('the real callers', () => {
   let spy: { mockRestore(): void } | null = null
   afterEach(() => { spy?.mockRestore(); spy = null })
 
-  test.skipIf(process.platform === 'win32')('diskSpace (backup preflight): broken statfs → the real /bin/df', () => {
+  test.skipIf(process.platform === 'win32')('diskSpace (backup preflight): broken statfs → the real /bin/df', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'disk-stat-'))
     try {
       spy = spyOn(fs, 'statfsSync').mockImplementation((() => INTEL_BROKEN) as unknown as typeof fs.statfsSync)
+      await primeDiskSpace(dir)
       const d = diskSpace(dir)
       // the real df of this machine's temp folder: a real disk, not 0
       expect(d.total).toBeGreaterThan(0)
@@ -133,15 +136,16 @@ describe('the real callers', () => {
     expect(diskSpace(os.tmpdir())).toEqual({ free: ARM_GOOD.bavail * 4096, total: ARM_GOOD.blocks * 4096 })
   })
 
-  test.skipIf(process.platform === 'win32')('roomFor (update preflight) with the broken reading has room (real df)', () => {
+  test.skipIf(process.platform === 'win32')('roomFor (update preflight) with the broken reading has room (real df)', async () => {
     spy = spyOn(fs, 'statfsSync').mockImplementation((() => INTEL_BROKEN) as unknown as typeof fs.statfsSync)
+    await primeDiskSpace(os.tmpdir())
     const r = roomFor(os.tmpdir(), 1024)
     expect(r.ok).toBe(true)
     expect(r.freeBytes).toBeGreaterThan(0)
   })
 
   test('roomFor: unknown free space is not "no room"; a really low disk still is', () => {
-    expect(roomFor(os.tmpdir(), 1024, () => { throw new DiskSpaceUnknown('no df') }).ok).toBe(true)
+    expect(roomFor(os.tmpdir(), 1024, () => { throw new DiskSpaceUnknown('no df') })).toEqual({ ok: true, freeBytes: null, needBytes: 1024 })
     expect(roomFor(os.tmpdir(), 1024, () => ({ bsize: 4096, blocks: 1e6, bfree: 10, bavail: 10 })).ok).toBe(false)
     // any other error is passed on as before
     expect(() => roomFor(os.tmpdir(), 1024, () => { throw new Error('EIO') })).toThrow('EIO')
@@ -160,8 +164,40 @@ describe('the real callers', () => {
   })
 })
 
+describe('df runs in the background: a hung df never blocks', () => {
+  afterEach(() => setDfRunnerForTests(null))
+  const dir = os.tmpdir()
+
+  test('a df that never answers: the sync reading is "unknown" at once, prime gives up, one df at a time', async () => {
+    let calls = 0
+    setDfRunnerForTests(() => { calls++; return new Promise<string | null>(() => {}) }, 50)
+    const t0 = Date.now()
+    for (let i = 0; i < 5; i++) expect(() => diskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })).toThrow(DiskSpaceUnknown)
+    expect(Date.now() - t0).toBeLessThan(200)
+    await primeDiskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    expect(Date.now() - t0).toBeLessThan(3000)
+    expect(calls).toBe(1)
+  })
+
+  test('the hot path reads the cache; prime waits for the answer; an old answer is refreshed once', async () => {
+    let calls = 0
+    setDfRunnerForTests(async () => { calls++; return INTEL_DF })
+    const read = () => diskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    // nothing cached yet: unknown now (never a wait), and a refresh has started
+    expect(read).toThrow(DiskSpaceUnknown)
+    await primeDiskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    expect(Number(read().bavail)).toBe(135284000)
+    expect(Number(read().bavail)).toBe(135284000)
+    expect(calls).toBe(1)
+    // a good statfs reading needs no df at all
+    await primeDiskStat(dir, { platform: 'darwin', statfs: () => ARM_GOOD })
+    expect(calls).toBe(1)
+  })
+})
+
 describe('the backup gate', () => {
   const W = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'disk-stat-bk-')))
+  afterAll(() => fs.rmSync(W, { recursive: true, force: true }))
   afterEach(() => { spy?.mockRestore(); spy = null })
   let spy: { mockRestore(): void } | null = null
   const setup = (name: string) => {
@@ -172,8 +208,9 @@ describe('the backup gate', () => {
     const dbFile = path.join(cfg.dataDir, 'app.db')
     const db = openDb(dbFile)
     const warns: { msg: string; f?: unknown }[] = []
-    const log = { ...silentLogger, warn: (msg: string, f?: unknown) => { warns.push({ msg, f }) }, child: () => log } as unknown as Logger
-    return { db, mgr: new BackupManager({ db, dbFile, layout: resolveLayout(cfg), log, version: '0.1.0' }), warns }
+    const infos: string[] = []
+    const log = { ...silentLogger, warn: (msg: string, f?: unknown) => { warns.push({ msg, f }) }, info: (msg: string) => { infos.push(msg) }, child: () => log } as unknown as Logger
+    return { db, mgr: new BackupManager({ db, dbFile, layout: resolveLayout(cfg), log, version: '0.1.0', now: (() => { let t = Date.parse('2026-11-15T00:00:00Z'); return () => new Date(t += 1000) })() }), warns, infos }
   }
 
   test.skipIf(process.platform === 'win32')('the Intel Mac reading: df gives the free space and the backup is made', async () => {
@@ -192,7 +229,16 @@ describe('the backup gate', () => {
     try {
       const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
       expect(m.scope).toBe('db')
-      expect(e.warns.filter((w) => w.msg === 'could not read the free disk space; backing up anyway').length).toBe(2)
+      const unknownWarns = () => e.warns.filter((w) => w.msg === 'could not read the free disk space; backing up anyway').length
+      expect(unknownWarns()).toBe(2)
+      // the next backup in the same state logs nothing new
+      await e.mgr.run({ kind: 'manual', scope: 'db' })
+      expect(unknownWarns()).toBe(2)
+      // readable again: one line each, then quiet
+      spy.mockRestore()
+      spy = spyOn(fs, 'statfsSync').mockImplementation((() => ARM_GOOD) as unknown as typeof fs.statfsSync)
+      await e.mgr.run({ kind: 'manual', scope: 'db' })
+      expect(e.infos.filter((m) => m === 'the free disk space can be read again').length).toBe(2)
     } finally { e.db.close() }
   })
 

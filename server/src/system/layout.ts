@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppConfig } from '../app-config'
 import { prodBase } from '../app-config'
-import { diskStat, DiskSpaceUnknown } from './disk-stat'
+import { diskStat, DiskSpaceUnknown, primeDiskStat } from './disk-stat'
 
 export interface InstallLayout {
   mode: 'dev' | 'prod'
@@ -75,12 +75,21 @@ export function resolveLayout(cfg: AppConfig, env: Record<string, string | undef
   }
 }
 
-/** Free and total bytes of the volume holding `p` (closest existing parent). */
-export function diskSpace(p: string): { free: number; total: number } {
+function existingParent(p: string): string {
   let dir = p
   while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
-  const s = diskStat(dir)
+  return dir
+}
+
+/** Free and total bytes of the volume holding `p` (closest existing parent). */
+export function diskSpace(p: string): { free: number; total: number } {
+  const s = diskStat(existingParent(p))
   return { free: Number(s.bavail) * Number(s.bsize), total: Number(s.blocks) * Number(s.bsize) }
+}
+
+/** Wait (at most a few seconds) until diskSpace(p) has a real answer where statfs cannot be believed (disk-stat.ts). */
+export function primeDiskSpace(p: string): Promise<void> {
+  return primeDiskStat(existingParent(p))
 }
 
 /** diskSpace, or null when the free space could not be read (system/disk-stat.ts DiskSpaceUnknown: statfs and df both

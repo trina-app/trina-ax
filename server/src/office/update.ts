@@ -48,6 +48,7 @@ import { PRODUCT } from '@mycel/shared'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
 import { dbReaderLevel, healFile, recoveryAdvice, releaseIn, unreadablePrevious, UNREADABLE } from './forward'
 import { diskStat, DiskSpaceUnknown } from '../system/disk-stat'
+import { primeDiskSpace } from '../system/layout'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -729,14 +730,14 @@ export function placeSignedManifest(dir: string, s: SignedText | undefined) {
 
 /** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
  * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space.
- * Free space that could not be read (system/disk-stat.ts DiskSpaceUnknown) is not "no room": ok with freeBytes NaN, and
+ * Free space that could not be read (system/disk-stat.ts DiskSpaceUnknown) is not "no room": ok with freeBytes null, and
  * the download itself fails on a disk that is really full (QA TC-3099). */
-export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => diskStat(x)): { ok: boolean; freeBytes: number; needBytes: number } {
+export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => diskStat(x)): { ok: boolean; freeBytes: number | null; needBytes: number } {
   let at = path.resolve(p)
   while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
   let s
   try { s = snapshotOf(statfs(at)) } catch (e) {
-    if (e instanceof DiskSpaceUnknown) return { ok: true, freeBytes: Number.NaN, needBytes: bytes }
+    if (e instanceof DiskSpaceUnknown) return { ok: true, freeBytes: null, needBytes: bytes }
     throw e
   }
   const needBytes = bytes + reserveBytes(s.totalBytes)
@@ -764,8 +765,9 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
   // release's: that file alone (pinned by the signed manifest) is put right; the 110 MB file is not fetched or read again
   const listed = items.find((i) => i.platform === 'windows' && i.file === w.installer.file && i.version === w.version && i.sha256 === w.installer.sha256)
   const inPlace = !!listed && (() => { try { return fs.statSync(path.join(dir, w.installer.file)).size === w.installer.size } catch { return false } })()
+  if (!o.statfs) await primeDiskSpace(tmp)
   const room = roomFor(tmp, (inPlace ? 0 : w.installer.size) + w.latestYml.size, o.statfs)
-  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor((room.freeBytes ?? 0) / 1048576)} MB free)` }
   fs.rmSync(tmp, { recursive: true, force: true })
   if (inPlace) {
     try {
@@ -852,8 +854,9 @@ export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<
     placeSignedManifest(dir, o.signed)
     return { kind: 'current', version: m.version }
   }
+  if (!o.statfs) await primeDiskSpace(tmp)
   const room = roomFor(tmp, (inPlace ? 0 : m.zip.size) + m.latestYml.size, o.statfs)
-  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Mac app ${m.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Mac app ${m.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor((room.freeBytes ?? 0) / 1048576)} MB free)` }
   if (!MAC_ZIP_RE.test(m.zip.file)) throw new UpdateFailure(`${m.zip.file} is not a Mac app update zip name`)
   fs.rmSync(tmp, { recursive: true, force: true })
   try {
