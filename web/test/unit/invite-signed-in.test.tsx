@@ -53,6 +53,9 @@ const page = () => (
 
 test('says who is signed in; "Sign out and accept" ends the session and stays on the invite address', async () => {
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  // an earlier test signed out, which shows the sign-in screen's language (the default, Korean, when this browser has no
+  // pick): the words read here are English, so set it whatever ran before
+  useLocaleStore.setState({ locale: 'en' })
   const m = await mount(page())
   try {
     await m.until(() => m.find('invite-signed-in'), 'the page')
@@ -69,6 +72,9 @@ test('says who is signed in; "Sign out and accept" ends the session and stays on
 test('"Keep using this account" goes Home and signs nobody out', async () => {
   calls.length = 0
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  // an earlier test signed out, which shows the sign-in screen's language (the default, Korean, when this browser has no
+  // pick): the words read here are English, so set it whatever ran before
+  useLocaleStore.setState({ locale: 'en' })
   const m = await mount(page())
   try {
     await m.until(() => m.find('invite-keep'), 'the page')
@@ -82,6 +88,9 @@ test('"Keep using this account" goes Home and signs nobody out', async () => {
 test('a guest link says it is for a guest from outside the team, not for someone who joins the team (QA TC-2224)', async () => {
   inviteRole = 'guest'
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  // an earlier test signed out, which shows the sign-in screen's language (the default, Korean, when this browser has no
+  // pick): the words read here are English, so set it whatever ran before
+  useLocaleStore.setState({ locale: 'en' })
   const m = await mount(page())
   try {
     await m.until(() => document.body.textContent?.includes('a guest from outside the team') || null, 'the guest sentence')
