@@ -99,7 +99,7 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await noOwnPart(page)
   // a check moves the words: 자연스러운 글 too → four items, counted
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').check()
-  await expect(primary).toHaveText('팀에 넣기 · 4개')
+  await expect(primary).toHaveText('스킬 4개 넣기')
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').uncheck()
   await expect(primary).toHaveText('스킬 3개 넣기')
 
