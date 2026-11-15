@@ -221,7 +221,8 @@ export class GoogleApps {
     this.sweep()
     const now = this.now()
     const n = (this.db.query('SELECT count(*) n FROM google_app_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
-    if (n >= FLOWS_PER_HOUR) throw new GoogleAppError('rate_limited', 429)
+    // its own reason (not the hosting service's or Google's 'rate_limited'): the app says to wait about an hour (QA TC-3034)
+    if (n >= FLOWS_PER_HOUR) throw new GoogleAppError('signin_limit', 429)
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed
     try { sealed = this.box.seal(flowAad({ id, user_id: user }), { verifier } satisfies FlowSecret) } catch { throw new GoogleAppError('key_unsafe', 503) }

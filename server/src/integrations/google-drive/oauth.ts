@@ -174,7 +174,8 @@ export class GoogleDrive {
     const now = this.now(), id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // Bound creation rate without retaining a plaintext verifier or authorization URL.
     const n = (this.ctx.db.query('SELECT count(*) n FROM drive_oauth_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
-    if (n >= 20) throw new DriveError('rate_limited', 429)
+    // its own reason (not the hosting service's or Google's 'rate_limited'): the app says to wait about an hour (QA TC-3034)
+    if (n >= 20) throw new DriveError('signin_limit', 429)
     const sealed = this.store.seal(user, id, { verifier })
     const expiresAt = new Date(now + TTL).toISOString()
     this.ctx.db.transaction(() => {
@@ -215,7 +216,8 @@ export class GoogleDrive {
     this.store.session(r.user_id, r.session_id); this.busy(r.user_id)
     if (!this.ctx.db.query("UPDATE drive_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(r.id).changes) throw new DriveError('invalid_flow')
     try {
-      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : 'consent_denied')
+      // through the hosting service a refusal may be Google's (only some accounts for now), not the person's Cancel
+      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : this.viaBroker ? 'consent_denied_service' : 'consent_denied')
       const viaBroker = this.viaBroker
       if (viaBroker ? !input.handoff || !/^[A-Za-z0-9_-]{43}$/.test(input.handoff) : !input.code || input.code.length > 4096) throw new DriveError('invalid_flow')
       const s = this.store.open<FlowSecret>(r), cfg = this.config

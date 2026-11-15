@@ -173,6 +173,10 @@ test('the return page\'s reason (QA TC-2956, TC-2979): cancelled, a permission n
   google.grant = null
   f = await apps.authorize('alice', 'alice-session', 'gmail')
   expect(await apps.callbackOutcome(google.authorize(f.authorizationUrl, 'alice'), browser('alice'))).toEqual({ ok: true })
+  // 20 sign-ins started in an hour: its own reason, so the app says to wait about an hour (QA TC-3034)
+  for (let k = 0; k < 20; k++) { try { await apps.authorize('dana', 'dana-session', 'gmail') } catch { break } }
+  // the route sends the message as is (routes/google-apps.ts safe()), which the app reads
+  await expect(apps.authorize('dana', 'dana-session', 'gmail')).rejects.toMatchObject({ reason: 'signin_limit', status: 429, message: 'google_app_signin_limit' })
 })
 
 test('a broader scope Google granted in place of a narrower one counts; short identity names count', async () => {
@@ -286,6 +290,10 @@ test('hosted: signs in through the hosting service with the app; an older one th
   const denied = await apps.authorize('bob', 'bob-session', 'gmail')
   const back = broker.browserReturn(denied.authorizationUrl, 'bob')
   expect(await apps.callbackOutcome({ state: back.state, error: 'consent_denied' }, browser('bob'))).toEqual({ ok: false, reason: 'consent_denied_service' })
+  // Google Drive through the same shared app: the same reason, never "you cancelled"
+  const dflow = await drive.begin('bob', 'bob-session')
+  const dback = broker.browserReturn(dflow.authorizationUrl, 'bob')
+  expect(await drive.callbackOutcome({ state: dback.state, error: 'consent_denied' }, browser('bob'))).toEqual({ ok: false, reason: 'consent_denied_service' })
   expect(await apps.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
   const view = await apps.complete('alice', 'alice-session', 'gmail', f.flowId)
   expect(view).toMatchObject({ status: 'connected' })

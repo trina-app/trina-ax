@@ -61,8 +61,9 @@ export function unavailableKeys(reason: GoogleAppView['reason'], admin: boolean)
  * at Google, Google refused it (the hosting service's app: Cancel, or only some accounts for now), a permission not
  * ticked, too many sign-ins started this hour (QA TC-3034), else the general line. "timeout" is worded by the caller. */
 export function signInFailedKey(reason: string | null | undefined): MessageKey {
-  // 20 sign-ins started in an hour (the server's limit; its refusal is "drive_rate_limited" / "google_app_rate_limited")
-  if (reason && /(^|_)rate_limited$/.test(reason)) return 'gapps.tooManySignIns'
+  // 20 sign-ins started in an hour (the server's own limit). Not the hosting service's or Google's "rate_limited": those
+  // pass soon and keep the general try-again line.
+  if (reason === 'drive_signin_limit' || reason === 'google_app_signin_limit') return 'gapps.tooManySignIns'
   switch (reason) {
     case 'consent_denied': return 'gapps.cancelled'
     case 'consent_denied_service': return 'gapps.deniedService'

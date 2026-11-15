@@ -164,7 +164,7 @@ describe('a Google app\'s page', () => {
     expect(fail('consent_denied')).not.toContain(DICTS.en['drive.failed'])
     expect(fail('scope_denied')).toContain(DICTS.en['gapps.scopeDenied'])
     expect(fail('provider_unavailable')).toContain(DICTS.en['drive.failed'])
-    expect(fail('google_app_rate_limited')).toContain(DICTS.en['gapps.tooManySignIns'])
+    expect(fail('google_app_signin_limit')).toContain(DICTS.en['gapps.tooManySignIns'])
   })
 })
 
@@ -175,8 +175,11 @@ describe('Google sign-in words', () => {
     expect(signInFailedKey('scope_denied')).toBe('gapps.scopeDenied')
     expect(signInFailedKey(null)).toBe('drive.failed')
     // the server's limit of 20 sign-ins an hour (QA TC-3034)
-    expect(signInFailedKey('google_app_rate_limited')).toBe('gapps.tooManySignIns')
-    expect(signInFailedKey('drive_rate_limited')).toBe('gapps.tooManySignIns')
+    expect(signInFailedKey('google_app_signin_limit')).toBe('gapps.tooManySignIns')
+    expect(signInFailedKey('drive_signin_limit')).toBe('gapps.tooManySignIns')
+    // the hosting service's or Google's own "busy" (a 503): the general line, it passes soon
+    expect(signInFailedKey('drive_rate_limited')).toBe('drive.failed')
+    expect(signInFailedKey('google_app_rate_limited')).toBe('drive.failed')
     expect(showUnverifiedHint({ hostedApp: true })).toBe(true)
     expect(showUnverifiedHint({})).toBe(false)
     expect(showUnverifiedHint(null)).toBe(false)

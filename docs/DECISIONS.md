@@ -28917,6 +28917,12 @@ QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
   app), a permission not ticked, expired or used, this browser not signed in, signed in as someone else, else a general
   line. Only the last two carry a link, to `/login` (same origin, no code or state).
 - **`callbackOutcome`** next to `callback()` in both services: the boolean `callback()` is unchanged for callers.
+- **A refusal through the hosting service** is `consent_denied_service` for Google Drive too (as for the apps), never
+  "you cancelled": Google may be allowing only some accounts while it reviews the shared app.
+- **The 20-sign-ins-an-hour limit** has its own reason, `signin_limit` (refusal messages `drive_signin_limit`,
+  `google_app_signin_limit`), so the app says "try again in about an hour" only for it. The hosting service's and
+  Google's own `rate_limited` (a 503 that passes soon) keep the general try-again line.
+- **The unverified line is never in the phone app** (signing in to Google is done on a computer there).
 - **The unverified line** shows only where the hosting service's shared Google app signs in (`hostedApp`: broker mode),
   never with a company's own app (direct mode, which also covers an operator's client). Before Google opens on the
   Drive and Google app pages, not on the Discover card's + (which opens Google at once) and not in the team-account

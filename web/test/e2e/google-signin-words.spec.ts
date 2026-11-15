@@ -141,7 +141,7 @@ test('20 sign-ins started in an hour: the page says to try again in about an hou
   await control(page, '/__test/google-apps', { client: 'app' })
   await page.context().route('https://accounts.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic Google consent</p>' }))
   // the server's answer at its limit (server/src/routes/google-apps.ts safe(): the reason code in the message)
-  await page.route('**/api/integrations/google-apps/gmail/authorize', (r) => r.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'google_app_rate_limited', params: { reason: 'rate_limited' } } } }))
+  await page.route('**/api/integrations/google-apps/gmail/authorize', (r) => r.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'google_app_signin_limit', params: { reason: 'signin_limit' } } } }))
   await signIn(page)
   await page.goto('/connectors/gmail')
   const gmail = page.getByTestId('gapp-detail')

@@ -30,6 +30,7 @@ import { BrowserWait } from './BrowserWait'
 import { googleLink } from './googleLink'
 import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
 import { showUnverifiedHint, signInFailedKey } from '../../lib/googleApps'
+import { mobileApp } from '../../lib/mobile'
 import { Tooltip } from '../Tooltip'
 import { dropOverCls } from '../FileDropZone'
 import { useFileDrop } from '../chat/ComposerFiles'
@@ -61,7 +62,8 @@ export function useDriveParts(s: DriveConnectionState) {
   const unavailable = !!c && !c.configured
   const shares = c?.teamShares ?? []
   const flow = d.inProgress ? d.flow : null
-  const unverified = showUnverifiedHint(c) && !!c?.configured && !flow && (!linked || reconnect)
+  // not in the phone app: signing in to Google is done on a computer there (QA TC-262)
+  const unverified = showUnverifiedHint(c) && !!c?.configured && !flow && (!linked || reconnect) && !mobileApp()
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')

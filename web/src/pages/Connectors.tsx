@@ -384,7 +384,7 @@ function DrivePage() {
       actions={ask ? <AskAdminAction state={ask} busy={asks.busy === id} onAsk={() => void asks.ask(id, name, drive.load)} onWithdraw={() => void asks.withdraw(id)} />
         : inApp ? appActions
         : p.action}
-      status={(line || onComputer || askError || p.busy || (p.unverified && !inApp) || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
+      status={(line || onComputer || askError || p.busy || p.unverified || p.shares.length > 0 || drive.d.error || drive.revokeWarning) ? <>
         {line && <Note tone={p.reconnect ? 'warn' : undefined} testId={ask ? 'service-asked-note' : 'drive-detail-line'}>{line}</Note>}
         {onComputer && <Note testId="drive-on-computer">{onComputer}</Note>}
         {askError && <Note tone="warn" testId="service-ask-error">{askError}</Note>}

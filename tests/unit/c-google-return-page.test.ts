@@ -89,3 +89,10 @@ test('Drive: a browser not signed in (the desktop app\'s system browser) or sign
   expect(p.html).not.toMatch(/received|Connected\b/)
   expect((await c.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('ready')
 })
+
+test('Drive: 20 sign-ins started in an hour: its own reason in the refusal, which the app words as "about an hour" (QA TC-3034)', async () => {
+  for (let k = 0; k < 20; k++) await c.call('POST', base + '/authorize', {})
+  const r = await c.raw('POST', base + '/authorize', {})
+  expect(r.status).toBe(429)
+  expect((await r.json()).error.message).toBe('drive_signin_limit')
+})
