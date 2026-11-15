@@ -103,6 +103,8 @@ test("an Office Mac: a member is offered only No AI, with the first sentence onl
   await expect(page.getByTestId('guest-ai-host')).toHaveText('이 서버에서는 게스트가 AI를 쓸 수 없어요.')
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-own')).toBeDisabled()
+  // the whole choice reads as off (its words too, not only the radio)
+  await expect(page.locator('label[data-off]').filter({ has: page.getByTestId('guest-ai-own') })).toHaveCSS('opacity', '0.5')
   await expect(page.getByTestId('guest-ai-team')).toHaveCount(0)
   const created = page.waitForRequest((r) => r.url().endsWith('/api/guest-invites') && r.method() === 'POST')
   await page.getByTestId('guest-invite-create').click()

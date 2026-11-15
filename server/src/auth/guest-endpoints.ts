@@ -31,6 +31,7 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.createMyCredential,
   API.deleteMyCredential,
   API.startMyCredentialLogin,
+  API.myCredentialLoginSlot,
   API.getMyCredentialLogin,
   API.cancelMyCredentialLogin,
   API.submitMyCredentialLoginCode,

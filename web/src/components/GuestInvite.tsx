@@ -76,7 +76,8 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
           const off = (m === 'team' && noAccount) || (noGuestAi && m !== 'none')
           return (
             <div key={m}>
-              <label className={off ? 'flex cursor-not-allowed items-start gap-2.5 px-1 py-1.5' : 'flex cursor-pointer items-start gap-2.5 px-1 py-1.5'}>
+              {/* a choice that cannot be picked reads as off, not only its radio: faded words too */}
+              <label className={off ? 'flex cursor-not-allowed items-start gap-2.5 px-1 py-1.5 opacity-50' : 'flex cursor-pointer items-start gap-2.5 px-1 py-1.5'} aria-disabled={off || undefined} data-off={off || undefined}>
                 <input type="radio" name={`${id}-ai`} value={m} checked={value.mode === m} disabled={off} onChange={() => pick(m)} className="mt-0.5 size-4 shrink-0 accent-accent" data-testid={`guest-ai-${m}`} />
                 <span className="min-w-0">
                   <span className={off ? 'block text-sm text-muted' : 'block text-sm text-ink'}>{t(`guest.ai.${m}`)}</span>

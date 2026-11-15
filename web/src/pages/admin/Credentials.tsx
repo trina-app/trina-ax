@@ -447,6 +447,23 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       }
     } finally { setBusy(false) }
   }
+  // the slot is someone else's: read it again every few seconds, so Start turns on by itself once it is free (and the
+  // minutes left stay true); nothing to start meanwhile
+  const waitingOther = !!busyLogin && !busyLogin.mine
+  useEffect(() => {
+    if (!waitingOther) return
+    let live = true
+    const check = async () => {
+      try {
+        const s = await api.call(API.myCredentialLoginSlot)
+        if (!live) return
+        if (!s.busy) setBusyLogin(null)
+        else if (s.expiresAt) setBusyLogin((b) => (b ? { ...b, expiresAt: s.expiresAt } : b))
+      } catch { /* the next read will do */ }
+    }
+    const t = setInterval(() => void check(), 4000)
+    return () => { live = false; clearInterval(t) }
+  }, [waitingOther])
   /** stop the sign-in that is in the way (the caller's own through its door; any, for the owner or an admin): one's own
    * starts again at once (what they pressed is not lost), someone else's leaves Start to be pressed again */
   const [stopping, setStopping] = useState(false)
@@ -514,7 +531,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       ) : (
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!ready || !secure} onClick={submit} data-testid="credential-submit">
+          <Button variant="primary" busy={busy} disabled={!ready || !secure || !!busyLogin} onClick={submit} data-testid="credential-submit">
             {busy ? t('credentials.checking') : kind === 'chatgpt' ? t('credentials.chatgpt.start') : kind === 'anthropic-oauth' && signIn ? t('credentials.claude.start') : move ? t('credentials.moveToTeam') : t('credentials.connect')}
           </Button>
         </>

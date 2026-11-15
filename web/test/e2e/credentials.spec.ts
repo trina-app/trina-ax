@@ -4,10 +4,10 @@
 // address and code, the order, a member's own connections in Settings (a Claude token pasted through the terminal
 // fallback), and the https-only note where the browser cannot seal.
 // The mock opens the sealed values with the server's real sealing code, so a value sealed wrongly fails here.
-import { expect, test } from '@playwright/test'
+import { expect, request, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const TOKEN = 'sk-ant-oat01-' + 'e2e'.repeat(15)
 const KEY = 'sk-ant-api03-' + 'k'.repeat(40) + 'WXYZ'
@@ -415,13 +415,16 @@ test('the one sign-in slot: a member reads a true wait, stops their own leftover
   await expect(busy).not.toContainText('Olga')
   await expect(busy.getByTestId('login-busy-stop')).toHaveCount(0)
   await expect(page.getByTestId('dialog-error')).toHaveCount(0)
-  // the owner's ends (here: stopped through the API as the owner would); bob starts his own and "closes the tab"
-  await context.clearCookies()
-  await signIn(page)
-  expect((await page.request.delete(`/api/admin/credential-logins/${ownerLogin.loginId}`, { headers: { [CSRF_HEADER]: '1' } })).status()).toBe(204)
-  await context.clearCookies()
-  await signIn(page, { username: 'bob', password: 'bob password 1' })
-  await openOwn()
+  // nothing to start while it is taken: Start is off, and turns on by itself once the slot is free (no reload)
+  await expect(page.getByTestId('credential-submit')).toBeDisabled()
+  // the owner's ends (stopped by the owner from another browser)
+  const owner = await request.newContext({ baseURL: new URL(page.url()).origin })
+  expect((await owner.post('/api/auth/login', { headers: { [CSRF_HEADER]: '1' }, data: { username: OWNER.username, password: OWNER.password, client: 'web', tokenMode: 'cookie' } })).ok()).toBe(true)
+  expect((await owner.delete(`/api/admin/credential-logins/${ownerLogin.loginId}`, { headers: { [CSRF_HEADER]: '1' } })).status()).toBe(204)
+  await owner.dispose()
+  await expect(page.getByTestId('login-busy')).toHaveCount(0, { timeout: 15_000 })
+  await expect(page.getByTestId('credential-submit')).toBeEnabled()
+  await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('claude-open')).toBeVisible()
   // a second tab of bob's: his own leftover, stopped and started again in one press
   const tab2 = await context.newPage()

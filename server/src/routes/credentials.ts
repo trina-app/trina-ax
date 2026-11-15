@@ -128,6 +128,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     ownAllowed(auth.user.id, loc(c))
     return logins().start({ userId: auth.user.id, locale: loc(c), personal: true, kind: body.kind, label: body.label, assignments: [], priority: 100, reconnectId: body.reconnectId })
   })
+  kit.handle(API.myCredentialLoginSlot, () => logins().slot())
   kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, true))
   kit.handle(API.cancelMyCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c), true))
   kit.handle(API.submitMyCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), true))

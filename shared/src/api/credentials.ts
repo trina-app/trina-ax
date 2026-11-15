@@ -138,6 +138,11 @@ export type DuplicateCredentialParams = z.infer<typeof DuplicateCredentialParams
  * the dialog (DELETE /api/admin/credential-logins/:id works for any of them). A member never hears whose it is. */
 export const LoginBusyParams = z.object({ reason: z.literal('login_busy'), expiresAt: IsoTime.optional(), mine: z.boolean().optional(), loginId: z.string().optional(), personal: z.boolean().optional(), starter: z.string().optional() })
 export type LoginBusyParams = z.infer<typeof LoginBusyParams>
+/** GET /api/me/credential-login-slot: whether the server's one sign-in slot is taken now, read every few seconds by a
+ * dialog that was told it is busy, so its start button turns on by itself once it frees up. `expiresAt`: when the
+ * running one ends at the latest. Nothing about whose it is. */
+export const CredentialLoginSlot = z.object({ busy: z.boolean(), expiresAt: IsoTime.optional() })
+export type CredentialLoginSlot = z.infer<typeof CredentialLoginSlot>
 export const CredentialSettings = z.object({ memberOwn: z.boolean(), sharedSubscriptions: z.boolean() })
 export const UpdateCredentialSettingsBody = CredentialSettings.partial().extend({
   /** Required when enabling shared subscriptions; not a grant of hosting/resale rights. */
@@ -183,6 +188,7 @@ export const CREDENTIALS = {
   deleteMyCredential: endpoint({ method: 'DELETE', path: '/api/me/credentials/:id', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Remove one of my own connections.' }),
   startMyCredentialLogin: endpoint({ method: 'POST', path: '/api/me/credential-logins', auth: 'user', owner: 'A', status: 202, body: StartMyLoginBody, response: CredentialLogin, summary: 'Start my own ChatGPT or Claude sign-in.' }),
   getMyCredentialLogin: endpoint({ method: 'GET', path: '/api/me/credential-logins/:id', auth: 'user', owner: 'A', response: CredentialLogin, summary: 'State of my sign-in.' }),
+  myCredentialLoginSlot: endpoint({ method: 'GET', path: '/api/me/credential-login-slot', auth: 'user', owner: 'A', response: CredentialLoginSlot, summary: 'Whether the one AI sign-in slot of this server is taken now (and until when at the latest), never whose. A start blocked by it reads this again until it is free.' }),
   cancelMyCredentialLogin: endpoint({ method: 'DELETE', path: '/api/me/credential-logins/:id', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Stop my sign-in.' }),
   submitMyCredentialLoginCode: endpoint({ method: 'POST', path: '/api/me/credential-logins/:id/code', auth: 'user', owner: 'A', body: SubmitLoginCodeBody, response: CredentialLogin, summary: 'The code Claude showed after approval (sealed), for my Claude sign-in.' }),
 } as const

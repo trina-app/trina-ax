@@ -154,6 +154,15 @@ class Logins {
     this.send(l)
   }
 
+  /** Whether the one slot is taken now (GET /api/me/credential-login-slot), never whose. Someone waiting for it is
+   * someone asking for it: a quiet sign-in gives way here as it would to a start. */
+  slot(): { busy: boolean; expiresAt?: string } {
+    this.endIdle()
+    if (this.claiming) return { busy: true, expiresAt: new Date(this.cc.now() + this.timeout()).toISOString() }
+    const running = [...this.all.values()].find((l) => l.endedAt === null)
+    return running ? { busy: true, expiresAt: running.expiresAt } : { busy: false }
+  }
+
   /** `showBusy`: the caller is the owner or an admin (the admin door): a busy answer says whose sign-in it is and how to stop it */
   async start(i: { userId: string; locale: Locale; personal: boolean; showBusy?: boolean; label: string; assignments: CredentialAssignment[]; priority: number; reconnectId?: string; kind?: CredentialLoginKind }): Promise<CredentialLogin> {
     const { cc } = this

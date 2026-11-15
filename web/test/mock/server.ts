@@ -4474,6 +4474,11 @@ export class MockServer {
     submitMyCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
     getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
+    // like the server (credentials/login.ts slot): taken or not, and until when at the latest; never whose
+    myCredentialLoginSlot: () => {
+      const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
+      return running ? { busy: true, expiresAt: running.expiresAt } : { busy: false }
+    },
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user, true); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 

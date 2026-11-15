@@ -166,12 +166,16 @@ describe('the one sign-in slot is not held by a browser that went away (QA TC-25
     expect(other.code).toBe('busy')
     expect(other.params).toEqual({ reason: 'login_busy', expiresAt: r.expiresAt })
     expect(other.message).not.toMatch(/cancel/i)
+    // the slot, read again by the waiting dialog: taken and until when, never whose
+    expect(await h.api('bob').call(API.myCredentialLoginSlot)).toEqual({ busy: true, expiresAt: r.expiresAt })
     // the starter themselves (their tab closed, a new one opened): theirs, with its id and door, and they may stop it
     const mine = await errorOf(await startOver('alice', 'Alice again'))
     expect(mine.params).toEqual({ reason: 'login_busy', expiresAt: r.expiresAt, mine: true, loginId: r.loginId, personal: true })
     expect((await h.req('bob', `/api/me/credential-logins/${r.loginId}`, { method: 'DELETE' })).status).toBe(404)
     expect((await h.req('alice', `/api/me/credential-logins/${r.loginId}`, { method: 'DELETE' })).status).toBe(204)
     expect(await final(alice, r.loginId)).toMatchObject({ state: 'cancelled' })
+    // free again: the waiting dialog's Start turns on by itself
+    expect(await h.api('bob').call(API.myCredentialLoginSlot)).toEqual({ busy: false })
     setLogin({})
   })
   test('a starter whose dialog stopped reading for 5 minutes loses the slot to the next one who asks; one still reading keeps it', async () => {
