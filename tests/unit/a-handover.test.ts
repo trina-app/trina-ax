@@ -111,6 +111,10 @@ describe('the lead flag', () => {
     expect(JSON.parse(a.detail!)).toMatchObject({ role: 'member', leadHint: true })
     const s = await t.owner.call('GET', '/api/admin/handover')
     expect(s).toMatchObject({ flag: true, openLead: { inviteId: r.invite.id, leadFor: '김팀장 대표님' }, card: null })
+    // the join page can say ownership will be offered: the public info carries the fact, and only on a lead link
+    expect(await t.h.client().call('GET', `/api/invites/${r.token}`)).toMatchObject({ valid: true, lead: true })
+    const plain = await t.owner.call('POST', '/api/admin/invites', { role: 'member', groupIds: [], expiresInHours: 24 })
+    expect((await t.h.client().call('GET', `/api/invites/${plain.token}`)).lead).toBeUndefined()
   })
 
   test('one open lead invite: a new one stops the old link in the same write', async () => {

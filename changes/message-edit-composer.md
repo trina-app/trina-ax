@@ -1,0 +1,1 @@
+- Editing your own message on a phone now happens in the message box at the bottom, as in other chat apps: the message is marked in the list, the box shows the whole text, and ✕ / ✓ cancel or save. The reply you were writing comes back afterwards. On a computer the edit stays in the message, but the field now grows with the text and its buttons no longer cover the third line.

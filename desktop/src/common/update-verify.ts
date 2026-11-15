@@ -1,8 +1,8 @@
-// The Windows app installs a downloaded update only when the product's signed release names it (owner decision
+// The Windows and Mac apps install a downloaded update only when the product's signed release names it (owner decision
 // 2026-11-11, docs/DECISIONS.md). The installer and latest.yml come from the team server, so latest.yml's sha512 alone
 // proves nothing about where they came from; the signed office manifest (<feed>/<officeDir>/<channel>.json,
 // server/src/office/release.ts) does: Ed25519 with a key baked into this build (RELEASE_CHANNEL.keys), and it names the
-// Windows installer's version and SHA-256. The team server puts that manifest next to the installer as
+// Windows installer's version and SHA-256 (and the Mac app's update zip: `mac`, since 0.5.5). The team server puts that manifest next to the installer as
 // /downloads/<channel>.json (server/src/office/update.ts offerWindows), so an office without internet still updates;
 // otherwise the release feed itself is asked. No Electron here (unit-tested in tests/unit/office-update-desktop.test.ts).
 import { RELEASE_CHANNEL } from '@mycel/shared'
@@ -18,8 +18,10 @@ const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,6}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)
 export interface InstallerCheck {
   /** the signed manifest text ({format, payload, keyId, sig}) */
   manifest: string
-  /** SHA-256 (hex) of the downloaded installer */
+  /** SHA-256 (hex) of the downloaded installer (Windows) or update zip (Mac) */
   installerSha256: string
+  /** which app downloaded it (default windows) */
+  platform?: 'windows' | 'mac'
   /** the channel whose manifest this is (the file name it was read under) */
   channel: UpdateChannel
   /** the version electron-updater downloaded (latest.yml) */
@@ -44,12 +46,15 @@ export function verifyInstaller(c: InstallerCheck): InstallerVerdict {
   const product = c.product ?? RELEASE_CHANNEL.officeProduct
   if (r.product !== product) return { ok: false, reason: `the signed release is for ${String(r.product)}, not ${product}` }
   if (r.channel !== c.channel) return { ok: false, reason: `the ${c.channel} manifest is a ${String(r.channel)} release` }
-  const w = r.windows as { version?: unknown; installer?: { sha256?: unknown } } | null | undefined
-  if (!w || typeof w !== 'object') return { ok: false, reason: 'the signed release has no Windows app' }
-  if (typeof w.version !== 'string' || !VERSION_RE.test(w.version)) return { ok: false, reason: 'the signed release names no Windows version' }
-  if (w.version !== c.version) return { ok: false, reason: `the signed release names the Windows app ${w.version}, not ${c.version}` }
+  const mac = c.platform === 'mac'
+  const name = mac ? 'Mac' : 'Windows'
+  const w = (mac ? r.mac : r.windows) as { version?: unknown; installer?: { sha256?: unknown }; zip?: { sha256?: unknown } } | null | undefined
+  if (!w || typeof w !== 'object') return { ok: false, reason: `the signed release has no ${name} app` }
+  if (typeof w.version !== 'string' || !VERSION_RE.test(w.version)) return { ok: false, reason: `the signed release names no ${name} version` }
+  if (w.version !== c.version) return { ok: false, reason: `the signed release names the ${name} app ${w.version}, not ${c.version}` }
   if (compareVersions(c.version, c.current) <= 0) return { ok: false, reason: `${c.version} is not newer than the installed ${c.current}` }
-  const sha = w.installer && typeof w.installer === 'object' ? w.installer.sha256 : undefined
+  const file = mac ? w.zip : w.installer
+  const sha = file && typeof file === 'object' ? file.sha256 : undefined
   if (typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) return { ok: false, reason: 'the signed release names no installer SHA-256' }
   if (sha !== c.installerSha256.toLowerCase()) return { ok: false, reason: 'the downloaded installer is not the one the signed release names' }
   return { ok: true, keyId: env.keyId }

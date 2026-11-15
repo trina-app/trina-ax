@@ -188,6 +188,23 @@ describe('the card: a title, one line, one button', () => {
       expect(copied[0]).toContain("'광고 문구'")
     } finally { await m.unmount() }
   })
+  test('[초대 문구 복사] copies the invite step\'s message: the team\'s "About us" line in it', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => String(input).startsWith('/api/onboarding/profile')
+      ? new Response(JSON.stringify({ profile: { website: '', oneLine: '책상 선풍기를 만드는 팀이에요', products: '', audience: '', tone: [], avoid: '', sources: [], updatedAt: '2026-11-15T00:00:00.000Z' } }), { status: 200, headers: { 'content-type': 'application/json' } })
+      : new Response('{}', { status: 404 })) as unknown as typeof fetch
+    const m = await card(goal({ joined: 1, skill: { path: AD, name: '광고 문구', runners: 2, people: ['김하나', '민지'] } }), LINK)
+    try {
+      await m.settle(30)
+      await m.click('team-goal-copy-invite')
+      expect(copied[0]!.split('\n')[1]).toBe('우리 팀 소개: 책상 선풍기를 만드는 팀이에요')
+      expect(copied[0]).toContain("우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.")
+      expect(copied[0]!.endsWith(LINK.link!.url!)).toBe(true)
+    } finally {
+      await m.unmount()
+      globalThis.fetch = realFetch
+    }
+  })
   test('nobody joined: the line and [초대 문구 복사]; without a working link [팀원 초대] opens the invite step', async () => {
     let m = await card(goal({ joined: 0 }), LINK)
     try {

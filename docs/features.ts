@@ -127,7 +127,7 @@ export const FEATURES: Feature[] = [
   { id: 'connectors.google-own-app', name: "The company's own Google app for all Google apps", area: 'Connections', endpoints: ['*GoogleOwnApp*', 'googleOwnApp'] },
   { id: 'connectors.slack', name: 'Slack connector and linking my Slack', area: 'Connections', endpoints: ['*Slack*', 'slack*'], screens: ['/slack/*'] },
   { id: 'connectors.ai-apps', name: 'Outside AI apps (Claude etc.) use this server', area: 'Connections', endpoints: ['*RemoteConnector*'], screens: ['/connectors/authorize', '/settings/ai-apps', '/admin/ai-apps'] },
-  { id: 'providers.mine', name: 'My own AI accounts (Claude, Codex sign-in)', area: 'Connections', endpoints: ['myCredentials', 'createMyCredential', 'deleteMyCredential', '*MyCredentialLogin*', 'sealingKey'], screens: ['/settings/providers'] },
+  { id: 'providers.mine', name: 'My own AI accounts (Claude, Codex sign-in)', area: 'Connections', endpoints: ['myCredentials', 'createMyCredential', 'deleteMyCredential', '*MyCredentialLogin*', 'myCredentialLoginSlot', 'sealingKey'], screens: ['/settings/providers'] },
   { id: 'providers.team', name: 'Team AI accounts and engines', area: 'Connections', endpoints: ['listCredentials', 'createCredential', 'updateCredential', 'replaceCredentialSecret', 'deleteCredential', 'checkCredential', 'startCredentialLogin', 'getCredentialLogin', 'cancelCredentialLogin', 'submitCredentialLoginCode', 'updateCredentialSettings', 'engines', 'getApiEngine', 'putApiEngine', 'updateEngines', 'checkEngine'], screens: ['/admin/providers', '/admin/providers/:id', '/admin/settings/ai'] },
 
   // ---------------- Onboarding ----------------

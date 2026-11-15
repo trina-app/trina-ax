@@ -315,7 +315,10 @@ export function roomAppJiraBody(event: 'created' | 'transitioned' | 'commented')
 }
 
 /** The Google Forms Apps Script (Copy code), with the address filled in. `sendEmail`: the form's respondent email is
- * sent when the form collects it (the app's `email` switch; the server drops it while the switch is off either way). */
+ * sent when the form collects it (the app's `email` switch; the server drops it while the switch is off either way).
+ * A file-upload answer is sent as `files: n` (how many), not its Drive file IDs (TC-2803): the names would need
+ * DriveApp, which adds "See, edit, create and delete all of your Google Drive files" to the setUp permission prompt;
+ * FormApp, UrlFetchApp and ScriptApp (forms, external request, triggers) are all the script asks for. */
 export function roomAppFormsScript(address: string, sendEmail: boolean): string {
   const q = JSON.stringify(address)
   return `const TRINA_ADDRESS = ${q}
@@ -325,8 +328,11 @@ const SEND_EMAIL = ${sendEmail ? 'true' : 'false'}
 function sendToTrina(e) {
   const r = e.response
   const answers = r.getItemResponses().map((i) => {
+    const item = i.getItem()
     const a = i.getResponse()
-    return { q: i.getItem().getTitle(), a: Array.isArray(a) ? a.join(', ') : String(a) }
+    // A file upload answers with Drive file IDs: send how many files. Their names would need access to your Drive.
+    if (item.getType() === FormApp.ItemType.FILE_UPLOAD) return { q: item.getTitle(), a: '', files: Array.isArray(a) ? a.length : 1 }
+    return { q: item.getTitle(), a: Array.isArray(a) ? a.join(', ') : String(a) }
   })
   UrlFetchApp.fetch(TRINA_ADDRESS, {
     method: 'post',

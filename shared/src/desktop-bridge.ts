@@ -85,6 +85,50 @@ export interface DesktopBrowserSettings {
  * also when it took it: macOS takes a notification it will not show, so taking it says nothing there). */
 export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 
+/** The version of DesktopBridge.workFiles this page knows. A desktop app with another (or none) gets no entry. */
+export const WORK_FILES_BRIDGE_VERSION = 1
+
+/** The folders "Find work files on this computer" looks through, in this order (macOS asks for each in turn). */
+export type WorkRootId = 'documents' | 'desktop' | 'downloads'
+
+/** How one folder went: ok · blocked (macOS privacy keeps the app out: Don't Allow, or the app off in System Settings ›
+ * Privacy & Security › Files & Folders) · missing (no such folder) · unreadable (another error) · home (it is the home
+ * folder or holds it: never looked at) · same (the same folder as one before, looked at once) · skipped (Stop was
+ * pressed, or the time for all three ran out: `cut`). `cut`: a limit stopped it before the end (a big Downloads). */
+export interface WorkRootResult {
+  id: WorkRootId
+  /** Windows: the folder is in OneDrive ("Documents (OneDrive)") */
+  oneDrive: boolean
+  state: 'ok' | 'blocked' | 'missing' | 'unreadable' | 'home' | 'same' | 'skipped'
+  cut: boolean
+  /** documents over 50 MB, counted, not listed */
+  tooBig: number
+  /** entries looked at */
+  checked: number
+}
+
+/** One file the look found: never its path on the computer. `id` reads it (workFiles.read), only for this look.
+ * `folder`: the folders inside the root ('' at its top, '/' between), `modified` the file's date (ms). */
+export interface WorkFileMeta {
+  id: string
+  root: WorkRootId
+  folder: string
+  name: string
+  ext: string
+  size: number
+  modified: number
+}
+
+/** scan(): cancelled (the person said no in the app's own dialog) · busy (a dialog or a look is under way) · unavailable
+ * (no team open, a store build) · done (the list; `stopped`: the person pressed Stop, the list is what was found so far). */
+export type WorkFileScan =
+  | { state: 'cancelled' | 'busy' | 'unavailable' }
+  | { state: 'done'; stopped: boolean; roots: WorkRootResult[]; files: WorkFileMeta[] }
+
+/** read(): the bytes, or why not: unknown (not an id of this look) · expired (the look is over an hour old) · limit (100
+ * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable. */
+export type WorkFileRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
+
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
 
@@ -177,6 +221,25 @@ export interface DesktopBridge {
    * on the computer's clipboard as a picture; false when they are no PNG or too large. The app fetches nothing.
    * Optional: desktop apps before this addition do not have it (the page writes the async clipboard). */
   copyImage?(png: Uint8Array): Promise<boolean>
+  /**
+   * "Find work files on this computer" (docs/DECISIONS.md "Find work files on this computer"). The page never names a
+   * path: scan() first shows the app's own dialog (no web page draws it) and looks through Documents, Desktop and
+   * Downloads only after the person agrees there; the look runs in the app (names, sizes and dates; links never
+   * followed) and gives back a list with an opaque id per file. read(id) gives one listed file's bytes, only for the
+   * latest look of this page, within an hour, at most 100 files and 1 GB. Optional: the Mac App Store build and desktop
+   * apps before this addition do not have it; a page checks `version` against WORK_FILES_BRIDGE_VERSION.
+   */
+  workFiles?: {
+    version: number
+    scan(): Promise<WorkFileScan>
+    /** the look stops; scan() answers with what was found so far (`stopped`) */
+    stop(): void
+    /** the look's progress, while it runs */
+    onProgress(cb: (p: { root: WorkRootId; checked: number; docs: number }) => void): () => void
+    read(id: string): Promise<WorkFileRead>
+    /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
+    openSettings(): void
+  }
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its

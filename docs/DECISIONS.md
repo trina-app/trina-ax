@@ -8959,7 +8959,11 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   notifications; sign out there first" (QA TC-201, fix/push-token-takeover, 2026-11-11). A phone that changes hands
   loses its row first: logout removes it with the session, a team switch with the removal key, and after a reinstall
   the iPhone app signs the kept session out (Android gets a new FCM token), so the old "another account replaces it"
-  only let a member who knew a colleague's token take over their notifications.
+  only let a member who knew a colleague's token take over their notifications. A sign-out that never reached the
+  server (offline: the page shows the sign-in page anyway and the HttpOnly cookie stays) is closed at the next sign-in
+  in that browser: a cookie-mode sign-in ends the session its request's cookie names when it is another person's, so
+  its device row goes and the next person registers the phone (QA TC-835, fix/tc835-push-dup, 2026-11-15). The same
+  person's earlier session stays (the desktop app copies one cookie to its second team address).
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
   hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
   store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
@@ -16210,9 +16214,8 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
 - **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
   (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
-  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
-  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
-  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  own), under ONE primary that names what goes in: one skill by its name ("카드뉴스 넣기"), two or more counted ("스킬 3개
+  넣기", "Add 3 skills"; names run together as "A·B·C" read as one word, QA TC-2654, 2026-11-15). Pre-checks without AI: the visual three when a profile is saved,
   never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
   then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
   it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only
@@ -27359,6 +27362,42 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
   and skills/.
 
+## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
+
+Builds on "Guests: only what they were invited to" and "Claude 구독 연결: 브라우저에서".
+
+- **A member's invite dialog knows a guest gets no AI here** (TC-2580): `GET /api/guest-invites/limit` (any non-guest)
+  carries `guestAiUnavailable: 'host_sign_in'` on a server that is not managed, the same flag as
+  `GET /api/admin/credentials`, which only the owner and admins read. The dialog takes it from either, keeps No AI
+  picked and greys out the rest. A member reads only "On this server, guests can't use AI.", because they cannot
+  reinstall the server; the owner and admins also read the `.pkg` sentence. `POST /api/guest-invites` still accepts the
+  other choices (no change in what the server allows: the guest's AI never runs there, `credentials/guest-ai.ts`).
+- **The one sign-in slot is not held by a browser that went away** (TC-2581, `credentials/login.ts`): every sign-in
+  keeps `seenAt`, updated by its start, the code, and every read of it (the dialog's 3-second poll is the heartbeat).
+  When someone asks for the slot, a running sign-in not heard from for `LOGIN_IDLE_MS` (5 minutes: logging in at the provider on a phone,
+  with an email code, can take a while) is ended `expired` with reason `idle`. One storing its token, or checking
+  the pasted code, is never ended this way, and the dialog sends no goodbye then either. A start claims the slot
+  before it waits for the launcher, so two starts at once cannot both run. We only free it when someone asks: a phone that
+  paused the page while its person approved elsewhere keeps its sign-in when nobody is waiting. The dialog also says
+  goodbye itself: on `pagehide` (not a page kept for the back button) it sends the DELETE with `keepalive`
+  (`ApiClient` `keepalive`). Back on the page, the starter reads "This sign-in stopped because this page was away
+  for a while and someone else needed to sign in. Start again."
+- **The busy answer tells everyone the truth** (`LoginBusyParams`, now for every caller): `expiresAt` (the latest end)
+  for everyone; `mine`, `loginId` and `personal` for its own starter, who may stop it ("Stop it and start again" stops
+  it through its door and starts the new one); `starter` only for the owner and admins at the admin door, as before. A
+  member never learns whose it is. The dialog shows that line in place of the server's raw message, keeps its start
+  button off while the slot is taken, and reads `GET /api/me/credential-login-slot` (taken or not, until when; never
+  whose; open to guests with their own sign-in) every 4 seconds while it is someone else's, so the button turns on by
+  itself once it is free. A waiting reader counts as someone asking: a quiet sign-in gives way to it as to a start.
+- **An option that cannot be picked looks off** in the guest AI choices: the whole row is faded, not only its radio.
+- **A switched-off account with its right password is told the truth** (TC-2582, `auth/accounts.ts` login): 401 with
+  `params.reason 'account_off'` and "This account was turned off. Ask the person who invited you." (a guest) or "…Ask
+  the team owner or an admin." (anyone else). A wrong password and an unknown username still get the generic words
+  with no reason, so nothing says which usernames exist. The try is still counted (the limiter hold is kept), it makes
+  no session, and the audit row is the same `auth.login_failed` with `disabled: true`. The trade-off, asked for in
+  QA: someone who already has the password learns the account is off. That opens nothing.
+- Version impact: **patch**.
+
 ## Guest invites, phase 2: the screens — 게스트 초대 화면 (feat/guest-invites-p2, 2026-11-14, the owner)
 
 넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `GuestTag.tsx`, `GuestView.tsx`, `web/src/lib/guests.ts`, `web/src/pages/admin/Guests.tsx`), 이유: people, rooms and projects are core. Builds on phase 1 (the server security core, `docs/AGENTS/plan/20261114-1016-guest-invites-p1.md`, "Guests: only what they were invited to"); the server decides what a guest reaches, the screens only label guests and leave out what is not theirs.
@@ -28390,3 +28429,136 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **The limit is a notice, not an error, also before the send.** The server refuses a send at a used-up limit before the AI runs (`budget_exceeded`, with the guest's wording and the reset date), and the box showed it in red like a fault. The message box (`Composer`) and a refused user message ("Not sent.") now show it as a neutral line with the pause icon, as the answer's own limit notice already did. "Send again" stays on the message (it works once an admin raises the limit or the month turns). Left as it was: the room's ✦ side chat also shows a warn toast for it (the "Not sent." line in the chat is calm now).
 - **Docs:** the guest limits table lists Free trial 10 (the Free plan is gone, owner 2026-11-14).
 - **Checked and fine:** the full invite dialog (owner, admin, member, store app without "See plans"); an older link at the cap keeps the typed fields; a freed seat works at once; See plans opens a new tab and loses no picks; the guest's AI stops exactly at the limit and resumes in the same chat when the limit is raised or the month turns.
+
+## Admin › Members & invites lists only working links; no guests, no Guests section (fix/admin-invites-lean, owner 2026-11-15, QA TC-2540)
+
+- **Asked:** the owner saw every past link under **Invite links** ("Member · Joins no groups · Used by X", "Expired")
+  and asked why; a lean page lists what can still be acted on.
+- **Invite links** shows the team invite link only while its state is `active`, and single-use links only while unused
+  and before their end date, and not stopped by itself (`Invite.stopped`: a guest link whose room or project is gone or
+  in the trash, whose maker left it, or whose team AI account was removed; the same check the invite page and the
+  accept use, `makerReason` in `server/src/auth/accounts.ts`). `openInviteLinks`, `workingTeamLink` in
+  `pages/admin/Members.tsx`. The server already leaves revoked ones out. This replaces "Guest states, round 3"'s
+  stopped row ("No longer works: …" instead of a date): such a link is now left out, and its three
+  `members.stopped*` keys were removed. Admin's dates stay in the team's time zone. With no working link the section
+  is not drawn. Who joined is in the member list and the Activity log; an expired or full team link is still
+  explained in the header's **Team invite link** popup.
+  `GET /api/admin/invites` is unchanged (it still returns used ones; other screens and the handover card read it).
+- **Guests:** a team with no guest at all has no **Guests** section (no "No guests yet" row). The Role filter's
+  **Guests** still shows the section with its empty line, so picking it never shows a blank page. A search that finds
+  no guest in a team that has some keeps "No match". A team whose guests were all removed still has the section
+  ("Show removed (N)"), since those accounts can be switched on or deleted only there.
+- The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
+- Version impact: **patch** (fewer rows on one admin page).
+
+## The invite message introduces the team; the invite step keeps only the message (feat/onboarding-invite-message, 2026-11-15, the owner)
+
+Owner 2026-11-14: the colleague should see who invites them, what the team is and what to do; owner 2026-11-15 (Q1, Q2):
+no recommended-skill line for members, the message names the skill; the message is editable. Supersedes the
+"Ready-made message" wording of "E — 팀 초대 링크" and the link-above-the-message part of "X"'s folded invite step.
+
+- **The message** (`lib/team-link.ts` `teamLinkMessage`, keys `teamLink.msg.*`), one short line each, in the team's
+  language (`team.defaultLocale`; the screen's until that dictionary loads): a hello from the person copying it ·
+  "About us: {oneLine}" from the company profile (no line when it is empty, never a blank "About us:") · "Trina, our
+  team's AI, helps us with everyday documents." (no claim about files or tools the team may not have added) · "I set
+  up '{skill}' for us." only when the link names a skill (no "first", no "together": people who join land on Home, not
+  on the skill; without a skill there is no skill line and no suggested first task) · "You'll need your own AI
+  account." when they sign in to their own AI · the link alone on the last line. A skill the lead just made gets the
+  same message (the old `teamLink.messageMade`, "Open the link to use it the same way", is gone: members land on Home).
+  The old one-sentence `teamLink.message*` texts are gone. Home's goal card "Copy invite" copies the same message (the
+  "About us" line, in the team's language: `useMessageWords`).
+- **Editable in place**: the message is a text field that replaces the old preview (no second box); what is in it is
+  what Copy message / Send message sends; an edit that took the link out gets it back on its own last line when
+  copied or sent. Another skill or a new link starts the message again from its own words.
+- **The invite step (folded) shows the message only**: the link box with Copy link, the QR code, the facts and "Replace
+  with a new link" are all under the one quiet "Manage link" row (the message already ends with the link). A link that
+  opens on this computer only still says so outside the fold. Admin › Members is unchanged (link above the message).
+- **"Done" is the primary once something went out**: after Copy message, Send message (the share sheet's "shared"; a
+  closed sheet changes nothing) or Copy link, the step's "Done" becomes the primary and the copy button steps down, so
+  there is one primary on screen. A copy the browser refused (the copy command answered false) shows no "Copied" and
+  changes nothing.
+- **"Later" asks only on a computer, and only before anything was sent**: "Most teams start with one or two" stays on
+  a computer; on a phone (the bottom sheet), or after the message went out, "Later" skips at once.
+- **Lines that named a landing**: `teamLink.landing` → "The message names '{skill}'" (with Change among the shared
+  skills); the Admin link form's `teamLink.skillHint` → "Named in the invite message." (the skill no longer opens by
+  itself after joining: lane D, member lands on Home); its label `teamLink.skillField` "Skill to try together
+  (optional)" → "Skill (optional)".
+- Removed: the suggested-first-task line and the made-skill sentence (`teamLink.msg.tryAny`, `teamLink.messageMade`, 6
+  languages), the link box + QR from the invite step's first view.
+- Version impact: **patch**.
+
+## Find work files on this computer, part 1: the desktop app looks, the page never names a path (feat/find-work-files, 2026-11-15)
+
+Plan: `docs/AGENTS/plan/20261115-0330-find-work-files.md` (owner-approved after an independent review; slice 1). The desktop
+app (Windows and the direct-download Mac app) offers to look through Documents, Desktop and Downloads for work files.
+This part is the app side: the bridge call, the look, the reads afterwards and the macOS strings. The screens come in
+part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/src/main/work-files.ts`,
+`shared/src/desktop-bridge.ts` `workFiles`, `shared/src/file-scan.ts`).
+
+- **One call, the app's own dialog first (review MUST: bridge security).** `workFiles.scan()` takes no argument. The main
+  process shows `dialog.showMessageBox` (no web page draws or answers it): what is looked at (the three folders, "(OneDrive)"
+  on Windows when Known Folder Move put one there), that names, types and dates are read, that the file names may go to the
+  team's AI, that contents stay on the computer until the person adds them, that nothing is moved or changed, and on a Mac
+  that macOS asks next for each folder. Cancel is the default button: Enter, Escape and closing answer no, so a page that
+  asks while the person is typing gets no yes from their next Enter (as the allow-all dialog; review). After the dialog
+  (yes or no) it is not shown again for 3 s (`busy`), and only one dialog or look runs at a time. A page script on the team
+  origin can ask, but nothing is read without the person's click in the app's window.
+- **The look runs in the main process** (`scanRoots`), so macOS's privacy question names the app, and one folder after the
+  other (Documents, then Desktop, then Downloads: the first read of each raises its question, which the read waits for).
+  It reads entries with `opendir` (entry by entry, so a folder of millions stops at the entry limit) and `lstat` only: a
+  symbolic link or junction is never entered or listed. Each call gets the time left for the folder (at least 1 s), so a
+  network folder or an offline share that never answers ends that folder's look (`cut`) instead of the whole look (the
+  documents' lstat too, batch by batch, which also stops at Stop); a
+  folder's first read may wait 2 minutes for macOS's question, then it is `unreadable`.
+  Windows marks every reparse point as a link in a listing (OneDrive's online-only files too), so there `lstat` decides
+  (libuv's lstat reports only real links and junctions as links). The same rules as the page's own walk
+  (`shared/src/file-scan.ts`, now shared: `isSystemName` moved there and `@mycel/shared/api` re-exports it): never dot
+  entries, `~$` lock files, system names, node_modules, .git, Library, AppData, app bundles; documents by type; png/jpg
+  only in a brand or logo folder, never a screenshot. Each folder: 5,000 documents, 50,000 entries, 6 folders down, 15 s
+  of walking; all three: 30 s. The time macOS's question takes is not counted. Over 50 MB: counted, not listed. A file
+  reached twice (a folder inside another, a hard link) is listed once; a root that is the same folder as one before is
+  `same`, and a root that holds one looked at before skips it; the home folder or one holding it (`opensHome`, the folder
+  window's rule) is never looked at (`home`; a Windows network path `\\server\share` counts as that too). EPERM on
+  a Mac is `blocked` (Don't Allow, or the app off in Files & Folders), with no way to ask again from the app.
+- **What the page gets:** per folder its state, `cut`, the count over 50 MB and the entries looked at; per file an opaque
+  id (12 random bytes), the folder (`documents|desktop|downloads`), the folders inside it, the name, type, size and date.
+  Never a path of the computer (pinned in the e2e).
+- **Reads by id only** (`WorkFileSessions`). The latest look of each team origin is kept for the person signed in: an id of
+  an older look, of another origin, made up or a path is `unknown`. For an hour (`expired` after), at most 100 files and
+  1 GB per look (`limit`; the same file read again counts once, and reads in all stop at 300). The count is taken before
+  a read starts and given back when it fails, and reads run one at a time, so reads sent at once can neither pass the
+  limits nor hold more than one file (50 MB) in memory (review MUST: they could). A read that gets no answer in 60 s (a
+  drive that stopped answering) is `unreadable`, so the reads behind it go on. A read finds the file again under the
+  real path of its folder, checks that its real path is that same path (a folder on the way swapped for a link is
+  refused), lstats it, opens it with O_NOFOLLOW, and checks the open file's identity, size and date against the look
+  (`changed`). Windows has no O_NOFOLLOW, so there the identity (device and file number) is what tells a link's target
+  apart: a drive that gives no identity (0: FAT, some network drives) is refused on Windows; on macOS such a drive is
+  checked by size and date. A sign-out, another person, another team or the window closing forget the look; a look still
+  running then gives nothing. Sessions are kept per origin: after the app switches between the office address and the
+  team address, the page looks again.
+- **Contents leave only when the person adds files.** The app hands out bytes for any listed id; that the page reads a
+  file only when the person presses Add (never to show or rank the list) is part 2's rule, checked in its review.
+- **Older apps and store builds (review MUST: bridge version).** `bridge:info` carries `workFiles`, the version
+  (`WORK_FILES_BRIDGE_VERSION`, 1) or 0. The preload exposes `workFiles` only then; the page offers the entry only when the
+  version matches, so desktop apps before this, the Mac App Store build (its sandbox reads only what the person picks:
+  it keeps "choose a folder") and Linux show nothing new. The Microsoft Store build is a full-trust app and gets it.
+- **macOS strings (review MUST: true copy).** NSDocumentsFolderUsageDescription, NSDesktopFolderUsageDescription and
+  NSDownloadsFolderUsageDescription in 6 languages: "Looks for work files here. File contents stay on this Mac until you
+  choose to add them." It promises nothing about names, which may go to the team's AI. The old line ("Reads only the
+  folders you pick") was untrue once the app looks by itself. The Mac App Store build reads the same strings and stays
+  true. `openSettings()` opens System Settings › Privacy & Security › Files & Folders (a fixed address; macOS only).
+- **Not here:** the screens and the server route (part 2), the Mac guide (part 3), cloud folders (~/Library/CloudStorage,
+  which macOS guards with a question of its own), a "look again" that keeps state. TCC answers are bound to the code
+  signature: an unsigned build may be asked again after an update (Developer ID signing is its own branch).
+- Tests: `tests/unit/e-desktop-work-files.test.ts` (made-up file system: what is listed, the order of the folders, links
+  and junctions, OneDrive's online-only files, EPERM, every folder denied, home and the same folder, each limit and the
+  time, a folder that never answers, a root holding an earlier one, a file reached twice, Stop; reads: foreign ids,
+  another origin, a new look, an hour, 100 files and 1 GB, reads sent at once (the limits hold, one at a time), a failed
+  read gives its place back, no identity on Windows, a folder or file swapped for a link, another size or date, ELOOP at
+  open, another person; the wiring, Cancel as the dialog's default);
+  `desktop/e2e/work-files.spec.ts` (real Electron in a made-up home, `FOLDER_TEST_HOME` guard as folder-window: the dialog
+  first, cancel and the 3 s quiet, the home folder as Desktop never looked at, a big Downloads cut at 5,000, links not
+  listed, no path in the answer, foreign ids and another origin refused, a folder and a file swapped for links refused, the
+  made-up secret never read). Run with `bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`; CI does not run
+  the desktop e2e.
+- Version impact: **minor** (a new desktop bridge call; nothing uses it until part 2).

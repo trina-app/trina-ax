@@ -84,6 +84,7 @@ export const ko: Strings = {
         '',
         '**팀 스킬**: 팀이 같이 쓰는 스킬이 있어요. *브랜드 가이드*, *SNS 캡션 3안* 같은 거요. 필요할 때 제가 알아서 써요.',
       ].join('\n'),
+      personLine: '{name}, {title}: {text}',
       peopleTitle: '먼저 알아 둘 사람',
       people: {
         sara: '뭐든 편하게 물어보세요.',

@@ -1,6 +1,7 @@
-// Security regression, area auth-admin (round 1): sign-in must not tell an unauthenticated caller that a password
-// is right for a disabled account (before: right password → 403 "account disabled", wrong → 401 "bad login"), and
-// such attempts must keep counting toward the per-account limit.
+// Security regression, area auth-admin (round 1), changed by QA TC-2582 (2026-11-15): a switched-off account with its
+// RIGHT password is now told the truth (401, reason account_off, who to ask), because people kept retrying a right
+// password. Only someone who already has the password learns it; it opens nothing. What stays: a wrong password and an
+// unknown username answer exactly alike (no username oracle), and every attempt keeps counting toward the limit.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { addMember, harness, withOwner, type Client, type Harness } from '../unit/a-lib'
 
@@ -13,7 +14,7 @@ describe('sign-in does not confirm the password of a disabled account', () => {
   })
   afterAll(() => h.close())
 
-  test('right and wrong password for a disabled account get the same 401 answer', async () => {
+  test('a wrong password for a disabled account answers exactly like an unknown username; the right one is told it is off, with no session', async () => {
     const m = await addMember(h, owner, { username: 'dora' })
     await owner.call('PATCH', `/api/admin/users/${m.id}`, { status: 'disabled' })
     const right = await h.client().try('POST', '/api/auth/login', { username: 'dora', password: m.password })
@@ -22,9 +23,11 @@ describe('sign-in does not confirm the password of a disabled account', () => {
     // the request id is per request; everything else must be identical
     const answer = (r: { status: number; body: any }) => ({ status: r.status, error: { ...r.body.error, requestId: undefined } })
     expect(right.status).toBe(401)
-    expect(answer(right)).toEqual(answer(wrong))
-    expect(answer(right)).toEqual(answer(nobody))
+    expect(right.body.error.params).toEqual({ reason: 'account_off' })
+    expect(answer(wrong)).toEqual(answer(nobody))
+    expect(wrong.body.error.params).toBeUndefined()
     expect(right.body.token).toBeUndefined()
+    expect(right.headers.get('set-cookie')).toBeNull()
   })
 
   test('attempts on a disabled account keep counting toward the account limit', async () => {
