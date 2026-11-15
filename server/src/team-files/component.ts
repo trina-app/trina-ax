@@ -30,6 +30,7 @@ import { UploadSessions } from '../uploads/sessions'
 import { publishChanges } from './changes'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { TeamFiles } from './service'
+import { fileSharesOf } from '../files/shares'
 
 export interface ComponentC {
   hwp: HwpPreviews
@@ -66,6 +67,8 @@ export function componentC(ctx: AppContext): ComponentC {
   const have = instances.get(ctx)
   if (have) return have
   const files = new TeamFiles(ctx)
+  // a shared file's link follows its file (files/shares.ts: its file-event hook)
+  fileSharesOf(ctx)
   const teamRefs = new TeamFileRefs(ctx, files)
   const attachments = new Attachments(ctx, files, teamRefs)
   const uploads = new UploadSessions(ctx, files, attachments)

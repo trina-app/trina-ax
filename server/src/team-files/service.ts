@@ -33,6 +33,7 @@ import { FileError, fileError } from './errors'
 import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
+import { fileSharesOf, linkPeopleUnder, sharesForgotten, sharesMoved, sharesPurged, sharesRestored, sharesTrashed } from '../files/shares'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
 const BINARY_EXT = new Set(['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'odt', 'ods', 'odp', 'pdf', 'hwp', 'hwpx', 'zip', 'gz', 'tgz', '7z', 'rar',
@@ -536,7 +537,8 @@ export class TeamFiles {
     let narrowed = 0
     if (target[0] === 'users' && !(fr.segs[0] === 'users' && fr.segs[1] === target[1])) {
       narrowed = this.lostViewers(rules, user.id, fr.segs, target)
-      if (narrowed > 0 && !o.confirm) fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed })
+      // (the move confirm also says how many people have files here by their link: files/shares.ts)
+      if (narrowed > 0 && !o.confirm) { const linked = linkPeopleUnder(this.ctx.db, fr.rel); fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed, ...(linked ? { linkPeople: linked } : {}) }) }
     }
     // the other way (QA TC-115): an item out of a personal folder to where more people can read it must be confirmed
     // too, when the client asks (askWiden: the Files screen). The AI's own moves ask on their cards (tools/file-moves.ts)
@@ -582,7 +584,10 @@ export class TeamFiles {
     }
     if (carried.length) recordCarriedSkills(this.ctx, userId, carried, { turnId: o.turnId ?? null, tool: o.tool ?? null })
     const after = this.rules()
-    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
+    const lost = readers.filter((p) => !atLeast(after.access(p, target), 'read'))
+    this.dropSessionsOf(lost, { path: fr.rel, to: toRel })
+    // fewer people can read it where it went: the grants someone else's file had go (files/shares.ts afterMove)
+    try { fileSharesOf(this.ctx).afterMove(userId, toRel, lost.length > 0) } catch (e) { this.ctx.log.warn('file shares after a move failed', { err: e }) }
     // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
     return { entry: this.entry(user, rules, target) }
@@ -811,6 +816,8 @@ export class TeamFiles {
       }
       re('file_versions', 'path')
       re('file_versions', 'conflict_path')
+      // a shared file's link follows it (files/shares.ts)
+      sharesMoved(db, fr.rel, toRel)
       re('attachments', 'path')
       // items trashed from inside the moved folder: their place to go back to moves with it. Otherwise the trash checks
       // write access on the old path (no rule there any more: the group stops seeing its own trash), and a restore
@@ -1334,6 +1341,8 @@ export class TeamFiles {
       // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
       // inherit them, and the deleted one gets them back wherever it is restored
       if (isDir) rebaseFolders(db, r.rel, storage)
+      // shared files' links wait in the trash with them (files/shares.ts)
+      sharesTrashed(db, r.rel, id)
       // the team projects of this folder and below go with it: nobody reads them until it comes back, the owner and admins
       // manage them (chat/projects.ts canSeeProject, mayManageProject), and they follow it when it is restored. A project already marked keeps the
       // folder trashed first. Personal projects are their person's in the trash too.
@@ -2100,11 +2109,13 @@ export class TeamFiles {
                   AND substr(trash_items.original_path, 1, length(p.original_path) + 1) = p.original_path || '/')))`)
           .run(r.rel, t.original_path, t.id)
         back = this.projectsBack(t, r.rel)
+        sharesRestored(this.ctx.db, t.id, t.original_path, r.rel)
         fs.renameSync(src, r.abs)
       })()
     } else {
       checkRegular(src)
       installFile(this.root, r.segs, src)
+      sharesRestored(this.ctx.db, t.id, t.original_path, r.rel)
     }
     this.ctx.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), id)
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
@@ -2180,6 +2191,7 @@ export class TeamFiles {
         db.query('DELETE FROM folders WHERE id = ?').run(fid)
       }
     }
+    sharesPurged(db, t.id)
     db.query('DELETE FROM trash_items WHERE id = ?').run(t.id)
   }
 
@@ -2272,6 +2284,7 @@ export class TeamFiles {
     if (!/^users\/[^/]+$/.test(prefix)) throw new Error(`not a personal folder: ${prefix}`)
     const db = this.ctx.db
     const under = "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')"
+    sharesForgotten(db, prefix)
     let versions = 0
     for (const v of db.query(`SELECT id, storage_path FROM file_versions WHERE ${under}`).all(prefix, prefix, prefix) as { id: string; storage_path: string | null }[]) {
       if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })

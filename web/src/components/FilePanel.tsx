@@ -11,7 +11,7 @@
 // prints the page as a browser does and saves "<name>.pdf" next to it (POST /api/files/html-pdf); a folder the person
 // cannot write gets the same PDF as a download (GET /api/files/html-pdf).
 import clsx from 'clsx'
-import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
+import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, UserPlus, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, API, chatFileUrl, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
@@ -33,6 +33,8 @@ import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { Tooltip } from './Tooltip'
 import { PanelExpandButton } from './SidePanelFrame'
 import FileBody, { useFileBlob } from './FileBody'
+import { openFileShare } from './FileShareDialog'
+import { isGuestMe } from '../lib/guests'
 
 const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
@@ -252,6 +254,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
+    // a team file shared with chosen people (QA TC-3093; components/FileShareDialog.tsx)
+    ...(file.source === 'team' && !isGuestMe(me) ? [{ label: t('folderAccess.menu'), icon: <UserPlus size={15} className="shrink-0" aria-hidden />, onSelect: () => openFileShare(file.path), testId: 'file-more-share' }] : []),
     ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
   ]
 

@@ -53,6 +53,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   MEMBER_WELCOME: 'The welcome card for invited people (Home)',
   NAV_FOLDERS: 'List folders (my own folders for chats and conversations)',
   ROOM_APPS: 'Apps posting in rooms',
+  FILE_SHARES: 'Files shared one by one (links, Ask for access)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

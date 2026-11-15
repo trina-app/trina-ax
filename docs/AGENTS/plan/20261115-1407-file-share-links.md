@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 14:07 (revised after the plan review, same day)
 - Branch: `feat/file-share-links`
-- Status: draft (plan only; build starts after TC-3091's shared-chat helper is merged, which this reuses)
+- Status: in review (P1 built; PR #979)
 - QA: TC-3093
 - Where: Team AX core (`server/src/team-files/`, a new `server/src/files/shares.ts`, `server/src/tools/index.ts`, a
   new `server/src/chat/share-with-person.ts`, `server/src/notifications/`, `server/src/admin/`,
@@ -383,4 +383,18 @@ web e2e before merge), server tests under Bun 1.3.12.
 
 ## Result
 
-Filled in at the end.
+P1 built on `feat/file-share-links` (PR #979). What differs from the plan and why:
+
+- **Migration 355**, not 354: `feat/old-files-key-scan` took 354 first (`355_c_file_shares.sql`, C range, additive).
+- **The shared helper** is `server/src/chat/shared-actions.ts` (TC-3091 merged as #980): `actionOff`, `mainOnly`,
+  `askerPicks`, `namesRecipient` / `namedByAsker` (moved from post-to-room.ts, re-exported there), `namesFile`.
+  post_to_room's behaviour is unchanged (its tests pass). share_with_person shows its card every time (no Always
+  allow) and is never offered in a scheduled run; its paths are not reads for the shared chat's read card.
+- **Link guard:** the api engine's link guard (engine/api-links.ts) now treats `/f/<id>` as a team link, so a link a tool
+  gave survives and an invented one becomes plain text.
+- **share_file** returns the `/f/<id>` link for a file's preview; folders and downloads keep the path link.
+- **Deleted accounts:** their file-share notices, requests and grants go (`registerFileShareCleanup`).
+- **Web:** Share shows on every file's ⋯ (the list does not know each file's owner; the dialog says why when the viewer
+  cannot share). The TC-3092 `ShareWarning` is not merged yet, so the dialog has no warning line.
+- Tests: `tests/unit/c-file-shares.test.ts`, `tests/security/file-shares.test.ts`, `tests/unit/b-share-with-person.test.ts`,
+  `web/test/e2e/file-share-links.spec.ts` (screenshots of every surface at 1440/390, light and dark).

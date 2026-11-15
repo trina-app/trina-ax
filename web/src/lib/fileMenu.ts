@@ -22,6 +22,8 @@ export interface FileMenuTarget {
   copyImage?: (() => void) | null
   /** the app's own address of it (messageLink, teamFileLink) */
   link?: string | null
+  /** a team file (not a folder): 링크 복사 gives its /f/<id> link instead of `link` (QA TC-3093, components/FileShareDialog.tsx) */
+  teamFile?: string | null
   download?: (() => void) | null
   /** 트리나에게 묻기 */
   ask?: (() => void) | null

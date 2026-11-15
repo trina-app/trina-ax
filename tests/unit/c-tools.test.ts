@@ -58,7 +58,11 @@ describe('registry', () => {
 describe('share_file', () => {
   test('relative links that are checked again with the viewer\'s session', async () => {
     const r = await call('alice', null, 'share_file', { path: 'groups/marketing/campaign-brief.md', mode: 'preview' })
-    expect(r.text.split('\n')[0]).toBe('/files/view?path=groups%2Fmarketing%2Fcampaign-brief.md')
+    // a file's preview link is its /f/<id> link (TC-3093): it opens for whoever can open the file, others get Ask for access
+    expect(r.text.split('\n')[0]).toMatch(/^\/f\/[A-Za-z0-9_-]{22}$/)
+    expect(r.text).toContain('gives nobody access')
+    // a folder keeps the path link
+    expect((await call('alice', null, 'share_file', { path: 'groups/marketing', mode: 'preview' })).text.split('\n')[0]).toBe('/files/view?path=groups%2Fmarketing')
     const d = await call('alice', null, 'share_file', { path: 'shared/handbook.pdf', mode: 'download' })
     const url = d.text.split('\n')[0]!
     expect(url).toBe('/api/files/download?path=shared%2Fhandbook.pdf&disposition=attachment')

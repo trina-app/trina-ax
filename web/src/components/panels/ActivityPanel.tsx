@@ -119,12 +119,12 @@ export const FEED_KEY = 'feed:panel'
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
-  const chips = chipsFor(admin)
   const [chip, setChip] = useState<ActivityChip>('all')
-  const shownChip = chips.includes(chip) ? chip : 'all'
   // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
   const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
   const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
+  const chips = chipsFor(admin, items ?? [])
+  const shownChip = chips.includes(chip) ? chip : 'all'
   const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
   const [unread, setUnread] = useState(kept?.unread ?? 0)
   useEffect(() => { rememberCached<KeptFeed>(FEED_KEY, items ? { items, cursor, unread } : undefined) }, [items, cursor, unread])

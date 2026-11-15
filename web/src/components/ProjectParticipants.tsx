@@ -94,7 +94,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, unavailable, readOnly = false, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, unavailable, readOnly = false, hideEmpty = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -118,6 +118,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   unavailable?: ReadonlyMap<string, { text: string; action?: ReactNode }>
   /** who is in it, without the search and without × (someone else's shared chat) */
   readOnly?: boolean
+  /** nothing under the search while nobody is picked (a file's Share dialog: who has it is listed apart) */
+  hideEmpty?: boolean
   testId?: string
 }) {
   const t = useT()
@@ -144,6 +146,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   const picked = new Set(value.map(participantKey))
   const before = current ? new Set(current.map(participantKey)) : null
   const searching = open && !readOnly
+  const bare = hideEmpty && !searching && !value.length && !fixed.size && !current?.length
 
   // fixed ones in their order, then the chosen and the ones taken out before saving: groups, then people, by name
   const rows: ParticipantOption[] = []
@@ -208,7 +211,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
       // Esc closes the results first (from the search or a result); the dialog stays open
       onKeyDown={(e) => { if (e.key === 'Escape' && searching) { e.preventDefault(); close(); focusQuiet(input.current) } }}
     >
-      {!readOnly && <label htmlFor={searchId} className="flex items-center gap-2 border-b border-line px-2.5">
+      {!readOnly && <label htmlFor={searchId} className={clsx('flex items-center gap-2 px-2.5', !bare && 'border-b border-line')}>
         <Search size={14} className="shrink-0 text-faint" aria-hidden />
         <input
           ref={input}
@@ -267,7 +270,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
           })}
           {!results.length && <li className="px-3 py-2 text-sm text-faint">{t('projects.participantsNone')}</li>}
         </ul>
-      ) : (
+      ) : bare ? null : (
         <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.participants')}>
           {rows.map((x) => {
             const k = participantKey(x)

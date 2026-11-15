@@ -141,7 +141,8 @@ test("a Files row's right-click opens its ⋯ menu at the pointer, with 링크 �
   const m = (await menu(page).boundingBox())!
   expect(Math.abs(m.x - (box.x + 30))).toBeLessThan(2)
   await page.getByTestId('file-copy-link').click()
-  expect(await clipboardText(page)).toBe(`${new URL(page.url()).origin}/files/view?path=${encodeURIComponent('marketing/plan.md')}`)
+  // a file's own link (/f/<id>, QA TC-3093), made on first use
+  await expect.poll(() => clipboardText(page)).toMatch(new RegExp(`^${new URL(page.url()).origin}/f/[A-Za-z0-9_-]{22}$`))
   // from the keyboard: Shift+F10 on the row's name opens the same menu, with the keyboard in it
   await name.focus()
   await page.keyboard.press('Shift+F10')

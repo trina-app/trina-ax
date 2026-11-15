@@ -2722,6 +2722,9 @@ export class TurnExec {
    *     or every entry when they may only list the folder.
    */
   sharedSources(tool: string, input: unknown): ReadSource[] {
+    // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
+    // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
+    if (tool === 'share_with_person') return []
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const fx = this.rt.files.fx, rules = this.rt.files.rules()
     let me: Principal

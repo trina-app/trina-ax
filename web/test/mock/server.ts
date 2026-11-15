@@ -77,7 +77,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome, ScheduleRun } from '@mycel/shared/api'
-import { activityTabHas } from '@mycel/shared/api'
+import { activityTabHas, fileLinkUrl, type FileShareRow } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
 import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
@@ -243,6 +243,9 @@ const enc = new TextEncoder()
 const dec = new TextDecoder()
 
 const OWNER_PASSWORD = 'correct horse battery'
+/** POST /__test/file-shares: a file link that opens for Olga (her notes, shared with Bob), and one she must ask for */
+export const FILE_LINK_OPEN = 'mockOpenLink0000000001'
+export const FILE_LINK_ASK = 'mockNoAccess0000000002'
 /** the general pack's card news as the server installs it (resources/skill-packs/general/ko/card-news), its form included:
  * a member who joins with the first result's invite lands on it */
 /** A new chat's title: its first prompt's first 30 characters; in a room's side chat a question about a message or a file
@@ -348,6 +351,8 @@ export class MockServer {
     | { kind: 'project_joined'; joinerId: string; projectId: string }
     // someone shared a chat with me (server/src/chat/people-share.ts): by name or through a group
     | { kind: 'chat_shared'; chatId: string; byId: string; named: boolean }
+    // a file shared with me, an ask to open a file of mine, a decline, one of mine moved (server/src/files/shares.ts)
+    | { kind: 'file_share'; code: 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'; byId?: string; path?: string; linkId?: string; requestId?: string }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -1439,6 +1444,8 @@ export class MockServer {
       const sees = !!pr && !!viewer && this.projectSees(pr, viewer)
       return { id: n.id, eventType: 'project.joined', sourceId: n.id, code: 'project.joined', createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: sees ? 'project' : null, projectJoined: { name: who?.name ?? null, project: sees ? { id: pr!.id, name: pr!.name } : null } }
     }
+    // (a file notice is the file shares layer's: installFileShares)
+    if (n.kind === 'file_share') throw new Error('file notices are read by installFileShares')
     const code = n.kind === 'lead_joined' ? 'owner.lead_joined' : n.kind === 'transferred' ? 'owner.transferred' : 'owner.reauth_locked'
     const base = { id: n.id, eventType: code, sourceId: n.id, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
     if (n.kind === 'reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }
@@ -6100,6 +6107,234 @@ export class MockServer {
     return [...out]
   }
 
+  // ---------------- a member shares their own file (server/src/files/shares.ts, short; QA TC-3093) ----------------
+  // A file gets a /f/<id> link on first share or Copy link; it opens for whoever the folder rules let in and for the
+  // people and groups added (view only); everyone else gets "Ask for access", which the file's owner answers in Activity.
+  // The owner: users/<id>/… is that person's, a team file the person in `fileCreators` (none: the team owner and admins
+  // share it). Test-only: POST /__test/file-shares {} puts the fixtures in place (Olga's users/olga/notes.md shared with
+  // Bob at FILE_LINK_OPEN, users/olga/draft.md shared with nobody, Bob's secret/budget.md that Olga cannot open at
+  // FILE_LINK_ASK, a pending request from Bob on Olga's users/olga/report.md, and an Activity row of each other kind);
+  // {off: true}: members' sharing off; {limit: n}: the n+1th request answers 429.
+  fileLinks = new Map<string, string>()
+  fileGrants = new Map<string, { subjectType: 'user' | 'group'; subjectId: string }[]>()
+  fileCreators = new Map<string, string>()
+  fileRequests: { id: string; linkId: string; path: string; userId: string; ownerId: string | null; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
+  fileRequestLimit = Infinity
+  readonly fileSharesInstalled = this.installFileShares()
+
+  fileOwner(path: string): string | null {
+    if (path.startsWith('users/')) return path.split('/')[1] ?? null
+    return this.fileCreators.get(path) ?? null
+  }
+  fileLinkOf(path: string): string {
+    for (const [id, p] of this.fileLinks) if (p === path) return id
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 22)
+    this.fileLinks.set(id, path)
+    return id
+  }
+  grantedFile(path: string, u: User): boolean {
+    return (this.fileGrants.get(path) ?? []).some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))
+  }
+  canShareFile(path: string, u: User): boolean {
+    if (u.role === 'guest' || this.access(path, u) !== 'write') return false
+    const owner = this.fileOwner(path)
+    if (owner === u.id) return u.role !== 'member' || this.settings.memberFileShares
+    return !path.startsWith('users/') && u.role !== 'member'
+  }
+  fileSharesView(path: string, u: User) {
+    const ownerId = this.fileOwner(path)
+    const owner = ownerId ? this.users.find((x) => x.id === ownerId) : undefined
+    const canShare = this.canShareFile(path, u)
+    const rows = (this.fileGrants.get(path) ?? []).flatMap((x): FileShareRow[] => {
+      if (x.subjectType === 'group') { const g = this.groups.find((y) => y.id === x.subjectId); return g ? [{ subjectType: 'group' as const, subjectId: g.id, name: g.name }] : [] }
+      const p = this.users.find((y) => y.id === x.subjectId)
+      return p ? [{ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.status !== 'active' ? { inactive: true as const } : {}) }] : []
+    })
+    const linkId = [...this.fileLinks].find(([, p]) => p === path)?.[0]
+    return {
+      path, link: linkId ? { id: linkId, url: fileLinkUrl(linkId) } : null, canShare,
+      owner: owner ? { id: owner.id, name: owner.name } : null, mine: ownerId === u.id, teamFile: !path.startsWith('users/'),
+      ...(u.role === 'member' && ownerId === u.id && !this.settings.memberFileShares ? { off: true as const } : {}),
+      people: canShare || this.grantedFile(path, u) || ownerId === u.id ? rows : [],
+    }
+  }
+
+  private installFileShares() {
+    const h = this.handlers
+    const fileAt = (path: string) => { const n = this.files.get(path); if (!n || n.type !== 'file') fail('not_found', 404); return n! }
+    const opens = (path: string, u: User) => u.role !== 'guest' && (this.access(path, u) !== 'none' || this.grantedFile(path, u))
+    h.fileLink = (c) => {
+      const path: string = c.body.path
+      const n = this.files.get(path)
+      if (!n || this.access(path, c.user) === 'none') fail('not_found', 404)
+      if (n!.type === 'folder') fail('validation', 400, undefined, undefined, { reason: 'is_folder' })
+      const id = this.fileLinkOf(path)
+      return { id, url: fileLinkUrl(id) }
+    }
+    h.fileShares = (c) => {
+      const path = c.query.path!
+      fileAt(path)
+      if (this.access(path, c.user) === 'none') fail('not_found', 404)
+      return this.fileSharesView(path, c.user)
+    }
+    h.putFileShares = (c) => {
+      const path: string = c.body.path
+      fileAt(path)
+      if (this.access(path, c.user) === 'none') fail('not_found', 404)
+      if (!this.canShareFile(path, c.user)) {
+        if (this.fileOwner(path) === c.user.id && !this.settings.memberFileShares) fail('forbidden', 403, 'Your team turned off sharing files for members.', undefined, { reason: 'file_shares_off' })
+        fail('forbidden', 403, 'Only the owner can share this file.', undefined, { reason: 'file_share_not_owner' })
+      }
+      const list = [...(this.fileGrants.get(path) ?? [])]
+      const key = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
+      for (const x of c.body.add as { subjectType: 'user' | 'group'; subjectId: string }[]) {
+        const u = x.subjectType === 'user' ? this.users.find((y) => y.id === x.subjectId) : null
+        if (x.subjectType === 'user' && (!u || u.role === 'guest')) fail('validation', 400, undefined, undefined, { reason: 'unknown_subject' })
+        if (list.some((y) => key(y) === key(x))) continue
+        list.push({ subjectType: x.subjectType, subjectId: x.subjectId })
+        const to = x.subjectType === 'user' ? [x.subjectId] : this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []
+        for (const id of to) if (id !== c.user.id) this.note(id, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path, linkId: this.fileLinkOf(path) })
+      }
+      const out = new Set((c.body.remove as { subjectType: string; subjectId: string }[]).map(key))
+      this.fileGrants.set(path, list.filter((x) => !out.has(key(x))))
+      if (list.length) this.fileLinkOf(path)
+      return this.fileSharesView(path, c.user)
+    }
+    h.sharedFile = (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      const path = this.fileLinks.get(c.params.id!)
+      if (!path || !this.files.has(path)) return { status: 'unknown' }
+      if (opens(path, c.user)) {
+        const n = this.files.get(path)!
+        const ownerId = this.fileOwner(path)
+        const by = this.access(path, c.user) === 'none' && ownerId ? this.users.find((u) => u.id === ownerId)?.name ?? null : null
+        return { status: 'open', name: path.slice(path.lastIndexOf('/') + 1), size: n.data?.byteLength ?? 0, mime: mimeOf(path) ?? null, sharedBy: by, mine: ownerId === c.user.id }
+      }
+      const waiting = this.fileRequests.find((r) => r.path === path && r.userId === c.user.id && r.state === 'pending')
+      const ownerId = this.fileOwner(path)
+      const owner = ownerId ? this.users.find((u) => u.id === ownerId) : undefined
+      const canAsk = !(owner?.role === 'member' && !this.settings.memberFileShares)
+      return { status: 'no_access', canAsk, askedAt: waiting?.at ?? null }
+    }
+    h.sharedFileDownload = (c) => {
+      const path = this.fileLinks.get(c.params.id!)
+      if (!path || !this.files.has(path) || !opens(path, c.user)) fail('not_found', 404)
+      const n = fileAt(path!)
+      const name = path!.slice(path!.lastIndexOf('/') + 1)
+      return new Response(n.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream', 'content-length': String(n.data!.byteLength), 'content-disposition': `${c.query.disposition === 'inline' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
+    }
+    h.requestFileAccess = (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      const path = this.fileLinks.get(c.params.id!)
+      if (!path || !this.files.has(path)) fail('not_found', 404)
+      const ownerId = this.fileOwner(path!)
+      const owner = ownerId ? this.users.find((u) => u.id === ownerId) : undefined
+      if (owner?.role === 'member' && !this.settings.memberFileShares) fail('forbidden', 403, 'Your team turned off sharing files for members.', undefined, { reason: 'file_request_off' })
+      const waiting = this.fileRequests.find((r) => r.path === path && r.userId === c.user.id && r.state === 'pending')
+      if (waiting) return { status: 'already', askedAt: waiting.at }
+      if (this.fileRequests.filter((r) => r.userId === c.user.id).length >= this.fileRequestLimit) fail('rate_limited', 429, 'You asked too many times today. Try again tomorrow.')
+      const r = { id: uuidv7(), linkId: c.params.id!, path: path!, userId: c.user.id, ownerId, note: c.body.message ?? null, at: now(), state: 'pending' as const }
+      this.fileRequests.push(r)
+      const to = ownerId ? [ownerId] : this.users.filter((u) => u.role === 'owner' || u.role === 'admin').map((u) => u.id)
+      for (const id of to) this.note(id, { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
+      return { status: 'sent', askedAt: r.at }
+    }
+    h.answerFileRequest = (c) => {
+      const r = this.fileRequests.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (r.state !== 'pending') return { state: r.state }
+      if (!this.files.has(r.path)) { r.state = 'closed'; return { state: 'closed' } }
+      if (!this.canShareFile(r.path, c.user)) fail('forbidden', 403, 'Only the owner can share this file.', undefined, { reason: 'file_share_not_owner' })
+      if (c.body.answer === 'approve') {
+        r.state = 'approved'
+        const list = this.fileGrants.get(r.path) ?? []
+        if (!list.some((x) => x.subjectType === 'user' && x.subjectId === r.userId)) this.fileGrants.set(r.path, [...list, { subjectType: 'user', subjectId: r.userId }])
+        this.note(r.userId, { kind: 'file_share', code: 'file.shared', byId: c.user.id, path: r.path, linkId: r.linkId })
+      } else {
+        r.state = 'declined'
+        this.note(r.userId, { kind: 'file_share', code: 'file.access_answered' })
+      }
+      return { state: r.state }
+    }
+    const counts = () => {
+      const shared = [...this.fileGrants].filter(([, l]) => l.length)
+      return { files: shared.length, people: new Set(shared.flatMap(([, l]) => l.map((x) => `${x.subjectType}:${x.subjectId}`))).size }
+    }
+    h.fileSharesCount = () => counts()
+    h.removeAllFileShares = (c) => {
+      if (c.user.role !== 'owner') fail('forbidden', 403, undefined, undefined, { reason: 'owner_only' })
+      this.fileGrants.clear()
+      for (const r of this.fileRequests) if (r.state === 'pending') r.state = 'closed'
+      return counts()
+    }
+    // the move confirm also says how many people have files there by their link (files/shares.ts linkPeopleUnder)
+    const baseMove = h.move!
+    h.move = async (c) => {
+      try {
+        return await baseMove(c)
+      } catch (e) {
+        if (e instanceof Fail && e.params?.reason === 'audience_narrowed') {
+          const from: string = c.body.from
+          const people = new Set([...this.fileGrants].filter(([p]) => p === from || p.startsWith(from + '/')).flatMap(([, l]) => l.map((x) => `${x.subjectType}:${x.subjectId}`))).size
+          if (people) e.params = { ...e.params, linkPeople: people }
+        }
+        throw e
+      }
+    }
+    const baseItem = this.inboxItem.bind(this)
+    this.inboxItem = (n) => {
+      if (n.kind !== 'file_share') return baseItem(n)
+      const base = { id: n.id, eventType: n.code, sourceId: n.id, code: n.code, createdAt: n.createdAt, readAt: n.readAt, chatId: null }
+      const nameOf = (id: string | undefined) => (id ? this.users.find((u) => u.id === id)?.name ?? null : null)
+      if (n.code === 'file.access_answered') return { ...base, link: null, fileShare: { by: null, name: null, linkId: null } }
+      if (n.code === 'file.access_requested') {
+        const r = this.fileRequests.find((x) => x.id === n.requestId)
+        const viewer = this.users.find((u) => u.id === n.userId)
+        const there = !!r && this.files.has(r.path)
+        if (!r || !there) return { ...base, link: null, fileShare: { by: r ? nameOf(r.userId) : null, name: null, linkId: null, gone: true as const, ...(r ? { requestId: r.id, state: 'closed' as const } : {}) } }
+        return { ...base, link: null, fileShare: { by: nameOf(r.userId), name: r.path.slice(r.path.lastIndexOf('/') + 1), linkId: r.linkId, ...(r.note ? { note: r.note } : {}), requestId: r.id, state: r.state, ...(r.state === 'pending' && viewer && this.canShareFile(r.path, viewer) ? { canAnswer: true as const } : {}) } }
+      }
+      const there = !!n.path && this.files.has(n.path)
+      if (!there) return { ...base, link: null, fileShare: { by: nameOf(n.byId), name: null, linkId: null, gone: true as const } }
+      return { ...base, link: n.linkId ? 'file' as const : null, fileShare: { by: nameOf(n.byId), name: n.path!.slice(n.path!.lastIndexOf('/') + 1), linkId: n.linkId ?? null } }
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.fileLinks = new Map()
+      this.fileGrants = new Map()
+      this.fileCreators = new Map()
+      this.fileRequests = []
+      this.fileRequestLimit = Infinity
+      baseReset(o)
+    }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      if (p !== '/__test/file-shares') return baseControl(p, req)
+      const body = (await req.json().catch(() => ({}))) as { off?: boolean; limit?: number }
+      if (body.off) this.settings = { ...this.settings, memberFileShares: false }
+      if (body.limit !== undefined) this.fileRequestLimit = body.limit
+      if (!this.files.has('users/olga/notes.md')) {
+        for (const d of ['users/bob']) this.files.set(d, { type: 'folder', mtime: now() })
+        this.putFile('users/olga/notes.md', '# Notes\n\nQuarter plan, first draft.\n')
+        this.putFile('users/olga/draft.md', '# Draft\n')
+        this.putFile('users/olga/report.md', '# Report\n')
+        this.putFile('secret/budget.md', '# Budget\n')
+        this.fileCreators.set('secret/budget.md', 'bob')
+        this.fileCreators.set('marketing/plan.md', 'olga')
+        this.fileLinks.set(FILE_LINK_OPEN, 'users/olga/notes.md')
+        this.fileLinks.set(FILE_LINK_ASK, 'secret/budget.md')
+        this.fileGrants.set('users/olga/notes.md', [{ subjectType: 'user', subjectId: 'bob' }])
+        const report = this.fileLinkOf('users/olga/report.md')
+        const r = { id: uuidv7(), linkId: report, path: 'users/olga/report.md', userId: 'bob', ownerId: 'olga', note: 'For the Monday review, please.', at: now(), state: 'pending' as const }
+        this.fileRequests.push(r)
+        this.note('olga', { kind: 'file_share', code: 'file.unshared_by_move', byId: 'bob', path: 'users/olga/notes.md', linkId: FILE_LINK_OPEN })
+        this.note('olga', { kind: 'file_share', code: 'file.access_answered' })
+        this.note('olga', { kind: 'file_share', code: 'file.shared', byId: 'bob', path: 'marketing/plan.md', linkId: this.fileLinkOf('marketing/plan.md') })
+        this.note('olga', { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
+      }
+      return Response.json({ ok: true, open: FILE_LINK_OPEN, ask: FILE_LINK_ASK })
+    }
+  }
+
   private installPeopleShared() {
     const h = this.handlers
     const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
@@ -7174,7 +7409,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', memberFileShares: true, oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */

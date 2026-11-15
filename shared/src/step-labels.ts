@@ -70,6 +70,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
   post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala', "发送到群聊"),
+  // the AI shares the person's own files with teammates after their yes on its card (server/src/chat/share-with-person.ts)
+  share_with_person: t('파일 공유', 'Share files', 'Bagikan berkas', 'ファイルを共有', 'Compartir archivos', '共享文件'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),

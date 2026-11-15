@@ -363,6 +363,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
     name: item.name,
     copyImage: copyOn ? copy : null,
     link: gone ? null : itemLink(item),
+    // a team file's picture: its /f/<id> link (QA TC-3093)
+    teamFile: gone || item.room ? null : item.path ?? null,
     download: item.download && !gone && missing !== item.key ? item.download : null,
     ask: askable ? () => askTrina(stageRef.current!) : null,
   })

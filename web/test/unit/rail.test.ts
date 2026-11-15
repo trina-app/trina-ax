@@ -44,6 +44,7 @@ const DECIDED: Record<string, RailItem | null> = {
   activity: 'activity',
   files: 'files',
   'files/view': 'files',
+  'f/:id': 'files',
   projects: 'projects',
   'projects/:projectId': 'projects',
   'projects/:projectId/files': 'projects',
