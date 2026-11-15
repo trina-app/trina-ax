@@ -3187,6 +3187,7 @@ export const zh: Record<MessageKey, string> = {
   "integrations.signIn.reason.changed": "登录过程中连接设置发生了变化。请重新登录。",
   "integrations.signIn.reason.superseded": "此连接已开始了一个更新的登录。请完成那个登录，或重新登录。",
   "integrations.signIn.reason.exchange": "该服务未完成登录。请重试。",
+  "integrations.signIn.reason.limit": "你已有的可用个人连接数已达上限。请删除一个，然后重新登录。",
   "integrations.signIn.expired": "登录超时。请重试。",
   "integrations.signIn.badUrl": "该服务发送的登录地址不安全，因此未打开。",
   "integrations.signIn.phone": "请在电脑上通过浏览器或桌面应用登录。",

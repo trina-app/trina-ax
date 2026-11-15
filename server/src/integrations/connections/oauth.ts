@@ -4,8 +4,13 @@
 // revocation (RFC 7009). Every request goes through net.ts (public https only, no redirects, size and time limits).
 // A service that does not register apps (Google's MCP servers, an HTTP API such as NAVER WORKS) is signed in at with
 // the person's or team's own app instead (ownClient), at the addresses found here or given with the app (manualServer).
+// A service that refuses the app registered for itself (it lets only apps it approved sign in: Canva's callback list,
+// Figma's catalog, Vercel's allowlist) may take a Client ID Metadata Document instead (MCP authorization 2025-11-25,
+// draft-ietf-oauth-client-id-metadata-document): the client ID is the address of a document this server publishes
+// (clientMetadata, metadataClient). preflight opens the sign-in address once to see a clear refusal before the browser does.
 import { PRODUCT } from '@mycel/shared'
-import { jsonRequest, NetError, type NetOptions } from './net'
+import { checkHostName } from '../../tools/web-fetch'
+import { jsonRequest, NetError, serviceRequest, type NetOptions } from './net'
 
 /** issuer: null when the addresses were given with an own app instead of found (an answer's "iss" is then checked
  * against the sign-in address's server, issuerMatches) */
@@ -55,7 +60,7 @@ const get = async (url: string, net: NetOptions) => {
 
 /** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in.
  * `authMethods`: how the token endpoint takes a client secret (token_endpoint_auth_methods_supported), when it says. */
-export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null }> {
+export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null; metadataClients: boolean }> {
   const u = new URL(mcpUrl)
   const h = wwwAuthenticate(header)
   const candidates = [httpsUrl(h.resource_metadata), `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, `${u.origin}/.well-known/oauth-protected-resource`]
@@ -93,6 +98,8 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   return {
     server: { issuer: trimSlash(issuer), authorizationEndpoint, tokenEndpoint, registrationEndpoint: httpsUrl(meta.registration_endpoint), revocationEndpoint: httpsUrl(meta.revocation_endpoint) },
     resource, scope: scopes && scopes.length <= 2000 ? scopes : null, authMethods,
+    // the server takes a client ID that is the address of a client metadata document (metadataClient)
+    metadataClients: meta.client_id_metadata_document_supported === true,
   }
 }
 
@@ -126,16 +133,141 @@ function extraParams(authorizationEndpoint: string): Record<string, string> {
   return new URL(authorizationEndpoint).origin === 'https://accounts.google.com' ? { access_type: 'offline', prompt: 'consent' } : {}
 }
 
-/** Dynamic client registration for our callback address. A server without it needs an own app (ownClient). */
+/** Dynamic client registration for our callback address. A server without it needs an own app (ownClient) or takes a
+ * metadata document (metadataClient). A refusal of this app (400 or 403: Figma's 403 for apps outside its catalog,
+ * Vercel's and Square's 400 for a callback not on their list, Railway's 403 "registration is disabled"; or any 4xx
+ * whose error is invalid_redirect_uri or invalid_client_metadata) is `oauth_approved_apps_only`; 429 (too many
+ * registrations now) is `oauth_busy`; anything else stays `oauth_unsupported`. */
 export async function register(server: OAuthServer, redirectUri: string, net: NetOptions): Promise<OAuthClient> {
   if (!server.registrationEndpoint) throw new NetError('oauth_no_registration')
   const body = { client_name: PRODUCT.displayName, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }
   const r = await jsonRequest(server.registrationEndpoint, { method: 'POST', headers: [['Content-Type', 'application/json'], ['Accept', 'application/json']], body: Buffer.from(JSON.stringify(body)) }, net)
   const j = r.json
+  if (r.status === 429) throw new NetError('oauth_busy', r.status)
+  if (r.status === 400 || r.status === 403 || (r.status >= 400 && r.status < 500 && REFUSED_APP.has(String(j?.error)))) throw new NetError('oauth_approved_apps_only', r.status)
   if ((r.status !== 200 && r.status !== 201) || !j || typeof j.client_id !== 'string' || !j.client_id || j.client_id.length > 1000) throw new NetError('oauth_unsupported')
   const secret = typeof j.client_secret === 'string' && j.client_secret && j.client_secret.length <= 4000 ? j.client_secret : null
   const method = secret ? (j.token_endpoint_auth_method === 'client_secret_post' ? 'client_secret_post' : 'client_secret_basic') : 'none'
   return { clientId: j.client_id, clientSecret: secret, authMethod: method, redirectUri }
+}
+
+/** registration errors that refuse this app itself (RFC 7591 section 3.2.2) */
+const REFUSED_APP = new Set(['invalid_redirect_uri', 'invalid_client_metadata'])
+
+/** Where this server publishes its client metadata document (served by routes/integrations.ts). */
+export const CLIENT_METADATA_PATH = '/api/integrations/oauth/client-metadata.json'
+export const CALLBACK_PATH = '/api/integrations/oauth/callback'
+
+/** Whether a service can fetch a document from this origin: https on a public name (not localhost, an IP address, a
+ * single label or a local network name). Office mode and local development sign in without one. */
+export function publicOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin)
+    if (u.protocol !== 'https:' || u.username || u.password) return false
+    const host = u.hostname.replace(/^\[|\]$/g, '')
+    return !/^[\d.]+$/.test(host) && !host.includes(':') && !checkHostName(host)
+  } catch { return false }
+}
+
+/** Where this server serves its metadata document: the configured public addresses and the office tunnel's. The route
+ * (routes/integrations.ts) answers only there, and a sign-in offers the document only from one of them. */
+export function documentOrigins(config: { publicOrigins: readonly string[]; tunnel?: { host: string } | null }): string[] {
+  return [...config.publicOrigins, ...(config.tunnel ? [`https://${config.tunnel.host}`] : [])]
+}
+/** The address among `origins` with this host (any letter case), the one the document names when asked at that host */
+export function documentOriginAt(origins: readonly string[], host: string): string | undefined {
+  const h = host.toLowerCase()
+  return origins.find((o) => { try { return new URL(o).host.toLowerCase() === h } catch { return false } })
+}
+
+/** The client metadata document for `origin` (draft-ietf-oauth-client-id-metadata-document section 3): its client ID is
+ * its own address; a public client (no secret) that signs in with the authorization code and refreshes. */
+export function clientMetadata(origin: string) {
+  return {
+    client_id: new URL(CLIENT_METADATA_PATH, origin).href,
+    client_name: PRODUCT.displayName,
+    redirect_uris: [new URL(CALLBACK_PATH, origin).href],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+  }
+}
+
+/** The client a sign-in uses with a metadata document: the document's address as the client ID, no secret. Stored with
+ * the connection like a registered client, so the token exchange and refreshes send the same client ID. */
+export function metadataClient(origin: string): OAuthClient {
+  const m = clientMetadata(origin)
+  return { clientId: m.client_id, clientSecret: null, authMethod: 'none', redirectUri: m.redirect_uris[0]! }
+}
+
+/** how long the sign-in address may take to answer the preflight (it lets the sign-in through after that) */
+export const PREFLIGHT_MS = 5000
+/** how much of the sign-in page's answer is read for its words (cut before any pattern runs on it) */
+const PAGE_WORDS_MAX = 4096
+/** a 4xx page about the request's redirect address or client ("Invalid redirect URI.", "invalid_client", "Unknown
+ * client", "client_id is not allowed") */
+const CLIENT_WORDS = /redirect[\s_-]?ur[il]|(invalid|unknown|unauthori[sz]ed|unregistered)[\s_-]client|client[\s_-]?id/i
+/** a page's words without its scripts, styles and tags (a script's "clientId" says nothing about the request). The text
+ * is cut first and every pattern is bounded, so a hostile page (64 KB of "<" with no ">") costs no more than a few ms. */
+export const pageWords = (body: string) => body.slice(0, PAGE_WORDS_MAX)
+  .replace(/<(script|style)\b[^]{0,4096}?<\/\1\s{0,8}>/gi, ' ').replace(/<[^>]{0,1000}>/g, ' ')
+
+/** What the sign-in page said to the preflight: `pass` (go on), `refused` (a clear refusal of the app: a 4xx about the
+ * redirect address or the client, Canva's 400 "Invalid redirect URI."), or `unclear` (a plain 400 that names neither:
+ * a refusal only where another client can be offered, never a reason to stop on its own). */
+export type Preflight = 'pass' | 'refused' | 'unclear'
+
+/** Opens the sign-in address once, as the person's browser would, without following a redirect. A sign-in page (2xx), a
+ * redirect to one (3xx), a bot challenge (Cloudflare's 403), another 4xx that names neither the redirect address nor
+ * the client, a 5xx, a slow answer or a network error all `pass`: the browser may well get through where this request
+ * did not. */
+export async function preflight(authorizationUrl: string, net: NetOptions): Promise<Preflight> {
+  let r
+  try {
+    r = await serviceRequest(authorizationUrl, { method: 'GET', headers: [['Accept', 'text/html,application/json;q=0.9,*/*;q=0.8']], maxBytes: 64 * 1024 }, { ...net, timeoutMs: Math.min(net.timeoutMs ?? PREFLIGHT_MS, PREFLIGHT_MS) })
+  } catch { return 'pass' }
+  if (r.status < 400 || r.status >= 500) return 'pass'
+  const text = r.body.subarray(0, PAGE_WORDS_MAX).toString('utf8')
+  if (r.headers['cf-mitigated'] === 'challenge' || /challenge-platform|cf-chl-|Just a moment\.\.\./.test(text)) return 'pass'
+  if (CLIENT_WORDS.test(pageWords(text))) return 'refused'
+  return r.status === 400 ? 'unclear' : 'pass'
+}
+
+/** registration answers after which a metadata document is offered instead (the service refused this app, or has no
+ * registration at all) */
+const FALLBACK = new Set(['oauth_approved_apps_only', 'oauth_no_registration'])
+
+/** The client a sign-in without an own app uses: `again` (the app registered for the same server before), else one
+ * registered now (RFC 7591), so services that take it sign in as they always did. Its sign-in address (`urlFor`) is
+ * opened once first (preflight); a stored app the page refuses is followed by one fresh registration. When the service
+ * refuses the registered app (the registration with a 400 or 403, the sign-in page clearly, or no registration at all)
+ * and it takes a client metadata document, that document's address is the client instead, when `origin` is one a
+ * service can fetch from (publicOrigin) and this server serves the document at (`servedAt`: documentOrigins). Without a
+ * document, only a clear refusal stops the sign-in: a plain 400 lets
+ * it go on. Throws NetError: `oauth_approved_apps_only` when the service refused every client it was offered, or the
+ * registration's own reason (`oauth_no_registration`, `oauth_busy`, `oauth_unsupported`). */
+export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null, servedAt: readonly string[] = []): Promise<OAuthClient> {
+  const at = documentOriginAt(servedAt, new URL(origin).host)
+  const served = !!at && new URL(at).origin === new URL(origin).origin
+  const metadata = !!setup.metadataClients && served && publicOrigin(origin) && new URL(CALLBACK_PATH, origin).href === redirectUri
+  let refusedBy: OAuthClient | null = null
+  for (const stored of again ? [true, false] : [false]) {
+    let c: OAuthClient
+    if (stored) c = again!
+    else {
+      try { c = await register(setup.server, redirectUri, net) } catch (e) {
+        if (!metadata || !(e instanceof NetError) || !FALLBACK.has(e.reason)) throw e
+        break
+      }
+    }
+    const p = await preflight(urlFor(c), net)
+    if (p === 'pass' || (p === 'unclear' && !metadata)) return c
+    refusedBy = c
+  }
+  if (!metadata) throw new NetError('oauth_approved_apps_only')
+  const doc = metadataClient(origin)
+  if (refusedBy?.clientId === doc.clientId || (await preflight(urlFor(doc), net)) !== 'pass') throw new NetError('oauth_approved_apps_only')
+  return doc
 }
 
 export function authorizationUrl(s: { server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null }, state: string, challenge: string): string {
