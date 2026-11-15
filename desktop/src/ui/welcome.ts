@@ -517,7 +517,8 @@ ui.welcome.onState((s) => {
 void ui.welcome.state().then((s) => {
   if (s) takeState(s)
   render()
-  // remembered teams: the first row (opening one is the usual thing here); none: the box
-  ;(document.querySelector<HTMLElement>('.team-row') ?? document.getElementById('address'))?.focus()
+  // no saved team: the box, ready to type in. Saved teams: nothing is focused (no ring on a row the person did not
+  // pick); Tab reaches the first row
+  if (!state.teams.length) document.getElementById('address')?.focus()
 })
 render()

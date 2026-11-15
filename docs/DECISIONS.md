@@ -29054,5 +29054,5 @@ the row's inset outside the text column). The whole row opens the team; the open
 menu (faint until the row is hovered or focused, full on a touch screen); its question puts Cancel first and focuses it. The
 address box comes under the list as "Add another team" (no hint paragraph there); with no saved team the screen is
 unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
-row does the same; Esc does not, so a half-typed address is never lost); the first team row has the focus when the screen opens. Desktop only: the phone app keeps
+row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
