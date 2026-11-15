@@ -38,6 +38,7 @@ describe('plausibleStatfs', () => {
     expect(plausibleStatfs({ ...ARM_GOOD, blocks: 0 })).toBe(false)
     expect(plausibleStatfs({ ...ARM_GOOD, bavail: ARM_GOOD.blocks + 1 })).toBe(false)
     expect(plausibleStatfs({ ...ARM_GOOD, bfree: ARM_GOOD.blocks + 1 })).toBe(false)
+    expect(plausibleStatfs({ ...ARM_GOOD, bfree: 10, bavail: 11 })).toBe(false)
     expect(plausibleStatfs({ ...ARM_GOOD, bavail: -1 })).toBe(false)
     expect(plausibleStatfs({ ...ARM_GOOD, bsize: Number.NaN })).toBe(false)
     // a disk bigger than 1 EiB is shifted fields, not a disk
@@ -120,6 +121,11 @@ describe('the real callers', () => {
     const seen: unknown[] = []
     expect(diskSpaceOrUnknown(os.tmpdir(), (e) => seen.push(e))).toBeNull()
     expect(seen[0]).toBeInstanceOf(DiskSpaceUnknown)
+  })
+
+  test('diskSpaceOrUnknown passes any other error on (statfs EIO is not "unknown")', () => {
+    spy = spyOn(fs, 'statfsSync').mockImplementation((() => { throw Object.assign(new Error('EIO'), { code: 'EIO' }) }) as unknown as typeof fs.statfsSync)
+    expect(() => diskSpaceOrUnknown(os.tmpdir())).toThrow('EIO')
   })
 
   test('diskSpace with a good statfs reading is unchanged on every system', () => {

@@ -30,7 +30,8 @@ const MAX_DISK_BYTES = 2 ** 60
 const num = (v: unknown): number => (typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : NaN)
 
 /** Can this statfs reading be right? A block size above 0 (and a fragment size above 0 when there is one), a disk of
- * at least one block, no more free or available blocks than the disk has, and a disk size below 1 EiB. A reading without bfree (some test
+ * at least one block, no more free or available blocks than the disk has (and no more available than free), and a disk
+ * size below 1 EiB. A reading without bfree (some test
  * fakes) is judged by the rest. */
 export function plausibleStatfs(s: DiskStat): boolean {
   const bsize = num(s.bsize), blocks = num(s.blocks), bavail = num(s.bavail), bfree = num(s.bfree)
@@ -38,7 +39,7 @@ export function plausibleStatfs(s: DiskStat): boolean {
   if (s.frsize !== undefined && !(Number.isFinite(num(s.frsize)) && num(s.frsize) > 0)) return false
   if (!(Number.isFinite(blocks) && blocks > 0)) return false
   if (!(Number.isFinite(bavail) && bavail >= 0 && bavail <= blocks)) return false
-  if (s.bfree !== undefined && !(Number.isFinite(bfree) && bfree >= 0 && bfree <= blocks)) return false
+  if (s.bfree !== undefined && !(Number.isFinite(bfree) && bfree >= 0 && bfree <= blocks && bavail <= bfree)) return false
   if (!(blocks * bsize <= MAX_DISK_BYTES)) return false
   return true
 }
@@ -59,6 +60,21 @@ export function parseDfK(out: string): DiskStat | null {
   return { bsize: 1024, frsize: 1024, blocks, bfree: bavail, bavail }
 }
 
+/** df answers of the last seconds by path: on an Intel Mac every reading goes to df, and the callers on hot paths
+ * (uploads, each chat turn's full-disk check, the storage guard) must not start a process each time. */
+const DF_CACHE_MS = 10_000
+const dfCache = new Map<string, { at: number; out: string | null }>()
+
+function cachedDf(p: string): string | null {
+  const now = Date.now()
+  const hit = dfCache.get(p)
+  if (hit && now - hit.at < DF_CACHE_MS) return hit.out
+  const out = runDf(p)
+  if (dfCache.size > 64) dfCache.clear()
+  dfCache.set(p, { at: now, out })
+  return out
+}
+
 function runDf(p: string): string | null {
   try {
     const r = spawnSync('/bin/df', ['-k', '-P', '--', p], { encoding: 'utf8', timeout: 5000, env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' } })
@@ -71,7 +87,7 @@ function runDf(p: string): string | null {
 export function diskStat(p: string, d: DiskStatDeps = {}): DiskStat {
   const s = (d.statfs ?? ((x: string) => fs.statfsSync(x)))(p)
   if (plausibleStatfs(s)) return s
-  const out = (d.platform ?? process.platform) === 'win32' ? null : (d.df ?? runDf)(path.resolve(p))
+  const out = (d.platform ?? process.platform) === 'win32' ? null : (d.df ?? cachedDf)(path.resolve(p))
   const parsed = out === null ? null : parseDfK(out)
   if (!parsed) throw new DiskSpaceUnknown(`could not read the free disk space of ${p} (statfs gave bsize ${String(s.bsize)}, blocks ${String(s.blocks)}, bavail ${String(s.bavail)}; df failed)`)
   return parsed
