@@ -1292,8 +1292,8 @@ export class AppWindow {
     })
     // where the person acts: a key or a mouse press in this view
     wc.on('before-input-event', (_e, i) => {
-      if (i.type === 'keyDown' && view === this.app) this.appInputAt = Date.now()
       if (i.type !== 'keyUp') this.personActed(inPane)
+      if (i.type === 'keyDown' && view === this.app) this.appInputAt = Date.now()
     })
     wc.on('before-mouse-event', (_e, m) => {
       if (m.type !== 'mouseDown') return
