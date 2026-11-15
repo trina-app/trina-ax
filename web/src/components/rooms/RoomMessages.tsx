@@ -32,7 +32,7 @@
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
 import { Copy, Download, FileText, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
-import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
@@ -46,11 +46,13 @@ import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
-import { useRooms, type PendingSend } from '../../store/rooms'
+import { placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
-import { Button, confirmDialog, inputCls, useCopy } from '../ui'
+import { Button, confirmDialog, useCopy, useMediaQuery } from '../ui'
+import { useAutoGrow } from '../../lib/autoGrow'
+import { failedEdits, hasRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
@@ -161,6 +163,19 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
   const [editing, setEditing] = useState<string | null>(null)
+  // a phone edits in the box at the bottom of the list's place (the room's, or the thread's), where it has one on
+  // screen (store/roomEdit.ts, RoomComposer.tsx); a computer, and a place with no box, inside the message
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const inBox = useRoomEdit((s) => s.editing)
+  const placeOf = (m: RoomMessage) => (variant === 'timeline' ? placeKey(roomId) : placeKey(roomId, m.threadRootId ?? m.id))
+  const startEdit = (m: RoomMessage) => {
+    const place = placeOf(m)
+    if (!phone || !hasRoomBox(place)) return setEditing(m.id)
+    setEditing(null)
+    useRoomEdit.getState().start(place, m.id)
+    // the message stays in sight above the box (the keyboard comes up)
+    requestAnimationFrame(() => list.current?.querySelector<HTMLElement>(`[id="${messageDomId(m.id)}"]`)?.scrollIntoView({ block: 'nearest' }))
+  }
   const [flash, setFlash] = useState<string | null>(null)
   const loaded = useMemo(() => new Set(messages.map((m) => m.id)), [messages])
   const byId = usePeople((s) => s.byId)
@@ -235,9 +250,10 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       members={members}
                       meId={meId}
                       editing={editing === m.id}
+                      inBox={phone && inBox[placeOf(m)] === m.id}
                       flash={flash === m.id || lit === m.id}
                       highlighted={lit === m.id}
-                      onEdit={() => setEditing(m.id)}
+                      onEdit={() => startEdit(m)}
                       onEditDone={() => setEditing(null)}
                       onEditAgain={() => setEditing((e) => e ?? m.id)}
                       onThread={onThread}
@@ -338,7 +354,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = false, flash, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; /** being edited in the box at the bottom (a phone): marked */ inBox?: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -424,9 +440,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   return (
     <div
       id={messageDomId(m.id)}
-      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
+      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', flash || inBox ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
       data-testid="room-message"
       data-highlight={highlighted ? '' : undefined}
+      data-editing={inBox ? '' : undefined}
       data-ai={ai ? '' : undefined}
       data-app={app ? serviceOf(app) : undefined}
       data-visibility={m.visibility}
@@ -655,10 +672,6 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   )
 }
 
-/** an edit that failed, by message: its box opens again with the words typed and the people they mention (EditForm);
- * kept a moment only (the box opens at once, or not: another message's box is open, the room was left) */
-const failedEdits = new Map<string, { text: string; mentions: string[] }>()
-
 /** `onAgain`: the edit failed (the old text is back): open the box again, with the words typed */
 function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void; onAgain: () => void }) {
   const t = useT()
@@ -694,9 +707,19 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
       setTimeout(() => failedEdits.delete(m.id), 1000)
     })
   }
+  // as tall as its text (no line cut off under the buttons), then it scrolls; the buttons in their own row under it
+  useAutoGrow(input, [draft])
+  // the caret at the end of the text (as in the box at the bottom), once
+  useLayoutEffect(() => {
+    const ta = input.current
+    if (!ta) return
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+    ta.scrollTop = ta.scrollHeight
+  }, [])
   return (
     <form
-      className="my-1 rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
+      className="my-1 flex flex-col gap-1.5 rounded-xl border border-field-border bg-surface px-3 pt-2 pb-2 transition has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
+      data-testid="room-edit-form"
       onSubmit={(e) => {
         e.preventDefault()
         save()
@@ -706,6 +729,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
       <TokenTextarea
         ref={input}
         autoFocus
+        rows={1}
         aria-label={t('rooms.editLabel')}
         value={draft}
         {...mention.inputProps}
@@ -719,11 +743,11 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
             save()
           }
         }}
-        className={clsx(inputCls, 'h-auto min-h-16 resize-y border-0 py-2 focus:ring-0!')}
+        className="block max-h-[min(24rem,50dvh)] min-h-0 resize-none overflow-y-auto bg-transparent p-0 text-reading leading-reading text-ink outline-none"
         data-testid="room-edit-input"
       />
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onDone}>
+      <div className="flex shrink-0 justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onDone} data-testid="room-edit-cancel">
           {t('common.cancel')}
         </Button>
         <Button size="sm" variant="primary" type="submit" disabled={!draft.trim()} data-testid="room-edit-save">

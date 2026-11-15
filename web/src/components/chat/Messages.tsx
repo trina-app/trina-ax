@@ -24,6 +24,7 @@ import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api
 import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
+import { useAutoGrow } from '../../lib/autoGrow'
 import { formatResetDay, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
@@ -359,6 +360,8 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
   const editRef = useRef<HTMLTextAreaElement>(null)
+  // the edit field grows with its text (no line cut off), then scrolls (lib/autoGrow.ts)
+  useAutoGrow(editRef, [draft, editing])
   const sendEdit = () => {
     setEditing(false)
     onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content))
@@ -406,7 +409,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
           }}
         >
           {/* the form draws the field's edge and focus; `!`: inputCls's own focus ring is emitted after ring-0 and would win */}
-          <textarea ref={editRef} aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus data-testid="edit-input" />
+          <textarea ref={editRef} aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto max-h-[min(24rem,50dvh)] min-h-24 resize-none overflow-y-auto border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus data-testid="edit-input" />
           <p className="px-1 pb-1 text-xs text-faint">{t('chat.editNote')}</p>
           {secret.held && (
             <SecretWarning

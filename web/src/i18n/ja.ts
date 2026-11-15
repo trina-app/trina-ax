@@ -4145,6 +4145,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.deleteTitle": "このメッセージを削除しますか？",
   "rooms.deleteBody": "ルームの全員からこのメッセージとファイルが消えます。元に戻せません。",
   "rooms.editLabel": "メッセージを編集",
+  "rooms.editingNow": "メッセージを編集中",
   "rooms.placeholder": "メッセージを入力",
   "rooms.placeholderEmptySide": "メッセージ · ✦で個別に質問",
   "rooms.removeFile": "{name}を外す",
