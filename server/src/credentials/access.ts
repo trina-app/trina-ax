@@ -10,7 +10,6 @@ import type { AppContext } from '../context'
 import { canChooseEngine, choosableEngines, engineOn, limitFallbackOn, teamDefault, type Person } from '../admin/engine-choice'
 import type { EngineConfs } from '../chat/engines'
 import { credentialBackAt, hasCredentialFor, hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
-import { hostedChatState } from './hosted-chat'
 import { memberOwnAllowed } from './policy'
 import { guestAiOf, isGuestUser } from './guest-ai'
 
@@ -30,12 +29,12 @@ export function enginesAnswering(ctx: Ctx, p: Person, problems: EngineConfs['pro
 
 /** Can this person use AI now (or once a short limit is over)? The API engine answers with its own key, not with an
  * AI connection. A Claude Code or Codex turn that its own engine cannot answer may go to the other engine (while
- * "다른 AI로 대신 답하기" is on) or to the hosting service's trial credit (connectionRoute, the same rule as
- * chat/turn.ts), so such an engine counts as usable then. */
+ * "다른 AI로 대신 답하기" is on; connectionRoute, the same rule as chat/turn.ts), so such an engine counts as usable
+ * then. */
 export function canUseAi(ctx: Ctx, p: Person, o: AccessOptions = {}, allowed = allowedCredentialKinds(ctx.config)): boolean {
   const now = o.now ?? new Date()
   // a guest (credentials/guest-ai.ts): only a connection their guests row allows; never the API engine (the team's
-  // key), never the trial credit (connectionRoute), never a server without AI connections (the host's own sign-in)
+  // key), never a server without AI connections (the host's own sign-in)
   if (p.role === 'guest' || isGuestUser(ctx.db, p.id)) {
     if (!isManaged(ctx.config)) return false
     return enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api' && (hasCredentialSoonFor(ctx.db, p.id, e, allowed, now)
@@ -59,41 +58,34 @@ const OTHER: Record<CredEngine, CredEngine> = { 'claude-code': 'codex', codex: '
 /** the other of Claude Code and Codex is on and runs here */
 const otherOn = (ctx: Ctx, engine: CredEngine, problems: EngineConfs['problems'] = {}) => engineOn(ctx, OTHER[engine]) && !problems[OTHER[engine]]
 /**
- * Where a Claude Code or Codex turn of this person goes (docs/DECISIONS.md "다른 AI로 대신 답하기" and "Z"). The team's
- * own AI always comes first, the hosting service's trial credit (credentials/hosted-chat.ts) last:
+ * Where a Claude Code or Codex turn of this person goes (docs/DECISIONS.md "다른 AI로 대신 답하기"):
  *   'own'      its engine has a connection that works now; or the other engine (on here) has one while its own has
  *              none, "다른 AI로 대신 답하기" being off (the usual "no AI connection"), or its own is only at a limit
  *              (the usual wait, or for Claude the switch's limit case, chat/turn.ts limitFallback); or nothing answers
  *              (the usual errors)
  *   the other  "다른 AI로 대신 답하기" is on, its engine has no connection that works, the other of the two has one and
  *              is on here: that one answers (a team that connected only ChatGPT gets its Claude Code chats answered by
- *              Codex). The trial key plays no part in this.
- *   'trial'    no connection of the person works on either engine (one that is on here) and the credit is active
- * Neither the switch nor an active trial credit: always 'own' (unchanged). Managed servers only (the caller checks).
+ *              Codex).
+ * Without the switch: always 'own' (unchanged). Managed servers only (the caller checks).
  */
-export function connectionRoute(ctx: Ctx, p: { id: string }, engine: CredEngine, o: { now?: Date; problems?: EngineConfs['problems']; allowed?: AllowedKinds } = {}): 'own' | 'trial' | CredEngine {
+export function connectionRoute(ctx: Ctx, p: { id: string }, engine: CredEngine, o: { now?: Date; problems?: EngineConfs['problems']; allowed?: AllowedKinds } = {}): 'own' | CredEngine {
   const now = o.now ?? new Date()
-  // a guest never runs on the hosting service's trial credit (owner decision 2026-11-14)
-  const state = isGuestUser(ctx.db, p.id) ? null : hostedChatState(ctx.db, now)
-  const fallback = limitFallbackOn(ctx)
-  if (!fallback && state !== 'active') return 'own'
+  if (!limitFallbackOn(ctx)) return 'own'
   const allowedKinds = o.allowed ?? allowedCredentialKinds(ctx.config)
   const own = resolveCredential(ctx.db, { userId: p.id, engine, allowedKinds, now })
   if (own.ok) return 'own'
   const other = OTHER[engine]
   if (otherOn(ctx, engine, o.problems) && resolveCredential(ctx.db, { userId: p.id, engine: other, allowedKinds, now }).ok) {
-    // the team has AI of its own here, so never the credit
-    return fallback && !own.skipped.some((s) => s.why === 'limited') ? other : 'own'
+    return !own.skipped.some((s) => s.why === 'limited') ? other : 'own'
   }
-  return state === 'active' ? 'trial' : 'own'
+  return 'own'
 }
 
 /**
  * What AI a person who joins through the team link would have (docs/DECISIONS.md "W5": the invite message says
  * "본인 AI 계정이 필요해요" for `connect_own`): `ready` when a team connection for everyone or for one of the link's
  * groups answers the engines a new member gets (or the other of Claude Code and Codex while "다른 AI로 대신 답하기"
- * lets it answer them, as connectionRoute), the API engine or the hosting service's active trial credit answers them,
- * or the server does not answer with AI connections; else `connect_own` while the team allows personal connections,
+ * lets it answer them, as connectionRoute), the API engine answers them, or the server does not answer with AI connections; else `connect_own` while the team allows personal connections,
  * `ask_owner` when it does not. The same candidates as a turn (credentials/resolve.ts), for someone with no account yet.
  */
 export function newMemberAi(ctx: Ctx, groups: readonly string[], o: AccessOptions = {}): 'ready' | 'connect_own' | 'ask_owner' {
@@ -104,12 +96,10 @@ export function newMemberAi(ctx: Ctx, groups: readonly string[], o: AccessOption
   const engines = enginesAnswering(ctx, p, o.problems)
   const has = (e: CredEngine) => hasCredentialSoonFor(ctx.db, p.id, e, allowed, now, groups)
   const fallback = limitFallbackOn(ctx)
-  const trial = hostedChatState(ctx.db, now) === 'active'
   const ready = engines.some((e) => {
     if (e === 'api' || has(e)) return true
-    // the other engine has one: it answers while the switch is on, and the credit never does (connectionRoute)
-    if (otherOn(ctx, e, o.problems) && has(OTHER[e])) return fallback
-    return trial
+    // the other engine has one: it answers while the switch is on (connectionRoute)
+    return otherOn(ctx, e, o.problems) && has(OTHER[e]) && fallback
   })
   if (ready) return 'ready'
   return memberOwnAllowed(ctx.db) ? 'connect_own' : 'ask_owner'
@@ -153,13 +143,9 @@ export interface AiAccess {
   /** false: nothing answers this person now (always true when engines sign in on their own, authMode other than managed) */
   usable: boolean
   action: AiAction
-  /** not usable, Claude Code or Codex answers this person, and the hosting service's trial AI credit
-   * (credentials/hosted-chat.ts), which answered while it was active, is used up or over: what the person is told first */
-  trial?: 'used' | 'ended'
 }
 export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOptions = {}): AiAccess {
-  // a guest: canUseAi says (never true on a server without AI connections); they connect nothing for the team, and the
-  // trial credit is never theirs to be told about. With their own sign-in (AI choice 'own') they connect their own, on a
+  // a guest: canUseAi says (never true on a server without AI connections); they connect nothing for the team. With their own sign-in (AI choice 'own') they connect their own, on a
   // server that answers with AI connections (on any other a guest is never answered, so there is nothing to connect);
   // otherwise they ask the person who invited them
   const guest = guestAiOf(ctx.db, p.id)
@@ -169,7 +155,5 @@ export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOp
   }
   const usable = !isManaged(ctx.config) || canUseAi(ctx, p, o)
   const action: AiAction = p.role === 'owner' || p.role === 'admin' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
-  if (usable || !enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api')) return { usable, action }
-  const trial = hostedChatState(ctx.db, o.now ?? new Date())
-  return trial === 'used' || trial === 'ended' ? { usable, action, trial } : { usable, action }
+  return { usable, action }
 }

@@ -3667,7 +3667,7 @@ export class MockServer {
       const maker = l!.skillPath ? this.users.find((x) => x.id === this.skillMakers.get(l!.skillPath!))?.name ?? null : null
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, skillBy: maker } }
     },
-    // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
+    // onboarding A, B, D: the scripted AI answers everyone, there is no company profile yet
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
     // a guest: AI off by default (none), their own sign-in still to make (own), or a team AI account (team)
     getAiAccess: (c) => {
@@ -3685,7 +3685,6 @@ export class MockServer {
       this.notReadyTold.add(c.user.id)
       return { told: true as const, already }
     },
-    trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
     // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
     // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its

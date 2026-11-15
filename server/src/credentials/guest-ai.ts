@@ -5,7 +5,7 @@
 //   own:  only the guest's own personal connection (whatever the team's member-own switch says: the team chose it).
 //   team: only guests.team_credential_id, while it is still a team connection (no owner) and while the guest has a
 //         'user' budget with action 'block' (the usage limit the invite set). Never group or team-wide connections.
-// A guest never uses the hosting service's trial credit, the API engine (the team's key), or, on a server that is not
+// A guest never uses the API engine (the team's key), or, on a server that is not
 // managed (engines on the host's own sign-in), any AI at all.
 import type { Database } from 'bun:sqlite'
 

@@ -30,7 +30,7 @@ test('a member reads what happened and who to tell, with no engine, proxy, API, 
 test('the owner and admins read where to fix it, in the menu\'s own words; the health page only for the owner', () => {
   const providers = `${translate('en', 'admin.title')} › ${translate('en', 'admin.providers')}`
   const health = `${translate('en', 'admin.title')} › ${translate('en', 'admin.system')} › ${translate('en', 'system.health')}`
-  for (const r of ['auth', 'no_credential', 'credential_unusable', 'model_not_found', 'endpoint_unreachable', 'lockdown', 'trial_credit_used', 'trial_ended'] as const) {
+  for (const r of ['auth', 'no_credential', 'credential_unusable', 'model_not_found', 'endpoint_unreachable', 'lockdown'] as const) {
     for (const role of ['owner', 'admin'] as const) {
       expect([r, role, say('en', r, role)]).toEqual([r, role, translate('en', `chat.error.admin.${r}` as MessageKey, { path: providers })])
       expect(say('en', r, role)).toContain(providers)

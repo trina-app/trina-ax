@@ -1726,7 +1726,7 @@ describe('the company profile step without AI (stream D, also in Admin › Team 
     } finally { await m.unmount() }
   })
 
-  test('AI gone by the time the person presses Read (the trial credit ran out): no draft, the button instead', async () => {
+  test('AI gone by the time the person presses Read (a connection removed): no draft, the button instead', async () => {
     signIn('owner')
     const m = await mount(<MemoryRouter><ProfileStep onDone={() => {}} initialWebsite="https://acme.example/" /></MemoryRouter>)
     try {

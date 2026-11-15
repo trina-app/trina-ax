@@ -52,8 +52,8 @@ export const TeamLink = z.object({
   /** too many join attempts through it lately (the per-link limit): it refuses everyone until then; a new link is not
    * limited. null or absent: not limited */
   limitedUntil: IsoTime.nullable().optional(),
-  /** what AI a person who joins through it has (docs/DECISIONS.md "W5"): `ready` (a team connection, the hosted trial
-   * or a managed engine answers them), `connect_own` (each person signs in to their own AI: the invite message says
+  /** what AI a person who joins through it has (docs/DECISIONS.md "W5"): `ready` (a team connection or a managed
+   * engine answers them), `connect_own` (each person signs in to their own AI: the invite message says
    * "본인 AI 계정이 필요해요"), `ask_owner` (nothing answers them yet). Absent from an older server */
   memberAi: z.enum(['ready', 'connect_own', 'ask_owner']).optional(),
   /** an admin chose this link's groups after making it (PATCH `groupIds`): the welcome steps no longer add the team's

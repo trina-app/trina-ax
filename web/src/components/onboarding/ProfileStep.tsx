@@ -204,7 +204,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           return
         }
         setPhase({ kind: 'fallback', failed: { input: phase.input, error: s.status === 'failed' ? s.error : null } })
-        // the answer may have failed for want of AI (the trial credit ran out): the fallback then offers the button
+        // the answer may have failed for want of AI (a connection removed): the fallback then offers the button
         if (s.status === 'failed') void useAiAccess.getState().load(true)
       } catch {
         if (!stopped) schedule(POLL_MS * 2)

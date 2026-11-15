@@ -274,14 +274,13 @@ describe('no AI for the person', () => {
     } finally { await m.unmount() }
   })
 
-  test('their own AI allowed: the row connects it; the trial credit\'s line when that is why', async () => {
+  test('their own AI allowed: the row connects it', async () => {
     signIn()
-    access = { usable: false, action: 'connect_own', requested: false, trial: 'used' }
+    access = { usable: false, action: 'connect_own', requested: false }
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome-connect'), 'the row')
       expect(text(m, 'member-welcome-ask')).toContain('Connect your AI so Trina can help you')
-      expect(text(m, 'member-welcome-ask')).toContain(en('aiAccess.banner.trialUsed'))
       expect(m.get('member-welcome-connect').getAttribute('data-action')).toBe('connect_own')
       expect(text(m, 'member-welcome-connect')).toBe('Connect my AI')
       expect(m.find('no-ai-card')).toBeNull()

@@ -60,11 +60,6 @@ export const HOSTED_SPEECH_KEY_SETTING = 'speech.hostedKey'
 export const SPEECH_KEY_SETTING = 'speech.openrouterKey'
 /** this month's seconds of sound sent with that key (credentials/hosted-speech.ts) */
 export const HOSTED_SPEECH_USAGE_SETTING = 'speech.hostedUsage'
-/** The hosting service's trial AI credit (credentials/hosted-chat.ts, set only by the control plane through mycel-ctl
- * hosted-chat-key-set): an OpenRouter key for the API engine, its dollar cap, end time and switch. */
-export const HOSTED_CHAT_KEY_SETTING = 'ai.hostedChatKey'
-/** the dollars spent with that key so far (credentials/hosted-chat.ts) */
-export const HOSTED_CHAT_USAGE_SETTING = 'ai.hostedChatUsage'
 
 export function getSetting<T>(db: Database, key: string): T | undefined {
   const row = db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null

@@ -128,7 +128,7 @@ export const ServerConfigPatch = z.strictObject({
   engine: z.strictObject({ credentialKinds: z.array(CredentialKind).min(1).max(4) }).optional(),
 }).refine((p) => p.relay !== undefined || p.publicOrigins !== undefined || p.engine !== undefined, 'nothing to change')
 
-/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's and hosted-chat-key-set's stdin. */
+/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's stdin. */
 export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/)
 /** hosted-speech-key-set's stdin: the OpenRouter key the hosting service gives this team for speech-to-text (hosted
  * voice input and video sound, the plan's free hours a team a month: PlanFile speechFreeHours, else 10, counted by
@@ -136,20 +136,6 @@ export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/
  * audits it; a key the team entered itself always comes first. */
 export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
 export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
-
-/** hosted-chat-key-set's stdin: the trial AI credit the hosting service gives this team, so its chats are answered
- * before it connects an AI of its own. `key` is an OpenRouter API key made for this team (its own key limit as the
- * backstop): the app answers with it on its own API engine and one Claude Haiku model, never in Claude Code, whose
- * terms do not allow a key the hosting service pays for. A direct Anthropic key is refused. `capUsd` the dollars the
- * team may spend with it in all (counted by the app across key rotations; raise it to give more), `endsAt` when it
- * stops, `enabled` false to pause it without taking the key away. `{ key: null }` takes it away. The app keeps the
- * key encrypted with its credentials vault and never shows, logs or audits it; any AI connection the team or a
- * person adds always comes first. */
-export const HostedChatKeyInput = z.union([
-  z.strictObject({ key: OpenRouterApiKey, capUsd: z.number().min(0).max(1000), endsAt: IsoTime, enabled: z.boolean() }),
-  z.strictObject({ key: z.null() }),
-])
-export type HostedChatKeyInput = z.infer<typeof HostedChatKeyInput>
 
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
@@ -244,9 +230,6 @@ export const TENANT_COMMANDS = {
   'owner-recovery-claimed': { args: NoArgs, stdin: null, output: z.object({ ok: z.literal(true), cleared: z.boolean() }), timeoutSec: 30 },
   /** the hosting service's speech-to-text key (HostedSpeechKeyInput); `set`: whether the server holds one now */
   'hosted-speech-key-set': { args: NoArgs, stdin: HostedSpeechKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
-  /** the hosting service's trial AI credit (HostedChatKeyInput); `set`: whether the server holds a key now, `usedUsd`:
-   * what the team has spent of the credit so far (the app's count) */
-  'hosted-chat-key-set': { args: NoArgs, stdin: HostedChatKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean(), usedUsd: z.number().nonnegative() }), timeoutSec: 30 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in

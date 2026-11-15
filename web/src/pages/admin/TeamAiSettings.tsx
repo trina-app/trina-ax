@@ -21,7 +21,7 @@ import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useOneAtATime } from './common'
-import { loadTeamCredentials, loadTrialCredit, PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
+import { loadTeamCredentials, PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { PhoneChecks } from '../../components/phone/PhoneChecks'
@@ -56,7 +56,6 @@ export function preloadTeamAi() {
   void readAdmin('engines', loadAdminEngines).catch(() => {})
   void readAdmin('budgets', loadBudgets).catch(() => {})
   void readAdmin('credentials', loadTeamCredentials).catch(() => {})
-  void readAdmin('trialCredit', loadTrialCredit).catch(() => {})
   preloadAdminPeople()
 }
 

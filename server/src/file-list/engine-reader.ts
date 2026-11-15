@@ -5,7 +5,7 @@
 // needs one to check its token and caller and to count the usage, and Admin › Usage then shows it like any other use.
 //
 // Which connection: a team-wide AI account only (credentials/resolve.ts tier "team": not anyone's own, not assigned to a
-// person or a group); never a person's own account and never the hosted trial credit. On a development or office server
+// person or a group); never a person's own account. On a development or office server
 // (local-login) the engine's own sign-in on that computer.
 // Which engine: Claude Code when the team can use it (on in Admin, installed, and in managed mode a team account), on
 // Haiku (Claude Code's alias; with a gateway its haiku model, and without one nothing runs). Else Codex on its catalog's

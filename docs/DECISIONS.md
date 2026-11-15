@@ -7317,6 +7317,9 @@ An independent review said "merge after should-fix" and found nothing that break
 
 ## B — Hosted trial AI credit (feat/onboarding-b, 2026-11-04)
 
+> **Superseded 2026-11-15** by "Hosted trial AI credit removed (owner 2026-11-15)" (end of this file): the
+> feature is gone; what follows is history.
+>
 > Superseded in part by "Z — trial credit on the API engine" (end of this file): the trial key is an OpenRouter key
 > and answers on the app's own API engine, never in Claude Code; what follows about the direct Anthropic key, its place
 > in `resolveCredential`, the Claude launch and the model proxy no longer holds.
@@ -7878,6 +7881,9 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
   against the mock.
 
 ## Z — trial credit on the API engine (feat/onboarding-z, 2026-11-04)
+
+> **Superseded 2026-11-15** by "Hosted trial AI credit removed (owner 2026-11-15)" (end of this file): the
+> feature is gone; the API engine itself stays. What follows is history.
 
 Supersedes the Claude Code parts of "B — Hosted trial AI credit" above (which key, where it sits in the order, the launch
 path, the proxy's part); B's cap, holds, errors, storage and screens stay, now on the API engine. Why: Anthropic's
@@ -28279,3 +28285,32 @@ Builds on "First run, phase 2". Plan: `docs/AGENTS/plan/20261115-0016-qa-1115-de
   stays on the chat (Chrome and Edge do nothing; Safari may say it cannot open the address). Rooms and projects get no
   item for now (owner prefers a lean menu); their links still open in the app.
 - Version impact: **patch**.
+
+## Hosted trial AI credit removed (owner 2026-11-15, chore/remove-hosted-trial-credit)
+
+Owner decision 2026-11-15: "우리 그런 기능 다 없앴는데? 관련된거 있으면 다 지워줘". The hosted trial AI credit ("B — Hosted
+trial AI credit", "Z — trial credit on the API engine") is removed product-wide. The control plane (trina-cloud) never
+shipped the sending side: its copy of the cloud contract never had `hosted-chat-key-set`, and the only OpenRouter keys
+it makes are the hosted speech keys.
+
+- **Gone from the team server:** `server/src/credentials/hosted-chat.ts` (storage, cap, holds, meter, refusal mark,
+  rekey, drop at start), the `'trial'` route of `connectionRoute` and the turn's trial path (`chat/turn.ts`: no
+  `hosted-trial` credential id, no `trial_credit_used` / `trial_ended` errors), the engine list's "the credit answers"
+  case (`admin/engine-choice.ts`), `AiAccess.trial`, `GET /api/admin/trial-credit` (`TrialCredit`,
+  `TRIAL_CREDENTIAL_ID`), admin.js `hosted-chat-key`, the backup / export / restore handling of the two rows, and
+  `engine.modelUpstreams.openrouter` (tests only). The API engine loses its per-completion meter (`ApiMeter`,
+  `maxTokens`): only the trial used them; it otherwise answers as before.
+- **Gone from the contract and mycel-ctl:** the tenant command `hosted-chat-key-set` (`HostedChatKeyInput`, its
+  vectors) and `cmdHostedChatKeySet`. A control plane that sent it would now get an unknown command.
+- **Gone from the web app:** `TrialCreditBar`, the trial line above the composer, on Home's no-AI card and in the
+  member welcome row, the Usage-by-connection label "Trial credit (hosting)", and their i18n keys in all six
+  languages. Turns answered on the credit before keep `turns.credential_id = 'hosted-trial'` and show as a removed
+  connection.
+- **Data:** migration `124_a_hosted_trial_credit_removed.sql` deletes the settings rows `ai.hostedChatKey` and
+  `ai.hostedChatUsage` (data only, `min_compatible_reader: 1`; it does not raise the reader level). An older build
+  that reads the database afterwards finds no row and treats the team as one that never had a credit (`stored()` and
+  `hostedChatUsedUsd()` return null / 0 for a missing row).
+- **Kept:** the hosted speech key (`credentials/speech-key.ts`, `hosted-speech-key-set`, `OpenRouterApiKey`), the API
+  engine, and "다른 AI로 대신 답하기".
+- Version impact: **minor** (an endpoint, a tenant command and visible lines removed).
+

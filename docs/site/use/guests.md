@@ -86,8 +86,6 @@ they are removed.
 | **Team AI** | They use one of the team's AI accounts, up to a monthly amount in US dollars that you set. | The owner and admins |
 | **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI accounts** and use that. | Anyone who invites |
 
-Guests can't use the AI credit of a free trial.
-
 :::note
 If your team runs Trina AX on an office Mac that was installed without an administrator password, guests can't use
 AI there: the only choice is **No AI**. Installing it with the admin installer (.pkg) makes the other choices possible.

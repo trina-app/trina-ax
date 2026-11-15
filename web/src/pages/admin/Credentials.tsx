@@ -57,7 +57,6 @@ export type Family = 'claude' | 'codex'
  * do with each, and the dialogs. Each provider row shows its own family (ProviderAccounts); the settings for members'
  * own accounts are in the Team provider settings tab (Engines.tsx MemberAccounts). */
 export const loadTeamCredentials = () => api.call(API.listCredentials)
-export const loadTrialCredit = () => api.call(API.trialCredit).catch(() => ({ credit: null }))
 
 export function useTeamCredentials() {
   const t = useT()
@@ -67,8 +66,6 @@ export function useTeamCredentials() {
   const act = useAction()
   const actOk = useActionOk()
   const state = useAdminRead('credentials', loadTeamCredentials)
-  // the hosting service's trial AI credit, when this team has one (an older server or an error: nothing shown)
-  const trial = useAdminRead('trialCredit', loadTrialCredit)
   const groups = useAdminGroups(owner)
   const users = useAdminUsers(owner)
   /** the family whose Add account dialog is open */
@@ -120,7 +117,7 @@ export function useTeamCredentials() {
       {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
     </>
   )
-  return { me, owner, users, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
+  return { me, owner, users, state, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
 }
 export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 

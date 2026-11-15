@@ -9,8 +9,7 @@
 //   room; then Open: that room), c. "Add your photo" (optional, not counted: the photo picker in place, saved at once),
 //   d. "Ask {AI} what you can do here" (one tap starts a normal chat with a fixed question, which opens; done once it
 //   ran). While no AI answers them, row d is the no-AI way out instead (components/onboarding/ConnectAi.tsx): connect
-//   their own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after), with the trial credit's line
-//   when that is why; it goes back to the question once AI answers.
+//   their own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after); it goes back to the question once AI answers.
 // - An admin also gets "팀 파일 정리하기" (not counted) while nobody applied the setup's folder plan: the 팀 파일 step in a
 //   dialog (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders").
 // - Every counted row done: "You're all set" with Close, then gone for good.
@@ -23,7 +22,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { SHARED_HOME, uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { squarePhoto } from '../../lib/avatar'
-import { trialLine } from '../../lib/aiAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { aiName } from '../../lib/tabs'
 import { useLocale, useT } from '../../i18n'
@@ -244,11 +242,10 @@ function AskRow({ welcome }: { welcome: Welcome }) {
   const name = aiName(t)
   const noAi = ai.loaded && !ai.usable
   if (noAi && !welcome.steps.asked) {
-    const trial = ai.trial && t(trialLine(ai.trial))
     if (ai.action === 'ask_owner') {
       const owner = welcome.owner ? firstName(welcome.owner.name) : null
       return (
-        <Row id="ask" done={false} title={t('memberWelcome.noAiAsk', { ai: name })} hint={trial || (owner ? t('memberWelcome.noAiAskHint', { owner }) : t('aiConnect.member'))}>
+        <Row id="ask" done={false} title={t('memberWelcome.noAiAsk', { ai: name })} hint={owner ? t('memberWelcome.noAiAskHint', { owner }) : t('aiConnect.member')}>
           {ai.requested ? (
             <span className="text-label font-medium text-muted" data-testid="member-welcome-told">{t('aiAccess.asked')}</span>
           ) : (
@@ -261,7 +258,7 @@ function AskRow({ welcome }: { welcome: Welcome }) {
       )
     }
     return (
-      <Row id="ask" done={false} title={t('memberWelcome.noAiOwn', { ai: name })} hint={trial || undefined}>
+      <Row id="ask" done={false} title={t('memberWelcome.noAiOwn', { ai: name })}>
         <ConnectAiButton personal={ai.action === 'connect_own'} panel={ai.action === 'connect_team'} data-testid="member-welcome-connect" data-action={ai.action} />
       </Row>
     )

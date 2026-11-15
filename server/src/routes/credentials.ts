@@ -19,7 +19,6 @@ import {
 } from '../credentials/service'
 import { admins, connectionsChanged, credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
-import { trialCredit } from '../credentials/hosted-chat'
 import { aiAccessFor } from '../credentials/access'
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from '../chat/runtime'
@@ -74,9 +73,6 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     return result
   })
   kit.handle(API.sealingKey, () => cc().sealer.publicKey())
-  // the hosting service's trial AI credit (credentials/hosted-chat.ts): Admin › AI connections and the start goal card.
-  // Only turns that answer with AI connections (managed mode) ever use it.
-  kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date()) : null }))
 
   // ChatGPT and Claude sign-ins (the team's: owner or admin; one's own: while the team allows personal connections).
   // The Claude code: only from the person who started that sign-in (404 for anyone else, before it is opened), sealed
@@ -101,9 +97,9 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     return { person, ...aiAccessFor(ctx, person, memberOwnAllowed(ctx.db)) }
   }
   kit.handle(API.getAiAccess, ({ auth }) => {
-    const { usable, action, trial } = accessOf(auth)
+    const { usable, action } = accessOf(auth)
     const n = notificationsOf(ctx), member = auth.user.role !== 'owner' && auth.user.role !== 'admin'
-    return { usable, action, requested: n.aiRequested(auth.user.id), ...(trial ? { trial } : {}), notReadyTold: member && n.aiNotReadyTold(auth.user.id) }
+    return { usable, action, requested: n.aiRequested(auth.user.id), notReadyTold: member && n.aiNotReadyTold(auth.user.id) }
   })
   kit.handle(API.requestAiAccess, ({ c, auth }) => {
     const { person, usable } = accessOf(auth)

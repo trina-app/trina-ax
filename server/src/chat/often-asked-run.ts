@@ -1,7 +1,7 @@
 // The daily AI run of "what my group often asks" (chat/often-asked.ts; docs/DECISIONS.md "Home: what my group often
 // asks"). One call of the file list's reader (file-list/engine-reader.ts): the team's engine through the launcher, its
 // sandbox and the model proxy, with no tools and one answer, on a small model (Claude Code's Haiku, else Codex's nano
-// or mini), on a team-wide AI account only (never a person's own or assigned one, never the hosted trial credit), as a
+// or mini), on a team-wide AI account only (never a person's own or assigned one), as a
 // turn of the owner (turns.chat_id 'often-asked', so Admin › Usage counts it and budgets stop it). No chat is made: no
 // message is stored, no realtime event is sent, no route can open anything. The masked lines go in the message as data
 // inside <material>, one JSON line each, with every tag broken; the answer is one JSON object, read defensively

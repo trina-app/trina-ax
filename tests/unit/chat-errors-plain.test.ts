@@ -32,7 +32,6 @@ test('an error stored with the earlier words and no reason is still told apart (
     ['crash', 'Mesin AI berhenti tiba-tiba. Coba lagi.'],
     ['no_credential', 'このエンジン用のAI接続がありません。管理者に知らせてください。'],
     ['model_not_found', 'El servicio de IA no reconoce el modelo configurado. Pida a su administrador que revise el nombre del modelo del motor API.'],
-    ['trial_credit_used', '체험 AI 크레딧을 다 썼어요. 팀장이 관리 › AI 연결에서 팀의 AI를 연결하면 이어서 쓸 수 있어요.'],
     // the 합니다체 before 0.2.16 still counts too
     ['crash', 'AI 엔진이 예기치 않게 멈췄습니다. 다시 시도해 주세요.'],
   ]

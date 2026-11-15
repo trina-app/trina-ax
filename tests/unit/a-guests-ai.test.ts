@@ -1,14 +1,13 @@
 // Guest AI (docs/DECISIONS.md "Guests: only what they were invited to"; credentials/guest-ai.ts): off by default; 'team'
 // = only the one team connection the invite named, only while it is a team connection and the guest's own 'block'
 // budget exists; 'own' = only their own sign-in. Never assignments (one would make a team-wide connection assigned-only
-// for every member), groups, team-wide connections, the trial credit, the API engine, or a server without AI
+// for every member), groups, team-wide connections, the API engine, or a server without AI
 // connections. Real guests: invited through the API and accepted on the invite page.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import path from 'node:path'
 import { ALL_CREDENTIAL_KINDS, type AppConfig } from '../../server/src/app-config'
 import { setEnginesEnabled, setSetting, updateTeamSettings } from '../../server/src/admin/settings'
-import { aiAccessFor, canUseAi, connectionRoute } from '../../server/src/credentials/access'
-import { writeHostedChatKey } from '../../server/src/credentials/hosted-chat'
+import { aiAccessFor, canUseAi } from '../../server/src/credentials/access'
 import { writeApiEngine } from '../../server/src/engine/api-agent'
 import { MEMBER_OWN_KEY, resolveCredential } from '../../server/src/credentials/resolve'
 import { addCred, testCredCtx } from '../lib/credentials'
@@ -44,7 +43,7 @@ test('AI none (the default): no connection at all; the member next to them resol
   expect(resolve(mia.id).ok).toBe(true)
   expect(canUseAi(managed, { id: g.id, role: 'guest' })).toBe(false)
   expect(canUseAi(managed, { id: mia.id, role: 'member' })).toBe(true)
-  // what the app tells them: ask (never "connect for the team"), no trial line
+  // what the app tells them: ask (never "connect for the team")
   expect(aiAccessFor(managed, { id: g.id, role: 'guest' }, true)).toEqual({ usable: false, action: 'ask_owner' })
 })
 
@@ -92,18 +91,6 @@ test('AI own: only their own sign-in, whatever the member-own switch; never the 
   setSetting(h.ctx.db, MEMBER_OWN_KEY, true)
   expect(resolve(g.id)).toMatchObject({ ok: true, credentialId: own })
   expect(resolve(mia.id)).toMatchObject({ ok: true, credentialId: team })
-})
-
-test('the hosting service\'s trial credit: a member with no connection goes to it, a guest never', async () => {
-  const { mia, room, t, team, managed } = await setup()
-  const g = await addGuest(h, mia.client, { username: 'tri', place: { kind: 'room', id: room } })
-  h.ctx.db.query('DELETE FROM engine_credentials WHERE id = ?').run(team)
-  writeHostedChatKey(t.cc, { key: 'sk-or-v1-GUEST-TRIAL-' + 'k'.repeat(40), capUsd: 1, endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), enabled: true })
-  expect(connectionRoute(managed, { id: mia.id }, 'claude-code', { allowed: ALL })).toBe('trial')
-  expect(connectionRoute(managed, { id: g.id }, 'claude-code', { allowed: ALL })).toBe('own')
-  expect(canUseAi(managed, { id: mia.id, role: 'member' })).toBe(true)
-  expect(canUseAi(managed, { id: g.id, role: 'guest' })).toBe(false)
-  expect(aiAccessFor(managed, { id: g.id, role: 'guest' }, true)).toEqual({ usable: false, action: 'ask_owner' })
 })
 
 test('a server without AI connections (engines on the host\'s own sign-in): members use AI, a guest never, even with a team choice', async () => {
