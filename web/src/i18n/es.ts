@@ -5848,7 +5848,7 @@ export const es: Record<MessageKey, string> = {
   "roomApps.tally2": "Pega la Webhook URL en {url}.",
   "roomApps.tally3": "Pulsa {connect}.",
   "roomApps.jotform1": "En Jotform, abre el formulario, ve a {path} y busca {hooks}.",
-  "roomApps.jotform2": "Pulsa primero {complete} (no {add}: eso desactiva {complete}). Después pega la Webhook URL en el campo y pulsa {finish}.",
+  "roomApps.jotform2": "Pega primero la Webhook URL en el campo: hasta entonces no se puede pulsar {complete}. Después pulsa {complete} y luego {finish}. No pulses {add}.",
   "roomApps.stripe1": "En Stripe, abre {path} y elige {create}.",
   "roomApps.stripe2": "Selecciona estos eventos, pulsa {continue} y elige {endpoint}:",
   "roomApps.stripe3": "Pega la Webhook URL en {url} y pulsa {create}.",

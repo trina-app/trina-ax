@@ -5892,7 +5892,7 @@ export const en: Record<MessageKey, string> = {
   "roomApps.tally2": "Paste the Webhook URL into {url}.",
   "roomApps.tally3": "Press {connect}.",
   "roomApps.jotform1": "In Jotform, open the form, go to {path} and search for {hooks}.",
-  "roomApps.jotform2": "Press {complete} first (not {add}: that turns {complete} off). Then paste the Webhook URL into the field and press {finish}.",
+  "roomApps.jotform2": "Paste the Webhook URL into the field first: until then {complete} can't be pressed. Then press {complete}, then {finish}. Don't press {add}.",
   "roomApps.stripe1": "In Stripe, open {path} and choose {create}.",
   "roomApps.stripe2": "Select these events, press {continue} and choose {endpoint}:",
   "roomApps.stripe3": "Paste the Webhook URL into {url} and press {create}.",
