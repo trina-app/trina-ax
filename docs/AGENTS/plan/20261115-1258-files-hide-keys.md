@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 12:58
 - Branch: `fix/files-hide-keys`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections (redactor), server/src/mcp/protocol.ts and server/src/chat/tools.ts (the
   turn's tool calls). Why: what the AI saves is server work (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no new feature or API change
@@ -56,4 +56,7 @@ the last word or code-like run (at most a few hundred characters) a moment longe
 
 ## Result
 
-Filled in at the end.
+Built as planned: one hook in mcp/protocol.ts (TurnToolSet.hideKeys) runs every saving tool's arguments through
+the turn's redactor (hide-args.ts); the AI gets a note that the key was saved as [hidden key]; RedactingText holds back
+the end that could be part of an encoded form (formCarryLength). Checked on a local copy of the QA team: docx, pdf,
+hwpx, md, a filled Hangul form and an artifact hold [hidden key]. PR linked from the branch.
