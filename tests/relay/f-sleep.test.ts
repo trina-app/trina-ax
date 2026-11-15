@@ -1,6 +1,6 @@
 // F2 sleep and wake under the real relay runtime (Node) with real processes: the control plane marks a hosted team
 // asleep (operator API), the team server goes away, and a visitor's request makes the relay ask a fake control plane to
-// wake it (signed MycelRelayWake request). Browsers get the reloading "Starting your team" page, API calls a
+// wake it (signed MycelRelayWake request). Browsers get the reloading "Resuming your team" page, API calls a
 // retryable 503, WebSockets close 1013; once the fake control plane starts the team server, requests are forwarded
 // (an OAuth callback with its query intact) and the sleep flag is gone. busy / unknown answers, and a relay without
 // RELAY_WAKE_URL (feature off).
@@ -104,11 +104,11 @@ describe('a sleeping team that stays asleep (the control plane answers waking)',
     expect([r.status, r.headers.get('x-relay-error'), r.headers.get('retry-after')]).toEqual([503, 'team_waking', '4'])
     const html = await r.text()
     expect(html).toContain('<meta http-equiv="refresh" content="4">')
-    expect(html).toContain('Starting your team')
+    expect(html).toContain('Resuming your team')
     expect(html).toContain('about a minute')
     expect(html).not.toContain('s3cr3t')
     const ko = await fetch(teamUrl(PORT, 'sleepy', '/'), { headers: { ...NAV, cookie: 'mycel_locale=ko' } })
-    expect(await ko.text()).toContain('팀을 시작하고 있어요')
+    expect(await ko.text()).toContain('팀을 다시 켜고 있어요')
   })
   test('the wake call is signed, says http, and is made once per team in 10 s', async () => {
     const mine = calls.filter((c) => c.teamId === t.id)

@@ -94,7 +94,7 @@ export const id: Record<MessageKey, string> = {
   'conn.cantReachHint': 'Cek koneksi internet kamu lalu coba lagi sebentar lagi.',
   'conn.now': "Belum bisa terhubung sekarang.",
   'conn.retrying': "Menyambung ulang…",
-  'conn.waking': "Memulai tim Anda…",
+  'conn.waking': "Mengaktifkan lagi tim Anda…",
   'conn.wakingDetail': "Ini memakan waktu sekitar satu menit. Terbuka sendiri saat siap.",
   'conn.loadFailed': "Gagal memuat.",
   'conn.unsent': "Belum bisa terhubung, jadi pesan belum terkirim. Pesanmu masih ada di sini.",

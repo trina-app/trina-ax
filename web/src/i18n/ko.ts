@@ -93,7 +93,7 @@ export const ko = {
   'conn.cantReachHint': '인터넷 연결을 확인하고 잠시 뒤 다시 시도해 주세요.',
   'conn.now': "지금 연결이 안 돼요.",
   'conn.retrying': "다시 연결하는 중…",
-  'conn.waking': "팀을 시작하고 있어요…",
+  'conn.waking': "팀을 다시 켜고 있어요…",
   'conn.wakingDetail': "1분쯤 걸려요. 준비되면 저절로 열려요.",
   'conn.loadFailed': "불러오지 못했어요.",
   'conn.unsent': "지금 연결이 안 돼서 보내지 못했어요. 메시지는 그대로 있어요.",

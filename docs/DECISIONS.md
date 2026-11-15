@@ -4909,6 +4909,7 @@ Founder decision: hosted teams (every plan, the free one too) get speech-to-text
 month in one pool shared by voice input and video and audio reads, through OpenRouter's
 `openai/whisper-large-v3-turbo` on DeepInfra (US, $0.012 an hour of sound), with Groq (US, $0.04 an hour) as the
 fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-DEEPINFRA-TEST.md` (private).
+"The free one too": Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"; the 14-day trial gets Starter's hours.
 Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business 200; plan.json `speechFreeHours`, else
 10), see "Hosted speech-to-text hours per plan"; "10 hours" below is that default.
 
@@ -13425,7 +13426,8 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   (a plan without hosted speech gets no hosting key: with a key and 0 hours voice input would be on and refuse
   everything).
 - **Not a plan-id table in the server.** The control plane's ids are `free`, `basic` (Starter), `team` and `pro`
-  (Business) (trina-cloud `src/teams/plans.ts`, as `tests/unit/devenv-hosted-boot.test.ts` records), not the names in
+  (Business) (`free`: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"; the trial's id is `trial` (trials started before 2026-11-14: `basic`), and the server keeps accepting `free` from a control plane that
+  still has a Free team) (trina-cloud `src/teams/plans.ts`, as `tests/unit/devenv-hosted-boot.test.ts` records), not the names in
   the owner's words; prices and plans belong to the private repositories (REPOSITORY-RULES); every other per-plan value
   (seats, memory, backups) is already a plan.json field and the dev environment is derived from the plan's resources.
   The server never branches on the id, and the hours change without a server release.
@@ -13444,7 +13446,7 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   when it makes the key), outside this repository. OpenRouter's prices for `openai/whisper-large-v3-turbo` on
   2026-11-07 (`/api/v1/models/openai/whisper-large-v3-turbo/endpoints`): DeepInfra $0.012 an hour of sound, Groq $0.04.
   A month of the plan's hours costs $0.60 / $1.20 / $2.40 (Starter / Team / Business) through DeepInfra and $2 / $4 /
-  $8 if all of it went to Groq (Free: $0.12 / $0.40). Groq bills at least 10 s a request (its answer's `usage.seconds`),
+  $8 if all of it went to Groq (Free: $0.12 / $0.40; the Free plan: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"). Groq bills at least 10 s a request (its answer's `usage.seconds`),
   so short voice clips through Groq cost more than they count. The limit has to cover the plan's hours: the keys made
   so far were sized for 10 hours, so the control plane raises the limit of every existing key and on every plan change,
   together with `speechFreeHours`. A limit under the plan's hours stops the team with "hosted transcription is not
@@ -27342,7 +27344,7 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   member invites into a group chat they are in; into a project only its creator (while they read it) or an admin;
   the owner and admins into a group chat only when they are in it. The same rule is checked again at accept, with the
   place still open and the team connection still a team one; accept is one write. Guests take no seats. The plan's cap
-  (`PlanFile.maxGuests`, owner: Free 3, Starter 10, Team 30, Business 100; set by the control plane later, a plan file
+  (`PlanFile.maxGuests`, owner: Free 3 (the Free plan: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"), Starter 10, Team 30, Business 100; set by the control plane later, a plan file
   without it allows 3; no plan = self-hosted = no cap) is 409 `plan_limit` reason `guest_limit` at create and accept.
 - **Other choices:** one guest type, no expiry, a member is never made a guest, guests join no groups and never the
   everyone room (no joined line), other members' project chats stay hidden from a guest while the guest's own project
@@ -27782,7 +27784,7 @@ guides, "Apps posting here") are phase 2.
   OPTIONS or `/robots.txt`, `/favicon.ico` and the like. Anything else gets the offline page and no wake, so a scanner
   or an uptime check cannot keep an idle trial running. Over the relay's own 30-a-minute budget the visitor still gets
   the waking page (it reloads and asks again).
-- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Starting your team…" (about a
+- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Resuming your team…" (about a
   minute, six languages), which reloads the same address after the control plane's `retryAfterSec` kept to 3-20 s
   (the control plane answers 20 for a stopped EC2 instance; the first branch reloaded every 3 s, which for a
   one-minute boot was 20 reloads and wake calls). The page does not echo the address, so an OAuth callback's `code`
@@ -27935,12 +27937,12 @@ shared with people and groups, and files attached before the share stayed visibl
 
 ## Trial auto-stop tuning (owner decisions 2026-11-14, delegated to the coordinator)
 
-- **An open app is not use (hosted free teams too: the server does not know the team's kind).** An open web, desktop or phone connection with nothing happening does not keep a hosted
+- **An open app is not use (hosted free teams too: the server does not know the team's kind; free teams: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only").** An open web, desktop or phone connection with nothing happening does not keep a hosted
   server awake (`activityFacts` no longer touches the clock for open connections; `sleepableBy` ignores them). What
   counts is real use: a signed-in request (also one on an open connection), a message or answer, an upload, a connector
   call, a job, a schedule. The number of open connections is still reported in `status.json`.
 - **A WebSocket never wakes a stopped team.** An app that reconnects on its own would wake the team after every stop.
-  The socket is closed 1013; the next real request wakes it ("Starting your team…" or a retryable 503 `team_waking`).
+  The socket is closed 1013; the next real request wakes it ("Resuming your team…" or a retryable 503 `team_waking`).
 - The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
   `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
 
@@ -28237,3 +28239,20 @@ words and components.
 - **A project guest's folders open on the project's own files screen** (`/projects/<id>/files?dir=…`, `ProjectFiles`), on a computer as on a phone: the project page's Files row, its Open and its folder rows go there for a guest instead of the 파일 screen (`/files`, which sends a guest Home). The screen lists the folder, opens files in the file sheet, has a back link on a computer and no button to the 파일 screen for a guest. Uploading stays where it was for a guest (attach in a chat); no upload button is added here (QA TC-2470).
 - **A guest's delete-account page** lists only what a guest has: who is told; deleted: sign-in, profile and photo, notifications, and with AI on their chats with the AI (their own sign-in also their AI account); the files they saved in "Your files" go to the owner's archive (the same as a member's own folder, in the pickers' words); stays with the team: what they sent in their place and to its people, by name; the activity log and backups line. No team folders, shared skills, scheduled tasks or app connections.
 - Version impact: **patch** (one optional field in `InboxNotification.joined`, one new notice code).
+
+## Free plan removed (owner 2026-11-14): trial with a card only
+
+- **Owner decision (2026-11-14): the hosted Free plan is gone.** Trina Cloud has only the 14-day trial, which starts
+  with a card (Polar), and then the paid plans (Starter, Team, Business). No new Free team, no Free wording in the
+  docs, and an idle hosted team that sleeps is a trial team (paid teams do not sleep). This supersedes every earlier
+  Free-plan decision here (marked where they are): the speech hours of "the free one too" (the trial gets Starter's
+  50 hours), `free` in the control plane's plan ids, the Free guest cap, and "hosted free teams" in the trial auto-stop
+  tuning.
+- **Rollout: `plan: "free"` keeps working.** The team server never branches on the plan id (`PlanFile.plan` is any
+  `PlanId`, `shared/src/cloud-protocol/files.ts`; the Go reader takes any string), so a control plane may still write
+  `free` for a Free team that existed before. That team keeps running with the plan.json it gets until its owner chooses a paid
+  plan or the team is ended (trina-cloud docs/runbooks/free-plan-removal.md). No allowlist may refuse it: apply-plan and the enroll answer would
+  fail.
+- **Where the rest lives.** Billing, sign-up, the console, mails and the move of the existing Free teams are in the
+  hosting repository (trina-cloud); this repo changes only words.
+- Version impact: **none** (docs and comments).

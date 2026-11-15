@@ -1,6 +1,7 @@
-// When this server was last in use, for the hosted service's sleep policy (F2: an idle hosted team's server is stopped,
-// a free team's VM suspended to disk or a trial team's EC2 instance stopped, and started on the next request). One
-// clock per server process; it starts at the last use saved before (configureActivityStore), else at the start.
+// When this server was last in use, for the hosted service's sleep policy (F2: an idle hosted trial team's server is
+// stopped (EC2) or suspended (other hosts), and started on the next request; paid teams do not sleep, and there is no
+// Free plan since 2026-11-14). One clock per server process; it starts at the last use saved before
+// (configureActivityStore), else at the start.
 //   in use: a signed-in API request (session middleware; every chunk of an upload is one),
 //   a running or queued answer, a queued or running background job (transcribe, backup, export, update, restore), a
 //   dev environment job that waits or runs, or a backup in progress (the nightly one has no jobs row)

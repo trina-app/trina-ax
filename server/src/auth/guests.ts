@@ -126,7 +126,8 @@ export function seenBy(db: Database, userId: string): (to: string) => boolean {
 }
 
 // ---------------- the plan's guest cap ----------------
-/** Guests on a plan file without maxGuests (the control plane writes it later): the smallest plan's number. */
+/** Guests on a plan file without maxGuests (a kit the control plane does not send it to yet): a low default, below
+ *  every hosted plan's own number (the smallest, Starter and the trial, is 10). */
 export const DEFAULT_PLAN_GUESTS = 3
 /** The plan's guest cap, or null (a self-hosted server without a plan: no cap). */
 export function guestLimit(): number | null {

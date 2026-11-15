@@ -19,11 +19,11 @@
 #   diskGiB    = 8 * u           (Starter 8,    Team 16,   Business 32),   at most 32 (srt does not use it)
 #   maxRunning = 1 + log2(u)     (Starter 1,    Team 2,    Business 3),    at most 4
 #   network    = open
-# A plan under 4096 MiB (Free, the old trial) gets NO dev environment: no dev-env.json, no server drop-in.
+# A plan under 4096 MiB (the old 2 GiB plans) gets NO dev environment: no dev-env.json, no server drop-in.
 # The plan memory and cores are capped by this machine (memory rounded up to whole GiB, the cgroup memory.max or
 # MemTotal as in native/internal/plan MachineMemoryMiB; cores from nproc). After a move up the control plane writes the
 # new plan.json at once, but the VM gets the new size only at its next reboot: until then the old machine size counts.
-# So a move up from Free turns the dev environment on at the next boot (no restart during the day), and a move up from
+# So a move up from a 2 GiB VM turns the dev environment on at the next boot (no restart during the day), and a move up from
 # Starter keeps the Starter numbers until that boot. MYCEL_DEVENV_MACHINE_MIB / MYCEL_DEVENV_MACHINE_CORES set the
 # machine size for tests (--map uses no machine cap unless they are set).
 set -uo pipefail
