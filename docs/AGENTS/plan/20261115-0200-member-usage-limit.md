@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 02:00
 - Branch: `feat/member-usage-limit`
-- Status: in progress
+- Status: done
 - Where: `web/src/pages/admin` (Members, the shared limit dialog), `web/src/i18n`, docs. Why: admin screens are core
   (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new way to set a limit (no new setting, no server change)
@@ -48,10 +48,16 @@ monthly limit in Team settings and their own Change AI.
 - Who sees it: the limits endpoints are `auth: 'admin'` (owner and admins); members cannot open /admin or read
   /api/admin/budgets. No server change.
 - The server allows two limits of the same period for one person (made in Team settings). The dialog then edits the
-  first of them; Team settings still lists both.
+  first of them; Team settings still lists both. The dialog reads the list again as it opens, so a limit made a moment
+  ago elsewhere is edited, not made a second time (code review).
 - A limit set in dollars only has no token number: the texts fall back to the amount.
 - No migration.
 
 ## Result
 
-(filled in at the end)
+Built as cut. An independent code review found two stale-list risks (a kept list up to a minute old could make a
+second limit, and a read behind an open dialog could turn a new limit into an edit); fixed by reading the limits again
+as the dialog opens and keeping that list while it is open. Also fixed on the way: editing a dollars-only limit added a
+1,000,000-token limit, and an emptied token field saved 0 tokens (which blocks at once). Unit tests (9), an e2e spec
+(desktop and 390 px), screenshots for owner, admin and member at 1440/390 light/dark, and a live walk on a copy of the
+QA-Acme team (QA TC-2507..2511).
