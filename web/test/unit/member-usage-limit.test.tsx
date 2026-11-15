@@ -1,7 +1,8 @@
 // A person's usage limit from Admin › Members (pages/admin/Members.tsx, pages/admin/BudgetForm.tsx; QA TC-2507..2511):
 // "Usage limit…" in every member's "…" opens the shared limit dialog for that person, filled with the limit they have
 // for the period (edit) or a new one (create); the Period switches between their day and month limits; Remove limit
-// deletes the one shown. Their row says the limit in one quiet line, and "Over limit" once it is used up.
+// deletes the one shown. Their row says the limit in one quiet line, and "Over limit" once it is used up. A second limit
+// for the same subject and period is refused by the server (409 budget_duplicate) and said in a plain line, by name.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -9,6 +10,7 @@ import { uuidv7, type Budget, type Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { resetAdminReads } from '../../src/store/adminPeople'
+import { useUi } from '../../src/store/ui'
 import { BudgetForm } from '../../src/pages/admin/BudgetForm'
 import Members from '../../src/pages/admin/Members'
 import TeamAiSettings from '../../src/pages/admin/TeamAiSettings'
@@ -27,6 +29,8 @@ const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 let budgets: Budget[] = []
+// the server already has a limit for this subject and period (server/src/admin/budgets.ts checkNoDuplicate)
+let duplicate = false
 const sent: { key: string; body: unknown }[] = []
 const g = globalThis as Record<string, unknown>
 const resizeBefore = Object.getOwnPropertyDescriptor(g, 'ResizeObserver')
@@ -40,6 +44,7 @@ beforeAll(() => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     if (key !== 'GET /api/admin/budgets') sent.push({ key, body })
     if (key === 'GET /api/admin/budgets') return json({ items: budgets })
+    if (key === 'POST /api/admin/budgets' && duplicate) return json({ error: { code: 'conflict', message: 'There is already a usage limit for this with the same period. Edit that one in the list instead.', params: { reason: 'budget_duplicate' } } }, 409)
     if (key === 'POST /api/admin/budgets') return json(budget({ id: ID.new, ...body, usedTokens: 0 }), 201)
     if (key.startsWith('PATCH /api/admin/budgets/')) return json(budget({ id: key.split('/').pop(), ...body }))
     if (key.startsWith('DELETE /api/admin/budgets/')) return new Response(null, { status: 204 })
@@ -54,6 +59,8 @@ afterEach(async () => {
   for (const p of pages.splice(0)) await p.unmount()
   sent.length = 0
   budgets = []
+  duplicate = false
+  useUi.setState({ toasts: [] })
   useSession.setState({ status })
   resetAdminReads()
 })
@@ -208,4 +215,31 @@ test('Members: the dialog reads the limits again as it opens, so a limit made a 
   await m.click('member-usage-limit-ben')
   await m.until(() => m.find('budget-form'), 'the dialog')
   expect(m.get('budget-form').getAttribute('data-editing')).toBe(ID.m1)
+})
+
+const errorToasts = () => useUi.getState().toasts.filter((x) => x.level === 'error').map((x) => x.text)
+
+test('a second limit for the same person and period: the server refuses it, the dialog says so by name and stays open', async () => {
+  duplicate = true
+  // the list in hand missed the limit made a moment ago, so the dialog offers a new one
+  const { m, saved } = await formFor([])
+  await m.click('budget-save')
+  await m.until(() => errorToasts().length === 1, 'the error line')
+  expect(errorToasts()).toEqual(['Ben already has a usage limit for this period. Edit that one in the list instead.'])
+  expect(saved()).toBe(0)
+  expect(m.find('budget-form')).toBeTruthy()
+})
+
+test('Team settings: a second limit for the whole team is said in a plain line, and the dialog stays open', async () => {
+  duplicate = true
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  const m = await mount(<MemoryRouter><TeamAiSettings part="limits" /></MemoryRouter>)
+  pages.push(m)
+  await m.until(() => m.find('budget-new'), 'Add limit')
+  await m.click('budget-new')
+  await m.until(() => m.find('budget-form'), 'the dialog')
+  await m.click('budget-save')
+  await m.until(() => errorToasts().length === 1, 'the error line')
+  expect(errorToasts()).toEqual(['The whole team already has a usage limit for this period. Edit that one in the list instead.'])
+  expect(m.find('budget-form')).toBeTruthy()
 })

@@ -7,7 +7,7 @@
 // The same endpoints and roles either way (owner and admins: shared/src/api/admin.ts listBudgets … deleteBudget).
 import { useState } from 'react'
 import type { Budget, Group, Locale, User } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
+import { api, API, isApiError } from '../../lib/api'
 import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { Button, Field, Modal, inputCls } from '../../components/ui'
@@ -77,9 +77,19 @@ export function BudgetForm({ budget = null, person, budgets, users = [], groups 
   const save = async () => {
     setBusy(true)
     const body = { ...f, subjectId: f.subjectType === 'team' ? null : f.subjectId }
-    const r = await act(() => (target ? api.call(API.updateBudget, { params: { id: target.id }, body }) : api.call(API.createBudget, { body })))
+    const r = await act(() => (target ? api.call(API.updateBudget, { params: { id: target.id }, body }) : api.call(API.createBudget, { body })).catch((e: unknown) => {
+      // one limit per subject and period (server/src/admin/budgets.ts checkNoDuplicate): say whose, in the UI language
+      const text = isApiError(e, 'conflict') && e.body.params?.reason === 'budget_duplicate' ? duplicateText() : null
+      throw text ? new Error(text) : e
+    }))
     setBusy(false)
     if (r) onSaved()
+  }
+  // whose limit it is, by name (null: no name to hand, so the server's own line is shown)
+  const duplicateText = (): string | null => {
+    if (f.subjectType === 'team') return t('budgets.duplicateTeam')
+    const who = person?.name ?? (f.subjectType === 'group' ? groups : users).find((x) => x.id === f.subjectId)?.name
+    return who ? t('budgets.duplicate', { who }) : null
   }
   const remove = async () => {
     if (!target) return

@@ -2309,6 +2309,8 @@ export const en: Record<MessageKey, string> = {
   'budgets.usedTokensMonth': '{used} of {limit} tokens this month',
   'budgets.usedUsdToday': '{used} of {limit} today',
   'budgets.usedUsdMonth': '{used} of {limit} this month',
+  'budgets.duplicate': '{who} already has a usage limit for this period. Edit that one in the list instead.',
+  'budgets.duplicateTeam': 'The whole team already has a usage limit for this period. Edit that one in the list instead.',
 
   'teamSettings.nameOwnerOnly': 'Only the owner can change the team name.',
   'teamSettings.ownerOnlyField': 'Only the team owner can change this.',

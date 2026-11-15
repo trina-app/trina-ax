@@ -2274,6 +2274,8 @@ export const ja: Record<MessageKey, string> = {
   'budgets.usedTokensMonth': '今月 {limit} トークン中 {used}',
   'budgets.usedUsdToday': '今日 {limit} 中 {used}',
   'budgets.usedUsdMonth': '今月 {limit} 中 {used}',
+  'budgets.duplicate': '{who}にはこの期間の使用量上限がすでにあります。一覧でその上限を編集してください。',
+  'budgets.duplicateTeam': 'チーム全体にこの期間の使用量上限がすでにあります。一覧でその上限を編集してください。',
   'teamSettings.nameOwnerOnly': "チーム名を変更できるのはオーナーのみです。",
   'teamSettings.ownerOnlyField': "これを変更できるのはチームのオーナーのみです。",
   'teamSettings.defaultLocale': "チームの既定の言語",

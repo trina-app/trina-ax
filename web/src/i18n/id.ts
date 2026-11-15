@@ -2309,6 +2309,8 @@ export const id: Record<MessageKey, string> = {
   'budgets.usedTokensMonth': '{used} dari {limit} token bulan ini',
   'budgets.usedUsdToday': '{used} dari {limit} hari ini',
   'budgets.usedUsdMonth': '{used} dari {limit} bulan ini',
+  'budgets.duplicate': '{who} sudah punya batas penggunaan untuk periode ini. Ubah batas itu di daftar.',
+  'budgets.duplicateTeam': 'Seluruh tim sudah punya batas penggunaan untuk periode ini. Ubah batas itu di daftar.',
 
   'teamSettings.nameOwnerOnly': 'Hanya owner yang bisa mengganti nama tim.',
   'teamSettings.ownerOnlyField': 'Hanya owner tim yang bisa mengubah ini.',
