@@ -97,7 +97,8 @@
       ],
       "Condition": {
         "StringEquals": {
-          "ec2:Owner": "136693071363"
+          "ec2:Owner": "amazon",
+          "ec2:Public": "true"
         }
       }
     },
