@@ -49,6 +49,11 @@ describe('koParticle after service names', () => {
     expect(obj('SQL')).toBe('SQL을')
     expect(obj('CRM')).toBe('CRM을')
     expect(koParticle('AI', '이(가)')).toBe('가')
+    expect(['PDF', 'API', 'URL', 'AWS', 'IBM'].map(obj)).toEqual(['PDF를', 'API를', 'URL을', 'AWS를', 'IBM을'])
+  })
+
+  test('a capital word with a vowel letter that is not a known abbreviation is a word, not letters: keeps 을(를)', () => {
+    for (const w of ['WEB', 'APP', 'HOME', 'FILE', 'MAC', 'ACME', 'TEAM']) expect(obj(w)).toBe(`${w}을(를)`)
   })
 
   test('a closing quote or bracket after the value is not read', () => {

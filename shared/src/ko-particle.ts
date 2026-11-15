@@ -45,6 +45,8 @@ const NAMES: Record<string, KoEnding> = {
 const DIGIT: Record<string, KoEnding> = { 0: C, 1: L, 2: V, 3: C, 4: V, 5: V, 6: C, 7: L, 8: L, 9: V }
 /** A letter read on its own (an abbreviation like MCP or SQL): L 엘 and R 알 end in ㄹ, M 엠 and N 엔 in a consonant, the
  * others (에이, 비, 씨, 피, 엑스 …) in a vowel. */
+/** Abbreviations with a vowel letter that are still read letter by letter. */
+const SPELLED = new Set(['AI', 'API', 'URL', 'AWS', 'IBM', 'UI', 'UX', 'OS', 'IT', 'HR', 'PR', 'QA', 'CEO', 'CTO', 'CFO', 'ERP', 'OCR', 'SEO', 'EOD'])
 const letterEnding = (ch: string): KoEnding => ('LR'.includes(ch) ? L : 'MN'.includes(ch) ? C : V)
 
 /** How a value ends when read aloud in Korean, or null when that cannot be told (an unknown Latin name, a sign). A
@@ -62,8 +64,9 @@ export function koEnding(value: string): KoEnding | null {
   const word = /[A-Za-z0-9.&+-]+$/.exec(v)?.[0].replace(/^[.&+-]+/, '') ?? ''
   const known = NAMES[v.toLowerCase()] ?? NAMES[word.toLowerCase()]
   if (known) return known
-  // an abbreviation in capitals (AI, MCP, HWP, SQL, CRM) is read letter by letter
-  if (/^[A-Z][A-Z0-9]{1,4}$/.test(word)) return letterEnding(last)
+  // an abbreviation in capitals is read letter by letter only when it has no vowel letter (MCP, HWP, SQL, CRM, PDF) or
+  // is a known one (AI, API, URL, AWS, IBM); other capital words (WEB, HOME, FILE) are read as words: not told
+  if (/^[A-Z][A-Z0-9]{1,4}$/.test(word) && (!/[AEIOU]/.test(word) || SPELLED.has(word))) return letterEnding(last)
   return null
 }
 
@@ -80,7 +83,8 @@ const MARKS: Record<string, [string, string]> = {
 }
 const RO = '(\uc73c)\ub85c'
 
-/** The marks as a regular expression alternative (for a text's "{name}을(를)"), longest first. */
+/** The marks as a regular expression alternative (for a text's "{name}을(를)"), in the order of MARKS: no mark is the
+ * start of another, so the order does not matter. */
 export const KO_PARTICLE_MARKS: readonly string[] = Object.keys(MARKS)
 export const KO_PARTICLE_PATTERN = KO_PARTICLE_MARKS.map((m) => m.replace(/[()]/g, '\\$&')).join('|')
 
