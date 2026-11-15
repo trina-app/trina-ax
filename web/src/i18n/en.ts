@@ -5548,6 +5548,7 @@ export const en: Record<MessageKey, string> = {
   "gsign.error.server": "The server's own setup already sets a Google app, so it can't be changed here.",
   "gsign.error.notService": "This server doesn't sign in to Google through the hosting service. Set up each Google app on its own page instead.",
   "gsign.error.unsafe": "The server can't keep the file safely right now. Ask whoever runs the server to check its private folder.",
+  "gsign.error.unknown": "Google doesn't know this client ID. Check it in Google Cloud under Clients, or ask whoever manages your company's Google account.",
   "gsign.confirm.what": "After you save, Google Drive, Gmail, Calendar, Docs and Sheets sign in with your company's app.",
   "gsign.confirm.people": "{n, plural, one {# person will need to connect Google again.} other {# people will need to connect Google again.}}",
   "gsign.confirm.nobody": "Nobody has connected Google here yet, so nobody needs to connect again.",

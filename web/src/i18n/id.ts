@@ -5548,6 +5548,7 @@ export const id: Record<MessageKey, string> = {
   "gsign.error.server": "Pengaturan server sendiri sudah menetapkan aplikasi Google, jadi tidak bisa diubah di sini.",
   "gsign.error.notService": "Server ini tidak masuk ke Google melalui layanan hosting. Atur setiap aplikasi Google di halamannya sendiri.",
   "gsign.error.unsafe": "Server tidak bisa menyimpan berkas dengan aman saat ini. Minta pengelola server memeriksa folder privatnya.",
+  "gsign.error.unknown": "Google tidak mengenali ID klien ini. Periksa di Google Cloud pada Klien, atau tanyakan kepada pengelola akun Google perusahaan Anda.",
   "gsign.confirm.what": "Setelah Anda menyimpan, Google Drive, Gmail, Calendar, Docs, dan Sheets masuk dengan aplikasi perusahaan Anda.",
   "gsign.confirm.people": "{n, plural, one {# orang perlu menghubungkan Google lagi.} other {# orang perlu menghubungkan Google lagi.}}",
   "gsign.confirm.nobody": "Belum ada yang menghubungkan Google di sini, jadi tidak ada yang perlu menghubungkan lagi.",

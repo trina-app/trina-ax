@@ -52,6 +52,25 @@ export class GoogleOwnAppError extends Error {
   constructor(readonly reason: string, readonly status = 400) { super(`google_own_app_${reason}`) }
 }
 
+/** Asks Google whether it knows a client ID: true = clearly unknown, false = known or no clear answer (never blocks a save). */
+export type ClientProbe = (clientId: string, redirectUri: string) => Promise<boolean>
+
+/** Google's sign-in page answers an unknown client with an error page ("invalid_client", "The OAuth client was not found")
+ * and a known one with a redirect to sign-in. Only that clear answer counts; a network error, a timeout or anything else
+ * lets the save go on. The secret cannot be checked this way. Not asked under tests (inject a probe to test it). */
+const googleProbe: ClientProbe = async (clientId, redirectUri) => {
+  if (process.env.NODE_ENV === 'test') return false
+  try {
+    const q = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'openid' })
+    const r = await fetch(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, { redirect: 'manual', signal: AbortSignal.timeout(4000) })
+    if (r.status !== 400 && r.status !== 401) return false
+    return /invalid_client|OAuth client was not found/i.test((await r.text()).slice(0, 200_000))
+  } catch { return false }
+}
+let clientProbe: ClientProbe = googleProbe
+/** For tests: replace what asks Google (null puts the real one back). */
+export const setOwnAppClientProbe = (p: ClientProbe | null) => { clientProbe = p ?? googleProbe }
+
 const rowOf = (ctx: AppContext) => {
   const r = getSetting<OwnAppRow>(ctx.db, OWN_APP_SETTING)
   return r && typeof r === 'object' && typeof r.key === 'string' ? r : null
@@ -109,7 +128,16 @@ export async function ownAppStatusFresh(ctx: AppContext, env: Record<string, str
 }
 
 /** Use the company's Google app for all five (or replace it). Throws GoogleOwnAppError. */
-export function setOwnApp(ctx: AppContext, actor: string, body: { file?: string; clientId?: string; clientSecret?: string }, env: Record<string, string | undefined> = process.env): GoogleOwnAppStatus {
+export async function setOwnApp(ctx: AppContext, actor: string, body: { file?: string; clientId?: string; clientSecret?: string }, env: Record<string, string | undefined> = process.env): Promise<GoogleOwnAppStatus> {
+  const first = checkOwnApp(ctx, body, env)
+  // before anything is written: a client ID Google does not know is refused here, not at the first sign-in
+  if (await clientProbe(first.cfg.clientId, first.addresses.apps)) throw new GoogleOwnAppError('client_unknown')
+  return applyOwnApp(ctx, actor, body, env)
+}
+
+type OwnAppBody = { file?: string; clientId?: string; clientSecret?: string }
+
+function checkOwnApp(ctx: AppContext, body: OwnAppBody, env: Record<string, string | undefined>) {
   const st = stateOf(ctx, env)
   if (st.blocked || !st.addresses) throw new GoogleOwnAppError(st.blocked ?? 'public_host', 409)
   // the same parsing as Drive's and a card's own setup, once per return address: a downloaded file must list both
@@ -120,7 +148,12 @@ export function setOwnApp(ctx: AppContext, actor: string, body: { file?: string;
   const forApps = clientFromBody(body, st.addresses.apps)
   if (forApps === 'invalid') throw new GoogleOwnAppError('client_invalid')
   if (forApps === 'redirect') throw new GoogleOwnAppError('client_redirect_apps')
+  return { st, cfg, addresses: st.addresses }
+}
 
+function applyOwnApp(ctx: AppContext, actor: string, body: OwnAppBody, env: Record<string, string | undefined>): GoogleOwnAppStatus {
+  // checked again: the state may have changed while Google was asked
+  const { st, cfg } = checkOwnApp(ctx, body, env)
   const svc = st.svc
   try { svc.store.safeDirectory(true) } catch { throw new GoogleOwnAppError('key_unsafe', 503) }
   const previous = (() => { try { return fs.readFileSync(svc.clientFile) } catch { return null } })()

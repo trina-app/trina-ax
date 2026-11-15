@@ -22,7 +22,7 @@ import { clientSettingKey, setupOf } from '../../server/src/integrations/google-
 import { setSetting } from '../../server/src/admin/settings'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
 import { OWN_APP_SETTING } from '../../server/src/integrations/google-drive/config'
-import { ownAppStatus } from '../../server/src/integrations/google-drive/own-app'
+import { ownAppStatus, setOwnAppClientProbe } from '../../server/src/integrations/google-drive/own-app'
 import { getSetting } from '../../server/src/admin/settings'
 import { publicHostOf } from '../../server/src/system/deployment'
 import { DRIVE_BROKER_PATHS } from '../../shared/src/cloud-protocol/drive-broker'
@@ -53,7 +53,7 @@ beforeEach(async () => {
   for (const p of PEOPLE) sessionRow(A.ctx.db, p)
   start()
 })
-afterEach(async () => { await A?.close() })
+afterEach(async () => { setOwnAppClientProbe(null); await A?.close() })
 
 const fetcher = async (raw: string, init: RequestInit = {}) => {
   if (raw.startsWith(BROKER_ORIGIN)) return broker.fetch(raw, init)
@@ -368,4 +368,17 @@ test('while it is set, no card has a setup of its own: hosted, and a self-instal
   await call('carol', 'DELETE')
   for (const card of (await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps) expect(card).toMatchObject({ source: 'service', blocked: 'hosted' })
   noClient()
+})
+
+test('a client ID Google does not know is refused at save and nothing is written; a probe that cannot tell never blocks', async () => {
+  const asked: string[] = []
+  setOwnAppClientProbe(async (id, uri) => { asked.push(`${id} ${uri}`); return id === 'unknown-client' })
+  const bad = await call('carol', 'PUT', { clientId: 'unknown-client', clientSecret: 'secret' })
+  expect(bad.status).toBe(400)
+  expect(bad.body.error.params.reason).toBe('client_unknown')
+  expect(asked).toEqual([`unknown-client ${APPS_BACK}`])
+  expect(fs.existsSync(drive.clientFile)).toBe(false)
+  expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeFalsy()
+  setOwnAppClientProbe(async () => false) // known, or Google could not be asked
+  expect((await call('carol', 'PUT', { clientId: 'known-client', clientSecret: 'secret' })).status).toBe(200)
 })
