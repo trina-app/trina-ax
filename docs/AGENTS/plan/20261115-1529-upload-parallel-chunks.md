@@ -55,12 +55,11 @@ unit tests for work files.
 
 ## Result
 
-Built as planned. Changes from the plan: the page's line has 4 places, not 5, and the overtime 2, not 3, so no more
-than 6 requests ever go at once (review: HTTP/1.1 opens 6 per host). A cloud download over the minute stays "not tried
-again" like any unreadable file, with words that say to open it once and add it again (no new retry path).
+Shipped: the cloud status ("Getting <name> from iCloud…"), the cloud timeout message and the desktop `onCloud`.
 
-Measured from Indonesia to qa.trina.app (PR description): with each request on its own connection (the real
-`upload.ts` under Bun) 50 MB went from 7.4 s to 4.2 s (1.75x) and 10 MB from 2.5 s to 1.8 s (1.4x); in Chromium,
-where requests share one HTTP/2 or HTTP/3 connection, 1.0-1.2x. 2x is not reached in the browser, and a 10 MB file is
-one 8 MB chunk plus 2 MB. The server's running checksum stops after chunk 0 when chunks go at once, so complete hashes
-the rest (left for later).
+Parallel chunks were built, measured and taken out again (coordinator, 2026-11-15). In Chromium, which the web app and
+the desktop app use, every request to the team shares one HTTP/2 or HTTP/3 connection, and 3 chunks at once were only
+1.1-1.2x faster (50 MB 6.5 s → 5.4 s, 10 MB 1.5 s → 1.3 s; no gain in a slower hour). The 1.75x for 50 MB showed only
+with a connection per request (Bun, curl). The gain was not worth a checksum re-read on the server at complete (its
+running hash stops after chunk 0 when chunks arrive at once) and a more complex core upload path. `upload.ts` is
+unchanged. PR #1005.

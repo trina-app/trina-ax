@@ -3,7 +3,7 @@ import { ApiClient, UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
 import { isBusy } from '../../src/lib/busy'
 import { SIGNED_OUT } from '../../src/lib/localData'
 import { DROP_DEPTH_MAX, droppedEntries, FOLDER_UPLOAD_CONCURRENCY, FolderUpload, isStorageRefusal, isSystemName, planFromEntries, planFromInput, type DropEntry, type FolderPlan, type FolderUploadCalls } from '../../src/lib/folderUpload'
-import { COPIES_AT_ONCE, uploadFile } from '../../src/lib/upload'
+import { uploadFile } from '../../src/lib/upload'
 
 const file = (name: string, size = 3, rel = '') => {
   const f = new File([new Uint8Array(size)], name)
@@ -281,7 +281,7 @@ describe('a folder upload', () => {
     expect(seen.some((n) => n % 100 !== 0)).toBe(true)
   })
 
-  test(`two folders and a chat share the page's ${COPIES_AT_ONCE} places: no one waits for ever, and it is no slower than that many at a time`, async () => {
+  test('two folders and a chat share the three places: no one waits for ever, and it is no slower than three at a time', async () => {
     let now = 0
     let peak = 0
     const client = new ApiClient({
@@ -308,7 +308,7 @@ describe('a folder upload', () => {
     await Promise.all([a.start(), b.start(), ...chat])
     expect(a.view).toMatchObject({ status: 'done', done: 12 })
     expect(b.view).toMatchObject({ status: 'done', done: 12 })
-    expect(peak).toBe(COPIES_AT_ONCE)
+    expect(peak).toBe(3)
   })
 
   test('stopped by a sign-out: the files in flight stop, nothing more goes up, and nothing is asked of the server', async () => {

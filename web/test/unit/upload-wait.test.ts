@@ -97,8 +97,7 @@ describe('a lost connection', () => {
     const seen: UploadProgress[] = []
     let cut = false
     const up = uploadFile(big(), { kind: 'path', path: 'shared/video.mp4', onExists: 'rename' }, {
-      // one chunk after the other here, so the connection goes between two of them
-      client: s.client, storage: null, retryDelayMs: 1, reportEveryMs: 0, chunksAtOnce: 1,
+      client: s.client, storage: null, retryDelayMs: 1, reportEveryMs: 0,
       onProgress: (p) => {
         seen.push(p)
         // the connection goes once the first chunk is in

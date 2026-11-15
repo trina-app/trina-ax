@@ -13,16 +13,8 @@ export const SINGLE_REQUEST_MAX = 8 * 1024 * 1024
 const REPORT_EVERY_MS = 250
 /** Uploads on their way at a time, on the whole page: a small file, or one chunk of a large one. Each holds a copy in memory
  * until its request ends, and the file screen and a chat start all that was picked at once: 20 files of 8 MB took 684 MB in
- * WebKit's network process. A folder upload sends three files at a time by itself and takes its places in the same line.
- * Four: one stream through the tunnel gets 5-8 MB/s and three together about 12 MB/s (2026-11-15), and the server reads
- * three chunks at once in all (server/src/uploads/chunk-gate.ts): a large file's three chunks and one more. With the
- * overtime below, never more than six, what a browser opens to one host over HTTP/1.1 (a server on the local network). */
-export const COPIES_AT_ONCE = 4
-/** Chunks of one large file on their way at a time (each in a place of the line above): a single file gets about twice
- * the speed of one chunk after the other, and the line still shares the places with the other files. */
-export const CHUNKS_AT_ONCE = 3
-/** Uploads that gave their place back (PLACE_IDLE_MS) and still run, at most. */
-const OVERTIME_MAX = 2
+ * WebKit's network process. A folder upload sends three at a time by itself and takes its places in the same line. */
+const COPIES_AT_ONCE = 3
 /** No byte out for this long: the upload goes on without its place, and the line moves. There is no time limit on a
  * request, so a stopped one would otherwise hold its place until the person removes it. */
 const PLACE_IDLE_MS = 20_000
@@ -82,8 +74,6 @@ export interface UploadOptions {
   /** how long it waits for a lost connection before it fails (CONNECTION_WAIT_MS; tests pass less) */
   connectionWaitMs?: number
   singleRequestMax?: number
-  /** chunks of this file on their way at a time (CHUNKS_AT_ONCE; tests pass 1 for one after the other) */
-  chunksAtOnce?: number
 }
 
 const STORE_KEY = UPLOADS_KEY
@@ -210,7 +200,7 @@ function sparingly(o: UploadOptions) {
 
 let onTheirWay = 0
 /** Uploads that gave their place back and still run. A slow line that reports late can look stopped, so this has a limit
- * too (OVERTIME_MAX): with COPIES_AT_ONCE more, at most six copies are on their way. */
+ * too: with COPIES_AT_ONCE more, at most six copies are on their way, what a browser opens to one host anyway. */
 let overtime = 0
 const inLine: (() => void)[] = []
 
@@ -234,7 +224,7 @@ function holdPlace(idleMs: number): Place {
   const watch = () => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      if (overtime >= OVERTIME_MAX) return watch()
+      if (overtime >= COPIES_AT_ONCE) return watch()
       overtime++
       giveBack()
     }, idleMs)
@@ -343,46 +333,6 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
   }
 }
 
-/**
- * The chunks of one file (`pending`, in the order they go) with at most `width` on their way at a time: the next one
- * starts when one of those ends, so they start in order. The first that fails stops the file: no other chunk starts, those on their
- * way are stopped (the signal `send` gets), and its error is thrown once they have all ended. What the server has kept
- * stays for the resume. `signal` stops it all (its reason is thrown).
- */
-export async function sendChunks(pending: readonly number[], width: number, send: (n: number, signal: AbortSignal) => Promise<void>, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted()
-  const stop = new AbortController()
-  const outer = () => stop.abort(signal!.reason)
-  signal?.addEventListener('abort', outer, { once: true })
-  let next = 0
-  let failed: { error: unknown } | null = null
-  const lane = async () => {
-    while (!failed && next < pending.length) {
-      if (stop.signal.aborted) {
-        failed = { error: stop.signal.reason }
-        return
-      }
-      const n = pending[next++]!
-      try {
-        await send(n, stop.signal)
-      } catch (error) {
-        if (!failed) {
-          failed = { error: signal?.aborted ? signal.reason : error }
-          stop.abort(error)
-        }
-      }
-    }
-  }
-  try {
-    await Promise.all(Array.from({ length: Math.max(1, Math.min(Math.floor(width) || 1, pending.length)) }, lane))
-  } finally {
-    signal?.removeEventListener('abort', outer)
-  }
-  if (failed) throw (failed as { error: unknown }).error
-  // stopped as the last chunk ended: nothing more goes (no complete)
-  signal?.throwIfAborted()
-}
-
 async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
   const storage = o.storage === undefined ? (typeof localStorage === 'undefined' ? null : localStorage) : o.storage
   const fp = fingerprint(file, target)
@@ -419,64 +369,46 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
 
   const id = session.id
   const size = session.chunkSize
-  const count = session.chunkCount
-  const bytesOf = (n: number) => Math.min(total, (n + 1) * size) - n * size
-  const received = new Set<number>()
-  let receivedBytes = 0
-  const arrived = (list: readonly number[]) => {
-    for (const n of list) if (n >= 0 && n < count && !received.has(n)) { received.add(n); receivedBytes += bytesOf(n) }
-  }
-  arrived(session.received)
-  /** each chunk on its way: the bytes of it that went out */
-  const going = new Map<number, number>()
-  const sentSoFar = (): UploadProgress => {
-    let b = receivedBytes
-    for (const [n, sent] of going) if (!received.has(n)) b += sent
-    shown = Math.max(shown, Math.min(total, b))
+  let received = new Set(session.received)
+  const sentSoFar = (onItsWay = 0): UploadProgress => {
+    shown = Math.max(shown, Math.min(total, received.size * size + onItsWay))
     return { phase: 'uploading', loaded: shown, total }
   }
   const report = sparingly(o)
   o.onProgress?.(sentSoFar())
-  const pending: number[] = []
-  for (let n = 0; n < count; n++) if (!received.has(n)) pending.push(n)
-  await sendChunks(pending, o.chunksAtOnce ?? CHUNKS_AT_ONCE, async (n, signal) => {
-    // this chunk's own stop: the file's, or another chunk of it that failed
-    const c = { ...o, signal }
+  for (let n = 0; n < session.chunkCount; n++) {
+    if (received.has(n)) continue
+    o.signal?.throwIfAborted()
     const chunk = file.slice(n * size, Math.min(total, (n + 1) * size))
     const r = await withRetry(async () => {
       // a place for this try only: not between tries, and between chunks other files get their turn
-      const place = await takePlace(target, c)
+      const place = await takePlace(target, o)
       try {
         const body = new Blob([await chunk.arrayBuffer()]) // why a copy: uploadSmall
-        signal.throwIfAborted()
-        going.set(n, 0)
+        o.signal?.throwIfAborted()
         const onUploadProgress = o.onProgress && ((sent: number) => {
           place.moved()
-          going.set(n, Math.round(sent * chunk.size))
-          const p = sentSoFar()
+          const p = sentSoFar(Math.round(sent * chunk.size))
           if (waitingNow) o.onProgress?.(p)
           else report(p)
           waitingNow = false
         })
-        return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body, signal, onUploadProgress })
+        return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body, signal: o.signal, onUploadProgress })
       } catch (e) {
         // after a network drop, ask what arrived before sending again
         if (!(e instanceof ApiError)) {
-          const s = await o.client.call(API.getUploadSession, { params: { id }, signal }).catch(() => null)
+          const s = await o.client.call(API.getUploadSession, { params: { id }, signal: o.signal }).catch(() => null)
           if (s?.received.includes(n)) return { received: s.received }
         }
         throw e
       } finally {
         place.end()
       }
-    }, c, waiting)
+    }, o, waiting)
     waitingNow = false
-    // answers of chunks sent at once come in any order: what the server has only grows
-    arrived(r.received)
-    arrived([n])
-    going.delete(n)
+    received = new Set(r.received)
     o.onProgress?.(sentSoFar())
-  }, o.signal)
+  }
   o.onProgress?.({ phase: 'finishing', loaded: total, total })
   const done = await withRetry(() => o.client.call(API.completeUploadSession, { params: { id }, signal: o.signal }), o, () => o.onProgress?.({ phase: 'waiting', loaded: total, total }))
   const store = readStore(storage)

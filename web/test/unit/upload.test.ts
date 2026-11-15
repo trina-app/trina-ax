@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ApiClient, ApiError, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type UploadSession } from '@mycel/shared/api'
 import { currentLocale, translate } from '../../src/i18n'
 import { errorText } from '../../src/lib/api'
-import { cancelUpload, COPIES_AT_ONCE, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../../src/lib/upload'
+import { cancelUpload, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../../src/lib/upload'
 
 const entry = (path: string): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size: 1, mtime: new Date().toISOString(), mime: null, access: 'write' })
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
@@ -214,7 +214,7 @@ describe('uploads', () => {
     test('a chunk that fails for good still ends the upload', async () => {
       const s = fakeServer({ tries: { 0: [{ sent: [0.5], end: 500 }] } })
       await expect(uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0, onProgress: () => {} })).rejects.toBeInstanceOf(ApiError)
-      expect(s.watched.filter((c) => c.startsWith('PUT') && c.endsWith('/chunks/0'))).toHaveLength(5)
+      expect(s.watched.filter((c) => c.startsWith('PUT'))).toHaveLength(5)
     })
   })
 
@@ -259,10 +259,6 @@ describe('uploads', () => {
     const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)) }
     const target = (n: number) => ({ kind: 'path', path: `docs/${n}.pdf`, onExists: 'rename' }) as const
     const pdf = (n: number) => new File([new Uint8Array(100)], `${n}.pdf`)
-    /** the places of the line (COPIES_AT_ONCE) */
-    const K = COPIES_AT_ONCE
-    const upTo = (n: number) => Array.from({ length: n }, (_, i) => i + 1)
-    const names = (n: number) => upTo(n).map((i) => `${i}.pdf`)
 
     /** A server whose answers wait for `open`. `peak` counts requests that are on their way together. */
     function held() {
@@ -284,20 +280,20 @@ describe('uploads', () => {
       return { client: new ApiClient({ baseUrl: '', fetch: fetchFn }), started, waiting, peak: () => peak, open: () => waiting.shift()!.answer() }
     }
 
-    test(`${K} at a time, in the order they came, and all go through`, async () => {
+    test('three at a time, in the order they came, and all go through', async () => {
       const s = held()
-      const all = Promise.all(upTo(K + 4).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null })))
+      const all = Promise.all([1, 2, 3, 4, 5, 6, 7].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null })))
       await tick()
-      expect(s.started).toEqual(names(K))
+      expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf'])
       s.open()
       await tick()
-      expect(s.started).toEqual(names(K + 1))
-      for (let n = 0; n < K + 3; n++) {
+      expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf', '4.pdf'])
+      for (let n = 0; n < 6; n++) {
         s.open()
         await tick()
       }
-      expect((await all).map((r) => r.kind)).toEqual(Array(K + 4).fill('path'))
-      expect(s.peak()).toBe(K)
+      expect((await all).map((r) => r.kind)).toEqual(Array(7).fill('path'))
+      expect(s.peak()).toBe(3)
     })
 
     test('a file in line is not read yet, and says it is preparing', async () => {
@@ -305,35 +301,35 @@ describe('uploads', () => {
       let reads = 0
       const counted = (n: number) => Object.assign(pdf(n), { arrayBuffer: async () => { reads++; return new ArrayBuffer(100) } })
       const seen: (UploadProgress | null)[] = []
-      const all = Promise.all(upTo(K + 2).map((n) => uploadFile(counted(n), target(n), { client: s.client, storage: null, onProgress: (p) => n === K + 2 && seen.push(p) })))
+      const all = Promise.all([1, 2, 3, 4, 5].map((n) => uploadFile(counted(n), target(n), { client: s.client, storage: null, onProgress: (p) => n === 5 && seen.push(p) })))
       await tick()
-      expect(reads).toBe(K)
+      expect(reads).toBe(3)
       expect(seen.map((p) => uploadLabel(p, (k) => k))).toEqual(['files.preparing'])
-      for (let n = 0; n < K + 2; n++) {
+      for (let n = 0; n < 5; n++) {
         s.open()
         await tick()
       }
       await all
-      expect(reads).toBe(K + 2)
+      expect(reads).toBe(5)
     })
 
     test('cancelled in line: it leaves at once, is never read, and the next one does not wait for it', async () => {
       const s = held()
-      const first = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      const first = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
       const stop = new AbortController()
       let read = false
-      const inLine = Object.assign(pdf(K + 1), { arrayBuffer: async () => { read = true; return new ArrayBuffer(100) } })
-      const cancelled = uploadFile(inLine, target(K + 1), { client: s.client, storage: null, signal: stop.signal }).catch((e: unknown) => e)
-      const after = uploadFile(pdf(K + 2), target(K + 2), { client: s.client, storage: null })
+      const inLine = Object.assign(pdf(4), { arrayBuffer: async () => { read = true; return new ArrayBuffer(100) } })
+      const cancelled = uploadFile(inLine, target(4), { client: s.client, storage: null, signal: stop.signal }).catch((e: unknown) => e)
+      const after = uploadFile(pdf(5), target(5), { client: s.client, storage: null })
       await tick()
       stop.abort()
       expect(((await cancelled) as DOMException).name).toBe('AbortError')
-      for (let n = 0; n < K; n++) {
+      for (let n = 0; n < 3; n++) {
         s.open()
         await tick()
       }
       await tick()
-      expect(s.started).toEqual([...names(K), `${K + 2}.pdf`])
+      expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf', '5.pdf'])
       s.open()
       await Promise.all([...first, after])
       expect(read).toBe(false)
@@ -341,15 +337,15 @@ describe('uploads', () => {
 
     test('an upload that ends badly gives its place on: a refusal, a lost connection, a file that cannot be read, a cancel', async () => {
       const go = async (fail: (f: File, t: ReturnType<typeof target>) => Promise<unknown>) => {
-        // one more than the places: the last starts only when one of the others ended, whichever way it ended
+        // four at once: the fourth starts only when one of the first three ended, whichever way it ended
         const s = held()
-        const ok = upTo(K).slice(1).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+        const ok = [2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
         const bad = fail(pdf(1), target(1)).catch(() => 'failed')
-        const next = uploadFile(pdf(99), target(99), { client: s.client, storage: null })
+        const next = uploadFile(pdf(9), target(9), { client: s.client, storage: null })
         expect(await bad).toBe('failed')
         await tick()
-        expect(s.started).toContain('99.pdf')
-        for (let n = 0; n < K; n++) {
+        expect(s.started).toContain('9.pdf')
+        for (let n = 0; n < 3; n++) {
           s.open()
           await tick()
         }
@@ -391,34 +387,33 @@ describe('uploads', () => {
         return json({ ...entry('x'), size: 100 }, 201)
       }) as unknown as typeof fetch
       const client = new ApiClient({ baseUrl: '', fetch: fetchFn })
-      // one chunk at a time here, so the line's turns are plain to see
-      const large = uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client, storage: null, retryDelayMs: 0, chunksAtOnce: 1 })
+      const large = uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client, storage: null, retryDelayMs: 0 })
       for (let i = 0; i < 40 && !order.length; i++) await tick()
       expect(order).toEqual(['0'])
-      const small = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client, storage: null }))
+      const small = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client, storage: null }))
       await tick()
-      expect(order).toEqual(['0', ...names(K - 1)])
+      expect(order).toEqual(['0', '1.pdf', '2.pdf'])
       // the first chunk ends: its place goes to the next file in line, and the second chunk goes to the end of the line
       waiting.shift()!.go()
-      for (let i = 0; i < 40 && order.length < K + 1; i++) await tick()
-      expect(order).toEqual(['0', ...names(K)])
-      for (let i = 0; i < K + 1; i++) {
+      for (let i = 0; i < 40 && order.length < 4; i++) await tick()
+      expect(order).toEqual(['0', '1.pdf', '2.pdf', '3.pdf'])
+      for (let i = 0; i < 4; i++) {
         waiting.shift()?.go()
         await tick()
       }
       await Promise.all([large, ...small])
-      expect(order).toEqual(['0', ...names(K), '1'])
+      expect(order).toEqual(['0', '1.pdf', '2.pdf', '3.pdf', '1'])
     })
 
-    test('voice input does not stand in line: uploads that stopped in every place do not hold it up', async () => {
+    test('voice input does not stand in line: three uploads that stopped do not hold it up', async () => {
       const s = held()
-      const stopped = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
       await tick()
       const voice = fakeServer()
       expect((await uploadFile(new File(['abc'], 'voice.webm'), { kind: 'transcribe', name: 'voice.webm' }, { client: voice.client, storage: null })).kind).toBe('transcribe')
       expect((await uploadFile(bigFile(1), { kind: 'transcribe', name: 'long.webm' }, { client: voice.client, storage: null, retryDelayMs: 0 })).kind).toBe('transcribe')
-      expect(s.waiting).toHaveLength(K)
-      for (let n = 0; n < K; n++) s.open()
+      expect(s.waiting).toHaveLength(3)
+      for (let n = 0; n < 3; n++) s.open()
       await Promise.all(stopped)
     })
 
@@ -432,16 +427,15 @@ describe('uploads', () => {
       } finally {
         Blob.prototype.arrayBuffer = real
       }
-      // the tail goes beside the first chunk's two tries
-      expect(s.chunkBodies.map((b) => b.size).sort((a, b) => a - b)).toEqual([10, UPLOAD_CHUNK_SIZE, UPLOAD_CHUNK_SIZE])
+      expect(s.chunkBodies.map((b) => b.size)).toEqual([UPLOAD_CHUNK_SIZE, UPLOAD_CHUNK_SIZE, 10])
       // the hash reads the first chunk once, each of its two tries once more; the small tail is another size
       expect(reads).toBe(3)
-      expect(new Uint8Array(await s.chunkBodies.find((b) => b.size === 10)!.arrayBuffer())).toEqual(new Uint8Array(10).fill(7))
+      expect(new Uint8Array(await s.chunkBodies[2]!.arrayBuffer())).toEqual(new Uint8Array(10).fill(7))
     })
 
     test('cancelled while a chunk waits for its place: it leaves the line, and nothing more goes up', async () => {
       const s = held()
-      const stopped = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
       const large = fakeServer()
       const stop = new AbortController()
       const cancelled = uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: large.client, storage: null, retryDelayMs: 0, signal: stop.signal }).catch((e: unknown) => e)
@@ -450,41 +444,41 @@ describe('uploads', () => {
       stop.abort()
       expect(((await cancelled) as DOMException).name).toBe('AbortError')
       expect(large.calls.filter((c) => c.startsWith('PUT'))).toEqual([])
-      for (let n = 0; n < K; n++) s.open()
+      for (let n = 0; n < 3; n++) s.open()
       await Promise.all(stopped)
     })
 
     describe('an upload that has stopped moving', () => {
       const ms = (n: number) => new Promise((r) => setTimeout(r, n))
-      /** the places are all free again: K go at once, the next waits */
+      /** the places are all free again: three go at once, the fourth waits */
       const placesAreBack = async () => {
         const s = held()
-        const all = upTo(K + 1).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+        const all = [1, 2, 3, 4].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
         await tick()
-        expect(s.started).toEqual(names(K))
-        for (let n = 0; n < K + 1; n++) {
+        expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf'])
+        for (let n = 0; n < 4; n++) {
           s.open()
           await tick()
         }
         await Promise.all(all)
       }
 
-      test('after 20 s with no byte out it gives its place back: one more upload ends while the others stay stopped', async () => {
+      test('after 20 s with no byte out it gives its place back: the fourth upload ends while three stay stopped', async () => {
         const s = held()
-        const stopped = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 5 }))
-        const fourth = uploadFile(pdf(K + 1), target(K + 1), { client: fakeServer().client, storage: null })
+        const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 5 }))
+        const fourth = uploadFile(pdf(4), target(4), { client: fakeServer().client, storage: null })
         expect((await fourth).kind).toBe('path')
-        expect(s.waiting).toHaveLength(K)
-        for (let n = 0; n < K; n++) s.open()
+        expect(s.waiting).toHaveLength(3)
+        for (let n = 0; n < 3; n++) s.open()
         await Promise.all(stopped)
         await placesAreBack()
       })
 
       test('the place goes back once: an upload that ends after that takes no second place along', async () => {
         const s = held()
-        const stopped = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 5 }))
+        const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 5 }))
         await ms(30)
-        for (let n = 0; n < K; n++) s.open()
+        for (let n = 0; n < 3; n++) s.open()
         await Promise.all(stopped)
         await placesAreBack()
         await placesAreBack()
@@ -503,7 +497,7 @@ describe('uploads', () => {
             return json({ ...entry('docs/x'), size: 100 }, 201)
           },
         })
-        const three = upTo(K).map((n) => uploadFile(pdf(n), target(n), { client: slow, storage: null, placeIdleMs: 30, reportEveryMs: 0, onProgress: () => {} }))
+        const three = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: slow, storage: null, placeIdleMs: 30, reportEveryMs: 0, onProgress: () => {} }))
         const s = held()
         const fourth = uploadFile(pdf(4), target(4), { client: s.client, storage: null })
         await Promise.all(three)
@@ -514,15 +508,15 @@ describe('uploads', () => {
         await fourth
       })
 
-      test('at most two go on without a place: six at a time at the very most, as a browser opens to one host', async () => {
+      test('at most three go on without a place: six at a time at the very most, as a browser opens to one host', async () => {
         const s = held()
-        const all = upTo(K + 4).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 3 }))
+        const all = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 3 }))
         await ms(60)
         expect(s.started).toHaveLength(6)
         s.open()
         await ms(40)
         expect(s.started).toHaveLength(7)
-        for (let n = 0; n < K + 3; n++) {
+        for (let n = 0; n < 7; n++) {
           await ms(15)
           if (s.waiting.length) s.open()
         }
@@ -654,7 +648,6 @@ describe('uploads', () => {
       client: s.client,
       storage,
       retryDelayMs: 0,
-      chunksAtOnce: 1,
       signal: ctrl.signal,
       onProgress: (p) => {
         if (p.phase === 'uploading' && p.loaded >= UPLOAD_CHUNK_SIZE) ctrl.abort()
