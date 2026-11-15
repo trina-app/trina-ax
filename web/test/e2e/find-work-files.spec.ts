@@ -152,7 +152,7 @@ test('Select all: never a personal file, at most 100, and it says so; no AI: the
   await signIn(page, BOB)
   await openMine(page)
   // without AI only the company's files are listed (here by the team's name in the file name)
-  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report ${i}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
+  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report q${'abcdefghijkl'[i % 12]}${'mnopqrstuv'[Math.floor(i / 12)]}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work-ai')).toHaveText('AI 없이 파일 이름으로 정렬했어요')

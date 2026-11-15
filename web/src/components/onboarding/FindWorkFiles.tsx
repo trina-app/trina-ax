@@ -134,6 +134,8 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [roots, setRoots] = useState<WorkRootResult[]>([])
   const [stopped, setStopped] = useState(false)
   const [picks, setPicks] = useState<Map<string, TeamFileReason> | null>(null)
+  /** the files the AI was shown: its answer decides for them (a file it left out is not shown) */
+  const [sentKeys, setSentKeys] = useState<Set<string> | null>(null)
   const [noAi, setNoAi] = useState(false)
   const [already, setAlready] = useState(0)
   const [ticks, setTicks] = useState<Set<string>>(() => new Set())
@@ -204,7 +206,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         if (res.ai === 'done') got = new Map(res.picks.flatMap((p) => { const k = keyOf.get(p.id); return k ? [[k, p.reason] as const] : [] }))
       } catch { got = null } finally { clearTimeout(timer) }
       if (!live.current) return
-      setPicks(got && got.size ? got : null)
+      // the AI's picks decide for the files it was shown (its no is a no; an answer with no pick: the rules, workList)
+      setSentKeys(got ? new Set(sent.map((d) => d.key)) : null)
+      setPicks(got)
       setNoAi(!got)
       setAiWait(null)
     })()
@@ -217,7 +221,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   /** Looks like work (docs/DECISIONS.md part 4): recent, and the company's or the AI's pick; the best 50 */
   // ticked files stay in the list (the AI's late picks never push one out of sight); recomputed with the AI's answer
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const list = useMemo(() => workList(docs, words, picks, Date.now(), ticks), [docs, words, picks])
+  const list = useMemo(() => workList(docs, words, picks, Date.now(), ticks, sentKeys ?? undefined), [docs, words, picks, sentKeys])
   const work = list.shown
   const personal = useMemo(() => docs.filter((d) => d.personal && isRecentDoc(d)), [docs])
   /** looked at but in neither group: found by name */

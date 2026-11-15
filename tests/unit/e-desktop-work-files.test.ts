@@ -6,12 +6,12 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { inOneDrive, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
+import { inOneDrive, lookRoots, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
 
-type Node = { kind: 'dir'; children: Record<string, Node> } | { kind: 'file'; size: number; mtimeMs: number; ino: bigint; bytes?: Uint8Array } | { kind: 'link'; to: string }
+type Node = { kind: 'dir'; children: Record<string, Node>; mtimeMs?: number } | { kind: 'file'; size: number; mtimeMs: number; ino: bigint; bytes?: Uint8Array } | { kind: 'link'; to: string }
 let ino = 100n
 const file = (size = 1000, mtimeMs = Date.UTC(2026, 9, 3)): Node => ({ kind: 'file', size, mtimeMs, ino: ino++ })
-const dir = (children: Record<string, Node> = {}): Node => ({ kind: 'dir', children })
+const dir = (children: Record<string, Node> = {}, mtimeMs?: number): Node => ({ kind: 'dir', children, ...(mtimeMs !== undefined ? { mtimeMs } : {}) })
 const link = (to: string): Node => ({ kind: 'link', to })
 
 /** A made-up posix file system rooted at `/`. `calls` records every call, so a test can tell nothing was opened. */
@@ -57,7 +57,7 @@ function fakeFs(tree: Record<string, Node>, o: { platform?: string; denied?: Set
     return out || '/'
   }
   const err = (code: string) => Object.assign(new Error(code), { code })
-  const statOf = (n: Node): WorkStat => n.kind === 'file' ? { kind: 'file', size: n.size, mtimeMs: n.mtimeMs, dev: 1n, ino: n.ino } : { kind: n.kind === 'dir' ? 'dir' : 'link', size: 0, mtimeMs: 0, dev: 1n, ino: 1n }
+  const statOf = (n: Node): WorkStat => n.kind === 'file' ? { kind: 'file', size: n.size, mtimeMs: n.mtimeMs, dev: 1n, ino: n.ino } : { kind: n.kind === 'dir' ? 'dir' : 'link', size: 0, mtimeMs: n.kind === 'dir' ? (n.mtimeMs ?? 0) : 0, dev: 1n, ino: 1n }
   const fs: WorkFs = {
     async readdir(p, max) {
       p = p.replace(/\\/g, '/')
@@ -407,5 +407,51 @@ describe('the wiring', () => {
     expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await this.look(roots'))
     expect(ctl).toContain("if (p.platform === 'darwin' && p.mas !== true) return WORK_FILES_BRIDGE_VERSION")
     expect(ctl).not.toContain("'linux'")
+  })
+})
+
+describe('owner 2026-11-15: "they\'re work files, but it only brought really useless ones"', () => {
+  test('a saved page\'s folder, a tool\'s or a code project\'s folder and a program\'s names are never listed', async () => {
+    const f = fakeFs(home({
+      Documents: dir({ 'Plan.docx': file(), Tools: dir({ 'ffmpeg-7.1-darwin-arm64': dir({ 'README.md': file(5000) }), 'myapp': dir({ 'package.json': file(), 'Guide.pdf': file(5000) }), lib: dir({ 'x.pdf': file() }) }) }),
+      Desktop: dir({ 'Untitled 2.docx': file(5000), 'f(3).txt': file(5000), 'image001.png': file(), 'LICENSE.txt': file(5000) }),
+      Downloads: dir({ '261009 점검 _ 피드백_files': dir(Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`f(${i}).txt`, file(5000)]))), 'Bericht-Dateien': dir({ 'a.pdf': file() }), '261009 점검 _ 피드백.html': file(), 'Quote.pdf': file() }),
+    }))
+    const r = await scanRoots(ROOTS, f.fs, opts())
+    // Bericht-Dateien has no page beside it: a folder of a person's, entered (its PDF listed)
+    expect(r.files.map((x) => x.name).sort()).toEqual(['Plan.docx', 'Quote.pdf', 'a.pdf', 'x.pdf'])
+    // never entered: no readdir of the saved page's or the tool's folders
+    expect(f.calls.filter((c) => c.startsWith('readdir') && /_files|ffmpeg/.test(c))).toEqual([])
+  })
+
+  test('a recent file inside a code project\'s folder the walk skipped is not added back', async () => {
+    const NOW = Date.UTC(2026, 10, 15)
+    const f = fakeFs(home({ Documents: dir(), Desktop: dir({ repo: dir({ 'package.json': file(), docs: dir({ 'architecture.md': file(9000, NOW) }) }), 'Plan.docx': file(9000, NOW) }), Downloads: dir() }))
+    const r = await lookRoots([ROOTS[1]!], f.fs, {
+      platform: 'darwin', newId: () => `id${n++}`, now: () => NOW, index: async () => null,
+      recentIn: async () => [{ path: '/Users/alex/Desktop/repo/docs/architecture.md', used: NOW, modified: null, useCount: 2, size: null, origins: [], authors: [], org: null }],
+    })
+    expect(r.files.map((x) => x.name)).toEqual(['Plan.docx'])
+  })
+
+  test('the walk goes newest first: a walk cut by its limits keeps the folder changed lately', async () => {
+    const old = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`Old ${i}`, dir({ [`Old doc ${i}.pdf`]: file(5000) }, Date.UTC(2024, 0, 1 + i))]))
+    const f = fakeFs(home({ Documents: dir(), Desktop: dir({ ...old, 'This week': dir({ 'Board deck.pptx': file(5000) }, Date.UTC(2026, 10, 10)) }), Downloads: dir() }))
+    const r = await scanRoots([ROOTS[1]!], f.fs, opts({ limits: { walkFiles: 40 } }))
+    expect(r.roots[0]!.cut).toBe(true)
+    expect(r.files.map((x) => x.name)).toContain('Board deck.pptx')
+  })
+
+  test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; tiny notes are left out', async () => {
+    const NOW = Date.UTC(2026, 10, 15)
+    const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}.mp4`, file()]))
+    const f = fakeFs(home({ Documents: dir(), Desktop: dir({ ...many, Deep: dir({ Deeper: dir({ 'Opened plan.pdf': file(9000, NOW - 86_400_000) }) }), 'todo.txt': file(300, NOW) }), Downloads: dir() }))
+    const r = await lookRoots([ROOTS[1]!], f.fs, {
+      platform: 'darwin', newId: () => `id${n++}`, now: () => NOW, index: async () => null, limits: { depth: 1 },
+      recentIn: async () => [{ path: '/Users/alex/Desktop/Deep/Deeper/Opened plan.pdf', used: NOW - 3600_000, modified: null, useCount: 3, size: null, origins: [], authors: [], org: null, listed: true }],
+    })
+    expect(r.roots[0]!.cut).toBe(true)
+    expect(r.files.map((x) => x.name)).toEqual(['Opened plan.pdf'])
+    expect(r.files[0]).toMatchObject({ folder: 'Deep/Deeper', used: NOW - 3600_000, listed: true })
   })
 })

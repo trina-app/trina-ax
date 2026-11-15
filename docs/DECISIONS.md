@@ -29119,3 +29119,73 @@ address box comes under the list as "Add another team" (no hint paragraph there)
 unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
 row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
+
+## Find work files, part 6: fewer, better (fix/find-work-files-quality, 2026-11-15)
+
+Owner, 2026-11-15, on 0.5.7 (Full Disk Access on, so the wide look) against qa.trina.app: "they're work files, but it
+only brought really useless ones". The list showed one real plan and eleven `f(N).txt` pieces of a saved web page
+(`…_files`) downloaded from `aif.notion.so`. Cause: a work app's shared host (`notion.so`, `docs.google.com`,
+`slack-files`, …) counted as the company's on its own, and "Looks like work = recent AND (the company's OR the AI's
+pick)" let that weak match through whatever the AI said.
+
+- **Never work** (`shared/src/file-scan.ts`, the app's look and the page's list alike, so a list from an older app is
+  held to it):
+  - a browser's saved page: the walk never enters a folder named like one (`_files`, `_파일`, `-Dateien`, `_fichiers`,
+    …) when its page (`.html`, `.htm`, `.mhtml`, …) is beside it (`savedPage`); anywhere else, a text file or picture
+    inside a folder named like that is the page's (a PDF there is kept: "Client_files" can be a person's folder);
+  - a tool's or runtime's folder by its name (`node-v26.13.0-win-x64`, `ffmpeg-7.1-darwin-arm64`, `python-3.12.1`:
+    a platform suffix, or a runtime with a dotted version and nothing after it; never "Go-2026 plan");
+    `bower_components`, `__pycache__`, `site-packages`, `dist-packages`; a folder whose entries say it is a program or
+    a code project (`.dll`/`.so`/`.dylib`, a package manifest, `bin` beside `lib`: `softwareFolder`; the walk does not
+    enter it and the recent lists' files inside it are left out);
+  - names a program gave (`autoNamed`): `f(8).txt`, `image001.png`, "Untitled" / "New Text Document" with no more
+    words (six languages), a hash or UUID, a random id (16+ letters and digits, digits in four places or more; never a
+    CamelCase name), a messenger's chat export, README/CHANGELOG/LICENSE/CONTRIBUTING as bare names in text;
+  - documents under 1 KB and text files (txt, md, csv, rtf) under 2 KB (`tooSmall`).
+- **Copies and series** (page, `workCandidates`, recent files only): "X (1)", "Copy of X", "X - 복사본", "X copy 2"
+  are dropped when a recent X is in the same folder (a copy downloaded again lately stays when its original is old);
+  four or more names that differ only in their numbers, in one folder, of one type, show the newest only, and none when
+  the names hold fewer than three letters (`2026-10-01.pdf`).
+- **The company must be real** (`companyHost`). A host counts when it is the company's domain, a host of its own name
+  (`acme.com`, `files.acme.co.kr`, even with no registered domain), or a work app's shared host that carries the
+  company's label left of the app's name (`acme.slack.com`, `acme-my.sharepoint.com`, `acme.notion.site`). The shared
+  hosts alone (`docs.google.com`, `drive.google.com`, `www.notion.so`, `aif.notion.so`, `files.slack.com`, Dropbox, …)
+  are just "from the web"; host words (`files`, `docs`, `drive`, …) never count as the company's name.
+- **The AI can veto.** The page sends the best 80 candidates; once the AI picked, its answer decides for those: a file
+  it was shown and did not pick is not listed (a ticked one stays in view). An answer with no pick at all is no
+  judgement (a small model that said nothing): the rules decide. Files it was not shown, and every file when no AI
+  answered, are listed only on a strong sign (`strongWork`): the company's (name, own host, a team member as author)
+  for a document, or with that sign a text file; or a document with a real name (three letters or more, not a
+  program's) that was opened lately (the index's last-opened, a recent list's entry: `WorkFileMeta.listed`, used ≥ 2)
+  or lives in a work folder or the company's cloud drive. A plain download is not enough. Plain text and CSV are neither
+  sent nor listed without the company's sign. Recency by last change unless an opened date comes from the index or a
+  recent list (Windows' last-accessed is not trusted: a separate change there). The own-folder prompt now also says to
+  leave out program-named files, saved pages, chat exports and short notes, that a download from a shared work app is
+  not work for that reason alone, and that five sure picks beat twenty doubtful ones.
+- **Types.** Office, PDF, Hangul and iWork documents first; Markdown with a real name of two words or more; txt and
+  csv weigh 0.3; a name without letters weighs half.
+- **Coverage.** Why it walked: a Mac's look always walks Documents, Desktop and Downloads (part 4: listing through
+  Spotlight was slower than the walk), with or without Full Disk Access (the wide look uses Spotlight for the places
+  beyond them), and asks Spotlight (mdls) about the newest 1,000 walked files; "is big" is the walk's 20,000 entries,
+  10 s, or a folder deeper than four levels. Before, the recent lists' files inside a cut folder were dropped ("left as
+  the look left it"). Now (1) the walk takes the most lately changed folder next (a heap on each folder's date, each
+  level down counted two weeks older so one fresh deep tree does not use up the walk), so a cut keeps recent folders;
+  (2) each walked folder also gets the files opened lately inside it (`LookOptions.recentIn`): a Mac without the wide
+  look asks Spotlight (`mdfind -onlyin <folder> kMDItemLastUsedDate >= 180 days`, after that folder's own question,
+  4 s at most, so no new question) and mdls for the newest 300; the wide look gives each folder its part of the recent
+  lists it already reads (Spotlight's last-opened across home, the shared file lists `*.sfl2/3/4`, Office's lists).
+  Those files join the list even when the walk was cut or they are too deep (checked as the index's: folder realpath,
+  lstat, never a never-listed part); a walked file in a recent list gets its opened date and `listed`. The shared file
+  lists and Office's lists are read only with Full Disk Access, as before: Office's lists are inside other apps'
+  containers, which macOS guards with its own question.
+- **Bench** (`scripts/bench/find-work-files/run.ts`: a made-up home of 8,818 files, 35 recent work files; the
+  Downloads walk cut at a fifth of the real limit; Spotlight simulated from the fixture). No AI: before 50 shown,
+  precision 0.28, recall 0.40; after 27 shown, precision 1.0, recall 0.77. An AI that picks every name it is shown (the
+  worst case: only the rules hold): before 0.58 / 0.83, after 0.85 / 1.0 (only plain personal downloads it picked get
+  through: tickets, a menu). An AI that judges each name right: before 0.62 / 0.89 (the rules' junk stayed beside its
+  picks), after 1.0 / 1.0. The look stays around 0.1 s and the list under 15 ms on the bench.
+- **Independent review** (one MUST-FIX set, all fixed): the saved-page and install-folder name rules hid "Client_files"
+  and "Go-2026 plan" (now the page beside it, and a dotted version only); `autoNamed` hid "License Agreement Acme.pdf",
+  CamelCase names and "Chat with investors.docx" (now bare names only); a recent copy of an old original vanished (now
+  recent files only). SHOULD-FIX fixed: the company's own site without a registered domain, an empty AI answer, recent
+  files inside a skipped code project, one fresh deep tree using up the walk, the extra waits per folder (1.5 s + 2 s).

@@ -10,6 +10,8 @@ import { answer, app, fakeApp, look, roots, setFullDisk, type Meta } from './fak
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const own = (errors: string[]) => realErrors(errors).filter((e) => !/status of (404|409)/.test(e))
+/** a name part of letters only: files numbered 1…60 in one folder are one series (only the newest is listed) */
+const tag = (i: number) => `q${'abcdefghij'[i % 10]}${'klmnopqrst'[Math.floor(i / 10)]}`
 const WIDE: Meta[] = [
   { name: 'Acme Q3 plan.xlsx', root: 'cloud', place: 'OneDrive – Acme', folder: 'Plans' },
   { name: 'Acme brief.pptx', root: 'cloud', place: 'OneDrive – Acme', cloud: true },
@@ -36,6 +38,8 @@ const start = async (page: Page, o: Parameters<typeof fakeApp>[1]) => {
 test('a Mac with Full Disk Access: no screen of its own; the wide look with the company\'s words; each row names its place', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page, { wide: true, fullDisk: 'granted' })
+  // no AI here: the company's name in each file's name lists them all (an AI's answer would decide for what it saw)
+  await page.request.post('/__test/file-rank', { data: { ai: 'none' } })
   await look(page, WIDE, WIDE_ROOTS)
   await page.getByTestId('files-find-work-entry').click()
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
@@ -133,7 +137,7 @@ test('the screen\'s ✕ and Escape close it: nothing looked at', async ({ page }
 
 test('the 50-file list: Select all ticks the 50 shown, never a personal file; the rest are found by name', async ({ page }) => {
   await start(page, { wide: true, fullDisk: 'granted' })
-  const many: Meta[] = [...Array.from({ length: 60 }, (_, i) => ({ name: `Acme report ${i}.docx`, root: 'cloud' as const, place: 'OneDrive – Acme' })), { name: 'Acme payslip_oct.pdf' }]
+  const many: Meta[] = [...Array.from({ length: 60 }, (_, i) => ({ name: `Acme report ${tag(i)}.docx`, root: 'cloud' as const, place: 'OneDrive – Acme' })), { name: 'Acme payslip_oct.pdf' }]
   await look(page, many, WIDE_ROOTS)
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
@@ -147,7 +151,7 @@ test('the 50-file list: Select all ticks the 50 shown, never a personal file; th
   await page.getByTestId('find-work-personal-toggle').click()
   await expect(page.getByTestId('find-work-personal').getByTestId('find-work-check')).not.toBeChecked()
   // one beyond the 50 is found by name and can be ticked too
-  await page.getByTestId('find-work-search').fill('report 59')
+  await page.getByTestId('find-work-search').fill(`report ${tag(59)}`)
   await page.getByTestId('find-work-found').getByTestId('find-work-check').check()
   await expect(page.getByTestId('find-work-add')).toHaveText('Add 51 files')
 })
