@@ -42,4 +42,16 @@ describe('managed engine status with limited connections', () => {
     expect((await checkEngine('claude-code', env(() => ({ total: 1, usable: 0, reasons: ['disabled'] })), true, 'en')).status).toBe('not_logged_in')
     expect((await checkEngine('claude-code', env(() => ({ total: 2, usable: 1, reasons: ['limited'], limitedUntil: until })), true, 'en')).status).toBe('ok')
   })
+  test('every account only switched off: the line says so and to switch one on, not refused / expired / limit (TC-3043)', async () => {
+    const off = await checkEngine('claude-code', env(() => ({ total: 2, usable: 0, reasons: ['disabled', 'disabled'] })), true, 'en')
+    expect(off).toMatchObject({ status: 'not_logged_in', detail: "All of this engine's AI accounts are switched off. Switch one on below." })
+    const ko = await checkEngine('claude-code', env(() => ({ total: 1, usable: 0, reasons: ['disabled'] })), true, 'ko')
+    expect(ko.detail).toBe('이 엔진의 AI 계정이 모두 꺼져 있어요. 아래에서 하나를 켜 주세요.')
+    // one switched off and one refused: the refused one is the problem, so the reasons line stays
+    const mixed = await checkEngine('claude-code', env(() => ({ total: 2, usable: 0, reasons: ['disabled', 'invalid'] })), true, 'en')
+    expect(mixed.detail).toContain('refused, expired or at their limit')
+    // none at all: the no-account line
+    const none = await checkEngine('claude-code', env(() => ({ total: 0, usable: 0, reasons: [] })), true, 'en')
+    expect(none.detail).toContain('no AI account yet')
+  })
 })

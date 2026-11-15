@@ -83,6 +83,8 @@ export const T: Record<string, Record<Locale, string>> = {
   // shown only on Admin › Providers (pages/admin/Engines.tsx EngineRow), right above the 'Add account' button
   managedNone: { ko: "이 엔진에 AI 계정이 아직 없어요. 아래 '계정 추가'로 추가해 주세요.", en: "This engine has no AI account yet. Add one with 'Add account' below.", id: "Mesin ini belum punya akun AI. Tambahkan dengan 'Tambah akun' di bawah.", ja: "このエンジンにはまだAIアカウントがありません。下の「アカウントを追加」で追加してください。", es: "Este motor aún no tiene ninguna cuenta de IA. Añada una con «Añadir cuenta» más abajo.", zh: "这个引擎还没有AI账号。请点下方的“添加账号”添加。" },
   managedNoneDetail: { ko: "이 엔진의 AI 계정을 지금 쓸 수 없어요(거절·만료·한도). 아래에서 계정을 확인하거나 '계정 추가'로 새로 추가해 주세요.", en: "This engine's AI accounts cannot be used now (refused, expired or at their limit). Check them below, or add one with 'Add account'.", id: "Akun AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa di bawah, atau tambahkan dengan 'Tambah akun'.", ja: "このエンジンのAIアカウントは現在使えません（拒否、期限切れ、上限到達）。下で確認するか、「アカウントを追加」で追加してください。", es: "Las cuentas de IA de este motor no se pueden usar ahora (rechazadas, vencidas o con el límite alcanzado). Revíselas más abajo o añada una con «Añadir cuenta».", zh: "这个引擎的AI账号现在无法使用（被拒绝、已过期、达到上限）。请在下方检查，或点“添加账号”添加。" },
+  // every account of this engine is only switched off (Admin › Providers): not refused, expired or at a limit
+  managedAllOff: { ko: "이 엔진의 AI 계정이 모두 꺼져 있어요. 아래에서 하나를 켜 주세요.", en: "All of this engine's AI accounts are switched off. Switch one on below.", id: "Semua akun AI mesin ini dimatikan. Nyalakan salah satunya di bawah.", ja: "このエンジンのAIアカウントはすべてオフになっています。下でどれかをオンにしてください。", es: "Todas las cuentas de IA de este motor están desactivadas. Active una más abajo.", zh: "这个引擎的AI账号都已关闭。请在下方开启一个。" },
   version: { ko: '아직 검증하지 않은 버전이에요(고정 버전: {pinned}; 잠금 시험을 통과한 버전: {tested}).', en: 'This version has not been tested (pinned: {pinned}; lockdown-tested: {tested}).', id: 'Versi ini belum diuji (versi yang dikunci: {pinned}; lulus uji penguncian: {tested}).', ja: "このバージョンは未検証です（固定：{pinned}、制限テスト済み：{tested}）。", es: "Esta versión no se ha probado (fijada: {pinned}; con restricciones verificadas: {tested}).", zh: "这个版本还没有测试过（固定版本：{pinned}；已通过锁定测试：{tested}）。" },
   lockdown: { ko: '이 버전의 엔진 잠금 시험이 실패했어요.', en: 'The engine lockdown test failed for this version.', id: 'Uji penguncian mesin gagal untuk versi ini.', ja: "このバージョンのエンジン制限テストに失敗しました。", es: "Falló la prueba de restricciones del motor para esta versión.", zh: "这个版本的引擎锁定测试失败了。" },
   error: { ko: '상태를 확인하지 못했어요: {e}', en: 'Could not check the status: {e}', id: 'Tidak dapat memeriksa status: {e}', ja: "状態を確認できませんでした：{e}", es: "No se pudo comprobar el estado: {e}", zh: "无法检查状态：{e}" },
@@ -208,7 +210,9 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
       const why = c.reasons ?? []
       const waiting = why.some((w) => w === 'limited' || w === 'over_limit') && !why.some((w) => w === 'invalid' || w === 'needs_reconnect' || w === 'expired')
       if (waiting) return { ...out('limited', t('managedLimited', locale)), limitedUntil: c.limitedUntil ?? null }
-      return out('not_logged_in', t(c.total ? 'managedNoneDetail' : 'managedNone', locale))
+      // every account switched off by hand: say so, not the refused / expired / limit reasons
+      const allOff = c.total > 0 && why.length === c.total && why.every((w) => w === 'disabled')
+      return out('not_logged_in', t(!c.total ? 'managedNone' : allOff ? 'managedAllOff' : 'managedNoneDetail', locale))
     }
   } else if (id === 'claude-code') {
     if (mode === 'agent-own') {
