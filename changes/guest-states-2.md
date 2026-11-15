@@ -1,2 +1,0 @@
-- Reaching the AI limit now shows a calm note with the day it resets, without a red box or a Try again button that could not work.
-- Admin › Guests: a guest's status line is never cut on a phone, and a guest whose project is in the trash has **Restore project** right on their row.

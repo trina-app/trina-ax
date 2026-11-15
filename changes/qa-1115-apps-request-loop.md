@@ -1,1 +1,0 @@
-- Apps in rooms: the apps dialog no longer asks the server for the room's apps hundreds of times a second while it is open. It now loads the list once when it opens, and while an app waits for its first message it checks again every 4 seconds.

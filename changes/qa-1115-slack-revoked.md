@@ -1,1 +1,0 @@
-- Slack: if the bot token is revoked in Slack, Admin › Connected apps › Slack now shows the problem with **Replace tokens** within 10 minutes (or right after a restart), even when nobody uses the bot. For the official app it shows as removed. Before, it kept saying "Connected". A rate limit or a Slack outage changes nothing.
