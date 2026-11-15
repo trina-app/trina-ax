@@ -52,6 +52,12 @@ for (const role of ['owner', 'admin'] as const)
       expect(link?.textContent).toBe('Choose a plan')
       expect(link?.getAttribute('href')).toBe(PLANS)
       expect(link?.getAttribute('target')).toBe('_blank')
+      // the row wraps, and on a phone the link, Try again and ✕ start their own line (390 px: they ran past the screen)
+      expect(link?.closest('li')?.className).toContain('flex-wrap')
+      const brk = m.container.querySelector('[data-testid="storage-plans-break"]')
+      expect(brk?.className).toContain('basis-full')
+      expect(brk?.className).toContain('sm:hidden')
+      expect(brk?.closest('li')).toBe(link?.closest('li') ?? null)
     } finally {
       await m.unmount()
     }
@@ -65,6 +71,7 @@ test("the file screen's failed row: a member keeps the plain line, no link", asy
   try {
     expect(m.container.textContent).toContain('The storage is full.')
     expect(m.container.querySelector('[data-testid="storage-plans"]')).toBeNull()
+    expect(m.container.querySelector('[data-testid="storage-plans-break"]')).toBeNull()
   } finally {
     await m.unmount()
   }

@@ -16,15 +16,20 @@ export function storagePlansUrl(e: unknown, store = noPurchaseLinks()): string |
   return typeof url === 'string' && /^https?:\/\//.test(url) ? url : undefined
 }
 
-/** The link itself, for the owner and admins only (the GuestInvite "See plans" rule: admin && manageUrl). */
-export function StoragePlansLink({ url, className = '' }: { url?: string; className?: string }) {
+/** The link itself, for the owner and admins only (the GuestInvite "See plans" rule: admin && manageUrl). `phoneLine`:
+ * in a wrapping row (flex-wrap), on a phone the link and what follows it start a line of their own, so a long refusal,
+ * the link, Try again and ✕ never run past a 390 px screen (QA TC-1969 walk: the file screen's row did). */
+export function StoragePlansLink({ url, className = '', phoneLine = false }: { url?: string; className?: string; phoneLine?: boolean }) {
   const t = useT()
   const me = useMe()
   if (!url || !isAdmin(me)) return null
   return (
-    <a href={url} target="_blank" rel="noreferrer" className={`shrink-0 font-medium whitespace-nowrap text-accent-text underline ${className}`} data-testid="storage-plans">
-      {t('storage.choosePlan')}
-    </a>
+    <>
+      {phoneLine && <span aria-hidden className="-my-0.5 h-0 basis-full sm:hidden" data-testid="storage-plans-break" />}
+      <a href={url} target="_blank" rel="noreferrer" className={`shrink-0 font-medium whitespace-nowrap text-accent-text underline ${phoneLine ? 'max-sm:ml-[21px]' : ''} ${className}`} data-testid="storage-plans">
+        {t('storage.choosePlan')}
+      </a>
+    </>
   )
 }
 

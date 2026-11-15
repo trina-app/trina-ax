@@ -94,6 +94,14 @@ const TABLE: [string, unknown, unknown?][] = [
   ['data:text/html,hi', err('unsupported_scheme')],
   ['https://', err('invalid')],
   ['acme team', err('invalid')],
+  // a host with no dot is not a team's address (Chinese typed in an IME, an intranet word; QA TC-1839)
+  ['团队', err('invalid')],
+  ['https://团队', err('invalid')],
+  ['https://teamserver', err('invalid')],
+  ['https://teamserver:8443/login', err('invalid')],
+  // ...while an IP literal and a full tailnet name still read as addresses
+  ['https://100.64.0.1', other('100.64.0.1')],
+  ['https://box.tail123.ts.net', other('box.tail123.ts.net')],
   ['localhost:19100', { ok: true, origin: 'http://localhost:19100', host: 'localhost:19100', name: null, hosted: false, loopback: true, entryPath: '/' }, { ok: true, origin: 'https://localhost:19100', host: 'localhost:19100', name: null, hosted: false, loopback: true, entryPath: '/' }],
   ['http://acme.localhost:19883', { ok: true, origin: 'http://acme.localhost:19883', host: 'acme.localhost:19883', name: 'acme', hosted: false, loopback: true, entryPath: '/' }, err('insecure')],
   // look-alikes are not hosted (the apps ask before connecting to them)
