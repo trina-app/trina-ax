@@ -35,10 +35,10 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | Group | Sections |
 |---|---|
 | **Account** | Profile, Security & devices, Usage, Memory, Allowed for Trina (and Browser, see below) |
-| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), Trina AX MCP |
+| **Connections** | Connectors, AI providers (when the team lets members add their own accounts), Trina AX MCP |
 | **App** | Notifications, Apps, About |
 
-A [guest](guests.md) sees only their own sections, such as Profile and Notifications. A guest who uses their own sign-in connects their Claude or ChatGPT account in **AI accounts**.
+A [guest](guests.md) sees only their own sections, such as Profile and Notifications. A guest who uses their own sign-in connects their Claude or ChatGPT account in **AI providers**.
 
 **Connectors** holds your connections to other services: Google Drive, Gmail and the other Google apps, Slack, and the
 listed services. Open one to connect it, see what the AI may do with it, or disconnect it; **Connectors** above its name

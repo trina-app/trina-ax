@@ -4,12 +4,12 @@
 //
 // From 768 px (tablets and computers): the menu in its own 240 px column beside the page (the app's rail is beside it
 // already, so the menu is a list with the names at every computer width and two rails never stand side by side:
-// docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), staying where it is while the page scrolls. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), staying where it is while the page scrolls. Groups: People · Connections (AI providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
 // connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
 // (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
-// Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
+// AI providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 // Slack is one of the connected apps, not a menu item (owner, 2026-11-12): /admin/slack (its menu item until then, and
 // where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same query, for the
 // owner and admins alike (admins manage Slack too since 2026-11-13).
@@ -97,9 +97,9 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
-/** A phone's names of the pages that the 나 list has for the person too (Connected apps, AI apps): the team's are
- * "Team …" there, so the two lists never show the same name for different things. Providers has its own name already
- * (the person's page is "AI accounts"). Computers keep the Admin list's names (its title says whose they are). */
+/** A phone's names of the pages that the 나 list has for the person too (AI providers, Connected apps, AI apps): the team's are
+ * "Team …" there, so the two lists never show the same name for different things. Computers keep the Admin list's
+ * names (its title says whose they are). */
 const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
 const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 
@@ -153,7 +153,7 @@ export function redirectOf(section: string, sub: string | undefined, search: str
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
-  // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
+  // the team's AI settings moved from the AI providers page's second tab into Team settings: its old address opens them
   if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'
   // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
   if (section === 'engines') return `/admin/providers${search}`

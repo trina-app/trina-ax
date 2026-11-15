@@ -160,7 +160,7 @@ test('a link to a setting opens the group that holds it, with the lists under it
   await expect(page).toHaveURL(/\/admin\/settings\/voice#speech$/)
   await expect(page.getByTestId('team-speech')).toBeVisible()
   await expect(page.getByTestId('team-settings-general')).toHaveCount(0)
-  // the old Providers tab's address: the AI engine's group
+  // the old AI providers tab's address: the AI engine's group
   await page.goto('/admin/providers?tab=team')
   await expect(page).toHaveURL(/\/admin\/settings\/ai#ai$/)
   await expect(page.getByTestId('engine-defaults')).toBeVisible()
