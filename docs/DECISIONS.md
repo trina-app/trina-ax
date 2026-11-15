@@ -28642,3 +28642,83 @@ Placement: Team AX core.
   Add, closing and opening again during the upload, Undo, Select all at 100, no AI, a refused read, every folder blocked and Look again, an older app, the owner's
   setup into the team home), `web/test/e2e/shots-find-work-files.spec.ts` (screens at 1440 and 390, light and dark).
 - Version impact: **minor** (a new API route for members, new screens).
+
+## Find work files, part 4: ask the computer's index, only recent company files, the smallest model (feat/find-work-files-narrow, 2026-11-15)
+
+Owner, 2026-11-15: "don't dumbly look at every file. Only bring files that were used recently, or that relate to the
+company's domain or name. Be conservative." Then: fast, a real progress bar, the smallest model. Research brief:
+find-files-research.md (the coordinator's). Wider sources (cloud-sync folders, recents on any drive, work folders, Full
+Disk Access) are part 5.
+
+- **Measured on this Mac with a Developer-ID-signed probe (throwaway bundle id, launched through LaunchServices).**
+  Spotlight raises macOS's question for a protected folder exactly as a read does: `mdfind -onlyin ~/Documents` asked
+  for Documents, then Desktop, then Downloads, one per query, and returned nothing after Don't Allow. So each folder is
+  still asked for first (its first entry is read), one after the other, before anything else looks at it. A process
+  started from a shell is charged to the shell (no question at all): real tests launch the app through `open`.
+- **Where a Mac's list comes from (fastest measured).** Listing through Spotlight took 0.7–0.8 s per folder (`mdfind`)
+  against 0.1–0.25 s for the walk of a made-up home of 14,450 files; `mdls` answers 200 paths in 0.17 s. So a Mac walks
+  (`FALLBACK_LIMITS`: 4 folders down, 20,000 entries, 10 s a folder, 20 s in all) and asks Spotlight (`mdls`, 200 paths
+  a call, four calls at a time, within the folder's time and Stop) about the newest 1,000 documents of each folder: last opened (kMDItemLastUsedDate), how often
+  (kMDItemUseCount), where it was downloaded from (kMDItemWhereFroms, hosts only, never the address), authors and
+  organisation. Spotlight off (`mdutil -s /`): the walk alone. The parsers stay for part 5's home-wide recents.
+- **Windows:** one PowerShell run of Windows Search's SystemIndex (ADO, `Search.CollatorDSO`) for the three folders,
+  Windows' Recent folder (its shortcuts' targets, via Electron's readShortcutLink) and Office's recent files (the File
+  MRU values, FILETIME in `[T…]`), merged; a download's `Zone.Identifier` stream (4 KB, under Downloads itself, a second each, 5 s in all) gives its hosts. Scripts go as `-EncodedCommand` with every quote doubled, the curly ones PowerShell also reads too (review); no row for a folder that has entries (a Documents moved to D:\ is not indexed by default) walks it; newest first (`ORDER BY`). No answer in time: the
+  walk. Not measured on Windows here (parsers unit-tested on fixture text).
+- **No file is read.** The index's answers and the walk's stat are all the look reads; every index hit is checked
+  (`filesFromIndex`: inside the folder, its real path the same path, lstat a file, a document, recent, 1 KB to 50 MB)
+  before it gets an id; each call within a second or the folder's time, Stop between batches (a drive that stops answering
+  holds nothing up). mdls's answer counts when it exits 1 because one of its paths was gone.
+- **The company's words** (`GET /api/onboarding/files/company`, anyone but guests): the team's and the profile's names
+  without legal forms (Inc., 주식회사, (주), 株式会社, 有限公司, PT … Tbk …), the profile's website domain and the team's work
+  email domains (never a public mail provider), and the team's people's names. The page matches, on the computer: a name
+  as a whole word or phrase (Korean, Japanese and Chinese inside the text), the domain's first label in a name, a
+  download from the company's own host, its Slack or SharePoint (`acme.slack.com`, `acme-my.sharepoint.com`) or a work
+  app (files.slack.com, Google Drive, Dropbox, Box, Notion, Teams), an author or organisation who is the company or a
+  teammate. Document properties are what the index already read; nothing is opened, unzipped or parsed. Left out
+  (review): the caller's own name (Office writes it into everything they made, their CV too), and the team's name while it
+  is still the product's default. A domain's name is the label before its public suffix ("www.app.acme.co.kr" → acme),
+  never a common subdomain word (app, mail, corp, shop, student …). A ticked file stays in view when later picks would
+  push it past 50.
+- **The list (conservative).** Recent = last opened or changed within 180 days. "Looks like work" = recent AND not
+  personal-looking AND (the company's OR the AI's pick), best first by the fixed score: recency (half-life 21 days) ×
+  (1 + log(1 + use count)) × type (office and PDF 1, text 0.6, pictures 0.2) × the company (from its address or a work
+  app ×3, an author ×2, a name ×1.5) × folder (Documents 1.2, Desktop 1, Downloads 0.7); an AI pick ×1.5. At most 50
+  shown; the rest only through the search ("n more documents · Find them by name"; with none shown, "Nothing clearly
+  looks like work" and how many the search can find). "May be personal" lists the recent personal-looking ones.
+  Nothing is ticked. Each row says why, plainly: the AI's reason, "Mentions Acme" / "From acme.slack.com" / "By Bo
+  Lee", "Opened 3 days ago" or "Changed 2 weeks ago" (Intl.RelativeTimeFormat), where it is.
+- **The AI's pick: the engine's smallest model, quickly.** Rank turns (both the team step's and a member's own) run on
+  `smallModelFor`: Claude Code's `haiku` alias (through a gateway only when it names a haiku model), Codex's nano or mini
+  (`cheapestCodexModel`), the person's model otherwise (the API engine), the file list reader's rule
+  (file-list/engine-reader.ts). Only rank turns: a chat keeps its own model, and the setup's folder plan, which reads
+  files, keeps the person's. Claude Code gets `--effort low` on a pick from names when its own `--help` lists the flag
+  (2.1.305 is pinned for servers; an unknown flag would fail the turn); the question runs in the background (off the
+  event loop, a bare environment, 5 s), so the first pick after a start goes without it, and only a real answer is kept.
+  A member's own ChatGPT sign-in may lack Codex's nano or mini: that pick runs on the person's model. A member's
+  pick answers ids grouped by kind, at most 40 (short); the team step keeps its ordered picks (its top 20 come ticked).
+  The page sends the best 80 recent names by the score (was 500). `rankMs` 30 → 20 s.
+- **Measured (2026-11-15, the real engine on this Mac's Claude login, 80 names):** 10.7–18.4 s on the person's model
+  path before; on haiku 10.7–11.7 s, 2.4–4 k output tokens of which most is thinking (the answer is ~400 characters);
+  with `--effort low` 8.5–11.8 s; a 5-name turn 4.7 s (the engine's start). `alwaysThinkingEnabled: false`,
+  `effortLevel` and `MAX_THINKING_TOKENS=0` did not change it. So the list does not wait for the AI: it shows when the
+  look ends (the company's files by the rules) with "Your team's AI is also looking at 80 names · Nothing is ticked", a
+  bar and Stop, and the AI's picks join it when they come.
+- **Progress:** a shared `ProgressBar` (components/ui.tsx; the folder upload's row uses it too) with the look's own
+  measure: the app reports how far it is (`done`, 0–1: each folder's question, then its walk or index), then the AI's
+  stage under the list.
+- **"Choose it yourself" (coordinator, after part 3's finding that a refused app is not listed in Files & Folders).** A
+  folder macOS kept the app out of says "Trina AX can't see Downloads · Choose it yourself · How": the app's
+  `workFiles.pickRoot(id)` opens the system's folder window at that folder (only the root's id crosses; the pick must be
+  that folder or one inside it, never home); the person's pick there is their permission (open-panel consent, not
+  measured on this Mac: no Allow was ever clicked). Its files join the latest look (`WorkFileSessions.extend`, same hour
+  and limits) and the list, after the "already there" check, only while that look is open; the pick is checked on its
+  real path (inside the root's real path). An older app without it offers Settings, as before. The guide's wording follows in part 5.
+- Tests: `tests/unit/e-desktop-work-index.test.ts` (mdfind/mdls parsing with lists over several lines and addresses
+  with commas, hosts only, Windows Search JSON, Office MRU FILETIME, Zone.Identifier, merging, recency, index hits inside
+  the folder only and never through a link, the order ask-first then index, the walk without an index, mdls only for the
+  newest), `tests/unit/b-onboarding-file-rank.test.ts` (smallModelFor for each engine, the turn on haiku, the grouped
+  answer read against the fixed lists, the company's words), `web/test/unit/work-files.test.ts` (recency, the company in
+  names, Korean, hosts and authors, the score, the list's rule and its 50, what goes to the AI),
+  `web/test/e2e/find-work-files.spec.ts` (the list before the AI, 50 shown and the rest by search, Choose it yourself).
+- Version impact: **minor** (a new API route; what the list shows changes).

@@ -7,7 +7,7 @@
 import { TEAM_FILES_LIMITS } from '@mycel/shared/api'
 import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, type DesktopBridge, type WorkFileMeta, type WorkFileRead, type WorkRootId, type WorkRootResult } from '@mycel/shared'
 import { WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
-import { personalPath, type LocalDoc } from './teamFiles'
+import { hasPhrase, latinWords, personalPath, type LocalDoc } from './teamFiles'
 import { joinPath } from './paths'
 
 export type WorkFilesBridge = NonNullable<DesktopBridge['workFiles']>
@@ -49,6 +49,9 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
       size: f.size,
       modified: f.modified,
       personal: personalPath(joinPath(pick, rel)),
+      ...(f.used || f.useCount || f.origins?.length || f.authors?.length || f.org
+        ? { hints: { ...(f.used ? { used: f.used } : {}), ...(f.useCount ? { useCount: f.useCount } : {}), ...(f.origins?.length ? { origins: f.origins } : {}), ...(f.authors?.length ? { authors: f.authors } : {}), ...(f.org ? { org: f.org } : {}) } }
+        : {}),
       open: async () => {
         const r = await read(f.id)
         if (!r.ok) throw new WorkFileReadError(r.reason)
@@ -137,3 +140,110 @@ export async function undoRun(made: RunMade, calls: UndoCalls): Promise<{ remove
 
 /** The folder a run's files land in: My files › From this computer. */
 export const runFolder = (base: string) => joinPath(base, FROM_COMPUTER)
+
+// ---------------------------------------------------------------- part 4: recent, the company's, best first
+
+/** Recent: last opened or changed within this many days (owner, 2026-11-15: "only files used recently"). */
+export const RECENT_DAYS = 180
+/** "Looks like work" shows at most this many, best first; the rest are found by name. */
+export const WORK_SHOWN = 50
+/** The AI sees at most this many names (the best by the rules, never a personal-looking one): one turn of the smallest
+ * model over 80 names answered in about 6 s here (2026-11-15), its start-up about 4.7 s of it. */
+export const TO_AI = 80
+
+/** The company's words (GET /api/onboarding/files/company). */
+export interface CompanyWordsLike { names: readonly string[]; domains: readonly string[]; people: readonly string[] }
+
+/** Why a file is the company's: its name or folder says the company's name, it came from the company's address or a work
+ * app, or one of the team wrote it. */
+export type CompanyMatch = { kind: 'name'; word: string } | { kind: 'from'; host: string } | { kind: 'by'; who: string }
+
+/** Hosts where work files come from whatever the company (its own address is matched by its domain). */
+const WORK_HOSTS = /(^|\.)(slack\.com|slack-files\.com|sharepoint\.com|drive\.google\.com|docs\.google\.com|dropbox\.com|box\.com|notion\.so|teams\.microsoft\.com|onedrive\.live\.com)$/i
+
+/** A word as names are compared: lower case, accents out. */
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC').toLowerCase()
+const cjk = (s: string) => /[\u3040-\u9fff\uac00-\ud7a3]/.test(s)
+/** `text` holds `word`: Latin words as whole words (a name of several words as consecutive words), Korean, Japanese and
+ * Chinese inside the text. */
+function holds(text: string, word: string): boolean {
+  const w = fold(word).trim()
+  if (!w) return false
+  if (cjk(w)) return fold(text).includes(w)
+  const ws = latinWords(w)
+  return ws.length > 0 && hasPhrase(latinWords(text), ws)
+}
+
+/** Second-level parts of a country's domain ("co" in acme.co.kr) and labels that are no company's name (app.acme.io). */
+const SECOND_LEVEL = new Set(['co', 'com', 'or', 'ne', 'ac', 'go', 'net', 'org', 'gov', 'edu', 'mil', 'ltd', 'plc', 'biz', 'web', 'id', 'sch', 'my'])
+const NOT_A_NAME = new Set(['www', 'app', 'apps', 'mail', 'corp', 'my', 'en', 'shop', 'portal', 'student', 'students', 'staff', 'web', 'home', 'login', 'm', 'mobile', 'intranet', 'office'])
+/** The company's name in its domain, as people write it in file names: the label before the public suffix
+ * ("www.app.acme.co.kr" → "acme", "acme.io" → "acme"); '' when too short or a common subdomain word. */
+export function domainStem(d: string): string {
+  const labels = d.toLowerCase().split('.').filter(Boolean)
+  if (labels.length < 2) return ''
+  let i = labels.length - 2
+  if (labels.length >= 3 && labels.at(-1)!.length === 2 && SECOND_LEVEL.has(labels.at(-2)!)) i = labels.length - 3
+  const s = labels[i] ?? ''
+  return s.length >= 3 && !NOT_A_NAME.has(s) ? s : ''
+}
+
+/** Why this file is the company's, or null. Names and folders, download hosts, authors and organisation only: no file
+ * is read. */
+export function companyMatch(d: Pick<LocalDoc, 'pick' | 'folder' | 'name' | 'hints'>, w: CompanyWordsLike): CompanyMatch | null {
+  const text = [d.folder, d.name.replace(/\.[a-z0-9]+$/i, '')].join(' ').replace(/[/_]/g, ' ')
+  for (const name of w.names) if (holds(text, name)) return { kind: 'name', word: name }
+  for (const dom of w.domains) { const stem = domainStem(dom); if (stem && holds(text, stem)) return { kind: 'name', word: stem } }
+  for (const host of d.hints?.origins ?? []) {
+    const h = host.toLowerCase()
+    if (w.domains.some((dom) => h === dom || h.endsWith(`.${dom}`) || (domainStem(dom) && h.split('.').some((label) => label === domainStem(dom) || label === `${domainStem(dom)}-my`)))) return { kind: 'from', host: h }
+  }
+  for (const host of d.hints?.origins ?? []) if (WORK_HOSTS.test(host)) return { kind: 'from', host: host.toLowerCase() }
+  const who = [...(d.hints?.authors ?? []), ...(d.hints?.org ? [d.hints.org] : [])]
+  for (const a of who) {
+    const p = w.people.find((x) => fold(x) === fold(a.trim()))
+    if (p) return { kind: 'by', who: p }
+    const n = w.names.find((x) => holds(a, x))
+    if (n) return { kind: 'by', who: n }
+  }
+  return null
+}
+
+/** When the file was last touched, and how: opened (the index knows it) or changed. */
+export const touched = (d: Pick<LocalDoc, 'modified' | 'hints'>): { at: number; opened: boolean } =>
+  d.hints?.used && d.hints.used >= d.modified ? { at: d.hints.used, opened: true } : { at: d.modified, opened: false }
+
+export const isRecentDoc = (d: Pick<LocalDoc, 'modified' | 'hints'>, now = Date.now()) => now - touched(d).at <= RECENT_DAYS * 86_400_000
+
+const TYPE_WEIGHT: Record<string, number> = { pdf: 1, doc: 1, docx: 1, hwp: 1, hwpx: 1, xls: 1, xlsx: 1, csv: 0.6, ppt: 1, pptx: 1, key: 1, pages: 1, numbers: 1, txt: 0.6, md: 0.6, rtf: 0.6, png: 0.2, jpg: 0.2, jpeg: 0.2 }
+const FOLDER_HINT: Record<string, number> = { Downloads: 0.7, Desktop: 1, Documents: 1.2 }
+
+/** The fixed score (docs/DECISIONS.md part 4): recency (half-life 21 days) × use × type × the company × the folder. */
+export function workScore(d: LocalDoc, m: CompanyMatch | null, now = Date.now()): number {
+  const age = Math.max(0, now - touched(d).at) / 86_400_000
+  const recency = Math.pow(0.5, age / 21)
+  const use = 1 + Math.log(1 + (d.hints?.useCount ?? 0))
+  const company = !m ? 1 : m.kind === 'from' ? 3 : m.kind === 'by' ? 2 : 1.5
+  return recency * use * (TYPE_WEIGHT[d.ext] ?? 0.4) * company * (FOLDER_HINT[d.pick] ?? 1)
+}
+
+/** The AI's look: the best TO_AI recent files that look like no one's personal file, by the score. */
+export function forAiRecent(docs: readonly LocalDoc[], w: CompanyWordsLike, now = Date.now()): LocalDoc[] {
+  return docs.filter((d) => !d.personal && isRecentDoc(d, now))
+    .map((d) => ({ d, s: workScore(d, companyMatch(d, w), now) }))
+    .sort((a, b) => b.s - a.s).slice(0, TO_AI).map((x) => x.d)
+}
+
+/** "Looks like work": recent, not personal-looking, and the company's or picked by the AI; best first, at most
+ * WORK_SHOWN. `more`: how many more would qualify (found by name). */
+export function workList(docs: readonly LocalDoc[], w: CompanyWordsLike, picks: ReadonlyMap<string, unknown> | null, now = Date.now(), ticked: ReadonlySet<string> = new Set()): { shown: LocalDoc[]; more: number } {
+  const all = docs.filter((d) => !d.personal && isRecentDoc(d, now)).flatMap((d) => {
+    const m = companyMatch(d, w)
+    const picked = !!picks?.has(d.key)
+    return m || picked ? [{ d, s: workScore(d, m, now) * (picked ? 1.5 : 1) }] : []
+  }).sort((a, b) => b.s - a.s)
+  // a ticked file stays in view (the AI's picks coming late never push it out of sight while it is ticked)
+  const top = all.slice(0, WORK_SHOWN)
+  const kept = all.slice(WORK_SHOWN).filter((x) => ticked.has(x.d.key))
+  return { shown: [...top, ...kept].map((x) => x.d), more: Math.max(0, all.length - WORK_SHOWN - kept.length) }
+}

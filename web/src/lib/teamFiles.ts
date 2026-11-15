@@ -66,9 +66,9 @@ const PERSONAL_CJK = [...PERSONAL_KO, ...PERSONAL_JA, ...PERSONAL_ZH]
 const PERSONAL_WHOLE = /^(인사|인사팀|인사부|인사총무|인사자료|人事|人事部|人事资料)$/
 
 /** A Latin part as words: lower case, without accents and apostrophes ("Driver's License" → drivers, license). */
-const latinWords = (part: string) => part.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/['\u2019]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
+export const latinWords = (part: string) => part.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/['\u2019]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
 /** the phrase's words one after the other in `words` */
-const hasPhrase = (words: readonly string[], phrase: readonly string[]) => {
+export const hasPhrase = (words: readonly string[], phrase: readonly string[]) => {
   for (let i = 0; i + phrase.length <= words.length; i++) if (phrase.every((w, j) => words[i + j] === w)) return true
   return false
 }
@@ -113,6 +113,8 @@ export interface LocalDoc {
   /** its content, read when it goes up (never by the walk or the list) */
   open: () => Promise<File>
   personal: boolean
+  /** what the computer's index knew of it (Find work files on this computer; absent from a folder walk) */
+  hints?: { used?: number; useCount?: number; origins?: string[]; authors?: string[]; org?: string }
 }
 
 export interface WalkResult {
