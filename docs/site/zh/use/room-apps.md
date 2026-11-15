@@ -50,9 +50,10 @@ Google 表单没有可以粘贴网址的地方，所以 Trina 会给你一段用
 
 Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubSpot 各有自己的指南，步骤用的是该服务自己的界面名称。简单来说：
 
-- **Typeform**：在表单的 **Connect › Webhooks › Add a webhook** 中粘贴、保存并打开。
+- **Typeform**：在表单的 **Connect › Webhooks › Add a webhook** 中粘贴并保存，然后打开（开关一开始是关闭的，保存后才能使用）。
 - **Tally**：在表单的 **Integrations › Webhooks › Connect** 中，粘贴到 **Endpoint URL**。
-- **Jotform**：在表单的 **Settings › Integrations** 中搜索 **WebHooks** 并粘贴。
+- **Jotform**：在表单的 **Settings › Integrations** 中搜索 **WebHooks**，先按 **Complete Integration**（不要按
+  **Add New Web Hook**，按了之后它会无法使用），然后粘贴并按 **Finish**。
 - **Stripe**（需要 Admin 或 Developer 角色）：**Developers › Workbench › Webhooks › Create an event destination**，勾选指南
   列出的事件，选择 **Webhook endpoint**，粘贴到 **Endpoint URL**。
 - **Shopify**（店主或可访问设置的员工）：在 **Settings › Notifications › Webhooks › Create webhook** 中为 **Order
@@ -65,11 +66,11 @@ Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubS
 - **HubSpot**（Data Hub Professional 或 Enterprise）：基于交易的工作流，操作 **Data ops › Send a webhook**，选择
   **Customize request body** 并添加指南列出的键；也可以为联系人和工单各建一个。联系人只显示姓名和公司，从不显示邮箱或电话。
 
-表单回答会按原样显示在群聊里，包括电子邮件地址；上传的文件只显示文件名。付款和订单卡片只显示客户的名字（Shopify 还显示城市），
+表单回答会按原样显示在群聊里，包括电子邮件地址；上传的文件只显示文件名（Google 表单只显示文件数量，这样脚本不需要访问你的 Drive）。付款和订单卡片只显示客户的名字（Shopify 还显示城市），
 从不显示邮箱、电话或银行卡。
 
 Stripe、Shopify、Zendesk、Typeform 和 Tally 可以为发送的内容签名。指南中的 **可选：提高安全性** 用来填入该服务的签名密钥
-（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。Trina 给你的密钥（Typeform、Tally、GitHub）从第一条用它签名的消息
+（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。Trina 给你的密钥（Typeform、Tally、GitHub；Tally 会在 **Add a signing secret** 下预先填入它自己的密钥，请换成 Trina 的）从第一条用它签名的消息
 开始生效：在那之前，没有签名的消息仍会显示，所以在你把它粘贴到服务里之前不会丢失消息。Jira 和 HubSpot 无法签名，Webhook URL 是唯一的钥匙，请妥善保管。
 
 ### 更多服务
