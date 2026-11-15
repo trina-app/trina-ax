@@ -56,7 +56,9 @@ import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
-import { GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
+import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
+import { guestPlace } from '../auth/guests'
+import type { GuestPlace } from '@mycel/shared/api'
 import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
 import { completeRedactorFor } from '../integrations/connections/redact'
 
@@ -139,6 +141,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   // a guest's turn: only the tools of chat/guest-tools.ts, and no connection provider at all
   const guest = isGuestUser(exec.rt.db, exec.spec.userId)
+  const guestInRoom = guest && ([guestPlace(exec.rt.db, exec.spec.userId)].flat() as (GuestPlace | null)[]).some((p) => p?.kind === 'room')
   const tools = new Map<string, Tool>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
@@ -154,6 +157,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
     if (guest && !GUEST_TURN_TOOLS.has(t.name)) return false
+    // ...and the room tools only for a guest whose place is a group chat (the one room they may read, chat/room-tools.ts)
+    if (guest && GUEST_ROOM_TOOLS.has(t.name) && !guestInRoom) return false
     // ...and none of its words about what only team members have (Admin, plugins, skills, the browser)
     if (guest) t = { ...t, description: guestToolDescription(t.description) }
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts)

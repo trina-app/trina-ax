@@ -5,9 +5,8 @@ import { guestPlace, guestRow } from '../auth/guests'
 // The tools a guest's AI turn may use besides the six file tools (docs/DECISIONS.md "Guests: only what they were
 // invited to"). Deny by default: a tool not named here is never offered to a guest's turn (chat/tools.ts buildToolSet),
 // so a new tool stays closed to guests until someone adds it on purpose. Reading rooms (room_read, room_file): only
-// the rooms the guest is in (rooms/reader.ts findRoom goes by their member rows, and a 1:1 chat only while both still
-// share a place, rooms/guest-reach.ts dmPairOk), which they read in the app anyway (owner 2026-11-16: the ✦ side chat
-// is no use without it). Left out on purpose: skills (find_skills, skill, move_skill: skills/ is the team's), listing
+// the group chat the guest was invited to, which they read in the app anyway (owner 2026-11-16: the ✦ side chat is no
+// use without it); chat/room-tools.ts refuses every other room, their 1:1 chats included, by id and by name. Left out on purpose: skills (find_skills, skill, move_skill: skills/ is the team's), listing
 // and searching rooms (rooms), saving a room file (save_room_file) and posting (post_to_room), project members,
 // connections and every connection provider (connect_service, Drive, Google apps, MCP: connectors stay off for guests),
 // plugin tools (hwp_render), schedules, the web (web_fetch, save_url), paid services (generate_video), the dev
@@ -17,10 +16,13 @@ export const GUEST_TURN_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'delete_files',
 ])
 
+/** the room tools of GUEST_TURN_TOOLS: only for a guest whose place is a group chat (chat/tools.ts) */
+export const GUEST_ROOM_TOOLS: ReadonlySet<string> = new Set(['room_read', 'room_file'])
+
 /** A guest's places (a group chat, a project, or since the owner's 2026-11-15 rule one of each) and who invited them,
  * as a guest's turn tells the AI (chat/prompt.ts guestSection). A place's `name` null: a group chat without a name of
  * its own; `folder`: a project's folder; `inviter` null: that account is gone. */
-export interface GuestPrompt { places: { kind: 'project' | 'room'; name: string | null; folder: string | null }[]; inviter: string | null }
+export interface GuestPrompt { places: { kind: 'project' | 'room'; id: string; name: string | null; folder: string | null }[]; inviter: string | null }
 
 /** The guest's places and inviter for the instructions of their turn, or null when `userId` is not a guest (no guests
  * row: no place named, and its turn still keeps to the guest tools). Reads the places from auth/guests.ts guestPlace,
@@ -32,10 +34,10 @@ export function guestPromptOf(db: Database, userId: string): GuestPrompt | null 
   const places = found.filter((p): p is GuestPlace => !!p).map((p) => {
     if (p.kind === 'project') {
       const r = db.query('SELECT name, folder_path FROM projects WHERE id = ? AND trashed_with IS NULL').get(p.id) as { name: string; folder_path: string } | null
-      return { kind: 'project' as const, name: r?.name.trim() || null, folder: r?.folder_path || null }
+      return { kind: 'project' as const, id: p.id, name: r?.name.trim() || null, folder: r?.folder_path || null }
     }
     const r = db.query("SELECT name FROM rooms WHERE id = ? AND archived_at IS NULL").get(p.id) as { name: string | null } | null
-    return { kind: 'room' as const, name: r?.name?.trim() || null, folder: null }
+    return { kind: 'room' as const, id: p.id, name: r?.name?.trim() || null, folder: null }
   })
   const inviter = g.invited_by ? (db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(g.invited_by) as { name: string } | null)?.name ?? null : null
   return { places, inviter: inviter?.trim() || null }

@@ -4195,6 +4195,7 @@ export const ko = {
   "sideChat.new": "새로 묻기",
   "sideChat.openFull": "전체 화면으로 열기",
   "sideChat.empty": "이 대화방에 대해 {name}에게 물어보세요. 묻고 답한 내용은 나만 봐요. 원할 때 답을 대화방에 올릴 수 있어요.",
+  "sideChat.emptyGuest": "이 대화의 메시지를 인용하거나 붙여 넣고 {name}에게 물어보세요. 이 대화는 나만 봐요.",
   "sideChat.placeholder": "이 대화방에 대해 {name}에게 묻기…",
   "sideChat.send": "보내기",
   "sideChat.sendElsewhere": "다른 곳에 보내기",

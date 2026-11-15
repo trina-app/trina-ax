@@ -27406,13 +27406,15 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
 
 Builds on "The AI tells a guest the truth" (its three open questions).
 
-- **Rooms:** a guest's AI may read the chat rooms the guest is in: `room_read` and `room_file` join
-  `GUEST_TURN_TOOLS`. Both go through `rooms/reader.ts findRoom`, which knows only the person's member rows (and a 1:1
-  chat only while both still share a place, `dmPairOk`), so another room is "not found" by id and by name; a test tries
-  a group chat, a team room and the everyone room by id and by name. Still left out: `rooms` (list and search),
-  `save_room_file` and `post_to_room`. The guest's prompt says which rooms it can read (`guestSection`, `GUEST_ROOMS_RULE`)
-  and their ✦ side chat gets the members' side-panel section without posting. The panel shows a guest with AI the
-  starters and "Looking at <room>" again; only "Save to files" on a quoted file stays hidden (no `save_room_file`).
+- **Rooms:** a guest's AI may read the group chat the guest was invited to (coordinator for the owner, 2026-11-16: the
+  guest sees every message there anyway, and the ✦ side chat is no use without it): `room_read` and `room_file` join
+  `GUEST_TURN_TOOLS`, and `chat/room-tools.ts` refuses a guest's call unless it names exactly that group chat
+  (`findRoom` among their own rooms, then the guest's place). Every other room, their 1:1 chats included, answers as
+  "not there" by id and by name; a test tries a group chat, a team room, the everyone room and their 1:1 chat. Still
+  left out: `rooms` (list and search), `save_room_file` and `post_to_room`. The prompt says which room it reads
+  (`guestSection`, `GUEST_ROOMS_RULE`); their ✦ side chat beside that group chat gets the members' side-panel section
+  without posting and shows the starters and "Looking at <room>" again ("Save to files" on a quoted file stays hidden).
+  Beside a 1:1 chat the panel has no starters and says to quote or paste.
 - **File links:** a guest has no 파일 screen (`/files` goes Home). A folder link in an answer or a room message and the
   preview's "Open in Files" go to the project's own files screen (`/projects/<id>/files?dir=…`, `lib/guests.ts
   guestFolderHref`, `guestAppHref`); a folder no screen of theirs lists (their own users/<id>/, anything else) is plain
