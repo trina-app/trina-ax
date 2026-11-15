@@ -56,9 +56,11 @@ const FLOWS_PER_HOUR = 20
 /** the window FLOWS_PER_HOUR counts sign-in tries in */
 const FLOW_WINDOW_MS = 3600_000
 /** how long what a sign-in server said about the desktop app's 127.0.0.1 return address is remembered (clientFor) */
-const LOOPBACK_VERDICT_MS = 6 * 3600_000
+const LOOPBACK_VERDICT_MS = 3600_000
 /** the port a web or phone sign-in's probe registration names (clientFor): the address is never opened */
 const PROBE_PORT = 49152
+/** loopbackSeen's key: the sign-in server (its issuer and registration address), never the team's address */
+const loopbackKey = (s: OAuthServer) => JSON.stringify([s.issuer, s.registrationEndpoint])
 const CLIENT_IDLE_MS = 10 * 60_000
 /** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
 const RECENT_SECRETS = 16
@@ -190,7 +192,7 @@ export class Integrations {
   private recent = new Map<string, string[]>()
   /** per sign-in server (issuer and registration address): 'desktop' when it refused every client for the https
    * callback but took one for 127.0.0.1 (Canva, Intercom, Square), 'none' when it refused that too (Figma); with the time
-   * it was learned. Kept LOOPBACK_VERDICT_MS so repeated Connects do not register again and again (clientFor). */
+   * it was learned. Kept LOOPBACK_VERDICT_MS so repeated web Connects do not probe again and again (clientFor). */
   private loopbackSeen = new Map<string, { verdict: 'desktop' | 'none'; at: number }>()
 
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
@@ -1081,51 +1083,43 @@ export class Integrations {
   }
 
   /** The client a sign-in without an own app uses (oauth.ts chooseClient): the app registered for the same server
-   * before is offered first, when there is one. When the service refuses every client for the https callback
-   * (`oauth_approved_apps_only`): from the desktop app with its return port, an app registered for 127.0.0.1
-   * (loopbackClient); from the web or the phone app, one probe registration for 127.0.0.1 says whether the desktop app
-   * would get in (`oauth_desktop_only`) or not (stays `oauth_approved_apps_only`). The probe's app is never used. What
-   * the server said is remembered (loopbackSeen): then a web try registers nothing more and a desktop try goes to the
-   * 127.0.0.1 app at once, so at most one 127.0.0.1 registration happens per sign-in. A desktop app from before the
-   * return port gets the old reason (it cannot do what the desktop sentence asks). */
+   * before is offered first, when there is one. chooseClient always runs first, from every address (whether it is
+   * refused depends on the address: the metadata document is offered only from a public one it is served at). Only when
+   * it is refused (`oauth_approved_apps_only`): from the desktop app with its return port, an app registered for
+   * 127.0.0.1 (loopbackClient); from the web or the phone app, one probe registration for 127.0.0.1 says whether the
+   * desktop app would get in (`oauth_desktop_only`) or not (stays `oauth_approved_apps_only`). The probe's app is never
+   * used. Whether a sign-in server takes the 127.0.0.1 address (a property of that server alone, not of the team's
+   * address) is remembered for LOOPBACK_VERDICT_MS (loopbackSeen): it only spares the web's probe, and a desktop try at a
+   * server that clearly refused 127.0.0.1 too, so at most one 127.0.0.1 registration happens per sign-in. A desktop app
+   * from before the return port gets the old reason (it cannot do what the desktop sentence asks). */
   private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
     const port = from.client === 'desktop' && loopbackPortOk(from.loopbackPort) ? from.loopbackPort : null
     const probe = from.client !== 'desktop'
-    const key = `${setup.server.issuer ?? ''} ${setup.server.registrationEndpoint ?? ''}`
-    const seen = this.loopbackSeen.get(key)
-    const known = seen && this.now() - seen.at < LOOPBACK_VERDICT_MS ? seen.verdict : null
-    const remember = (verdict: 'desktop' | 'none') => {
-      if (this.loopbackSeen.size >= 1000) this.loopbackSeen.clear()
-      this.loopbackSeen.set(key, { verdict, at: this.now() })
-    }
-    const viaLoopback = async (p: number) => {
-      try {
-        const c = await loopbackClient(setup.server, p, this.net, urlFor)
-        remember('desktop')
-        return c
-      } catch (e) {
-        // refused there too (Figma); busy or down says nothing either way
-        if (e instanceof NetError && e.reason === 'oauth_approved_apps_only') remember('none')
-        throw e
-      }
-    }
-    // learned lately: the https callback is refused there, the 127.0.0.1 address taken
-    if (known === 'desktop' && setup.server.registrationEndpoint && (port || probe)) {
-      if (port) return viaLoopback(port)
-      throw new NetError('oauth_desktop_only')
-    }
     const old = row.secret_enc ? this.tryOpen(row) : null
     const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
     try {
       return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
     } catch (e) {
-      if (!(e instanceof NetError) || e.reason !== 'oauth_approved_apps_only' || !setup.server.registrationEndpoint || known === 'none' || (!port && !probe)) throw e
-      if (port) return viaLoopback(port)
-      // the web or the phone app: would the desktop app get in? Only a clear "no" keeps the old reason; a service that is
-      // busy or down meanwhile says nothing either way (not remembered)
-      try { await viaLoopback(PROBE_PORT) } catch (p) {
-        if (p instanceof NetError && p.reason === 'oauth_approved_apps_only') throw p
-        throw e
+      if (!(e instanceof NetError) || e.reason !== 'oauth_approved_apps_only' || !setup.server.registrationEndpoint || (!port && !probe)) throw e
+      const key = loopbackKey(setup.server)
+      const seen = this.loopbackSeen.get(key)
+      const known = seen && this.now() - seen.at < LOOPBACK_VERDICT_MS ? seen.verdict : null
+      const remember = (verdict: 'desktop' | 'none') => {
+        if (this.loopbackSeen.size >= 1000) this.loopbackSeen.clear()
+        this.loopbackSeen.set(key, { verdict, at: this.now() })
+      }
+      // clearly refused at 127.0.0.1 too lately (Figma): nothing more to try
+      if (known === 'none') throw e
+      if (!port && known === 'desktop') throw new NetError('oauth_desktop_only')
+      try {
+        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor)
+        remember('desktop')
+        if (port) return c
+      } catch (p) {
+        // a clear refusal is remembered and said; a service busy or down meanwhile says nothing either way (not
+        // remembered): from the web the old reason, from the desktop app its own (oauth_busy and the like)
+        if (p instanceof NetError && p.reason === 'oauth_approved_apps_only') { remember('none'); throw p }
+        throw port ? p : e
       }
       throw new NetError('oauth_desktop_only')
     }

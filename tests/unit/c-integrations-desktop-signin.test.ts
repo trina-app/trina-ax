@@ -74,7 +74,7 @@ describe('the desktop app signs in through its 127.0.0.1 return address', () => 
     expect(refresh.get('redirect_uri')).toBeNull()
   })
 
-  test('Intercom and Square (refuse to register an https address): one 127.0.0.1 registration; learned, the next sign-in goes there at once', async () => {
+  test('Intercom and Square (refuse to register an https address): one 127.0.0.1 registration per sign-in, the https try first every time', async () => {
     fake.strict = { loopback: 'register' }
     const c = await service('Intercom')
     const r = await authorize(desk, c.id, { loopbackPort: PORT })
@@ -84,11 +84,11 @@ describe('the desktop app signs in through its 127.0.0.1 return address', () => 
     expect(registrations()).toBe(2)
     expect(fake.seen.filter((s) => s.path === '/as-strict/register').map((s) => JSON.parse(s.body).redirect_uris[0]))
       .toEqual([`${TEAM}/api/integrations/oauth/callback`, `http://127.0.0.1:${PORT}/callback`])
-    // another port, another sign-in: only the 127.0.0.1 registration (no https try that is known to be refused)
+    // another port, another sign-in: the https try again (refused, nothing made there), then one 127.0.0.1 registration
     const before = registrations()
     const again = await authorize(desk, c.id, { loopbackPort: PORT + 1 })
     expect(redirectOf(again)).toBe(`http://127.0.0.1:${PORT + 1}/callback`)
-    expect(registrations()).toBe(before + 1)
+    expect(registrations()).toBe(before + 2)
     // the newer sign-in replaced the first one
     expect(await desk.call('GET', `/api/integrations/flows/${r.body.flowId}`)).toMatchObject({ state: 'failed', reason: 'superseded' })
     const cb = fake.authorize(again.body.authorizationUrl, `${fake.base}/as-strict`)
@@ -151,15 +151,15 @@ describe('the web and the phone app are told to use the desktop app', () => {
     expect(flows(c.id)).toEqual([{ state: 'failed', reason: 'refused' }])
     // the https registration, then one probe registration for 127.0.0.1 (never used)
     expect(registrations()).toBe(2)
-    // learned: the next web try registers nothing
+    // learned: the next web try makes only its own https try (as before this change), no probe
     const again = await authorize(olga, c.id)
     expect(again.body.error.message).toBe(desktopOnly('Canva'))
-    expect(registrations()).toBe(2)
-    // and the desktop app goes straight to its 127.0.0.1 app
+    expect(registrations()).toBe(3)
+    // the desktop app: its https try, then its one 127.0.0.1 app
     const d = await authorize(desk, c.id, { loopbackPort: PORT })
     expect(d.status).toBe(200)
     expect(redirectOf(d)).toBe(`http://127.0.0.1:${PORT}/callback`)
-    expect(registrations()).toBe(3)
+    expect(registrations()).toBe(5)
   })
 
   test('Square from the web: the same', async () => {
@@ -223,6 +223,41 @@ describe('the web and the phone app are told to use the desktop app', () => {
       const again = await authorize(olga, c.id)
       expect(again.body.error.message).toBe(desktopOnly('Square'))
     } finally { (fake as any).route = route }
+  })
+
+  test('what was learned never skips the metadata document: refused from a local address, the public address still gets the document', async () => {
+    // Canva's shape, and the service takes a client metadata document too
+    fake.strict = { loopback: 'page', metadata: true }
+    const c = await service()
+    // from an address a service cannot fetch the document from (a LAN or local name): every https client is refused
+    const local = await olga.try('POST', `/api/integrations/${c.id}/authorize`, {}, { origin: 'http://team.localhost' })
+    expect(local.body.error.params).toEqual({ reason: 'oauth_desktop_only' })
+    // from the public address right after: the document, not "desktop only"
+    const pub = await authorize(olga, c.id)
+    expect(pub.status).toBe(200)
+    expect(new URL(pub.body.authorizationUrl).searchParams.get('client_id')).toBe(`${TEAM}/api/integrations/oauth/client-metadata.json`)
+    // and from the desktop app too: the document, its return port unused
+    const d = await authorize(desk, c.id, { loopbackPort: PORT })
+    expect(redirectOf(d)).toBe(`${TEAM}/api/integrations/oauth/callback`)
+    expect(d.body.loopback).toBeUndefined()
+  })
+
+  test('what one sign-in server said never applies to another', async () => {
+    // another server is known to take 127.0.0.1; this one (Figma's shape) has never been asked
+    const svc = integrationsOf(h.ctx) as unknown as { loopbackSeen: Map<string, { verdict: string; at: number }> }
+    svc.loopbackSeen.set(JSON.stringify(['https://mcp.canva.com', 'https://mcp.canva.com/register']), { verdict: 'desktop', at: fake.now })
+    svc.loopbackSeen.set(JSON.stringify([`${fake.base}/as-strict`, 'https://other.example/register']), { verdict: 'desktop', at: fake.now })
+    fake.strict = { register: 403 }
+    const c = await service('Figma')
+    const r = await authorize(olga, c.id)
+    expect(r.body.error.message).toBe(TEXT.oauth_approved_apps_only.ko)
+    // its own https try and its own probe
+    expect(registrations()).toBe(2)
+    // what is learned lasts an hour, then it is asked again
+    fake.strict = { loopback: 'register' }
+    fake.now += 3600_000 + 1
+    const later = await authorize(olga, c.id)
+    expect(later.body.error.message).toBe(desktopOnly('Figma'))
   })
 
   test('refused tries count toward the 20 sign-in tries an hour, as before', async () => {

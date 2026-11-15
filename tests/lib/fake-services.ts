@@ -318,7 +318,7 @@ export class FakeServices {
     }
     if (p === '/as-strict/authorize' && req.method === 'GET') {
       if (this.strict.page) return this.strict.page()
-      if (this.strict.loopback === 'page') return (u.searchParams.get('redirect_uri') ?? '').startsWith('http://127.0.0.1:') ? new Response(null, { status: 302, headers: { location: 'https://www.canva.example/api/oauth/authorize' } }) : new Response('Invalid redirect URI.', { status: 400, headers: { 'content-type': 'text/plain' } })
+      if (this.strict.loopback === 'page' && !(this.strict.metadata && metadataClient(u.searchParams.get('client_id') ?? ''))) return (u.searchParams.get('redirect_uri') ?? '').startsWith('http://127.0.0.1:') ? new Response(null, { status: 302, headers: { location: 'https://www.canva.example/api/oauth/authorize' } }) : new Response('Invalid redirect URI.', { status: 400, headers: { 'content-type': 'text/plain' } })
       const id = u.searchParams.get('client_id') ?? ''
       if (metadataClient(id)) return this.strict.metadata ? new Response('<html><body>Sign in</body></html>', { headers: { 'content-type': 'text/html' } }) : new Response('Invalid client_id', { status: 400 })
       if (this.strict.refuseRegistered || this.strict.refuseClients?.has(id)) return new Response('Invalid redirect URI.', { status: 400, headers: { 'content-type': 'text/plain' } })

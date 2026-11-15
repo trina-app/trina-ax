@@ -495,22 +495,27 @@ idle minutes; a 404 for it starts a new one.
   for the team's https callback but take the return address apps on a computer use, `http://127.0.0.1:<port>/callback`
   (Canva: its sign-in page answers 302 instead of "Invalid redirect URI."; Intercom and Square: registration 201
   instead of 400). The desktop app opens a one-time listener there (`desktop/src/common/sign-in-return.ts`, bridge
-  `signInReturn`): 127.0.0.1 only, a port the system picks, one `GET /callback` with a state from its own Host, sent on
-  with a 302 to `https://<team>/api/integrations/oauth/callback?<the same query>` (only the https team origin the
-  window shows; the code is never read there), then closed; any other request gets 404; closed after 10 minutes, on
-  Cancel, by a newer one or a team switch. The page passes its port as `loopbackPort` to
-  `POST /api/integrations/:id/authorize`; the route keeps it only for a desktop session (`sessions.client`). Only after
-  every https client was refused (registered app, then metadata document, as above) one app is registered for the
-  127.0.0.1 address and its sign-in page opened once (the same preflight); its address is in the flow's sealed client,
-  so the token exchange sends it (refresh sends none) and the answer says `loopback: true`. From the web or the phone
-  app (no port), one probe registration for 127.0.0.1 tells whether the desktop app would get in: then
-  `oauth_desktop_only` ("Canva only lets you sign in from an app on your computer. Open the Trina desktop app and connect
-  it there.", with Get the desktop app → Settings › Apps), else `oauth_approved_apps_only` (Figma refuses that too).
-  What a sign-in server said is remembered 6 hours in memory, so a web try registers nothing more and a desktop try goes
-  straight to the 127.0.0.1 app. Both reasons count as refused tries. A desktop app from before this sends no port and
-  keeps `oauth_approved_apps_only`; so does the Mac App Store build when its App Sandbox (no `network.server`
-  entitlement) refuses the listener (expected, not tried on a store build yet). The browser that comes back must be signed in to the team, as for
-  every desktop sign-in (below).
+  `signInReturn`): 127.0.0.1 only, a port the system picks, one at a time (overlapping opens leave only the later one).
+  It takes one `GET /callback` with a state and a code or an error, from its own Host, as a page the browser opens
+  (Sec-Fetch-Mode `navigate` and Sec-Fetch-Dest `document` when sent), and sends it on with a 302 to
+  `https://<team>/api/integrations/oauth/callback?<the same query>` (only the https team origin the window shows; the
+  code is never read there), then closes. Any other request gets 404 and never uses it up, however many come. It closes
+  after 10 minutes, on Cancel, by a newer one or a team switch. The web page opens one for every sign-in in the desktop
+  app and closes it as soon as the answer says it is not used (asking the server first would cost a second try at the
+  service). The page passes its port as `loopbackPort` to `POST /api/integrations/:id/authorize`; the route keeps it
+  only for a desktop session (`sessions.client`). The usual client choice (registered app, then metadata document, as
+  above) always runs first, from every address; only when it is refused is one app registered for the 127.0.0.1 address
+  and its sign-in page opened once (the same preflight). Its address is in the flow's sealed client, so the token
+  exchange sends it (refresh sends none) and the answer says `loopback: true`. From the web or the phone app (no port),
+  one probe registration for 127.0.0.1 tells whether the desktop app would get in: then `oauth_desktop_only` ("Canva
+  only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there."; Get the desktop
+  app → Settings › Apps on the web, "Connect Canva on a computer." in the phone app), else `oauth_approved_apps_only`
+  (Figma refuses that too). Whether a sign-in server takes 127.0.0.1 (keyed by its issuer and registration address,
+  never the team's address) is remembered an hour in memory, and only after a clear answer: it spares the web's probe
+  and a desktop try at a server that refused 127.0.0.1. Both reasons count as refused tries. A desktop app from before
+  this sends no port and keeps `oauth_approved_apps_only`; so does the Mac App Store build when its App Sandbox (no
+  `network.server` entitlement) refuses the listener (expected, not tried on a store build yet). The browser that comes
+  back must be signed in to the team, as for every desktop sign-in (below).
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team

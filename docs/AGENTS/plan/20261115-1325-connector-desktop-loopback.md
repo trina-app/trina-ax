@@ -60,7 +60,8 @@ In:
    redirect and its preflight tell whether a desktop sign-in would work: then `oauth_desktop_only`, else
    `oauth_approved_apps_only`. The probe's client is never used. The verdict is remembered per sign-in server for 6
    hours (memory), and then a web try at such a service registers nothing and a desktop try goes straight to the
-   127.0.0.1 registration, so repeated Connects never pile up registrations at the service.
+   127.0.0.1 registration, so repeated Connects never pile up registrations at the service. (Changed after review:
+   see Result.)
 5. Words: `oauth_desktop_only` in ko/en/id/ja/es/zh, sent with `params.reason` so the web adds "Get the desktop app"
    (Settings › Apps). The connection's status line uses the same words.
 6. A desktop app from before this change sends no port and keeps today's "approved apps only" words.
@@ -122,8 +123,8 @@ after use and after the timeout.
 Built as planned (PR link: added when the PR is opened). Differences and notes:
 - The listener's place is `desktop/src/common/sign-in-return.ts` (pure apart from node:http, so it is unit-tested with
   real sockets); `main/main.ts` only wires it to the bridge. A request on the right path without a `state`, or with
-  bytes a header cannot carry, gets 404 and does not use the address up (a stray hit cannot burn it); 20 wrong
-  requests close it.
+  bytes a header cannot carry, gets 404 and does not use the address up (a stray hit cannot burn it). (A first
+  version closed it after 20 wrong requests; dropped after review, see below.)
 - Korean: the server's words now take a particle after a filled-in name as the web app's do ("Canva는", "Intercom은").
 - The Mac App Store build is expected to be refused the listener by its App Sandbox (no `network.server`), so it keeps
   the old words; not tried on a store build. Adding the entitlement is the release owner's store-review decision.
@@ -131,3 +132,10 @@ Built as planned (PR link: added when the PR is opened). Differences and notes:
   in allowlist", 127.0.0.1 201 and sign-in page 200). Not proven: a real sign-in to the end at Canva, Intercom or
   Square (no test accounts), the IPC wiring inside a running Electron app, and Windows (firewall prompts are not
   expected for 127.0.0.1).
+- Security review of #977, fixed on the branch: the remembered answer is now only whether a sign-in server takes
+  127.0.0.1 (keyed by that server, an hour, after a clear answer) and only spares the web's probe; the usual client
+  choice always runs first, so a refusal seen from a local address never hides the metadata document on the public
+  one. The listener needs a code or an error with the state and a page navigation when the browser says (Fetch
+  Metadata), never closes for junk, and two overlapping opens leave one. The phone app says "Connect Canva on a
+  computer." instead of the download link. The page still opens a listener for every desktop sign-in (closed on the
+  answer): asking the server first would cost Canva and the like a second try.

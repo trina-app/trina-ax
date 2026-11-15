@@ -12,9 +12,9 @@ let r: SignInReturn
 afterEach(() => { r?.close(); team = TEAM })
 
 /** one request as a browser sends it: never follows a redirect */
-function get(port: number, path: string, o: { host?: string; method?: string; address?: string } = {}): Promise<{ status: number; location?: string; headers: http.IncomingHttpHeaders } | { error: string }> {
+function get(port: number, path: string, o: { host?: string; method?: string; address?: string; headers?: Record<string, string> } = {}): Promise<{ status: number; location?: string; headers: http.IncomingHttpHeaders } | { error: string }> {
   return new Promise((resolve) => {
-    const req = http.request({ host: o.address ?? '127.0.0.1', port, path, method: o.method ?? 'GET', headers: { host: o.host ?? `127.0.0.1:${port}` }, agent: false }, (res) => {
+    const req = http.request({ host: o.address ?? '127.0.0.1', port, path, method: o.method ?? 'GET', headers: { host: o.host ?? `127.0.0.1:${port}`, ...o.headers }, agent: false }, (res) => {
       res.resume()
       res.on('end', () => resolve({ status: res.statusCode ?? 0, location: res.headers.location, headers: res.headers }))
     })
@@ -23,7 +23,7 @@ function get(port: number, path: string, o: { host?: string; method?: string; ad
     req.end()
   })
 }
-const closed = async (port: number) => 'error' in (await get(port, '/callback?state=x'))
+const closed = async (port: number) => 'error' in (await get(port, '/callback?state=x&code=y'))
 const Q = 'code=abc123&state=' + 'S'.repeat(43) + '&iss=https%3A%2F%2Fmcp.canva.com'
 
 describe('the return address', () => {
@@ -61,6 +61,12 @@ describe('the return address', () => {
       ['/', {}], ['/callback/', {}], ['/callbackx?state=x', {}], ['/CALLBACK?state=x', {}], ['/api/integrations/oauth/callback?state=x', {}],
       ['/callback', {}], ['/callback?code=1', {}], ['/callback?state=', {}], [`/callback?state=x&a=${'b'.repeat(9000)}`, {}],
       [`/callback?${Q}`, { method: 'POST' }], [`/callback?${Q}`, { method: 'HEAD' }],
+      // a state alone, or a code without a state, is no service's answer: a page or program sending it cannot spend it
+      [`/callback?state=${'S'.repeat(43)}`, {}], ['/callback?code=abc', {}], ['/callback?state=x&foo=bar', {}],
+      // a browser that says it is not opening a page: a fetch, an image, a frame
+      [`/callback?${Q}`, { headers: { 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': 'image' } }],
+      [`/callback?${Q}`, { headers: { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' } }],
+      [`/callback?${Q}`, { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'iframe' } }],
       [`/callback?${Q}`, { host: 'evil.example' }], [`/callback?${Q}`, { host: `localhost:${port}` }], [`/callback?${Q}`, { host: '127.0.0.1' }],
     ] as const) {
       const res = await get(port, path, o)
@@ -103,17 +109,35 @@ describe('the return address', () => {
     expect(SIGN_IN_RETURN_MS).toBe(10 * 60_000)
   })
 
-  test('a flood of wrong requests closes it', async () => {
+  test('a flood of junk does not spend it; the browser\'s page navigation (with or without Fetch Metadata) does', async () => {
     r = new SignInReturn({ current: () => team })
     const port = (await r.open(TEAM))!
-    for (let i = 0; i < 20; i++) await get(port, '/favicon.ico')
-    expect(r.port).toBeNull()
+    for (let i = 0; i < 50; i++) await get(port, i % 2 ? '/favicon.ico' : '/callback?state=x')
+    expect(r.port).toBe(port)
+    expect(await get(port, `/callback?${Q}`, { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', 'sec-fetch-site': 'cross-site' } })).toMatchObject({ status: 302 })
     expect(await closed(port)).toBe(true)
+    // an error answer (the person said no at the service) goes on too, so the server can say so
+    const p2 = (await r.open(TEAM))!
+    expect(await get(p2, '/callback?error=access_denied&state=abc')).toMatchObject({ status: 302, location: `${TEAM}${TEAM_CALLBACK_PATH}?error=access_denied&state=abc` })
   })
 
-  test('returnQuery: the exact path, a state, printable ASCII, not too long', () => {
+  test('two opens that overlap leave one address listening, the later one', async () => {
+    r = new SignInReturn({ current: () => team })
+    const [a, b] = await Promise.all([r.open(TEAM), r.open(TEAM)])
+    expect(a).toBeNull()
+    expect(b).toBeGreaterThan(1023)
+    expect(r.port).toBe(b)
+    // a close while an open listens: that open gives nothing and leaves nothing open
+    const pending = r.open(TEAM)
+    r.close()
+    expect(await pending).toBeNull()
+    expect(r.port).toBeNull()
+    expect(await closed(b!)).toBe(true)
+  })
+
+  test('returnQuery: the exact path, a state with a code or an error, printable ASCII, not too long', () => {
     expect(returnQuery(`/callback?${Q}`)).toBe(Q)
-    for (const u of [undefined, '', '/callback', '/callback?', '/callback?code=1', '/x?state=1', '/callback?state=a b', `/callback?state=${'a'.repeat(8200)}`, '/callback?state=\r\nX: y', '/callback?state=a&x=é']) expect(returnQuery(u), String(u).slice(0, 30)).toBeNull()
+    for (const u of [undefined, '', '/callback', '/callback?', '/callback?code=1', '/x?state=1', '/callback?state=a b', `/callback?state=${'a'.repeat(8200)}`, '/callback?state=\r\nX: y', '/callback?state=a&x=é', '/callback?state=abc', '/callback?state=abc&code=', '/callback?error=x']) expect(returnQuery(u), String(u).slice(0, 30)).toBeNull()
     expect(returnQuery('/callback?error=access_denied&state=abc')).toBe('error=access_denied&state=abc')
   })
 })

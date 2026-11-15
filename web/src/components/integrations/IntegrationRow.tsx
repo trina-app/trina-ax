@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../../lib/api'
 import { closeSignInReturn, openSignInReturn } from '../../lib/desktop'
+import { mobileApp } from '../../lib/mobile'
 import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
@@ -122,7 +123,11 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     dropReturn()
     try {
       // in the desktop app: a return address on this computer, for a service that takes only that (Canva, Intercom,
-      // Square); the server uses it only when the service refuses the team's own address, and says so (loopback)
+      // Square); the server uses it only when the service refuses the team's own address, and says so (loopback).
+      // Opened for every sign-in in the desktop app and closed as soon as the answer says it is not used: asking the
+      // server first would cost a second sign-in try at the service (another registration there, another of the 20
+      // tries an hour) for Canva and the like; a local address that lives a second costs nothing, and the app keeps
+      // one at most (a newer open or a close always ends the older one, desktop/src/common/sign-in-return.ts)
       const port = await openSignInReturn()
       if (g !== generation.current) return closeSignInReturn(port)
       returnPort.current = port
@@ -315,7 +320,9 @@ export function AudienceChip({ access, groups, users }: { access: IntegrationAcc
   )
 }
 
-export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: () => void; onCancel: () => void }) {
+/** `name`: the connection's (the phone app's "Connect Canva on a computer."); `phone`: in the phone app, which has no
+ * desktop download to offer from here (QA TC-262: computer-only steps say "on a computer") */
+export function SignInPanel({ flow, onRetry, onCancel, name, phone = !!mobileApp() }: { flow: SignInState; onRetry: () => void; onCancel: () => void; name?: string; phone?: boolean }) {
   const t = useT()
   const failed = !WAITING.has(flow.state)
   return (
@@ -334,8 +341,11 @@ export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; on
             {t('integrations.signIn.open')}
           </LinkButton>
         )}
-        {/* a service that takes only an app on the computer: the way there is the desktop app, not another try here */}
-        {failed && flow.desktopOnly ? (
+        {/* a service that takes only an app on the computer: the way there is the desktop app, not another try here (the
+            phone app says to connect it on a computer) */}
+        {failed && flow.desktopOnly && phone ? (
+          name ? <span className="text-muted" data-testid="integration-signin-on-computer">{t('integrations.onComputer', { name })}</span> : null
+        ) : failed && flow.desktopOnly ? (
           <Link to="/settings/apps" className={buttonClass({ variant: 'primary', size: 'sm' })} data-testid="integration-signin-desktop">
             {t('integrations.signIn.getDesktop')}
           </Link>

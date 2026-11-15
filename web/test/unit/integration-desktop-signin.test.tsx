@@ -115,3 +115,15 @@ test('a desktop app that could not open one, or one from before it: no port is s
   await run(async (s) => { await act(() => s.start(ID, null)) })
   expect(bodies).toEqual([{}])
 })
+
+test('in the phone app: "Connect Canva on a computer." instead of the download link, no Try again', async () => {
+  const flow: SignInState = { id: ID, flowId: null, url: null, state: 'failed', reason: WORDS, desktopOnly: true }
+  const m = await mount(<MemoryRouter><SignInPanel flow={flow} name="Canva" phone onRetry={noop} onCancel={noop} /></MemoryRouter>)
+  try {
+    const html = m.html()
+    expect(html).toContain(translate('en', 'integrations.onComputer', { name: 'Canva' }))
+    expect(html).not.toContain('/settings/apps')
+    expect(html).not.toContain('integration-signin-retry')
+    expect(html).toContain(translate('en', 'common.close'))
+  } finally { await m.unmount() }
+})
