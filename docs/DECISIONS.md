@@ -28256,3 +28256,26 @@ words and components.
 - **Where the rest lives.** Billing, sign-up, the console, mails and the move of the existing Free teams are in the
   hosting repository (trina-cloud); this repo changes only words.
 - Version impact: **none** (docs and comments).
+
+## A chat link opens the desktop app on that chat (fix/qa-1115-desktop-chat-link, 2026-11-15, QA TC-2266)
+
+Builds on "First run, phase 2". Plan: `docs/AGENTS/plan/20261115-0016-qa-1115-desktop-chat-link.md`.
+
+- **The desktop app reads a page inside its link** (`desktopPagePath`, `desktop/src/common/address.ts`): the link must
+  first pass `readDesktopLink` (https only, no user:password, no loopback host, one `url` and nothing else). Then only
+  `/c/<id>`, `/rooms/<id>`, `/rooms/<id>/t/<id>` and `/projects/<id>`, ids `[A-Za-z0-9_-]{1,64}`, one trailing slash
+  dropped; the path must be written exactly as the URL parser reads it (so no `..`, `.`, `//`, `\`, `%`-escapes or
+  control characters); a room keeps one `?m=<id>`, every other query and the fragment are dropped. Anything else opens
+  as before (screen ④, the team's start).
+- **Only on a team the app already has, by exact origin, and without screen ④** (`AppWindow.openLinkedPage`): no new
+  server is connected, so ④'s question ("connect to {host}?") has nothing to ask; Slack opens its links the same way.
+  The team on screen opens the page in its router (`bridge:open`, as a notification's click); another team, or a room
+  message, loads the address. A page of a team the app does not have yet goes to ④ and opens that team's start: a web
+  page can never add a team or reach another origin this way. The team's own sign-in and access checks still apply
+  (a chat the person may not see shows "not found").
+- **The web offers it in one place**: "Open in the app" in the chat's title menu (`chatOpenInAppHref`,
+  `web/src/lib/team-link.ts`), in a computer's web browser on macOS or Windows only (the systems with the desktop
+  app's link handler), not at phone width, not inside the apps, only on an https team. Without the app the browser
+  stays on the chat (Chrome and Edge do nothing; Safari may say it cannot open the address). Rooms and projects get no
+  item for now (owner prefers a lean menu); their links still open in the app.
+- Version impact: **patch**.

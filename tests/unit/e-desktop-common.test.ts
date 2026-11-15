@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -204,6 +204,49 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
       `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}#x`, `${LINK_SCHEME}://u:p@open?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open:99?url=${enc('https://acme.trina.app')}`,
       `${LINK_SCHEME}://open/x?url=${enc('https://acme.trina.app')}`, `other://open?url=${enc('https://acme.trina.app')}`, `https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`, 'x'.repeat(5000)])
       expect(readDesktopLink(raw)).toBeNull()
+  })
+  test('a chat, room or project page inside the link (QA TC-2266): fixed routes with id-shaped parts only', () => {
+    const team = `https://acme.${TEAM_DOMAIN}`
+    const id = '019a5c3e-7b2d-7c11-9f00-3a1b2c3d4e5f'
+    const page = (inner: string) => desktopPagePath(link(inner))
+    expect(page(`${team}/c/${id}`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/c/${id}/`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/rooms/${id}`)).toEqual({ origin: team, path: `/rooms/${id}` })
+    expect(page(`${team}/rooms/${id}/t/${id}?m=${id}`)).toEqual({ origin: team, path: `/rooms/${id}/t/${id}?m=${id}` })
+    expect(page(`${team}/projects/${id}`)).toEqual({ origin: team, path: `/projects/${id}` })
+    expect(page(`https://team.example.com/c/${id}`)).toEqual({ origin: 'https://team.example.com', path: `/c/${id}` })
+    // the host part is the URL parser's (lower case, no default port)
+    expect(page(`https://ACME.${TEAM_DOMAIN}:443/c/${id}`)).toEqual({ origin: team, path: `/c/${id}` })
+    // a query and fragment are dropped, except a room's one ?m=<id>
+    expect(page(`${team}/c/${id}?next=https://evil.example#x`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/c/${id}?m=${id}`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/rooms/${id}?m=${id}&x=1`)).toEqual({ origin: team, path: `/rooms/${id}` })
+    expect(page(`${team}/rooms/${id}?m=..%2Fadmin`)).toEqual({ origin: team, path: `/rooms/${id}` })
+    // the join pages keep their own path (④ asks first); a page that is not one of these opens the team's start
+    expect(page(`${team}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`)).toBeNull()
+    for (const path of ['/', '', '/settings', '/admin/people', '/files', '/files/view?path=a', '/c', '/c/', '/rooms', '/projects/x/files', '/skills', '/login', '/c/a/b', `/c/${'a'.repeat(65)}`,
+      // encoded and normalized tricks: the path must be written as the parser reads it, ids are [A-Za-z0-9_-]
+      '//evil.example/c/x', '//c/x', '/c//x', '/c/x/../../admin', `/c/../c/${id}`, `/c/./${id}`, '/c/%2e%2e', '/c/%2Fevil.example', '/c/x%00', '/c/x%0a', '/c/a.b', '/c/a@evil.example',
+      '/c/x\\..\\admin', '\\evil.example/c/x', '/c/\u0000x', '/c/x\ty', '/c/x\ny', '/c/ｘ', '/c/x;y', '/c/x:y', '/C/x', '/rooms/x/t/', '/rooms/x/t/y/z'])
+      expect(page(team + path)).toBeNull()
+    // nothing that readDesktopLink refuses: another scheme, http, user:password, this machine, a host hidden by a backslash
+    for (const inner of [`http://acme.${TEAM_DOMAIN}/c/${id}`, `https://u:p@acme.${TEAM_DOMAIN}/c/${id}`, `https://${TEAM_DOMAIN}@evil.example/c/${id}`, `https://127.0.0.1/c/${id}`, `https://localhost/c/${id}`,
+      `javascript:alert(1)//acme.${TEAM_DOMAIN}/c/${id}`, `file:///c/${id}`, `data:text/html,/c/${id}`, `//evil.example/c/${id}`])
+      expect(page(inner)).toBeNull()
+    // a backslash ends the host (evil.example), and that page path is then not written as the parser reads it
+    expect(page(`https://evil.example\\@acme.${TEAM_DOMAIN}/c/${id}`)).toBeNull()
+    expect(desktopPagePath(`${LINK_SCHEME}://open?url=${enc(`${team}/c/${id}`)}&next=/x`)).toBeNull()
+    expect(desktopPagePath(`other://open?url=${enc(`${team}/c/${id}`)}`)).toBeNull()
+    expect(desktopPagePath(`${team}/c/${id}`)).toBeNull()
+  })
+  test('the page opens only on a team the app already has, by exact origin; any other link goes to ④', () => {
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const opener = win.slice(win.indexOf('  private openLinkedPage(raw: string): boolean {'), win.indexOf('  /** The "no team yet" screen'))
+    expect(opener).toContain('const page = desktopPagePath(raw)')
+    expect(opener).toContain('this.teams.teams.find((x) => x.origin === page.origin)')
+    expect(opener).toContain('if (!page || !known) return false')
+    expect(opener).not.toMatch(/addTeam|fetch|loadURL/)
+    expect(win).toMatch(/offerLink\(raw: string\) \{\n\s*if \(this\.openLinkedPage\(raw\)\) return\n\s*const p = readDesktopLink\(raw\)/)
   })
   test('the link in a command line (Windows, Linux; a second instance)', () => {
     const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')

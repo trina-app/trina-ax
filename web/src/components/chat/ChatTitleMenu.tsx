@@ -16,12 +16,19 @@
 // chat in a team project the project members' share, my chat in a personal project the dialog that explains and offers
 // Move. A chat someone shared with me offers "Hide from my list" (its creator never hides it), and "Continue in a chat
 // only you see" opens Home's box there (no project) with my last question.
-import { EyeOff, FolderInput, Link2, Lock, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
+// "Open in the app" (QA TC-2266; lib/team-link.ts chatOpenInAppHref) opens this chat in the desktop app, in a computer's
+// web browser on macOS or Windows only (not at phone width, not inside the apps).
+import { EyeOff, FolderInput, Link2, Lock, Monitor, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
+import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { useProjects } from '../../store/projects'
 import { mayHideChat, shareKindOf } from '../../lib/sharedChat'
+import { clientKind } from '../../lib/desktop'
+import { platform } from '../../lib/pwa'
+import { chatOpenInAppHref } from '../../lib/team-link'
+import { useMediaQuery } from '../ui'
 import { TitleMenu, type TitleMenuItem } from '../TitleMenu'
 import { startShare } from './ChatShareDialog'
 import { useCopyChatLink } from './copyChatLink'
@@ -37,6 +44,8 @@ export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, 
   const project = useProjects((s) => (chat.projectId ? s.byId[chat.projectId] : undefined))
   const copyLink = useCopyChatLink()
   const share = chat.id && me ? shareKindOf(chat, project, me.user.id, safeOps) : null
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const appHref = chat.id && !chat.deletedAt ? chatOpenInAppHref({ scheme: PRODUCT.linkScheme, origin: typeof location === 'undefined' ? '' : location.origin, chatId: chat.id, platform: platform(), client: clientKind(), phone }) : null
   const items: TitleMenuItem[] = [
     ...(chat.id && onPin
       ? [chat.pinnedAt
@@ -44,6 +53,7 @@ export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, 
         : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: onPin, testId: 'chat-pin' }]
       : []),
     ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt, sideRoomId: chat.sideRoomId }), testId: 'chat-copy-link' }] : []),
+    ...(appHref ? [{ label: t('auth.openInApp'), icon: <Monitor size={14} aria-hidden />, onSelect: () => { location.href = appHref }, testId: 'chat-open-in-app' }] : []),
     ...(onRename ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: onRename, testId: 'chat-rename' }] : []),
     ...(onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: onMove, testId: 'chat-project-move' }] : []),
     ...(share ? [{ label: t('chat.share.menu'), icon: <Users size={14} aria-hidden />, onSelect: () => startShare({ id: chat.id!, title: chat.title ?? title, projectId: chat.projectId, shared: chat.shared }, share), testId: 'chat-share' }] : []),

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, checkTeam, firstRunLinks, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -304,9 +304,12 @@ export class AppWindow {
   /**
    * A link from outside (`trina-ax://open?url=…`, main.ts: open-url, a second instance's or this one's command line):
    * screen ④ asks "{host}에 연결할까요?" first. Nothing is fetched or loaded until the person's yes (answerLink); a
-   * link that cannot open a team says so on ①.
+   * link that cannot open a team says so on ①. A chat, room or project page of a team this app already has (the same
+   * origin, exactly) opens there at once (common/address.ts desktopPagePath): no new server is connected, so ④ has
+   * nothing to ask; the team's own sign-in and access checks still apply to the page.
    */
   offerLink(raw: string) {
+    if (this.openLinkedPage(raw)) return
     const p = readDesktopLink(raw)
     if (p?.ok) {
       this.linkGate.put(p)
@@ -334,6 +337,25 @@ export class AppWindow {
     if (!offer) return null
     this.sendWelcome()
     return this.addTeam(offer.origin + offer.entryPath, true)
+  }
+
+  /**
+   * A chat, room or project page inside a link from outside (common/address.ts desktopPagePath), on a team this app
+   * already has, by exact origin: opened there at once. true: done; false: the link goes to ④ as any other.
+   */
+  private openLinkedPage(raw: string): boolean {
+    const page = desktopPagePath(raw)
+    const known = page ? this.teams.teams.find((x) => x.origin === page.origin) : undefined
+    if (!page || !known) return false
+    // the team is on screen already: its router opens the page, as a notification's click does (no reload); a room
+    // message (`?m=`) loads the address, which the router's open does not take
+    if (this.team?.id === known.id && this.app && this.mode !== 'offline' && !page.path.includes('?')) {
+      this.linkGate.clear()
+      this.linkError = null
+      this.send(this.app, 'bridge:open', page.path)
+      this.back()
+    } else void this.openTeam(known.id, page.path)
+    return true
   }
 
   /** The "no team yet" screen's buttons: the address is chosen here, never taken from the screen. */
