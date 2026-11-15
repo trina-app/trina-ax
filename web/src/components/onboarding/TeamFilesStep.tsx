@@ -342,6 +342,8 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     return () => { live = false }
   }, [team?.id, home.id])
   const place = places.find((p) => p.id === draft.placeId) ?? places[0] ?? home
+  const sharedName = words.name(SHARED_HOME, SHARED_HOME)
+  const sorted = useSortedHere(place.id === SHARED_HOME)
   // the run is shown when the step opens with one and nothing else is under way here (F4/F5, never F1)
   useEffect(() => {
     const d = useDraft.getState()
@@ -460,9 +462,8 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   else if (phone) {
     body = (
       <div className="space-y-5">
-        <StepHead title={t('welcome.teamFiles.phoneTitle')} desc={t('welcome.teamFiles.phoneDesc')} />
+        <StepHead title={t('welcome.teamFiles.phoneTitle')} desc={sorted ? t('welcome.teamFiles.phoneDescShared', { shared: sharedName }) : t('welcome.teamFiles.phoneDesc')} />
         <TeamReach team={place.who} groupId={place.groupId} />
-        {place.id === SHARED_HOME && <OrganizeLine />}
         {notes}
         <div className="space-y-2">
           <Button variant="primary" className="w-full" disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
@@ -478,7 +479,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     const done = progress.steps.files === 'done' && !dialog
     body = (
       <div className="space-y-5">
-        <StepHead title={t('welcome.teamFiles.title')} desc={t('welcome.teamFiles.desc')} />
+        <StepHead title={t('welcome.teamFiles.title')} desc={sorted ? t('welcome.teamFiles.descShared', { shared: sharedName }) : t('welcome.teamFiles.desc')} />
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             {done && <Button variant="primary" className="max-sm:w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>}
@@ -491,7 +492,6 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
           {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
           <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
           <TeamReach team={place.who} groupId={place.groupId} />
-          {place.id === SHARED_HOME && <OrganizeLine />}
           {notes}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -522,22 +522,19 @@ function MacBlocked({ folder }: { folder: string }) {
 }
 
 /** The start's promise (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"): where the files go and that the AI
- * reads them to sort them (the W6 "names only" rule ends at the upload); shown only while an AI answers the person. */
-function OrganizeLine() {
-  const t = useT()
-  const words = useFolderWords()
-  // only when the AI will read them: no AI answers this person, no line (the name rules sort without reading)
+ * reads them to sort them (the W6 "names only" rule ends at the upload), said in the step's description (one grey line
+ * less under the buttons); only while an AI answers the person (with none, the name rules sort without reading). */
+function useSortedHere(shared: boolean): boolean {
   const ai = useAiAccess()
-  useEffect(() => { void useAiAccess.getState().load() }, [])
-  if (!ai.loaded || !ai.usable) return null
-  return <p className="text-label text-muted" data-testid="welcome-team-files-organize-line">{t('welcome.teamFiles.organizeLine', { shared: words.name(SHARED_HOME, SHARED_HOME) })}</p>
+  useEffect(() => { if (shared) void useAiAccess.getState().load() }, [shared])
+  return shared && ai.loaded && ai.usable
 }
 
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
       <h2 className="text-display font-semibold text-ink">{title}</h2>
-      {desc && <p className="text-sm text-balance text-muted">{desc}</p>}
+      {desc && <p className="text-sm text-balance text-muted" data-testid="welcome-team-files-desc">{desc}</p>}
     </div>
   )
 }

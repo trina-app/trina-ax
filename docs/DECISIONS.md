@@ -28390,3 +28390,27 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **The limit is a notice, not an error, also before the send.** The server refuses a send at a used-up limit before the AI runs (`budget_exceeded`, with the guest's wording and the reset date), and the box showed it in red like a fault. The message box (`Composer`) and a refused user message ("Not sent.") now show it as a neutral line with the pause icon, as the answer's own limit notice already did. "Send again" stays on the message (it works once an admin raises the limit or the month turns). Left as it was: the room's ✦ side chat also shows a warn toast for it (the "Not sent." line in the chat is calm now).
 - **Docs:** the guest limits table lists Free trial 10 (the Free plan is gone, owner 2026-11-14).
 - **Checked and fine:** the full invite dialog (owner, admin, member, store app without "See plans"); an older link at the cap keeps the typed fields; a freed seat works at once; See plans opens a new tab and loses no picks; the guest's AI stops exactly at the limit and resumes in the same chat when the limit is raised or the month turns.
+
+## W6 follow-up: the team files step without a team group (fix/onboarding-team-files-no-folder, 2026-11-15, QA TC-1613, TC-1614)
+
+- **Problem.** On a hosted team (0.5.3/0.5.4) the Team files step showed only "The team folder is not there yet" and
+  Do this later: `progress.teamGroup` was null because the team start (POST /api/onboarding/welcome/team, called when
+  the company step is left) did not go through, its failure is swallowed there (the owner is never held), and nothing
+  asked again.
+- **Decision.** The step's place falls back to shared/ (every team has it) and the step tries the team start again once
+  for the owner; the `welcome.teamFiles.noFolder` sentence is deleted in all languages (the intro files' upload says
+  `welcome.teamFiles.failed` when the brand folder is still missing). The organize line ("We sort them into folders in
+  {shared}…") is part of the step's description now (`welcome.teamFiles.descShared`, `phoneDescShared`, only while an
+  AI answers, as before), one grey line less under the buttons.
+- **Cause, as far as it is known.** Not confirmed on that server (no access). A fresh hosted-style Linux team under Bun
+  1.3.12 starts fine (team languages ko/en, odd team names, non-root with umask 027). The start fails with a 500 when
+  shared/ is not as expected: a file where the brand or notes folder goes (`not a folder`), shared/ missing on disk, or
+  shared/ not writable by the server account (EACCES). In each case `teamGroupFor` had already made the group, so the
+  row never recorded it and every retry made another ("Acme 2", "Acme 3"). Fixed here: the folders in shared/ are made
+  before the group (`server/src/onboarding/welcome.ts teamGroupFor`). The route now logs every failure of the team start
+  and the brand action with its error (`routes/onboarding-welcome.ts logged`: a refusal is a warning, anything else an
+  error), so the next hosted case names its cause. To check on the team: the server log line "the team start failed in
+  the welcome steps", the `onboarding.welcome` row (`general` set but no `teamGroup` = it failed in the group step),
+  `groups` / `audit_log` `group.create` rows, and `ls -la` of shared/.
+- Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind"), web/test/unit/team-files.test.ts,
+  web/test/e2e/welcome-team-files.spec.ts, welcome-organize.spec.ts.

@@ -9,8 +9,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { recordShared, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
-import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { WelcomeProgress } from '@mycel/shared/api'
+import { getSetting, setSetting, teamDefaultLocale } from '../../server/src/admin/settings'
+import { BRAND_FOLDER, WelcomeProgress } from '@mycel/shared/api'
+import type { Logger } from '../../server/src/log'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -250,4 +251,31 @@ test('a share recorded on a row that is not there, or not an object, changes not
   setSetting(h.ctx.db, WELCOME_SETTING, 'broken')
   recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
   expect(getSetting<unknown>(h.ctx.db, WELCOME_SETTING)).toBe('broken')
+})
+
+test('a team start that fails in shared/ leaves no group behind and says why in the log; asked again, it makes the one group', async () => {
+  const lines: { level: string; msg: string; fields?: Record<string, unknown> }[] = []
+  const log: Logger = { debug() {}, info() {}, warn: (msg, fields) => void lines.push({ level: 'warn', msg, fields }), error: (msg, fields) => void lines.push({ level: 'error', msg, fields }), child: () => log }
+  h = await harness('b-onboarding-welcome', {}, { log })
+  const owner = await withOwner(h)
+  await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })
+  const groups = () => (h.ctx.db.query('SELECT name FROM groups ORDER BY name').all() as { name: string }[]).map((g) => g.name)
+  const before = groups()
+  // a file where the brand folder goes (what a person may upload into shared/ before the steps)
+  const brand = path.join(h.ctx.files.fx.root, 'shared', BRAND_FOLDER[teamDefaultLocale(h.ctx.db)])
+  fs.mkdirSync(path.dirname(brand), { recursive: true })
+  fs.writeFileSync(brand, 'not a folder')
+  for (let i = 0; i < 2; i++) expect((await owner.try('POST', '/api/onboarding/welcome/team')).status).toBe(500)
+  expect(groups()).toEqual(before)
+  expect((getSetting<any>(h.ctx.db, WELCOME_SETTING)).teamGroup).toBeUndefined()
+  const said = lines.filter((l) => l.msg === 'the team start failed in the welcome steps')
+  expect(said).toHaveLength(2)
+  expect(said[0]!.level).toBe('error')
+  expect(String((said[0]!.fields?.err as Error).message)).toContain('not a folder')
+  // the file moved away: the next start makes the team's one group (not "… 2")
+  fs.rmSync(brand)
+  const r = await owner.call('POST', '/api/onboarding/welcome/team')
+  expect(r.progress.teamGroup?.brandFolder).toBe(`shared/${BRAND_FOLDER[teamDefaultLocale(h.ctx.db)]}`)
+  expect(groups().filter((g) => !before.includes(g))).toEqual([r.progress.teamGroup!.name])
+  expect(r.progress.teamGroup!.name).not.toMatch(/ 2$/)
 })

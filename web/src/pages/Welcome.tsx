@@ -633,7 +633,7 @@ function useIntroFiles(progress: WelcomeProgress) {
       let p = w.progress ?? progress
       if (wantsTeam(p)) p = (await w.setupTeam()).progress
       const brand = p.teamGroup?.brandFolder
-      if (!brand) throw new Error(t('welcome.teamFiles.noFolder'))
+      if (!brand) throw new Error(t('welcome.teamFiles.failed'))
       await Promise.allSettled(list.map(async (x) => {
         patch(x.id, { status: 'uploading', progress: null, error: undefined, plans: undefined })
         try {
