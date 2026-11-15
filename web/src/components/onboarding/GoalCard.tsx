@@ -27,11 +27,12 @@ import { SKILL_CATALOG } from '../../lib/nav'
 import { teamLinkMessage } from '../../lib/team-link'
 import { goalNext, goalNextText, goalProgressText, goalTitleSkills, goalTitleText, resendText, runnerNames, skillRunUrl } from '../../lib/teamGoal'
 import { showResume } from '../../lib/welcome'
-import { useLocale, useT } from '../../i18n'
+import { translate, useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { isOwner, useMe, useMeStrict } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
 import { Button, IconButton, Modal, useCopy, useMediaQuery } from '../ui'
 import { InviteStep } from './InviteStep'
+import { useMessageWords } from './TeamLinkPanel'
 import { useTeamPrepared } from './TeamPrepared'
 
 /** The router state of the [팀원 초대] that goes to the welcome steps while they are unfinished: /welcome opens on its
@@ -91,6 +92,8 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
   // the team's skills, as the owner can run them (personal ones left out); read again as skills change. The title names
   // a few of them, so it is read while the goal is open
   const prepared = useTeamPrepared(goal.state === 'open').data
+  // [초대 문구 복사] copies the invite step's message: the team's "About us" line, in the team's language
+  const words = useMessageWords(me?.team.defaultLocale ?? null, goal.state === 'open')
   const noSkills = givenSkills === undefined ? !!prepared && prepared.skills.length === 0 : !givenSkills
   useEffect(() => {
     if (given !== undefined || goal.state !== 'open') return
@@ -142,7 +145,9 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
       const text = resendText(t, locale, { first: next.first, more: next.more, skill: named?.name ?? null, url: skillRunUrl(base, named?.path ?? null) })
       action = <CopyAction text={text} label={t('goal.resend')} testId="team-goal-resend" quiet={noSkills} />
     } else if (open) {
-      const message = teamLinkMessage(t, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: linkName, ownAi: open.memberAi === 'connect_own' })
+      const wl = words?.locale
+      const mt = wl ? (k: MessageKey, p?: Params) => translate(wl, k, p) : t
+      const message = teamLinkMessage(mt, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: linkName, about: words?.about ?? null, ownAi: open.memberAi === 'connect_own' })
       action = <CopyAction text={message} label={t('goal.copyInvite')} testId="team-goal-copy-invite" quiet={noSkills} />
     } else {
       // setup unfinished: the owner's own invite step in the welcome steps, not a second invite dialog; an admin who is
