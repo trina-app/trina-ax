@@ -195,6 +195,28 @@ describe('connect_service without a card', () => {
     expect(rowsAt(`${svc.base}/mcp-key`)).toEqual([])
   })
 
+  test('personal connections off, the person\'s own connection works: it says it is not used, never that its tools are there (QA TC-2930)', async () => {
+    const url = `${svc.base}/mcp-open?own=tc2930`
+    const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Own board', url, auth: 'none', writePolicy: 'ask' } })
+    expect(mine.status).toBe('connected')
+    h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
+    try {
+      const t = await start('alice', { name: 'Board', kind: 'mcp', url, auth: 'none' }, { connection: mine.id, name: 'Own board' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('own connection "Own board" is not used in chats now: this team has turned off members\' own connections')
+      expect(m.content.split('not used in chats now').length - 1).toBe(2)
+      expect(m.content).not.toContain('is already connected')
+      expect(m.content).not.toContain('Its tools are yours')
+      expect(m.content).toContain('an admin')
+      // the AI is not offered its tools either (store.ts usable)
+      expect(integrationsOf(h.ctx).usable('alice').some((r) => r.id === mine.id)).toBe(false)
+    } finally {
+      h.ctx.db.query("UPDATE settings SET value='true' WHERE key='personalIntegrations'").run()
+      await integrationsOf(h.ctx).remove(activeUser(h.ctx.db, 'alice')!, mine.id)
+    }
+  })
+
   test('personal connections off, Drive already connected: answers only', async () => {
     h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
     const drive = new FakeGoogleDrive()

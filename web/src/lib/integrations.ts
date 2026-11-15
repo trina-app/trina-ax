@@ -445,9 +445,11 @@ export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>):
 }
 
 /** What a connection's line in Connectors' "Your connectors" says (own and made from a team template alike):
+ * the team has members' own connections off → "Off", whatever its state (not used, not signed in again: QA TC-2930);
  * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
  * Reconnect; any other problem → Needs attention. */
-export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status'>): 'signin' | 'connected' | 'reconnect' | 'attention' {
+export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' {
+  if (i.personalOff) return 'off'
   if (awaitingFirstSignIn(i)) return 'signin'
   return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
 }

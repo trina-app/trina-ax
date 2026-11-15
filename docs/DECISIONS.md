@@ -28827,3 +28827,22 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   cleaned by the start-up pass.
 - Tests: `tests/unit/c-integrations-secret-echo.test.ts`.
 - Version impact: **patch** (a security fix; no new feature or API change).
+
+## Members' own connections off: said truly in chat, on the row and page, and in the hint (fix/personal-connections-off-truth, 2026-11-15, QA TC-2930, TC-2931, TC-2936)
+
+- **What "off" covers is unchanged** (store.ts `mayUse`/`usable`): a member's own MCP or API connection is kept but not
+  used in chats; one made from an admin's template, the Google apps (Gmail, Calendar, Docs, Sheets) and Google Drive,
+  and team connections keep working. Nothing is widened.
+- **One test for "off by the team"**: `store.ts offByTeam` (personal, not from a template, not a Google app, switch off).
+  connect_service uses it before "already connected": the AI is told the connection is not used now and who can turn
+  members' own connections back on, never "its tools are yours" (they are not offered). A connection's view carries
+  `personalOff: true` for it; the row in Your connectors says **Off** (lib/integrations.ts `connectionRowStatus`), its
+  page says Off with one line, and has no Sign in again.
+- **Signing in again is refused while off** (`authorize`, 403, one plain line) rather than finished and left unused: the
+  smaller change, and a sign-in that would not be used is not started. A key changed while off (`update`) and a sign-in
+  started before the switch went off and finished after are left as they were (both stay unused).
+- **The switch's hint says what keeps working** (connections from a team template and the Google apps), in six languages.
+- **An MCP sign-in window allowed after its 10 minutes** says the sign-in expired and to connect again from the app
+  (callback reason `expired`), only to a browser signed in as the person who started it, as "cancelled" is; anyone else
+  gets the generic page as before. The page keeps the request's language like the other return pages.
+- Version impact: **patch** (wording, an optional field, a refusal of a sign-in that was already unused).

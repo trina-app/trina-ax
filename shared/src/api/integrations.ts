@@ -140,6 +140,9 @@ export const Integration = z.object({
    * TC-130): their own choice, not the team's rule; it still asks after the chat read something from outside. Older
    * servers omit it. */
   alwaysAllowedByMe: z.boolean().optional(),
+  /** the caller's own connection, kept but not used in chats and not signed in again, while the team has "Members can
+   * add their own connections" off (not one from a template, not a Google app). Absent otherwise and on older servers. */
+  personalOff: z.literal(true).optional(),
 })
 export type Integration = z.infer<typeof Integration>
 
