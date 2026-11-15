@@ -28442,3 +28442,73 @@ part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/sr
   made-up secret never read). Run with `bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`; CI does not run
   the desktop e2e.
 - Version impact: **minor** (a new desktop bridge call; nothing uses it until part 2).
+
+## Find work files on this computer, part 2: the screens, members' own AI picks, Undo (feat/find-work-files-ui, 2026-11-15)
+
+The screens over part 1's bridge (`web/src/components/onboarding/FindWorkFiles.tsx`, `web/src/lib/workFiles.ts`), the
+route for members' picks (`POST /api/onboarding/files/rank-own`), and what the review of the plan made binding.
+Placement: Team AX core.
+
+- **Two ways in, no new button on the toolbar.** My files on the desktop app: one quiet line "Find work files on this
+  computer" (anyone but guests; also inside My files › From this computer). The setup's 팀 파일 step on the desktop app: the
+  first button, "Choose a folder" beside it; the TeamFilesEntry dialog for admins has it too, being the same step. Not in
+  a browser, on a phone, in the Mac App Store build or a desktop app without the bridge's version. The line hides on a
+  narrow window, but a dialog already open stays.
+- **Where files go.** Members (anyone on My files): My files › From this computer
+  (`users/<id>/From this computer/<Documents|Desktop|Downloads>/<folders>/<name>`). The folder has one name on disk and is
+  shown in the person's words (`FROM_COMPUTER_LABEL` in shared/src/folder-labels.ts, through `folderLabel`, so
+  useFolderWords and the breadcrumbs say 이 컴퓨터에서, このコンピューターから …). The owner in the setup: the team home, as the
+  step always did (review Q3: no My files first for the owner), with the step's own run, 팀 파일 recorded and the folder plan
+  after.
+- **The page draws no consent of its own.** The app's dialog is the consent (part 1). The page shows "Answer in the window
+  that just opened" while it is up; Cancel there closes the page's dialog with nothing looked at, sent or read.
+- **The list.** Two groups: "Looks like work" (the AI's picks in its order with their reason word; without an AI answer
+  or with no pick, the name rules' order, `forAi`) and "May be personal (n) · Not sent to AI", folded. A search over
+  everything found, the files not picked too. **Nothing is ticked**, by the app or the AI. "Select all n" ticks the
+  shown work files up to 100 (`perUpload`), never a personal-looking one, and the cap line says when it stopped there. Add
+  stays off at no tick and over 1 GB (the app's own limit per look; "Up to 1 GB at a time"). A ticked personal-looking file
+  says who sees it ("Only you see it in My files"; the team's name in the setup). Lines above the list: a folder macOS
+  kept the app out of ("Trina can't see Downloads · Allow in Settings · How": Settings opens Files & Folders through the
+  app, How the Mac guide), a cut folder, a folder left out, files over 50 MB, files already there (the same name and size
+  in the target: never offered twice), Stop pressed. Every folder kept out: no list, the title says so, the way in is said
+  once, with Close and Look again (a new look, the app asks again). Mac guide: `docs/site/use/find-work-files.md`.
+- **Contents leave only on Add (part 1's rule).** The list's documents (`LocalDoc`) hold no `File` any more, here and in
+  the page's own folder walk (review MUST: the walk returned real File objects): `open()` is called by the upload for the
+  ticked files only, one at a time as they go (`PlanFile` with `open` in lib/folderUpload.ts). For the app's look it reads
+  by id (`workFiles.read`); a refused read (moved, changed, a limit) fails that file as "could not be read" and is not
+  tried again; what was read is let go once it is up. The AI's pick gets names, the folder inside the root
+  ("Documents/Clients"), type, size and date, never a personal-looking name, never a path of the computer.
+- **Members' AI picks (review MUST).** `POST /api/onboarding/files/rank-own` (`auth: 'user'`; guests never reach it, the
+  guest allow-list): the same no-tools turn of the caller (their AI connection, their budget, never listed, deleted after)
+  with its own instructions, "work files worth keeping in their own folder", the files as data inside `<material>` (names
+  quoted as JSON, the block's tag broken in names), and the same fixed answer: known ids once, reason words from
+  TEAM_FILE_REASONS. The team pick (`rank`) stays for owners and admins with its own instructions; the setup's owner
+  uses it.
+- **The personal matcher (review MUST).** Words and phrases in all six app languages (en, ko, ja, zh, es, id): pay, tax,
+  ID papers, CVs, health, banking, family and housing papers, passwords. Latin-script entries match whole words or whole
+  phrases of consecutive words without case, accents or apostrophes ("Tax Return 2025", "declaración de la renta",
+  "slip_gaji", "Driver's License"); a phrase never matches its words apart ("return of tax"). Korean, Japanese and
+  Chinese words match inside a part; a few short words only as the whole part (인사, 人事). The setup's own folder walk uses
+  the same matcher.
+- **Undo (review MUST).** The result says "Added n files to My files › From this computer" with Open, Undo and that the
+  computer's files stay as they are. Undo moves to the trash only what the run made: the files that landed (their path
+  now: an upload never replaces a file, a same-named one gets a name of its own, so an older file is never touched) and
+  the folders the run made (mkdir answered, not 409), deepest first and only when empty now. The line after it names the
+  date from the trash's own answer (`purgeAt`: the team's trash period, not "30 days"). Closing the dialog while files go
+  up keeps the run (its row on the file screen); the line opens on that run again, so Undo stays reachable.
+- **Exits** (the walk report, PR): the page's dialog ✕ or Escape at any step stops a look still running (`stop()`) and
+  drops the AI's pick; the app's dialog Cancel; Stop while looking (the list so far, "Stopped early"); list Cancel; Allow
+  in Settings (the app opens Files & Folders; the list stays); How (the guide in the browser); Look again; Add; Stop
+  uploading (what went up stays); Open (My files › From this computer); Undo; Close. In the setup, Cancel and an
+  answer of no in the app go back to the step's start.
+- **Not here (slice 1):** the "share to the team" card, "Choose one folder instead", the "Other documents" group, cloud
+  folders, the Mac App Store build.
+- Tests: `web/test/unit/work-files.test.ts` (the entry by version, the list with nothing read, the folders' lines, Select
+  all and its cap, 1 GB, the six languages' personal words and phrases, a run that reads each file once as it goes and
+  names only the folders it made, Undo's scope, the label), `web/test/unit/team-files.test.ts` (the walk keeps no File),
+  `tests/unit/b-onboarding-file-rank.test.ts` (members' own instructions, the fence, the fixed answer, the route for
+  members and admins), `tests/security/lib/onboarding-files-cases.ts` (rankOwnFiles), `web/test/e2e/find-work-files.spec.ts`
+  (a stand-in bridge: Cancel, nothing ticked, the lines, the personal group never sent, search, nothing read before Add,
+  Add and Undo, Select all at 100, no AI, a refused read, every folder blocked and Look again, an older app, the owner's
+  setup into the team home), `web/test/e2e/shots-find-work-files.spec.ts` (screens at 1440 and 390, light and dark).
+- Version impact: **minor** (a new API route for members, new screens).

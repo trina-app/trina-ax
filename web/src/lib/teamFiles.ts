@@ -4,6 +4,8 @@
 // person ticks). The same walk for the three ways in (WalkDir): a File System Access handle (Chrome, Edge: read lazily,
 // so the count goes up and [그만 보기] stops it), a dropped folder (any browser) and the file list of
 // <input webkitdirectory> (Safari, Firefox and the desktop app, which hand over the whole folder at once).
+// No LocalDoc holds a File: each has `open`, called by the upload for the ticked files only (review MUST: the walk keeps
+// names, sizes and dates; contents load at upload time). The desktop app's look (lib/workFiles.ts) gives the same docs.
 // - It stops at 5,000 documents or 50,000 entries walked, 6 folders down, or 15 s (the cut line says so).
 // - Never listed: dot files and folders, system names (isSystemName), app bundles, node_modules, .git, Library,
 //   Office's lock files (~$…).
@@ -15,64 +17,94 @@
 //   then newest. The AI's top 20 come ticked; at most 100 ticked per upload.
 // No API calls here: the step gives them (the "이미 있어요" listing), so the tests need no server.
 import { TEAM_FILES_LIMITS, type RankFileEntry, type TeamFileReason } from '@mycel/shared/api'
-import { isSystemName } from './folderUpload'
+import { considered, neverListed } from '@mycel/shared/file-scan'
 import { extOf, joinPath } from './paths'
 
 const L = TEAM_FILES_LIMITS
 /** `a/b`, or `a` when b is empty (a file at the top of the picked folder) */
 const under = (a: string, b: string) => (b ? joinPath(a, b) : a)
 
-/** The document types considered (FLOW v6 §3.2). */
-export const DOC_TYPES: readonly string[] = ['pdf', 'doc', 'docx', 'hwp', 'hwpx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'key', 'pages', 'numbers', 'txt', 'md', 'rtf']
-const DOCS = new Set(DOC_TYPES)
-const IMAGES = new Set(['png', 'jpg', 'jpeg'])
-/** a folder whose pictures are brand material */
-const brandFolder = (name: string) => /logo|brand|브랜드|로고/i.test(name)
-
-/** Folders never entered (case does not matter). Library is the Mac's app data in a home folder; AppData Windows'. */
-const NEVER = new Set(['node_modules', '.git', 'library', 'appdata'])
-/** App bundles and packages: folders to the browser, one thing to a person. */
-const BUNDLE = /\.(app|appex|bundle|framework|plugin|kext|prefpane|qlgenerator|saver|pkg|mpkg|lproj|xcodeproj|xcworkspace|photoslibrary|photolibrary|musiclibrary|tvlibrary|imovielibrary|fcpbundle)$/i
-
-/** A name the walk never lists. */
-export const neverListed = (name: string) =>
-  name.startsWith('.') || name.startsWith('~$') || isSystemName(name) || NEVER.has(name.toLowerCase()) || BUNDLE.test(name)
-
-/** A file the step considers, by its type and the folder it is in. */
-export function considered(name: string, folders: readonly string[]): boolean {
-  const ext = extOf(name)
-  return DOCS.has(ext) || (IMAGES.has(ext) && folders.some(brandFolder))
-}
+/** The scan rules (types, never-listed names, brand pictures) are shared with the desktop app's look:
+ * shared/src/file-scan.ts. */
+export { considered, DOC_TYPES, neverListed } from '@mycel/shared/file-scan'
 
 // ---------------------------------------------------------------- personal-looking names
 
-/** Korean words matched inside a part of the path. */
-const PERSONAL_KO = ['급여', '월급', '연봉', '임금대장', '인사기록', '인사평가', '인사카드', '인사발령', '주민등록', '주민번호', '신분증', '여권', '이력서', '자기소개서', '경력증명', '재직증명', '원천징수', '연말정산', '건강검진', '진단서', '통장', '계좌', '비밀번호', '개인정보', '가족관계', '근로계약', '퇴직', '징계']
-/** Short Korean words that are personal as a whole part only ("인사" is HR, "인사말" a greeting). */
-const PERSONAL_KO_WHOLE = /^(인사|인사팀|인사부|인사총무|인사자료)$/
-/** English words matched as whole words. */
-const PERSONAL_EN = new Set(['payroll', 'salary', 'salaries', 'payslip', 'payslips', 'paystub', 'paystubs', 'resume', 'cv', 'passport', 'ssn', 'medical', 'password', 'passwords', 'personal', 'private', 'hr', 'w2'])
+// Words and phrases of the six app languages (en, ko, ja, zh, es, id) that mark a file or folder as one person's own:
+// pay, tax, ID papers, CVs, health, banking, family and housing papers, passwords. Matched against every part of the path.
+// Latin-script entries are whole words or whole phrases of consecutive words, without case or accents ("Tax Return
+// 2025.pdf", "declaración de la renta", "slip_gaji"); a phrase never matches its words spread apart ("tax … return").
+// Scripts without spaces (Korean, Japanese, Chinese) match inside a part, except a few short words that are personal only
+// as the whole part ("인사" is HR, "인사말" a greeting). A match only sorts the file into "May be personal": it is never sent to
+// the AI and never ticked by the app; the person may still tick it (HR and finance work with payroll every day).
+
+/** Latin-script words and phrases (lower case, without accents; a phrase is its words with single spaces). */
+const PERSONAL_LATIN = [
+  // en
+  'payroll', 'salary', 'salaries', 'payslip', 'payslips', 'pay slip', 'pay slips', 'paystub', 'paystubs', 'pay stub', 'wage slip', 'w2', 'w 2', '1099',
+  'tax return', 'tax returns', 'bank statement', 'bank statements', 'credit card', 'resume', 'cv', 'curriculum vitae', 'cover letter',
+  'passport', 'id card', 'identity card', 'drivers license', 'driver license', 'driving licence', 'ssn', 'social security', 'birth certificate',
+  'marriage certificate', 'resident registration', 'visa', 'medical', 'medical record', 'medical records', 'prescription', 'insurance claim',
+  'health check', 'lease', 'tenancy', 'mortgage', 'divorce', 'password', 'passwords', 'personal', 'private', 'hr',
+  // es
+  'nomina', 'nominas', 'salario', 'sueldo', 'declaracion de la renta', 'declaracion de impuestos', 'extracto bancario', 'cuenta bancaria',
+  'tarjeta de credito', 'curriculum', 'pasaporte', 'dni', 'nie', 'carnet de conducir', 'permiso de conducir', 'partida de nacimiento',
+  'historial medico', 'informe medico', 'receta medica', 'seguro medico', 'vida laboral', 'contrato de alquiler', 'hipoteca', 'divorcio',
+  'contrasena', 'contrasenas', 'personal', 'privado',
+  // id
+  'gaji', 'slip gaji', 'rincian gaji', 'ktp', 'npwp', 'paspor', 'kartu keluarga', 'akta kelahiran', 'akta nikah', 'surat nikah', 'buku tabungan',
+  'rekening koran', 'mutasi rekening', 'kartu kredit', 'daftar riwayat hidup', 'riwayat hidup', 'rekam medis', 'surat keterangan sehat',
+  'hasil lab', 'bpjs', 'spt tahunan', 'pajak penghasilan', 'surat cerai', 'kata sandi', 'pribadi', 'rahasia',
+]
+const PERSONAL_PHRASES: readonly string[][] = PERSONAL_LATIN.map((p) => p.split(' '))
+/** Korean, Japanese and Chinese words matched inside a part of the path. */
+const PERSONAL_CJK = [
+  // ko
+  '급여', '월급', '연봉', '임금대장', '인사기록', '인사평가', '인사카드', '인사발령', '주민등록', '주민번호', '신분증', '운전면허', '여권', '비자', '이력서', '자기소개서',
+  '경력증명', '재직증명', '원천징수', '연말정산', '종합소득세', '건강검진', '진단서', '처방전', '보험금', '통장', '계좌', '카드명세서', '비밀번호', '개인정보', '가족관계',
+  '혼인관계', '등본', '초본', '근로계약', '임대차', '전세계약', '월세계약', '이혼', '퇴직', '징계',
+  // ja
+  '給与', '給料', '給与明細', '賞与', '源泉徴収', '確定申告', '年末調整', '履歴書', '職務経歴書', 'パスポート', '旅券', 'マイナンバー', '住民票', '戸籍', '免許証',
+  '身分証', '健康診断', '診断書', '処方箋', '保険証', '通帳', '口座', '明細書', '賃貸契約', '離婚', 'パスワード', '個人情報',
+  // zh
+  '工资', '工资单', '薪资', '薪水', '薪酬', '奖金', '个税', '个人所得税', '纳税', '简历', '护照', '签证', '身份证', '户口', '驾照', '驾驶证', '体检', '病历', '诊断书',
+  '处方', '社保', '公积金', '银行卡', '银行流水', '对账单', '信用卡', '租房合同', '租赁合同', '离婚', '密码', '个人信息', '隐私',
+]
+/** Short words that are personal only as the whole part ("인사" is HR, "인사말" a greeting). */
+const PERSONAL_WHOLE = /^(인사|인사팀|인사부|인사총무|인사자료|人事|人事部|人事资料)$/
+
+/** A Latin part as words: lower case, without accents and apostrophes ("Driver's License" → drivers, license). */
+const latinWords = (part: string) => part.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/['\u2019]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
+/** the phrase's words one after the other in `words` */
+const hasPhrase = (words: readonly string[], phrase: readonly string[]) => {
+  for (let i = 0; i + phrase.length <= words.length; i++) if (phrase.every((w, j) => words[i + j] === w)) return true
+  return false
+}
 
 /** A part of the path (a folder or the file name) looks personal. */
-function personalPart(part: string): boolean {
+export function personalPart(part: string): boolean {
   const s = part.normalize('NFC').replace(/\.[a-z0-9]+$/i, '').trim()
   if (!s) return false
-  if (PERSONAL_KO_WHOLE.test(s)) return true
-  if (PERSONAL_KO.some((w) => s.includes(w))) return true
-  return s.toLowerCase().split(/[^a-z0-9]+/).some((w) => PERSONAL_EN.has(w))
+  if (PERSONAL_WHOLE.test(s)) return true
+  if (PERSONAL_CJK.some((w) => s.includes(w))) return true
+  const words = latinWords(s)
+  return PERSONAL_PHRASES.some((p) => hasPhrase(words, p))
 }
 /** Any part of the path looks personal (인사/급여/2026-10.xlsx), the picked folder's own name included. */
 export const personalPath = (rel: string) => rel.split('/').some(personalPart)
 
 // ---------------------------------------------------------------- the walk
 
-/** A folder as the walk sees it: its entries, names first; a file is opened (for its size and date) only when it is a
- * document. */
+/** A folder as the walk sees it: its entries, names first; a file's size and date are asked for (`stat`) only when it is a
+ * document, and its content (`open`) only by the upload. */
 export interface WalkDir {
   readonly name: string
   entries(): AsyncIterable<WalkEntry>
 }
-export type WalkEntry = { kind: 'directory'; name: string; dir: () => WalkDir } | { kind: 'file'; name: string; file: () => Promise<File> }
+export type WalkEntry = { kind: 'directory'; name: string; dir: () => WalkDir } | { kind: 'file'; name: string; stat: () => Promise<FileMeta>; open: () => Promise<File> }
+/** a file's size and date (ms) */
+export interface FileMeta { size: number; modified: number }
+const metaOf = (f: File): FileMeta => ({ size: f.size, modified: f.lastModified })
 
 /** One document of the list. `rel` is the path inside the picked folder; in the team folder it goes to
  * `<place>/<pick>/<rel>` (the picked folder's own name first, as the file screen's folder upload does). */
@@ -86,7 +118,8 @@ export interface LocalDoc {
   ext: string
   size: number
   modified: number
-  file: File
+  /** its content, read when it goes up (never by the walk or the list) */
+  open: () => Promise<File>
   personal: boolean
 }
 
@@ -146,12 +179,12 @@ export async function walkFolder(root: WalkDir, o: WalkOptions = {}): Promise<Wa
         }
         // the picked folder's own name counts too (a picked 브랜드 folder's logos; a picked 인사 folder is personal)
         if (!considered(name, [pick, ...folders])) continue
-        let file: File
-        try { file = await e.file() } catch { out.unreadable++; continue }
-        if (file.size > lim.fileBytes) { out.tooBig++; continue }
+        let meta: FileMeta
+        try { meta = await e.stat() } catch { out.unreadable++; continue }
+        if (meta.size > lim.fileBytes) { out.tooBig++; continue }
         const folder = folders.join('/')
         const rel = joinPath(folder, name)
-        out.docs.push({ key: `${pick}/${rel}`, pick, rel, name, folder, ext: extOf(name), size: file.size, modified: file.lastModified, file, personal: personalPath(joinPath(pick, rel)) })
+        out.docs.push({ key: `${pick}/${rel}`, pick, rel, name, folder, ext: extOf(name), size: meta.size, modified: meta.modified, open: e.open, personal: personalPath(joinPath(pick, rel)) })
         report()
       }
     } catch {
@@ -181,7 +214,11 @@ export function dirFromHandle(h: DirHandleLike): WalkDir {
     async *entries() {
       for await (const [name, child] of h.entries()) {
         if (child.kind === 'directory') yield { kind: 'directory', name, dir: () => dirFromHandle(child as unknown as DirHandleLike) }
-        else yield { kind: 'file', name, file: () => (child as unknown as FileHandleLike).getFile() }
+        else {
+          const fh = child as unknown as FileHandleLike
+          // the size and date from a File snapshot that is let go at once; the upload asks for a fresh one
+          yield { kind: 'file', name, stat: () => fh.getFile().then(metaOf), open: () => fh.getFile() }
+        }
       }
     },
   }
@@ -212,7 +249,10 @@ export function dirFromEntry(e: DirEntryLike): WalkDir {
         if (!batch.length) return
         for (const x of batch) {
           if (x.isDirectory) yield { kind: 'directory', name: x.name, dir: () => dirFromEntry(x as DirEntryLike) }
-          else if (x.isFile) yield { kind: 'file', name: x.name, file: () => new Promise<File>((ok, no) => (x as FileEntryLike).file(ok, no)) }
+          else if (x.isFile) {
+            const open = () => new Promise<File>((ok, no) => (x as FileEntryLike).file(ok, no))
+            yield { kind: 'file', name: x.name, stat: () => open().then(metaOf), open }
+          }
         }
       }
     },
@@ -226,7 +266,7 @@ function dirOfTree(name: string, t: Tree): WalkDir {
     name,
     async *entries() {
       for (const [n, d] of t.dirs) yield { kind: 'directory', name: n, dir: () => dirOfTree(n, d) }
-      for (const [n, f] of t.files) yield { kind: 'file', name: n, file: async () => f }
+      for (const [n, f] of t.files) yield { kind: 'file', name: n, stat: async () => metaOf(f), open: async () => f }
     },
   }
 }

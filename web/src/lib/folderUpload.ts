@@ -19,9 +19,13 @@ export const DROP_DEPTH_MAX = 64
  * dot files stay: a project needs its .gitignore. */
 export { isSystemName } from '@mycel/shared/api'
 
+/** A file that goes up: a File the browser gave, or one whose content is read only when it goes (`open`: the welcome
+ * step's list and the desktop app's look keep no File, docs/DECISIONS.md "Find work files on this computer"). */
+export type PlanFile = { rel: string; file: File } | { rel: string; size: number; open: () => Promise<File> }
+
 /** What goes up. Each `rel` is relative to the folder that receives the upload and starts with the folder's own name. */
 export interface FolderPlan {
-  files: { rel: string; file: File }[]
+  files: PlanFile[]
   /** folders with no file in them: only a drop shows these, the picker gives files only */
   folders: string[]
   /** could not be read from the disk */
@@ -129,6 +133,8 @@ export interface FolderUploadCalls {
   /** drop what the server holds of an unfinished file */
   discard(file: File, path: string): Promise<unknown>
   concurrency?: number
+  /** a folder this run made (not one that was there): what Undo may take back with the files */
+  onMade?: (path: string) => void
 }
 
 /** Why a file failed before any request: 'unreadable', 'tooLarge', or a name problem (paths.ts). */
@@ -168,6 +174,8 @@ export interface FolderUploadView {
 interface Item {
   rel: string
   file?: File
+  /** read the content when it goes (a PlanFile with `open`); kept on the item after, until it is up */
+  open?: () => Promise<File>
   /** a folder with no file in it */
   folder?: boolean
   size: number
@@ -203,12 +211,12 @@ export class FolderUpload {
   private skipped: number
 
   constructor(plan: FolderPlan, readonly base: string, private calls: FolderUploadCalls, private onChange: () => void = () => {}) {
-    const entry = (rel: string, size: number, file?: File): Item => {
+    const entry = (rel: string, size: number, file?: File, open?: () => Promise<File>): Item => {
       const local = localRefusal(rel, size, calls.maxFileSize)
-      return { rel, file, size, state: local ? 'failed' : 'queued', loaded: 0, phase: null, local }
+      return { rel, file, open, size, state: local ? 'failed' : 'queued', loaded: 0, phase: null, local }
     }
     this.items = [
-      ...plan.files.map((f) => entry(f.rel, f.file.size, f.file)),
+      ...plan.files.map((f) => ('file' in f ? entry(f.rel, f.file.size, f.file) : entry(f.rel, f.size, undefined, f.open))),
       ...plan.folders.map((rel): Item => ({ ...entry(rel, 0), folder: true })),
       ...plan.unreadable.map((rel): Item => ({ rel, size: 0, state: 'failed', loaded: 0, phase: null, local: 'unreadable' })),
     ]
@@ -250,7 +258,7 @@ export class FolderUpload {
   /** Each file as it is now (the welcome step's rows, docs/DECISIONS.md "W6"): its path inside the receiving folder, size,
    * state and bytes sent; `queued` after the run ended means it never went (stopped). Folders are left out. */
   rows(): { rel: string; size: number; state: Item['state']; loaded: number; local?: LocalRefusal; error?: unknown; file?: File }[] {
-    return this.items.filter((i) => !i.folder).map((i) => ({ rel: i.rel, size: i.size, state: i.state, loaded: i.loaded, local: i.local, error: i.error, file: i.file }))
+    return this.items.filter((i) => !i.folder).map((i) => ({ rel: i.rel, size: i.size, state: i.state, loaded: i.loaded, local: i.local, error: i.error, file: i.open ? undefined : i.file }))
   }
 
   /** Send what is queued. Ends when all of it is done or failed, or at a refusal. */
@@ -308,13 +316,28 @@ export class FolderUpload {
       item.state = 'active'
       this.onChange()
       try {
-        await this.ensure(item.file ? parentPath(item.rel) : item.rel)
-        if (item.file) {
-          await this.calls.upload(item.file, joinPath(this.base, item.rel), signal, (p) => {
+        const isFile = !!(item.file || item.open)
+        await this.ensure(isFile ? parentPath(item.rel) : item.rel)
+        if (isFile) {
+          // content read now, not before (the desktop app's read by id, a handle's getFile): one that cannot be read
+          // any more (moved, changed, a limit) fails here and trying again does not help
+          if (!item.file && item.open) {
+            try {
+              item.file = await item.open()
+            } catch {
+              item.state = 'failed'
+              item.local = 'unreadable'
+              this.onChange()
+              continue
+            }
+          }
+          await this.calls.upload(item.file!, joinPath(this.base, item.rel), signal, (p) => {
             item.phase = p.phase
             if (p.phase !== 'hashing') item.loaded = p.loaded
             this.onChange()
           })
+          // what was read on demand goes once it is up (a run keeps its rows until sign-out)
+          if (item.open) item.file = undefined
         }
         item.state = 'done'
       } catch (e) {
@@ -347,6 +370,7 @@ export class FolderUpload {
     const signal = this.abort.signal
     try {
       await this.calls.mkdir(path, signal)
+      this.calls.onMade?.(path)
     } catch (e) {
       // 409: the folder is there, or a file has the name, or a name that differs only in case: only the first is used
       if ((e as { code?: unknown } | null)?.code !== 'conflict' || !(await this.calls.isFolder(path, signal))) throw e

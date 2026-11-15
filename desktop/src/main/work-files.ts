@@ -116,6 +116,9 @@ export class WorkFilesController {
       const yes = await this.consent(win, roots)
       this.quietUntil = Date.now() + COOLDOWN_MS
       if (!yes) return { state: 'cancelled' }
+      // a stop sent while the dialog was up (the page's dialog closed and opened again, React's double start in
+      // development) is for no look: the look starts now
+      this.stopped = false
       if (generation !== this.generation) return { state: 'cancelled' }
       const r = await scanRoots(roots, NODE_WORK_FS, {
         platform: process.platform,

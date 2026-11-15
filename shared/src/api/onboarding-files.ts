@@ -75,6 +75,8 @@ export type TeamFilesLandedResult = z.infer<typeof TeamFilesLandedResult>
 export const ONBOARDING_FILES = {
   rankTeamFiles: endpoint({ method: 'POST', path: '/api/onboarding/files/rank', auth: 'admin', owner: 'B', body: RankTeamFiles, response: RankedTeamFiles,
     summary: 'The AI\'s picks among files of a folder the caller picked (owners and admins): names, paths inside the folder, types, sizes and dates only, never content. A turn of the caller with no tool at all; answers within 30 s (timeout otherwise), its chat deleted after.' }),
+  rankOwnFiles: endpoint({ method: 'POST', path: '/api/onboarding/files/rank-own', auth: 'user', owner: 'B', body: RankTeamFiles, response: RankedTeamFiles,
+    summary: 'The AI\'s picks among files the desktop app found on the caller\'s computer (Documents, Desktop, Downloads), for the caller\'s own folder: names, folders, types, sizes and dates only, never content. Anyone in the team but guests; a turn of the caller (their AI, their budget) with no tool at all; answers within 30 s (timeout otherwise), its chat deleted after.' }),
   teamFilesLanded: endpoint({ method: 'POST', path: '/api/onboarding/files/landed', auth: 'admin', owner: 'B', body: TeamFilesLanded, response: TeamFilesLandedResult,
     summary: 'A file of the welcome step\'s upload run landed (owners and admins): records the team files step done in the welcome steps, once, when the file is in a group folder the caller can read.' }),
 } as const
