@@ -52,7 +52,7 @@ import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, useCopy, useMediaQuery } from '../ui'
 import { useAutoGrow } from '../../lib/autoGrow'
-import { failedEdits, hasRoomBox, useRoomEdit } from '../../store/roomEdit'
+import { failedEdits, focusRoomBox, hasRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
@@ -173,6 +173,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
     if (!phone || !hasRoomBox(place)) return setEditing(m.id)
     setEditing(null)
     useRoomEdit.getState().start(place, m.id)
+    focusRoomBox(place)
     // the message stays in sight above the box (the keyboard comes up)
     requestAnimationFrame(() => list.current?.querySelector<HTMLElement>(`[id="${messageDomId(m.id)}"]`)?.scrollIntoView({ block: 'nearest' }))
   }

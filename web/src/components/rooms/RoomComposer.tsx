@@ -44,7 +44,7 @@ import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
-import { failedEdits, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
+import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { usePeople } from '../../store/people'
 import { fitHeight } from '../../lib/autoGrow'
 import { allMentionNames, lineBreaks, type PickedMention } from '../../lib/rooms'
@@ -210,19 +210,21 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
   // (into one box: the first to take it)
   const back = useRooms((s) => s.returned[key])
+  // an edit that just closed puts the reply back on the next render: a returned send waits for it (then goes before it)
+  const [backAgain, setBackAgain] = useState(0)
   useEffect(() => {
-    // (after an edit: the send comes back into the reply being written)
     if (editing || !back || useRooms.getState().returned[key] !== back) return
+    if (justHeld.current) return void setTimeout(() => setBackAgain((n) => n + 1))
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
     if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
     input.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [back, editing])
+  }, [back, editing, backAgain])
 
   // this place has a box on screen: a phone's edit comes here (the last box to go ends it)
-  useEffect(() => registerRoomBox(key), [key])
+  useEffect(() => registerRoomBox(key, () => input.current?.focus({ preventScroll: true })), [key])
   // an edit this box cannot take (a computer's width now, the message gone) ends
   useEffect(() => {
     if (editId && !editing) useRoomEdit.getState().end(key)
@@ -263,6 +265,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       held.current = null
       justHeld.current = h
       queueMicrotask(() => void (justHeld.current = null))
+      // the reply coming back is no "typing"
+      typedBefore.current = h?.text ?? ''
       mentionNow.current.restore(h?.text ?? '', h?.picked ?? [])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -403,7 +407,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     void useRooms.getState().edit(roomId, m.id, body, mentions, all).then((ok) => {
       if (ok) return
       failedEdits.set(m.id, { text: typed, mentions })
-      if (!useRoomEdit.getState().editing[key]) useRoomEdit.getState().start(key, m.id)
+      // (this place's box still on screen: else the message keeps its old text, with the toast)
+      if (!useRoomEdit.getState().editing[key] && hasRoomBox(key)) useRoomEdit.getState().start(key, m.id)
       setTimeout(() => failedEdits.delete(m.id), 1000)
     })
   }
