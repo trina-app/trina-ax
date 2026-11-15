@@ -82,6 +82,9 @@ test('"Keep using this account" goes Home and signs nobody out', async () => {
 test('a guest link says it is for a guest from outside the team, not for someone who joins the team (QA TC-2224)', async () => {
   inviteRole = 'guest'
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  // the first test's sign-out picks the stored language, which another test file may have left (CI showed Korean), and
+  // switches once that file loads: setLocale makes English the latest choice, so that late switch does not happen
+  useLocaleStore.getState().setLocale('en')
   const m = await mount(page())
   try {
     await m.until(() => document.body.textContent?.includes('a guest from outside the team') || null, 'the guest sentence')
