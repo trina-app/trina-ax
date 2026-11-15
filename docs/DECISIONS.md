@@ -29221,3 +29221,37 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
 - Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
   (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
   additive API and bridge fields).
+
+## What the AI sends to a connected service never holds a stored key (fix/connection-tools-hide-keys, 2026-11-15)
+
+- **Problem (QA tracking TC-3081).** The AI could put a person's stored connection key into a call to a connected
+  service (an MCP tool, Gmail, Drive, Notion, api_request). The card showed the arguments with the key hidden (chat/turn.ts
+  redacts a card's details), but the call sent the key itself: the person approved one thing and the service got another.
+- **Decision: hidden before the cards and the call.** The hook of the entry above (`TurnToolSet.hideKeys`, run first in
+  mcp/protocol.ts) gives every tool a provider adds to the turn (the connections' tools, api_request, call_tool, Slack's
+  reads; chat/tools.ts `outside`) to `hideAllArgs` (integrations/connections/hide-args.ts): every value and field name
+  through the turn's redactor. So the room card, the connection's card and the call all see the same arguments, and
+  the service gets [hidden key] where the AI wrote the key. The AI is told it was sent as [hidden key]
+  (KEYS_SENT_HIDDEN_NOTE). An api_request path that would hold [hidden key] is refused as before (spaces are not allowed).
+- **Data that must arrive as it is.** A changed value that is base64 data (64+ base64 characters once its whitespace
+  is taken out: a Gmail attachment's `content`, an upload, wrapped at any width) is not sent with a hole in it: the
+  whole call is refused (KeyRefusal), the AI is told why, and the audit line says "not sent (a stored key in its
+  data)". The redactor's patterns do not match across whitespace, so every value is also checked with its whitespace
+  taken out: a key that shows only then (base64 wrapped across lines, a key cut by a space or a line break) refuses the
+  call too (security review of #981). The check runs on what would be sent (after hiding), so a whole copy that was
+  hidden does not let a split copy in the same text go out.
+- **Fails closed.** Calls to connected services are checked with `completeRedactorFor` (every stored secret of the
+  person, read now); when one cannot be read the call is not sent, the AI is told so in a plain line and the audit
+  line says "not sent (stored keys could not be read)". The saving tools of the entry above keep the turn's redactor.
+- **Sign-in is not an argument.** A connection's own key or token goes in a header (service.ts authHeaders), an admin's
+  query in the connection address; neither passes through the arguments, so both keep working. Checked: no connection
+  tool, Google app tool or api_request takes a stored key in its arguments.
+- **#971 review points.** write now looks up the file it overwrites at the path it really writes (the hidden one), so a
+  key form is kept only when that file holds it. Not changed: a tool call lets out the held answer text. The engines
+  join text blocks around a tool call with a blank line (claude-parse.ts, codex-parse.ts), so the halves of a base64
+  form cut by a call are never one form, held or not; hiding that needs base64 patterns that allow line breaks
+  (hide.ts), left for its own change.
+- **Not in this change: TC-3082** (a start-up scan that tells owners which AI-made files still hold a stored key): its
+  own PR.
+- Tests: `tests/unit/c-integrations-secret-sends.test.ts` (a fake MCP connection and a fake HTTP API through net.ts
+  testAllow). Version impact: **patch** (a security fix; no new feature or API change).
