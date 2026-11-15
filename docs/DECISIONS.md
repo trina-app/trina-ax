@@ -29181,5 +29181,11 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
   a later save can't take back: people taken out (they lose access and their running turns stop; a guest's account is
   switched off), a save that writes a rule nobody chose here (the floor rule, the creator's rule back), and "Add me"
   (its members are told). A dry run that says more than the lines shown brings the confirm back.
+- **How it reads (coordinator, after the screenshots).** One finding per line in the box (a short list when there are
+  several), "Show answers ›" after them. Korean names take 님 instead of particle marks: "Bob 님이 열 수 없는 파일", "Bob 님은
+  열 수 없는 곳" (`share.who.picked`; the other share strings too: widening list, "Shared with", "keeps access").
+- **My earlier files always show (security review).** When a first share copies my earlier computer uploads, their line
+  is always on screen, a line of its own, never folded into the "couldn't be checked" line. The Members dialog compares the
+  whole lines it showed with the save's dry run, not only counts.
 - Not here: Admin › Groups (someone joining a group widens silently, accepted 2026-11-14).
 - Version impact: **minor**.
