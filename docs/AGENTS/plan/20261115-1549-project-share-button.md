@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-15 15:49
 - Branch: `feat/project-share-button`
 - Status: in progress
-- QA: TC-3283
+- QA: TC-3283 (project), the next row (chat)
 - Where: Team AX core, web only (`web/src/pages/Projects.tsx`, `web/src/components/NewProjectDialog.tsx`,
   `web/src/components/ProjectParticipants.tsx`, `web/src/components/chat/ChatProject.tsx`, `web/src/i18n/*`, tests,
   `docs/site/use/chats-and-projects.md`, `docs/DECISIONS.md`). Why: projects and sharing are core
@@ -137,6 +137,25 @@ wording and the docs (3), the mock (5), the same-name line (6), the admins-only 
 one-line dialog edit and `projects.members.add` kept (8), the spec list (9), no guest branch (11), opt-in field (12).
 Confirmed: create-with-people runs the same server checks as sharing (4); the hide rule matches the server in every
 case (7); the phone row (10).
+
+## Added scope (owner, 2026-11-15): Share on a chat too
+
+A chat had no Share button either: sharing it was only in the title menu. Same pattern, same PR, one shared component.
+
+- `components/HeaderShare.tsx`: who can see it, then **Share**, at the right of a title row; `icon` for a phone's top
+  bar. Used by the project's title row and the chat's header.
+- **Chat, computer:** at the right of the chat header: who sees it ("Only me", "3 people", "Shared chat"; a shared
+  project chat shows its project's faces) and Share.
+- **What Share opens:** what the title menu's Share opened (`shareKindOf`): the Share dialog of my chat outside
+  projects (#976's one-press dialog once it lands), the members' share of my private chat in a team project, the
+  explanation with Move for a chat in a personal project. On a shared project chat: the project's members dialog, for
+  whoever may change them (what the line under the box opens today).
+- **Can't share → hidden**, as on the project: someone else's shared chat, a shared project chat whose members I can't
+  change, a chat in the trash, safe operations. Who sees it stays (the faces open the read-only list).
+- **Phone (390):** the Share icon in the top bar, beside the new-chat ✦ (no words: the line under the box says who sees
+  it).
+- **The title menu's Share goes**: one place is enough. The list rows' ⋯ keep theirs (a shortcut on a list, not on the
+  chat itself).
 
 ## Steps
 

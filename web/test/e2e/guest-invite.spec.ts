@@ -163,7 +163,7 @@ test("a project's creator invites from the members dialog; the link's page says 
   const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'olga' } })
   const { id } = (await r.json()) as { id: string }
   await page.goto(`/projects/${id}`)
-  await page.getByTestId('project-members-manage').click()
+  await page.getByTestId('project-share').click()
   await page.getByTestId('invite-guest-row').click()
   await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 프로젝트만")
   await page.getByTestId('guest-invite-name').fill('Alex at Acme')
@@ -247,7 +247,7 @@ test("a project's members dialog: a guest of a room shows greyed out in the sear
   const r = await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })
   const { id } = (await r.json()) as { id: string }
   await page.goto(`/projects/${id}`)
-  await page.getByTestId('project-members-manage').click()
+  await page.getByTestId('project-share').click()
   await page.getByTestId('project-participants-search').fill('Gina')
   const row = page.getByTestId('participant-elsewhere-user-gina')
   await expect(row).toContainText("'견적 준비' 방에 있어요")

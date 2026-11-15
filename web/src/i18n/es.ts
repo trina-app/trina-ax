@@ -5627,6 +5627,8 @@ export const es: Record<MessageKey, string> = {
   "projects.page.uploadFiles": "Subir archivos",
   "projects.members.onlyMe": "Solo yo",
   "projects.members.add": "Añadir personas",
+  "projects.share": "Compartir",
+  "projects.newPeople": "Personas (opcional)",
   "projects.shareAdminsOnly": "En este equipo solo el propietario y los administradores comparten proyectos con otras personas.",
   "projects.deletePersonal": "Solo se elimina el proyecto. Sus archivos se quedan en Mis archivos › Proyectos.",
   "projects.sharedNow": "'{name}' ya está compartido.",

@@ -71,8 +71,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
     async function openShare(page: Page, chatId: string) {
       await page.goto(`/c/${chatId}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await page.getByTestId('chat-menu').click()
-      await expect(page.getByTestId('chat-share')).toHaveText('공유')
+      await expect(page.getByTestId('chat-share')).toHaveAccessibleName('공유')
       await page.getByTestId('chat-share').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog.getByTestId('chat-share-dialog')).toBeVisible()
@@ -146,8 +145,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       }
       await expect(bob).toHaveURL(new RegExp(`/c/${w.chatId}`))
       // no Share for him; he may hide it, and continue it
-      await bob.getByTestId('chat-menu').click()
       await expect(bob.getByTestId('chat-share')).toHaveCount(0)
+      await bob.getByTestId('chat-menu').click()
       await expect(bob.getByTestId('chat-hide')).toBeVisible()
       await expect(bob.getByTestId('chat-continue-privately')).toBeVisible()
       await bob.keyboard.press('Escape')
@@ -360,7 +359,6 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const projectId = ((await r.json()) as { id: string }).id
       const c = await chatOf(page, 'Personal notes', projectId)
       await page.goto(`/c/${c.chatId}`)
-      await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-share').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog.getByTestId('chat-share-personal')).toContainText('개인 프로젝트의 채팅은 나만 봐요')
@@ -479,7 +477,6 @@ test.describe('the Share dialog\'s buttons at 390 in every language', () => {
       expect((await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { memoryAnswers: 2, fileAnswers: 3, places: [{ kind: 'mine' }] } } })).ok()).toBeTruthy()
       await page.goto(`/c/${w.chatId}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-share').click()
       const dialog = page.getByRole('dialog')
       await page.getByTestId('chat-share-picker-search').fill('Bob')

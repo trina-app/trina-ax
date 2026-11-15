@@ -68,8 +68,9 @@ test('the owner\'s case: every count is the members, the owner and admins only w
   await shareConfirmed(d)
   await expect(d.getByRole('heading', { level: 1, name: '견적서 제작' })).toBeVisible()
   const id = d.url().split('/').pop()!
-  await expect(d.getByTestId('project-members')).toContainText('멤버3명')
-  await d.getByTestId('project-members-manage').click()
+  // the title row: their faces and Share (docs/DECISIONS.md "Share in the project's title row")
+  await expect(d.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(3)
+  await d.getByTestId('project-share').click()
   // one count, me included, the same as the Add people dialog's; no second list of the same people (QA TC-1065)
   await expect(d.getByTestId('project-access-summary')).toHaveText('3명')
   await expect(d.getByTestId('project-people-count')).toHaveCount(0)
@@ -79,7 +80,7 @@ test('the owner\'s case: every count is the members, the owner and admins only w
   // Bob, a member in the group (not its creator): the same 3
   const b = await asBob(browser)
   await b.goto(`/projects/${id}`)
-  await expect(b.getByTestId('project-members')).toContainText('3명')
+  await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(3)
   const seen = (await (await b.request.get(`/api/projects/${id}`)).json()) as Record<string, unknown>
   expect(seen.audience).toBe(3)
   expect(seen).not.toHaveProperty('audienceSplit')
@@ -126,17 +127,17 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!
 
-  // the 멤버 line says how many see it (Bob and Sora: the owner is no member); the edit dialog no longer holds the members
-  await expect(b.getByTestId('project-members')).toContainText('2명')
+  // the title row shows who is in it (Bob and Sora: the owner is no member); the edit dialog no longer holds the members
+  await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-edit').click()
   await expect(b.getByRole('dialog').getByTestId('project-participants')).toHaveCount(0)
   await b.getByRole('dialog').getByRole('button', { name: '취소' }).click()
 
-  // someone else put a file there; Bob adds Jiwoo from the 멤버 line: what she will see, in place
+  // someone else put a file there; Bob adds Jiwoo with Share: what she will see, in place
   expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/notes.md', text: '# notes\n' } })).ok()).toBeTruthy()
   expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/skills/견적서/SKILL.md', text: '---\nname: 견적서\ndescription: 견적서 초안\n---\n' } })).ok()).toBeTruthy()
-  await b.getByTestId('project-members-manage').click()
+  await b.getByTestId('project-share').click()
   await expect(b.getByRole('dialog')).toContainText('멤버 · 주간 보고')
   await expect(b.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'fixed')
   await expect(b.getByTestId('participant-user-sora')).toHaveAttribute('data-state', 'member')
@@ -153,10 +154,10 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByRole('dialog')).toHaveCount(0)
   const access = await (await b.request.get(`/api/projects/${id}/access`)).json() as { participants: { subjectId: string }[] }
   expect(access.participants.map((x) => x.subjectId)).toEqual(['bob', 'sora', 'jiwoo'])
-  await expect(b.getByTestId('project-members')).toContainText('3명')
+  await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(3)
 
   // taking someone out: struck through until the save, then a confirm that names who loses access (QA TC-1067)
-  await b.getByTestId('project-members-manage').click()
+  await b.getByTestId('project-share').click()
   await b.getByTestId('participant-remove-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toHaveAttribute('data-state', 'removed')
   await b.getByTestId('project-members-save').click()
@@ -164,7 +165,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('dialog-confirm').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   expect(((await (await b.request.get(`/api/projects/${id}/access`)).json()) as { participants: { subjectId: string }[] }).participants.map((x) => x.subjectId)).toEqual(['bob', 'jiwoo'])
-  await expect(b.getByTestId('project-members')).toContainText('2명')
+  await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
 
   // deleting it moves it to the trash with its folder (no box to tick); its creator keeps it there, with Restore (QA TC-1062)
   await b.getByTestId('project-menu').click()
@@ -185,15 +186,17 @@ test('who cannot change the members reads who does; the list card\'s ⋯ 멤버 
   await signIn(page)
   const r = await page.request.post('/api/projects', { headers: H, data: { name: '견적', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
   const id = ((await r.json()) as { id: string }).id
-  // Bob is in it but did not make it: the line opens to say who changes the members, by name; no 관리, no ⋯ 멤버
+  // Bob is in it but did not make it: no Share; the faces open the list, which says who changes the members, by name;
+  // no ⋯ 멤버
   const b = await asBob(browser)
   await b.goto(`/projects/${id}`)
-  await expect(b.getByTestId('project-members')).toContainText('2명')
-  await expect(b.getByTestId('project-members-manage')).toHaveCount(0)
-  await b.getByTestId('project-members-toggle').click()
-  await expect(b.getByTestId('project-members-hint')).toHaveText('멤버는 Olga님(만든 사람)이나 관리자가 바꿔요.')
+  await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
+  await expect(b.getByTestId('project-share')).toHaveCount(0)
+  await b.getByTestId('project-header-open').click()
+  await expect(b.getByRole('dialog').getByTestId('project-members-locked')).toHaveText('멤버는 Olga님(만든 사람)이나 관리자가 바꿔요.')
+  await b.getByRole('dialog').getByRole('button', { name: '닫기' }).first().click()
   await b.goto(`/projects/${id}?members=1`)
-  await expect(b.getByTestId('project-members')).toBeVisible()
+  await expect(b.getByTestId('project-share-row')).toBeVisible()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   await expect(b).toHaveURL(new RegExp(`/projects/${id}$`))
   await b.goto('/projects')

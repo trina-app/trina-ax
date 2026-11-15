@@ -4,7 +4,7 @@
 // role-blind check, sent only to someone who may read the project's rules; only a project made before outside projects/,
 // docs/DECISIONS.md "Project contents only for members"), and otherwise how many see it ("멤버 N명"). It opens the members dialog only for a shared chat (or a box whose new chat will be shared)
 // whose members the person may change, and its tooltip says so; never for a personal project or a chat of one person.
-// The project page's 멤버 line says the same words by the same rule.
+// The project page's title row (who sees it, beside Share) says the same words by the same rule.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Me, Project } from '@mycel/shared/api'
@@ -12,7 +12,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { whoSees } from '../../src/lib/sharedChat'
 import { WhoSeesLine } from '../../src/components/chat/WhoSees'
 import { NewChatComposer } from '../../src/components/chat/NewChatComposer'
-import { MembersRow } from '../../src/pages/Projects'
+import { ProjectShareRow } from '../../src/pages/Projects'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -144,65 +144,52 @@ describe('the project box', () => {
   })
 })
 
-describe('the project page\'s 멤버 line: members only in projects/, the same words as the box elsewhere', () => {
-  const row = async (p: Project, role: 'owner' | 'admin' | 'member') => {
+describe('the project page\'s title row: who sees it and Share, the same words as the box elsewhere', () => {
+  const person = (id: string, name: string) => ({ id, name, creator: id === 'mia' })
+  const row = async (p: Project, role: 'owner' | 'admin' | 'member', o: { people?: { people: ReturnType<typeof person>[] } | null | false; canShare?: boolean; adminsOnly?: boolean } = {}) => {
     useSession.setState({ status: { kind: 'signed-in', me: meAs(role) } } as never)
-    const m = await mount(<MemoryRouter><MembersRow project={p} sideAction="" onManage={() => {}} /></MemoryRouter>)
+    let opened = 0, shared = 0
+    const m = await mount(<MemoryRouter><ProjectShareRow project={p} people={(o.people ?? false) as never} canShare={o.canShare ?? false} adminsOnly={o.adminsOnly ?? false} onShare={() => { shared++ }} onOpen={() => { opened++ }} /></MemoryRouter>)
     try {
-      const line = m.get('project-members')
-      // the box's line for a project whose new chat is shared, to compare
-      const box = await mount(<WhoSeesLine shared={p} place="new" />)
-      const boxText = box.get('who-sees').textContent
-      await box.unmount()
-      return { row: line.textContent ?? '', box: boxText }
+      const who = m.find('project-who-sees')
+      const r = { who: who?.textContent ?? null, whoTag: who?.tagName ?? null, faces: !!m.find('project-header-open'), share: !!m.find('project-share'), adminsOnly: m.find('project-share-admins-only')?.textContent ?? null, row: !!m.find('project-share-row'), opened: 0, shared: 0 }
+      if (who?.tagName === 'BUTTON') { await m.click('project-who-sees'); r.opened = opened }
+      if (r.faces) { await m.click('project-header-open'); r.opened = opened }
+      if (r.share) { await m.click('project-share'); r.shared = shared }
+      return r
     } finally { await m.unmount() }
   }
 
-  test('a team project in projects/ (docs/DECISIONS.md "Project contents only for members"): only me, else its members', async () => {
-    // the owner alone: 1, as the box says
-    const owner = await row(project({ audience: 1, alone: true }), 'owner')
-    expect(owner.row).toContain('나만 봐요')
-    expect(owner.row).not.toContain('1명')
-    // the box says it as a sentence about the new chat, the same shape as the shared one
-    expect(owner.box).toBe('새 채팅은 나만 볼 수 있어요.')
-    // more people: its members, "4명", the box "새 채팅은 멤버 4명이 …"
-    const more = await row(project({ audience: 4 }), 'member')
-    expect(more.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 4 })}${ko('projects.manage')}`)
-    expect(more.box).toBe('새 채팅은 4명이 볼 수 있어요.')
-    // the owner and admins: the same, never a role part or "관리자만"
-    const admin = await row(project({ audience: 3, audienceSplit: { direct: 3, byRole: 0 } }), 'admin')
-    expect(admin.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 3 })}${ko('projects.manage')}`)
-    expect(admin.row).not.toContain('관리자만')
-    // an owner or admin who is not a member: the members' count, also of one ("1명", not "나만 봐요")
-    expect((await row(project({ audience: 1, member: false }), 'admin')).row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 1 })}${ko('projects.manage')}`)
+  test('a team project in projects/ (docs/DECISIONS.md "Project contents only for members"): only me, the faces of two or more, else its count', async () => {
+    // I am its only member: "나만 봐요", a button that opens the members dialog
+    const alone = await row(project({ audience: 1, alone: true }), 'owner', { people: { people: [person('mia', 'Mia')] }, canShare: true })
+    expect(alone).toMatchObject({ who: ko('chat.whoMe'), whoTag: 'BUTTON', opened: 1, share: true, shared: 1, faces: false })
+    // more people: their faces (they open the dialog), no words
+    const more = await row(project({ audience: 3 }), 'member', { people: { people: [person('mia', 'Mia'), person('jun', 'Jun'), person('sam', 'Sam')] }, canShare: false })
+    expect(more).toMatchObject({ who: null, faces: true, opened: 1, share: false })
+    // an owner or admin who is not a member: the members' count, also of one ("멤버 1명", not "나만 봐요")
+    expect((await row(project({ audience: 1, member: false }), 'admin', { canShare: true })).who).toBe(ko('projects.whoMembers', { n: 1 }))
     // nobody active in it
-    expect((await row(project({ audience: 0, member: false }), 'owner')).row).toContain(ko('projects.noMembers'))
-    // a member who may not change the members: the count, and who changes them
-    const other = await row(project({ audience: 3, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')
-    expect(other.row).toContain('3명')
-    expect(other.row).not.toContain('관리자만')
+    expect((await row(project({ audience: 0, member: false }), 'owner')).who).toBe(ko('projects.noMembers'))
+    // in the trash: nothing at all
+    expect((await row(project({ audience: 2, inTrash: true }), 'owner', { canShare: true })).row).toBe(false)
   })
 
-  test('a project made before outside projects/: the box\'s words, "나와 관리자만 봐요" only there; admins read where to change it, without a path', async () => {
+  test('a personal project: "나만 봐요" in plain words; Share when I may share, else the admins-only line', async () => {
+    const mine = project({ folderPath: 'users/mia/projects/notes', audience: 1, membersEditable: undefined })
+    const may = await row(mine, 'member', { canShare: true })
+    expect(may).toMatchObject({ who: ko('projects.members.onlyMe'), whoTag: 'SPAN', share: true, shared: 1, adminsOnly: null })
+    const not = await row(mine, 'member', { adminsOnly: true })
+    expect(not).toMatchObject({ who: ko('projects.members.onlyMe'), share: false, adminsOnly: ko('projects.shareAdminsOnly') })
+  })
+
+  test('a project made before outside projects/: the box\'s words, "나와 관리자만 봐요" only there', async () => {
     const legacy = (o: Partial<Project> = {}) => project({ folderPath: 'shared/acme', ...o })
     const alone = await row(legacy({ audience: 3, alone: true }), 'member')
-    expect(alone.row).toContain('나와 관리자만 봐요')
-    expect(alone.box).toBe('나와 관리자만 봐요')
-    const more = await row(legacy({ audience: 4 }), 'member')
-    expect(more.row).toContain('4명이 봐요')
-    // the owner and admins: its people by its rules ("3명"), the box the total
-    const admin = await row(legacy({ audience: 5, audienceSplit: { direct: 3, byRole: 2 } }), 'admin')
-    expect(admin.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 3 })}${ko('projects.manage')}`)
-    expect(admin.box).toBe(ko('projects.sharedNewChat', { n: 5 }))
-    // an admin on one whose members are not changed here: the line opens to say where, with no path in the words
-    useSession.setState({ status: { kind: 'signed-in', me: meAs('admin') } } as never)
-    const m = await mount(<MemoryRouter><MembersRow project={legacy({ audience: 5, membersEditable: false })} sideAction="" onManage={() => {}} /></MemoryRouter>)
-    try {
-      await m.click('project-members-toggle')
-      const hint = m.get('project-members-hint').textContent ?? ''
-      expect(hint).toContain(ko('projects.legacyNote'))
-      expect(hint).not.toContain('shared/acme')
-    } finally { await m.unmount() }
+    expect(alone.who).toBe('나와 관리자만 봐요')
+    expect((await row(legacy({ audience: 4 }), 'member')).who).toContain('4명이 봐요')
+    // the owner and admins: its people by its rules ("멤버 3명"), the box the total
+    expect((await row(legacy({ audience: 5, audienceSplit: { direct: 3, byRole: 2 } }), 'admin')).who).toBe(ko('projects.whoMembers', { n: 3 }))
     expect(ko('projects.legacyNote')).toBe('이 프로젝트는 예전에 프로젝트 폴더 밖에 만들어져서 팀장·관리자도 봐요. 볼 수 있는 사람은 관리자 › 폴더 권한에서 바꿔요.')
   })
 })
