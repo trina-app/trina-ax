@@ -29059,3 +29059,55 @@ setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Ho
   reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
   (1440 and 390, light and dark).
 - Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).
+
+## Office Mac with its own Claude login: the engine no longer opens the keychain (fix/office-local-login-sandbox, 2026-11-15, QA TC-358, TC-359)
+
+Pras's QA (TC-358) on an office Mac in local-login mode: a turn could run `/usr/bin/security` (engine.sb allowed it with
+`LOCAL_LOGIN=1`), read `~/.claude/.credentials.json` and list `~/Library/Keychains`. `security` reads, without a prompt,
+every keychain item that `security` itself made: the Claude login, and also the tokens other command-line tools keep
+there (their items trust `/usr/bin/security`). Owner: keep the local-login mode, make it safe.
+
+- **How Claude Code reads its login (2.1.325, read from the binary).** Only by running `security` found through PATH:
+  `find-generic-password -a <user> -w -s "Claude Code-credentials"` (and `-s "Claude Code"` for a Console API key),
+  `security -i` with `add-generic-password -U -a <user> -s <service> -X <hex>` on stdin to save a refreshed login, and
+  `show-keychain-info` for a locked keychain. A shell form (`execSync`) also exists but needs `/bin/sh`, which the
+  sandbox never ran. Without a keychain item it reads `~/.claude/.credentials.json` itself.
+- **Decided: a broker outside the sandbox, a shim inside.** engine.sb now denies, last and whatever an allow above
+  opened: exec of `/usr/bin/security`, `~/Library/Keychains`, `~/.claude/.credentials.json`, and the Security services
+  (`com.apple.SecurityServer`, `securityd.xpc`, `secd`, `security.agent`, `authhost`), plus `/Library/Keychains` and
+  `/private/var/db/mds`. The launcher (with `--local-login` and a sandbox profile) makes `<tools-sock folder>/kc/security`,
+  a link to `mycel-bridge`, which under that name is a shim; the launcher puts that folder first in the PATH of every
+  Claude turn and the profile opens exactly that link and the broker's socket `kc/sock` (new parameter `KEYCHAIN_DIR`;
+  empty for a Claude sign-in and in managed mode). The shim passes its argv and the stdin of `-i` to the broker; the
+  broker (`native/cmd/mycel-launcher/keychain.go`) decides: `find -w` of the Claude login answers only its
+  `claudeAiOauth` part (MCP servers' sign-ins in the same item stay out), the API-key item read-only, `add -U` of the
+  Claude login takes only `claudeAiOauth` and merges it into the live item, `show-keychain-info` gives the exit code.
+  Every other command, service, account, option (`-g`, `-T`, a keychain path) is refused. Where the login lives in
+  `~/.credentials.json` (no item, or a locked keychain) the broker answers that and saves back into it (0600, atomic,
+  never through a link). The broker reads the live item on every request: Claude Code rotates the refresh token on
+  every refresh, and another turn or the Mac user's own `claude` may have refreshed a moment ago. Only processes of a
+  running Claude turn of that launcher may ask (peer uid and session).
+- **Rejected: the proxy holds the login and the engine gets a stand-in token** (as in subscription mode). It would keep
+  the token itself out of the engine, but the server would have to refresh the Mac user's OAuth login itself (Claude
+  Code's client, rotation shared with the Mac user's own `claude`), which we cannot test without the real login and which
+  broke turns before when it went wrong (401 after eight hours). The setup-token mode is the way to an engine with no
+  real credential; this change keeps everything else of the keychain away from the engine.
+- **Dev with Codex on** (`LOCAL_CODEX=1`, no proxy) keeps read access to the system keychains and the Security server for
+  certificate checks of a Rust TLS stack; the login keychain, `/usr/bin/security` and the login file stay closed there too.
+- **The tunnel (TC-359).** Pras's run used build 0.5.2-ts3, made before #800: there office turns tunnelled to
+  `api.anthropic.com` with no body check. Since #800 (in dev and v0.5.4) model requests use the proxy's checked HTTP
+  path and the only Claude tunnel (`platform.claude.com`) ends at the refresh terminator. Added here: a Claude turn's
+  CONNECT is refused when its host has no terminator (`connect.ts`), so a setup that passes `claudeHosts` alone can no
+  longer open a byte pipe.
+- **Left open.** The engine still holds the Claude login token itself (it signs and refreshes with it), so a turn whose
+  tool lockdown and sandbox both failed could show it in an answer or put it into a web search query (#800 ①). Writing a
+  bad login breaks the Mac's sign-in (the same as before). `~/.claude.json` stays readable (account e-mail, project
+  list).
+- **Checked.** Real Claude Code 2.1.325 under the new profile through the real launcher and bridge, with a FAKE login in a
+  stand-in keychain (`--keychain-test-store`) and HOME in the chat folder: `claude auth status` "loggedIn: true" from the
+  broker, and a `-p` turn sent `Authorization: Bearer <the fake token>` to a local stub. The real keychain and the Mac's
+  Claude login were never opened. Tests: `native/cmd/mycel-launcher/keychain_test.go` (rules, merge, file login, locked
+  keychain, socket only for turns), `native/cmd/mycel-bridge/security_test.go`, `tests/security/r4c-office-keychain-broker.test.ts`
+  (macOS: profile denies in dev, office and dev + Codex; launcher + bridge end to end), `tests/security/r4-engine-local-login.test.ts`
+  (keychain folder closed), `tests/security/r4b-office-engine-network.test.ts` (no tunnel without a terminator).
+  Version impact: **patch**.
