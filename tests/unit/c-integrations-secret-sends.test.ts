@@ -70,13 +70,14 @@ describe('the arguments of a call to a connected service (hide-args.ts hideAllAr
   test('a key cut by a space or a line break in ordinary text is refused, not sent', () => {
     expect(() => hideAllArgs({ text: `the key is ${KEY.slice(0, 6)} ${KEY.slice(6)}.` }, r)).toThrow(KeyRefusal)
     expect(() => hideAllArgs({ text: `the key is ${KEY.slice(0, 6)}\n${KEY.slice(6)}.` }, r)).toThrow(KeyRefusal)
-    expect(() => hideAllArgs({ text: `b64: ${B64.slice(0, 9)}\n${B64.slice(9)}` }, r)).toThrow(KeyRefusal)
+    // base64 split by a line break is hidden whole since #984 (hide.ts, QA TC-3096), so nothing of the key goes out
+    expect(hideAllArgs({ text: `b64: ${B64.slice(0, 9)}\n${B64.slice(9)}` }, r).args).toEqual({ text: `b64: ${HIDDEN}` })
   })
 
   test('a whole copy hidden does not let a split copy of the key in the same text go out', () => {
     expect(() => hideAllArgs({ text: `${KEY} and again ${KEY.slice(0, 7)}\n${KEY.slice(7)}` }, r)).toThrow(KeyRefusal)
     expect(() => hideAllArgs({ text: `${KEY}, then ${KEY.slice(0, 5)} ${KEY.slice(5)}.` }, r)).toThrow(KeyRefusal)
-    expect(() => hideAllArgs({ text: `base64 ${B64}\nwrapped ${B64.slice(0, 12)}\n${B64.slice(12)}` }, r)).toThrow(KeyRefusal)
+    expect(hideAllArgs({ text: `base64 ${B64}\nwrapped ${B64.slice(0, 12)}\n${B64.slice(12)}` }, r).args).toEqual({ text: `base64 ${HIDDEN}\nwrapped ${HIDDEN}` })
     // several whole copies with spaces and lines between them: hidden, sent
     expect(hideAllArgs({ text: `${KEY}\n${KEY} ${B64}` }, r).args).toEqual({ text: `${HIDDEN}\n${HIDDEN} ${HIDDEN}` })
   })
