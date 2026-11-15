@@ -13,13 +13,15 @@
 //    sign-in goes, and "연결됨" once done (ListedTools).
 //  - Last, one quiet "다른 도구 연결하기" line: Settings › Connectors, the full list. Settings is a dialog over this step
 //    (App.tsx useSettingsOverlay), so its close comes back to the step as it was; anything connected there counts here
-//    (the step reads the connections again when Settings closes).
+//    (when Settings closes the step reads again the connections it can use, the Google apps, Slack and Drive). It opens
+//    with the step's way back in its history state, so a "Set up" link in the list to Admin shows "Back to getting
+//    started" there (SetupReturn.tsx).
 // Once something is connected the primary is the next step; until then only "나중에 하기". After the setup the way back
 // is Settings › Connectors (the Drive card has the same two effects for an owner or admin).
 import { Check, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { API, type DriveConnection, type Integration } from '@mycel/shared/api'
+import { API, SLACK, type DriveConnection, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { APP_CONNECTORS, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, type Connector } from '../../lib/connectors'
 import { builtInLogo } from '../../lib/googleApps'
@@ -27,6 +29,7 @@ import { splitByScope } from '../../lib/integrations'
 import { aiName } from '../../lib/tabs'
 import { connectorsPlace } from '../../pages/settingsTabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
+import { setupReturnState } from '../../lib/welcome'
 import { useRealPath } from '../../lib/realPath'
 import { integrationsChanged } from '../../store/live'
 import { useLocale, useT } from '../../i18n'
@@ -64,7 +67,6 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
   const t = useT()
   const [driveOn, setDriveOn] = useState(false)
   const [listedOn, setListedOn] = useState(false)
-  const connected = driveOn || listedOn || done
   // back from Settings (a dialog over this step): what was connected there counts here
   const real = useRealPath()
   const [back, setBack] = useState(0)
@@ -73,6 +75,8 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
     if (was.current !== real && real === '/welcome') setBack((n) => n + 1)
     was.current = real
   }, [real])
+  const elsewhere = useConnectedElsewhere(back)
+  const connected = driveOn || listedOn || elsewhere || done
   return (
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
@@ -107,6 +111,16 @@ function DriveRow({ onConnected, back }: { onConnected: (on: boolean) => void; b
   const { d } = s
   // connected in Settings › Connectors meanwhile: read again
   useEffect(() => { if (back) s.load() }, [back]) // eslint-disable-line react-hooks/exhaustive-deps
+  // not ready yet (a hosted team's first minutes, before the hosting service said yes): read again a little later and
+  // when the window comes back, so the row shows up once Drive is ready
+  const notReady = !!s.connection && !s.connection.configured
+  useEffect(() => {
+    if (!notReady) return
+    const again = () => s.load()
+    const timer = window.setInterval(again, 15_000)
+    window.addEventListener('focus', again)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', again) }
+  }, [notReady]) // eslint-disable-line react-hooks/exhaustive-deps
   const c: DriveConnection | null = s.connection
   const [note, setNote] = useState<'not' | 'unavailable' | null>(null)
   const linked = c?.status === 'connected'
@@ -185,10 +199,16 @@ function ListedTools({ onConnected, back }: { onConnected: (on: boolean) => void
   const t = useT()
   const locale = useLocale()
   const [mine, setMine] = useState<Integration[] | null>(null)
+  // every connection the owner can use (their own and the team's), for "anything connected counts"
+  const [usable, setUsable] = useState<Integration[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const load = useCallback(async () => {
-    try { setMine(splitByScope((await api.call(API.listIntegrations)).items).mine) } catch { setMine((m) => m ?? []) }
+    try {
+      const items = (await api.call(API.listIntegrations)).items
+      setMine(splitByScope(items).mine)
+      setUsable(items)
+    } catch { setMine((m) => m ?? []) }
   }, [])
   useEffect(() => { void load() }, [load, back])
   useEffect(() => integrationsChanged.on(() => void load()), [load])
@@ -196,7 +216,7 @@ function ListedTools({ onConnected, back }: { onConnected: (on: boolean) => void
   const services: Connector[] = CONNECTORS.filter((c) => (WELCOME_SERVICES as readonly string[]).includes(c.id))
   const own = (c: Connector) => mine?.find((i) => servesAt(c, i.url))
   const isOn = (i: Integration | undefined) => !!i && i.status === 'connected' && (i.auth !== 'oauth' || i.hasSecret)
-  const anyOn = !!mine?.some(isOn)
+  const anyOn = !!mine?.some(isOn) || usable.some(isOn)
   useEffect(() => { onConnected(anyOn) }, [anyOn]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!mine) return null
   const connect = async (c: Connector) => {
@@ -257,13 +277,29 @@ function ListedTools({ onConnected, back }: { onConnected: (on: boolean) => void
   )
 }
 
+/** Something connected in Settings › Connectors that the step has no row for: a Google app (Gmail, Calendar, Docs,
+ * Sheets) or the person's Slack. Read on each return from Settings (`back`), never before. */
+function useConnectedElsewhere(back: number) {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    if (!back) return
+    let live = true
+    void Promise.all([
+      api.call(API.myGoogleApps).then((r) => r.apps.some((a) => a.status === 'connected'), () => false),
+      api.call(SLACK.mySlack).then((r) => !!r.link, () => false),
+    ]).then(([google, slack]) => { if (live) setOn(google || slack) })
+    return () => { live = false }
+  }, [back])
+  return on
+}
+
 /** "다른 도구 연결하기": Settings › Connectors, the full list (Settings is a dialog over the step; its close comes back). */
 function OtherTools() {
   const t = useT()
   const navigate = useNavigate()
   return (
     <p className="text-sm" data-testid="welcome-tools-mcp">
-      <button type="button" className={`${quietLink} inline-flex items-center gap-1.5`} onClick={() => navigate(CONNECTORS_HOME)} data-testid="welcome-tools-mcp-add">
+      <button type="button" className={`${quietLink} inline-flex items-center gap-1.5`} onClick={() => navigate(CONNECTORS_HOME, { state: setupReturnState('tools') })} data-testid="welcome-tools-mcp-add">
         <Plus size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.tools.mcp')}
       </button>
     </p>

@@ -187,6 +187,54 @@ test('no Drive on this server: no Drive row; Notion and "다른 도구 연결하
   expect(realErrors(errors)).toEqual([])
 })
 
+test('"Set up" in the list opened from the step (Google Drive on a server without a Google client) goes to Admin with "Back to getting started", which returns to the step', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await toTools(page)
+  await page.getByTestId('welcome-tools-mcp-add').click()
+  const settings = page.getByTestId('settings-dialog')
+  const drive = settings.locator('[data-testid="connector-card"][data-id="google-drive"]')
+  await drive.getByTestId('connector-set-up').click()
+  await expect(page).toHaveURL(/\/admin\/connectors/)
+  await expect(settings).toHaveCount(0)
+  // Admin shows the steps' way back
+  await page.getByTestId('setup-return-button').click()
+  await expect(page).toHaveURL(/\/welcome$/)
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  await expect(page.getByTestId('welcome-later')).toBeVisible()
+  // opened from anywhere else (Settings directly), "Set up" carries no way back to the steps
+  await page.goto('/settings/connectors')
+  await settings.locator('[data-testid="connector-card"][data-id="google-drive"]').getByTestId('connector-set-up').click()
+  await expect(page).toHaveURL(/\/admin\/connectors/)
+  await expect(page.getByTestId('setup-return')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('a Google app or Slack connected in Connectors counts once Settings closes (the step has no row for them)', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await toTools(page)
+  for (const which of ['gmail', 'slack'] as const) {
+    await expect(page.getByTestId('welcome-tools-next')).toHaveCount(0)
+    await page.getByTestId('welcome-tools-mcp-add').click()
+    const settings = page.getByTestId('settings-dialog')
+    await expect(settings.getByTestId('connector-discover')).toBeVisible()
+    // connected meanwhile (the mock has no Google client or Slack app: the reads answer as after a sign-in)
+    if (which === 'gmail') await page.route('**/api/integrations/google-apps', (r) => r.fulfill({ json: { apps: [{ id: 'gmail', available: true, reason: null, status: 'connected', account: { email: 'olga@acme.example', name: 'Olga Kim' }, writePolicy: 'ask', serviceDown: false, tools: [] }] } }))
+    else await page.route('**/api/slack/me', (r) => r.fulfill({ json: { available: true, workspace: 'Acme', link: { slackUserId: 'U1', slackName: 'olga', linkedAt: '2026-11-15T00:00:00.000Z' }, signIn: false, emailSetByOther: false, read: true } }))
+    await settings.getByTestId('settings-close').click()
+    await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대', { timeout: 10_000 })
+    if (which === 'gmail') {
+      await page.unroute('**/api/integrations/google-apps')
+      await page.reload()
+      await expect(page.getByTestId('welcome-tools')).toBeVisible()
+    }
+  }
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('Notion in one click (QA TC-136): the same card as Connectors, the owner\'s own connection from the list with nothing typed, its sign-in, then 연결됨 and the primary', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)

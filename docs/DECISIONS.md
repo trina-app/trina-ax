@@ -28461,9 +28461,10 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
   guard as the other loops); the unit tests pass their own env to check the default.
 - **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
-  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting
+  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact Trina
   support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
-  Its Discover card says "Not set up yet" for an owner or admin too, never **Set up** (`DiscoverItem.noSetUp`).
+  Its Discover card, and the Google apps' cards (Gmail, Calendar, Docs, Sheets) in the same state, say "Not ready yet"
+  for everyone, never **Set up** to Admin (`DiscoverItem.noSetUp`, `drive.notReadyShort`).
 - **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
   up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
   (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup; that ID is the one the entry names, today's
@@ -28480,7 +28481,8 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   another" line (W6 core); QA TC-136 (11-12) grew it to seven rows. This **amends "Onboarding's Tools step on
   Connectors' cards"** again.
 - **Rows.** Google Drive only where this server has it (hosted: once the hosting service said yes; self-installed: a
-  Google client), never a "not set up" or "contact hosting support" row (that line is on Connectors only). Notion, the
+  Google client), never a "not set up" or "contact Trina support" row (that line is on Connectors only). While Drive is
+  not ready the step reads it again every 15 s and when the window comes back, so a late "ready" shows the row. Notion, the
   same one-click card as before (`WELCOME_SERVICES`). Then the quiet "Connect another tool" line. **Removed:** the
   Linear, Atlassian, Canva and Figma cards, the not-ready Drive card, and the address form opened in place (an MCP
   address is not a thing an office worker has; Connectors' Discover list has every listed service, and "Add custom
@@ -28488,8 +28490,15 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **The way back.** "Connect another tool" opens `/settings/connectors`. Settings is a dialog over the page it was
   opened from (App.tsx `useSettingsOverlay`), so the step stays mounted under it, and the dialog's close, Esc and the
   browser's Back all come back to the step as it was; no extra "Back to getting started" control is needed there (it
-  would be a second back on the same screen). A phone never shows this step (W6), so there is no phone path. When
-  Settings closes (and on `integrations_changed`) the step reads the owner's connections again: one connected there
-  counts, so the primary becomes "Next".
+  would be a second back on the same screen). A phone never shows this step (W6), so there is no phone path.
+- **Leaving Settings for Admin.** The list opens with the step's way back in its history state
+  (`setupReturnState('tools')`, from "W6 follow-up: every way out of the welcome steps has a way back", PR #837), and
+  the "Set up" links of not-set-up Google cards carry it on, so Admin › Connectors shows "Back to getting started",
+  which opens the Tools step again. Opened any other way, the list's links carry nothing.
+- **Anything connected there counts.** When Settings closes (and on `integrations_changed`) the step reads again every
+  connection the owner can use (their own and the team's, `GET /api/integrations`), the Google apps
+  (`GET /api/integrations/google-apps`), their Slack link (`GET /api/slack/me`) and Drive; any one connected makes the
+  primary "Next".
 - **Slack** is not in the step: its hosted one-click path is not verified end to end yet (entry above).
-- Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/e2e/welcome-tools.spec.ts.
+- Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/unit/drive-not-set-up.test.tsx,
+  web/test/e2e/welcome-tools.spec.ts (close/Esc/Back, Linear, a Google app or Slack, "Set up" → Admin → back).

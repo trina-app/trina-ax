@@ -70,11 +70,18 @@ describe('a hosted team: Google Drive not ready yet', () => {
       expect(html).toMatch(/disabled=""[^>]*data-testid="drive-connect"|data-testid="drive-connect"[^>]*disabled=""/)
     })
   }
-  test('Discover\'s card: "not set up yet" for an owner too, never a Set up link to Admin', async () => {
+  test('Discover\'s card: "not ready yet" for an owner too, never a Set up link to Admin (Drive and the Google apps)', async () => {
     as('owner', 'hosted')
     const c = { id: 'google-drive', name: 'Google Drive', line: 'x', logo: '/x.svg', state: 'off' as const, setUp: true, onOpen: () => {}, onAdd: () => {} }
     const hosted = await shown(<ul><DiscoverCard c={{ ...c, noSetUp: true }} admin /></ul>)
     expect(hosted.html).toContain('data-testid="connector-off"')
+    // the card says what its page says: not ready yet (it turns on by itself), not "not set up"
+    expect(hosted.text).toContain(ko('drive.notReadyShort'))
+    expect(hosted.text).not.toContain(ko('gapps.off.notSetUp'))
+    // a Google app (Gmail) on a hosted team: the same
+    const gmail = await shown(<ul><DiscoverCard c={{ ...c, id: 'gmail', name: 'Gmail', noSetUp: true }} admin /></ul>)
+    expect(gmail.html).not.toContain('data-testid="connector-set-up"')
+    expect(gmail.text).toContain(ko('drive.notReadyShort'))
     expect(hosted.html).not.toContain('data-testid="connector-set-up"')
     // a self-installed server's owner still gets Set up
     const own = await shown(<ul><DiscoverCard c={c} admin /></ul>)

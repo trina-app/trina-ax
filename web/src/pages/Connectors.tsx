@@ -28,7 +28,7 @@
 // is now, Disconnect, and one line "Connect … on a computer".
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
@@ -53,6 +53,7 @@ import { ConnectionPage, ListedServicePage } from '../components/integrations/Co
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
+import { setupReturnState, setupReturnStep } from '../lib/welcome'
 
 /** How many Discover cards show before "Show all" (ConnectorsView.tsx). */
 export const POPULAR_FIRST = DISCOVER_FIRST
@@ -149,12 +150,21 @@ function ConnectorsProvider({ children }: { children: ReactNode }) {
  * from its page); `asked`: a member who asked an admin to add it */
 type Card = DiscoverItem
 
+/** The welcome step this list was opened from (ToolsStep's "Connect another tool"), as history state to pass on, else
+ * undefined. */
+function useSetupReturnState() {
+  const step = setupReturnStep(useLocation().state)
+  return step ? setupReturnState(step) : undefined
+}
+
 /** Settings › Connectors: the list */
 function ConnectorsHome() {
   const t = useT()
   const navigate = useNavigate()
   const { list, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
   const hosted = useMe()?.server.deployment === 'hosted'
+  // opened from the welcome steps' "Connect another tool": "Set up" (to Admin) carries their way back
+  const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -196,7 +206,7 @@ function ConnectorsHome() {
     if (!v) return []
     // one that needs a new sign-in stays in Your connectors even when it cannot be connected now: its page disconnects it
     const setUp = v.reason === 'not_set_up'
-    return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: v.status === 'needs_reconnect' ? 'reconnect' : googleAppCardState(v), setUp, asked: setUp && asked, onOpen: open,
+    return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: v.status === 'needs_reconnect' ? 'reconnect' : googleAppCardState(v), setUp, asked: setUp && asked, noSetUp: setUp && hosted, onOpen: open,
       onAdd: () => { open(); if (!inApp) void google.flows[id].start() } }]
   })
   // the listed services: added from their page or with + (the add dialog, filled in); only while members may add their own
@@ -299,7 +309,7 @@ function ConnectorsHome() {
                   )}
                 </div>
                 <ul className="grid gap-x-6 sm:grid-cols-2" data-testid="connector-list">
-                  {shownCards.map((c) => <DiscoverCard key={c.id} c={c} admin={admin} />)}
+                  {shownCards.map((c) => <DiscoverCard key={c.id} c={c} admin={admin} linkState={fromStep} />)}
                 </ul>
                 {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
                 {personalAllowed && !admin && (
