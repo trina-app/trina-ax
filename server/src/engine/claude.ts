@@ -1,4 +1,5 @@
 // Claude Code with the locked profile (design tab 2 "엔진 잠금"; owner 2026-10-21: built-in WebSearch allowed).
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -123,6 +124,23 @@ export const MCP_TOOL_TIMEOUT_MS = 1_800_000
  * a skill's description in the sub-agents' instructions) keeps it as written, not the chat folder's path. */
 export const launcherLiteral = (s: string) => s.replace(/\{(MCP_CONFIG|SYSTEM_PROMPT_FILE|TURN_DIR|CHAT_DIR|BRIDGE|TOOLS_SOCK)\}/g, '{\u200b$1}')
 
+const effortKnown = new Map<string, boolean>()
+const effortAsked = new Set<string>()
+/** `bin --help`, off the event loop, in a bare environment (no server variables, a temp folder), within 5 s. */
+const askHelp = (bin: string) => new Promise<string>((ok, no) => execFile(bin, ['--help'], { timeout: 5000, env: { PATH: '/usr/bin:/bin' }, cwd: os.tmpdir() }, (e, out) => (e ? no(e) : ok(String(out)))))
+/** Does this Claude Code take `--effort` (its own --help lists it)? Known after the first ask, which runs in the
+ * background: until then (and when it could not tell: asked again next time) the answer is false, so an engine without
+ * the flag is never handed one (an unknown flag would fail the turn). Only a real answer is kept. */
+export function claudeKnowsEffort(bin: string, ask: (bin: string) => Promise<string> = askHelp): boolean {
+  const known = effortKnown.get(bin)
+  if (known !== undefined) return known
+  if (!effortAsked.has(bin)) {
+    effortAsked.add(bin)
+    void ask(bin).then((help) => { effortKnown.set(bin, /--effort\b/.test(help)) }, () => { effortAsked.delete(bin) })
+  }
+  return false
+}
+
 export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
@@ -138,6 +156,9 @@ export function buildClaudeLaunch(i: {
   /** Claude Code's Agent tool for this turn (docs/DECISIONS.md "Sub-agents"): the `--agents` definitions
    * (chat/subagents.ts) and the instructions every sub-agent gets (prompt.ts buildSubagentPrompt); absent = none */
   subagents?: { agents: Record<string, unknown>; prompt: string }
+  /** a quick one-turn pick (Find work files' pick from names): `--effort low`, when this engine knows the flag
+   * (claudeKnowsEffort); measured 2026-11-15, it cut Haiku's thinking about a third */
+  effort?: 'low'
 }, conf: ClaudeConf): LaunchRequest {
   const web = i.webSearch !== false
   const sub = !!i.subagents
@@ -162,6 +183,7 @@ export function buildClaudeLaunch(i: {
     ...(sub ? ['--agents', '{TURN_DIR}/agents.json', '--append-subagent-system-prompt-file', '{TURN_DIR}/subagent.md'] : []),
     '--max-turns', String(i.maxTurns),
     ...(model ? ['--model', model] : []),
+    ...(i.effort && claudeKnowsEffort(conf.bin) ? ['--effort', i.effort] : []),
     ...(i.resume ? ['--resume', i.sessionId] : ['--session-id', i.sessionId]),
   ]
   // temp files stay in the chat folder: with only TMPDIR, Claude Code still creates /tmp/claude-<uid> and

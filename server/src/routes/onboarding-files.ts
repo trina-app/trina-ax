@@ -8,6 +8,7 @@ import { API } from '@mycel/shared/api'
 import { getChatRuntime } from '../chat/runtime'
 import { rankTeamFiles, sweepFileRanks } from '../onboarding/file-rank'
 import { recordTeamFilesLanded } from '../onboarding/team-files'
+import { companyWords } from '../onboarding/company-words'
 import { applyOrganize, organizeStatus, startOrganize } from '../onboarding/files-organize'
 import type { RouteModule } from './module'
 
@@ -24,6 +25,7 @@ export const onboardingFilesRoutes: RouteModule = {
     // Find work files on this computer (docs/DECISIONS.md): the same no-tools turn with its own instructions, for the
     // caller's own folder. Any role ('user'); guests never reach it (auth/guest-endpoints.ts allow-list)
     kit.handle(API.rankOwnFiles, ({ c, body, auth }) => rankTeamFiles(ctx, getChatRuntime(ctx), auth.user, body.entries, c.get('locale'), { signal: c.req.raw.signal, purpose: 'own' }))
+    kit.handle(API.companyWords, ({ auth }) => companyWords(ctx, auth.user.id))
     kit.handle(API.teamFilesLanded, ({ body, auth }) => ({ recorded: recordTeamFilesLanded(ctx, auth.user, body.path) }))
     // the setup's folder plan for the files the run landed in shared/ (docs/DECISIONS.md "Setup 팀 파일: the AI proposes
     // folders"): a job the page polls, then the approved plan applied as the caller

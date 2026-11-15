@@ -5,13 +5,16 @@
 // one folder after the other. read() gives one listed file's bytes, by id, from the latest look (WorkFileSessions).
 // Not offered in the Mac App Store build (its sandbox reads only what the person picks) nor on Linux.
 import { randomBytes } from 'node:crypto'
+import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
 import { WORK_FILES_BRIDGE_VERSION, type WorkFileRead, type WorkFileScan, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
-import { inOneDrive, scanRoots, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
+import { inOneDrive, lookRoots, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
+import type { IndexedFile } from '../common/work-index'
+import { macHints, windowsIndex } from './work-index-run'
 import type { MeResult } from '../common/browser-owner'
 import { FOLDER_SYSTEM } from './security'
 
@@ -87,7 +90,7 @@ export class WorkFilesController {
       win: () => BaseWindow | null
       locale: () => UiLocale
       /** the page's progress event (bridge:work-files-progress) */
-      progress: (p: { root: WorkRootId; checked: number; docs: number }) => void
+      progress: (p: { root: WorkRootId; checked: number; docs: number; done: number }) => void
     },
   ) {}
 
@@ -120,17 +123,62 @@ export class WorkFilesController {
       // development) is for no look: the look starts now
       this.stopped = false
       if (generation !== this.generation) return { state: 'cancelled' }
-      const r = await scanRoots(roots, NODE_WORK_FS, {
-        platform: process.platform,
-        stopped: () => this.stopped || generation !== this.generation,
-        onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
-        // never the home folder or one that holds it (Documents moved to C:\Users\alex, a Desktop linked to home)
-        allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
-        newId: () => randomBytes(12).toString('base64url'),
-      })
+      const r = await this.look(roots, generation)
       if (generation !== this.generation) return { state: 'cancelled' }
       this.sessions.begin(origin, r.found)
       return { state: 'done', stopped: r.stopped, roots: r.roots, files: r.files }
+    } finally {
+      this.busy = false
+    }
+  }
+
+  /** The roots looked at: the index first (one Windows Search run for all of them; Spotlight per folder, after its
+   * question), the walk when there is none (common/work-files.ts lookRoots). */
+  private look(roots: WorkRoot[], generation: number) {
+    let win: Promise<IndexedFile[] | null> | null = null
+    const downloads = roots.find((r) => r.id === 'downloads')?.path ?? null
+    return lookRoots(roots, NODE_WORK_FS, {
+      platform: process.platform,
+      stopped: () => this.stopped || generation !== this.generation,
+      onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
+      // never the home folder or one that holds it (Documents moved to C:\Users\alex, a Desktop linked to home)
+      allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+      // Windows: Windows Search with the recent lists; a Mac walks (faster than listing through Spotlight) and asks
+      // Spotlight about the newest documents
+      index: async () => (process.platform === 'win32' ? (win ??= windowsIndex(roots.map((r) => r.path), downloads)) : null),
+      ...(process.platform === 'darwin' ? { enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until) } : {}),
+      newId: () => randomBytes(12).toString('base64url'),
+    })
+  }
+
+  /** "Choose it yourself": macOS kept the app out of a folder. The system's folder window opens at it; the person's pick
+   * there is their permission. Only that folder or one inside it (never home or above); its files join the latest look. */
+  async pickRoot(origin: string, id: WorkRootId): Promise<WorkFileScan> {
+    const win = this.o.win()
+    const root = this.roots().find((r) => r.id === id)
+    if (!win || win.isDestroyed() || !root || !workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
+    if (this.busy) return { state: 'busy' }
+    this.busy = true
+    this.stopped = false
+    const generation = this.generation
+    try {
+      const L = this.o.locale()
+      const r = await dialog.showOpenDialog(win, { defaultPath: root.path, properties: ['openDirectory'], message: t(L, 'workFiles.pickMessage', { folder: t(L, ROOT_KEY[root.id]) }), buttonLabel: t(L, 'workFiles.pickButton') })
+      const picked = r.canceled ? null : r.filePaths[0]
+      if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
+      // the folder as it really is (a link in the pick would lead elsewhere): inside the root's real path, never home
+      const lib = process.platform === 'win32' ? win32 : posix
+      const reals = await Promise.all([realpath(picked), realpath(root.path)]).catch(() => null)
+      if (!reals) return { state: 'cancelled' }
+      const [realPicked, realRoot] = reals
+      const fold = (x: string) => (process.platform === 'win32' || process.platform === 'darwin' ? lib.normalize(x).toLowerCase() : lib.normalize(x))
+      const rel = lib.relative(fold(realRoot), fold(realPicked))
+      if (rel.startsWith('..') || lib.isAbsolute(rel) || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform))) return { state: 'cancelled' }
+      const res = await this.look([{ ...root, path: realPicked }], generation)
+      if (generation !== this.generation || !this.sessions.extend(origin, res.found)) return { state: 'cancelled' }
+      // the files are named from the folder the person picked (under its root's name)
+      const prefix = rel ? lib.relative(realRoot, realPicked).split(lib.sep).join('/') : ''
+      return { state: 'done', stopped: res.stopped, roots: res.roots, files: res.files.map((f) => ({ ...f, folder: [prefix, f.folder].filter(Boolean).join('/') })) }
     } finally {
       this.busy = false
     }

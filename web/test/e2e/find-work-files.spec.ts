@@ -9,7 +9,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
-import { answer, app, fakeApp, look, roots, type Meta } from './fake-work-files'
+import { answer, app, fakeApp, look, pickHolds, roots, type Meta } from './fake-work-files'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 
@@ -55,6 +55,7 @@ test('a member on My files: the app asks first; Cancel does nothing; nothing tic
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
   await expect(page.getByTestId('find-work-title')).toHaveText('업무 파일로 보이는 4개를 찾았어요')
   await expect(page.getByTestId('find-work')).toContainText('아무것도 체크하지 않았어요. 체크한 파일만 내 파일 › 이 컴퓨터에서에 들어가고, 나만 볼 수 있어요.')
   for (const c of await page.getByTestId('find-work-check').all()) await expect(c).not.toBeChecked()
@@ -67,7 +68,10 @@ test('a member on My files: the app asks first; Cancel does nothing; nothing tic
   await expect(page.getByTestId('find-work-too-big')).toBeVisible()
   // the AI's picks with their reason; the personal files folded, never sent to the AI; no content went anywhere
   const work = page.getByTestId('find-work-work').getByTestId('find-work-row')
-  await expect(work.filter({ hasText: 'Quote template 2026.xlsx' })).toContainText('양식 · 문서 › Sales')
+  // why each is shown, in plain words: the AI's reason, when it was last changed, where it is
+  const quote = work.filter({ hasText: 'Quote template 2026.xlsx' })
+  await expect(quote).toContainText('양식 · ')
+  await expect(quote).toContainText(' 고침 · 문서 › Sales')
   await expect(page.getByTestId('find-work-personal-toggle')).toContainText('개인 파일일 수 있어요 (2)')
   await expect(page.getByTestId('find-work-personal-toggle')).toContainText('AI에 보내지 않음')
   await expect(page.getByTestId('find-work-personal')).toHaveCount(0)
@@ -107,6 +111,7 @@ test('Add: only the ticked files are read, they land in My files › From this c
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
   const work = page.getByTestId('find-work-work')
   await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
   await work.getByTestId('find-work-row').filter({ hasText: 'Northwind proposal.pptx' }).getByTestId('find-work-check').check()
@@ -146,14 +151,23 @@ test('Select all: never a personal file, at most 100, and it says so; no AI: the
   await page.request.post('/__test/file-rank', { data: { ai: 'none' } })
   await signIn(page, BOB)
   await openMine(page)
-  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `report ${i}.pdf` })), { name: 'Tax Return 2025.pdf' }])
+  // without AI only the company's files are listed (here by the team's name in the file name)
+  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report ${i}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work-ai')).toHaveText('AI 없이 파일 이름으로 정렬했어요')
-  await expect(page.getByTestId('find-work-select-all')).toHaveText('100개 모두 선택')
+  // at most 50 shown, best first; the rest found by name
+  await expect(page.getByTestId('find-work-work').getByTestId('find-work-row')).toHaveCount(50)
+  await expect(page.getByTestId('find-work-rest')).toBeVisible()
+  await expect(page.getByTestId('find-work-select-all')).toHaveText('50개 모두 선택')
   await page.getByTestId('find-work-select-all').click()
+  await expect(page.getByTestId('find-work-add')).toHaveText('50개 넣기')
+  // more through the search, up to 100 at a time, said
+  await page.getByTestId('find-work-search').fill('Acme report')
+  for (const c of await page.getByTestId('find-work-found').getByTestId('find-work-check').all()) { if ((await page.getByTestId('find-work-cap').count()) > 0) break; if (!(await c.isChecked())) await c.click() }
   await expect(page.getByTestId('find-work-cap')).toBeVisible()
   await expect(page.getByTestId('find-work-add')).toHaveText('100개 넣기')
+  await page.getByTestId('find-work-search').fill('')
   await page.getByTestId('find-work-personal-toggle').click()
   await expect(page.getByTestId('find-work-personal').getByTestId('find-work-check')).not.toBeChecked()
   expect((await app(page)).reads).toEqual([])
@@ -179,7 +193,7 @@ test('a read the app refuses (the file changed) is not added; every folder block
   await answer(page, 'look')
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'none')
   await expect(page.getByTestId('find-work-title')).toContainText('문서, 데스크탑, 다운로드 폴더를 볼 수 없어요')
-  await expect(page.getByTestId('find-work-blocked-all').getByTestId('find-work-settings')).toHaveCount(1)
+  await expect(page.getByTestId('find-work-blocked')).toHaveCount(3)
   // the person let the app in: Look again asks the app again (a new look)
   await page.getByTestId('find-work-again').click()
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
@@ -216,6 +230,7 @@ test('the owner\'s setup step on the desktop app: Find work files puts the files
   await page.getByTestId('welcome-team-files-computer').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
   for (const c of await page.getByTestId('find-work-check').all()) await expect(c).not.toBeChecked()
   const sent = (await (await page.request.get('/__test/file-rank')).json()) as { own?: boolean }[]
   expect(sent.map((x) => !!x.own)).toEqual([false])
@@ -224,4 +239,27 @@ test('the owner\'s setup step on the desktop app: Find work files puts the files
   // the step's own run into the team home (shared/), then its folder plan, as before
   await expect.poll(async () => (await tree(page, 'shared/Documents')).map((e) => e.name).sort()).toEqual(['Sales', '회사 소개서.pdf'])
   await expect(page.getByTestId('organize-proposal').or(page.getByTestId('welcome-team-files-run')).first()).toBeVisible()
+})
+
+test('macOS kept the app out of Downloads: "Choose it yourself" opens the system\'s folder window, and its files join the list', async ({ page }) => {
+  await fakeApp(page, { pick: true })
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, [{ name: 'Acme plan.docx' }], roots({ id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'blocked' }))
+  await pickHolds(page, [{ name: 'Acme invoice.pdf', root: 'downloads' }])
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
+  const line = page.getByTestId('find-work-blocked')
+  await expect(line).toContainText('다운로드 폴더를 볼 수 없어요')
+  // the main way is the folder window, not System Settings
+  await expect(line.getByTestId('find-work-settings')).toHaveCount(0)
+  await line.getByTestId('find-work-choose').click()
+  await expect(page.getByTestId('find-work-blocked')).toHaveCount(0)
+  await expect(page.getByTestId('find-work-work').getByTestId('find-work-row').filter({ hasText: 'Acme invoice.pdf' })).toBeVisible()
+  expect((await app(page)).picks).toBe(1)
+  // nothing was read: the picked folder's files are listed only
+  expect((await app(page)).reads).toEqual([])
 })

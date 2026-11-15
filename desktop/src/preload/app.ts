@@ -65,6 +65,7 @@ const bridge: DesktopBridge = {
           onProgress: on('bridge:work-files-progress'),
           read: (id: string) => ipcRenderer.invoke('bridge:work-files-read', String(id)),
           openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
+          pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),
         },
       }
     : {}),

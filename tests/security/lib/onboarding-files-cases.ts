@@ -9,6 +9,7 @@ export const ONBOARDING_FILES_SPECS: Record<string, Spec> = {
   // Find work files on this computer: anyone but guests (the guest allow-list), for their own folder; names only, never a
   // team file's content (the body is all the AI sees)
   rankOwnFiles: { build: (c) => c.post('/api/onboarding/files/rank-own', { entries: [{ id: 'e0', name: 'Quote template.xlsx', path: 'Documents/Sales', type: 'xlsx', size: 1000, modified: '2026-10-03' }] }), scope: 'byLevel' },
+  companyWords: { build: (c) => c.get('/api/onboarding/files/company'), scope: 'byLevel' },
   teamFilesLanded: { build: (c) => c.post('/api/onboarding/files/landed', { path: 'groups/finance/budget.md' }), scope: 'byLevel',
     check: (r) => { if (r.status === 200 && r.text.includes('true')) throw new Error('an upload record changed the welcome steps of a team that never opened them') } },
   // the setup's folder plan (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"): owners and admins; a plan is
