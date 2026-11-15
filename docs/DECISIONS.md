@@ -8959,7 +8959,11 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   notifications; sign out there first" (QA TC-201, fix/push-token-takeover, 2026-11-11). A phone that changes hands
   loses its row first: logout removes it with the session, a team switch with the removal key, and after a reinstall
   the iPhone app signs the kept session out (Android gets a new FCM token), so the old "another account replaces it"
-  only let a member who knew a colleague's token take over their notifications.
+  only let a member who knew a colleague's token take over their notifications. A sign-out that never reached the
+  server (offline: the page shows the sign-in page anyway and the HttpOnly cookie stays) is closed at the next sign-in
+  in that browser: a cookie-mode sign-in ends the session its request's cookie names when it is another person's, so
+  its device row goes and the next person registers the phone (QA TC-835, fix/tc835-push-dup, 2026-11-15). The same
+  person's earlier session stays (the desktop app copies one cookie to its second team address).
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
   hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
   store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the

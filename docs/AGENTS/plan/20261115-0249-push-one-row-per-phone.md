@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 02:49
 - Branch: `fix/tc835-push-dup`
-- Status: in progress
+- Status: done
 - Where: `server/src/auth/service.ts` (`signIn`). Why: the session a browser sends at sign-in is the auth core's to
   end (docs/REPOSITORY-RULES.md: phone and auth are core)
 - Version impact: patch. No migration, no API or app change
@@ -44,7 +44,8 @@ fan-out dedupe (the unique index already guarantees it), a migration (no duplica
 
 ## Tests
 
-`tests/unit/push-native.test.ts`: each case above, over HTTP where it matters (sign out then sign in with a new token:
-one row; the same token again: one row; another person signing in over a session whose sign-out never arrived takes
-the phone and the first person's notice does not reach it; the same person's earlier session stays; TC-201's refusal
-from another browser stays). `bun run typecheck`, auth and push unit tests, under Bun 1.3.12 too.
+`tests/unit/push-native.test.ts`: each case above, over HTTP where it matters. Regression cover of what already held
+(sign out then sign in with a new token: one row; the same token again: one row; an expired session's row goes; a new
+token of the same person: two rows until the app's removal). The fix: another person signing in over a session whose
+sign-out never arrived takes the phone, and the first person's notice (also one queued before) does not reach it; the
+same person's earlier session stays; TC-201's refusal from another browser stays. `bun run typecheck`, auth and push unit tests, under Bun 1.3.12 too.
