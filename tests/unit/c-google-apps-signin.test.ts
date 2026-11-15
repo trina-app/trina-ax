@@ -152,6 +152,29 @@ test('a sign-in without every scope the app needs is refused', async () => {
   await expect(apps.complete('alice', 'alice-session', 'gmail', f.flowId)).rejects.toThrow()
 })
 
+test('the return page\'s reason (QA TC-2956, TC-2979): cancelled, a permission not ticked, another browser, used or expired; hostedApp off for a card\'s own client', async () => {
+  await setUp('gmail')
+  expect(apps.view('alice', 'gmail').hostedApp).toBe(false)
+  let f = await apps.authorize('alice', 'alice-session', 'gmail')
+  let q = google.authorize(f.authorizationUrl, 'alice')
+  // nobody or someone else signed in in this browser: the flow stays open for the right browser
+  expect(await apps.callbackOutcome(q)).toEqual({ ok: false, reason: 'browser_session_required' })
+  expect(await apps.callbackOutcome(q, browser('bob'))).toEqual({ ok: false, reason: 'browser_session_required' })
+  // cancelled on Google's page
+  expect(await apps.callbackOutcome({ state: q.state, error: 'access_denied' }, browser('alice'))).toEqual({ ok: false, reason: 'consent_denied' })
+  expect(apps.flow('alice', 'alice-session', 'gmail', f.flowId)).toMatchObject({ state: 'failed', reason: 'consent_denied' })
+  // the same link again, or one that is not ours
+  expect(await apps.callbackOutcome(q, browser('alice'))).toEqual({ ok: false, reason: 'invalid_flow' })
+  expect(await apps.callbackOutcome({ state: 'short' }, browser('alice'))).toEqual({ ok: false, reason: 'invalid_flow' })
+  // a permission not ticked
+  google.grant = (asked) => asked.split(' ').filter((s) => !s.endsWith('gmail.send')).join(' ')
+  f = await apps.authorize('alice', 'alice-session', 'gmail')
+  expect(await apps.callbackOutcome(google.authorize(f.authorizationUrl, 'alice'), browser('alice'))).toEqual({ ok: false, reason: 'scope_denied' })
+  google.grant = null
+  f = await apps.authorize('alice', 'alice-session', 'gmail')
+  expect(await apps.callbackOutcome(google.authorize(f.authorizationUrl, 'alice'), browser('alice'))).toEqual({ ok: true })
+})
+
 test('a broader scope Google granted in place of a narrower one counts; short identity names count', async () => {
   const G = 'https://www.googleapis.com/auth/'
   // the pure check: the small explicit table only
@@ -256,6 +279,13 @@ test('hosted: signs in through the hosting service with the app; an older one th
   const f = await apps.authorize('alice', 'alice-session', 'gmail')
   const start = broker.requests.find((r) => r.path === DRIVE_BROKER_PATHS.start)!
   expect(JSON.parse(start.body)).toMatchObject({ v: 1, purpose: 'personal', app: 'gmail' })
+  // Trina's shared Google app signs in: the page says Google may call it unverified (QA TC-2957)
+  expect(apps.view('alice', 'gmail').hostedApp).toBe(true)
+  expect(drive.status('alice').hostedApp).toBe(true)
+  // a refusal at Google through the hosting service: Cancel, or only some accounts allowed for now
+  const denied = await apps.authorize('bob', 'bob-session', 'gmail')
+  const back = broker.browserReturn(denied.authorizationUrl, 'bob')
+  expect(await apps.callbackOutcome({ state: back.state, error: 'consent_denied' }, browser('bob'))).toEqual({ ok: false, reason: 'consent_denied_service' })
   expect(await apps.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
   const view = await apps.complete('alice', 'alice-session', 'gmail', f.flowId)
   expect(view).toMatchObject({ status: 'connected' })

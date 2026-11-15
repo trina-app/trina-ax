@@ -13,6 +13,7 @@ import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../noti
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
 import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
+import type { CallbackOutcome } from './callback-page'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
@@ -124,7 +125,8 @@ export class GoogleDrive {
       const row = this.store.connection(user)
       if (row) this.invalidate(row)
     }
-    return { ...status, personalAllowed: true, teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [] }
+    // hostedApp: the hosting service's shared Google app signs in (not a company's own): Google may call it unverified
+    return { ...status, personalAllowed: true, teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [], hostedApp: this.enabled && this.viaBroker }
   }
   /** Keep cancellation registered throughout a tool's download and conversion. */
   run<T>(user: string, signal: AbortSignal | undefined, fn: (signal: AbortSignal) => Promise<T>) { return this.operation(user, signal, fn) }
@@ -190,6 +192,15 @@ export class GoogleDrive {
   cancel(user: string, session: string, id: string) {
     this.store.ownFlow(user, session, id)
     this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE id=? AND state!='completed'").run(id)
+  }
+  /** The return page's answer (routes/drive.ts, callback-page.ts): ok, or why not (the reason the flow recorded, or the
+   * refusal before it started: an expired or used link, a browser not signed in as the same person). */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
+    try {
+      if (await this.callback(input, browser)) return { ok: true }
+    } catch (e) { return { ok: false, reason: e instanceof DriveError ? e.reason : 'provider_unavailable' } }
+    const r = this.ctx.db.query('SELECT reason FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as { reason: string | null } | null
+    return { ok: false, reason: r?.reason ?? 'provider_unavailable' }
   }
   /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
   async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {

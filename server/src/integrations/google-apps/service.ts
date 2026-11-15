@@ -42,6 +42,7 @@ import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
+import type { CallbackOutcome } from '../google-drive/callback-page'
 
 export class GoogleAppError extends Error {
   name = 'GoogleAppError'
@@ -185,6 +186,8 @@ export class GoogleApps {
       serviceDown: status === 'connected' && lib !== 'ready' && lib !== 'unsupported',
       tools: catalog(app),
       shared,
+      // the hosting service's shared Google app signs in (not a company's own): Google may call it unverified
+      hostedApp: setup.mode === 'broker',
     }
   }
   list(user: string): { apps: GoogleAppView[] } { return { apps: APP_IDS.map((a) => this.view(user, a)) } }
@@ -272,16 +275,21 @@ export class GoogleApps {
   /** Google's (direct) or the hosting service's (`handoff` instead of `code`) return to this server. The browser must be
    * signed in as the person who started it: a leaked sign-in address cannot attach someone else's Google consent. */
   async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
+    return (await this.callbackOutcome(input, browser)).ok
+  }
+  /** The same, with why it did not work for the return page (routes/google-apps.ts, google-drive/callback-page.ts). */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
     this.sweep()
-    if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return false
+    const no = (reason: string): CallbackOutcome => ({ ok: false, reason })
+    if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return no('invalid_flow')
     const f = this.db.query('SELECT * FROM google_app_flows WHERE state_hash=?').get(hash(input.state)) as FlowRow | null
-    if (!f || f.state !== 'pending') return false
-    if (!browser || browser.userId !== f.user_id) return false
-    try { this.session(browser.userId, browser.sessionId); this.session(f.user_id, f.session_id, f.scope ?? 'personal') } catch { return false }
+    if (!f || f.state !== 'pending') return no('invalid_flow')
+    if (!browser || browser.userId !== f.user_id) return no('browser_session_required')
+    try { this.session(browser.userId, browser.sessionId); this.session(f.user_id, f.session_id, f.scope ?? 'personal') } catch { return no('invalid_flow') }
     const setup = setupOf(this.ctx, f.app)
-    if (setup.key !== f.config_key || setup.mode === 'off') return false
-    if (!this.db.query("UPDATE google_app_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return false
-    const failed = (reason: string) => { this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return false }
+    if (setup.key !== f.config_key || setup.mode === 'off') return no('invalid_flow')
+    if (!this.db.query("UPDATE google_app_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return no('invalid_flow')
+    const failed = (reason: string) => { this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return no(reason) }
     try {
       if (input.error) return failed(input.error === 'provider_error' ? 'provider_unavailable' : setup.mode === 'broker' ? 'consent_denied_service' : 'consent_denied')
       const broker = setup.mode === 'broker'
@@ -303,7 +311,7 @@ export class GoogleApps {
       if (!cur || cur.state !== 'exchanging' || cur.expires_at <= new Date(this.now()).toISOString()) return failed('invalid_flow')
       const sealed = this.box.seal(flowAad(f), { verifier: '', tokens: { ...tokens, refreshToken: tokens.refreshToken! }, account, scope: granted.join(' ') } satisfies FlowSecret)
       this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(account), f.id)
-      return true
+      return { ok: true }
     } catch (e) {
       return failed(e instanceof DriveError && e.reason === 'needs_reconnect' ? 'exchange' : e instanceof DriveError ? e.reason : 'provider_unavailable')
     }
