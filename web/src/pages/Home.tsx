@@ -34,6 +34,7 @@
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
+import clsx from 'clsx'
 import { useRealPath } from '../lib/realPath'
 import { isGuestMe } from '../lib/guests'
 import { GuestLanding, useGuestAiOff } from '../components/GuestView'
@@ -195,7 +196,9 @@ function HomePage() {
                 · {t('home.inProject')}
               </p>
             )}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0">{t('home.greeting', { name: me.user.name })}</h1>}
+            {/* a phone under the welcome card while it says hello ("Welcome to {team}"): the greeting only for screen
+                readers, so the card and the box fit. "You're all set" greets nobody, so the greeting stays then */}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
           </div>
           {!phone && dock}

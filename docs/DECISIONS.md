@@ -7632,7 +7632,7 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Per-link rate limit.** `RateLimiter` got a `link` kind (`perLink` 30 per 15 minutes): every join attempt through a found link counts, from any address, before the slow password hash (`hold()`), on top of the per-IP limit on unknown tokens; a join that worked is taken back (`release()`), since the uses cap those, so a 40-person team joining in one go is not turned away by its own typos. Refusals are audited once a minute per link (`team_link.rate_limited`). Someone holding the link can still keep it refusing with failed attempts; the leader then makes a new link. `POST /api/team-link/info` has no per-link limit (cheap; unknown tokens count per IP).
 - **Owners are told.** A new event `team.joined` in its own table `team_join_notices` (migration 111; `notification_inbox` has a fixed CHECK list and tables are never rebuilt, as for skill, dev-env and connection-request notices). Recipients: the active owners and the link's maker. Shown always (no new preference column: a join is rare and the owner wants it); no OS push (`push_deliveries` refers to `notification_inbox` only). Metadata only: the source is the new account's id; the inbox resolves the name while the account exists. Settings › Notifications shows "○○님이 팀 초대 링크로 들어왔어요" with a link to Admin › Members.
 - **Audit**: `team_link.create` (groups, uses, expiry, skill, replaced), `team_link.revoke`, `team_link.join` (who, groups, use n of m, IP and route, like sign-ins), `team_link.rate_limited`. The token is never in a detail.
-- **Skill deep link.** A link may name a team skill (`skills/…`, never a personal one). Creating one checks it against a stand-in new member with the link's groups (the same stand-in as Admin's "who will see what", `access-explain.ts`) and refuses a skill such a person could not open. The join checks again with the real account, after it exists (`readSkill` with the new principal): `next` is `/skills?run=<path>` only when they can read it, else null (Home). The web follows only a `/skills?run=skills/…` next (`lib/team-link.ts joinNext`). The info answer shows the skill's name only when a stand-in new member could open it. Stream C builds the `?run=` form.
+- **Skill deep link.** *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* A link may name a team skill (`skills/…`, never a personal one). Creating one checks it against a stand-in new member with the link's groups (the same stand-in as Admin's "who will see what", `access-explain.ts`) and refuses a skill such a person could not open. The join checks again with the real account, after it exists (`readSkill` with the new principal): `next` is `/skills?run=<path>` only when they can read it, else null (Home). The web follows only a `/skills?run=skills/…` next (`lib/team-link.ts joinNext`). The info answer shows the skill's name only when a stand-in new member could open it. Stream C builds the `?run=` form.
 - **Ready-made message** (none of the reference products has one): "{name}님이 {product}에서 함께 일하자고 초대했어요. 링크로 바로 들어올 수 있어요: {link}", with a skill "… '{skill}' 스킬을 같이 써 보자고 해요. …", in all five languages; `{name}` is the person copying it (they send it).
 - **Join form**: name, username, password for both single-use invites and the team link (`pages/Auth.tsx JoinForm`). The second password field is gone; an eye button shows what was typed and Caps Lock is named (the pattern of the forced password change). All validation stays: the username rule while typing, the 8-character minimum before sending, the server's words after. The first-run setup and the reset-password forms are unchanged (setup belongs to wave 2; a reset is for an existing account). Expired, used-up, revoked, stopped and full links each say so and ask for a new link (or to tell the sender, when full); an unknown token asks to check the copied link.
 - **After joining** the session switch re-renders `/join` as a signed-in page before the router's own navigation (a transition) lands, so the signed-in `/join` route sends the new member to the target the join page set (`AfterJoin`, `lib/team-link.ts setAfterJoin`).
@@ -7712,7 +7712,7 @@ one or two".
   no usable AI (`GET /api/me/ai-access`, asked again on this step) it shows A's banner and button instead of the form.
 - **The invite.** On the first-result chat, once its answer is done, the owner sees one slim bar above the composer
   (`components/onboarding/WelcomeInviteBar.tsx`, one line in Chat.tsx): "결과가 마음에 드세요? 팀원도 같이 써 보게 해요
-  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form) and
+  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form; Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.) and
   the heading "방금 쓴 '광고 문구' 스킬, 팀원도 써 보게 할까요?" (new optional `title` prop). Closing the bar asks E's soft
   question first. When step 3 was put off, the invite is the last step of the page itself, with the pack's skill when
   there is one and E's own heading.
@@ -8369,7 +8369,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   changing its address: a link already posted keeps working) only files a stand-in new member with the link's groups
   could open are kept; with none left there is no starter, and a starter needs the link's skill. At the join each file
   is checked again with the real account (`authorize` + `visiblePath`, the file screen's test); one they cannot read is
-  left out silently, none left = no starter and the member lands on the skill form as before. The answer carries
+  left out silently, none left = no starter and the member lands on the skill form as before *(Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.)*. The answer carries
   `starter { kind, skill, files, by }`; the admin view shows `{ kind, files: n }` only. Audited in `team_link.create` /
   `team_link.update`. The team group is the default group of a new link (the invite step and Admin › Members), so
   people who join see the team's folder; when the lead invites from the notes and the open link lacks it, the PATCH adds
@@ -9434,7 +9434,7 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   version that is a pack's text (any language, earlier releases) has no maker: the owner who pressed install did not
   write it. Used three ways: the join answer's new `skillBy` (and `starter.by` for a skill without a form), the receipt
   (`Message.receipt.skill.by`, only when the maker is not the asker; cached a minute per path), nothing else.
-- **The member**: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
+- **The member** *(Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.)*: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
   "{팀장}님이 만든 팀 스킬이에요 · 이 채팅은 {이름}님만 봐요" (`skillBy`, held in this tab until the form goes away,
   `lib/starter.ts holdMadeBy`). A skill without a form gets M's arrival on Home with a new starter kind `skill` (no
   files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
@@ -10564,7 +10564,7 @@ items of SK.
   '우리 회사 소개서'에 있어요" only when a deck started, by the server's fact `deckStarted` (the deck's chat holds the
   "/intro-deck" message or a deck build exists; never a recorded chat alone: a first result of a row from before is no
   deck) (no button: its row has its own marker, Part A); the primary
-  "'{skill}' 먼저 써 보기" opens the same form a member lands on (`/skills?run=`), "AI 연결하기" while no AI answers; 홈으로
+  "'{skill}' 먼저 써 보기" opens the skill's form (`/skills?run=`; members no longer land on it: "A new member lands on Home", 2026-11-15), "AI 연결하기" while no AI answers; 홈으로
   is a quiet link. Finishing later (내 스킬 on a computer after the phone's end screen) goes Home with "시작 설정을
   마쳤어요".
 - **Finish rule (server, `welcomeFinished`).** 회사 소개 answered (put off; or saved with `resultChatId`, or a row from
@@ -10713,7 +10713,7 @@ items of SK.
   with control or text-direction characters, the same set as `readSkillTitle` and the server's `readSkillExample` (the
   box then starts empty).
 - **The walk of PR #100** (a first-time owner and an invited member in a browser; no dead end found; these fixed):
-  - *The member lands on the skill's form* for every skill: the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
+  - *The member lands on the skill's form* for every skill: *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
     skill a person made that has no fields) is gone from the join; a link to a skill returns its form as `next` (a form
     without fields starts with `skillExample`), with "지훈님이 만든 팀 스킬이에요" above it. Only a link with files (M)
     still lands on Home with its starter. The `'skill'` kind stays in the contract and Home reads it for joins made
@@ -17438,7 +17438,7 @@ direction ("그럼 ㄱ"); the plan was reviewed per persona (5 MUST, 16 SHOULD, 
 page, no migration. Placement: Team AX core (Home, the skills routes, onboarding components). Plan:
 `docs/AGENTS/plan/20261108-1734-onb6-members.md`.
 
-- **Where an invite lands is unchanged.** A link with the owner's shared skill opens its form; every other link lands
+- **Where an invite lands is unchanged.** *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* A link with the owner's shared skill opens its form; every other link lands
   on Home. Not the first kept skill's form: 회사 소개서, 카드뉴스 and 홍보 영상 make company material, and a member's first
   run would remake the company's cards on the team's AI.
 - **One member endpoint, `GET /api/skills/examples`** (`auth: 'user'`, server/src/skills/examples.ts), read as the
@@ -28450,4 +28450,39 @@ no recommended-skill line for members, the message names the skill; the message 
   (optional)" → "Skill (optional)".
 - Removed: the suggested-first-task line and the made-skill sentence (`teamLink.msg.tryAny`, `teamLink.messageMade`, 6
   languages), the link box + QR from the invite step's first view.
+- Version impact: **patch**.
+
+## A new member lands on Home — 새 멤버는 홈에 도착한다 (fix/member-first-landing, 2026-11-15, the owner)
+
+The owner joined with a team link that named a skill and landed straight on that skill's form, a modal over Team skills
+("UX검수 한거야?"). The cause was older than the welcome card: the join answer's `next` sent every link with a skill to
+`/skills?run=<path>` ("Skill deep link" in stream E, kept by W5's PR #100 walk and W6.3), and "A welcome for invited
+people" never took it away. The onboarding review (2026-11-14) and the owner's answer (Q1: no recommended-skill line for
+members; the invite message names the skill) decide the fix. This **supersedes** stream E's "Skill deep link" landing,
+W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is unchanged".
+
+- **Every join lands on Home** with the welcome card: a team link with or without a skill, a single-use invite (it
+  already did) and Add directly. Nothing opens by itself. `POST /api/team-link/join` always answers `next: null` and no
+  longer sends `skillBy`; both stay in the contract (`next` required, `skillBy` optional) so an older app still reads
+  the answer, and an older app then goes Home. The web ignores any `next` (an older server's `/skills?run=` too), so
+  `lib/team-link.ts joinNext` is removed.
+- **The link's skill** is still chosen by the owner and still checked against a new member's access; the invite message
+  names it ("I set up '{skill}' for us", lane C), and Home's "Ready in your team" lists the team's landing skill once
+  the card is gone. No suggestion line on the card and no column for it (the review cut migration 352).
+- **The join page** no longer names the skill ("After you join, you can try '{skill}' right away" is gone, key
+  `teamLink.joinSubSkill` removed in all six languages): it says who invited you to which team and until when the link
+  works, as for a link without a skill.
+- **A skill form opened from a link that says where it came from** (`navigate('/skills?run=…', { state: { back } })`):
+  ✕ or Esc goes back there (a path in this app only) instead of staying on Team skills. Without `state.back` the form
+  closes onto Team skills as before.
+- **The form's maker line is gone** ("{by} made this team skill · Only {name} can see this chat", S): only the join's
+  `skillBy` fed it, and it named the reader in the third person ("Only test can see this chat"). The form shows the
+  skill's description again; the chat footer already says "Only you can see new chats". Removed: `skillForm.madeBy` in
+  all six languages, `SkillForm`'s `by`, and the maker hold in `lib/starter.ts` (which now only clears what an older
+  version left in the tab at sign-out).
+- **Phones:** while the welcome card says hello ("Welcome to {team}"), Home's big greeting is for screen readers only
+  (two greetings, one half under the docked box). "You're all set" greets nobody, so the greeting is back then.
+  Computers keep it.
+- Side effect on the 7-day goal: members are no longer pushed into the link's skill on arrival, so first runs may come
+  later; the invite message is now the one place that names it. MC's "contribute" still follows a member's first run.
 - Version impact: **patch**.

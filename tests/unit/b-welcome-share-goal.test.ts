@@ -75,12 +75,12 @@ test('the owner\'s deck never takes the landing skill\'s place: no goal skill wh
   const token = new URL(made.link!.url!).hash.replace(/^#t=/, '')
   const joined = await h.req(null, '/api/team-link/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, username: 'minji', name: 'Minji', password: 'tulip meadow 2026' }) })
   expect(joined.status).toBe(201)
-  const j = await joined.json() as { me: { user: { id: string } }; next: string | null; starter?: unknown; skillBy: string | null }
-  // the member lands on the landing skill's form; no starter any more (docs/DECISIONS.md "DS3")
-  expect(j.next).toBe(`/skills?run=${encodeURIComponent(LANDING)}`)
+  const j = await joined.json() as { me: { user: { id: string } }; next: string | null; starter?: unknown }
+  // the member lands on Home (docs/DECISIONS.md "A new member lands on Home"); no starter any more ("DS3")
+  expect(j.next).toBeNull()
   expect(j.starter).toBeUndefined()
   addTestPerson('minji', { id: j.me.user.id, name: 'Minji', role: 'member', locale: 'en' })
-  // the form of that skill as the member's list has it, run the way the form runs it, in a new chat of theirs
+  // the form of that skill as the member's list has it (Team skills), run the way the form runs it, in a new chat of theirs
   const skill = (await h.api('minji').call(API.listSkills)).items.find((s) => s.path === LANDING)!
   expect(skill.inputs?.length).toBeGreaterThan(0)
   const memberChat = (await h.api('minji').call(API.createChat, { body: {} })).id

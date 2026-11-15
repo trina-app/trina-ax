@@ -385,8 +385,6 @@ export class MockServer {
   closedSuggestions = new Set<string>()
   /** team skill drafts (server/src/onboarding/skill-draft.ts, short): the source chat, reads so far, where it was saved */
   skillDrafts = new Map<string, { userId: string; sourceChatId: string; reads: number; saved: string | null; form?: string }>()
-  /** who made a team skill (server/src/skills/author.ts: its file's first version); pack skills have none */
-  skillMakers = new Map<string, string>()
   folders: Folder[] = []
   chats: Chat[] = []
   /** the team chat rooms the signed-in person is in (empty unless a test sets them: /__test/rooms) */
@@ -682,7 +680,6 @@ export class MockServer {
     this.resultSuggestion = null
     this.closedSuggestions = new Set()
     this.skillDrafts = new Map()
-    this.skillMakers = new Map()
     this.chats = []
     this.rooms = []
     this.roomMessages = new Map()
@@ -1125,9 +1122,6 @@ export class MockServer {
     return this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
       .flatMap((g) => { const f = this.folders.find((x) => x.groupId === g.id); return f ? [{ id: g.id, name: g.name, root: `${f.path}/skills` }] : [] })
       .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
-  }
-  teamLinkSkillName(path: string): string | null {
-    return this.teamLinkSkill(path)?.name ?? null
   }
   /** the team skill a link names, as the owner reads it (name and title) */
   teamLinkSkill(path: string, viewer = this.users.find((u) => u.role === 'owner')!): { name: string; title: string } | null {
@@ -3685,10 +3679,8 @@ export class MockServer {
       if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: 'member', groupIds: l!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       l!.uses++
-      const next = l!.skillPath && this.teamLinkSkillName(l!.skillPath) ? `/skills?run=${encodeURIComponent(l!.skillPath)}` : null
-      // who made the link's skill (S): the line above its form (every skill lands on its form, one without fields too: W5)
-      const maker = l!.skillPath ? this.users.find((x) => x.id === this.skillMakers.get(l!.skillPath!))?.name ?? null : null
-      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, skillBy: maker } }
+      // Home, whatever skill the link names (docs/DECISIONS.md "A new member lands on Home")
+      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next: null } }
     },
     // onboarding A, B, D: the scripted AI answers everyone, there is no company profile yet
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
@@ -4035,7 +4027,6 @@ export class MockServer {
       for (const dir of ['skills', 'skills/general', `skills/general/${name}`]) this.files.set(dir, this.files.get(dir) ?? { type: 'folder', mtime: now() })
       const inputs = card.inputs.length ? `  inputs: |\n    ${JSON.stringify(card.inputs)}\n` : ''
       this.putFile(rel, `---\nname: ${name}\ndescription: "${c.body.title} — ${card.description}"\nmetadata:\n  title: "${c.body.title}"\n${inputs}${card.recurring ? '  recurring: weekly\n' : ''}---\n# ${c.body.title}\n`)
-      this.skillMakers.set(rel, c.user.id)
       d!.saved = rel
       return { path: rel, name, title: c.body.title }
     },

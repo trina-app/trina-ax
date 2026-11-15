@@ -15,7 +15,7 @@
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -94,9 +94,14 @@ export default function Skills() {
   const changes = page.data?.changes ?? null
   const shares = page.data?.shares ?? null
   const [open, setOpen] = useState<SkillSuggestion | null>(null)
-  // ?run=<path>: that skill's form, on top of the page; closing it takes the parameter out of the address
+  // ?run=<path>: that skill's form, on top of the page; closing it takes the parameter out of the address, or goes back
+  // to the page that opened it when its link said where (`state.back`, a path in this app)
   const run = params.get('run')
+  const navigate = useNavigate()
+  const location = useLocation()
+  const back = (location.state as { back?: unknown } | null)?.back
   const closeRun = () => {
+    if (typeof back === 'string' && back.startsWith('/') && !back.startsWith('//')) return navigate(back, { replace: true })
     const next = new URLSearchParams(params)
     next.delete('run')
     setParams(next, { replace: true })

@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
-import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
+import { type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
@@ -19,12 +19,11 @@ import { clearLocalData } from '../lib/localData'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
+import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
 import { platform } from '../lib/pwa'
 import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
-import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -798,8 +797,8 @@ function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none'
  * /join#t=<token>: the team invite link (one link for many people; it makes members only). The token is read from the
  * fragment and leaves the address bar at once; it goes to the server only in a POST body. This tab keeps it until the
  * person joined or the server said the link does not work (lib/team-link.ts tabJoinToken), and details that did not
- * load (a weak connection) can be loaded again. After joining, a link that names a skill opens that skill's form
- * (`/skills?run=`) when the new member can read it, else Home.
+ * load (a weak connection) can be loaded again. After joining: Home with the welcome card, whatever skill the link
+ * names (docs/DECISIONS.md "A new member lands on Home").
  */
 export function TeamJoin() {
   const t = useT()
@@ -841,17 +840,12 @@ export function TeamJoin() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      // every skill opens on its form, whose box starts with the skill's own example when it has no fields
-      // (docs/DECISIONS.md "W5"); no skill: Home
-      const next = joinNext(r.next)
-      // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
-      const by = r.skillBy ?? null
-      const formPath = by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
-      if (formPath && by) holdMadeBy(r.me.user.id, formPath, by)
+      // Home and its welcome card, also when the link names a skill (an older server's `next` is not followed):
+      // nothing opens by itself (docs/DECISIONS.md "A new member lands on Home")
       forgetJoinToken()
-      setAfterJoin(next)
+      setAfterJoin('/')
       signedIn(r.me)
-      navigate(next, { replace: true })
+      navigate('/', { replace: true })
     })
   if (info === null)
     return (
@@ -867,7 +861,7 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <BrowserLanguageOffer />
       <JoinChoices path={`/join#t=${link.token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
