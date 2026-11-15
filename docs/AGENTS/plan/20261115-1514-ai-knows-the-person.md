@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 15:14
 - Branch: `fix/ai-knows-the-person`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (prompt, a new situation block). Why: chat instructions are Team AX core (docs/REPOSITORY-RULES.md).
 - Version impact: patch: the AI's instructions change, no API or data change.
 
@@ -44,3 +44,9 @@ Out:
 - Privacy: nothing about other people (no admin names, no seat holders), no secrets, no connection names.
 - Shared chats: the block is left out (the person's role is not the chat's people's to know).
 - Prompt cache: the block changes only when the person's role, app or AI account changes.
+
+## Result
+
+Done in PR #1003. `server/src/chat/situation.ts` builds the block; prompt.ts adds it after "Where you run" (instructions and
+resumed-turn context; never in shared chats). The audit table (state, wrong claim, fix) is in the PR description. One
+stale screen name was fixed (Admin › Connectors to Admin › Connected apps).
