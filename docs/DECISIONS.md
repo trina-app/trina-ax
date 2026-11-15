@@ -27410,7 +27410,13 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
 Builds on the entry below (its leftover). In Search (⌘K) a guest's folder and file results open the project's own files
 screen (`lib/guests.ts guestFolderHref`, now with `select`), a file picked there (`?select=<full path>`: the row's fill,
 scrolled to); a result no screen of theirs lists (their own folder) is left out, and the "search in Files" row is not
-shown to a guest. "Open in Files" in a guest's preview picks the file the same way. Version impact: **patch**.
+shown to a guest. "Open in Files" in a guest's preview picks the file the same way.
+
+**Every guest lands in their place** (coordinator, QA TC-3359): opening the app on Home (the tab's first entry or a
+sign-in, `lib/welcome.ts isLanding`) takes a guest to their group chat, else their project (`GuestLanding`), with
+Team AI or their own AI too, as Slack opens a single-channel guest in that channel. This replaces "the Home redirect is
+the invite's AI choice" for landings; a guest with AI still opens Trina (Home) from its tab, and one without AI never
+sees Home, as before. Version impact: **patch**.
 
 ## A guest's AI reads their own rooms; file links and the delete card for guests — 게스트 AI의 대화방 읽기·파일 링크·삭제 카드 (fix/guest-ai-rooms-files, 2026-11-16, the coordinator for the owner)
 
@@ -27486,7 +27492,7 @@ Builds on "Guests: only what they were invited to" and "Claude 구독 연결: �
   straight into their one place, as Slack does for single-channel guests: sign-in, an accepted invite, Settings opened by
   its address (the page under it) and, on a computer, the chats page of a guest in a room go to their room or project
   (`lib/guests.ts guestPlacePath`, `GuestView.tsx useGuestPlacePath`). What hides the 트리나 place, the ✦ side chat and
-  the Home redirect is the invite's AI choice (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
+  the Home redirect is the invite's AI choice (the Home redirect on landing: every guest since fix/guest-search-folders, below) (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
   a Team AI guest keeps 트리나 and ✦ like a member with AI also while the team account cannot answer here (ai-access not
   usable, e.g. a server without managed AI), and the box says "AI can't answer you here yet. Ask the person who invited
   you." (`useGuestNoAi`, no side-chat starters, no "✦ ask privately"); their project page keeps its box place,

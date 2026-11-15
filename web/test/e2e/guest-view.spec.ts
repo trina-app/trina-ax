@@ -59,7 +59,7 @@ test.describe('computer', () => {
     await palette.getByRole('combobox').fill('drafts')
     await palette.getByRole('option').filter({ hasText: /^drafts/ }).click()
     await expect(page).toHaveURL(`${projectUrl}/files?dir=drafts`)
-    await expect(page.getByTestId('project-file')).toContainText('estimate-v2.md')
+    await expect(page.getByTestId('project-file').filter({ hasText: 'estimate-v2.md' })).toBeVisible()
     // a file: that folder with the file picked; no "search in Files" row for a guest
     await openPalette()
     await palette.getByRole('combobox').fill('estimate')
@@ -127,8 +127,10 @@ test.describe('computer', () => {
 
   test('a guest with their own sign-in not made yet: Ask Trina and the room\'s ✦ side chat offer "내 AI 연결하기"; their own Claude sign-in ends it', async ({ page }) => {
     await guestIn(page, { kind: 'room', id: GROUP }, { mode: 'own' })
-    // Ask Trina: the box, and above it the way to connect their own (never "ask the person who invited you")
-    await page.goto('/')
+    // Ask Trina (the rail: a guest lands in their place, QA TC-3359): the box, and above it the way to connect their own
+    // (never "ask the person who invited you")
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await page.getByTestId('rail-ai').click()
     const banner = page.getByTestId('ai-access-banner')
     await expect(banner).toHaveText(/쓸 수 있는 AI가 없어요. 내 AI를 연결하면 바로 쓸 수 있어요./)
     await expect(banner.getByTestId('ai-access-button')).toHaveAttribute('data-action', 'connect_own')
@@ -161,8 +163,9 @@ test.describe('computer', () => {
     await expect(page.getByTestId('claude-done')).toHaveText('연결했어요 · Claude 구독')
     await page.getByRole('dialog', { name: '계정 추가' }).getByRole('button', { name: '닫기' }).click()
     await expect(page.getByTestId('my-credentials')).toContainText('내 Claude')
-    // AI answers them now: no line above the box
-    await page.goto('/')
+    // AI answers them now: no line above the box (Trina from the rail: opening / lands in their room)
+    await page.goto(`/rooms/${GROUP}`)
+    await page.getByTestId('rail-ai').click()
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
     // and their room's ✦ side chat has its starters and its "Looking at" line: a guest's AI reads the rooms they are in
@@ -303,7 +306,11 @@ test.describe('computer', () => {
     await page.getByTestId('room-side-chat-button').click()
     await expect(page.getByTestId('guest-no-ai')).toHaveText('아직 여기서는 AI가 답할 수 없어요. 초대한 분께 물어봐 주세요.')
     await expect(page.getByTestId('side-chat-starters')).toHaveCount(0)
+    // opening the app on Home is a landing: their place again, with AI on too (QA TC-3359, as Slack opens a guest in
+    // their channel); Trina's place on the rail still opens Home
     await page.goto('/')
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await page.getByTestId('rail-ai').click()
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('guest-no-ai')).toBeVisible()
     await expect(page.getByTestId('composer-input')).toHaveCount(0)
