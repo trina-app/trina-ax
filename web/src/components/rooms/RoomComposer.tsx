@@ -52,6 +52,7 @@ import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
+import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 import { AttachSheet } from '../chat/AttachSheet'
 import { ComposerToolbar } from '../chat/ComposerToolbar'
 import TeamFilePicker from '../chat/TeamFilePicker'
@@ -65,6 +66,8 @@ interface Upload {
   status: 'uploading' | 'done' | 'failed'
   roomFile?: RoomFile
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
   abort: AbortController
   /** a team file (the attach sheet's 팀 파일): its team path, and once copied how many other members cannot open it */
   teamPath?: string
@@ -224,7 +227,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: f } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
 
@@ -253,7 +256,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
   const addTeamFiles = (picked: FileEntry[]) => {
@@ -471,6 +474,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'sr-only'}>
                     {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
+                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                 </li>
               ) : (
                 <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
@@ -479,6 +483,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
                     {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
+                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                   <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),

@@ -12,6 +12,8 @@ export interface FileUpload {
   progress: UploadProgress | null
   status: 'uploading' | 'done' | 'failed'
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (components/StoragePlansLink.tsx) */
+  plans?: string
   abort: AbortController
   /** a failed upload: the same file again (a large one goes on from the chunks the server has; QA TC-223) */
   retry?: () => void

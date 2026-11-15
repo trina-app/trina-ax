@@ -45,14 +45,16 @@ function ToChecked() {
 
 /** A setting as one row: its name, then the current choice and › at the row's end, its short line under them; a tap
  * anywhere on it opens the sheet. `more`: the longer details behind "Learn more" under the row (as admin/common.tsx
- * SettingRow has them); `below`: under the row, always shown (a warning). `list`: a row of a phone list
+ * SettingRow has them); `below`: under the row, always shown (a warning); `sheetNote`: words in the open sheet under
+ * its choices (the sheet covers the page under the row, so a search's "no match" goes here too, QA TC-1829). `list`: a row of a phone list
  * (phone/PhoneList.tsx PhoneListGroup: an <li>, hairlines, across the screen) instead of a page's row. `testId`: the
  * row's button; `-value` its value, `-option-<v>` each choice in the sheet. */
-export function PhoneChoiceRow<T extends string>({ title, desc, more, below, value, options, onChange, testId, list }: {
+export function PhoneChoiceRow<T extends string>({ title, desc, more, below, sheetNote, value, options, onChange, testId, list }: {
   title: string
   desc?: ReactNode
   more?: ReactNode
   below?: ReactNode
+  sheetNote?: ReactNode
   value: T
   options: readonly PhoneChoiceOption<T>[]
   onChange: (v: T) => void
@@ -67,7 +69,7 @@ export function PhoneChoiceRow<T extends string>({ title, desc, more, below, val
   if (list)
     return (
       <li className="group/row" data-testid={testId ? `${testId}-row` : undefined}>
-        <MenuButton label={`${title} ${current}`} heading={title} items={items(options, value, onChange, testId)} footer={<ToChecked />}
+        <MenuButton label={`${title} ${current}`} heading={title} items={items(options, value, onChange, testId)} footer={<>{sheetNote}<ToChecked /></>}
           className="w-full" buttonClassName="w-full !rounded-none !py-0 !pr-0 !pl-4 text-left" testId={testId}
           icon={
             <span className="flex min-h-12 w-full min-w-0 items-center gap-3 border-t border-line py-2.5 pr-4 text-sm group-first/row:border-t-0">
@@ -82,7 +84,7 @@ export function PhoneChoiceRow<T extends string>({ title, desc, more, below, val
     <div className="py-1.5" data-testid={testId ? `${testId}-row` : undefined}>
       {/* the button holds the name and the value only (its name is what it shows); the line under it describes it and
           opens the sheet too, for a finger */}
-      <MenuButton label={`${title} ${current}`} heading={title} describedBy={desc ? descId : undefined} items={items(options, value, onChange, testId)} footer={<ToChecked />}
+      <MenuButton label={`${title} ${current}`} heading={title} describedBy={desc ? descId : undefined} items={items(options, value, onChange, testId)} footer={<>{sheetNote}<ToChecked /></>}
         className="w-full" buttonClassName="w-full !rounded-lg !p-0 text-left" testId={testId} buttonRef={button}
         icon={
           <span className="flex min-h-12 w-full min-w-0 items-center gap-3">

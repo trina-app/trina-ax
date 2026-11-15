@@ -12,6 +12,7 @@ import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { Button, IconButton } from './ui'
+import { StoragePlansLink, storagePlansUrl } from './StoragePlansLink'
 
 /** one failed path per line, at most this many; the rest are counted */
 const FAILURES_SHOWN = 5
@@ -166,6 +167,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
       {v.refusal !== null && (
         <p className="text-danger" role="alert" data-testid="folder-upload-refusal">
           {errorText(v.refusal, locale, t('error.network'))} {t('files.folderUpload.stopped', { n: v.waiting })}
+          {' '}<StoragePlansLink url={storagePlansUrl(v.refusal)} />
         </p>
       )}
       {v.failures.length > 0 && (

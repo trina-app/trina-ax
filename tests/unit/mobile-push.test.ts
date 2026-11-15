@@ -640,9 +640,11 @@ test('App leave(): owed first, the page asked, the cookies cleared with or witho
   // the answer is checked before the bridge sees the message, only from this team's page
   expect(app).toContain("if (sameTeam(address.origin, event.nativeEvent.url) && leaveAsk.current.answer(event.nativeEvent.data)) return")
   // while the switch waits for the sign-out, [Cancel], [Back to …] and Android back cancel nothing, so they are off
-  for (const id of ['setup-ask-cancel', 'setup-back', 'link-cancel']) expect(app).toMatch(new RegExp(`disabled=\\{busy\\}[^>]*testID="${id}"|testID="${id}"[^>]*disabled=\\{busy\\}`))
+  for (const id of ['setup-ask-cancel', 'setup-back']) expect(app).toMatch(new RegExp(`disabled=\\{busy\\}[^>]*testID="${id}"|testID="${id}"[^>]*disabled=\\{busy\\}`))
+  // ④'s Cancel is off while busy too, except while a starting team is waited for (up to 3 minutes): then it stops the wait
+  expect(app).toMatch(/disabled=\{busy && !waking\}[^>]*testID="link-cancel"/)
   expect(app).toContain('if (busy) return true')
-  expect(app).toContain("if (!busyRef.current) no(); return true")
+  expect(app).toContain("if (!busyRef.current || wakingRef.current) no(); return true")
   expect(app).toContain("TurboModuleRegistry.get<NetworkingModule>('Networking')")
 })
 

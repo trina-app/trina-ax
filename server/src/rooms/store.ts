@@ -507,9 +507,11 @@ export const isOwnerOrAdmin = (db: Database, userId: string): boolean =>
 
 /** May this person manage the apps of a room they are in (rooms/apps, docs/DECISIONS.md "Apps posting in rooms"): in a
  * team room and the everyone room its owners and admins; in a 1:1 or a group chat any of its members (no admins
- * there). Membership is checked by the caller. */
+ * there) but a guest (QA TC-1922: a guest reaches no apps route, so they neither delete an app's message nor are told
+ * about its pauses or leavers). Membership is checked by the caller. */
 export function mayManageApps(db: Database, room: Pick<RoomRow, 'kind'>, userId: string): boolean {
-  return room.kind === 'dm' || room.kind === 'group' ? true : isOwnerOrAdmin(db, userId)
+  if (room.kind === 'dm' || room.kind === 'group') return !db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(userId)
+  return isOwnerOrAdmin(db, userId)
 }
 
 /** A group chat's manager (방장), computed, never stored: its maker while they are still in it (rooms.created_by, cleared

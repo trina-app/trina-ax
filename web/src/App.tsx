@@ -9,6 +9,7 @@ import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter,
 import { PRODUCT } from '@mycel/shared'
 import { Loader2 } from 'lucide-react'
 import { ApiError, errorText, isServerUpdating, isTeamWaking, setMediaKey } from './lib/api'
+import { useWakeWait } from './lib/wakeWait'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useDeckBuilds } from './store/deckBuilds'
@@ -208,6 +209,9 @@ const RETRY_MS = 5000
 function CantReach({ hint, detail, waking, updating }: { hint: string; detail: string; waking?: boolean; updating?: boolean }) {
   const t = useT()
   const load = useSession((s) => s.load)
+  // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
+  // (this page shows only for a connection that fails: an answer that is not "starting" is another connection error)
+  const wake = useWakeWait(waking ? 'waking' : 'connection')
   useEffect(() => {
     let asking = false
     const ask = () => {
@@ -232,6 +236,12 @@ function CantReach({ hint, detail, waking, updating }: { hint: string; detail: s
         <>
           <p className="flex items-center gap-2 font-medium" role="status" data-testid="team-updating"><Loader2 size={16} className="animate-spin text-muted" aria-hidden />{t('conn.updating')}</p>
           <p className="max-w-md text-sm text-balance text-muted">{t('conn.updatingDetail')}</p>
+        </>
+      ) : waking && wake.gaveUp ? (
+        // still "starting" after 3 minutes: the start failed. [Try again] waits 3 more minutes (the page keeps asking)
+        <>
+          <p className="max-w-md font-medium text-balance" role="alert" data-testid="team-wake-failed">{t('conn.wakeFailed')}</p>
+          <Button onClick={() => { wake.restart(); void load() }} data-testid="team-wake-retry">{t('common.retry')}</Button>
         </>
       ) : waking ? (
         // the team's server was turned off for no use and is starting (about a minute): a calm wait, not an error

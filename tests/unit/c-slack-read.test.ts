@@ -12,6 +12,7 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { slackOf } from '../../server/src/integrations/slack/service'
+import { SlackApiError } from '../../server/src/integrations/slack/api'
 import { askedContext, messageLines, messageRaw, slackPlain, slackReadProvider } from '../../server/src/integrations/slack/read'
 import { postCheck } from '../../server/src/integrations/slack/post-check'
 import { BOT_SCOPES, READ_BOT_SCOPES, slackManifest } from '../../server/src/integrations/slack/manifest'
@@ -279,6 +280,46 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
     fake.failNext['conversations.history'] = { error: 'missing_scope' }
     expect(textOf(await tools.slack_read_channel!.call({ channel: C }, toolCtx('alice', chat)))).toContain('Admin › Connected apps › Slack')
     expect(await waitFor(() => fake.of('auth.test').length > n)).toBe(true)
+  })
+
+  test('Slack refuses the own app\'s bot token at a read: Admin says so, not "Connected" (QA TC-1203)', async () => {
+    const chat = chatOf('alice')
+    const tools = toolsOf('alice', chat)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ state: 'connected', lastError: null })
+    try {
+      // another error is not a refused token: Admin stays "Connected"
+      fake.failNext['conversations.history'] = { error: 'internal_error' }
+      await tools.slack_read_channel!.call({ channel: C }, toolCtx('alice', chat))
+      expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ state: 'connected', lastError: null })
+      fake.failNext['conversations.history'] = { error: 'token_revoked' }
+      const r = await tools.slack_read_channel!.call({ channel: C }, toolCtx('alice', chat))
+      expect(r.isError).toBe(true)
+      expect(textOf(r)).toContain('Admin › Connected apps › Slack')
+      expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ mode: 'own', state: 'error', lastError: 'bot_refused', tokens: true })
+      expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n).toBe(1)
+    } finally {
+      // the rest of this file reads with the same tokens (as after Replace tokens)
+      h.ctx.db.query('UPDATE slack_config SET last_error = NULL').run()
+    }
+  })
+
+  test('the official app: a refused read with a token that is no longer the saved one leaves the new install alone', () => {
+    const before = h.ctx.db.query('SELECT mode, secret_enc, key_version, install_id, last_error FROM slack_config WHERE id = 1').get() as Record<string, unknown>
+    h.ctx.db.query("UPDATE slack_config SET mode = 'official'").run()
+    try {
+      const s = slackOf(h.ctx)
+      const saved = s.botToken()
+      expect(saved).toBeTruthy()
+      // a read that started before the app was added again: its old token, refused now
+      s.tokenRefused(new SlackApiError('token_revoked'), 'xoxb-an-older-install')
+      expect((h.ctx.db.query('SELECT secret_enc FROM slack_config WHERE id = 1').get() as { secret_enc: unknown }).secret_enc).toBeTruthy()
+      // the saved token refused: the app is removed, as Slack's own event says
+      s.tokenRefused(new SlackApiError('token_revoked'), saved!)
+      expect(h.ctx.db.query('SELECT secret_enc, last_error FROM slack_config WHERE id = 1').get()).toEqual({ secret_enc: null, last_error: 'removed' })
+    } finally {
+      h.ctx.db.query('UPDATE slack_config SET mode = ?, secret_enc = ?, key_version = ?, install_id = ?, last_error = ? WHERE id = 1').run(before.mode as string, before.secret_enc as Uint8Array, before.key_version as number, (before.install_id ?? null) as string | null, (before.last_error ?? null) as string | null)
+      slackOf(h.ctx).refresh()
+    }
   })
 
   test('text helpers: Slack markup in words, at most the size given, the first message and the newest kept', () => {

@@ -14,6 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref,
 import { create } from 'zustand'
 import { errorText, isConnectionError, isServerUpdating, isTeamWaking } from '../lib/api'
 import { useAutoRetry } from '../lib/autoRetry'
+import { useWakeWait } from '../lib/wakeWait'
 import { useLocale, useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { Button, ErrorNote } from './ui'
@@ -105,6 +106,9 @@ export function LoadError({ error, onRetry, text, soft, what, minor, className }
   const root = useRef<HTMLDivElement>(null)
   const speaks = useSpeaks(connection, minor ? 0 : 1, root)
   const { tryNow, busy } = useAutoRetry(connection, onRetry)
+  const waking = connection && isTeamWaking(error)
+  // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
+  const wake = useWakeWait(waking ? 'waking' : connection ? 'connection' : 'other')
   if (connection && (banner || !speaks)) {
     // the banner on top, the message box's line or another place says it; this place waits for the connection, quietly
     return (
@@ -129,7 +133,22 @@ export function LoadError({ error, onRetry, text, soft, what, minor, className }
       />
     )
   }
-  if (connection && isTeamWaking(error)) {
+  if (waking && wake.gaveUp) {
+    return (
+      <CalmNotice
+        rootRef={root}
+        className={className}
+        testId="load-error"
+        what={what}
+        state="wake-failed"
+        icon={<CircleAlert size={16} />}
+        title={t('conn.wakeFailed')}
+        // three more minutes, and a read at once (the place keeps reading by itself meanwhile)
+        action={<Button size="sm" variant="secondary" onClick={() => { wake.restart(); tryNow() }} data-testid="load-error-retry">{t('common.retry')}</Button>}
+      />
+    )
+  }
+  if (waking) {
     // the team's server is starting after a pause: the same words as the page the relay shows, with its spinner
     return (
       <CalmNotice

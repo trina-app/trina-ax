@@ -8,6 +8,7 @@ import { credentialsOf } from '../../server/src/credentials/store'
 import { rekeyCredentials } from '../../server/src/credentials/rekey'
 import { APP_DATA_NOTE, readRoom, searchRooms } from '../../server/src/rooms/reader'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { addGuest } from './guest-lib'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -181,4 +182,19 @@ test('the /in/ address is exempt from the public address\'s country list while t
   expect((await send('/api/health', 'GET')).status).toBe(403)
   expect((await send(`/in/${token}`, 'GET')).status).toBe(403)
   expect((await send('/in/nope', 'POST', '{}')).status).toBe(403)
+})
+
+test('a guest in a group chat manages none of its apps: every apps route 403, an app\'s message not theirs to delete (QA TC-1922)', async () => {
+  const { mia, nora, gc, post } = await setup()
+  const gus = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: gc } })
+  const a = await nora.client.call('POST', `/api/rooms/${gc}/apps`, { kind: 'other', name: 'Deploys' })
+  expect((await gus.client.try('GET', `/api/rooms/${gc}/apps`)).status).toBe(403)
+  expect((await gus.client.try('POST', `/api/rooms/${gc}/apps`, { kind: 'other' })).status).toBe(403)
+  expect((await post(a.address, 'Deployed v2')).status).toBe(200)
+  await settle()
+  const [m] = (await gus.client.call('GET', `/api/rooms/${gc}/messages`)).items.filter((x: any) => x.app)
+  expect(m).toBeTruthy()
+  expect((await gus.client.try('DELETE', `/api/rooms/${gc}/messages/${m.id}`)).status).toBe(403)
+  // a member of the chat still may
+  await nora.client.call('DELETE', `/api/rooms/${gc}/messages/${m.id}`)
 })

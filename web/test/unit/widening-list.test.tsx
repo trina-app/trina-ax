@@ -131,6 +131,31 @@ describe('the warning and the list', () => {
     await m.unmount()
   })
 
+  test('QA TC-1695: a refused dry run (past its 60 a minute) keeps the last count and its warning, with no error', async () => {
+    screen(false)
+    routesWith(2)
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await m.type('project-participants-search', 'bob')
+    await m.click(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000))
+    await m.until(() => m.find('project-widen-answers'), 'the widening line', 3000)
+    const previews = () => sent.filter((x) => x.key === 'POST /api/projects/access-preview').length
+    const before = previews()
+    routes['POST /api/projects/access-preview'] = () => json(429, { error: { code: 'rate_limited', message: 'Too many requests', retryAfter: 1 } })
+    await m.click('participant-remove-user-sora')
+    await m.until(() => previews() > before, 'the refused dry run', 2000)
+    try {
+      await m.settle(100)
+      expect(m.find('project-widen-answers')?.textContent ?? '').toContain(en('chat.share.widen', { n: 2, names: 'Bob' }))
+      expect(m.get('project-access-summary').textContent).toBe(en('projects.whoMembers', { n: 3 }))
+      // after the server's Retry-After it asks again by itself, and the count becomes the new picks' own
+      routes['POST /api/projects/access-preview'] = () => json(200, preview({ people: 2, added: 1, sharedChats: 1, hiddenAnswers: 2 }))
+      await m.until(() => m.get('project-access-summary').textContent === en('projects.whoMembers', { n: 2 }), 'the count asked again', 3000)
+    } finally {
+      await m.unmount()
+    }
+  })
+
   test('the list empty (something changed since): says so', async () => {
     routesWith(1)
     routes['POST /api/sharing/widening-answers'] = () => json(200, { total: 0, totalCapped: false, nextCursor: null, items: [] })

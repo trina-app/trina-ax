@@ -330,7 +330,7 @@ test('a member sees the shared account when it includes them, and has no way to 
 const ownApp = (page: Page, body: object) => control(page, '/__test/google-own-app', body)
 const DRIVE_BACK = 'https://acme.example.com/api/integrations/google-drive/callback'
 const APPS_BACK = 'https://acme.example.com/api/integrations/google-apps/callback'
-const googleFile = (uris: string[]) => ({ name: 'client_secret_acme.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ web: { client_id: '123-acme.apps.googleusercontent.com', client_secret: 'synthetic-secret', redirect_uris: uris } })) })
+const googleFile = (uris: string[], clientId = '123-acme.apps.googleusercontent.com') => ({ name: 'client_secret_acme.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ web: { client_id: clientId, client_secret: 'synthetic-secret', redirect_uris: uris } })) })
 
 test('Admin sets the company\'s own Google app from Gmail\'s page, sees it on Drive\'s page, then goes back to Trina\'s sign-in', async ({ page }) => {
   await reset(page)
@@ -406,6 +406,28 @@ test('Admin sets the company\'s own Google app from Gmail\'s page, sees it on Dr
   await page.goto('/admin/connectors/gmail')
   await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'trina')
   expect(realErrors(errors)).toEqual([])
+})
+
+test('the company\'s app: a client ID Google does not know is refused at Save, back at the file with a plain line; a real one then saves', async ({ page }) => {
+  await reset(page)
+  await ownApp(page, { hosted: true })
+  await signIn(page)
+  await page.goto('/admin/connectors/gmail')
+  await page.getByTestId('gsign-use').click()
+  const dialog = page.getByTestId('gsign-dialog')
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-next').click()
+  await dialog.getByTestId('drive-setup-file').setInputFiles(googleFile([DRIVE_BACK, APPS_BACK], 'unknown-acme.apps.googleusercontent.com'))
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-save').click()
+  await expect(dialog).toHaveAttribute('data-step', 'add')
+  await expect(dialog.getByTestId('gsign-error')).toContainText('Google이 이 클라이언트 ID를 알지 못해요')
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'trina')
+  await dialog.getByTestId('drive-setup-file').setInputFiles(googleFile([DRIVE_BACK, APPS_BACK]))
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-save').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'company')
 })
 
 test('the company\'s app: Esc closes the dialog unsaved; without Trina\'s sign-in behind it, removing says Google turns off', async ({ page }) => {

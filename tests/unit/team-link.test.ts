@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as shared from '../../shared/src/team-link'
 import * as phone from '../../mobile/src/team-link'
+import { checkTeamWith } from '../../mobile/src/team-check'
 
 const ROOT = path.join(import.meta.dir, '../..')
 const DESKTOP = { teamDomain: 'trina.app', loopbackHttp: true }
@@ -175,6 +176,12 @@ describe('Trina is updating (QA TC-2260)', () => {
       expect(m.updatingAnswer(503, null, null)).toBe(false)
       expect(m.updatingAnswer(502, '1', null)).toBe(false)
     }
+  })
+  test('the phone app\'s address check says "updating" with "unreachable" (its failure screen says so and keeps trying)', async () => {
+    const answer = (headers: Record<string, string>) => checkTeamWith({ fetch: async () => ({ status: 503, ok: false, headers: new Headers(headers), body: null }) }, 'https://acme.trina.app')
+    expect(await answer({ 'x-mycel-updating': '1' })).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(await answer({ 'x-relay-error': 'team_maintenance' })).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(await answer({ 'x-relay-error': 'team_offline' })).toEqual({ ok: false, reason: 'unreachable' })
   })
 })
 
