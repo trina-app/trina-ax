@@ -85,6 +85,8 @@ describe('docs site', () => {
     }
   })
 
+  // each build makes all six languages (about 160 pages): seconds on a busy machine or CI runner
+  const BUILD_TIMEOUT = 60_000
   const hasMarkdown = typeof (Bun as unknown as { markdown?: unknown }).markdown === 'object'
   test.skipIf(!hasMarkdown)('the build writes every page as HTML and Markdown, and llms.txt lists them', async () => {
     const { build } = await import('../../scripts/docs/build')
@@ -111,7 +113,7 @@ describe('docs site', () => {
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
     }
-  })
+  }, BUILD_TIMEOUT)
 
   // ax.trina.app/docs: the website copies this build into public/docs/ (its scripts/sync-docs.mjs). That site's
   // Content-Security-Policy is script-src 'self'; style-src 'self'; img-src 'self'.
@@ -139,7 +141,7 @@ describe('docs site', () => {
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
     }
-  })
+  }, BUILD_TIMEOUT)
 
   // --site-nav: the website's own bar on top of every page (ax.trina.app passes its rendered header)
   test.skipIf(!hasMarkdown)('--site-nav puts the website bar on every page, with the docs search in it and its theme key', async () => {
@@ -176,7 +178,7 @@ describe('docs site', () => {
       fs.rmSync(out, { recursive: true, force: true })
       fs.rmSync(kit, { recursive: true, force: true })
     }
-  })
+  }, BUILD_TIMEOUT)
 
   test.skipIf(!hasMarkdown)('each language is built under /docs/<lang>/ with its lang, hreflang twins and a language menu', async () => {
     const { build } = await import('../../scripts/docs/build')
@@ -232,7 +234,7 @@ describe('docs site', () => {
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
     }
-  })
+  }, BUILD_TIMEOUT)
 
   test.skipIf(!hasMarkdown)('a <!--docs-lang--> marker in the website bar places the language switch', async () => {
     const { build } = await import('../../scripts/docs/build')
@@ -263,7 +265,7 @@ describe('docs site', () => {
       fs.rmSync(out, { recursive: true, force: true })
       fs.rmSync(kit, { recursive: true, force: true })
     }
-  })
+  }, BUILD_TIMEOUT)
 
   test.skipIf(!hasMarkdown)('without --site-nav the docs keep their own header and theme key', async () => {
     const { build } = await import('../../scripts/docs/build')
@@ -278,5 +280,5 @@ describe('docs site', () => {
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
     }
-  })
+  }, BUILD_TIMEOUT)
 })
