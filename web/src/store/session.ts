@@ -6,7 +6,7 @@ import { optimistic, optimisticPending, optimisticPendingKeys } from '../lib/opt
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { toast } from './ui'
-import { loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { browserLocale, loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -69,10 +69,18 @@ function rememberRemoved(team: string | null, how: 'left' | 'removed' = 'removed
     else { localStorage.removeItem(REMOVED_KEY); localStorage.removeItem(REMOVED_HOW_KEY) }
   } catch { /* storage blocked: said only this time */ }
 }
+/** A guest's own screen (their account ended) in their language: their browser's (one of ours) unless they picked one
+ * here, as their invite page was (guest walkthrough S10), not the team's (QA TC-3225/3226: a Korean guest of an English
+ * team read English). */
+function guestLanguage() {
+  const mine = storedLocale() ? null : browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
+  if (mine && mine !== useLocaleStore.getState().locale) useLocaleStore.getState().setLocale(mine)
+}
 /** The signed-out status for a guest whose account ended (the 401 said so): their own screen, before any password. */
 function guestSignedOut(g: { how: 'left' | 'removed'; team: string | null }, team?: string): Extract<AuthStatus, { kind: 'signed-out' }> {
   const name = g.team ?? team ?? null
   if (name) rememberRemoved(name, g.how)
+  guestLanguage()
   return { kind: 'signed-out', reason: g.how, ...(name ? { team: name } : {}) }
 }
 
@@ -218,7 +226,8 @@ export const useSession = create<SessionState>((set, get) => ({
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-    if ((reason === 'removed' || reason === 'left') && team) rememberRemoved(team, reason)
+    // a guest's (only a guest's 'removed' carries the team)
+    if ((reason === 'removed' || reason === 'left') && team) { rememberRemoved(team, reason); guestLanguage() }
     set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
     // ended from elsewhere (the live link said so, or it was refused): the server tells this sign-in's own holder when
     // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974); a guest
