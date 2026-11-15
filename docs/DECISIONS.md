@@ -28722,3 +28722,52 @@ Disk Access) are part 5.
   names, Korean, hosts and authors, the score, the list's rule and its 50, what goes to the AI),
   `web/test/e2e/find-work-files.spec.ts` (the list before the AI, 50 shown and the rest by search, Choose it yourself).
 - Version impact: **minor** (a new API route; what the list shows changes).
+
+## Find work files, part 5: wider places, Full Disk Access first on a Mac (feat/find-work-files-wide, 2026-11-15)
+
+Owner, 2026-11-15: "Documents, Desktop and Downloads aren't where real company files are", then "doesn't this mean we
+need Full Disk Access?". Still conservative: recent (≤180 days), work-like, the company's or the AI's pick, at most 50.
+
+- **Places beyond the three folders** (`desktop/src/common/work-places.ts`, a wide look: `scan({ wide: true, words })`):
+  cloud drives' folders (Mac: `~/Library/CloudStorage/{OneDrive-*, GoogleDrive-*, Dropbox*, Box*}` only, never iCloud's
+  app data or another provider; Windows: the OneDrive variables and the home folder's Dropbox, Box, Google Drive), the
+  home folder's top folders named with a work word (six app languages) or the company's or a client's name (the page
+  passes at most 20 names; `scanAsk` keeps letters, digits and a few marks, no separators), messengers' download folders
+  (a data table: KakaoTalk, Telegram, WhatsApp, Teams, Slack, WeChat, LINE, Zalo; only folders a person sees, never an
+  app's own data), and the files opened lately anywhere in the home folder (Mac: Spotlight's last-opened across home,
+  the shared file lists `*.sfl2/3/4` parsed from their bookmarks, Office for Mac's securebookmarks lists; Windows: the
+  index's rows, the Recent folder's shortcuts parsed in code (MS-SHLLINK, Electron's reader as a second try) and Office's
+  registry list; other fixed drives join the index's scope, a share or mapped drive is checked one call at a time and the
+  first that hangs ends them). Jump Lists are left out (OLE files, not cheap). Each place is named in the app's own
+  dialog before anything is looked at, and on each row ("OneDrive – Acme › Plans", "KakaoTalk downloads", "Home
+  folder › Notes", "D:"). A messenger folder inside Downloads keeps its name (places first; a later walk skips it).
+- **Older pages and apps.** A page that does not ask for the wide look gets the three folders as before (the bridge
+  stays version 1; `workFiles.wide` = 1 tells a page it may ask). An older app ignores the ask.
+- **Mac: Full Disk Access is the primary path.** Without it, the wide scope means 5–8 macOS questions. The page shows
+  one screen (why in one line, a drawn picture of the switch, Open Settings → `Privacy_AllFiles`, Not now, How). The app
+  answers whether it has it by opening and closing the privacy database (`TCC.db`; nothing is read; macOS asks nothing).
+  While Settings is open the screen asks every second and goes on by itself; back in the window without it, it says
+  macOS may need a reopen and offers **Reopen** (`app.relaunch`). **Not now** = the three folders with macOS's question
+  for each, and Choose it yourself, as in part 4. The wide look runs only when the main process itself finds the access
+  (never on the page's word). Windows has no screen: it looks wide at once.
+- **Never looked at, even with Full Disk Access.** `homeExcluded`: Library and AppData (Mail, Messages, Safari, every
+  app's container and group container), Pictures (Photos' library), Music, Movies, the trash, Applications, hidden names,
+  packages; a recent list's entry pointing there is dropped. The only app data read is `APP_DATA_ALLOWED` (the shared
+  file lists, Office's three securebookmarks lists, Windows' Recent shortcuts), checked by `appDataAllowed` before each
+  read; a unit test pins the list and the two readers.
+- **Online-only files are never read by the look.** Mac: `SF_DATALESS` from `stat -f %Xf` (one call per folder in a
+  walk, 200 paths per call for Spotlight's hits: 40 ms for 2,000); an online-only folder is never entered (that would
+  make the provider fetch it); a check that does not answer lists nothing of that folder. Windows: the index's
+  `System.FileAttributes` (RECALL_ON_DATA_ACCESS, RECALL_ON_OPEN, OFFLINE): such a file gets no file system call at all;
+  its read (after Add) takes what it is from an lstat just before the open and the open must be that file
+  (`Found.late`). Its Zone.Identifier is never opened. Every index hit is now checked by its folder's real path plus its
+  own lstat, so no file is opened while looking. Such files are listed "In the cloud" (adding one downloads it then).
+- **Speed (this Mac, load 19).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
+  in Documents and Downloads, a messenger and two work folders, a recent list): the wide look 1.9–2.0 s warm (the
+  cloud walk with its flag checks 0.7–0.85 s of it), 5.6 s on the first, cold run. Spotlight for one place with 3,000
+  recent files: `mdfind` 0.65–0.74 s, `mdls` of 400 0.2–0.6 s, flags 40 ms; the places are queried at once while the
+  folders are walked. Home-wide Spotlight (last opened, 180 days) 0.23–0.31 s; the shared file lists (48 here) 0.27 s.
+- **Ranking:** a place's weight: a work folder 1.3, a cloud drive 1.2, home and other drives 1, a messenger 0.8 (as
+  part 4's Documents 1.2, Downloads 0.7); a place's name counts for the company match ("OneDrive – Acme").
+- Not verified on Windows here (parsers unit-tested on made-up bytes). Office for Mac's list format is from forensic
+  write-ups; no Office was installed on the Mac this was built on.

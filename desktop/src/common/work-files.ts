@@ -298,10 +298,11 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
     .map((f) => ({ f, key: sameKey(f.path, p) }))
     .filter(({ key }) => key !== rootKey && insideKey(key, rootKey, p) && !o.seenPaths?.has(key))
     .map(({ f }) => ({ f, parts: lib.relative(real, lib.normalize(f.path)).split(lib.sep) }))
-    .filter(({ f, parts }) => parts.length && !parts.some((x) => !x || x === '..' || neverListed(x.normalize('NFC'))) && considered(parts.at(-1)!.normalize('NFC'), parts.slice(0, -1).map((x) => x.normalize('NFC'))) && isRecent(f, now))
+    .filter(({ f, parts }) => parts.length && !parts.some((x) => !x || x === '..' || neverListed(x.normalize('NFC'))) && considered(parts.at(-1)!.normalize('NFC'), parts.slice(0, -1).map((x) => x.normalize('NFC'))) && (isRecent(f, now) || undated(f)))
     .sort((a, b) => Math.max(b.f.used ?? 0, b.f.modified ?? 0) - Math.max(a.f.used ?? 0, a.f.modified ?? 0))
     .slice(0, o.max ?? WORK_FILES_LIMITS.walkDocs)
   const step = o.serial ? 1 : 16
+  // a recent list's entry with no date (no index here): its file's date decides, after its lstat
   const folderReal = new Map<string, Promise<string | null>>()
   for (let i = 0; i < picked.length; i += step) {
     // Stop, the time, and a drive that stops answering, end it here (each call has its time: review of part 4)
@@ -330,6 +331,7 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
       if (!c) continue
       if (c.st.size > fileBytes) { out.tooBig++; continue }
       if (c.st.size < MIN_BYTES) continue
+      if (undated(c.f) && !isRecent({ used: null, modified: c.st.mtimeMs }, now)) continue
       const same = `${c.st.dev}:${c.st.ino}`
       if (o.seen && c.st.ino !== 0n) { if (o.seen.has(same)) continue; o.seen.add(same) }
       const key = sameKey(join(p, real, ...c.parts), p)
@@ -348,6 +350,9 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
   }
   return out
 }
+
+/** A recent list's entry, or a recent-files query's hit, that the index knows no date of: its file's date decides. */
+const undated = (f: IndexedFile) => (!!f.listed || !!f.queried) && f.used === null && f.modified === null
 
 // ---------------------------------------------------------------- the look: the index first, the walk when it is off
 

@@ -421,3 +421,13 @@ describe('the wide look', () => {
     expect(calls.filter((c) => c.startsWith('readdir'))).toEqual(['readdir /Users/alex/Library/CloudStorage/OneDrive-Acme'])
   })
 })
+
+describe('dates', () => {
+  test('a recent list\'s or a query\'s hit with no date from the index: its file\'s date decides (recent listed, old not)', async () => {
+    const { fs } = fakeFs({ Users: dir({ alex: dir({ Notes: dir({ 'New.md': file(5000, NOW - 3 * DAY), 'Old.md': file(5000, NOW - 300 * DAY), 'Plain.md': file(5000, NOW - 3 * DAY) }) }) }) })
+    const root: WorkRoot = { id: 'home', path: HOME, oneDrive: false, place: '' }
+    const none = { used: null, modified: null }
+    const r = await filesFromIndex(root, HOME, [idx('/Users/alex/Notes/New.md', { ...none, listed: true }), idx('/Users/alex/Notes/Old.md', { ...none, queried: true }), idx('/Users/alex/Notes/Plain.md', none)], fs, { platform: 'darwin', newId, now: () => NOW })
+    expect(r.files.map((f) => f.name)).toEqual(['New.md'])
+  })
+})

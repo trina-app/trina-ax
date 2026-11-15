@@ -34,6 +34,8 @@ export interface IndexedFile {
   cloud?: boolean
   /** in a recent-documents list (part 5: the Mac's shared file lists, Office's; Windows' Recent folder, Office's) */
   listed?: boolean
+  /** found by an index query for recent files (part 5): recent by that query, even when nothing more is known of it */
+  queried?: boolean
 }
 
 // ---------------------------------------------------------------- macOS: Spotlight
@@ -226,6 +228,7 @@ export function mergeIndexed(lists: readonly (readonly IndexedFile[])[], platfor
     was.org ??= f.org
     if (f.cloud) was.cloud = true
     if (f.listed) was.listed = true
+    if (f.queried) was.queried = true
     for (const o of f.origins) if (!was.origins.includes(o)) was.origins.push(o)
     for (const a of f.authors) if (!was.authors.includes(a)) was.authors.push(a)
   }

@@ -116,7 +116,7 @@ export async function macPlaceIndex(place: { path: string; id: string }, deadlin
   paths = paths.filter((x) => x.startsWith(root) && considered(posix.basename(x).normalize('NFC'), []) && !x.slice(root.length).split('/').some((s) => !s || neverListed(s.normalize('NFC')))).slice(0, 2000)
   const known = await mdlsOf(paths.slice(0, 400), deadline)
   const byPath = new Map(known.map((k) => [k.path, k]))
-  const files = paths.map((x) => byPath.get(x) ?? { path: x, used: null, modified: null, useCount: null, size: null, origins: [], authors: [], org: null })
+  const files: IndexedFile[] = paths.map((x) => byPath.get(x) ?? { path: x, used: null, modified: null, useCount: null, size: null, origins: [], authors: [], org: null, queried: true })
   if (place.id === 'cloud' && files.length) {
     // a file Spotlight knows nothing of (no date) is not recent enough to tell: left out
     const dataless = await macDatalessSet(files.map((f) => f.path)).catch(() => null)
@@ -158,7 +158,7 @@ export async function macRecent(home: string, deadline: number): Promise<Indexed
     const parts = p.slice(homeSlash.length).split('/')
     return !homeExcluded(parts, 'darwin') && considered(parts.at(-1)!.normalize('NFC'), [])
   }
-  const all = mergeIndexed([spot.filter(keep).slice(0, 1500).map((path) => ({ path, used: null, modified: null, useCount: null, size: null, origins: [], authors: [], org: null })), lists.filter((f) => keep(f.path))], 'darwin')
+  const all = mergeIndexed([spot.filter(keep).slice(0, 1500).map((path): IndexedFile => ({ path, used: null, modified: null, useCount: null, size: null, origins: [], authors: [], org: null, queried: true })), lists.filter((f) => keep(f.path))], 'darwin')
   const known = await mdlsOf(all.slice(0, 600).map((f) => f.path), deadline)
   // a file under a cloud drive's folder: online only or not (it is listed under its place, never opened)
   const inCloud = all.filter((f) => { const parts = f.path.slice(homeSlash.length).split('/'); return parts[0] === 'Library' && parts[1] === 'CloudStorage' && cloudStorageRoot(parts[2] ?? '') })

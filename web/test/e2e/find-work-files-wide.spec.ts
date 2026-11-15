@@ -1,0 +1,132 @@
+// Find work files, part 5 (docs/DECISIONS.md "Find work files, part 5") in a real browser against the mock, with the
+// stand-in desktop app (fake-work-files.ts). A Mac app that offers the wide look: Full Disk Access granted goes straight to
+// the app's own dialog (wide, with the company's words); not granted shows the Full Disk Access screen, whose Open
+// Settings goes on by itself once it is granted, says so and offers Reopen when the person comes back without it, and
+// whose Not now is the three folders as before. Windows looks wide at once. Each row names its place; an online-only file
+// says so. The real app is covered by desktop/e2e/work-files-wide.spec.ts.
+import { expect, test, type Page } from '@playwright/test'
+import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { answer, app, fakeApp, look, roots, setFullDisk, type Meta } from './fake-work-files'
+
+const BOB = { username: 'bob', password: 'bob password 1' }
+const own = (errors: string[]) => realErrors(errors).filter((e) => !/status of (404|409)/.test(e))
+const WIDE: Meta[] = [
+  { name: 'Acme Q3 plan.xlsx', root: 'cloud', place: 'OneDrive – Acme', folder: 'Plans' },
+  { name: 'Acme brief.pptx', root: 'cloud', place: 'OneDrive – Acme', cloud: true },
+  { name: 'Acme quote.pdf', root: 'messenger', place: 'KakaoTalk' },
+  { name: 'Acme roadmap.docx', root: 'folder', place: 'Projects' },
+  { name: 'Acme ideas.md', root: 'home', place: '', folder: 'Notes' },
+  { name: 'Acme budget.xlsx', root: 'drive', place: 'D:', folder: 'Finance' },
+  { name: 'Acme weekly.docx' },
+]
+const WIDE_ROOTS = roots({ id: 'messenger', place: 'KakaoTalk', state: 'ok' }, { id: 'folder', place: 'Projects', state: 'ok' }, { id: 'cloud', place: 'OneDrive – Acme', state: 'ok' }, { id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'ok' })
+
+async function openMine(page: Page) {
+  expect((await page.request.post('/__test/file', { data: { path: 'users/bob/memo.md', text: 'memo' } })).ok()).toBeTruthy()
+  await page.goto('/files?path=users%2Fbob')
+  await expect(page.getByTestId('files-find-work-entry')).toBeVisible()
+}
+const start = async (page: Page, o: Parameters<typeof fakeApp>[1]) => {
+  await fakeApp(page, o)
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page, BOB)
+  await openMine(page)
+}
+
+test('a Mac with Full Disk Access: no screen of its own; the wide look with the company\'s words; each row names its place', async ({ page }) => {
+  const errors = watchConsole(page)
+  await start(page, { wide: true, fullDisk: 'granted' })
+  await look(page, WIDE, WIDE_ROOTS)
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await expect(page.getByTestId('find-work-access')).toHaveCount(0)
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  const asked = (await app(page)).asks
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toMatchObject({ wide: true })
+  expect((asked[0] as { words: string[] }).words).toEqual(['Acme'])
+  const rows = page.getByTestId('find-work-work').getByTestId('find-work-row')
+  await expect(rows).toHaveCount(7)
+  const text = await rows.allInnerTexts()
+  const row = (name: string) => text.find((x) => x.includes(name)) ?? ''
+  expect(row('Acme Q3 plan.xlsx')).toContain('OneDrive – Acme › Plans')
+  expect(row('Acme brief.pptx')).toContain('OneDrive – Acme · In the cloud')
+  expect(row('Acme quote.pdf')).toContain('KakaoTalk downloads')
+  expect(row('Acme roadmap.docx')).toContain('Projects')
+  expect(row('Acme ideas.md')).toContain('Home folder › Notes')
+  expect(row('Acme budget.xlsx')).toContain('D: › Finance')
+  expect(row('Acme weekly.docx')).toContain('Documents')
+  // added: each lands under its place's name in My files › From this computer
+  await rows.filter({ hasText: 'Acme budget.xlsx' }).getByTestId('find-work-check').check()
+  await rows.filter({ hasText: 'Acme ideas.md' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done')
+  const tree = async (path: string) => ((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent(path)}`)).json()).entries ?? []).map((e: { name: string }) => e.name).sort()
+  expect(await tree('users/bob/From this computer')).toEqual(['D', 'Home'])
+  expect(own(errors)).toEqual([])
+})
+
+test('a Mac without it: the screen; Open Settings, then on by itself once granted', async ({ page }) => {
+  const errors = watchConsole(page)
+  await start(page, { wide: true, fullDisk: 'denied' })
+  await look(page, WIDE, WIDE_ROOTS)
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'ask')
+  await expect(page.getByTestId('find-work-access-title')).toHaveText('Let Trina AX look through your work files')
+  await expect(page.getByTestId('find-work-access-picture')).toContainText('Privacy & Security › Full Disk Access')
+  await expect(page.getByTestId('find-work-access-how')).toHaveAttribute('href', 'https://ax.trina.app/docs/use/find-work-files/')
+  // nothing was looked at yet
+  expect((await app(page)).scans).toBe(0)
+  await page.getByTestId('find-work-access-open').click()
+  await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'waiting')
+  expect((await app(page)).fdSettings).toBe(1)
+  // the person turns it on in Settings: the screen goes on by itself to the app's own dialog, the wide look
+  await setFullDisk(page, 'granted')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).asks[0]).toMatchObject({ wide: true })
+  expect(own(errors)).toEqual([])
+})
+
+test('back from Settings without it: "reopen" and Reopen; Not now is the three folders as before', async ({ page }) => {
+  await start(page, { wide: true, fullDisk: 'denied' })
+  await look(page, WIDE.slice(-1), roots({ id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'blocked' }))
+  await page.getByTestId('files-find-work-entry').click()
+  await page.getByTestId('find-work-access-open').click()
+  await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'waiting')
+  // the person comes back to the window, still without it
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'restart')
+  await expect(page.getByTestId('find-work-access-restart')).toHaveText('Turned it on? macOS needs Trina AX to reopen before it counts.')
+  await page.getByTestId('find-work-access-relaunch').click()
+  expect((await app(page)).fdRelaunch).toBe(1)
+  // Not now: the three folders, macOS asking for each, and Choose it yourself for the one kept out
+  await page.getByTestId('find-work-access-later').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).asks).toEqual([null])
+  await expect(page.getByTestId('find-work-blocked')).toHaveAttribute('data-root', 'downloads')
+})
+
+test('Windows: the wide look at once (no screen, no Full Disk Access); the dialog\'s ✕ on the screen closes it', async ({ page }) => {
+  await start(page, { wide: true, platform: 'win32' })
+  await look(page, WIDE, WIDE_ROOTS)
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await expect(page.getByTestId('find-work-access')).toHaveCount(0)
+  await answer(page, 'cancel')
+  await expect(page.getByTestId('find-work')).toHaveCount(0)
+  expect((await app(page)).asks[0]).toMatchObject({ wide: true })
+})
+
+test('the screen\'s ✕ and Escape close it: nothing looked at', async ({ page }) => {
+  await start(page, { wide: true, fullDisk: 'denied' })
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'ask')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('find-work-access')).toHaveCount(0)
+  expect((await app(page)).scans).toBe(0)
+})

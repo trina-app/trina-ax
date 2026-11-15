@@ -258,7 +258,7 @@ export class WorkFilesController {
     const folder = (r: WorkRoot) => { const k = ROOT_KEY[r.id as WorkFolderId]; return r.oneDrive ? t(L, 'workFiles.oneDrive', { folder: t(L, k) }) : t(L, k) }
     // a wide look lists every place by name, and the recent files anywhere in the home folder last
     const names = places
-      ? [...roots.map(folder), ...places.map((x) => (x.kind === 'messenger' ? t(L, 'workFiles.messenger', { app: x.label }) : x.label)), t(L, process.platform === 'win32' ? 'workFiles.recentWin' : 'workFiles.recentMac')]
+      ? [...roots.map(folder), ...places.map((x) => (x.kind === 'messenger' ? t(L, 'workFiles.messenger', { name: x.label }) : x.label)), t(L, process.platform === 'win32' ? 'workFiles.recentWin' : 'workFiles.recentMac')]
       : roots.map(folder)
     const detail = places ? (process.platform === 'darwin' ? 'workFiles.detailWideMac' : 'workFiles.detailWide') : process.platform === 'darwin' ? 'workFiles.detailMac' : 'workFiles.detail'
     const r = await dialog.showMessageBox(win, {

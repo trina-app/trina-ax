@@ -68,7 +68,6 @@ export function FullDiskAccess({ bridge, onGo, phone = false }: { bridge: WorkFi
       {s === 'restart' && (
         <p className="text-sm text-ink" role="status" data-testid="find-work-access-restart">{t('files.findWork.access.restart', { app })}</p>
       )}
-      {s !== 'ask' && <p className="text-label text-muted" data-testid="find-work-access-not-listed">{t('files.findWork.access.notListed', { app })}</p>}
       <p className="text-label text-muted">
         {t('files.findWork.access.never')}{' · '}
         <a className={quietLink} href={FIND_WORK_FILES_GUIDE} target="_blank" rel="noreferrer" data-testid="find-work-access-how">{t('files.findWork.how')}</a>
