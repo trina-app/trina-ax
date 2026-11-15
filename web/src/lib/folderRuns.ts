@@ -5,8 +5,8 @@ import type { FolderUpload, FolderUploadView } from './folderUpload'
 import { SIGNED_OUT } from './localData'
 
 /** A run started by a screen that comes back to it: the welcome steps' 팀 파일 (docs/DECISIONS.md "W6"), which reopens on
- * its newest run (F4 while it runs, F5 after), never on its start. */
-export type RunTag = 'welcome-files'
+ * its newest run (F4 while it runs, F5 after), never on its start; Find work files on My files (its result and Undo). */
+export type RunTag = 'welcome-files' | 'find-work-files'
 
 export interface Run {
   run: FolderUpload
