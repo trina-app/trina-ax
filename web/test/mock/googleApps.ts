@@ -97,7 +97,7 @@ export class MockGoogleApps {
     const c = a.conns.get(userId)
     const reason = this.reasonOf(a)
     const shared = a.team && this.covers(a.team.access, userId) ? { id: `team-${id}`, account: a.team.account, status: 'connected' as const, alwaysAllowed: a.team.alwaysAllowed.has(userId) } : null
-    return { id, available: reason === null, reason, status: c?.status ?? 'disconnected', account: c?.account ?? null, writePolicy: c?.writePolicy ?? 'ask', serviceDown: !!c?.serviceDown, tools: MOCK_GOOGLE_TOOLS[id], shared }
+    return { id, available: reason === null, reason, status: c?.status ?? 'disconnected', account: c?.account ?? null, writePolicy: c?.writePolicy ?? 'ask', serviceDown: !!c?.serviceDown, tools: MOCK_GOOGLE_TOOLS[id], shared, hostedApp: this.hosted && !this.ownApp }
   }
   list(userId: string) { return { apps: GOOGLE_APP_IDS.map((id) => this.view(id, userId)) } }
   adminStatus(id: GoogleAppId, driveAppAvailable: boolean): GoogleAppAdminStatus {

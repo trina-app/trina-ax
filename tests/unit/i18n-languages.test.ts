@@ -202,6 +202,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/skill-packs.ts': { why: 'the kept skills\' one line in the catalog (ko next to en/id/ja/es)' },
   'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^(export )?const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
+  'server/src/integrations/google-drive/callback-page.ts': { why: 'the Google sign-in return page\'s words (ko first in t(ko, en, id, ja, es, zh); a long one\'s Korean on its own line)', also: /^ {4}'[^']*',$/ },
   'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
   'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },
   'server/src/promo-video/layout.ts': { why: 'the Hangul range that picks a Korean line\'s measure (not screen text)', also: /^export const hasHangul = / },

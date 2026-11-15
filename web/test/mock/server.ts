@@ -4512,7 +4512,7 @@ export class MockServer {
     // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
     myDriveConnection: (c) => (this.driveClient === 'none'
       ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
-      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, hostedApp: this.googleOwn.hosted && !this.googleOwn.active,
           teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
     authorizeDrive: () => {
       return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }

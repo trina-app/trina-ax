@@ -28904,3 +28904,31 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   Connect is not there to use.
 - **Template notices keep the name while the template is there**, also for someone it is no longer for (they were told
   the name before); the link to its Connect stays only while it is for them.
+
+## Google sign-in return pages, the unverified-app line, Google apps not available yet stay listed (fix/google-signin-pages-1115, 2026-11-15)
+
+QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
+
+- **The return page** (`server/src/integrations/google-drive/callback-page.ts`, both Google callbacks) uses the
+  request's locale like the other connections' return page: the signed-in person's language, else the anonymous locale
+  (the sign-in screen's pick, else the team default). Never the flow owner's language for a browser that is not that
+  person. Outcomes: confirm in the app (never "received" or "connected": the account is confirmed in the app),
+  cancelled, Google refused through the hosting service (Cancel, or only some accounts allowed while Google reviews the
+  app), a permission not ticked, expired or used, this browser not signed in, signed in as someone else, else a general
+  line. Only the last two carry a link, to `/login` (same origin, no code or state).
+- **`callbackOutcome`** next to `callback()` in both services: the boolean `callback()` is unchanged for callers.
+- **A refusal through the hosting service** is `consent_denied_service` for Google Drive too (as for the apps), never
+  "you cancelled": Google may be allowing only some accounts while it reviews the shared app.
+- **The 20-sign-ins-an-hour limit** has its own reason, `signin_limit` (refusal messages `drive_signin_limit`,
+  `google_app_signin_limit`), so the app says "try again in about an hour" only for it. The hosting service's and
+  Google's own `rate_limited` (a 503 that passes soon) keep the general try-again line.
+- **The unverified line is never in the phone app** (signing in to Google is done on a computer there).
+- **The unverified line** shows only where the hosting service's shared Google app signs in (`hostedApp`: broker mode),
+  never with a company's own app (direct mode, which also covers an operator's client). Before Google opens on the
+  Drive and Google app pages, not on the Discover card's + (which opens Google at once) and not in the team-account
+  dialog. Removing it later: `GoogleUnverifiedNote.tsx`, `showUnverifiedHint`, key `google.unverifiedHint`.
+- **Discover** keeps a Google app whose reason is `service_limited` or `unsupported`, with its short line on the right
+  for everyone (an admin cannot set those up either). With members' own connections off, the line saying so always
+  shows, and a member's search lists the listed services with "Ask admin to add it" (their page has the button); without
+  a search they stay out of Discover.
+- Version impact: **patch** (words, one list entry kept, one optional field on two answers).

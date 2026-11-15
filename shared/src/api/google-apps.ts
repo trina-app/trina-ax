@@ -28,6 +28,8 @@ export type GoogleAppTool = z.infer<typeof GoogleAppTool>
  * `shared`: the team's shared account for this app (an owner or admin connected it, docs/GOOGLE-APPS.md "Shared with
  *   the team"), only when its rule includes this person; null otherwise (also for an admin it does not include). An
  *   older server sends none.
+ * `hostedApp`: the sign-in uses the hosting service's shared Google app (not a company's own), which Google may show as
+ *   unverified while its review is pending. An older server sends none.
  */
 export const GoogleAppShared = z.object({
   /** the shared connection's id (DELETE /api/integrations/:id/always-allow ends this person's own Always allow there) */
@@ -48,6 +50,7 @@ export const GoogleAppView = z.object({
   serviceDown: z.boolean(),
   tools: z.array(GoogleAppTool),
   shared: GoogleAppShared.nullable().optional(),
+  hostedApp: z.boolean().optional(),
 })
 export type GoogleAppView = z.infer<typeof GoogleAppView>
 

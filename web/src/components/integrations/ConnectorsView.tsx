@@ -82,7 +82,9 @@ export const DISCOVER_FIRST = 10
 
 /** One card of Discover (Connectors' and Admin › Connectors'): what it is, its state, what opens it and what its +
  * does. `off`: it cannot be connected now (the team has not set it up); `setUp`/`asked` say why on its right. */
-export interface DiscoverItem { id: string; name: string; line: string; logo: string; state: 'added' | 'reconnect' | 'available' | 'off'; setUp?: boolean; asked?: boolean; onOpen: () => void; onAdd: () => void }
+export interface DiscoverItem { id: string; name: string; line: string; logo: string; state: 'added' | 'reconnect' | 'available' | 'off'; setUp?: boolean; asked?: boolean;
+  /** off, with this short line on its right for everyone (why it cannot be connected now, or "Ask admin to add it") */
+  offLine?: string; onOpen: () => void; onAdd: () => void }
 
 /** One Discover row: logo, name, one line, and one + on the right (for one the team has not set up yet: an owner or
  * admin "Set up", a member "Not set up yet" or "Asked"). The row opens its page. */
@@ -91,7 +93,9 @@ export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) 
   return (
     <ConnectionRow testId="connector-card" data={{ 'data-id': c.id, 'data-state': c.state }} className="border-b border-line" onOpen={c.onOpen} openTestId="connector-open"
       logo={<LogoTile src={c.logo} className={connectionLogo} />} name={c.name} line={c.line}
-      end={c.state === 'off' && !admin ? (
+      end={c.state === 'off' && c.offLine ? (
+        <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{c.offLine}</span>
+      ) : c.state === 'off' && !admin ? (
         <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
         <Link to="/admin/connectors" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>

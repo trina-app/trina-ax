@@ -13,11 +13,13 @@ export const DriveTeamShare = z.object({ id: z.string(), name: z.string(), folde
 export type DriveTeamShare = z.infer<typeof DriveTeamShare>
 /** `personalAllowed`: always true now (no members' switch since 2026-11-12, docs/DECISIONS.md "No members' switch for
  * connectors"); kept for older apps, which may still read false from an older server. `teamShares`: the Drives an admin
- * shares with this person, usable without a connection. */
+ * shares with this person, usable without a connection. `hostedApp`: the sign-in uses the hosting service's shared
+ * Google app (not a company's own), which Google may show as unverified while its review is pending; an older server
+ * sends none. */
 export const DriveConnection = z.object({
   configured: z.boolean(), status: z.enum(['disabled', 'disconnected', 'connected', 'needs_reconnect']),
   account: DriveAccount.nullable(), scopes: z.array(z.string()), expiresAt: z.string().nullable(),
-  personalAllowed: z.boolean().optional(), teamShares: z.array(DriveTeamShare).optional(),
+  personalAllowed: z.boolean().optional(), teamShares: z.array(DriveTeamShare).optional(), hostedApp: z.boolean().optional(),
 })
 export type DriveConnection = z.infer<typeof DriveConnection>
 export const DriveFlow = z.object({
