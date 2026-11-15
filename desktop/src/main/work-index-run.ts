@@ -5,9 +5,9 @@
 // files; the downloads' Zone.Identifier stream says where each came from. Every command has a time limit; a failure is
 // "no index" (null), and the folder is walked instead. Nothing here opens a document.
 import { execFile } from 'node:child_process'
-import { open, readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { open } from 'node:fs/promises'
 import { shell } from 'electron'
+import { windowsRecentLinks } from './work-places-run'
 import { mdlsArgs, mergeIndexed, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, powershellArgs, windowsSearchScript, type IndexedFile } from '../common/work-index'
 
 /** A command's output; a non-zero exit with output still answers (mdls exits 1 when one of 200 paths is gone, and the
@@ -37,21 +37,10 @@ export async function macHints(paths: readonly string[], until: { deadline: numb
 }
 
 /** Windows' own recent lists: the Recent folder's shortcuts (their targets, the shortcut's time as last opened, the newest
- * 300) and Office's recent files. */
-async function windowsRecent(): Promise<IndexedFile[]> {
-  const base = (p: string, used: number | null): IndexedFile => ({ path: p, used, modified: null, useCount: null, size: null, origins: [], authors: [], org: null })
-  const out: IndexedFile[] = []
-  const recent = join(process.env.APPDATA ?? '', 'Microsoft', 'Windows', 'Recent')
-  try {
-    const names = (await readdir(recent)).filter((n) => n.toLowerCase().endsWith('.lnk'))
-    const withTime = await Promise.all(names.map(async (n) => ({ n, t: await stat(join(recent, n)).then((s) => s.mtimeMs, () => 0) })))
-    for (const { n, t } of withTime.sort((a, b) => b.t - a.t).slice(0, 300)) {
-      try {
-        const target = shell.readShortcutLink(join(recent, n)).target
-        if (target) out.push(base(target, t || null))
-      } catch { /* not a shortcut to a file */ }
-    }
-  } catch { /* no Recent folder */ }
+ * 300; work-places-run.ts) and Office's recent files. */
+async function windowsRecent(home: string): Promise<IndexedFile[]> {
+  const base = (p: string, used: number | null): IndexedFile => ({ path: p, used, modified: null, useCount: null, size: null, origins: [], authors: [], org: null, listed: true })
+  const out: IndexedFile[] = await windowsRecentLinks(home, (p) => shell.readShortcutLink(p).target || null)
   try {
     const mru = await run('powershell.exe', powershellArgs("Get-ChildItem 'HKCU:\\Software\\Microsoft\\Office' -Recurse -ErrorAction SilentlyContinue | Where-Object PSChildName -eq 'File MRU' | ForEach-Object { (Get-ItemProperty $_.PSPath).PSObject.Properties | Where-Object Name -like 'Item*' | ForEach-Object { $_.Value } }"), 6000)
     for (const f of parseOfficeMru(mru)) out.push(base(f.path, f.used))
@@ -61,19 +50,21 @@ async function windowsRecent(): Promise<IndexedFile[]> {
 
 /** Windows Search's recent files under the roots plus the recent lists, merged; null when the index does not answer
  * (the WSearch service off, no provider). Files under Downloads say where they were downloaded from. */
-export async function windowsIndex(roots: readonly string[], downloads: string | null): Promise<IndexedFile[] | null> {
+export async function windowsIndex(roots: readonly string[], downloads: string | null, o: { home?: string; drives?: boolean } = {}): Promise<IndexedFile[] | null> {
   let indexed: IndexedFile[]
+  const recentP = windowsRecent(o.home ?? process.env.USERPROFILE ?? '')
   try {
-    indexed = parseWindowsSearch(await run('powershell.exe', powershellArgs(windowsSearchScript(roots)), 10_000))
+    indexed = parseWindowsSearch(await run('powershell.exe', powershellArgs(windowsSearchScript(roots, undefined, undefined, { drives: o.drives })), 10_000))
   } catch {
     return null
   }
-  const all = mergeIndexed([indexed, await windowsRecent()], 'win32')
+  const all = mergeIndexed([indexed, await recentP], 'win32')
   if (downloads) {
     // where the downloads came from: their Zone.Identifier stream (4 KB at most), only for files under Downloads
     // itself (not a Downloads2 beside it), a second each and 5 s in all; the hosts only
     const d = downloads.toLowerCase().replace(/[\\/]+$/, '') + '\\'
-    const here = all.filter((f) => f.path.toLowerCase().startsWith(d)).slice(0, 300)
+    // (never an online-only file's: its streams are the cloud's too)
+    const here = all.filter((f) => !f.cloud && f.path.toLowerCase().startsWith(d)).slice(0, 300)
     const until = Date.now() + 5000
     for (let i = 0; i < here.length && Date.now() < until; i += 16) {
       await Promise.all(here.slice(i, i + 16).map(async (f) => {
@@ -89,4 +80,12 @@ export async function windowsIndex(roots: readonly string[], downloads: string |
     }
   }
   return all
+}
+
+/** Windows' fixed drives ("C:\\", "D:\\"): any other drive letter is a network or removable one. */
+export async function windowsFixedDrives(): Promise<string[]> {
+  try {
+    const out = await run('powershell.exe', powershellArgs("[System.IO.DriveInfo]::GetDrives()|Where-Object{$_.DriveType -eq 'Fixed'}|ForEach-Object{$_.Name}"), 5000)
+    return out.split(/\r?\n/).map((x) => x.trim()).filter((x) => /^[A-Z]:\\$/i.test(x))
+  } catch { return [] }
 }

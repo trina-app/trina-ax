@@ -393,8 +393,13 @@ describe('the wiring', () => {
       const line = main.split('\n').find((l) => l.includes(`'${ch}'`))!
       expect(line, ch).toContain('fromApp(e)')
     }
-    expect(preload).toContain("ipcRenderer.invoke('bridge:work-files-scan')")
-    expect(preload).not.toMatch(/work-files-scan',\s*\w/)
+    for (const ch of ['bridge:work-files-full-disk', 'bridge:work-files-full-disk-settings', 'bridge:work-files-relaunch']) {
+      const line = main.split('\n').find((l) => l.includes(`'${ch}'`))!
+      expect(line, ch).toContain('fromApp(e)')
+    }
+    // part 5: the page may send only a flag and short names, cleaned again in the main process (scanAsk)
+    expect(preload).toContain("ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {})")
+    expect(main).toContain('win!.workFiles.scan(e.senderFrame.origin, scanAsk(ask))')
   })
   test('the look waits for the app\'s own dialog (Cancel is its default); the Mac App Store build and Linux have none', () => {
     expect(ctl).toContain('dialog.showMessageBox(win')

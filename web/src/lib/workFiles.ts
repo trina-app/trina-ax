@@ -5,12 +5,16 @@
 // list's "Select all" (never a personal-looking file, at most 100) and Undo, which takes back only what the run made.
 // No API calls here: the screens give them, so the tests need no server.
 import { TEAM_FILES_LIMITS } from '@mycel/shared/api'
-import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, type DesktopBridge, type WorkFileMeta, type WorkFileRead, type WorkRootId, type WorkRootResult } from '@mycel/shared'
+import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type DesktopBridge, type WorkFileMeta, type WorkFileRead, type WorkFolderId, type WorkRootResult } from '@mycel/shared'
 import { WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
 import { hasPhrase, latinWords, personalPath, type LocalDoc } from './teamFiles'
 import { joinPath } from './paths'
 
 export type WorkFilesBridge = NonNullable<DesktopBridge['workFiles']>
+
+/** the Mac guide (docs/site/use/find-work-files.md): Full Disk Access first, the app's question, macOS's question per
+ * folder after "Not now", turning access on */
+export const FIND_WORK_FILES_GUIDE = 'https://ax.trina.app/docs/use/find-work-files/'
 
 /** The desktop app's workFiles, when it offers this page's version (an older app, the Mac App Store build, a browser and
  * a phone: null, so no entry is shown). */
@@ -22,7 +26,23 @@ export function workFilesBridge(bridge: DesktopBridge | null): WorkFilesBridge |
 /** The folder in My files the files go to (shared/src/folder-labels.ts: its name on disk, said in the person's words). */
 export const FROM_COMPUTER = FROM_COMPUTER_DIR
 /** The root folders' names on disk under it, as the computer names them. */
-export const ROOT_FOLDER: Record<WorkRootId, string> = { documents: 'Documents', desktop: 'Desktop', downloads: 'Downloads' }
+export const ROOT_FOLDER: Record<WorkFolderId, string> = { documents: 'Documents', desktop: 'Desktop', downloads: 'Downloads' }
+/** The home folder's recent files (part 5) land in this folder under From this computer. */
+export const HOME_FOLDER = 'Home'
+
+const isFolderId = (id: string): id is WorkFolderId => id === 'documents' || id === 'desktop' || id === 'downloads'
+
+/** Part 5: the app offers the wide look (the places beyond the three folders) and, on a Mac, Full Disk Access. */
+export const offersWide = (b: WorkFilesBridge) => b.wide === WORK_FILES_WIDE_VERSION && typeof b.scan === 'function'
+
+/** A place's folder name under From this computer: its label without what a file name cannot hold ("D:" → "D"). */
+export function placeFolder(f: Pick<WorkFileMeta, 'root' | 'place'>): string {
+  if (isFolderId(f.root)) return ROOT_FOLDER[f.root]
+  const n = (f.place ?? '').normalize('NFC').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)
+  // no name of dots only, none that ends in a dot or a space (Windows drops them)
+  const clean = n.replace(/^[.\s]+|[.\s]+$/g, '')
+  return clean ? clean : HOME_FOLDER
+}
 
 /** Why a read gave nothing, as an Error the upload counts as "could not be read" (the file is not tried again). */
 export class WorkFileReadError extends Error {
@@ -35,7 +55,7 @@ export class WorkFileReadError extends Error {
  * `open` asks the app for the bytes, by id, when the file goes up. */
 export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) => Promise<WorkFileRead>): LocalDoc[] {
   return files.map((f) => {
-    const pick = ROOT_FOLDER[f.root]
+    const pick = placeFolder(f)
     const folder = f.folder.normalize('NFC')
     const name = f.name.normalize('NFC')
     const rel = joinPath(folder, name)
@@ -49,6 +69,8 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
       size: f.size,
       modified: f.modified,
       personal: personalPath(joinPath(pick, rel)),
+      ...(!isFolderId(f.root) ? { place: { kind: f.root, label: (f.place ?? '').normalize('NFC') } } : {}),
+      ...(f.cloud ? { cloud: true } : {}),
       ...(f.used || f.useCount || f.origins?.length || f.authors?.length || f.org
         ? { hints: { ...(f.used ? { used: f.used } : {}), ...(f.useCount ? { useCount: f.useCount } : {}), ...(f.origins?.length ? { origins: f.origins } : {}), ...(f.authors?.length ? { authors: f.authors } : {}), ...(f.org ? { org: f.org } : {}) } }
         : {}),
@@ -190,8 +212,9 @@ export function domainStem(d: string): string {
 
 /** Why this file is the company's, or null. Names and folders, download hosts, authors and organisation only: no file
  * is read. */
-export function companyMatch(d: Pick<LocalDoc, 'pick' | 'folder' | 'name' | 'hints'>, w: CompanyWordsLike): CompanyMatch | null {
-  const text = [d.folder, d.name.replace(/\.[a-z0-9]+$/i, '')].join(' ').replace(/[/_]/g, ' ')
+export function companyMatch(d: Pick<LocalDoc, 'pick' | 'folder' | 'name' | 'hints' | 'place'>, w: CompanyWordsLike): CompanyMatch | null {
+  // a place's name counts as a folder ("OneDrive – Acme", "Google Drive – acme.com", a work folder "Acme")
+  const text = [d.place?.label ?? '', d.folder, d.name.replace(/\.[a-z0-9]+$/i, '')].join(' ').replace(/[/_]/g, ' ')
   for (const name of w.names) if (holds(text, name)) return { kind: 'name', word: name }
   for (const dom of w.domains) { const stem = domainStem(dom); if (stem && holds(text, stem)) return { kind: 'name', word: stem } }
   for (const host of d.hints?.origins ?? []) {
@@ -217,6 +240,9 @@ export const isRecentDoc = (d: Pick<LocalDoc, 'modified' | 'hints'>, now = Date.
 
 const TYPE_WEIGHT: Record<string, number> = { pdf: 1, doc: 1, docx: 1, hwp: 1, hwpx: 1, xls: 1, xlsx: 1, csv: 0.6, ppt: 1, pptx: 1, key: 1, pages: 1, numbers: 1, txt: 0.6, md: 0.6, rtf: 0.6, png: 0.2, jpg: 0.2, jpeg: 0.2 }
 const FOLDER_HINT: Record<string, number> = { Downloads: 0.7, Desktop: 1, Documents: 1.2 }
+/** Part 5: a place's weight (a work folder and the company's cloud drive above Documents; a messenger's downloads as
+ * Downloads; the home folder's and other drives' recent files as Desktop). */
+const PLACE_HINT: Record<NonNullable<LocalDoc['place']>['kind'], number> = { folder: 1.3, cloud: 1.2, messenger: 0.8, home: 1, drive: 1 }
 
 /** The fixed score (docs/DECISIONS.md part 4): recency (half-life 21 days) × use × type × the company × the folder. */
 export function workScore(d: LocalDoc, m: CompanyMatch | null, now = Date.now()): number {
@@ -224,7 +250,8 @@ export function workScore(d: LocalDoc, m: CompanyMatch | null, now = Date.now())
   const recency = Math.pow(0.5, age / 21)
   const use = 1 + Math.log(1 + (d.hints?.useCount ?? 0))
   const company = !m ? 1 : m.kind === 'from' ? 3 : m.kind === 'by' ? 2 : 1.5
-  return recency * use * (TYPE_WEIGHT[d.ext] ?? 0.4) * company * (FOLDER_HINT[d.pick] ?? 1)
+  const where = d.place ? PLACE_HINT[d.place.kind] ?? 1 : (FOLDER_HINT[d.pick] ?? 1)
+  return recency * use * (TYPE_WEIGHT[d.ext] ?? 0.4) * company * where
 }
 
 /** The AI's look: the best TO_AI recent files that look like no one's personal file, by the score. */
@@ -246,4 +273,15 @@ export function workList(docs: readonly LocalDoc[], w: CompanyWordsLike, picks: 
   const top = all.slice(0, WORK_SHOWN)
   const kept = all.slice(WORK_SHOWN).filter((x) => ticked.has(x.d.key))
   return { shown: [...top, ...kept].map((x) => x.d), more: Math.max(0, all.length - WORK_SHOWN - kept.length) }
+}
+
+/** Part 5: the company's words as the app's look takes them (the names, and the name in each domain): they name the home
+ * folder's work folders. At most 20. */
+export function lookWords(w: CompanyWordsLike): string[] {
+  const out: string[] = []
+  for (const n of [...w.names, ...w.domains.map(domainStem)]) {
+    const x = n.trim()
+    if (x.length >= 2 && x.length <= 60 && !out.some((o) => o.toLowerCase() === x.toLowerCase())) out.push(x)
+  }
+  return out.slice(0, 20)
 }

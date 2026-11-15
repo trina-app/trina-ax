@@ -9,12 +9,14 @@ import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
-import { WORK_FILES_BRIDGE_VERSION, type WorkFileRead, type WorkFileScan, type WorkRootId } from '@mycel/shared'
+import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
-import { inOneDrive, lookRoots, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
+import { inOneDrive, lookRoots, lookWide, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
 import type { IndexedFile } from '../common/work-index'
-import { macHints, windowsIndex } from './work-index-run'
+import type { Place } from '../common/work-places'
+import { macHints, windowsFixedDrives, windowsIndex } from './work-index-run'
+import { fullDiskState, macDatalessSet, macPlaceIndex, macRecent, MAC_FULL_DISK_SETTINGS, widePlaces } from './work-places-run'
 import type { MeResult } from '../common/browser-owner'
 import { FOLDER_SYSTEM } from './security'
 
@@ -75,7 +77,12 @@ export const NODE_WORK_FS: WorkFs = {
   },
 }
 
-const ROOT_KEY: Record<WorkRootId, UiKey> = { documents: 'workFiles.documents', desktop: 'workFiles.desktop', downloads: 'workFiles.downloads' }
+/** A wide look (part 5) ends by this long, whatever is left (the list must come quickly). */
+const WIDE_MS = 20_000
+/** A place beyond the three folders gets a short walk when the index knows nothing of it. */
+const PLACE_LIMITS = { depth: 4, walkFiles: 10_000, rootMs: 4000 } as const
+
+const ROOT_KEY: Record<WorkFolderId, UiKey> = { documents: 'workFiles.documents', desktop: 'workFiles.desktop', downloads: 'workFiles.downloads' }
 
 export class WorkFilesController {
   private readonly sessions = new WorkFileSessions(NODE_WORK_FS, process.platform)
@@ -90,7 +97,7 @@ export class WorkFilesController {
       win: () => BaseWindow | null
       locale: () => UiLocale
       /** the page's progress event (bridge:work-files-progress) */
-      progress: (p: { root: WorkRootId; checked: number; docs: number; done: number }) => void
+      progress: (p: { root: WorkRootId; place?: string; checked: number; docs: number; done: number }) => void
     },
   ) {}
 
@@ -107,7 +114,7 @@ export class WorkFilesController {
   }
 
   /** The page asked to look: the app's own dialog first; the look only after the person's yes there. */
-  async scan(origin: string): Promise<WorkFileScan> {
+  async scan(origin: string, ask: { wide?: boolean; words?: string[] } = {}): Promise<WorkFileScan> {
     const win = this.o.win()
     if (!win || win.isDestroyed() || !workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
     if (this.busy || Date.now() < this.quietUntil) return { state: 'busy' }
@@ -116,14 +123,18 @@ export class WorkFilesController {
     const generation = this.generation
     try {
       const roots = this.roots()
-      const yes = await this.consent(win, roots)
+      // the wide look (part 5) only where the app sees the places without a question per folder: Windows, and a Mac with
+      // Full Disk Access (checked here, never taken from the page)
+      const wide = !!ask.wide && (process.platform === 'win32' || (process.platform === 'darwin' && (await this.fullDisk()) === 'granted'))
+      const places = wide ? await widePlaces(app.getPath('home'), ask.words ?? []).catch(() => [] as Place[]) : []
+      const yes = await this.consent(win, roots, wide ? places : null)
       this.quietUntil = Date.now() + COOLDOWN_MS
       if (!yes) return { state: 'cancelled' }
       // a stop sent while the dialog was up (the page's dialog closed and opened again, React's double start in
       // development) is for no look: the look starts now
       this.stopped = false
       if (generation !== this.generation) return { state: 'cancelled' }
-      const r = await this.look(roots, generation)
+      const r = wide ? await this.lookWide(roots, places, generation) : await this.look(roots, generation)
       if (generation !== this.generation) return { state: 'cancelled' }
       this.sessions.begin(origin, r.found)
       return { state: 'done', stopped: r.stopped, roots: r.roots, files: r.files }
@@ -151,9 +162,65 @@ export class WorkFilesController {
     })
   }
 
+  /** The wide look (part 5): the places first (a messenger's folder inside Downloads gets its name), then the three
+   * folders, then the files opened lately anywhere in the home folder (and, on Windows, other drives and shares). */
+  private async lookWide(folders: WorkRoot[], places: Place[], generation: number) {
+    const home = app.getPath('home')
+    const deadline = Date.now() + WIDE_MS
+    const roots: WorkRoot[] = [...places.map((x) => ({ id: x.kind, path: x.path, oneDrive: false, place: x.label })), ...folders]
+    const stopped = () => this.stopped || generation !== this.generation
+    const common = {
+      platform: process.platform,
+      home,
+      deadline,
+      stopped,
+      onProgress: (p: { root: WorkRootId; place?: string; checked: number; docs: number; done: number }) => { if (generation === this.generation) this.o.progress(p) },
+      allowed: async (root: WorkRoot) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+      rootLimits: (root: WorkRoot) => (root.place !== undefined ? PLACE_LIMITS : {}),
+      newId: () => randomBytes(12).toString('base64url'),
+    }
+    if (process.platform === 'win32') {
+      const outside = places.filter((x) => !x.path.toLowerCase().startsWith(home.toLowerCase().replace(/\\?$/, '\\'))).map((x) => x.path)
+      const all = windowsIndex([home, ...outside], folders.find((r) => r.id === 'downloads')?.path ?? null, { home, drives: true })
+      const fixed = windowsFixedDrives()
+      const fixedNow = await fixed
+      return lookWide(roots, NODE_WORK_FS, {
+        ...common,
+        index: async () => all,
+        recent: async () => (await all) ?? [],
+        network: (path) => path.startsWith('\\\\') || !fixedNow.some((d) => path.toLowerCase().startsWith(d.toLowerCase())),
+      })
+    }
+    // a Mac with Full Disk Access: Spotlight for each place at once (no question per folder now), the walk for the three
+    const pre = new Map(places.map((x) => [x.path, macPlaceIndex({ path: x.path, id: x.kind }, deadline)]))
+    return lookWide(roots, NODE_WORK_FS, {
+      ...common,
+      index: async (_real, root) => (root.place !== undefined ? (pre.get(root.path) ?? null) : null),
+      enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until),
+      placeholders: (paths, root) => (root.id === 'cloud' ? macDatalessSet(paths) : Promise.resolve(new Set<string>())),
+      recent: () => macRecent(home, deadline),
+    })
+  }
+
+  /** A Mac's Full Disk Access for the app (part 5): the probe, the Settings pane, a restart. */
+  fullDisk(): Promise<FullDiskState> {
+    return process.platform === 'darwin' && workFilesVersion({ platform: process.platform, mas: process.mas }) ? fullDiskState(app.getPath('home')) : Promise.resolve('unknown')
+  }
+
+  openFullDiskSettings() {
+    if (process.platform === 'darwin') void shell.openExternal(MAC_FULL_DISK_SETTINGS)
+  }
+
+  /** "Reopen Trina": macOS gives Full Disk Access to an app that was running when it was turned on only after a restart. */
+  relaunch() {
+    if (process.platform !== 'darwin' || this.busy) return
+    app.relaunch()
+    app.quit()
+  }
+
   /** "Choose it yourself": macOS kept the app out of a folder. The system's folder window opens at it; the person's pick
    * there is their permission. Only that folder or one inside it (never home or above); its files join the latest look. */
-  async pickRoot(origin: string, id: WorkRootId): Promise<WorkFileScan> {
+  async pickRoot(origin: string, id: WorkFolderId): Promise<WorkFileScan> {
     const win = this.o.win()
     const root = this.roots().find((r) => r.id === id)
     if (!win || win.isDestroyed() || !root || !workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
@@ -163,7 +230,7 @@ export class WorkFilesController {
     const generation = this.generation
     try {
       const L = this.o.locale()
-      const r = await dialog.showOpenDialog(win, { defaultPath: root.path, properties: ['openDirectory'], message: t(L, 'workFiles.pickMessage', { folder: t(L, ROOT_KEY[root.id]) }), buttonLabel: t(L, 'workFiles.pickButton') })
+      const r = await dialog.showOpenDialog(win, { defaultPath: root.path, properties: ['openDirectory'], message: t(L, 'workFiles.pickMessage', { folder: t(L, ROOT_KEY[root.id as WorkFolderId]) }), buttonLabel: t(L, 'workFiles.pickButton') })
       const picked = r.canceled ? null : r.filePaths[0]
       if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
       // the folder as it really is (a link in the pick would lead elsewhere): inside the root's real path, never home
@@ -186,14 +253,19 @@ export class WorkFilesController {
 
   /** The app's own question (no web page draws it). Cancel is the default: Enter, Escape and closing it answer no, so a
    * page that asks while the person types gets no yes from their next Enter (as the allow-all dialog). */
-  private async consent(win: BaseWindow, roots: WorkRoot[]): Promise<boolean> {
+  private async consent(win: BaseWindow, roots: WorkRoot[], places: Place[] | null): Promise<boolean> {
     const L = this.o.locale()
-    const names = roots.map((r) => (r.oneDrive ? t(L, 'workFiles.oneDrive', { folder: t(L, ROOT_KEY[r.id]) }) : t(L, ROOT_KEY[r.id])))
+    const folder = (r: WorkRoot) => { const k = ROOT_KEY[r.id as WorkFolderId]; return r.oneDrive ? t(L, 'workFiles.oneDrive', { folder: t(L, k) }) : t(L, k) }
+    // a wide look lists every place by name, and the recent files anywhere in the home folder last
+    const names = places
+      ? [...roots.map(folder), ...places.map((x) => (x.kind === 'messenger' ? t(L, 'workFiles.messenger', { app: x.label }) : x.label)), t(L, process.platform === 'win32' ? 'workFiles.recentWin' : 'workFiles.recentMac')]
+      : roots.map(folder)
+    const detail = places ? (process.platform === 'darwin' ? 'workFiles.detailWideMac' : 'workFiles.detailWide') : process.platform === 'darwin' ? 'workFiles.detailMac' : 'workFiles.detail'
     const r = await dialog.showMessageBox(win, {
       type: 'question',
       message: t(L, 'workFiles.title'),
-      detail: `${names.map((n) => `· ${n}`).join('\n')}\n\n${t(L, process.platform === 'darwin' ? 'workFiles.detailMac' : 'workFiles.detail')}`,
-      buttons: [t(L, 'workFiles.look'), t(L, 'workFiles.cancel')],
+      detail: `${names.map((n) => `· ${n}`).join('\n')}\n\n${t(L, detail)}`,
+      buttons: [t(L, places ? 'workFiles.lookWide' : 'workFiles.look'), t(L, 'workFiles.cancel')],
       defaultId: 1,
       cancelId: 1,
       noLink: true,

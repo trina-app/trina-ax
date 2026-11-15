@@ -8,6 +8,7 @@
 // Pure: the commands' output comes in as text, so the parsers are unit-tested in tests/unit/e-desktop-work-index.test.ts;
 // desktop/src/main/work-files.ts runs the commands.
 import { posix, win32 } from 'node:path'
+import { winPlaceholder } from './work-places'
 
 /** How far back a file counts as recent (owner, 2026-11-15: "only files used recently", about six months). */
 export const RECENT_DAYS = 180
@@ -29,6 +30,10 @@ export interface IndexedFile {
   /** who wrote it, the organisation (kMDItemAuthors, kMDItemOrganizations; System.Author, System.Company) */
   authors: string[]
   org: string | null
+  /** online only (part 5): its content is in the cloud (Windows' attributes, a Mac's SF_DATALESS); never opened by the look */
+  cloud?: boolean
+  /** in a recent-documents list (part 5: the Mac's shared file lists, Office's; Windows' Recent folder, Office's) */
+  listed?: boolean
 }
 
 // ---------------------------------------------------------------- macOS: Spotlight
@@ -141,18 +146,27 @@ export const psQuote = (s: string) => s.replace(/['\u2018-\u201B]/g, (c) => c + 
 export const powershellArgs = (script: string) => ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
 
 /** One PowerShell run: Windows Search's SystemIndex for documents changed or opened in the last `days` days under the
- * roots, as one JSON array. ADO through the Search.CollatorDSO provider; nothing is opened. */
-export function windowsSearchScript(roots: readonly string[], days: number = RECENT_DAYS, now = Date.now()): string {
+ * roots, as one JSON array. ADO through the Search.CollatorDSO provider; nothing is opened. `drives` (part 5): the other
+ * fixed drives' indexed places too (D:\, E:\; the script finds them, never a network or removable drive). Each row has
+ * the file's attributes, so an online-only file is told apart without touching it. */
+export function windowsSearchScript(roots: readonly string[], days: number = RECENT_DAYS, now = Date.now(), o: { drives?: boolean } = {}): string {
   const since = new Date(now - days * 86_400_000).toISOString().slice(0, 19).replace('T', ' ')
   const scope = roots.map((r) => `SCOPE='file:${psQuote(r.replace(/\\/g, '/'))}'`).join(' OR ')
-  const sql = `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company FROM SystemIndex WHERE (${scope}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
+  const sql = (sc: string) => `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company, System.FileAttributes FROM SystemIndex WHERE (${sc}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
   return [
     "$ErrorActionPreference='Stop'",
     "$c=New-Object -ComObject ADODB.Connection",
     "$c.Open(\"Provider=Search.CollatorDSO;Extended Properties='Application=Windows';\")",
-    `$r=$c.Execute('${psQuote(sql)}')`,
+    `$q='${psQuote(sql(scope))}'`,
+    // the other fixed drives (not the system drive: its user folders are the roots above), each its own scope
+    ...(o.drives ? [
+      "$sys=$env:SystemDrive.TrimEnd('\\')",
+      "$ds=[System.IO.DriveInfo]::GetDrives()|Where-Object{$_.DriveType -eq 'Fixed' -and $_.IsReady -and $_.Name.TrimEnd('\\') -ne $sys}|ForEach-Object{\"SCOPE='file:\"+$_.Name.Replace('\\','/')+\"'\"}",
+      `if($ds){$q='${psQuote(sql('__SCOPES__'))}'.Replace('__SCOPES__',((@('${psQuote(scope)}')+$ds) -join ' OR '))}`,
+    ] : []),
+    '$r=$c.Execute($q)',
     '$o=@()',
-    'while(-not $r.EOF){$o+=[pscustomobject]@{p=$r.Fields.Item(0).Value;a=$r.Fields.Item(1).Value;m=$r.Fields.Item(2).Value;s=$r.Fields.Item(3).Value;au=$r.Fields.Item(4).Value;co=$r.Fields.Item(5).Value};$r.MoveNext()}',
+    'while(-not $r.EOF){$o+=[pscustomobject]@{p=$r.Fields.Item(0).Value;a=$r.Fields.Item(1).Value;m=$r.Fields.Item(2).Value;s=$r.Fields.Item(3).Value;au=$r.Fields.Item(4).Value;co=$r.Fields.Item(5).Value;fa=$r.Fields.Item(6).Value};$r.MoveNext()}',
     '$o|ConvertTo-Json -Compress -Depth 3',
   ].join(';')
 }
@@ -175,7 +189,8 @@ export function parseWindowsSearch(json: string): IndexedFile[] {
     const o = r as Record<string, unknown>
     if (typeof o.p !== 'string' || !o.p) return []
     const authors = Array.isArray(o.au) ? o.au.map(String) : typeof o.au === 'string' ? [o.au] : []
-    return [{ path: o.p, used: winDate(o.a), modified: winDate(o.m), useCount: null, size: typeof o.s === 'number' ? o.s : null, origins: [], authors: authors.slice(0, 5), org: typeof o.co === 'string' && o.co ? o.co : null }]
+    const fa = typeof o.fa === 'number' ? o.fa : 0
+    return [{ path: o.p, used: winDate(o.a), modified: winDate(o.m), useCount: null, size: typeof o.s === 'number' ? o.s : null, origins: [], authors: authors.slice(0, 5), org: typeof o.co === 'string' && o.co ? o.co : null, ...(winPlaceholder(fa) ? { cloud: true } : {}) }]
   })
 }
 
@@ -209,6 +224,8 @@ export function mergeIndexed(lists: readonly (readonly IndexedFile[])[], platfor
     was.useCount = max(was.useCount, f.useCount)
     was.size ??= f.size
     was.org ??= f.org
+    if (f.cloud) was.cloud = true
+    if (f.listed) was.listed = true
     for (const o of f.origins) if (!was.origins.includes(o)) was.origins.push(o)
     for (const a of f.authors) if (!was.authors.includes(a)) was.authors.push(a)
   }
