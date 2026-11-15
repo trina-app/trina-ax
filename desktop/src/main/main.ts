@@ -31,6 +31,7 @@ import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
+import { windowsAppUserModelId } from '../common/app-id'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
@@ -55,6 +56,10 @@ const kit: Kit = (() => {
 })()
 
 app.setName(PRODUCT.displayName)
+// Windows: the same AppUserModelID as the installer's shortcuts (common/app-id.ts), before any Notification exists.
+// Without it Electron uses its own default id and Windows drops every notification silently (QA TC-342).
+const aumid = windowsAppUserModelId({ platform: process.platform, windowsStore: process.windowsStore })
+if (aumid) app.setAppUserModelId(aumid)
 // the settings folder keeps its first name (PRODUCT.desktopDataDir) when the product is renamed: Electron would
 // otherwise take the new name and every desk would forget its teams, window and language
 app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), PRODUCT.desktopDataDir))
