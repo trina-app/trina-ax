@@ -3899,7 +3899,7 @@ export const ko = {
   "accountDeletion.toldAdmin": "팀장에게 알림이 가요. 더 일찍 삭제할 수는 있지만 막을 수는 없어요.",
   "accountDeletion.goes": "삭제되는 것: 로그인, 프로필과 사진, 내 개인 대화, 사람이나 그룹에게 공유한 대화, 메모리, 내가 연결한 AI·앱, 예약 작업과 알림.",
   "accountDeletion.folder": "개인 폴더의 파일은 팀장만 읽을 수 있는 보관 폴더로 옮겨져요. 남기고 싶지 않으면 그 전에 지워 주세요.",
-  "accountDeletion.stays": "팀에 남는 것: 팀 폴더의 파일, 프로젝트에 공유한 채팅, 팀에 공유한 스킬, 1:1·그룹 대화에 보낸 메시지와 파일(내 이름으로 남아요).",
+  "accountDeletion.stays": "팀에 남는 것: 팀 폴더의 파일, 프로젝트에 공유한 대화, 팀에 공유한 스킬, 1:1·그룹 대화에 보낸 메시지와 파일(내 이름으로 남아요).",
   "accountDeletion.goesGuest": "삭제되는 것: 로그인 정보, 프로필과 사진, 알림.",
   "accountDeletion.goesGuestAi": "삭제되는 것: 로그인 정보, 프로필과 사진, AI와 나눈 대화, 알림.",
   "accountDeletion.goesGuestOwn": "삭제되는 것: 로그인 정보, 프로필과 사진, AI와 나눈 대화, 연결한 내 AI 계정, 알림.",
