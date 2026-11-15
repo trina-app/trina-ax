@@ -729,7 +729,7 @@ export const zh: Record<MessageKey, string> = {
   "connect.signInWhere": "登录会在新窗口中打开登录页面。请确认是你预期的服务。AI 永远看不到你的密码。",
   "connect.wait.timedOut": "登录没有完成，所以已停止等待。准备好后请重新连接。",
   "connect.wait.limit": "{n, plural, one {# 分钟} other {# 分钟}}后会自动停止等待。",
-  "connect.wait.google": "如果 Google 提示你不能使用这个应用(例如只限公司账号),请关闭那个窗口,点“重试”,再选择你的工作账号。{n, plural, one {# 分钟} other {# 分钟}}后会自动停止等待。",
+  "connect.wait.google": "如果 Google 提示你不能使用这个应用（例如只限公司账号），请关闭 Google 的窗口，点“重试”，再选择你的工作账号。{n, plural, one {# 分钟} other {# 分钟}}后会自动停止等待。",
   "connect.noKey": "无需密钥。它会连接到{host}。",
   "connect.kindMcp": "MCP 服务器",
   "connect.kindHttp": "HTTP API",

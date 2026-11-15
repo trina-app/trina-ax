@@ -749,7 +749,7 @@ export const en: Record<MessageKey, string> = {
   'connect.signInWhere': "Signing in opens a sign-in page in a new window. Check that it is the service you expect. The AI never sees your password.",
   'connect.wait.timedOut': "Signing in didn't finish, so this stopped waiting. Connect again when you're ready.",
   "connect.wait.limit": "This stops by itself after {n, plural, one {# minute} other {# minutes}}.",
-  "connect.wait.google": "If Google says you can't use this app (for example, it is only for your company's accounts), close that window, press Try again and choose your work account. This stops by itself after {n, plural, one {# minute} other {# minutes}}.",
+  "connect.wait.google": "If Google says you can't use this app (for example, it is only for your company's accounts), close Google's window, press Try again and choose your work account. This stops by itself after {n, plural, one {# minute} other {# minutes}}.",
   'connect.noKey': "No key needed. It connects to {host}.",
   'connect.kindMcp': "MCP server",
   'connect.kindHttp': "HTTP API",

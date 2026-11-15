@@ -749,7 +749,7 @@ export const id: Record<MessageKey, string> = {
   'connect.signInWhere': "Masuk akan membuka halaman masuk di jendela baru. Periksa bahwa itu layanan yang Anda maksud. AI tidak pernah melihat kata sandi Anda.",
   "connect.wait.timedOut": "Login belum selesai, jadi penantian dihentikan. Hubungkan lagi saat Anda siap.",
   "connect.wait.limit": "Ini berhenti sendiri setelah {n} menit.",
-  "connect.wait.google": "Jika Google bilang Anda tidak bisa memakai aplikasi ini (misalnya hanya untuk akun perusahaan), tutup jendela itu, tekan Coba lagi, lalu pilih akun kerja Anda. Ini berhenti sendiri setelah {n} menit.",
+  "connect.wait.google": "Jika Google menampilkan bahwa Anda tidak bisa memakai aplikasi ini (misalnya hanya untuk akun perusahaan), tutup jendela Google itu, tekan Coba lagi, lalu pilih akun kerja Anda. Ini berhenti sendiri setelah {n} menit.",
   'connect.noKey': "Tidak perlu kunci. Terhubung ke {host}.",
   'connect.kindMcp': "Server MCP",
   'connect.kindHttp': "API HTTP",
