@@ -3,9 +3,7 @@ title: Buscar archivos de trabajo en este equipo
 description: Deje que la app de escritorio encuentre sus archivos de trabajo recientes (en Documentos, en unidades en la nube como OneDrive y Google Drive, en carpetas de proyectos y en descargas de mensajería), elija los que quiera y añádalos a Mis archivos. En un Mac, cómo dar Acceso total al disco o permitir carpeta por carpeta.
 ---
 
-La app de escritorio para **Windows** y la **app para Mac del sitio web** pueden encontrar los archivos con los que ha trabajado últimamente y
-mostrarle los que parecen de trabajo: formularios, informes, propuestas, material de marca y cosas similares. Usted marca los que
-quiere, y solo se añaden esos.
+Sus archivos de trabajo están repartidos por el ordenador: en OneDrive, en Descargas, en una carpeta de proyecto. La app de escritorio para **Windows** y la **app para Mac del sitio web** encuentran los archivos con los que ha trabajado últimamente y le sugieren los que parecen de trabajo: formularios, informes, propuestas, material de marca y cosas similares. **Usted elige** cuáles añadir. Nada se añade, se comparte ni se mueve sin usted, y los archivos de su ordenador quedan como están.
 
 Busca en estos lugares:
 
@@ -47,18 +45,16 @@ el resto de ese paso.
 
 ## En un Mac: dé Acceso total al disco una vez
 
-Los archivos de trabajo suelen estar fuera de Documentos, en OneDrive, Google Drive o una carpeta de proyecto. Sin **Acceso total al disco**,
-macOS le preguntaría por cada una de esas carpetas, una tras otra. Por eso, en un Mac la app muestra primero esta pantalla:
+Para buscar más allá de Documentos, Escritorio y Descargas, la app para Mac necesita **Acceso total al disco**. Por eso, en un Mac la app muestra primero esta pantalla. Desde **Mis archivos** dice **Encuentra tus archivos de trabajo** (lo que añada solo lo ve usted); en **Primeros pasos › Archivos del equipo** dice **Encuentra los archivos que tu equipo debería tener**.
 
-![Deje que Trina AX revise sus archivos de trabajo: el motivo, una imagen del interruptor de Trina AX en Privacidad y seguridad › Acceso total al disco, Ahora no y Abrir Ajustes](../../images/find-work-files/full-disk.webp "Primero, Acceso total al disco")
+![Encuentra tus archivos de trabajo: Trina AX revisa las carpetas de este Mac y sugiere los archivos con los que trabaja; necesita Acceso total al disco. Una imagen del interruptor de Trina AX en Privacidad y seguridad › Acceso total al disco, Ahora no y Abrir Ajustes](../../images/find-work-files/full-disk.webp "Primero, Acceso total al disco")
 
 1. Haga clic en **Abrir Ajustes**. Ajustes del Sistema se abre en **Privacidad y seguridad › Acceso total al disco**.
 2. **Trina AX** ya está en la lista, con el interruptor desactivado: aparece allí en cuanto la app abre esta pantalla,
    así que no necesita **+**. Active su interruptor. macOS le pide la contraseña de su Mac o Touch ID.
 3. Vuelva a la app. La pantalla continúa sola en cuanto la app tiene acceso.
 
-Si lo activó y la pantalla sigue esperando, macOS solo da el acceso después de que la app se vuelva a abrir. La pantalla lo
-indica: haga clic en **Volver a abrir Trina AX** y luego otra vez en **Buscar archivos de trabajo**.
+Si lo activó y la pantalla sigue esperando, puede que macOS solo tenga en cuenta el interruptor después de reiniciar la app. Haga clic en **Reiniciar Trina AX**: la app se reinicia y vuelve a abrir sola la misma pantalla, que entonces continúa. (Si en Ajustes del Sistema hace clic en **Salir y volver a abrir**, también vuelve ahí.)
 
 Para retirar el acceso más adelante, desactive el interruptor en el mismo lugar.
 

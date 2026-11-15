@@ -3,9 +3,7 @@ title: Mencari file kerja di komputer ini
 description: Biarkan aplikasi desktop menemukan file kerja terbaru Anda (di Dokumen, drive cloud seperti OneDrive dan Google Drive, folder proyek, dan unduhan messenger), pilih yang Anda inginkan, lalu tambahkan ke File saya. Di Mac, cara memberi Akses Disk Penuh, atau mengizinkan folder satu per satu.
 ---
 
-Aplikasi desktop untuk **Windows** dan **aplikasi Mac dari situs web** bisa menemukan file yang belakangan ini Anda kerjakan dan
-menampilkan yang tampak seperti file kerja: formulir, laporan, proposal, materi merek, dan sejenisnya. Anda mencentang yang Anda
-inginkan, dan hanya file itu yang ditambahkan.
+File kerja Anda tersebar di komputer: di OneDrive, di Unduhan, di folder proyek. Aplikasi desktop untuk **Windows** dan **aplikasi Mac dari situs web** menemukan file yang belakangan ini Anda kerjakan dan menyarankan yang tampak seperti file kerja: formulir, laporan, proposal, materi merek, dan sejenisnya. **Anda yang memilih** mana yang ditambahkan. Tidak ada yang ditambahkan, dibagikan, atau dipindahkan tanpa Anda, dan file di komputer Anda tetap seperti semula.
 
 Aplikasi mencari di tempat-tempat berikut:
 
@@ -47,18 +45,16 @@ bagian lain dari langkah itu.
 
 ## Di Mac: berikan Akses Disk Penuh satu kali
 
-File kerja sering berada di luar Dokumen, di OneDrive, Google Drive, atau folder proyek. Tanpa **Akses Disk Penuh**,
-macOS akan menanyakan setiap folder itu kepada Anda, satu per satu. Karena itu, di Mac aplikasi lebih dulu menampilkan layar ini:
+Untuk mencari di luar Dokumen, Desktop, dan Unduhan, aplikasi Mac memerlukan **Akses Disk Penuh**. Karena itu, di Mac aplikasi lebih dulu menampilkan layar ini. Dari **File saya**, judulnya **Temukan file kerja Anda** (yang Anda tambahkan hanya terlihat oleh Anda); di **Persiapan awal › File tim**, judulnya **Temukan file yang perlu dimiliki tim Anda**.
 
-![Let Trina AX look through your work files: alasannya, gambar sakelar Trina AX di Privacy & Security › Full Disk Access, Not now dan Open Settings](../../images/find-work-files/full-disk.webp "Akses Disk Penuh lebih dulu")
+![Find your work files (Temukan file kerja Anda): Trina AX memeriksa folder di Mac ini dan menyarankan file yang Anda kerjakan; perlu Akses Disk Penuh. Gambar sakelar Trina AX di Privacy & Security › Full Disk Access, Not now dan Open Settings](../../images/find-work-files/full-disk.webp "Akses Disk Penuh lebih dulu")
 
 1. Klik **Buka Pengaturan**. Pengaturan Sistem terbuka di **Privasi & Keamanan › Akses Disk Penuh**.
 2. **Trina AX** sudah ada di daftar, dengan sakelar mati: aplikasi muncul di sana begitu membuka layar ini,
    jadi Anda tidak perlu **+**. Nyalakan sakelarnya. macOS meminta kata sandi Mac Anda atau Touch ID.
 3. Kembali ke aplikasi. Layar berlanjut sendiri begitu aplikasi mendapat akses.
 
-Jika Anda sudah menyalakannya tetapi layar masih menunggu, macOS baru memberi akses setelah aplikasi dibuka ulang. Layar
-menyebutkan hal itu: klik **Buka ulang Trina AX**, lalu **Cari file kerja** lagi.
+Jika Anda sudah menyalakannya tetapi layar masih menunggu, macOS mungkin baru menerapkan sakelar itu setelah aplikasi dimulai ulang. Klik **Mulai ulang Trina AX**: aplikasi dimulai ulang dan membuka layar yang sama lagi dengan sendirinya, lalu lanjut. (Jika Anda mengklik **Quit & Reopen** di System Settings, Anda juga kembali ke sana.)
 
 Untuk mencabut akses nanti, matikan sakelarnya di tempat yang sama.
 
