@@ -73,7 +73,7 @@ describe('the electron-builder hook', () => {
 })
 
 describe('the release job', () => {
-  type Step = { name?: string; if?: string; uses?: string; run?: string; with?: Record<string, string> }
+  type Step = { name?: string; if?: string; uses?: string; run?: string; with?: Record<string, string | boolean> }
   const wf = Bun.YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')) as {
     permissions: Record<string, string>
     jobs: Record<string, { environment?: string; permissions?: Record<string, string>; env?: Record<string, string>; steps?: Step[] }>
