@@ -241,6 +241,11 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
       setPersonal(false)
       return true
     } catch (e) {
+      // shared meanwhile (another tab, its page's Add people): a team project already, so the link is all that is left
+      if (isApiError(e, 'validation') && e.body.fields?.['params.id'] === 'not a personal project') {
+        setPersonal(false)
+        return true
+      }
       // its skills/ holds skills: they switch on in this project's chats once I say yes (as the page's share asks)
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
@@ -307,7 +312,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
           <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-where">
             {t(place.kind === 'room' ? 'guest.invite.whereRoom' : 'guest.invite.whereProject', { place: place.name })}
           </p>
-          {personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-personal">{t('guest.invite.personalProject')}</p>}
+          {personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-personal">{t('guest.invite.personalProject')} {t('projects.shareConfirmFinal')}</p>}
           <Field label={t('guest.invite.name')}>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
           </Field>

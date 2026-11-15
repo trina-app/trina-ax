@@ -84,9 +84,9 @@ If your team lets only owners and admins share projects, a member's own projects
 
 Owners and admins can invite a guest without opening the chat or project first. In **Admin › Members & invites**, choose
 **Invite to team**, then **Guest** at the top of the dialog (**Team member** is picked to start with). Pick the one
-place the guest joins: a group chat you are in, a team project, or one of your own projects (shared as above). Then fill in the same dialog as above: their name,
-their AI, **Create link** and **Copy link**. If your plan has no room for more guests, the dialog says so instead of
-listing places.
+place the guest joins: a group chat you are in, a team project, or one of your own projects (shared as above). Then
+fill in the same dialog as above: their name, their AI, **Create link** and **Copy link**. If your plan has no room for
+more guests, the dialog says so instead of listing places.
 
 ![Invite to team with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 

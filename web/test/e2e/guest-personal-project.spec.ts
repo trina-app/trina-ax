@@ -39,7 +39,7 @@ test('the owner invites a guest into their personal project: shared first with n
   await expect(row).toContainText(translate('ko', 'projects.members.onlyMe'))
   await row.click()
   await expect(page.getByTestId('guest-invite-where')).toContainText("'제안서' 프로젝트만")
-  await expect(page.getByTestId('guest-invite-personal')).toHaveText(translate('ko', 'guest.invite.personalProject'))
+  await expect(page.getByTestId('guest-invite-personal')).toHaveText(`${translate('ko', 'guest.invite.personalProject')} ${translate('ko', 'projects.shareConfirmFinal')}`)
   // Cancel shares nothing
   const calls: string[] = []
   page.on('request', (r) => { if (r.method() === 'POST' && (r.url().includes('/share') || r.url().endsWith('/api/guest-invites'))) calls.push(new URL(r.url()).pathname) })
@@ -80,10 +80,24 @@ test('the plan fills up after the share: the limit, and the project is shared on
   expect(shares).toBe(1)
 })
 
+test('shared meanwhile in another tab: Create link still makes the link', async ({ page }) => {
+  const id = await start(page)
+  await signIn(page)
+  await openGuest(page)
+  await page.getByTestId('guest-place-project').click()
+  await expect(page.getByTestId('guest-invite-personal')).toBeVisible()
+  expect((await page.request.post(`/api/projects/${id}/share`, { headers: H, data: { participants: [] } })).ok()).toBeTruthy()
+  const created = page.waitForRequest((r) => r.url().endsWith('/api/guest-invites') && r.method() === 'POST')
+  await page.getByTestId('guest-invite-create').click()
+  expect((await created).postDataJSON()).toMatchObject({ place: { kind: 'project', id } })
+  await expect(page.getByTestId('guest-invite-ready')).toBeVisible()
+})
+
 test('a member whose team lets only admins share projects: their personal projects are not offered', async ({ page }) => {
   await start(page)
   await signIn(page)
   expect((await page.request.patch('/api/admin/settings', { headers: H, data: { projectCreators: 'admins' } })).ok()).toBeTruthy()
+  await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/rooms?new=1')
   await page.getByTestId('invite-guest-row').click()

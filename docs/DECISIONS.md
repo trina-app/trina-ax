@@ -28471,8 +28471,11 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   (`POST /api/projects/:id/share` with no participants: the creator alone), then makes the link. So it behaves exactly
   as that share: its folder moves to `projects/<name>` with its files, nothing goes to the trash, its skills are asked
   about first (the same confirm), a project holding another project is refused, and it never goes back to only me.
-  Shared once: a Create link refused after it (the plan filled up meanwhile) does not share it again. Cancel before
-  Create link changes nothing. Two calls rather than one server step: no API change, and the share's own checks and
+  Shared once: a Create link refused after it does not share it again. Such a refusal (the plan filled up meanwhile,
+  the team AI account gone, my role changed) leaves it shared with nobody but me: still under My projects, Only me,
+  its folder in `projects/`; the next Create link makes only the link. Shared meanwhile elsewhere (another tab, its
+  page's Add people: 400 "not a personal project"): Create link goes on to the link. Cancel before Create link changes
+  nothing. Two calls rather than one server step: no API change, and the share's own checks and
   questions stay where they are.
 - **What the owner sees:** after Create link it is a team project whose only member is me, so it stays under **My
   projects** with **Only me** (`ProjectsPanel` puts a team project with an audience of 1 there). When the guest joins,
@@ -28480,7 +28483,8 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   ones from before stay mine and the new ones are shared with its members, but a guest never sees members' chats
   (owner 2026-11-14, `a-guests-projects`), so the guest sees its files and none of my chats. The form's one line says
   that before Create link (`guest.invite.personalProject`): "This project is only yours now. When the guest joins,
-  they can open and edit its files. They won't see your chats." The task's example line ("…and the chats you start
+  they can open and edit its files. They won't see your chats." followed by Add people's own "This can't go back to
+  only you." (`projects.shareConfirmFinal`). The task's example line ("…and the chats you start
   there") was not used: it would be untrue for a guest.
 - The empty line (`guest.invite.noPlaces`) now says "Group chats you're in and your projects show here." A member whose
   team lets only admins share projects and who has no group chat or team project gets that line.
