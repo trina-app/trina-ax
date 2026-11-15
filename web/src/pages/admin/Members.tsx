@@ -21,12 +21,12 @@
 // The owner hands the role over from a person's "…" (팀장 넘기기, components/handover/HandoverDialog.tsx) and may flag an
 // invite "이 사람이 팀장이에요" (components/handover/LeadInvite.tsx, docs/DECISIONS.md "W6"); a flagged one is listed as
 // "팀장 링크 · 받는 사람: …".
-import { Crown, FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
+import { Crown, FolderLock, Gauge, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
-import { cleanLeadFor, type CreatedInvite as CreatedInviteSchema, type Group, type Invite, type Locale, type Me, type User } from '@mycel/shared/api'
+import { cleanLeadFor, type Budget, type CreatedInvite as CreatedInviteSchema, type Group, type Invite, type Locale, type Me, type User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDate, formatDateTime, formatMonthDay, formatShortDateTime } from '../../lib/format'
@@ -56,8 +56,9 @@ import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
 import { confirmOriginKept } from './originKept'
-import { loadAdminInvites, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
+import { loadAdminInvites, readAdmin, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 import { GuestsSection } from './Guests'
+import { BudgetForm, budgetExceeded, budgetLimitText, budgetUsedText, loadBudgets, personBudgets } from './BudgetForm'
 import { inviteGuestName } from '../../lib/guests'
 import { useProjects } from '../../store/projects'
 import { useRooms } from '../../store/rooms'
@@ -87,6 +88,17 @@ export default function Members() {
   const groups = useAdminGroups()
   // the team's AI connections: the delete confirmation names those only the person may use (ai-assignees.ts)
   const connections = useLoad(loadConnections)
+  // the usage limits (the same read as Team settings › Usage limits): a person's own are on their row and their page
+  const budgets = useAdminRead('budgets', loadBudgets)
+  /** "Usage limit…": the person whose limit the dialog is for, with the limits read again as it opens. A kept list can be
+   * up to a minute old (or older while a new read is on its way): one made in Team settings or by another admin just now
+   * would be missed, and Save would make a second limit for the same period. The dialog keeps that list while it is
+   * open, so a read behind it never turns a new limit into an edit of another. */
+  const [limitFor, setLimitFor] = useState<{ user: User; budgets: Budget[] } | null>(null)
+  const openLimit = async (u: User) => {
+    const list = await act(() => readAdmin('budgets', loadBudgets, { force: true }))
+    if (list) setLimitFor({ user: u, budgets: list })
+  }
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -246,9 +258,23 @@ export default function Members() {
       testId="member-role-filter"
     />
   )
-  /** Every row's "…": the folders this person sees (anyone's), then the actions on the people this viewer manages. */
+  /** A person's own usage limits, quiet under their name: "1,000,000 tokens a month", and "Over limit" once used up.
+   * Nothing for someone without one (the team's and their groups' limits stay in Team settings). */
+  const limitLine = (u: User) => {
+    const mine = personBudgets(budgets.data, u.id)
+    if (!mine.length) return null
+    return (
+      <span className="mt-0.5 block text-xs text-faint" data-testid={`member-limit-${u.username}`}>
+        {mine.map((b) => budgetLimitText(t, locale, b)).join(' · ')}
+        {mine.some(budgetExceeded) && <> · <span className="text-danger" data-testid={`member-over-limit-${u.username}`}>{t('budgets.over')}</span></>}
+      </span>
+    )
+  }
+  /** Every row's "…": the folders this person sees and their usage limit (anyone's: the owner and the admins set limits,
+   * their own too), then the actions on the people this viewer manages. */
   const menuItems = (u: User): MemberMenuItem[] => [
     { label: t('accessView.membersLink'), icon: <FolderLock size={14} aria-hidden />, onSelect: () => navigate(personViewLink({ person: u.id })), testId: 'member-access-link' },
+    { label: t('budgets.memberMenu'), icon: <Gauge size={14} aria-hidden />, onSelect: () => void openLimit(u), testId: `member-usage-limit-${u.username}` },
     ...(canManage(u)
       ? [
           { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(u), testId: `edit-member-${u.username}` },
@@ -268,7 +294,9 @@ export default function Members() {
   useAdminBar(person?.name ?? null)
   const personPage = person && (() => {
     const u = person
-    const actions = canManage(u) ? menuItems(u).filter((a) => a.testId !== 'member-access-link') : []
+    // (Folders they see and Usage limit have their own rows above)
+    const actions = canManage(u) ? menuItems(u).filter((a) => a.testId !== 'member-access-link' && !a.testId?.startsWith('member-usage-limit-')) : []
+    const mine = personBudgets(budgets.data, u.id)
     const noAi = users.data?.noAi?.includes(u.id) ?? false
     return (
       <div className="-mx-4" data-testid="member-page" data-user={u.username}>
@@ -283,6 +311,9 @@ export default function Members() {
           <PhoneListRow title={t('members.role')} end={roleCell(u, true)} testId="member-page-role" />
           <PhoneListRow title={t('admin.groups')} value={u.groupIds.map(groupName).join(', ') || t('members.noGroups')} testId="member-page-groups" />
           <PhoneListRow title={t('accessView.membersLink')} to={personViewLink({ person: u.id })} testId="member-page-folders" />
+          {/* their own limit: what is used of it this period (two limits: how many), opens the same dialog as the "…" */}
+          {u.role !== 'guest' && <PhoneListRow wrap chevron onClick={() => void openLimit(u)} testId="member-page-limit"
+            title={<>{t('budgets.row')}<span className={clsx('block text-xs', mine.some(budgetExceeded) ? 'text-danger' : 'text-muted')} data-testid="member-page-limit-value">{mine.length === 0 ? t('budgets.noLimit') : mine.length === 1 ? budgetUsedText(t, locale, mine[0]!) : t('budgets.count', { n: mine.length })}</span></>} />}
           <PhoneListRow title={t('members.lastSeen')} value={u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'} />
         </PhoneListGroup>
         {actions.length > 0 && (
@@ -392,7 +423,8 @@ export default function Members() {
                   const lower = (x: string) => x.toLocaleLowerCase(locale)
                   const username = lower(u.username) !== lower(u.name)
                   const byEmail = !!q && !!u.email && matches(q, locale, u.email) && !matches(q, locale, u.name, u.username)
-                  const flagged = u.status === 'disabled' || requested(u) || u.mustChangePassword || !!noAi?.includes(u.id)
+                  const over = personBudgets(budgets.data, u.id).some(budgetExceeded)
+                  const flagged = u.status === 'disabled' || requested(u) || u.mustChangePassword || !!noAi?.includes(u.id) || over
                   return (
                     <CompactRow
                       key={u.id}
@@ -407,6 +439,7 @@ export default function Members() {
                           {username && <span className="truncate">{u.username}</span>}
                           {byEmail && <span className="truncate" data-testid={`member-email-${u.username}`}>{u.email}</span>}
                           <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
+                          {over && <span className="shrink-0 text-danger" data-testid={`member-over-limit-${u.username}`}>{t('budgets.over')}</span>}
                         </>
                       )}
                       menu={<MemberMenu name={u.name} items={menuItems(u)} />}
@@ -437,6 +470,7 @@ export default function Members() {
                             <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
                           </span>
                           {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
+                          {limitLine(u)}
                         </td>
                         <td className="py-3.5 pr-4 text-muted">
                           <span className="block">{u.username}</span>
@@ -458,7 +492,7 @@ export default function Members() {
       </section>
 
       {/* the people from outside the team (docs/DECISIONS.md "Guests: only what they were invited to") */}
-      {users.data && (roleFilter === 'all' || roleFilter === 'guest') && <GuestsSection guests={shown(users.data.items.filter((u) => u.role === 'guest'))} filtered={!!query.trim()} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} deletionRequested={users.data.deletionRequested} deletionDue={users.data.deletionDue} />}
+      {users.data && (roleFilter === 'all' || roleFilter === 'guest') && <GuestsSection guests={shown(users.data.items.filter((u) => u.role === 'guest'))} filtered={!!query.trim()} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} onResetPassword={resetPassword} deletionRequested={users.data.deletionRequested} deletionDue={users.data.deletionDue} />}
 
       <ScheduleReviews />
 
@@ -498,7 +532,7 @@ export default function Members() {
                     <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
                       <Badge>{t(`role.${i.role}`)}</Badge>
                       <span className="min-w-0 flex-1 text-xs text-muted" data-testid={i.leadFor ? 'invite-lead' : undefined}>
-                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
+                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : i.stopped ? t(i.stopped === 'place_gone' ? 'members.stoppedPlace' : i.stopped === 'ai_gone' ? 'members.stoppedAi' : 'members.stoppedInviter') : t('members.expires', { date: formatDateTime(i.expiresAt, locale, me.server.timeZone) })}
                       </span>
                       {/* a lead link is the owner's to revoke (the server refuses anyone else) */}
                       {!i.usedAt && !expired && (!i.leadFor || isOwner(me)) && (
@@ -588,6 +622,17 @@ export default function Members() {
         />
       )}
       {secret && <Handover {...secret} onClose={() => setSecret(null)} />}
+      {limitFor && (
+        <BudgetForm
+          person={limitFor.user}
+          budgets={limitFor.budgets}
+          onClose={() => setLimitFor(null)}
+          onSaved={() => {
+            setLimitFor(null)
+            void budgets.reload()
+          }}
+        />
+      )}
       {handingOver && (
         <HandoverDialog
           target={handingOver}

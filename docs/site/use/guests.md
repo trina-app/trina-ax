@@ -51,10 +51,12 @@ them yourself, by email or in a chat. The link works once, for 7 days; the dialo
 
 The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used.
 
+A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working, and its row in **Admin › Members & invites** says so instead of showing a date. Someone else who can invite makes a new link.
+
 ## What the guest sees
 
 The link opens a page that says who invited them and the one chat or project they will join. They choose a username
-and a password, and they're in. If the link no longer works, the page says why: it expired, it was already used, it
+and a password, and they're in. If you chose **Their own sign-in**, the page also tells them they will connect their own Claude or ChatGPT account. If the link no longer works, the page says why: it expired, it was already used, it
 was turned off, the person who made it can no longer invite them, or the chat or project is gone.
 
 ![The invite page: Olga invited you to Acme, You'll join only the 'Quote prep' chat room, then Name, Username and Password](../images/guests/invite-page.webp "The page the guest opens")
@@ -86,7 +88,7 @@ admin switched them on or off in the meantime. Renaming the chat or project chan
 |---|---|---|
 | **No AI** (the default) | They talk with people only. | Anyone who invites |
 | **Team AI** | They use one of the team's AI accounts, up to a monthly amount in US dollars that you set. | The owner and admins |
-| **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI accounts** and use that. | Anyone who invites |
+| **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI accounts** and use that. It is their own plan, so the team pays nothing. | Anyone who invites |
 
 A guest who uses up their monthly amount is told the day it starts again. If the team AI account a guest uses is
 deleted, the guest reads that AI can't answer them now, and their row in **Admin › Members & invites** says the

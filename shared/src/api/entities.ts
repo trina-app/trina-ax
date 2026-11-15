@@ -92,6 +92,10 @@ export const Invite = z.object({
   /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
    * the links apart by it); absent when none was given and on member invites */
   guestName: z.string().optional(),
+  /** a link nobody has used, turned off or let run out that no longer works anyway, and why: its maker left the room or
+   * lost the project or the right to make it (inviter_gone), the room or project is gone (place_gone), or its Team AI
+   * account was removed (ai_gone). Admin's invite list says so instead of a date. Absent while it works and from older servers */
+  stopped: z.enum(['inviter_gone', 'place_gone', 'ai_gone']).optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
