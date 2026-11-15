@@ -7,14 +7,13 @@
 // transcript (chat/turn.ts, chat/shared.ts stashWrittenBy), so the visible messages are what gets disclosed: the same
 // informed decision as "대화방에 보내기" (chat/answer-share.ts, its provenance line), with its code.
 //
-// The check, over every branch (viewers switch branches): every answer's files (message_sources, each with its sha256),
-// the session's read scope when it describes every answer (else "not all known": an answer from before the newest first
-// answer, whose session emptied the scope), and personal memories when a turn here ran while the person had one. Left
-// out: what everyone in the audience reads now, and by the hash rule identical content a turn of this chat saved where
-// the whole audience reads it now. Nothing left: shared at once. Otherwise "confirm" with the provenance line (places
-// named only where the creator may look, never who), the memory note and an opaque key over the audience, the sources,
-// the memories and every message of every branch; sent back while nothing changed, it shares. Every request takes from
-// the room-send budget first, as "대화방에 보내기" does: the check is no free probe of who may read what.
+// The check is the Share dialog's (chat/audience-check.ts, docs/DECISIONS.md "Share in one press"): answer by answer,
+// every branch, what the project's people would see that they could not before (my memories, files they can't open,
+// my personal accounts, other places named only where the creator may look, rooms it read without saying which), and
+// what nobody could check (a grey line, no warning). Something at stake (or the menu's `ask`): "confirm" with those
+// counts and an opaque key over the audience, the sources, the answer ids of every warning and every message of every
+// branch; sent back while nothing changed, it shares. Every request takes from the room-send budget first, as
+// "대화방에 보내기" does: the check is no free probe of who may read what.
 //
 // Sharing sets chats.shared_at; forgets the chat's engine session (a resumed private session keeps the memories of its
 // instructions and tool results the transcript does not have; the creator's next turn starts from the visible
@@ -23,7 +22,6 @@
 // start, and these turns were just checked); and is audited (chat.share: counts and whether it was confirmed; no names,
 // no content). Nothing unshares it (D1). The steps of the earlier answers show their words alone to everyone but the
 // person whose turn it was (chat/store.ts viewSteps): their labels can name paths, addresses or a remembered text.
-import { instructionFiles } from './prompt'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -61,21 +59,6 @@ function scopeDescribesAll(db: Database, chatId: string): boolean {
 export function chatUse(db: Database, chatId: string): BranchUse {
   const answers = (db.query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY created_at, rowid").all(chatId) as { id: string }[]).map((r) => r.id)
   return useOf(db, chatId, answers, scopeDescribesAll(db, chatId))
-}
-
-/**
- * Did the person's memories go into this chat's answers? Every turn of a person's own chat has their memories in its
- * instructions (chat/turn.ts promptInput; a shared chat's and a room's never), so: an answer here was written while they
- * had a memory. A memory is deleted for good, so one deleted since this chat's first answer counts as one they had
- * (memory.delete and memory.clear are audited; the AI's forget is a step of an answer of theirs).
- */
-export function memoriesInPlay(db: Database, chatId: string, userId: string): boolean {
-  const span = db.query("SELECT MIN(created_at) AS first, MAX(updated_at) AS last FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { first: string | null; last: string | null }
-  if (!span.first) return false
-  return !!db.query('SELECT 1 FROM memories WHERE user_id = ? AND created_at <= ? LIMIT 1').get(userId, span.last ?? span.first)
-    || !!db.query("SELECT 1 FROM audit_log WHERE actor_id = ? AND action IN ('memory.delete', 'memory.clear') AND at >= ? LIMIT 1").get(userId, span.first)
-    || !!db.query(`SELECT 1 FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.user_id = ? AND m.role = 'assistant' AND m.created_at >= ?
-      AND m.steps LIKE '%"tool":"forget"%' LIMIT 1`).get(userId, span.first)
 }
 
 /** A scheduled task's run made this chat (or ran in it). */
