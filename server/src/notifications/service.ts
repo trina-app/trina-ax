@@ -1,5 +1,5 @@
 import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
-import { guestDetail, placePeople, roleSql } from '../auth/guests'
+import { invitedPlace, placeName, placePeopleOf, roleSql } from '../auth/guests'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -649,14 +649,16 @@ export class Notifications {
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
-      // a guest joined their one place, not the team: "X joined 'Quote prep' as a guest" (auth/guests.ts guestDetail). The
-      // place's name as it is now, only to a reader who is in that place or is the owner or an admin (who see it in
-      // Admin › Guests anyway); an inviter who left it reads "a group chat" / "a project", never a later rename
-      const place = u ? guestDetail(this.ctx.db, row.source_id)?.place : undefined
+      // a guest joined the place their invite opened, not the team: "X joined 'Quote prep' as a guest"
+      // (auth/guests.ts invitedPlace). The place's name as it is now, only to a reader who is in that place or is the
+      // owner or an admin (who see it in Admin › Guests anyway); an inviter who left it reads "a group chat" / "a
+      // project", never a later rename. A second place they were added to later is not this notice's
+      const invited = u ? invitedPlace(this.ctx.db, row.source_id) : null
+      const place = invited ? { ...invited, name: placeName(this.ctx.db, invited) } : undefined
       // Its link: the owner and admins keep Admin › Members (no id); anyone else, the place itself while they are in it
       // (its id), else nowhere (null): Admin is not theirs
       const staff = !!place && isStaff(this.ctx.db, row.user_id)
-      const inPlace = !!place && !staff && placePeople(this.ctx.db, row.source_id).has(row.user_id)
+      const inPlace = !!place && !staff && placePeopleOf(this.ctx.db, row.source_id, place).has(row.user_id)
       const named = staff || inPlace
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: named ? place.name : '', ...(staff ? {} : { id: inPlace ? place.id : null }) } } : {}) } } : {}) }

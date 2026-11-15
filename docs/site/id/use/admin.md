@@ -21,7 +21,7 @@ folder, undang anggota tim, siapkan skill tim, buat backup pertama. Langkah yang
 | **Aktivitas** | Pemakaian, Log aktivitas |
 | **Tim** | Pengaturan tim, Sistem |
 
-**Anggota & undangan** juga mencantumkan tamu: orang dari luar tim yang berada di satu obrolan atau proyek. [Baca tentang tamu](guests.md).
+**Anggota & undangan** juga mencantumkan tamu: orang dari luar tim yang berada di paling banyak satu obrolan grup dan satu proyek. [Baca tentang tamu](guests.md).
 
 :::note
 Versi sebelumnya menempatkan akun AI di halaman tersendiri, **AI connections**, di samping **AI engines**. Sekarang
@@ -82,7 +82,7 @@ terakhir dipakai. Menu **⋯** sebuah akun berisi Cek lagi, Naikkan / turunkan, 
 
 ## Tamu
 
-**Admin › Anggota & undangan** diakhiri dengan **Tamu**: orang dari luar tim, masing-masing di satu ruang atau satu
+**Admin › Anggota & undangan** diakhiri dengan **Tamu**: orang dari luar tim, masing-masing di paling banyak satu ruang dan satu
 proyek, yang tidak memakai kursi. Setiap baris menunjukkan di mana tamu itu berada dan AI apa yang dimilikinya. Menu
 **⋯**-nya berisi **Ubah AI** (tanpa AI, masuk dengan akun sendiri, atau akun AI tim dengan batas bulanan), **Jadikan
 anggota tim**, dan **Keluarkan tamu**. Anggota mengundang tamu sendiri dari percakapan grup atau proyek

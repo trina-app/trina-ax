@@ -1,5 +1,6 @@
-// Guests on the admin side (docs/DECISIONS.md "Guests: only what they were invited to"): "convert to member" (the way
-// out when someone needs a second place) and switching off a guest who is no longer in their one place.
+// Guests on the admin side (docs/DECISIONS.md "Guests: only what they were invited to", "Guests: one group chat and one
+// project"): "convert to member" (the way out when someone needs more places) and switching off a guest who is no
+// longer in any place of theirs.
 import type { Context } from 'hono'
 import type { GuestAiChoiceBody, GuestPlace, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -9,7 +10,7 @@ import { audit } from './audit'
 import { afterAccessChange, captureState } from './folders'
 import { assertSeatFree } from '../system/limits'
 import { getUser, toUser } from '../auth/users'
-import { guestLimit, guestPlace, guestsUsed, inPlace, inPlaceEvenIfOff, isGuest } from '../auth/guests'
+import { guestLimit, guestSlots, guestsUsed, inPlace, inPlaceEvenIfOff, isGuest } from '../auth/guests'
 import { MY_PROFILE_CHANGED, profileChangedFor } from '../auth/profiles'
 import { disableAccount } from './users'
 import { insertGuestBudget } from './budgets'
@@ -51,18 +52,18 @@ export function convertGuest(c: Context<AppEnv>, ctx: AppContext, id: string): U
 }
 
 /**
- * A guest removed from their one place (taken out of the group chat, left it, the chat archived, out of the project's
- * people, the project trashed): the account is switched off (owner decision 2026-11-14). Called after every write that
- * can take someone out of a group chat or a project; a no-op for anyone else. When the place itself was closed (the
- * project trashed, the chat archived) and not the guest taken out of it, guests.off_with_place says so: restoring the
- * project switches them on again (returnGuestsWithPlace).
+ * A guest who is in no place of theirs any more (out of their group chat and out of their project: taken out, left,
+ * the chat archived, the project trashed): the account is switched off (owner decisions 2026-11-14, 2026-11-15). Out of
+ * one place while still in the other, they stay on. Called after every write that can take someone out of a group chat
+ * or a project; a no-op for anyone else. When a place of theirs was closed (the project trashed, the chat archived),
+ * guests.off_with_place says so: restoring the project switches them on again while they are in it
+ * (returnGuestsWithPlace).
  */
 export function disableGuestIfPlaceless(ctx: AppContext, userId: string, actorId: string | null): boolean {
   if (!isGuest(ctx.db, userId)) return false
   const u = ctx.db.query('SELECT status FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as { status: string } | null
   if (!u || u.status !== 'active' || inPlace(ctx.db, userId)) return false
-  const place = guestPlace(ctx.db, userId)
-  const closed = !!place && !placeAlive(ctx.db, place)
+  const closed = guestSlots(ctx.db, userId).some((p) => !placeAlive(ctx.db, p))
   const off = disableAccount(ctx, userId, actorId, 'guest_no_place')
   if (off && closed) ctx.db.query('UPDATE guests SET off_with_place = ? WHERE user_id = ?').run(new Date().toISOString(), userId)
   // they left it on their own (the room service's leave passes the leaver as the actor): Admin says "Left", not
@@ -87,9 +88,10 @@ export function returnGuestsWithPlace(ctx: AppContext, places: readonly GuestPla
   const back: string[] = []
   for (const place of places) {
     try {
+      // the guests whose slot of that kind is this place (migration 126: guests.room_id / project_id)
       const ids = (ctx.db.query(`SELECT g.user_id AS id FROM guests g JOIN users u ON u.id = g.user_id
-        WHERE g.place_kind = ? AND g.place_id = ? AND g.off_with_place IS NOT NULL AND u.guest = 1 AND u.status = 'disabled' AND u.deleted_at IS NULL
-        ORDER BY g.off_with_place, g.user_id`).all(place.kind, place.id) as { id: string }[]).map((r) => r.id)
+        WHERE ${place.kind === 'room' ? 'g.room_id' : 'g.project_id'} = ? AND g.off_with_place IS NOT NULL AND u.guest = 1 AND u.status = 'disabled' AND u.deleted_at IS NULL
+        ORDER BY g.off_with_place, g.user_id`).all(place.id) as { id: string }[]).map((r) => r.id)
       for (const id of ids) {
         let on = false
         ctx.db.transaction(() => {

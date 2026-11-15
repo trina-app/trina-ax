@@ -1,6 +1,6 @@
 // A database as a build before folder access added up left it (every migration but 121_a_folder_limited.sql and the
-// later reader-level raises, 122_a_guests.sql, and 123_a_guest_place_return.sql and 125_a_guest_left_themselves.sql that
-// build on it; reader level 6), for the conversion tests: rows are written raw, "no access" and role rows included, then migrate() with this
+// later reader-level raises, 122_a_guests.sql, and the guest migrations that change its table: 123_a_guest_place_return.sql,
+// 125_a_guest_left_themselves.sql, 126_a_guest_two_places.sql; reader level 6), for the conversion tests: rows are written raw, "no access" and role rows included, then migrate() with this
 // build's migrations converts it (server/src/db-steps.ts folderAccessAdditive).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -14,7 +14,7 @@ let oldDir: string | null = null
 export function oldMigrations(): string {
   if (oldDir) return oldDir
   oldDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-old-migrations-'))
-  for (const f of fs.readdirSync(MIGRATIONS_DIR)) if (!f.startsWith('121_') && !f.startsWith('122_') && !f.startsWith('123_') && !f.startsWith('125_')) fs.copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(oldDir, f))
+  for (const f of fs.readdirSync(MIGRATIONS_DIR)) if (!['121_', '122_', '123_', '125_', '126_'].some((n) => f.startsWith(n))) fs.copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(oldDir, f))
   process.on('exit', () => { try { fs.rmSync(oldDir!, { recursive: true, force: true }) } catch {} })
   return oldDir
 }

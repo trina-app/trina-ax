@@ -224,7 +224,7 @@ test('a project back from the trash brings its guests back; not one an admin swi
   // rename (TC-2296): the guest stays, and every place that names it reads the new name
   await owner.call('PATCH', `/api/projects/${p.id}`, { name: 'Quote 2026' })
   expect(status(g.id)).toBe('active')
-  expect((await g.client.call('GET', '/api/me')).guest.place.name).toBe('Quote 2026')
+  expect((await g.client.call('GET', '/api/me')).guest.places[0].name).toBe('Quote 2026')
   // to the trash: both off, the row says trashed
   await owner.call('DELETE', `/api/projects/${p.id}`)
   expect([status(g.id), status(g2.id)]).toEqual(['disabled', 'disabled'])

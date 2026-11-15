@@ -22,13 +22,13 @@ test("the people list names a guest's place to the people who share it; nobody e
   const pia = await addMember(h, owner, { username: 'pia' })
   const room = await groupChat(mia.client, [nora.id, pia.id], 'Quote prep')
   const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
-  const seen = ((await mia.client.call('GET', '/api/people')).people as { id: string; guest?: boolean; guestPlace?: unknown }[]).find((p) => p.id === g.id)
+  const seen = ((await mia.client.call('GET', '/api/people')).people as { id: string; guest?: boolean; guestPlaces?: unknown }[]).find((p) => p.id === g.id)
   expect(seen?.guest).toBe(true)
-  expect(seen?.guestPlace).toEqual({ kind: 'room', id: room, name: 'Quote prep' })
+  expect(seen?.guestPlaces).toEqual([{ kind: 'room', id: room, name: 'Quote prep' }])
   // the owner is not in that room: no guest at all, so no place name either
   expect(((await owner.call('GET', '/api/people')).people as { id: string }[]).some((p) => p.id === g.id)).toBe(false)
   // members carry no place
-  expect(((await mia.client.call('GET', '/api/people')).people as { id: string; guestPlace?: unknown }[]).find((p) => p.id === nora.id)?.guestPlace).toBeUndefined()
+  expect(((await mia.client.call('GET', '/api/people')).people as { id: string; guestPlaces?: unknown }[]).find((p) => p.id === nora.id)?.guestPlaces).toBeUndefined()
 })
 
 test('the invite page carries the typed name; a link names its project or room', async () => {

@@ -26,14 +26,14 @@ async function setup() {
 test('Me.guest: the guest\'s place with its name and their AI; a member has none', async () => {
   const { mia, room, g } = await setup()
   const me = await g.client.call('GET', '/api/me')
-  expect(me.guest).toEqual({ place: { kind: 'room', id: room, name: 'Client call' }, ai: { mode: 'none' } })
+  expect(me.guest).toEqual({ places: [{ kind: 'room', id: room, name: 'Client call' }], ai: { mode: 'none' } })
   expect((await mia.client.call('GET', '/api/me')).guest).toBeUndefined()
 })
 
 test('User.guest in the admin list; Person.guest only for people who see the guest', async () => {
   const { owner, mia, pia, g } = await setup()
   const users = (await owner.call('GET', '/api/admin/users')).items as any[]
-  expect(users.find((u) => u.id === g.id).guest).toMatchObject({ place: { kind: 'room', name: 'Client call' }, ai: { mode: 'none' } })
+  expect(users.find((u) => u.id === g.id).guest).toMatchObject({ places: [{ kind: 'room', name: 'Client call' }], ai: { mode: 'none' } })
   expect(users.find((u) => u.id === mia.id).guest).toBeUndefined()
   // a member of the place sees the guest with the tag; members carry no tag
   const seen = (await mia.client.call('GET', '/api/people')).people as any[]

@@ -4,7 +4,8 @@
 // - people picked: the count and what sharing does, and Create makes a team project with them (scope team), the
 //   server's checks of a later share;
 // - the people search is outside the name's form (Enter there never makes the project);
-// - a guest is in one place already: greyed out with where they are;
+// - a guest is in one group chat and one project at most: one with a project already is greyed out with where they
+//   are, one in a group chat only can be added;
 // - a refused create keeps the name and the picks, with the server's words;
 // - no field for a member whose team lets only admins share, nor where the dialog is opened without `people` (Move to
 //   project).
@@ -19,7 +20,7 @@ import { installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const NEW = '01900000-0000-7000-8000-0000000000d1'
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-const PEOPLE = { people: [{ id: 'mia', name: 'Mia' }, { id: 'bob', name: 'Bob' }, { id: 'gina', name: 'Gina Park', guest: true, guestPlace: { kind: 'room', id: 'r1', name: 'Quote prep' } }] }
+const PEOPLE = { people: [{ id: 'mia', name: 'Mia' }, { id: 'bob', name: 'Bob' }, { id: 'gina', name: 'Gina Park', guest: true, guestPlaces: [{ kind: 'room', id: 'r1', name: 'Quote prep' }] }, { id: 'pia', name: 'Pia Lane', guest: true, guestPlaces: [{ kind: 'project', id: 'p1', name: 'Launch' }] }] }
 const made = (folderPath: string): Project => ({ id: NEW, name: 'Weekly reports', folderPath, instructions: '', createdBy: { id: 'mia', name: 'Mia' }, createdAt: '2026-11-15T00:00:00.000Z', canEdit: true })
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
 
@@ -111,15 +112,18 @@ describe('New project: People (optional)', () => {
     } finally { await m.unmount() }
   })
 
-  test('a guest is in one place already: greyed out with where they are, no Add', async () => {
+  test('a guest with a project already is greyed out with where they are; a guest in a group chat only can be added', async () => {
     signedIn('members')
     routesWith(() => json(201, made('projects/x')))
     const { m } = await open()
     try {
+      await m.type('project-participants-search', 'pia')
+      const row = await m.until(() => m.find('participant-elsewhere-user-pia'), 'Pia greyed out', 2000)
+      expect(row.textContent).toContain(en('guest.inProject', { place: 'Launch' }))
+      expect(m.find('participant-add-user-pia')).toBeNull()
       await m.type('project-participants-search', 'gina')
-      const row = await m.until(() => m.find('participant-elsewhere-user-gina'), 'Gina greyed out', 2000)
-      expect(row.textContent).toContain(en('guest.inRoom', { place: 'Quote prep' }))
-      expect(m.find('participant-add-user-gina')).toBeNull()
+      await m.until(() => m.find('participant-add-user-gina'), 'Gina can be added', 2000)
+      expect(m.find('participant-elsewhere-user-gina')).toBeNull()
     } finally { await m.unmount() }
   })
 

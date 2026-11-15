@@ -12,7 +12,7 @@ Trina AX se basa en unas pocas piezas. Todas las demás páginas usan estos tér
 | **Propietario** | Todo lo que puede un administrador, más las decisiones del equipo como las actualizaciones, las restauraciones, quitar miembros y el nombre del equipo. |
 | **Administrador** | Gestionar miembros, grupos, permisos de carpetas, las conexiones de IA y los motores del equipo, y la configuración del equipo. Los administradores no pueden leer los chats de otras personas. |
 | **Miembro** | Chatear con la IA, usar los archivos y las habilidades que puede abrir, y tener carpetas y habilidades personales. |
-| **Invitado** | Una persona de fuera del equipo, solo en un chat de grupo o en un proyecto. Sin IA, salvo que se elija una IA para ella. No ocupa una plaza. [Más información sobre los invitados](../use/guests.md). |
+| **Invitado** | Una persona de fuera del equipo, como máximo en un chat de grupo y en un proyecto. Sin IA, salvo que se elija una IA para ella. No ocupa una plaza. [Más información sobre los invitados](../use/guests.md). |
 
 Un **grupo** es un conjunto de personas, como Ventas o Finanzas. Las reglas de carpetas pueden nombrar grupos o personas.
 
