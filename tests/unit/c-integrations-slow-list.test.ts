@@ -23,12 +23,14 @@ setDefaultTimeout(30_000)
 
 /** a request (initialize, a tool call), a pause in a list, a whole check */
 const REQUEST_MS = 600, IDLE_MS = 400, LIST_MS = 3000
+/** a tool call's pause limit: well above the 350 ms gaps of a call that keeps coming (room for a slow CI runner) */
+const CALL_IDLE_MS = 1500
 
 let A: CApp, fake: FakeServices
 beforeAll(async () => {
   A = await makeCApp('c-integrations-slow-list')
   fake = new FakeServices()
-  integrationsOf(A.ctx, { net: { ...fake.net(), timeoutMs: REQUEST_MS, listIdleMs: IDLE_MS, listTimeoutMs: LIST_MS, callIdleMs: IDLE_MS, callTimeoutMs: LIST_MS } })
+  integrationsOf(A.ctx, { net: { ...fake.net(), timeoutMs: REQUEST_MS, listIdleMs: IDLE_MS, listTimeoutMs: LIST_MS, callIdleMs: CALL_IDLE_MS, callTimeoutMs: LIST_MS } })
 })
 afterAll(async () => { fake?.stop(); await A?.close() })
 
@@ -127,7 +129,7 @@ describe('reading a slow tools/list', () => {
   test('a tool call that stops sending fails at its pause limit and marks an error; a call that goes through clears it', async () => {
     const svc = integrationsOf(A.ctx)
     A.ctx.db.query('UPDATE integrations SET last_used_at = NULL WHERE id = ?').run(id)
-    // 3 pieces 350 ms apart: 700 ms, past REQUEST_MS, with no pause of IDLE_MS: a call that keeps coming goes through
+    // 3 pieces 350 ms apart: 700 ms, past REQUEST_MS, with no pause of CALL_IDLE_MS: a call that keeps coming goes through
     fake.pace = { methods: ['tools/call'], pieces: 3, gapMs: 350 }
     try { await svc.callTool(getRow(A.ctx.db, id)!, 's0', {}) } finally { fake.pace = null }
     // one that stops after its first pieces: the pause limit

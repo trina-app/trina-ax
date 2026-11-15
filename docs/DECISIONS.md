@@ -29432,7 +29432,8 @@ the turn's stall guard waits while our tool runs). Decided:
   (`MCP_CALL_TIMEOUT_MS`). The bytes of an event stream count as signs of life; each call names a `progressToken`
   (its own request id), so a service that reports progress keeps the call alive past 5 minutes (the SDK's
   `resetTimeoutOnProgress` with `maxTotalTimeout`). 15 minutes stays under the engines' 30 so the AI gets our reason.
-- Stop ends the call at once (the turn's signal closes the request) and sends `notifications/cancelled`; the AI is told
+- Stop ends the call at once (the turn's signal closes the request) and sends `notifications/cancelled` (so do our own
+  limits, so the service can stop working and billing); the AI is told
   the call was stopped, not "did not answer within 30 seconds".
 - A call stopped by these limits marks the connection as an error that is only for now (`call_idle`, `call_timeout`),
   as the 30 s did. Everything else keeps the 30 s (the session's start, OAuth, `api_request`), a check keeps 30 s

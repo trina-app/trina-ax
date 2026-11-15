@@ -204,7 +204,8 @@ export class McpClient {
 
   /** One tools/call: MCP_CALL_IDLE_MS without a byte, MCP_CALL_TIMEOUT_MS in all (the session's start keeps its 30 s).
    * Its own id is the progressToken, so a service that reports progress keeps the call alive. Stopped by `signal` (Stop,
-   * the turn's end): the request is closed and the service told, as MCP asks (notifications/cancelled). */
+   * the turn's end) or by those limits: the request is closed and the service told, as MCP asks (notifications/cancelled),
+   * so it can stop its work too. */
   async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {
     await this.start(signal)
     const id = crypto.randomUUID()
@@ -215,7 +216,7 @@ export class McpClient {
       return (await this.post({ jsonrpc: '2.0', id, method: 'tools/call', params }, { signal, maxBytes: MCP_CALL_MAX_BYTES, long })) ?? {}
     } catch (e) {
       // stopped here: the service may stop its work too (best effort, never waited for)
-      if (signal?.aborted) this.post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'stopped by the user' } }).catch(() => {})
+      if (signal?.aborted || (e instanceof NetError && (e.reason === 'call_idle' || e.reason === 'call_timeout'))) this.post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: signal?.aborted ? 'stopped by the user' : 'timed out' } }).catch(() => {})
       throw e
     }
   }
