@@ -35,9 +35,9 @@ What stays on your computer:
 ## Start
 
 1. Open **Files › My files** in the desktop app, in a window wide enough for the computer layout.
-2. Click **Find work files on this computer**.
+2. Click **Find work files** in the toolbar, beside Upload folder and Upload.
 
-![My files with the quiet line Find work files on this computer under the folder's name](../images/find-work-files/my-files-line.webp "The line on My files")
+![My files with the Find work files button in the toolbar](../images/find-work-files/my-files-line.webp "The line on My files")
 
 If you joined the team lately, the welcome card on **Home** has the same thing as an optional row, **Bring work files
 from this computer** (in the desktop app only). It opens the same window and adds to the same place. The row shows done

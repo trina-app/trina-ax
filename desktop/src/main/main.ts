@@ -25,7 +25,7 @@ import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { LINK_SCHEME, linkFromArgv } from '../common/address'
-import { partitionFor } from '../common/teams'
+import { dataDirName, partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
@@ -65,8 +65,9 @@ app.setName(PRODUCT.displayName)
 const aumid = windowsAppUserModelId({ platform: process.platform, windowsStore: process.windowsStore })
 if (aumid) app.setAppUserModelId(aumid)
 // the settings folder keeps its first name (PRODUCT.desktopDataDir) when the product is renamed: Electron would
-// otherwise take the new name and every desk would forget its teams, window and language
-app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), PRODUCT.desktopDataDir))
+// otherwise take the new name and every desk would forget its teams, window and language. A development run keeps its
+// own folder next to it (common/teams.ts dataDirName): its dev teams never reach the installed app.
+app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), dataDirName(PRODUCT.desktopDataDir, app.isPackaged)))
 
 // Sandboxed srcdoc frames (artifacts, previews) stay in the team page's renderer process, so the page-level
 // document-start script that removes RTCPeerConnection reaches them before their own scripts run. Electron's
@@ -303,11 +304,12 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
-  // the team page's "다른 팀으로 전환": the OS menu's own team list as a menu under the pointer (the page never sees it)
-  ipcMain.on('bridge:team-menu', (e) => {
-    if (!fromApp(e) || !win) return
-    Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
-  })
+  // the team page's "다른 팀으로 전환" from a page that still asks for the menu under the pointer (team servers before
+  // 2026-11-15): the app's own team screen as well. The floating menu over the rail is gone (owner 2026-11-15); the OS
+  // menu's 팀 keeps every team and ⌘1–9.
+  ipcMain.on('bridge:team-menu', (e) => fromApp(e) && win!.showWelcome())
+  // the team page draws the address and "Switch team" under its sign-in card: no strip above it there
+  ipcMain.on('bridge:host-line', (e, drawn: unknown) => fromApp(e) && win?.setPageHostLine(drawn === true))
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
   // 이미지 복사 (the image viewer, a picture's right-click menu): the PNG the page read through its own file routes goes on
   // the computer's clipboard as a picture; nothing is fetched here. Bytes that are no PNG the system can draw: false
@@ -376,8 +378,7 @@ function registerIpc() {
 
 // ------------------------------------------------------------------ menu
 
-/** The 팀 menu's items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). One list for the OS menu
- * and the team page's "다른 팀으로 전환" (bridge:team-menu). */
+/** The OS menu's 팀 items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). */
 function teamMenuItems(): MenuItemConstructorOptions[] {
   const tr = (k: UiKey) => t(locale(), k)
   const teamItems: MenuItemConstructorOptions[] = (win?.teamList() ?? []).map((x, i) => ({

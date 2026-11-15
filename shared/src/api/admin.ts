@@ -603,9 +603,11 @@ export const UsageQuery = z.object({
   /** facets=1: who, which engines, models, AI connections and groups have usage in the range (the filter choices) */
   facets: QueryBool.optional(),
 })
-/** unpricedTurns: how many of the turns have an amount with an unknown part (the API engine's provider gave no cost and
- * the model has no list price); absent = none */
-export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
+/** costUsd: money spent plus the API-price estimate of subscription sign-ins (server/src/admin/usage-amount.ts).
+ * unpricedTurns: how many of the turns have an amount with an unknown part (no cost from the provider and no list price,
+ * Codex on a local login, subscription turns from before the estimate); estimatedTurns: how many include a subscription
+ * estimate at API prices (not a bill). Absent = none. */
+export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional(), estimatedTurns: z.number().int().optional() })
 const UsageFacet = z.object({ key: z.string(), label: z.string() })
 /** one day (YYYY-MM-DD in the team time zone) and one groupBy key; skill and group keys may overlap like their rows */
 export const UsageSeriesPoint = z.object({ day: z.string(), key: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int() })
