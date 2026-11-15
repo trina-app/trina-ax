@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { catalogAt, officialService, SERVICE_CATALOG } from '../../shared/src/service-catalog'
-import { harness, withOwner, type Client, type Harness } from './a-lib'
+import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf, MAX_PERSONAL, personalCounts } from '../../server/src/integrations/connections/service'
 import { connectRows } from '../../server/src/chat/connect-service'
@@ -504,10 +504,51 @@ describe('waiting connections never block adding a connector (QA TC-3048)', () =
     expect(Array.from({ length: MAX_PERSONAL }, (_, i) => exists(`wait-${i}`)).filter((x) => !x).length).toBe(1)
   })
 
+  test('a save that fails removes nothing: the replacement is in the write\'s transaction (create and a key changed to sign-in)', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, 'oauth', null)
+    fake.now += 60_000
+    const key = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+    const deletes = () => (h.ctx.db.query("SELECT count(*) AS n FROM audit_log WHERE action = 'integration.delete'").get() as { n: number }).n
+    // the write itself fails (a trigger stands in for a failure in the database)
+    h.ctx.db.exec("CREATE TRIGGER tc3048_insert BEFORE INSERT ON integrations WHEN NEW.name = 'Boom' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    h.ctx.db.exec("CREATE TRIGGER tc3048_update BEFORE UPDATE ON integrations WHEN NEW.id = '" + key.id + "' AND NEW.auth = 'oauth' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    try {
+      const made = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Boom', url: `${fake.base}/mcp-strict?boom=1`, auth: 'oauth' })
+      expect(made.status).toBeGreaterThanOrEqual(500)
+      const changed = await olga.try('PATCH', `/api/integrations/${key.id}`, { auth: 'oauth' })
+      expect(changed.status).toBeGreaterThanOrEqual(500)
+      for (let i = 0; i < MAX_PERSONAL; i++) expect(exists(`wait-${i}`), `wait-${i}`).toBe(true)
+      expect(deletes()).toBe(0)
+      expect(getRow(h.ctx.db, key.id)).toMatchObject({ auth: 'bearer' })
+    } finally { h.ctx.db.exec('DROP TRIGGER tc3048_insert; DROP TRIGGER tc3048_update') }
+    // the same saves without the failure replace one each
+    await connect(`${fake.base}/mcp-strict?boom=2`)
+    await olga.call('PATCH', `/api/integrations/${key.id}`, { auth: 'oauth' })
+    expect(deletes()).toBe(2)
+    expect(personalCounts(h.ctx.db, ownerId()).waiting).toBe(MAX_PERSONAL)
+  })
+
+  test('other people\'s waiting connections and waiting team connections are never touched', async () => {
+    const mia = await addMember(h, olga, { username: 'mia' })
+    const other = (id: string, scope: 'personal' | 'team', owner: string | null) => h.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, secret_enc, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'mcp', 'n', ?, ?, 'oauth', 'needs_auth', NULL, ?, ?)`).run(id, scope, owner, owner ?? ownerId(), id, `${fake.base}/mcp-strict?other=${id}`, at(), at())
+    // theirs are older than every one of olga's
+    for (let i = 0; i < MAX_PERSONAL; i++) other(`mia-${i}`, 'personal', mia.id)
+    for (let i = 0; i < 3; i++) other(`team-${i}`, 'team', null)
+    fake.now += 60_000
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, 'oauth', null)
+    fake.strict = {}
+    for (let n = 0; n < 3; n++) { fake.now += 60_000; await connect(`${fake.base}/mcp-strict?olga=${n}`) }
+    for (let i = 0; i < MAX_PERSONAL; i++) expect(exists(`mia-${i}`), `mia-${i}`).toBe(true)
+    for (let i = 0; i < 3; i++) expect(exists(`team-${i}`), `team-${i}`).toBe(true)
+    expect(Array.from({ length: MAX_PERSONAL }, (_, i) => exists(`wait-${i}`)).filter((x) => !x).length).toBe(3)
+    expect(personalCounts(h.ctx.db, mia.id)).toEqual({ settled: 0, waiting: MAX_PERSONAL })
+  })
+
   test('the words: "working connections" for the limit, the waiting cap in plain words, six languages', () => {
     for (const k of ['tooManyWorking', 'tooManyWaiting'] as const) for (const l of [...LOCALES, 'zh'] as const) expect(TEXT[k][l], `${k} ${l}`).toContain('{n}')
     expect(TEXT.tooManyWorking.en).toContain('working connections')
-    expect(TEXT.tooManyWaiting.en).not.toMatch(/OAuth|flow|record|token/i)
+    expect(TEXT.tooManyWaiting.en).not.toMatch(/OAuth|flow|record|token|hour/i)
   })
 })
 

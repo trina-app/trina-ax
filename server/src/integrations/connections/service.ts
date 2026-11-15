@@ -273,9 +273,11 @@ export class Integrations {
       const sealed = this.sealFor(row, { type: 'key', key: input.secret } satisfies KeySecret, L)
       row.secret_enc = sealed.enc; row.key_version = sealed.keyVersion; row.last_error = null
     }
-    // every check passed: now a waiting one may go to make room for this one
-    if (personal && input.auth === 'oauth') this.makeRoom(viewer.id, L)
+    let replaced: string[] = []
     this.db.transaction(() => {
+      // every check passed: a waiting one may go to make room for this one, in the write's transaction (a write that
+      // fails removes nothing)
+      if (personal && input.auth === 'oauth') replaced = this.makeRoom(viewer.id, L)
       this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
         write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at, template_id, oauth_client, oauth_client_enc, oauth_client_key_version)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?,?,?,?)`)
@@ -284,6 +286,7 @@ export class Integrations {
           row.oauth_client ?? null, row.oauth_client_enc ?? null, row.oauth_client_key_version ?? 1)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
+    for (const r of replaced) this.forget(r)
     // made from a template: logged like any member's own connection, without which template (that would say which
     // service, and that this member connected it: admins see only how many did)
     audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined, ...(app ? { ownApp: true } : {}) }) })
@@ -348,9 +351,11 @@ export class Integrations {
     if (startsWaiting && !this.replaceable(row.owner_user_id!)) fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
     if (recheck) { next.status = next.auth === 'oauth' && !next.secret_enc ? 'needs_auth' : 'error'; next.last_error = next.auth === 'none' || next.secret_enc ? null : next.auth === 'oauth' ? 'sign_in' : 'no_secret' }
     const accessBefore = row.scope === 'team' ? accessOf(this.db, id) : null
-    if (startsWaiting) this.makeRoom(row.owner_user_id!, L)
     const now = iso(this.now())
+    let replaced: string[] = []
     this.db.transaction(() => {
+      // the oldest waiting one makes room in the write's transaction: a write that fails (conflict) removes nothing
+      if (startsWaiting) replaced = this.makeRoom(row.owner_user_id!, L)
       const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
         tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
         version=version+1, updated_at=? WHERE id=? AND version=?`)
@@ -361,6 +366,7 @@ export class Integrations {
       // the sign-in is gone (removed, or moved with the address or the way in): so is the record of whose it was
       if (secret !== 'kept') this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
     })()
+    for (const r of replaced) this.forget(r)
     this.dropClient(id)
     // one entry per change; who may use a team connection is part of it (before and after)
     const accessAfter = row.scope === 'team' ? accessOf(this.db, id) : null
@@ -406,17 +412,16 @@ export class Integrations {
     const old = row.secret_enc ? this.tryOpen(row) : null
     // local first: the tokens are gone even when the service cannot be told
     this.drop(row, viewer.id)
+    this.forget(id)
     if (old?.type === 'oauth') await this.revokeTokens(old)
   }
 
-  /** A connection gone here (Delete, or makeRoom): its sign-in flows go with it (ON DELETE CASCADE), and so does what
-   * is kept of it in memory. Telling the service about a stored sign-in is the caller's job. */
+  /** A connection gone from the database (Delete, or makeRoom inside a write's transaction): its sign-in flows go with
+   * it (ON DELETE CASCADE), and the audit says so. Then forget: what is kept of it in memory. Telling the service about
+   * a stored sign-in is the caller's job. */
   private drop(row: Row, actor: string, more: Record<string, unknown> = {}) {
     this.db.query('DELETE FROM integrations WHERE id = ?').run(row.id)
     this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(row.id)
-    this.dropClient(row.id)
-    this.recent.delete(row.id)
-    toolListsOf(this.db).drop(row.id)
     audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), ...more } })
   }
 
@@ -449,14 +454,16 @@ export class Integrations {
     return ids.length >= over ? ids : null
   }
   /** At the waiting cap: the oldest waiting connections that may go are removed, as Delete removes them (QA TC-3048:
-   * tries at services that refuse, or windows closed, never stop someone adding a connector). */
-  private makeRoom(userId: string, L: Locale) {
+   * tries at services that refuse, or windows closed, never stop someone adding a connector). Called inside the
+   * write's transaction; the caller forgets the ids it returns once that committed. */
+  private makeRoom(userId: string, L: Locale): string[] {
     const ids = this.replaceable(userId)
     if (!ids) return fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
     for (const id of ids) {
       const row = getRow(this.db, id)
       if (row) this.drop(row, userId, { replaced: 'waiting' })
     }
+    return ids
   }
 
   /** Delete connections made from an admin's template (templates.ts: the template moved to another address or sign-in,

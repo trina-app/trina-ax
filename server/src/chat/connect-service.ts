@@ -290,7 +290,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         // cap the card's Connect replaces the oldest one that may go (only when none may go is there no card)
         const room = scope === 'personal' ? svc.personalRoom(viewer.id, input.data.auth) : count >= MAX_TEAM ? 'working' : 'ok'
         if (room === 'working') return early(`There are already ${scope === 'personal' ? `${MAX_PERSONAL} working personal` : `${MAX_TEAM} team`} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
-        if (room === 'waiting') return early(`${MAX_PERSONAL_WAITING} of this person's connections are still waiting for their first sign-in, and none of them can make room now (each was tried in the last hour, or has its own app). The person can sign in to one or remove one in ${SCREEN.connectors(L)}, or ask again in an hour. No card was shown.`, 'limit')
+        if (room === 'waiting') return early(`${MAX_PERSONAL_WAITING} of this person's connections are still waiting for their first sign-in, and none of them can make room now (each was tried in the last hour, or has its own app). To add another, the person signs in to one of them or removes one in ${SCREEN.connectors(L)}, then asks again. No card was shown.`, 'limit')
         // one that does not work and is not this person's to fix (a team connection): an admin fixes it
         const dup = same[0]
         if (dup) {
