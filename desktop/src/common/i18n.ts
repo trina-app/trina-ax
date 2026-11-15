@@ -73,7 +73,7 @@ const ko = {
   'welcome.language': '언어',
   'err.empty': '초대 링크나 팀 주소를 넣어 주세요.',
   'err.invalid': '주소 형식이 맞지 않아요.',
-  'err.short_name': "전체 주소가 아니에요. 전체 주소를 입력하거나(예: macmini.local:8443) 관리자가 보낸 링크를 붙여 넣어 주세요.",
+  'err.short_name': '전체 주소가 아니에요. 전체 주소를 입력하거나(예: macmini.local:8443) 관리자가 보낸 링크를 붙여 넣어 주세요.',
   'err.insecure': '보안 연결(https) 주소만 쓸 수 있어요.',
   'err.credentials': '주소에 아이디·비밀번호를 넣지 마세요.',
   'err.unsupported_scheme': 'http 또는 https 주소만 쓸 수 있어요.',
