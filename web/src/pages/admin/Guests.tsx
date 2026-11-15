@@ -45,7 +45,8 @@ function aiWords(t: ReturnType<typeof useT>, locale: Locale, g: NonNullable<Retu
   if (!ai) return null
   if (ai.mode !== 'team') return t(`guest.ai.${ai.mode}`)
   const label = connections?.find((c) => c.id === ai.credentialId)?.label
-  const compact = (n: number) => formatNumber(n, locale, { notation: 'compact', maximumFractionDigits: 1 })
+  // rounded down: 4.96M left never reads "5M left" next to "up to 5M"
+  const compact = (n: number) => formatNumber(n, locale, { notation: 'compact', maximumFractionDigits: 1, roundingMode: 'floor' })
   const limit = ai.limitTokens ? t('guest.admin.upTo', { amount: compact(ai.limitTokens) }) : ai.limitUsd ? t('guest.admin.upToUsd', { amount: formatUsd(ai.limitUsd, locale) }) : null
   const left = g.aiUsedUp ? t('guest.admin.aiUsedUp') : ai.limitTokens && g.aiUse ? t('guest.admin.left', { n: compact(Math.max(0, ai.limitTokens - g.aiUse.usedTokens)) }) : null
   return [t('guest.ai.team'), label, limit, left].filter(Boolean).join(' · ')

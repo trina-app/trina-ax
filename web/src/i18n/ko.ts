@@ -146,7 +146,7 @@ export const ko = {
   "guest.ai.custom": "직접 입력",
   "guest.ai.customLabel": "한 달 토큰",
   "guest.ai.answers": "약 {n}번 답변",
-  "guest.ai.answersUnderOne": "답변 1번도 안 될 수 있어요",
+  "guest.ai.answersUnderOne": "답변 1번이 안 돼요",
   "guest.ai.estimateTeam": "이 팀의 최근 답변으로 어림한 수예요.",
   "guest.ai.estimateDefault": "보통 답변으로 어림한 수예요. 이 팀은 아직 답변이 적어요.",
   "guest.ai.nowUsd": "지금은 한 달 {amount}까지예요. 바꾸려면 토큰 양을 골라 주세요.",

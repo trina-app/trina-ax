@@ -13,7 +13,7 @@ import {
 import type { z } from 'zod'
 import type { AppContext } from '../context'
 import { newId } from '../db'
-import { answerTokens, insertGuestBudget } from '../admin/budgets'
+import { answerTokensCached, insertGuestBudget } from '../admin/budgets'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
@@ -503,7 +503,7 @@ export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInvi
   const staff = role === 'owner' || role === 'admin'
   return { full, limit: max, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}),
     // answerTokens: the Team AI limit's "about N answers" (only the owner and admins give Team AI)
-    answerTokens: answerTokens(ctx.db) } : {}),
+    answerTokens: answerTokensCached(ctx.db) } : {}),
     // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
     ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }
 }
@@ -551,7 +551,8 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     // Team AI's monthly limit: tokens; a link made before tokens keeps its US dollars (guest-invites.ts parseGuestAi)
     if (ai.mode === 'team') {
       if (ai.limitTokens) insertGuestBudget(ctx.db, id, ai.limitTokens)
-      else ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd ?? 0)
+      else if (ai.limitUsd && ai.limitUsd > 0) ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+      else throw new Error('a Team AI guest link without a limit')
     }
     if (place!.kind === 'room') {
       // the group chat's size limit holds here too (Rooms.invite checks it for people added in the app)

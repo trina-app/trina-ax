@@ -7,6 +7,7 @@ import path from 'node:path'
 import { DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, answersFor } from '@mycel/shared'
 import { setEnginesEnabled, teamTimeZone } from '../../server/src/admin/settings'
 import { answerTokens, budgetBlock, periodEnd } from '../../server/src/admin/budgets'
+import { guestHasBlockBudget } from '../../server/src/credentials/guest-ai'
 import { addCred, testCredCtx } from '../lib/credentials'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { addGuest, groupChat } from './guest-lib'
@@ -55,7 +56,7 @@ test('Team AI stores a token limit, counts every token toward it and blocks at i
   expect((await row()).aiUsedUp).toBe(true)
   const r = await g.client.try('POST', '/api/chats', { message: 'hello' })
   expect(r.body.error.code).toBe('budget_exceeded')
-  expect(r.body.error.params.resetsAt).toBe(resetsAt)
+  expect(r.body.error.params).toEqual({ resetsAt, own: true })
   // last month's tokens do not count
   h.ctx.db.query("DELETE FROM turns WHERE user_id = ?").run(g.id)
   answer(g.id, 50_000, 0, 0, new Date(Date.now() - 40 * 86_400_000))
@@ -75,7 +76,7 @@ test('Change AI sets a token limit and replaces an older guest\'s US dollar one;
   expect(budgetBlock(h.ctx.db, g.id, 'en')).not.toBeNull()
   // the API takes tokens only: dollars, a fraction, 0 or over the cap are refused and nothing changes
   const url = `/api/admin/users/${g.id}/guest-ai`
-  for (const body of [{ limitUsd: 20 }, { limitTokens: 1.5 }, { limitTokens: 0 }, { limitTokens: 2_000_000_000 }, {}])
+  for (const body of [{ limitUsd: 20 }, { limitTokens: 5_000_000, limitUsd: 20 }, { limitTokens: 1.5 }, { limitTokens: 0 }, { limitTokens: 2_000_000_000 }, {}])
     expect((await owner.try('PATCH', url, { mode: 'team', credentialId: team, ...body })).status).toBe(400)
   expect((await owner.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })).status).toBe(400)
   expect(h.ctx.db.query("SELECT limit_usd, limit_tokens FROM budgets WHERE subject_type = 'user' AND subject_id = ?").all(g.id)).toEqual([{ limit_usd: 20, limit_tokens: null }])
@@ -86,6 +87,25 @@ test('Change AI sets a token limit and replaces an older guest\'s US dollar one;
   expect(budgetBlock(h.ctx.db, g.id, 'en')).toBeNull()
   answer(g.id, 4_000_000, 0, 0)
   expect(budgetBlock(h.ctx.db, g.id, 'en')).not.toBeNull()
+})
+
+test('a limit cleared in Admin › AI limits is no limit: Team AI is off for the guest, not unlimited', async () => {
+  const { owner, room, team } = await setup('a-guests-tokens-cleared')
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 10_000 } })
+  expect(guestHasBlockBudget(h.ctx.db, g.id)).toBe(true)
+  h.ctx.db.query("UPDATE budgets SET limit_tokens = NULL, limit_usd = 0 WHERE subject_type = 'user' AND subject_id = ?").run(g.id)
+  expect(guestHasBlockBudget(h.ctx.db, g.id)).toBe(false)
+  expect((await g.client.call('GET', '/api/me')).guest.ai).toEqual({ mode: 'none' })
+})
+
+test('a team limit that stops a guest is not said as their own amount (params.own only for their own)', async () => {
+  const { owner, room, team } = await setup('a-guests-tokens-team-limit')
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 10_000_000 } })
+  h.ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES ('team-day', 'team', NULL, 'day', 0, 1000, 'block')").run()
+  answer(g.id, 800, 300)
+  const b = budgetBlock(h.ctx.db, g.id, 'en')!
+  expect(b.budget.subjectType).toBe('team')
+  expect(b.params.own).toBeUndefined()
 })
 
 test('a guest link made before tokens, used now, gives its US dollar limit as it was', async () => {

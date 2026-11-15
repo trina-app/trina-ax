@@ -28289,18 +28289,21 @@ so a guest on a subscription connection was never stopped; tokens count with eve
   against the month's input + output tokens of the guest's turns; nothing new there. `GuestDetail.aiUse` gives the
   month's used tokens (and dollars) and the reset date (the 1st in the team's time zone); "left" is limit − used.
 - **API**: `GuestAiChoiceBody` (invite and PATCH guest-ai) takes `limitTokens` only, a whole number from 1 to 10억;
-  `limitUsd` in a body is refused (400). `GuestAiChoice` (what screens read) has `limitTokens` or, for an older guest,
+  `limitUsd` in a body is refused (400, the team object is strict, so a body with both is refused too). `GuestAiChoice` (what screens read) has `limitTokens` or, for an older guest,
   `limitUsd`.
 - **Existing dollar limits: kept, not converted.** There is no safe rule from dollars to tokens: the price per token
   depends on the model, on cached reads (a tenth of the input price) and on the connection (a subscription has none),
   so any rate would give some guests far more or far less than the admin meant. Guests with a dollar budget keep it,
   read and enforced as it is; Admin's row says "up to $20.00 a month"; Change AI says the dollar limit, has no amount
   picked and saves only with a token amount, which replaces it. An unused guest link made before this keeps its dollar
-  limit when it is accepted (`parseGuestAi`). No migration.
+  limit when it is accepted (`parseGuestAi`). No migration. The gap that stays: a dollar guest on a subscription
+  connection is still never stopped (nothing prices those requests), as before this change; an admin closes it by
+  picking tokens in Change AI.
 - **The estimate ("about N answers")**: limit ÷ the team's tokens per answer, rounded down (whole under 100, to 10
   under 1,000, then two significant digits; under one answer says "less than 1 answer"). Tokens per answer = the mean
-  of input + output tokens over the team's turns of the last 90 days that used any (`answerTokens`, sent to the owner
-  and admins in `GET /api/guest-invites/limit`). The mean, not the median: limit ÷ mean is how many average answers
+  of input + output tokens over the team's finished turns of the last 90 days that used any (`answerTokens`, sent to
+  the owner and admins in `GET /api/guest-invites/limit`, read again at most every 10 minutes). Members' long
+  tool-heavy answers count too, so a guest who asks short questions gets more answers than shown. The mean, not the median: limit ÷ mean is how many average answers
   fit, and the budget counts the long ones too. With fewer than 20 such answers it is `DEFAULT_TOKENS_PER_ANSWER` =
   80,000 (shared/src/guest-tokens.ts), from the find-files bench (one tool call: Claude Code 80,469, Codex 57,949
   input tokens): every step of an answer reads the conversation and tools again and those reads count. The hint says
@@ -28312,7 +28315,9 @@ so a guest on a subscription connection was never stopped; tokens count with eve
   `Intl.NumberFormat` compact).
 - **Words**: "토큰" is said once with "토큰은 AI가 읽고 쓰는 양이에요." under the field; no prices. Admin's row: "up to 5M
   tokens a month · 3.2M left" or "· AI limit used up"; the guest at the limit: "You've used this month's AI limit (5M
-  tokens). It resets on Dec 1. …" (a dollar guest reads the old words).
+  tokens). It resets on Dec 1. …" only when their own limit stopped it (`params.own` on budget_exceeded); a team or
+  group limit, and a dollar guest, read the old words. A guest budget with both limits cleared in Admin › AI limits
+  is no limit (`guestHasBlockBudget`), so Team AI is off rather than unlimited.
 - Tests: `tests/unit/a-guests-ai-tokens.test.ts` (stored, enforced at no cost, last month not counted, Change AI
   replaces a dollar limit, dollar bodies refused, an old link, the team's mean and the default, rounding); the guest
   unit tests now use tokens; e2e `guest-ai-tokens.spec.ts` (invite presets/Other/estimate, Admin rows, Change AI on a

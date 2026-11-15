@@ -13,7 +13,7 @@
 import { Check, Copy, UserRoundPlus } from 'lucide-react'
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { Credential, GuestAiChoice, GuestAiChoiceBody, GuestInviteLimit, Locale, Person } from '@mycel/shared/api'
+import { GUEST_TOKENS_MAX, type Credential, type GuestAiChoice, type GuestAiChoiceBody, type GuestInviteLimit, type Locale, type Person } from '@mycel/shared/api'
 import { DEFAULT_TOKENS_PER_ANSWER, GUEST_TOKEN_PRESETS, GUEST_TOKENS_DEFAULT, answersFor } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { GUEST_LIMIT, GUEST_ONE_PLACE, type GuestPlaceView, type PlaceKind } from '../lib/guests'
@@ -123,7 +123,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
 
 /** A team mode choice that can be sent: an account picked and a token limit above 0 (an older guest's US dollar limit
  * is shown, but changing Team AI picks tokens). */
-export const aiChoiceReady = (v: GuestAiChoice): v is GuestAiChoiceBody => v.mode !== 'team' || (!!v.credentialId && Number.isInteger(v.limitTokens) && v.limitTokens! > 0)
+export const aiChoiceReady = (v: GuestAiChoice): v is GuestAiChoiceBody => v.mode !== 'team' || (!!v.credentialId && Number.isInteger(v.limitTokens) && v.limitTokens! > 0 && v.limitTokens! <= GUEST_TOKENS_MAX)
 
 /** "5M tokens" / "500만 토큰": a token amount in the reader's words. */
 export function tokensText(t: ReturnType<typeof useT>, n: number, locale: Locale): string {
@@ -150,7 +150,7 @@ function TokenLimit({ value, onChange, answerTokens }: { value: Extract<GuestAiC
     setOther(false)
     set(Number(v))
   }
-  const ok = tokens !== undefined && Number.isInteger(tokens) && tokens > 0
+  const ok = tokens !== undefined && Number.isInteger(tokens) && tokens > 0 && tokens <= GUEST_TOKENS_MAX
   return (
     <div className="min-w-0" data-testid="guest-ai-limit-box">
       {value.limitUsd !== undefined && tokens === undefined && (
@@ -159,7 +159,7 @@ function TokenLimit({ value, onChange, answerTokens }: { value: Extract<GuestAiC
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="block min-w-0">
           <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
-          <select className={inputCls} value={tokens === undefined ? '' : other ? 'other' : String(tokens)} onChange={(e) => pick(e.target.value)} data-testid="guest-ai-limit">
+          <select className={inputCls} value={tokens === undefined ? '' : other ? 'other' : String(tokens)} onChange={(e) => pick(e.target.value)} aria-describedby={`${id}-est`} data-testid="guest-ai-limit">
             {tokens === undefined && <option value="" disabled>{'—'}</option>}
             {GUEST_TOKEN_PRESETS.map((n) => <option key={n} value={String(n)}>{tokensText(t, n, locale)}</option>)}
             <option value="other">{t('guest.ai.custom')}</option>
@@ -168,13 +168,13 @@ function TokenLimit({ value, onChange, answerTokens }: { value: Extract<GuestAiC
         {other && (
           <label className="block min-w-0" htmlFor={`${id}-other`}>
             <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.customLabel')}</span>
-            <input id={`${id}-other`} type="number" inputMode="numeric" min={1} step={100_000} className={inputCls} value={tokens !== undefined && Number.isFinite(tokens) ? tokens : ''}
+            <input id={`${id}-other`} type="number" inputMode="numeric" min={1} max={GUEST_TOKENS_MAX} step={1} className={inputCls} aria-describedby={`${id}-est`} value={tokens !== undefined && Number.isFinite(tokens) ? tokens : ''}
               onChange={(e) => set(e.target.value === '' ? Number.NaN : Math.round(Number(e.target.value)))} data-testid="guest-ai-limit-other" />
           </label>
         )}
       </div>
       {ok && (
-        <p className="mt-1.5 text-sm text-ink" data-testid="guest-ai-estimate">
+        <p id={`${id}-est`} className="mt-1.5 text-sm text-ink" data-testid="guest-ai-estimate">
           {tokensText(t, tokens, locale)} · {answersText(t, tokens, answerTokens?.tokens)}
         </p>
       )}

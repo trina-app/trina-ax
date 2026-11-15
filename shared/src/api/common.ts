@@ -84,7 +84,8 @@ export const GuestAiChoice = z.discriminatedUnion('mode', [
 export const GuestAiChoiceBody = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('none') }),
   z.object({ mode: z.literal('own') }),
-  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitTokens: z.number().int().positive().max(GUEST_TOKENS_MAX) }),
+  // strict: a body still in US dollars (limitUsd) is refused, not read as tokens with the dollars dropped
+  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitTokens: z.number().int().positive().max(GUEST_TOKENS_MAX) }).strict(),
 ])
 export type GuestAiChoiceBody = z.infer<typeof GuestAiChoiceBody>
 export type GuestAiChoice = z.infer<typeof GuestAiChoice>

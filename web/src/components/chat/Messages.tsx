@@ -680,7 +680,8 @@ export function AssistantMessage({
   // a guest suggests no skills (the server refuses it: guest walkthrough M1), so the button is not offered
   const canSuggest = canSuggestHere && !guest
   const guestAi = guest ? meNow?.guest?.ai : undefined
-  const guestTokens = guestAi?.mode === 'team' ? guestAi.limitTokens : undefined
+  // only when their own limit stopped it (params.own); a team or group limit has another amount
+  const guestTokens = guestAi?.mode === 'team' && m.error?.params?.own === true ? guestAi.limitTokens : undefined
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
