@@ -78,7 +78,6 @@ test('a member makes a project with a teammate in New project, then shares from 
   await b.getByTestId('project-participants-search').fill('jiwoo')
   await b.getByTestId('participant-add-user-jiwoo').click()
   await b.getByTestId('project-members-save').click()
-  await b.getByTestId('dialog-confirm').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   await expect(row.getByTestId('project-header-face')).toHaveCount(3)
   await b.context().close()
