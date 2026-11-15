@@ -28415,3 +28415,30 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   ("Show removed (N)"), since those accounts can be switched on or deleted only there.
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).
+
+## W6 follow-up: every way out of the welcome steps has a way back (fix/onboarding-exit-ai-accounts, 2026-11-14)
+
+- **Problem.** The AI step's "Other AI services such as OpenRouter: Admin › AI accounts" opened Admin with no way back:
+  Admin has no setup row, and without AI the row opens the connect dialog, not the steps; a phone's ‹ said "Admin".
+- **Audit of the exits from /welcome.** Leaving to another app page in the same tab: the AI step's engines line and 팀
+  파일's **Open** of the project it made (both fixed here). Meant to leave: 나중에 (Home; the setup row, Home's row and the
+  no-AI card lead back), the end screen's Home and skill (the steps are finished or put off; the end screen lists what
+  was put off). New browser tabs (the company website, Google and MCP sign-ins) leave the steps where they are. The
+  invite step's "add skills · add files" switch steps inside /welcome.
+- **Decision.** A link out of the steps carries the step in the history entry's state (`lib/welcome.ts
+  setupReturnState`, like `INVITE_STEP_STATE`). The page it opens shows one small control at its top
+  (`components/onboarding/SetupReturn.tsx`): "← Back to getting started", and after the AI step, once AI answers (asked
+  again on an engines change and on window focus, for a sign-in in another tab), "Continue setup" in the accent. Both
+  open /welcome, which resumes by itself (the AI step recorded done). On a phone whose entry under the page is the
+  steps, it goes back in the history instead; on a computer /welcome opens the step it came from even when that step was
+  recorded done meanwhile (the team files result with the project made, not the next step). While it shows, a phone's
+  bar has no ‹ of its own (one back). A failed AI check (read as "usable" so nothing warns) does not offer "Continue
+  setup". Owner only; nothing once the steps are finished. The engines line goes straight to /admin/providers (the
+  /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Only an answered AI read counts.** A failed read (offline, 5xx) leaves `usable` true so nothing warns; it never
+  shows "Continue setup" (`aiAccess.answered`) and never records the AI step done (Welcome.tsx on arrival and when AI
+  comes back). A phone's engine row in Admin › AI accounts carries the state on to /admin/providers/<id>, so the way
+  back stays there too.
+- **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
+  drops the control (the setup row is the way back from there).
+- Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
