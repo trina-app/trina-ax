@@ -27402,6 +27402,29 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
   purpose); whether a guest's AI may read their own room is the owner's call.
 - Version impact: **patch**.
 
+## A guest's AI reads their own rooms; file links and the delete card for guests — 게스트 AI의 대화방 읽기·파일 링크·삭제 카드 (fix/guest-ai-rooms-files, 2026-11-16, the coordinator for the owner)
+
+Builds on "The AI tells a guest the truth" (its three open questions).
+
+- **Rooms:** a guest's AI may read the group chat the guest was invited to (coordinator for the owner, 2026-11-16: the
+  guest sees every message there anyway, and the ✦ side chat is no use without it): `room_read` and `room_file` join
+  `GUEST_TURN_TOOLS`, and `chat/room-tools.ts` refuses a guest's call unless it names exactly that group chat
+  (`findRoom` among their own rooms, then the guest's place). Every other room, their 1:1 chats included, answers as
+  "not there" by id and by name; a test tries a group chat, a team room, the everyone room and their 1:1 chat. Still
+  left out: `rooms` (list and search), `save_room_file` and `post_to_room`. The prompt says which room it reads
+  (`guestSection`, `GUEST_ROOMS_RULE`); their ✦ side chat beside that group chat gets the members' side-panel section
+  without posting and shows the starters and "Looking at <room>" again ("Save to files" on a quoted file stays hidden).
+  Beside a 1:1 chat the panel has no starters and says to quote or paste.
+- **File links:** a guest has no 파일 screen (`/files` goes Home). A folder link in an answer or a room message and the
+  preview's "Open in Files" go to the project's own files screen (`/projects/<id>/files?dir=…`, `lib/guests.ts
+  guestFolderHref`, `guestAppHref`); a folder no screen of theirs lists (their own users/<id>/, anything else) is plain
+  text and the preview has no "Open in Files". A file link still opens in the preview panel, which a guest has.
+- **Delete card:** for a guest the card says "Project files stay in the trash until <date>, and the project's people can
+  bring them back." and/or "Files from your own folder can't be brought back." in place of "…restored from the trash
+  until <date>. An admin can empty the trash before then."; the result and the refusals no longer say Files › Trash or
+  the Files screen (the person who invited them deletes it instead).
+- Version impact: **patch**.
+
 ## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
 
 Builds on "Guests: only what they were invited to" and "Claude 구독 연결: 브라우저에서".

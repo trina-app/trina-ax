@@ -7,6 +7,8 @@
 // and says so instead of doing nothing. In the accent colour, underlined (a mention is the accent colour without one), a
 // long address breaks after its slashes and anywhere when one piece is still too long for the line. The text itself is
 // never changed: copy and edit take the message as it was written.
+import { useGuestFolderHref } from '../GuestView'
+import { guestAppHref } from '../../lib/guests'
 import { Fragment, useMemo, useRef, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { classifyLink } from '../../lib/markdown'
@@ -52,6 +54,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
   const hosts = useLinkHosts()
   const own = text !== undefined && previews?.length ? ownMessageLink(href, hosts, origin()) : null
   const preview = own ? previews!.find((p) => p.messageId === own.messageId) : undefined
+  const guestFolder = useGuestFolderHref()
   const l = classifyLink(href, origin())
   // (classifyLink gives no path that starts with "//": the router would open that as another site, in this tab)
   if (!preview && (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href)))) return <>{children ?? text}</>
@@ -92,9 +95,12 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
       </Link>
     )
   if (l.kind === 'blocked') return <>{children ?? text}</>
+  // a guest has no 파일 screen (/files goes Home): their project's files screen, else plain text (lib/guests.ts)
+  const appHref = l.kind !== 'app' ? null : guestFolder ? guestAppHref(l.href, guestFolder) : l.href
+  if (l.kind === 'app' && !appHref) return <>{words}</>
   if (l.kind === 'app')
     return (
-      <Link to={l.href} {...props} onClick={(e) => void held(e)}>
+      <Link to={appHref!} {...props} onClick={(e) => void held(e)}>
         {words}
       </Link>
     )
