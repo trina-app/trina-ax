@@ -5,13 +5,16 @@
 // background and installs when the app quits, or at once with the "다시 시작" prompt / menu item, but only after the
 // downloaded installer matches the product's signed release (../common/update-verify.ts): until then nothing installs,
 // and a mismatch deletes the download and tells the person once per version.
-// macOS: a notice once per new version found in /downloads/index.json (read with the team page's own cookies) with a
-// button that opens Settings > Apps; the app is not replaced (that needs an Apple-signed build).
+// macOS (the Developer ID signed dmg): the same, electron-updater's Mac updater on <team>/downloads/latest-mac.yml and
+// its update zip. The download is checked against the signed release first; only then is it handed to Squirrel.Mac
+// (electron-updater's local proxy, nativeUpdater.checkForUpdates), which takes only an app signed by the same team and
+// installs it when the app quits or at once with "다시 시작". A team server without latest-mac.yml (older than 0.5.5):
+// the old notice once per new version found in /downloads/index.json, with a button that opens Settings > Apps.
 // Store build (process.mas, process.windowsStore): off; the store updates it.
 import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { app, dialog, session, type BaseWindow } from 'electron'
+import { app, autoUpdater as nativeUpdater, dialog, session, type BaseWindow } from 'electron'
 import { DEV_SESSION_COOKIE, SESSION_COOKIE } from '@mycel/shared/api'
 import { APP_DOWNLOADS } from '@mycel/shared'
 import { t, type UiLocale } from '../common/i18n'
@@ -47,9 +50,15 @@ export class DesktopUpdater {
   private quitHandler = false
   private updater: typeof import('electron-updater').autoUpdater | null = null
 
-  /** `trust`: the release keys and product to check against; tests only (default RELEASE_CHANNEL's) */
-  constructor(private host: UpdaterHost, private trust: { keys?: readonly string[]; product?: string } = {}) {
-    this.mode = updateMode(process.platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process))
+  /** Mac (Squirrel.Mac) or Windows (NSIS) install path */
+  private readonly mac: boolean
+
+  /** `trust`: the release keys and product to check against, and the platform; tests only (default RELEASE_CHANNEL's,
+   * process.platform) */
+  constructor(private host: UpdaterHost, private trust: { keys?: readonly string[]; product?: string; platform?: NodeJS.Platform } = {}) {
+    const platform = trust.platform ?? process.platform
+    this.mac = platform === 'darwin'
+    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process))
   }
 
   start() {
@@ -74,7 +83,10 @@ export class DesktopUpdater {
     if (!team || this.busy || this.ready || this.verifying) return
     this.busy = true
     try {
-      if (this.mode === 'auto-install') await this.checkWindows(team)
+      if (this.mode === 'auto-install' && this.mac) {
+        // a team server that offers no Mac update feed yet (older than 0.5.5, or no Mac app in its release): the notice
+        try { await this.checkWindows(team) } catch (e) { debug('mac update feed', (e as Error).message); await this.checkMac(team) }
+      } else if (this.mode === 'auto-install') await this.checkWindows(team)
       else if (this.mode === 'notice') await this.checkMac(team)
     } catch (e) {
       debug('update check failed', (e as Error).message)
@@ -133,6 +145,20 @@ export class DesktopUpdater {
       }
       debug('update verified', version, v.keyId)
       this.verified = { file, sha256: v.sha256 }
+      if (this.mac) {
+        // Squirrel.Mac fetches the checked zip from electron-updater's local proxy and stages it; it installs on quit
+        // by itself from then on (no quit handler here)
+        try { await this.squirrelTakes() } catch (e) {
+          console.warn(`[desktop] update ${version} not installed: ${(e as Error).message}`)
+          this.refused.add(version) // not downloaded again in this run (an app run from the dmg or a read-only folder)
+          this.verified = null
+          return
+        }
+        this.ready = version
+        this.host.changed()
+        void this.promptRestart(version)
+        return
+      }
       this.ready = version
       this.installOnQuit()
       this.host.changed()
@@ -162,12 +188,25 @@ export class DesktopUpdater {
         continue
       }
       if (text.length > MANIFEST_MAX) continue
-      const v = verifyInstaller({ manifest: text, installerSha256, channel: src.channel, version, current: app.getVersion(), ...this.trust })
+      const v = verifyInstaller({ manifest: text, installerSha256, channel: src.channel, version, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product, platform: this.mac ? 'mac' : 'windows' })
       if (v.ok) return { ...v, sha256: installerSha256 }
       debug('update manifest', src.url, v.reason)
       first ??= v.reason
     }
     return first ? { ok: false, reason: first } : { ok: false, reason: 'no signed release could be read (team server and release feed)', unread: true }
+  }
+
+  /** Mac: hand the verified zip to Squirrel.Mac and wait until it has staged it (or says why not) */
+  private squirrelTakes(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { done(); reject(new Error('Squirrel.Mac did not take the update within 10 minutes')) }, 10 * 60_000)
+      const ok = () => { done(); resolve() }
+      const bad = (e: Error) => { done(); reject(e) }
+      const done = () => { clearTimeout(timer); nativeUpdater.removeListener('update-downloaded', ok); nativeUpdater.removeListener('error', bad) }
+      nativeUpdater.once('update-downloaded', ok)
+      nativeUpdater.once('error', bad)
+      nativeUpdater.checkForUpdates()
+    })
   }
 
   /** the app quits normally: install the verified update silently (what electron-updater's own handler did) */
@@ -237,7 +276,10 @@ export class DesktopUpdater {
   }
 
   restartNow() {
-    if (!this.ready || !this.updater || !this.installsVerified()) return
+    if (!this.ready || !this.updater) return
+    // Mac: Squirrel.Mac already holds the checked bytes (squirrelTakes); electron-updater's quitAndInstall restarts into them
+    if (this.mac) { this.updater.quitAndInstall(); return }
+    if (!this.installsVerified()) return
     // silent install (the one-click installer shows nothing anyway), then start the app again
     this.updater.quitAndInstall(true, true)
   }

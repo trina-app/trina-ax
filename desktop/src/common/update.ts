@@ -10,8 +10,12 @@
 // signature). latest.yml's sha512 comes from the same server, so it proves nothing on its own: before anything
 // installs, the downloaded file must be the one the product's Ed25519-signed release names (./update-verify.ts, owner
 // decision 2026-11-11), read from the team's /downloads/<channel>.json or the release feed.
-// macOS: no automatic install (that needs an Apple-signed app); /downloads/index.json is read with the team page's
-// own cookies and a newer Mac item is announced once per version, with a link to Settings > Apps.
+// macOS (the Developer ID signed, notarized dmg, since 0.5.5): the same as Windows, electron-updater's Mac updater on
+// <team address>/downloads/latest-mac.yml and the update zip it names (the team server puts both there from the signed
+// release, office/update.ts offerMac). The zip must be the one the signed release names before it is handed to
+// Squirrel.Mac, which also takes only an app signed by the same Developer ID team. A team server that offers no
+// latest-mac.yml yet (older than 0.5.5) keeps the old notice: /downloads/index.json read with the team page's own
+// cookies, a newer Mac item announced once per version, with a link to Settings > Apps.
 // Store build (Mac App Store: process.mas; Microsoft Store: process.windowsStore, true inside an MSIX package): nothing;
 // the store updates it, and a store does not allow pointing to another download (editions/trina/mac-app-store,
 // editions/trina/microsoft-store). Settings > Apps of such a build lists no installer either, for the Mac or Windows
@@ -26,14 +30,14 @@ export function storeBuild(p: { mas?: boolean; windowsStore?: boolean }): boolea
   return p.mas === true || p.windowsStore === true
 }
 
-/** what this build does: electron-updater only in a packaged Windows app, never in a store build
+/** what this build does: electron-updater in a packaged Windows or Mac app, never in a store build
  * (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
 export function updateMode(platform: string, packaged: boolean, forced?: string, store = false): UpdateMode {
   if (store) return 'off'
   if (forced === 'auto-install' || forced === 'notice' || forced === 'off') return forced
   if (!packaged) return 'off'
   if (platform === 'win32') return 'auto-install'
-  if (platform === 'darwin') return 'notice'
+  if (platform === 'darwin') return 'auto-install'
   return 'off'
 }
 

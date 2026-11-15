@@ -69,21 +69,22 @@ git push origin v0.3.0-beta.1
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것) | 없음 |
-| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
-| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
+| 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
+| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
+| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, 맥 dmg, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 | 5 | build-ami | stable만, publish와 github-release 뒤: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
 
-2의 네 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
+2의 다섯 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
-- **맥 데스크톱 앱(dmg)은 넣지 않는다.** Apple 서명·공증이 아직 없다. 맥 데스크는 지금처럼 "새 버전이 있어요" 안내만 받는다.
+- **맥 데스크톱 앱(dmg)은 0.5.5부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
 
 ### 업데이트 주소의 파일
 
 | 경로 | 무엇 | 캐시 |
 |---|---|---|
-| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일) | 안 함 |
-| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml` | 영구 |
+| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일, 맥 앱 `mac`) | 안 함 |
+| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml`, 맥 dmg, 맥 업데이트 zip, `latest-mac.yml` | 영구 |
 | `server/<channel>.json` + `.sig` | 리눅스 서버의 채널 머리. 아래 `release.json`과 같은 바이트 | 안 함 |
 | `server/<version>/release.json` + `.sig` | 그 버전의 릴리스 정보(`mycel-ctl update --version`) | 안 함 |
 | `server/<version>/manifest-linux-<arch>.json` + `.sig` | 묶음의 서명된 파일 목록(다음 릴리스가 root 파일 변경을 판단) | 안 함 |
@@ -97,6 +98,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 ### 설치에 닿는 방법
 
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
+- 데스크톱 앱(윈도우, 그리고 0.5.5부터 서명된 맥 dmg): 피드를 직접 보지 않는다. 팀 서버(리눅스·호스팅은 `system/windows-app.ts`, 사무실 맥은 업데이트 6단계)가 서명된 목록을 확인한 뒤 설치 파일(맥은 업데이트 zip)과 `latest.yml`/`latest-mac.yml`, 그 목록을 `/downloads/`에 둔다. 앱은 4시간마다 `/downloads/`를 보고, 받은 파일이 서명된 목록에 있는 것과 같을 때만 설치한다(맥은 그다음 Squirrel.Mac이 같은 Developer ID 팀의 서명인지 한 번 더 본다).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
   - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다. stable은 그 서버의 차례가 온 뒤다(아래 "단계적 배포"; root 타이머·사무실 맥도 같다).
   - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스는 `mycel-update.timer`(15분마다 확인, 팀의 업데이트 시간 안에서)가 적용한다.
@@ -204,6 +206,35 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
 6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그와 `main`(feed.yml)으로 제한하고, (2) 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다(권장). 승인자는 두지 않는다: 태그 push가 승인이다(대표 결정 2026-11-14). environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다). 2026-11-14 설정됨(10장 "처음 한 번").
 
+### 맥 앱 (Mac app)
+
+다운로드용 맥 앱(dmg)은 Developer ID Application 인증서(Trina Inc., 팀 `YWW96288YY`)로 서명하고 Apple이 공증한다. 처음 열 때 "확인되지 않은 개발자" 경고가 없다. 만드는 곳: `.github/workflows/mac-app.yml`(release.yml의 build-mac-app이 부른다; Actions → Mac app → Run workflow는 아무 브랜치·태그로 같은 파일을 만들고 검사만 하며 아무것도 올리지 않는다).
+
+1. 이 job만의 키체인에 인증서를 넣는다(electron-builder의 `CSC_LINK` 임시 키체인은 지금 macOS에서 `set-key-partition-list`가 실패한다).
+2. `bun run --cwd desktop dist:mac:release`: `desktop/electron-builder.devid.config.ts`. hardened runtime, `build-resources/entitlements.mac*.plist`(JIT, 마이크), 샌드박스 없음. electron-builder가 앱을 공증하고 staple한 뒤 dmg(서명)와 업데이트 zip, `latest-mac.yml`을 만든다. appId는 기본 `com.treesoop.mycel`(Mac App Store판 `app.trina.ax`와 다르다).
+3. `bun scripts/release/mac-app.ts desktop/release`: 앱과 zip 안의 앱을 검사(codesign --strict, 팀, hardened runtime, 샌드박스 아님, `spctl -a -vv`, `stapler validate`, 같은 cdhash), dmg를 `notarytool submit --wait`로 공증하고 staple, `spctl -a -vvv -t install`, `stapler validate`, 그리고 staple로 바뀐 dmg의 sha512·크기를 `latest-mac.yml`에 다시 쓴다.
+
+비밀값(레포 비밀값, build-mac-app만 본다). 값은 화면에 내지 않고 파일에서 바로 넣는다:
+
+| 이름 | 무엇 |
+|---|---|
+| `MAC_DEVELOPER_ID_P12_BASE64` | Developer ID Application 인증서와 키(.p12)의 base64 |
+| `MAC_DEVELOPER_ID_P12_PASSWORD` | 그 .p12의 암호 |
+| `APPLE_API_KEY_ID` | App Store Connect API 키 id(notarytool) |
+| `APPLE_API_ISSUER_ID` | 그 키의 issuer id |
+| `APPLE_API_KEY_P8` | 그 키의 `.p8` 내용 |
+
+```sh
+base64 -i ~/.config/trina/devid/devid.p12 | gh secret set MAC_DEVELOPER_ID_P12_BASE64 --repo trina-app/trina-ax
+gh secret set MAC_DEVELOPER_ID_P12_PASSWORD --repo trina-app/trina-ax < ~/.config/trina/devid/p12.pw
+gh secret set APPLE_API_KEY_P8 --repo trina-app/trina-ax < ~/.config/trina/asc/AuthKey_<id>.p8
+gh secret set APPLE_API_KEY_ID --repo trina-app/trina-ax       # 물으면 붙여 넣는다
+gh secret set APPLE_API_ISSUER_ID --repo trina-app/trina-ax
+```
+
+- 인증서는 2027-12-15에 끝난다(ASC id `YY28J76938`). 새 인증서는 Account Holder만 만들 수 있다(API는 403). 개발 맥의 키와 CSR은 `~/.config/trina/devid/`(600). 이미 서명·공증된 앱은 인증서가 끝나도 계속 열린다.
+- 맥 앱 업데이트: 팀 서버가 업데이트 zip과 `latest-mac.yml`을 `/downloads/`에 둔다(위 "설치에 닿는 방법"). 0.5.5보다 오래된 팀 서버에서는 앱이 예전처럼 "새 버전이 있어요" 안내만 한다. 서명 전 dmg로 설치한 앱(0.5.4까지)은 스스로 바뀌지 않는다: 새 dmg를 한 번 받아 Applications에 덮어쓴다.
+
 ## 5. beta → stable
 
 1. `0.3.0-beta.1`로 올리고 `v0.3.0-beta.1`을 단다. beta 채널을 보는 설치만 받는다.
@@ -230,6 +261,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | build-office가 맥 러너를 못 받아 데스크톱만 빠짐(2026-11-12 v0.5.2, 11-13 v0.5.3), 그 run을 더는 다시 돌릴 수 없음 | 서버 피드는 나갔고 사무실 피드(윈도우·맥 zip)는 이전 릴리스에 남는다 | Actions → Release → Run workflow, "Use workflow from"과 tag는 그 태그, **office_only** 체크. 테스트·리눅스 빌드·서버 피드는 건너뛰고 사무실 zip과 윈도우 설치 파일만 빌드해 사무실 피드에 올린다(리눅스 파일은 GitHub Release에서 받아 SHA256SUMS에만 넣는다). 맥 러너가 또 없으면 **mac_runner**에 `macos-15-intel`(다른 러너 풀; Go·swiftc가 두 프로세서를 같이 빌드해 같은 universal zip). 기본값은 레포 변수 `RELEASE_MAC_RUNNER`, 없으면 macos-15. 이 입력은 이 변경이 들어간 뒤의 태그부터 있다 |
+| build-mac-app 실패(맥 러너 없음, 공증 거절, 비밀값 없음) | 사무실 피드는 `mac` 없이 나간다. 맥 앱은 이전 버전 그대로 | 로그를 본다: 공증 거절이면 `notarytool log <id>`가 로그에 있다. 고친 뒤 그 run에서 "Re-run failed jobs": publish가 같은 버전의 목록에 `mac`을 더한다(`versionManifestAction`) |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
 

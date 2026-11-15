@@ -21,6 +21,9 @@
 // `admin.js desktop-refresh`, also with `--from /full/path` for a server without internet (the manifest and the two files
 // copied there; checked the same way). Admin › System › Diagnostics shows the last result ("Windows app").
 // Existing Windows apps need nothing new: they already ask /downloads/latest.yml every 4 hours.
+// The Mac app (Developer ID signed since 0.5.5) the same way, in the same run and from the same verified manifest: its
+// update zip and latest-mac.yml (office/update.ts offerMac), when the release names one that is not newer than this
+// server. Its outcome is kept as `mac` in data/desktop-windows.json and logged; it never changes the Windows result.
 // The hosted service: its control plane updates a tenant by running `mycel-ctl update` in it (the tenant fetches the
 // bundle from the same feed itself; its firewall lets https out), and every update restarts the server, so a tenant
 // does only the run after a start: never the 6-hourly one, never a release newer than itself, its own channel.
@@ -31,8 +34,8 @@ import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { AppConfig } from '../app-config'
-import { DEFAULT_FEED, OFFICE_RELEASE_KEYS, ReleaseError, type Channel } from '../office/release'
-import { fetchManifest, NotPublished, offerWindows, readIndex, signedTextOf, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
+import { DEFAULT_FEED, OFFICE_RELEASE_KEYS, ReleaseError, type Channel, type OfficeRelease } from '../office/release'
+import { fetchManifest, NotPublished, offerMac, offerWindows, readIndex, signedTextOf, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
 import { isHosted } from './deployment'
 import { compareVersions } from './update'
 
@@ -95,6 +98,8 @@ interface WindowsState {
   last: (WindowsAppResult & { at: string }) | null
   /** the version whose files failed last (held for WINDOWS_HOLD_MS) */
   failed: { version: string; at: string; message: string } | null
+  /** the Mac app's update (offerMac): the last outcome, and the version whose files failed last (held the same way) */
+  mac?: { last: (WindowsAppResult & { at: string }) | null; failed: { version: string; at: string; message: string } | null }
 }
 
 export interface WindowsAppOptions {
@@ -120,7 +125,7 @@ export const windowsStateFile = (dataDir: string) => path.join(dataDir, 'desktop
 export function readWindowsState(dataDir: string): WindowsState {
   let raw: Partial<WindowsState> | null = null
   try { raw = JSON.parse(fs.readFileSync(windowsStateFile(dataDir), 'utf8')) } catch {}
-  return { lastCheckAt: raw?.lastCheckAt ?? null, last: raw?.last ?? null, failed: raw?.failed ?? null }
+  return { lastCheckAt: raw?.lastCheckAt ?? null, last: raw?.last ?? null, failed: raw?.failed ?? null, ...(raw?.mac ? { mac: { last: raw.mac.last ?? null, failed: raw.mac.failed ?? null } } : {}) }
 }
 
 function writeWindowsState(dataDir: string, s: WindowsState) {
@@ -185,6 +190,28 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
     log(`Windows app: ${r.kind}${r.version ? ` ${r.version}` : ''}${r.message ? `: ${r.message}` : ''}`)
     return r
   }
+  /** the Mac app's update from the same verified release (see the header); never throws */
+  const macStep = async (r: OfficeRelease) => {
+    const m = r.mac
+    if (!m) return
+    const mac = st.mac ?? { last: null, failed: null }
+    st.mac = mac
+    const record = (x: WindowsAppResult) => { mac.last = { ...x, at: now().toISOString() }; log(`Mac app: ${x.kind} ${x.version ?? ''}${x.message ? `: ${x.message}` : ''}`) }
+    if (compareVersions(m.version, o.version) > 0) return record({ kind: 'ahead', version: m.version, message: `this server runs ${o.version}` })
+    const f = mac.failed
+    if (!o.force && f && f.version === m.version && now().getTime() - Date.parse(f.at) < WINDOWS_HOLD_MS) return record({ kind: 'held', version: m.version, message: f.message })
+    try {
+      const res = await offerMac(o.downloadsDir ?? downloadsDirOf(o.dataDir), path.join(work, 'mac'), m, { fetch: o.fetch ?? ((u, i) => fetch(u, i)), log }, { statfs: o.statfs, signed: signedTextOf(r) })
+      if (res.kind === 'no-room') return record({ kind: 'no-room', version: m.version, message: res.message })
+      if (res.kind === 'offered') mac.failed = null
+      record({ kind: res.kind, version: res.version, message: null })
+    } catch (e) {
+      const msg = (e as Error).message
+      const local = typeof (e as NodeJS.ErrnoException).code === 'string'
+      if (!local && !/^download [^:\s]+: /.test(msg)) mac.failed = { version: m.version, at: now().toISOString(), message: msg.slice(0, 500) }
+      record({ kind: 'failed', version: m.version, message: msg })
+    }
+  }
   try {
     const deps = { fetch: o.fetch ?? ((u: string, i?: RequestInit) => fetch(u, i)) }
     const keys = o.keys ?? OFFICE_RELEASE_KEYS
@@ -210,6 +237,7 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
         if (!(e instanceof NotPublished)) return done({ kind: 'failed', version: null, message: e instanceof ReleaseError || e instanceof UpdateFailure ? e.message : String(e) })
       }
     }
+    await macStep(r)
     const w = r.windows
     if (!w) return done({ kind: 'none', version: r.version, message: `release ${r.version} has no Windows app` })
     if (compareVersions(w.version, o.version) > 0) return done({ kind: 'ahead', version: w.version, message: `this server runs ${o.version}; the Windows app ${w.version} follows when the server has it` })

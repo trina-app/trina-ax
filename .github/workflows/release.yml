@@ -5,18 +5,24 @@
 #     test        ci.yml on the tagged commit (every job of a normal push)        } in parallel
 #     build-*     Linux kits amd64 + arm64, the office zip (macOS, universal),     } no secrets
 #                 the Windows installer + latest.yml
+#     build-mac-app   the Mac app (mac-app.yml): dmg + update zip + latest-mac.yml, Developer ID signed and notarized
+#                 (the only build job with secrets: the certificate and the App Store Connect API key)
 #     publish     sign the Linux builds, office feed (publish.ts), server feed (publish-server.ts), SHA256SUMS + .sig
-#     github-release  the tag's GitHub Release with the kits, the office zip, the Windows installer and SHA256SUMS(.sig)
+#     github-release  the tag's GitHub Release with the kits, the office zip, the Windows installer, the Mac dmg and
+#                 SHA256SUMS(.sig)
 #     build-ami   stable only: starts team-image.yml on the tag (the new-team server AMI); a notice when AWS is not set up
 #
 # The Linux server release does not wait for the desktop builds: when build-office or build-windows fails or gets no
 # runner, publish still runs (prepare, test and build-linux must pass), the office feed stays at the previous release,
 # and the GitHub Release says which downloads are missing. "Re-run failed jobs" later adds them (docs/RELEASE-CI.md 6).
+# The Mac app rides along: without it (build-mac-app failed) the office feed goes out without `mac`, and a re-run that
+# passes adds it to the same version's manifest (publish.ts versionManifestAction).
 #
 # Secrets (repository secrets, set by the owner: docs/RELEASE-CI.md): RELEASE_SIGNING_KEY (the Ed25519 PEM) and
 # CLOUDFLARE_API_TOKEN. Only `prepare` (checks the key) and `publish` see them, only in the steps that use them; the
-# key lives in a 600 file under $RUNNER_TEMP that is removed whatever happens. Nothing here runs for pull requests.
-# The Mac desktop dmg is not built: it has no Apple signature and notarization yet.
+# key lives in a 600 file under $RUNNER_TEMP that is removed whatever happens. The Mac app's signing secrets
+# (MAC_DEVELOPER_ID_P12_BASE64, MAC_DEVELOPER_ID_P12_PASSWORD, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_API_KEY_P8)
+# go only to build-mac-app (mac-app.yml), the same way. Nothing here runs for pull requests.
 name: Release
 
 on:
@@ -274,6 +280,21 @@ jobs:
           overwrite: true # a re-run of the job replaces its own artifact
           retention-days: 7
 
+  build-mac-app:
+    name: Mac app
+    needs: prepare
+    uses: ./.github/workflows/mac-app.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+      runner: ${{ inputs.mac_runner }}
+    secrets:
+      MAC_DEVELOPER_ID_P12_BASE64: ${{ secrets.MAC_DEVELOPER_ID_P12_BASE64 }}
+      MAC_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+
   build-windows:
     name: Windows installer
     needs: prepare
@@ -308,7 +329,7 @@ jobs:
 
   publish:
     name: Sign and publish to the update feed
-    needs: [prepare, test, build-linux, build-office, build-windows]
+    needs: [prepare, test, build-linux, build-office, build-windows, build-mac-app]
     # the server release goes out without the office zip or the Windows installer (macOS runners got none on
     # 2026-11-02..04); !cancelled(): a person who cancels the run still stops it
     # office_only: no tests and no Linux build in this run (skipped); the server feed is left alone below
@@ -324,9 +345,11 @@ jobs:
       ROLLOUT: ${{ needs.prepare.outputs.rollout }}
       OFFICE_OK: ${{ needs.build-office.result == 'success' }}
       WINDOWS_OK: ${{ needs.build-windows.result == 'success' }}
+      MAC_OK: ${{ needs.build-mac-app.result == 'success' }}
     outputs:
       office: ${{ steps.desktop.outputs.office }}
       windows: ${{ steps.desktop.outputs.windows }}
+      mac: ${{ steps.desktop.outputs.mac }}
     steps:
       - name: The tag still names the tested commit
         env:
@@ -360,8 +383,10 @@ jobs:
         run: |
           echo "office=$OFFICE_OK" >> "$GITHUB_OUTPUT"
           echo "windows=$WINDOWS_OK" >> "$GITHUB_OUTPUT"
+          echo "mac=$MAC_OK" >> "$GITHUB_OUTPUT"
           if [ "$OFFICE_OK" = true ]; then ls -l in/release-office; else echo "::warning::build-office did not pass: no office zip in this release"; fi
           if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows; else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
+          if [ "$MAC_OK" = true ]; then ls -l in/release-mac; else echo "::warning::build-mac-app did not pass: no Mac app in this release"; fi
       # office_only: the Linux files the release already has (its GitHub Release), checked against the release's signed
       # SHA256SUMS and then listed again in the new one; they are not signed or published again. Before anything is
       # published: a tag whose server release never went out (no GitHub Release, no kits) stops here.
@@ -404,10 +429,12 @@ jobs:
         run: |
           zip=$(ls in/release-office/*-mac.zip)
           exe=$(ls in/release-windows/*-Setup-*-win-x64.exe)
-          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
+          mac=()
+          if [ "$MAC_OK" = true ]; then mac=(--mac "$(ls in/release-mac/*-mac-universal.dmg)"); fi
+          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" "${mac[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           # a stable release is also the beta channel's newest, unless beta is already ahead (the beta channel has no ramp)
           if [ "$CHANNEL" = stable ]; then
-            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
+            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" "${mac[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           fi
       - name: Office feed not changed
         if: needs.prepare.outputs.feed == 'true' && !(needs.build-office.result == 'success' && needs.build-windows.result == 'success')
@@ -428,6 +455,7 @@ jobs:
           cp build/server/*.tar.gz assets/
           if [ "$OFFICE_OK" = true ]; then cp in/release-office/*-mac.zip assets/; fi
           if [ "$WINDOWS_OK" = true ]; then cp in/release-windows/*-Setup-*-win-x64.exe assets/; fi
+          if [ "$MAC_OK" = true ]; then cp in/release-mac/*-mac-universal.dmg assets/; fi
           bun scripts/release/release-ci.ts sums assets "$TEAMAX_RELEASE_KEY" assets/*
           bun scripts/release/release-ci.ts verify-sums assets/SHA256SUMS
       - name: Remove the release key
@@ -479,6 +507,7 @@ jobs:
       PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
       OFFICE_OK: ${{ needs.publish.outputs.office }}
       WINDOWS_OK: ${{ needs.publish.outputs.windows }}
+      MAC_OK: ${{ needs.publish.outputs.mac }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -496,7 +525,7 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
             # every download is there now: the first run's "not in this release yet" line goes
-            if [ "$OFFICE_OK" = true ] && [ "$WINDOWS_OK" = true ]; then
+            if [ "$OFFICE_OK" = true ] && [ "$WINDOWS_OK" = true ] && [ "$MAC_OK" = true ]; then
               gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes/old.md
               if head -1 notes/old.md | grep -q '^\*\*Downloads not in this release yet:\*\*'; then
                 tail -n +3 notes/old.md > notes/new.md
@@ -508,9 +537,10 @@ jobs:
           missing=()
           if [ "$OFFICE_OK" != true ]; then missing+=("Mac (office zip)"); fi
           if [ "$WINDOWS_OK" != true ]; then missing+=("Windows (installer)"); fi
+          if [ "$MAC_OK" != true ]; then missing+=("Mac (app)"); fi
           flags=(--verify-tag --title "$TAG")
           if [ ${#missing[@]} -gt 0 ]; then
-            line="**Downloads not in this release yet:** ${missing[0]}${missing[1]:+, ${missing[1]}}. Their build did not finish; the Linux server release is complete."
+            line="**Downloads not in this release yet:** $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g'). Their build did not finish; the Linux server release is complete."
             { echo "$line"; echo; cat notes/notes.md; } > notes/body.md
             flags+=(--notes-file notes/body.md)
             if [ ! -s notes/notes.md ]; then flags+=(--generate-notes); fi

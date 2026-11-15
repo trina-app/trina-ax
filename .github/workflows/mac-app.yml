@@ -1,0 +1,134 @@
+# The Mac app people download (docs/RELEASE-CI.md "Mac app"): the dmg, signed with the Developer ID Application
+# certificate, hardened runtime, notarized by Apple and stapled, so it opens with no "unidentified developer" warning;
+# with it the update zip and latest-mac.yml that the desks' Mac apps update from (through their team server, like the
+# Windows app). release.yml calls this for every release tag (job build-mac-app) and publishes what it uploads
+# (artifact release-mac); "Run workflow" here builds and checks the same files from any branch or tag and publishes
+# nothing (the artifact is kept 3 days).
+#
+# Secrets (repository secrets, docs/RELEASE-CI.md "Mac app"): MAC_DEVELOPER_ID_P12_BASE64 (the certificate and its key,
+# .p12 as base64), MAC_DEVELOPER_ID_P12_PASSWORD, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_API_KEY_P8 (the App
+# Store Connect API key notarytool uses). Only the steps that use them see them; the keychain and the key file live
+# under $RUNNER_TEMP and are removed whatever happens.
+name: Mac app
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: the commit to build
+        required: true
+        type: string
+      version:
+        description: the app's version (the release's)
+        required: true
+        type: string
+      runner:
+        description: the hosted macOS runner (empty = the repository variable RELEASE_MAC_RUNNER, else macos-15)
+        required: false
+        default: ""
+        type: string
+      retention-days:
+        required: false
+        default: 7
+        type: number
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version written into the app (e.g. 0.5.5-test.1); nothing is published"
+        required: true
+        type: string
+      runner:
+        description: "The hosted macOS runner; empty = RELEASE_MAC_RUNNER, else macos-15"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  build:
+    name: Mac app (dmg, Developer ID, notarized)
+    # the same pool as the office zip (release.yml build-office); macos-15-intel builds the same universal app
+    runs-on: ${{ inputs.runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: The version
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+){0,3})?$ ]]; then echo "::error::version $VERSION is not like 0.5.5 or 0.5.5-beta.1"; exit 1; fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # a keychain of this job only, first in the search list (electron-builder's own temporary keychain from CSC_LINK
+      # cannot set the key's partition list on current macOS: "SecKeychainUnlock … passphrase … not correct")
+      - name: Signing keychain (the Developer ID certificate from the secret, never printed)
+        env:
+          P12: ${{ secrets.MAC_DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ] || [ -z "$P12_PASSWORD" ]; then echo "::error::secrets MAC_DEVELOPER_ID_P12_BASE64 / MAC_DEVELOPER_ID_P12_PASSWORD are not set (docs/RELEASE-CI.md \"Mac app\")"; exit 1; fi
+          umask 077
+          kc="$RUNNER_TEMP/devid.keychain-db"
+          pw=$(openssl rand -base64 32)
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 7200 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import "$RUNNER_TEMP/devid.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security > /dev/null
+          rm -f "$RUNNER_TEMP/devid.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$kc" | grep -q '"Developer ID Application: Trina Inc. (YWW96288YY)"' || { echo "::error::the .p12 holds no Developer ID Application identity of team YWW96288YY"; exit 1; }
+          echo "CSC_KEYCHAIN=$kc" >> "$GITHUB_ENV"
+      - name: App Store Connect API key for notarytool (from the secret, never printed)
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -z "$P8" ]; then echo "::error::secret APPLE_API_KEY_P8 is not set (docs/RELEASE-CI.md \"Mac app\")"; exit 1; fi
+          umask 077
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Build, sign and notarize the app (dmg + update zip + latest-mac.yml)
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          bun run --cwd desktop dist:mac:release -- "-c.extraMetadata.version=$VERSION"
+          bun scripts/plugins/release-check.ts desktop/dist
+          grep -qx "version: $VERSION" desktop/release/latest-mac.yml
+      - name: Notarize and staple the dmg; Gatekeeper checks
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          bun scripts/release/mac-app.ts desktop/release
+          ls -l desktop/release
+      - name: Remove the keychain and the key
+        if: always()
+        run: |
+          if [ -n "$CSC_KEYCHAIN" ]; then security delete-keychain "$CSC_KEYCHAIN" || true; fi
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/devid.p12"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-mac
+          path: |
+            desktop/release/*-mac-universal.dmg
+            desktop/release/*-mac-universal.zip
+            desktop/release/latest-mac.yml
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: ${{ github.event_name == 'workflow_dispatch' && 3 || inputs.retention-days }}
