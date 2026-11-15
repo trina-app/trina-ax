@@ -149,6 +149,45 @@ test('connector off: a member sees one line and no Connect; an owner gets the se
   await expect(page.getByTestId('ai-app-connect-claude')).toHaveCount(0)
 })
 
+test('connector off: an old connection keeps Disconnect but no "connect again" line, which cannot work while off (QA TC-2971)', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page, false)
+  state.items = [app]
+  await signIn(page, BOB)
+  await page.goto('/settings/ai-apps')
+  await expect(page.getByTestId('ai-apps-off')).toHaveText('관리자가 아직 켜지 않았어요.')
+  const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.getByTestId('connector-disconnect')).toBeVisible()
+  await expect(page.getByTestId('connector-reconnect-rooms')).toHaveCount(0)
+  await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
+  // an owner: no group line either
+  await page.context().clearCookies()
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  await expect(page.getByTestId('connected-apps').getByTestId('connector-item')).toHaveCount(1)
+  await expect(page.getByTestId('connector-reconnect-rooms')).toHaveCount(0)
+  await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
+})
+
+test('Claude Code\'s dialog waits for Claude Code: Claude connecting meanwhile gets its own line (QA TC-3032)', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page)
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  await page.getByTestId('ai-app-connect-claude-code').click()
+  const dialog = page.getByRole('dialog'), status = dialog.getByTestId('ai-app-status')
+  await expect(status).toHaveAttribute('data-state', 'waiting')
+  state.items = [{ ...app, id: 'g-claude', clientName: 'Claude' }]
+  await expect(dialog.getByTestId('ai-app-other-connected')).toHaveText('Claude 앱이 연결됐어요. Claude Code 연결은 아직 기다리는 중이에요.', { timeout: 15_000 })
+  await expect(status).toHaveAttribute('data-state', 'waiting')
+  await expect(status).not.toContainText('연결됨')
+  state.items = [...state.items, { ...app, id: 'g-code', clientName: 'Claude Code (trina-ax)' }]
+  await expect(status).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
+  await expect(status).toContainText('Claude Code (trina-ax)')
+  await expect(dialog.getByTestId('ai-app-other-connected')).toHaveCount(0)
+})
+
 test('Admin › AI apps: in the Admin menu, the same four apps with Connect when on, the setup when off', async ({ page }) => {
   await reset(page)
   await page.route('**/api/integrations/google-drive', (r) => r.fulfill({ json: { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null } }))

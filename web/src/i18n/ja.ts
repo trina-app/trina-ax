@@ -1542,6 +1542,7 @@ export const ja: Record<MessageKey, string> = {
   "aiApps.notYet": "まだ接続されていません。アプリで手順をもう一度行ってから、再確認してください。",
   "aiApps.checkAgain": "再確認",
   'aiApps.connected': "接続しました: {name}",
+  'aiApps.otherConnected': "{name} が接続されました。{app} はまだ待っています。",
   'aiApps.connectedBadge': "接続済み",
   'aiApps.mineSummary': "あなたの接続 {n, plural, one {#件} other {#件}}: {names}。",
   'aiApps.manage': "管理",

@@ -1569,6 +1569,7 @@ export const ko = {
   "aiApps.notYet": "아직 연결되지 않았어요. 앱에서 단계를 다시 진행한 뒤 다시 확인하세요.",
   "aiApps.checkAgain": "다시 확인",
   'aiApps.connected': "연결됨: {name}",
+  'aiApps.otherConnected': "{name} 앱이 연결됐어요. {app} 연결은 아직 기다리는 중이에요.",
   'aiApps.connectedBadge': "연결됨",
   'aiApps.mineSummary': "내 연결 {n}개: {names}.",
   'aiApps.manage': "관리",
