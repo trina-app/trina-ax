@@ -15,6 +15,19 @@ import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
+import { emailUsedByOther, isGuest } from '../auth/guests'
+import { msg } from '../auth/messages'
+
+/** a guest's e-mail changes (an address, not clearing it) per hour, in this process: enough for typos, too few to probe */
+export const GUEST_EMAIL_TRIES = 10
+const guestEmailTries = new Map<string, number[]>()
+function guestEmailTry(userId: string, now: number): boolean {
+  const recent = (guestEmailTries.get(userId) ?? []).filter((t) => t > now - 3600_000)
+  if (recent.length >= GUEST_EMAIL_TRIES) { guestEmailTries.set(userId, recent); return false }
+  recent.push(now)
+  guestEmailTries.set(userId, recent)
+  return true
+}
 import type { RouteModule } from './module'
 import { reachedAt } from '../system/connection'
 import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
@@ -77,7 +90,15 @@ export const authRoutes: RouteModule = {
       const sets: string[] = []
       const args: (string | null)[] = []
       if (body.name !== undefined) { sets.push('name = ?'); args.push(body.name) }
-      if (body.email !== undefined) { sets.push('email = ?'); args.push(body.email) }
+      if (body.email !== undefined) {
+        // a guest may not take an address another account here gives (members may share one, as before). At most
+        // GUEST_EMAIL_TRIES addresses an hour, whatever the answer, so it cannot be used to find who is in the team
+        if (body.email !== null && isGuest(ctx.db, auth.user.id)) {
+          if (!guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
+          if (emailUsedByOther(ctx.db, auth.user.id, body.email)) fail('conflict', msg('emailInUse', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
+        }
+        sets.push('email = ?'); args.push(body.email)
+      }
       if (body.prefs !== undefined) {
         // merge: a PATCH carrying only { theme } keeps the other preferences
         let cur: Record<string, unknown> = {}

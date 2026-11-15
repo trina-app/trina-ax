@@ -28,6 +28,17 @@ export function isGuest(db: Database, userId: string): boolean {
   return !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(userId)
 }
 
+/** Another account here (not deleted, any state) gives this e-mail, compared as the Slack e-mail proof compares it
+ * (integrations/slack/service.ts normEmail: Unicode NFC, trimmed, lower case; never NFKC). A guest may not take it
+ * (docs/DECISIONS.md "A guest can't take an e-mail used in the team"): a copied address would block that person's
+ * Slack link. Members may still share one. */
+export function emailUsedByOther(db: Database, userId: string, email: string): boolean {
+  const norm = (e: string) => e.normalize('NFC').trim().toLowerCase()
+  const mine = norm(email)
+  const rows = db.query('SELECT email FROM users WHERE id != ? AND deleted_at IS NULL AND email IS NOT NULL').all(userId) as { email: string }[]
+  return rows.some((r) => norm(r.email) === mine)
+}
+
 export interface GuestRow {
   user_id: string; ai: GuestAi; invited_by: string | null; created_at: string
   /** the guest's group chat and project (migration 126): where they are, or were last; NULL = none of that kind */
