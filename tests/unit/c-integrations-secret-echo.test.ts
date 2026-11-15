@@ -11,10 +11,10 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { FakeServices } from '../lib/fake-services'
 import { HIDDEN } from '../../server/src/integrations/connections/hide'
-import { carryLength, RedactingText, redactorFor, redactorOf } from '../../server/src/integrations/connections/redact'
+import { carryLength, hideKeysInStoredMemories, MEMORY_SCAN_KEY, RedactingText, redactorFor, redactorOf } from '../../server/src/integrations/connections/redact'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { placeholderTitle } from '../../server/src/chat/title'
-import { runExport } from '../../server/src/system/export'
+import { memoriesCsv, runExport } from '../../server/src/system/export'
 import { readFileChunks, zstdDecompress } from '../../server/src/system/streams'
 import { extractTar } from '../../server/src/system/tar'
 
@@ -104,7 +104,7 @@ describe('a turn that repeats the stored key', () => {
   afterAll(async () => { svc?.stop(); await h?.close() })
 
   /** one turn in a new chat; every text the server let out or saved for it */
-  async function turn(content: string) {
+  async function turn(content: string, answer = 'allow') {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const started = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const id = started.assistantMessage.id
@@ -114,7 +114,7 @@ describe('a turn that repeats the stored key', () => {
       for (const p of published) {
         if (p.ev.type !== 'turn.request' || p.ev.data.turnId !== started.turnId || answered.has(p.ev.data.request.requestId)) continue
         answered.add(p.ev.data.request.requestId)
-        void h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: p.ev.data.request.requestId, answer: 'allow' } }).catch(() => {})
+        void h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: p.ev.data.request.requestId, answer } }).catch(() => {})
       }
     }, 20)
     const doneEv = await waitFor(() => published.find((p) => p.ev.type === 'message.done' && p.ev.data.messageId === id), { timeoutMs: 40_000, what: 'message.done' }).finally(() => clearInterval(approve))
@@ -184,6 +184,50 @@ describe('a turn that repeats the stored key', () => {
     const t = await turn(fake({ say: text }))
     expect(t.done.content).toBe(text)
     expect(t.deltas.map((d) => d.text).join('')).toBe(text)
+  })
+
+  // QA TC-2981: the step said "Remembered: My key is [hidden key]", the saved memory held the key (Settings › Memory,
+  // the export's memories.csv)
+  test.skipIf(!native)('remember: the saved memory, Settings › Memory and the export have the key hidden', async () => {
+    const t = await turn(['remember my key please', fake({ tool: 'remember', args: { text: `My key is ${KEY}` }, sayResult: true }, { say: 'Done.' })].join('\n'))
+    const step = t.done.steps.find((s: { tool: string }) => s.tool === 'remember')
+    expect(step.label).toBe(`Remembered: My key is ${HIDDEN}`)
+    const id = String(step.detail).replace('memory:', '')
+    const row = h.ctx.db.query('SELECT text FROM memories WHERE id = ?').get(id) as { text: string }
+    expect(row.text).toBe(`My key is ${HIDDEN}`)
+    const listed = await h.api('alice').call(API.listMemories, {})
+    expect(listed.items.find((m) => m.id === id)!.text).toBe(`My key is ${HIDDEN}`)
+    const rows = h.ctx.db.query("SELECT id, text, created_at, source_chat_id FROM memories WHERE user_id = 'alice'").all() as Parameters<typeof memoriesCsv>[0]
+    expect(leaks(memoriesCsv(rows) + JSON.stringify(listed))).toEqual([])
+  })
+
+  test.skipIf(!native)('schedule_create: the card and the saved task have the key hidden in the title and the prompt', async () => {
+    const args = { title: `Check ${KEY}`, prompt: `Every morning call QA API with the key ${KEY} and save the answer in my folder.`, repeat: 'daily', time: '07:00' }
+    const t = await turn(fake({ tool: 'schedule_create', args, sayResult: true }), 'create')
+    const card = published.find((p) => p.ev.type === 'turn.request' && JSON.stringify(p.ev.data.request).includes('Every morning call QA API'))
+    expect(card).toBeTruthy()
+    expect(leaks(JSON.stringify(card!.ev))).toEqual([])
+    const row = h.ctx.db.query("SELECT title, prompt FROM schedules WHERE user_id = 'alice' AND prompt LIKE 'Every morning call QA API%'").get() as { title: string; prompt: string }
+    expect(row).toEqual({ title: `Check ${HIDDEN}`, prompt: `Every morning call QA API with the key ${HIDDEN} and save the answer in my folder.` })
+    expect(leaks(t.done.content + JSON.stringify(t.done.steps))).toEqual([])
+  })
+
+  test('once at start: memories the AI saved with a stored key get it hidden; memories the person typed stay', () => {
+    const db = h.ctx.db
+    const at = new Date().toISOString()
+    db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-old-ai', 'alice', ?, NULL, 'ai', 'turn-old', ?)").run(`My key is ${KEY}`, at)
+    db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-old-typed', 'alice', ?, NULL, 'user', NULL, ?)").run(`typed ${KEY}`, at)
+    db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-old-bob', 'bob', ?, NULL, 'ai', 'turn-bob', ?)").run(`not bob's key ${KEY}`, at)
+    db.query('DELETE FROM settings WHERE key = ?').run(MEMORY_SCAN_KEY)
+    expect(hideKeysInStoredMemories(h.ctx)).toBe(1)
+    const text = (id: string) => (db.query('SELECT text FROM memories WHERE id = ?').get(id) as { text: string }).text
+    expect(text('m-old-ai')).toBe(`My key is ${HIDDEN}`)
+    expect(text('m-old-typed')).toBe(`typed ${KEY}`)
+    expect(text('m-old-bob')).toBe(`not bob's key ${KEY}`) // alice's key is not bob's secret
+    // once: a later row is left to the remember tool
+    db.query("UPDATE memories SET text = ? WHERE id = 'm-old-ai'").run(`again ${KEY}`)
+    expect(hideKeysInStoredMemories(h.ctx)).toBe(0)
+    db.query("DELETE FROM memories WHERE id IN ('m-old-ai', 'm-old-typed', 'm-old-bob')").run()
   })
 
   test('a title that holds the key (made before the key was saved, or a rename) is hidden in the list, search, one chat and chat.updated', async () => {

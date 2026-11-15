@@ -38,6 +38,37 @@ export function redactorFor(ctx: AppContext, userId: string): Redactor {
   }
 }
 
+export const MEMORY_SCAN_KEY = 'memory.storedKeyScan'
+export const MEMORY_SCAN_VERSION = 1
+
+/**
+ * Once, at server start (QA TC-2981): memories the AI saved before the remember tool hid stored keys
+ * (created_turn_id set) get HIDDEN in place of each of their person's stored connection secrets. Memories the person
+ * typed in Settings › Memory stay as typed. A secret that cannot be read now is not looked for. Returns the number of
+ * memories changed.
+ */
+export function hideKeysInStoredMemories(ctx: AppContext): number {
+  const db = ctx.db
+  const done = db.query('SELECT value FROM settings WHERE key = ?').get(MEMORY_SCAN_KEY) as { value: string } | null
+  if (done && Number(JSON.parse(done.value)) >= MEMORY_SCAN_VERSION) return 0
+  let n = 0
+  const users = db.query('SELECT DISTINCT user_id FROM memories WHERE created_turn_id IS NOT NULL').all() as { user_id: string }[]
+  // the secrets are read before the write transaction (decrypting may log, and must not hold the database)
+  const hiders = users.map((u) => ({ userId: u.user_id, r: redactorFor(ctx, u.user_id) })).filter((x) => x.r.re)
+  db.transaction(() => {
+    for (const { userId, r } of hiders) {
+      for (const m of db.query('SELECT id, text FROM memories WHERE user_id = ? AND created_turn_id IS NOT NULL').all(userId) as { id: string; text: string }[]) {
+        const text = r.hide(m.text)
+        if (text === m.text) continue
+        db.query('UPDATE memories SET text = ? WHERE id = ?').run(text, m.id)
+        n++
+      }
+    }
+    db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(MEMORY_SCAN_KEY, JSON.stringify(MEMORY_SCAN_VERSION))
+  })()
+  return n
+}
+
 /** How many characters at the end of `text` could be the start of one of the values (to wait for the next piece). */
 export function carryLength(text: string, values: readonly string[]): number {
   let best = 0
