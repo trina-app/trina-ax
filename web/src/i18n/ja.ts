@@ -3752,7 +3752,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.usesField": "参加できる人数",
   "teamLink.usesHint": "空欄なら{n}人",
   "teamLink.usesRule": "1〜{max}の数字を入力してください。",
-  "teamLink.skillField": "一緒に使うスキル（任意）",
+  "teamLink.skillField": "スキル（任意）",
   "teamLink.skillHint": "招待メッセージで紹介されます。",
   "teamLink.noSkill": "なし",
   "teamLink.noSeats": "空き席がありません。使っていないアカウントを無効にするか、プランを変更してください。",

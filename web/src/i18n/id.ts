@@ -3796,7 +3796,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.usesField": "Berapa orang yang bisa bergabung",
   "teamLink.usesHint": "Kosongkan untuk {n}",
   "teamLink.usesRule": "Masukkan angka 1 sampai {max}.",
-  "teamLink.skillField": "Skill yang dicoba bersama (opsional)",
+  "teamLink.skillField": "Skill (opsional)",
   "teamLink.skillHint": "Disebut di pesan undangan.",
   "teamLink.noSkill": "Tidak ada",
   "teamLink.noSeats": "Tidak ada kursi tersisa. Matikan akun yang tidak dipakai lagi, atau ubah paket.",

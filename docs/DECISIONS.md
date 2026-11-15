@@ -28441,6 +28441,7 @@ no recommended-skill line for members, the message names the skill; the message 
   sheet) "Later" skips at once, no dialog over the sheet.
 - **Lines that named a landing**: `teamLink.landing` → "The message names '{skill}'" (with Change among the shared
   skills); the Admin link form's `teamLink.skillHint` → "Named in the invite message." (the skill no longer opens by
-  itself after joining: lane D, member lands on Home).
+  itself after joining: lane D, member lands on Home); its label `teamLink.skillField` "Skill to try together
+  (optional)" → "Skill (optional)".
 - Removed: `teamLink.msg.tryAny` (6 languages), the link box + QR from the invite step's first view.
 - Version impact: **patch**.

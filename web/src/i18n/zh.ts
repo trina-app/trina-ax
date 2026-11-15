@@ -3742,7 +3742,7 @@ export const zh: Record<MessageKey, string> = {
   "teamLink.usesField": "可加入人数",
   "teamLink.usesHint": "留空则为{n}",
   "teamLink.usesRule": "请输入 1 到{max}之间的数字。",
-  "teamLink.skillField": "一起试用的技能（可选）",
+  "teamLink.skillField": "技能（可选）",
   "teamLink.skillHint": "会写在邀请消息里。",
   "teamLink.noSkill": "无",
   "teamLink.noSeats": "没有剩余席位。请停用不再使用的账号，或更改套餐。",

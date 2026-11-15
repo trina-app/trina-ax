@@ -3796,7 +3796,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.usesField": "How many people can join",
   "teamLink.usesHint": "Leave empty for {n}",
   "teamLink.usesRule": "Enter a number from 1 to {max}.",
-  "teamLink.skillField": "Skill to try together (optional)",
+  "teamLink.skillField": "Skill (optional)",
   "teamLink.skillHint": "Named in the invite message.",
   "teamLink.noSkill": "None",
   "teamLink.noSeats": "No seats left. Turn off an account that is no longer used, or change the plan.",

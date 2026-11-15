@@ -3795,7 +3795,7 @@ export const ko = {
   "teamLink.usesField": "들어올 수 있는 인원",
   "teamLink.usesHint": "비워 두면 {n}명",
   "teamLink.usesRule": "1~{max} 사이 숫자로 적어 주세요.",
-  "teamLink.skillField": "함께 쓸 스킬 (선택)",
+  "teamLink.skillField": "스킬 (선택)",
   "teamLink.skillHint": "초대 메시지에 이 스킬 이름이 들어가요.",
   "teamLink.noSkill": "없음",
   "teamLink.noSeats": "남은 자리가 없어요. 쓰지 않는 계정을 끄거나 요금제를 바꿔 주세요.",

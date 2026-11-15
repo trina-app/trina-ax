@@ -3752,7 +3752,7 @@ export const es: Record<MessageKey, string> = {
   "teamLink.usesField": "Cuántas personas pueden unirse",
   "teamLink.usesHint": "Vacío: {n}",
   "teamLink.usesRule": "Escriba un número del 1 al {max}.",
-  "teamLink.skillField": "Habilidad para probar juntos (opcional)",
+  "teamLink.skillField": "Habilidad (opcional)",
   "teamLink.skillHint": "Se menciona en el mensaje de invitación.",
   "teamLink.noSkill": "Ninguna",
   "teamLink.noSeats": "No quedan plazas. Desactive una cuenta que ya no se use o cambie de plan.",
