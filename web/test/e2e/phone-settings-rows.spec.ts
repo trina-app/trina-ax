@@ -286,7 +286,7 @@ test.describe('TC-262: the phone app does not offer what only works on a compute
     await expect(page.getByTestId('integration-on-computer')).toHaveCount(0)
   })
 
-  test('2. Me › Use in other AI apps — connected apps only, plus "set up on a computer"', async ({ page }) => {
+  test('2. Me › Trina AX MCP — connected apps only, plus "set up on a computer"', async ({ page }) => {
     await me(page, 'settings-row-ai-apps')
     await expect(page.getByTestId('ai-apps-on-computer')).toHaveText(t['aiApps.onComputer'])
     await expect(page.getByTestId('ai-app-list')).toHaveCount(0)
