@@ -5,6 +5,7 @@
 // The office server recognizes the installers by <artifactBase>-Setup-<v>-x64.exe / <artifactBase>-<v>-mac-*.dmg
 // (server/src/office/desktop.ts), built from the same PRODUCT.
 import { PRODUCT } from '../shared/src/product'
+import { winSignOptions } from './scripts/win-sign'
 
 const A = PRODUCT.artifactBase
 
@@ -58,6 +59,10 @@ export default {
     target: [{ target: 'nsis', arch: ['x64'] }],
     signAndEditExecutable: true,
     artifactName: `${A}-\${version}-win-\${arch}.\${ext}`,
+    // Authenticode signing with Microsoft Artifact Signing, only when the release job sets MYCEL_WIN_SIGN_*
+    // (scripts/win-sign.ts, docs/RELEASE-CI.md 11장); otherwise unsigned as before. No publisherName: electron-updater
+    // keeps asking for no Windows signature (updates are checked against the Ed25519-signed release instead).
+    ...winSignOptions(),
   },
   nsis: {
     oneClick: true,

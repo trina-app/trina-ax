@@ -19,7 +19,7 @@ still pending Apple signing and notarization. Later feature and test records are
 | Production install (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf, Claude chats on the owner's `claude setup-token` token | **Not verified on a real install.** Done in code and tests (as the current user), but never run as the real role accounts and no Anthropic answer through the proxy has been seen; run the role-account test first (2.0) |
 | Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, an open owner task) |
 | Public team address `<team>.trina.app` | Not available: the production relay is not running |
-| Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
+| Signed and notarized apps (Mac, menubar, Windows) | Not available yet: apps are unsigned, so the OS warns on first launch. The release workflow can sign the Windows installer with Microsoft Artifact Signing; it turns on once the company's identity validation is finished ([RELEASE-CI.md](RELEASE-CI.md) 11) |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |
 | Phones | Production office address only; not tested |
@@ -643,8 +643,10 @@ connection" with the count. A server with no team address (office network only) 
 cd desktop && bun run dist:win
 ```
 
-This writes `desktop/release/Trina-AX-Setup-<version>-win-x64.exe`; it builds on a Mac. It is unsigned, so SmartScreen
-warns: click **More info → Run anyway**. The same address rules apply.
+This writes `desktop/release/Trina-AX-Setup-<version>-win-x64.exe`; it builds on a Mac. A local build is unsigned, so
+SmartScreen warns: click **More info → Run anyway**. The same address rules apply. Release installers are signed in CI
+with Microsoft Artifact Signing once it is set up ([RELEASE-CI.md](RELEASE-CI.md) 11): Windows then shows the company as
+the publisher, and SmartScreen stops warning once the release has enough downloads.
 
 **Offer the apps in the product.** Put the installers and an `index.json` in `<data>/downloads/`. Members then see
 them under **Settings → Apps → Desktop app** (signed-in people only: `/downloads/*` needs a session, with Range for
