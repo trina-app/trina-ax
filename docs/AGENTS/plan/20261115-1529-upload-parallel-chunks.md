@@ -21,13 +21,13 @@ instead, apart from "Uploading", and say clearly when the minute ran out.
 
 In:
 - `upload.ts`: up to 3 chunks of one file at a time (a small scheduler, unit tested), still in the page's one line of
-  uploads; that line goes from 3 to 4 requests at once for the whole page (6 at most with stalled ones). Ascending chunk order, a retry per chunk, a
+  uploads; that line goes from 3 to 4 requests at once for the page (6 at most with stalled ones). Ascending order, a retry per chunk, a
   failed chunk stops the file (the others are stopped too), resume from what the server has, complete after all.
 - Progress counts each chunk on its way.
 - Desktop read: before it reads, the app checks whether the file is in the cloud only (a Mac's SF_DATALESS; on
   Windows the index's attributes, or a slow read in a cloud folder) and tells the page which provider. The bridge's
   `read(id, { onCloud })` gets that; an older app never calls it. The 60 s limit stays; when it runs out on a cloud file
-  the reason is `cloudTimeout` with the provider, which the page says plainly and lets the person try again.
+  the reason is `cloudTimeout` with the provider, which the page says plainly (open it once, then add it again).
 - Copy in en first, then ko, ja, zh, es, id.
 
 Out: the server's chunk gate (3 chunks at once per server, unchanged), the find-work-files ranking and its dialog's
