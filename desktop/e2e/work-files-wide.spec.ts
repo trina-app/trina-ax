@@ -89,9 +89,10 @@ test('the wide look: places, recent files in home, never app data; fast on thous
     // a page that does not ask for the wide look gets the three folders only
     expect(out.narrow).toEqual(['desktop', 'documents', 'downloads'])
     // the dialog lists every place before anything is looked at
-    expect(asked[1].buttons[0]).toBe('Look through these places')
-    for (const p of ['KakaoTalk downloads', 'Acme', 'Projects', 'OneDrive – Acme', 'Files you opened lately, anywhere in your home folder']) expect(asked[1].detail).toContain(p)
-    expect(asked[1].detail).toContain('Mail, Messages, Photos, Safari')
+    expect(asked[1].yes).toBe('Find work files')
+    const names = asked[1].places.map((p: { name: string; note?: string }) => (p.note ? `${p.name} (${p.note})` : p.name))
+    for (const p of ['KakaoTalk downloads', 'Acme', 'Projects', 'OneDrive – Acme', 'Recently opened files (anywhere in your home folder)']) expect(names).toContain(p)
+    expect(asked[1].fine).toContain('Mail, Messages, Photos, Safari')
     expect(out.roots).toEqual(expect.arrayContaining(['messenger:KakaoTalk:ok', 'folder:Acme:ok', 'folder:Projects:ok', 'cloud:OneDrive – Acme:ok', 'documents::ok', 'desktop::ok', 'downloads::ok']))
     expect(out.names).toEqual(expect.arrayContaining(['messenger:KakaoTalk:Acme 견적서.pdf', 'folder:Acme:Proposal.pptx', 'folder:Projects:Roadmap.xlsx', 'home::Notes/Ideas.md']))
     // never listed: Pictures, app data, another provider, a hidden folder (an old file of a walked place is listed, for

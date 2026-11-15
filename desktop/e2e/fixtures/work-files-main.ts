@@ -1,15 +1,16 @@
 // "Find work files on this computer" in the real Electron (src/main/work-files.ts, docs/DECISIONS.md "Find work files on
-// this computer"), with a hidden window and no person. The app's own dialog is a system window no test can answer, so
-// dialog.showMessageBox is replaced here by one that records the question and answers as the test says. The look and the
+// this computer"), with a hidden window and no person. The app's own consent window (main/work-consent-window.ts, tested
+// on its own in work-consent.spec.ts) is replaced here by one that records what it would show and answers as the test says. The look and the
 // reads then run on node:fs for real: lstat, links, realpath, O_NOFOLLOW. Everything happens in a made-up home folder
 // that work-files.spec.ts creates in a temporary folder (HOME and every app.getPath used point into it); this file refuses
 // to run against the computer's real home. Never point it there. Run WITHOUT Playwright: work-files.spec.ts builds and
 // starts this file.
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { realpathSync, renameSync, symlinkSync, utimesSync, writeFileSync, statSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { WorkFilesController } from '../../src/main/work-files'
+import type { ConsentView } from '../../src/common/work-consent'
 
 const home = process.env.FOLDER_TEST_HOME ?? ''
 const within = (dir: string, path: string) => {
@@ -39,15 +40,15 @@ void (async () => {
   for (const name of ['home', 'appData', 'desktop', 'documents', 'downloads'] as const) {
     if (!within(home, app.getPath(name))) throw new Error(`${name} is outside the made-up home`)
   }
-  const asked: { message: string; detail: string; buttons: string[] }[] = []
-  let answer = 1
-  ;(dialog as unknown as { showMessageBox: unknown }).showMessageBox = async (_w: unknown, o: { message: string; detail: string; buttons: string[] }) => {
-    asked.push({ message: o.message, detail: o.detail, buttons: o.buttons })
-    return { response: answer, checkboxChecked: false }
+  const asked: ConsentView[] = []
+  let answer = false
+  const consent = (_w: unknown, view: ConsentView) => {
+    asked.push(view)
+    return { result: Promise.resolve(answer), close: () => {} }
   }
   const win = new BrowserWindow({ show: false, width: 400, height: 300 })
   const progress: unknown[] = []
-  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p) })
+  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p), consent })
   ctl.person({ signedIn: true, userId: 'u-alex' })
   const out: Record<string, unknown> = {}
 
@@ -55,7 +56,7 @@ void (async () => {
   out.cancelled = await ctl.scan(TEAM)
   out.again = await ctl.scan(TEAM)
   await new Promise((r) => setTimeout(r, 3100))
-  answer = 0
+  answer = true
   const r = await ctl.scan(TEAM)
   if (r.state !== 'done') throw new Error(`no look: ${r.state}`)
   out.roots = r.roots.map((x) => ({ id: x.id, state: x.state, cut: x.cut }))

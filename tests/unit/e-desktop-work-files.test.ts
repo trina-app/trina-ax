@@ -401,9 +401,7 @@ describe('the wiring', () => {
     expect(preload).toContain("ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {})")
     expect(main).toContain('win!.workFiles.scan(e.senderFrame.origin, scanAsk(ask))')
   })
-  test('the look waits for the app\'s own dialog (Cancel is its default); the Mac App Store build and Linux have none', () => {
-    expect(ctl).toContain('dialog.showMessageBox(win')
-    expect(ctl).toMatch(/defaultId: 1,\s*cancelId: 1,/)
+  test('the look waits for the app\'s own consent window (e-desktop-work-consent.test.ts); the Mac App Store build and Linux have none', () => {
     expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await this.look(roots'))
     expect(ctl).toContain("if (p.platform === 'darwin' && p.mas !== true) return WORK_FILES_BRIDGE_VERSION")
     expect(ctl).not.toContain("'linux'")
