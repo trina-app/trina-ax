@@ -621,3 +621,23 @@ describe('after the third review', () => {
     } finally { await t.h.close() }
   })
 })
+
+describe('nothing is ended unless asked (QA TC-3095)', () => {
+  test('a transfer without `end` keeps every connection made with the owner\'s own accounts', async () => {
+    const t = await team('handover-keep-default')
+    try {
+      const db = t.h.ctx.db
+      const now = new Date().toISOString()
+      db.query("INSERT INTO engine_credentials (id, kind, label, owner_user_id, secret_enc, key_version, fingerprint, meta, created_by, created_at, updated_at) VALUES ('cred-mine', 'anthropic-oauth', 'Claude', NULL, 'x', 1, 'fp', '{}', 'olga', ?, ?)").run(now, now)
+      db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_ai', 'cred-mine', 'olga', ?)").run(now)
+      expect((await t.owner.call('GET', '/api/admin/handover')).connections.map((c: any) => c.id)).toEqual(['cred-mine'])
+      const m = await addMember(t.h, t.owner, { username: 'mina' })
+      const r = await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: m.id, password: OWNER_PW })
+      expect(r.ended).toEqual([])
+      expect(owners(t.h)).toEqual([m.id])
+      expect(db.query("SELECT id FROM engine_credentials").all()).toEqual([{ id: 'cred-mine' }])
+      expect(JSON.parse((db.query('SELECT to_end FROM owner_transfers').get() as { to_end: string }).to_end)).toEqual([])
+      expect(audits(t.h, 'owner.transfer.disconnect')).toEqual([])
+    } finally { await t.h.close() }
+  })
+})
