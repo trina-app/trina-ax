@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 14:21
 - Branch: `feat/old-files-key-scan`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections (the scan), server/src/notifications, web Activity. Why: a server
   start-up pass and an Inbox notice (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security follow-up (one notice, one additive migration, no API removed)
@@ -52,4 +52,6 @@ web unit for the Activity row, `bun run test:web`, `bun run build:web`.
 
 ## Result
 
-Filled in at the end.
+Built as planned: file-scan.ts (once after start, bounded, done only when every key was read), migration 354, the
+`files.stored_key` notice with its files under the row (on a computer it opens beside the list), six languages,
+screenshots spec `web/test/e2e/shots-key-files-notice.spec.ts`. Not the team owner: open question in the PR.
