@@ -28410,6 +28410,10 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   bar has no ‹ of its own (one back). A failed AI check (read as "usable" so nothing warns) does not offer "Continue
   setup". Owner only; nothing once the steps are finished. The engines line goes straight to /admin/providers (the
   /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Only an answered AI read counts.** A failed read (offline, 5xx) leaves `usable` true so nothing warns; it never
+  shows "Continue setup" (`aiAccess.answered`) and never records the AI step done (Welcome.tsx on arrival and when AI
+  comes back). A phone's engine row in Admin › AI accounts carries the state on to /admin/providers/<id>, so the way
+  back stays there too.
 - **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
   drops the control (the setup row is the way back from there).
 - Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
