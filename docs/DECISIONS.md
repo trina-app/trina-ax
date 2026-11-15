@@ -16214,9 +16214,8 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
 - **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
   (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
-  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
-  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
-  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  own), under ONE primary that names what goes in: one skill by its name ("카드뉴스 넣기"), two or more counted ("스킬 3개
+  넣기", "Add 3 skills"; names run together as "A·B·C" read as one word, QA TC-2654, 2026-11-15). Pre-checks without AI: the visual three when a profile is saved,
   never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
   then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
   it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only
@@ -28487,3 +28486,79 @@ no recommended-skill line for members, the message names the skill; the message 
 - Removed: the suggested-first-task line and the made-skill sentence (`teamLink.msg.tryAny`, `teamLink.messageMade`, 6
   languages), the link box + QR from the invite step's first view.
 - Version impact: **patch**.
+
+## Find work files on this computer, part 1: the desktop app looks, the page never names a path (feat/find-work-files, 2026-11-15)
+
+Plan: `docs/AGENTS/plan/20261115-0330-find-work-files.md` (owner-approved after an independent review; slice 1). The desktop
+app (Windows and the direct-download Mac app) offers to look through Documents, Desktop and Downloads for work files.
+This part is the app side: the bridge call, the look, the reads afterwards and the macOS strings. The screens come in
+part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/src/main/work-files.ts`,
+`shared/src/desktop-bridge.ts` `workFiles`, `shared/src/file-scan.ts`).
+
+- **One call, the app's own dialog first (review MUST: bridge security).** `workFiles.scan()` takes no argument. The main
+  process shows `dialog.showMessageBox` (no web page draws or answers it): what is looked at (the three folders, "(OneDrive)"
+  on Windows when Known Folder Move put one there), that names, types and dates are read, that the file names may go to the
+  team's AI, that contents stay on the computer until the person adds them, that nothing is moved or changed, and on a Mac
+  that macOS asks next for each folder. Cancel is the default button: Enter, Escape and closing answer no, so a page that
+  asks while the person is typing gets no yes from their next Enter (as the allow-all dialog; review). After the dialog
+  (yes or no) it is not shown again for 3 s (`busy`), and only one dialog or look runs at a time. A page script on the team
+  origin can ask, but nothing is read without the person's click in the app's window.
+- **The look runs in the main process** (`scanRoots`), so macOS's privacy question names the app, and one folder after the
+  other (Documents, then Desktop, then Downloads: the first read of each raises its question, which the read waits for).
+  It reads entries with `opendir` (entry by entry, so a folder of millions stops at the entry limit) and `lstat` only: a
+  symbolic link or junction is never entered or listed. Each call gets the time left for the folder (at least 1 s), so a
+  network folder or an offline share that never answers ends that folder's look (`cut`) instead of the whole look (the
+  documents' lstat too, batch by batch, which also stops at Stop); a
+  folder's first read may wait 2 minutes for macOS's question, then it is `unreadable`.
+  Windows marks every reparse point as a link in a listing (OneDrive's online-only files too), so there `lstat` decides
+  (libuv's lstat reports only real links and junctions as links). The same rules as the page's own walk
+  (`shared/src/file-scan.ts`, now shared: `isSystemName` moved there and `@mycel/shared/api` re-exports it): never dot
+  entries, `~$` lock files, system names, node_modules, .git, Library, AppData, app bundles; documents by type; png/jpg
+  only in a brand or logo folder, never a screenshot. Each folder: 5,000 documents, 50,000 entries, 6 folders down, 15 s
+  of walking; all three: 30 s. The time macOS's question takes is not counted. Over 50 MB: counted, not listed. A file
+  reached twice (a folder inside another, a hard link) is listed once; a root that is the same folder as one before is
+  `same`, and a root that holds one looked at before skips it; the home folder or one holding it (`opensHome`, the folder
+  window's rule) is never looked at (`home`; a Windows network path `\\server\share` counts as that too). EPERM on
+  a Mac is `blocked` (Don't Allow, or the app off in Files & Folders), with no way to ask again from the app.
+- **What the page gets:** per folder its state, `cut`, the count over 50 MB and the entries looked at; per file an opaque
+  id (12 random bytes), the folder (`documents|desktop|downloads`), the folders inside it, the name, type, size and date.
+  Never a path of the computer (pinned in the e2e).
+- **Reads by id only** (`WorkFileSessions`). The latest look of each team origin is kept for the person signed in: an id of
+  an older look, of another origin, made up or a path is `unknown`. For an hour (`expired` after), at most 100 files and
+  1 GB per look (`limit`; the same file read again counts once, and reads in all stop at 300). The count is taken before
+  a read starts and given back when it fails, and reads run one at a time, so reads sent at once can neither pass the
+  limits nor hold more than one file (50 MB) in memory (review MUST: they could). A read that gets no answer in 60 s (a
+  drive that stopped answering) is `unreadable`, so the reads behind it go on. A read finds the file again under the
+  real path of its folder, checks that its real path is that same path (a folder on the way swapped for a link is
+  refused), lstats it, opens it with O_NOFOLLOW, and checks the open file's identity, size and date against the look
+  (`changed`). Windows has no O_NOFOLLOW, so there the identity (device and file number) is what tells a link's target
+  apart: a drive that gives no identity (0: FAT, some network drives) is refused on Windows; on macOS such a drive is
+  checked by size and date. A sign-out, another person, another team or the window closing forget the look; a look still
+  running then gives nothing. Sessions are kept per origin: after the app switches between the office address and the
+  team address, the page looks again.
+- **Contents leave only when the person adds files.** The app hands out bytes for any listed id; that the page reads a
+  file only when the person presses Add (never to show or rank the list) is part 2's rule, checked in its review.
+- **Older apps and store builds (review MUST: bridge version).** `bridge:info` carries `workFiles`, the version
+  (`WORK_FILES_BRIDGE_VERSION`, 1) or 0. The preload exposes `workFiles` only then; the page offers the entry only when the
+  version matches, so desktop apps before this, the Mac App Store build (its sandbox reads only what the person picks:
+  it keeps "choose a folder") and Linux show nothing new. The Microsoft Store build is a full-trust app and gets it.
+- **macOS strings (review MUST: true copy).** NSDocumentsFolderUsageDescription, NSDesktopFolderUsageDescription and
+  NSDownloadsFolderUsageDescription in 6 languages: "Looks for work files here. File contents stay on this Mac until you
+  choose to add them." It promises nothing about names, which may go to the team's AI. The old line ("Reads only the
+  folders you pick") was untrue once the app looks by itself. The Mac App Store build reads the same strings and stays
+  true. `openSettings()` opens System Settings › Privacy & Security › Files & Folders (a fixed address; macOS only).
+- **Not here:** the screens and the server route (part 2), the Mac guide (part 3), cloud folders (~/Library/CloudStorage,
+  which macOS guards with a question of its own), a "look again" that keeps state. TCC answers are bound to the code
+  signature: an unsigned build may be asked again after an update (Developer ID signing is its own branch).
+- Tests: `tests/unit/e-desktop-work-files.test.ts` (made-up file system: what is listed, the order of the folders, links
+  and junctions, OneDrive's online-only files, EPERM, every folder denied, home and the same folder, each limit and the
+  time, a folder that never answers, a root holding an earlier one, a file reached twice, Stop; reads: foreign ids,
+  another origin, a new look, an hour, 100 files and 1 GB, reads sent at once (the limits hold, one at a time), a failed
+  read gives its place back, no identity on Windows, a folder or file swapped for a link, another size or date, ELOOP at
+  open, another person; the wiring, Cancel as the dialog's default);
+  `desktop/e2e/work-files.spec.ts` (real Electron in a made-up home, `FOLDER_TEST_HOME` guard as folder-window: the dialog
+  first, cancel and the 3 s quiet, the home folder as Desktop never looked at, a big Downloads cut at 5,000, links not
+  listed, no path in the answer, foreign ids and another origin refused, a folder and a file swapped for links refused, the
+  made-up secret never read). Run with `bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`; CI does not run
+  the desktop e2e.
+- Version impact: **minor** (a new desktop bridge call; nothing uses it until part 2).

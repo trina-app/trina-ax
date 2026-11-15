@@ -159,6 +159,9 @@ export const InviteInfo = z.object({
   /** true while every seat of the plan is taken: accepting is refused until a seat is free (the page says so instead
    * of the form). Absent from an older server */
   full: z.boolean().optional(),
+  /** true for the owner's "this person is the team lead" link (a member now; the owner offers them the team after they join).
+   * Only the fact, nothing about who it is for. Absent from an older server and from any other link */
+  lead: z.boolean().optional(),
   /** a guest invite: the one place the guest joins, by kind and name */
   guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string() }).optional(),
   /** a guest invite: who the link is for, as the inviter typed it (the form's Name starts with it); absent without one */

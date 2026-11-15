@@ -6,6 +6,7 @@
 // only for someone who signed in and changed their temporary password; a race says the owner changed already.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 import { activityRows, openNotice } from './nav'
@@ -22,6 +23,23 @@ async function audit(page: Page, where: string) {
 const menuOf = async (page: Page, name: string) => {
   await page.getByTestId('members-table').getByRole('row').filter({ hasText: name }).getByTestId('member-more').click()
 }
+
+test('the owner-link form shows the team group ticked (the person joins it), and no other group', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the team's own group, made by the welcome steps: a lead link puts the person in it
+  expect((await page.request.post('/api/onboarding/welcome/team', { headers: { [CSRF_HEADER]: '1' }, data: {} })).ok()).toBe(true)
+  await page.goto('/admin/members')
+  await page.getByTestId('invite-new').click()
+  const form = page.getByRole('dialog')
+  const groups = form.getByTestId('invite-settings')
+  await expect(groups.getByRole('checkbox', { name: '재무팀' })).not.toBeChecked()
+  await form.getByTestId('lead-flag-check').check()
+  await expect(groups.getByRole('checkbox', { name: 'Acme' })).toBeChecked()
+  await expect(groups.getByRole('checkbox', { name: '재무팀' })).not.toBeChecked()
+  await form.getByTestId('lead-flag-check').uncheck()
+  await expect(groups.getByRole('checkbox', { name: 'Acme' })).not.toBeChecked()
+})
 
 test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand over from the Inbox, the new owner is told', async ({ page, browser }) => {
   await reset(page)
@@ -55,6 +73,7 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   const other = await browser.newContext({ locale: 'ko-KR' })
   const p2 = await other.newPage()
   await p2.goto(url)
+  await expect(p2.getByTestId('auth-frame')).toContainText(ko('invite.subLead', { role: ko('role.member'), date: '' }).split('.')[1]!.trim())
   await p2.getByTestId('invite-name').fill('박민준')
   await p2.getByTestId('invite-username').fill('minjun')
   await p2.getByTestId('invite-password').fill('another password 1')

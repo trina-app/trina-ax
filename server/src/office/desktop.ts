@@ -37,6 +37,18 @@ export const FOUND_PATTERNS: [RegExp, DesktopPlatform][] = [
   [new RegExp(`^${BASE}-Setup-.+-x64\\.exe$`, 'i'), 'windows'],
   [new RegExp(`^${BASE}-.+-mac.*\\.dmg$`, 'i'), 'mac'],
 ]
+/** the update file name a Mac app downloads: <artifactBase>-<version>-mac-<arch>.zip (electron-builder's name) */
+export const MAC_ZIP_RE = new RegExp(`^${BASE}-\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z.]{1,40})?-mac-(?:universal|arm64|x64)\\.zip$`)
+
+/** what `dir`'s latest-mac.yml offers (version and zip), or null when there is none */
+export function macOfferedIn(dir: string): { version: string; zip: string } | null {
+  let text: string
+  try { text = fs.readFileSync(path.join(dir, 'latest-mac.yml'), 'utf8') } catch { return null }
+  const val = (k: string) => new RegExp(`^${k}:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
+  const v = val('version'), z = val('path')
+  return v && z && VERSION.test(v) && MAC_ZIP_RE.test(z) ? { version: v, zip: z } : null
+}
+
 /** the list of installers a bundle built with --with-desktop carries (sha256 and name per line, like shasum -a 256) */
 export const MANIFEST = 'desktop.sha256'
 

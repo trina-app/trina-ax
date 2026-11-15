@@ -431,7 +431,7 @@ function Progress({ progress, step, aiReady, computer }: { progress: WelcomeProg
           return (
             <li key={s} className="min-w-0" aria-current={i === at ? 'step' : undefined} data-progress-step={s}>
               <span aria-hidden className={clsx('block h-1.5 rounded-full', i <= at ? 'bg-accent' : 'bg-hover')} />
-              <span className={clsx('mt-1.5 block truncate text-xs max-sm:sr-only', i === at ? 'font-medium text-ink' : 'text-faint')}>
+              <span className={clsx('mt-1.5 block break-words text-xs max-sm:sr-only', i === at ? 'font-medium text-ink' : 'text-faint')}>
                 {t('welcome.progress.item', { n: i + 1, total: counted.length, label: t(STEP_LABEL[s]!) })}
                 {state && <span className="sr-only"> · {t(state === 'done' ? 'common.done' : 'welcome.progress.skipped')}</span>}
               </span>
