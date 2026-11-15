@@ -110,8 +110,8 @@ In a project, the project's members can see the chats a guest has there. A guest
 ## One group chat and one project
 
 A guest can be in one group chat and one project at the same time, never more. An invite opens one place. To bring a
-guest into their second place, add them like anyone else: from the group chat's **Invite**, or the project's
-**Members**. Trina won't let you add a guest to a second group chat or a second project. In an add list, a guest who
+guest into their second place, add them like anyone else: from the group chat's **Invite**, or **Share** at
+the top of the project's page. Trina won't let you add a guest to a second group chat or a second project. In an add list, a guest who
 is already in another place of the same kind can't be ticked and shows where they are (only the name of a place you
 are in too).
 

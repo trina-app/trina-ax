@@ -1,15 +1,15 @@
 ---
 title: Tamu
-description: Ajak orang dari luar tim ke satu obrolan grup atau satu proyek, dan tentukan apakah mereka mendapat AI.
+description: Ajak orang dari luar tim ke obrolan grup dan proyek, dan tentukan apakah mereka mendapat AI.
 ---
 
-**Tamu** adalah orang dari luar tim Anda, misalnya klien, mitra, atau pekerja lepas. Tamu bergabung ke tepat satu
-obrolan grup atau satu proyek dan tidak melihat apa pun lainnya di tim: tidak ada obrolan lain, file tim, proyek lain,
+**Tamu** adalah orang dari luar tim Anda, misalnya klien, mitra, atau pekerja lepas. Tamu berada di paling banyak satu
+obrolan grup dan satu proyek, dan tidak melihat apa pun lainnya di tim: tidak ada obrolan lain, file tim, proyek lain,
 atau skill tim. Tamu tidak memakai kursi di paket Anda.
 
 | | Anggota tim | Tamu |
 |---|---|---|
-| **Ke mana mereka bisa pergi** | Semua yang diizinkan grup dan izin folder mereka | Satu obrolan grup atau satu proyek |
+| **Ke mana mereka bisa pergi** | Semua yang diizinkan grup dan izin folder mereka | Paling banyak satu obrolan grup dan satu proyek |
 | **File tim** | Folder yang boleh mereka buka | Hanya file proyek mereka (tidak ada di obrolan grup) |
 | **AI** | Pengaturan AI tim | Tanpa AI, kecuali ada AI yang dipilih untuk mereka |
 | **Kursi** | Memakai satu | Tidak memakai |
@@ -81,7 +81,7 @@ sebelum **Buat tautan**:
 
 Jika tim Anda hanya mengizinkan owner dan admin membagikan proyek, proyek milik anggota sendiri tidak tercantum.
 
-![Invite people dengan Guest terpilih: Someone from outside the team who joins one group chat or project only, lalu obrolan grup dan proyek yang bisa dipilih](../../images/guests/invite-people.webp "Mengundang tamu dari Undang orang")
+![Invite people dengan Guest terpilih: Someone from outside the team who joins a group chat or project, lalu obrolan grup dan proyek yang bisa dipilih](../../images/guests/invite-people.webp "Mengundang tamu dari Undang orang")
 
 ### Dari Admin
 
@@ -91,7 +91,7 @@ yang akan dimasuki tamu: obrolan grup yang Anda ikuti, proyek tim, atau salah sa
 di atas). Lalu isi dialog yang sama seperti di atas: namanya, AI-nya, **Buat tautan**, dan **Salin link**. Jika paket Anda
 tidak punya tempat untuk tamu lagi, dialog menyebutkannya alih-alih mencantumkan tempat.
 
-![Invite to team dengan Guest terpilih: Someone from outside the team who joins one group chat or project only, lalu obrolan grup dan proyek yang bisa dipilih](../../images/guests/admin-invite.webp "Mengundang tamu dari Admin")
+![Invite to team dengan Guest terpilih: Someone from outside the team who joins a group chat or project, lalu obrolan grup dan proyek yang bisa dipilih](../../images/guests/admin-invite.webp "Mengundang tamu dari Admin")
 
 ## Yang dilihat tamu
 
@@ -109,18 +109,27 @@ berisi hal milik mereka sendiri, seperti profil dan notifikasi.
 
 Di sebuah proyek, anggota proyek bisa melihat chat yang dimiliki tamu di sana. Tamu yang bisa memakai AI diberi tahu hal ini di halaman proyek.
 
-## Hanya satu tempat
+## Satu obrolan grup dan satu proyek
 
-Tamu bisa berada di satu obrolan grup atau satu proyek, tidak pernah lebih. Trina tidak mengizinkan Anda menambahkan tamu
-ke tempat kedua. Di daftar tambah, tamu yang sudah berada di tempat lain menunjukkan di mana mereka berada, dan Anda tidak
-bisa mencentangnya.
+Tamu bisa berada di satu obrolan grup dan satu proyek sekaligus, tidak pernah lebih. Satu undangan membuka satu tempat.
+Untuk membawa tamu ke tempat keduanya, tambahkan mereka seperti orang lain: dari **Undang orang** di obrolan grup, atau
+dari **Anggota** di proyek. Trina tidak mengizinkan Anda menambahkan tamu ke obrolan grup kedua atau proyek kedua. Di
+daftar tambah, tamu yang sudah berada di tempat lain yang sejenis tidak bisa dicentang dan menunjukkan di mana mereka
+berada (hanya nama tempat yang juga Anda ikuti).
 
-![Obrolan baru dengan seorang tamu dan seorang anggota tim terpilih: A guest can be in one room or project only, dan tombolnya nonaktif](../../images/guests/one-place.webp "Tamu tidak bisa masuk ke tempat kedua")
+Tamu yang berada di keduanya melihat orang-orang di keduanya: mereka bisa mengirim pesan kepada siapa pun di obrolan grup
+atau proyek mereka, dan tidak kepada orang lain. Kedua pihak melihat tamu itu; orang yang hanya berada di obrolan grup
+tidak melihat nama proyeknya, begitu pula sebaliknya.
 
-Jika orang itu memerlukan lebih dari satu tempat, owner atau admin bisa memilih **Jadikan anggota tim** (lihat di bawah).
+![Obrolan baru dengan seorang tamu yang sudah berada di obrolan grup dan seorang anggota tim terpilih: tamu itu tidak bisa ditambahkan ke obrolan grup kedua, dan tombolnya nonaktif](../../images/guests/one-place.webp "Tamu tidak bisa masuk ke tempat kedua")
 
-Jika tamu keluar, dikeluarkan, atau obrolan atau proyeknya ditutup, mereka tidak bisa masuk lagi, sama seperti saat
-mereka dikeluarkan. Memindahkan proyek yang memiliki tamu ke tempat sampah akan memberitahukan hal ini sebelum Anda mengonfirmasi. Jika proyek mereka dikembalikan dari tempat sampah, mereka bisa masuk lagi dengan sendirinya, kecuali owner atau
+Jika orang itu memerlukan lebih dari satu obrolan grup atau proyek, owner atau admin bisa memilih **Jadikan anggota tim**
+(lihat di bawah).
+
+Jika tamu keluar, dikeluarkan, atau obrolan atau proyeknya ditutup, mereka keluar dari tempat itu. Mereka masih bisa
+masuk selama masih berada di tempat lainnya. Jika sudah keluar dari semua tempat, mereka tidak bisa masuk lagi, sama
+seperti saat mereka dikeluarkan. Proyek di tempat sampah tetap milik mereka: selama di sana, mereka tidak bisa bergabung
+ke proyek lain. Memindahkan proyek yang memiliki tamu ke tempat sampah akan memberitahukan hal ini sebelum Anda mengonfirmasi. Jika proyek mereka dikembalikan dari tempat sampah, mereka bisa masuk lagi dengan sendirinya, kecuali owner atau
 admin sempat mengaktifkan atau menonaktifkan mereka di antara waktu itu. Mengganti nama obrolan atau proyek tidak mengubah apa pun bagi mereka.
 
 ## AI tamu

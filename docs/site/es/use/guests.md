@@ -1,15 +1,15 @@
 ---
 title: Invitados
-description: Traiga a alguien de fuera del equipo a un chat de grupo o a un proyecto, y decida si tiene IA.
+description: Traiga a alguien de fuera del equipo a un chat de grupo y a un proyecto, y decida si tiene IA.
 ---
 
 Un **invitado** es alguien de fuera de su equipo, como un cliente, un socio o un profesional independiente. Un invitado
-entra exactamente en un chat de grupo o en un proyecto y no ve nada más del equipo: ni otros chats, ni archivos del
+está como máximo en un chat de grupo y en un proyecto, y no ve nada más del equipo: ni otros chats, ni archivos del
 equipo, ni otros proyectos, ni habilidades del equipo. No ocupa una plaza de su plan.
 
 | | Un miembro del equipo | Un invitado |
 |---|---|---|
-| **Adónde puede ir** | Todo lo que permiten sus grupos y sus permisos de carpetas | Un chat de grupo o un proyecto |
+| **Adónde puede ir** | Todo lo que permiten sus grupos y sus permisos de carpetas | Un chat de grupo y un proyecto, como máximo |
 | **Archivos del equipo** | Las carpetas que puede abrir | Solo los archivos de su proyecto (ninguno en un chat de grupo) |
 | **IA** | Los ajustes de IA del equipo | Sin IA, salvo que se elija una IA para él |
 | **Plaza** | Ocupa una | No ocupa ninguna |
@@ -84,7 +84,7 @@ con **Añadir personas** en la página del proyecto, y el cuadro lo indica en un
 
 Si su equipo solo deja compartir proyectos a los propietarios y administradores, los proyectos propios de un miembro no aparecen.
 
-![Invitar a personas con Invitado elegido: alguien de fuera del equipo que entra solo en un chat de grupo o un proyecto, y después los chats de grupo y proyectos entre los que elegir](../../images/guests/invite-people.webp "Invitar a un invitado desde Invitar a personas")
+![Invitar a personas con Invitado elegido: alguien de fuera del equipo que entra en un chat de grupo o un proyecto, y después los chats de grupo y proyectos entre los que elegir](../../images/guests/invite-people.webp "Invitar a un invitado desde Invitar a personas")
 
 ### Desde Administración
 
@@ -95,7 +95,7 @@ grupo en el que usted está, un proyecto del equipo o uno de sus propios proyect
 Después rellene el mismo cuadro de arriba: su nombre, su IA, **Crear enlace** y **Copiar enlace**. Si su plan no tiene
 sitio para más invitados, el cuadro lo indica en lugar de enumerar lugares.
 
-![Invitar al equipo con Invitado elegido: alguien de fuera del equipo que entra solo en un chat de grupo o un proyecto, y después los chats de grupo y proyectos entre los que elegir](../../images/guests/admin-invite.webp "Invitar a un invitado desde Administración")
+![Invitar al equipo con Invitado elegido: alguien de fuera del equipo que entra en un chat de grupo o un proyecto, y después los chats de grupo y proyectos entre los que elegir](../../images/guests/admin-invite.webp "Invitar a un invitado desde Administración")
 
 ## Lo que ve el invitado
 
@@ -113,17 +113,26 @@ tiene sus propias cosas, como su perfil y sus notificaciones.
 
 En un proyecto, los miembros del proyecto pueden ver los chats que tiene allí un invitado. A un invitado que puede usar IA se le avisa de esto en la página del proyecto.
 
-## Un solo lugar
+## Un chat de grupo y un proyecto
 
-Un invitado puede estar en un chat de grupo o en un proyecto, nunca en más. Trina no le deja añadir a un invitado a un
-segundo lugar. En una lista para añadir, un invitado que ya está en otro sitio muestra dónde está, y no se puede marcar.
+Un invitado puede estar en un chat de grupo y en un proyecto a la vez, nunca en más. Una invitación abre un solo lugar.
+Para llevar a un invitado a su segundo lugar, añádalo como a cualquier otra persona: desde **Invitar personas** en el chat
+de grupo, o desde **Miembros** en el proyecto. Trina no le deja añadir a un invitado a un segundo chat de grupo ni a un
+segundo proyecto. En una lista para añadir, un invitado que ya está en otro lugar del mismo tipo no se puede marcar y
+muestra dónde está (solo el nombre de un lugar en el que usted también está).
 
-![Una conversación nueva con un invitado y un miembro del equipo elegidos: un invitado solo puede estar en una sala o un proyecto, y el botón está desactivado](../../images/guests/one-place.webp "Un invitado no puede unirse a un segundo lugar")
+Un invitado que está en los dos ve a las personas de ambos: puede escribir a cualquiera de su chat de grupo o de su
+proyecto, y a nadie más. Cada lado ve al invitado; quienes solo están en el chat de grupo no ven el nombre del proyecto,
+y al revés.
 
-Si la persona necesita más de un lugar, un propietario o administrador puede elegir **Hacer miembro del equipo** (vea
-abajo).
+![Una conversación nueva con un invitado que ya está en un chat de grupo y un miembro del equipo elegidos: el invitado no se puede añadir a un segundo chat de grupo, y el botón está desactivado](../../images/guests/one-place.webp "Un invitado no puede unirse a un segundo lugar")
 
-Si un invitado sale, lo sacan, o su chat o proyecto se cierra, ya no puede iniciar sesión, igual que cuando se le quita.
+Si la persona necesita más de un chat de grupo o proyecto, un propietario o administrador puede elegir **Hacer miembro
+del equipo** (vea abajo).
+
+Si un invitado sale, lo sacan, o su chat o proyecto se cierra, deja de estar en ese lugar. Puede seguir iniciando sesión
+mientras esté en su otro lugar. Fuera de todos sus lugares, ya no puede iniciar sesión, igual que cuando se le quita. Un
+proyecto en la papelera sigue siendo suyo: mientras esté allí, no puede unirse a otro proyecto.
 Al mover a la papelera un proyecto con invitados, se avisa antes de que confirme. Si su proyecto vuelve de la papelera, puede volver a iniciar sesión por sí mismo, salvo que un propietario o
 administrador lo haya activado o desactivado mientras tanto. Cambiar el nombre del chat o del proyecto no cambia nada para él.
 

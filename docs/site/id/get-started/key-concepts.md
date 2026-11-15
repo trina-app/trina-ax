@@ -12,7 +12,7 @@ Trina AX punya beberapa komponen dasar. Semua halaman lain memakai istilah-istil
 | **Owner** | Semua yang bisa dilakukan admin, ditambah keputusan tingkat tim seperti pembaruan, pemulihan, mengeluarkan anggota, dan nama tim. |
 | **Admin** | Mengelola anggota, grup, izin folder, koneksi AI dan mesin tim, serta pengaturan tim. Admin tidak bisa membaca chat orang lain. |
 | **Anggota** | Chat dengan AI, memakai file dan skill yang boleh mereka buka, serta memiliki folder dan skill pribadi. |
-| **Tamu** | Orang dari luar tim, hanya di satu chat grup atau satu proyek. Tanpa AI, kecuali AI dipilihkan untuk mereka. Tidak memakai kursi. [Baca tentang tamu](../use/guests.md). |
+| **Tamu** | Orang dari luar tim, paling banyak di satu chat grup dan satu proyek. Tanpa AI, kecuali AI dipilihkan untuk mereka. Tidak memakai kursi. [Baca tentang tamu](../use/guests.md). |
 
 **Grup** adalah sekumpulan orang, misalnya Penjualan atau Keuangan. Aturan folder bisa menyebut grup atau orang.
 

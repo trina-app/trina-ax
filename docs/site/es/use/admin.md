@@ -23,7 +23,7 @@ permisos de carpetas, invitar a su equipo, preparar una habilidad del equipo, ha
 | **Actividad** | Uso, Registro de actividad |
 | **Equipo** | Configuración del equipo, Sistema |
 
-**Miembros e invitaciones** también enumera a los invitados: personas de fuera del equipo que están en un chat o un proyecto. [Más información sobre los invitados](guests.md).
+**Miembros e invitaciones** también enumera a los invitados: personas de fuera del equipo que están, como máximo, en un chat de grupo y en un proyecto. [Más información sobre los invitados](guests.md).
 
 :::note
 Las versiones anteriores tenían las cuentas de IA en su propia página **Conexiones de IA**, junto a **Motores de IA**
@@ -86,8 +86,8 @@ cuenta tiene Volver a comprobar, Subir / Bajar, cambiar el nombre, reemplazar, d
 
 ## Invitados
 
-**Administración › Miembros e invitaciones** termina con **Invitados**: personas de fuera del equipo, cada una en una
-sala o en un proyecto, que no ocupan plazas. Cada fila indica dónde está el invitado y qué IA tiene. Su menú **⋯** tiene
+**Administración › Miembros e invitaciones** termina con **Invitados**: personas de fuera del equipo, cada una como máximo en una
+sala y en un proyecto, que no ocupan plazas. Cada fila indica dónde está el invitado y qué IA tiene. Su menú **⋯** tiene
 **Cambiar IA** (sin IA, su propio inicio de sesión o una cuenta de IA del equipo con un límite mensual), **Hacer miembro
 del equipo** y **Quitar invitado**. Los miembros invitan a los invitados ellos mismos desde una conversación de grupo o
 un proyecto ([Invitados](chats-and-projects.md#invitados)). Los propietarios y los administradores también pueden elegir
