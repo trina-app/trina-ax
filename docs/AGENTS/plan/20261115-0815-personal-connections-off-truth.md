@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:15
 - Branch: `fix/personal-connections-off-truth`
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/integrations/connections, server/src/routes/integrations.ts, web (lib/integrations,
   ConnectionPage, i18n). Why: QA TC-2930, TC-2931, TC-2936 (see docs/REPOSITORY-RULES.md: core connections area)
 - Version impact: patch: wording and a refusal of a sign-in that was already unused; no API removed
@@ -59,4 +59,7 @@ test:web`, `bun run build:web`, e2e of the connectors screens.
 
 ## Result
 
-(at the end)
+Built as planned. The row reuses the existing "Off" state of the shared row (no change to ConnectorsView.tsx); the
+page hides check-failure lines while off (the connection is not used, so they are noise). The local e2e mock emits
+`personalOff` like the server. Screenshots before/after at 1440 and 390 from the real server on temp data with the
+tests' fake MCP service on 127.0.0.1 (no tunnel). PR: see the branch's pull request into dev.

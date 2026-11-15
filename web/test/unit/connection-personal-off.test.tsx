@@ -23,7 +23,7 @@ beforeAll(() => { installDom() })
 afterAll(() => { removeDom() })
 beforeEach(() => {
   useLocaleStore.setState({ locale: 'en' })
-  globalThis.fetch = (async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
+  globalThis.fetch = (async (_input: RequestInfo | URL) => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
 })
 afterEach(() => { globalThis.fetch = realFetch })
 
