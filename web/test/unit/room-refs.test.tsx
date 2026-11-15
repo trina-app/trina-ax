@@ -130,6 +130,7 @@ describe('room steps under an answer', () => {
     id: ['Cari di ruang obrolan', 'Baca ruang obrolan · 마케팅', 'Baca berkas ruang obrolan · 보고서.pdf'],
     ja: ['トークルームを探す', 'トークルームを読む · 마케팅', 'トークルームのファイルを読む · 보고서.pdf'],
     es: ['Buscar en salas de chat', 'Leer sala de chat · 마케팅', 'Leer archivo de sala de chat · 보고서.pdf'],
+    zh: ['在群聊中查找', '读取群聊 · 마케팅', '读取群聊文件 · 보고서.pdf'],
   }
   for (const L of Object.keys(want) as Locale[]) {
     test(`in plain words (${L})`, async () => {

@@ -7,7 +7,7 @@ import { BROWSER_STEP_VERB, localizeStep, readableToolName, STEP_TEXT, stepLabel
 
 const BROWSER_TOOL_NAMES = Object.keys(BROWSER_STEP_VERB)
 
-const L = ['ko', 'en', 'id', 'ja', 'es'] as const
+const L = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const label = (tool: string, input: unknown, l: (typeof L)[number] = 'en') => stepLabel(tool, input, l, new Set(BROWSER_TOOL_NAMES))
 
 describe('new steps', () => {

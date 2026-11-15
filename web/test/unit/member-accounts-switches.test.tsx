@@ -8,6 +8,7 @@ import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { MemberAccounts } from '../../src/pages/admin/TeamAiSettings'
 import { useTeamCredentials } from '../../src/pages/admin/Credentials'
+import { resetAdminReads } from '../../src/store/adminPeople'
 import { installDom, mount, removeDom } from './dom-host'
 
 setDefaultTimeout(30_000)
@@ -27,7 +28,6 @@ beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     if (key === 'GET /api/admin/credentials') return json({ items: [], ...settings, allowedKinds: [], pricesAsOf: '2026-11-01' })
-    if (key === 'GET /api/admin/trial-credit') return json({ credit: null })
     if (key === 'GET /api/admin/users') return json({ items: [] })
     if (key === 'GET /api/admin/groups') return json({ items: [] })
     if (key === 'PATCH /api/admin/credential-settings') {
@@ -40,7 +40,8 @@ beforeAll(() => {
     return json({ error: { code: 'not_found', message: key } }, 404)
   }) as unknown as typeof fetch
 })
-afterEach(() => { patches.length = 0; answers.length = 0; useSession.setState({ status }) })
+// each test is a new sign-in: nothing kept by the admin screens' store (store/adminPeople.ts) from the one before
+afterEach(() => { patches.length = 0; answers.length = 0; useSession.setState({ status }); resetAdminReads() })
 afterAll(() => { globalThis.fetch = realFetch; removeDom(); useLocaleStore.setState({ locale }) })
 
 function Page() {

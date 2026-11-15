@@ -12,11 +12,12 @@
 // Files from this computer dropped anywhere on the chat's page, Home or a project's page go into the box (components/FileDropZone.tsx).
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
-// Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
-// on the right; the row under it keeps only the engine picker, for people who may choose one, and only when two or more
-// engines are switched on (EngineMenu showsEnginePicker). Home's new chat (`card`, QA TC-391) is one card instead, as AI
-// apps have it: the text on top and one row under it inside the box (+ · the engine picker · mic · send), nothing under
-// the box.
+// The box is one frame, as AI apps have it (QA TC-1400): the text on top and one row under it inside the frame
+// (ComposerToolbar: + · the box's choices … the engine picker · mic · send). Nothing of it sits under the frame but the
+// computer's note. The engine picker is for people who may choose one, and only when two or more engines are switched on
+// (EngineMenu showsEnginePicker). Below 768px a box with nothing more than + and send (no picker, no choices, not Home's
+// `card`, QA TC-391) is a room's box in one line (rooms/RoomComposer.tsx): + on the left, the mic and a round send on the
+// right.
 // Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
 // box), holding Space in the box on a computer, or a finger held on the mic; the words go to the end of the box, never
 // sent by themselves.
@@ -32,11 +33,13 @@
 // caret at its end, so what they type or paste next follows it (a caret left at the start put a pasted text before
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
+import { composerRadius } from './composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
-import { errorText, isConnectionError } from '../../lib/api'
+import { errorText, isApiError, isConnectionError } from '../../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
@@ -48,6 +51,7 @@ import { registerComposer } from '../../lib/teamAttach'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions, showsEnginePicker } from './EngineMenu'
@@ -63,6 +67,7 @@ import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
 import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
+import { ComposerToolbar } from './ComposerToolbar'
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
@@ -94,6 +99,7 @@ export default function Composer({
   projectId,
   waitsFor,
   card,
+  tools,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -137,7 +143,7 @@ export default function Composer({
   /** a shared project chat: a file from this computer is saved in its project folder (the server's doing), and a line
    * under the chips says so and how many people see it there (`audience`). `allowed` false: the person may not write
    * that folder (Project.chatUploads, Chat.shared.canUpload), so files come from the team folder only */
-  sharedUploads?: { audience: number; allowed?: boolean }
+  sharedUploads?: { audience: number; allowed?: boolean; kind?: 'project' | 'people' }
   /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
   projectId?: string | null
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
@@ -146,6 +152,8 @@ export default function Composer({
   /** phones: one card (Home's new chat, QA TC-391), the text on top and a row under it inside the box with + · the
    * engine picker · mic · send; no row under the box. Computers and the other boxes keep their layout */
   card?: boolean
+  /** quiet choices of this box in its bottom row right after +: who sees a team project's new chat (NewChatComposer) */
+  tools?: ReactNode
 }) {
   const t = useT()
   const locale = useLocale()
@@ -164,6 +172,8 @@ export default function Composer({
   const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText, projectId)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  // the text box's last height: the text held on top while recording keeps it, so the box does not move
+  const heldHeight = useRef<string | undefined>(undefined)
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)
   const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked, enabled: confidential === false && !answering })
@@ -171,11 +181,14 @@ export default function Composer({
   const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // the error that is the AI limit used up: a known state, shown as a calm notice, never in red (owner rule; QA TC-2491)
+  const [limitText, setLimitText] = useState<string | null>(null)
   // the send failed for the connection (lib/api.ts isConnectionError): the calm line under the box, the text kept in it
-  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors")
-  const [unsent, setUnsent] = useState(false)
+  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors"). 'updating': Trina is
+  // updating (lib/serverUpdating.ts): the line says so and the box sends it once by itself when the server is back
+  const [unsent, setUnsent] = useState<false | 'connection' | 'updating'>(false)
   // it says the connection is down: a notice of the same page (Home's 「팀에 준비된 것」) does not say it again
-  useSaysConnection(unsent && !error)
+  useSaysConnection(!!unsent && !error)
   // files from this computer: everywhere but a shared chat whose project folder the person may not write
   const computer = sharedUploads?.allowed !== false
   // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
@@ -247,7 +260,9 @@ export default function Composer({
   // a non-empty draft (or an upload: useComposerFiles) means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
 
-  const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
+  // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const hint = transcribing ? voice.transcribingText : answering ? t(phone ? 'composer.answerPlaceholderShort' : 'composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
   // person's text size changes (Settings > Profile, over this page). Behind a big side panel (lib/sidePanel.ts) the box
@@ -260,6 +275,7 @@ export default function Composer({
     const was = ta.style.height
     ta.style.height = 'auto'
     ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
+    heldHeight.current = ta.style.height || undefined
     // (and again when the box comes back after a recording: the bar stood in its place)
   }, [text, hint, textSize, voice.recording, behindPanel])
 
@@ -318,10 +334,6 @@ export default function Composer({
   }
   // phones and tablets: "from this device", else "from this computer"
   const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
-  // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
-  const phone = useMediaQuery('(max-width: 767.98px)')
-  // a phone's card: the text on top, the tools in one row under it, inside the box
-  const stacked = phone && !!card
 
   // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
   // whose upload failed, which is not sent)
@@ -334,6 +346,11 @@ export default function Composer({
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
+  const showError = (e: unknown) => {
+    const text = errorText(e, locale, t('error.network'))
+    setError(text)
+    setLimitText(isApiError(e, 'budget_exceeded') ? text : null)
+  }
   const send = async (anyway: boolean) => {
     if (!canSend) return
     if (!secret.pass(anyway)) return
@@ -348,8 +365,8 @@ export default function Composer({
         roomMenu.reset()
         writeDraft(userId, draftId, '')
       } catch (e) {
-        if (isConnectionError(e)) setUnsent(true)
-        else setError(errorText(e, locale, t('error.network')))
+        if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
+        else showError(e)
       } finally {
         setSending(false)
       }
@@ -367,12 +384,23 @@ export default function Composer({
       writeDraft(userId, draftId, '')
       clearSent()
     } catch (e) {
-      if (isConnectionError(e)) setUnsent(true)
-      else setError(errorText(e, locale, t('error.network')))
+      if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
+      else showError(e)
     } finally {
       setSending(false)
     }
   }
+
+  // Trina was updating: once the server is back the box's text goes, once (an emptied box, or a send meanwhile, ends the
+  // wait: the line is gone then)
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    if (unsent !== 'updating') return
+    let live = true
+    void waitForUpdate().then(() => { if (live) void sendRef.current(false) })
+    return () => { live = false }
+  }, [unsent])
 
   const stop = async () => {
     setStopping(true)
@@ -391,6 +419,11 @@ export default function Composer({
   // the picker: for people who may choose, and only with two or more engines (one engine: none, whatever its models)
   const pick = onEngine && showsEnginePicker(engines ?? []) ? onEngine : undefined
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
+  // the text on top and one row under it inside the box (ComposerToolbar: + and the box's choices on the left, the
+  // engine, the mic and send on the right), as in the AI apps' boxes (QA TC-1400): every computer, and a phone whenever the box has more
+  // than + and send (Home's card, the engine picker, a team project's who-sees chip). A phone's plain chat box keeps
+  // one line (+ · text · mic · send), with nothing under or beside it either
+  const stacked = !phone || !!card || !!pick || !!tools
 
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
@@ -488,7 +521,7 @@ export default function Composer({
               }}
               data-testid="attach-team"
             >
-              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
+              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t(isGuestMe(me) ? 'picker.guestTitle' : 'composer.fromTeam')}
             </button>
           </div>
           </div>
@@ -516,7 +549,7 @@ export default function Composer({
   // the text's padding (the "#" layer behind it has the same): a phone's card has the text alone on its line, the
   // tools under it; elsewhere the buttons share the line
   // (the card's text starts where its + does: 12 px in)
-  const fieldPad = clsx(stacked ? 'px-3 pb-1' : ['pb-2', phone ? 'pl-1' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+  const fieldPad = clsx(stacked ? ['pb-1', phone ? 'px-3' : 'px-4.5'] : ['pb-2', phone ? 'pl-0' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
   // the text's height on a phone: at most 30 % of what is in sight (the keyboard up: --app-h); in the card the whole
   // card stays within 35 % (QA TC-252), so the text gets 35 % less the card's other parts (the tools' row, the text's
   // own padding and the edge: 3.25rem), at least one line
@@ -532,7 +565,7 @@ export default function Composer({
             // the AI's question: also how phones (Enter makes a new line there) answer from the box
             <Tooltip label={t('composer.sendAnswer')}>
               <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
-                {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} aria-hidden />}
               </button>
             </Tooltip>
           )
@@ -559,19 +592,45 @@ export default function Composer({
               onClick={submit}
               disabled={!canSend}
               aria-label={t('chat.send')}
-              // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+              // ↑ as on phones and in a room's box (a return key was not read as send); phones: Enter makes a new line there,
+              // so the room box's round send instead of the quiet key
               className={clsx('touch-hit flex items-center justify-center transition', phone
                 ? clsx(stacked ? 'size-9' : 'size-10', 'rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
                 : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
               data-testid="send"
             >
-              {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
+              {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} aria-hidden />}
             </button>
           </Tooltip>
         )
       )}
     </>
   )
+
+  // the engine picker in the box's row: on a phone the choices as a sheet (a tap outside, Escape or Back closes it),
+  // named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"); on a computer the small list
+  const enginePicker = pick && (phone ? (
+    <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" />
+  ) : (
+    <div className="relative">
+      <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
+        {engineLabel} <ChevronDown size={13} aria-hidden />
+      </button>
+      {engineMenu && (
+        <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
+          <EngineOptions
+            engines={engines ?? []}
+            models={models}
+            current={engine}
+            onPick={(p) => {
+              setEngineMenu(false)
+              pick(p)
+            }}
+          />
+        </ul>
+      )}
+    </div>
+  ))
 
   return (
     // a phone with the keyboard up (lib/viewport.ts .keyboard-open): the row under the box (the engine picker) goes, so
@@ -590,19 +649,19 @@ export default function Composer({
       {/* The one field that is focused most of the time: a quiet edge, as in Claude, not the 2px accent edge of other
           fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
-        className={clsx(stacked ? 'rounded-3xl' : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
+        className={clsx(stacked ? composerRadius : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="composer"
       >
         <ComposerFileList files={files} onRemove={removeFile} className="px-4 pt-3" />
-        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} className="px-4 pt-2" />}
+        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} kind={sharedUploads.kind} className="px-4 pt-2" />}
 
         {voice.recording ? (
           stacked ? (
             // a phone's card keeps its height: the text as it was on top (it cannot be typed in while recording), the
             // bar in the tools' row, ✕ and ✓ where + and send were
             <>
-              <p aria-hidden className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
+              <p aria-hidden style={{ height: heldHeight.current }} className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
                 {text || hint}
               </p>
               {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
@@ -646,7 +705,7 @@ export default function Composer({
                 centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. A
                 phone: 4 px on the right, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
             <div className={clsx('flex', stacked ? 'flex-col' : ['items-end gap-1 pr-2 pb-1 max-md:pr-1', phone && 'pl-1.5'])}>
-              {phone && !stacked && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
+              {phone && !stacked && <div className="-mr-1.5 flex h-composer-line shrink-0 items-center">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
@@ -684,14 +743,13 @@ export default function Composer({
                 />
               </div>
               {stacked ? (
-                // the card's row: + and the engine picker on the left, the mic and send on the right, each taking taps
-                // from 44 px (touch-hit)
-                <div className="flex items-center gap-1.5 px-3 pt-1 pb-2.5" data-testid="composer-tools">
-                  {attachControls}
-                  {/* named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"): the pill alone says only the choice */}
-                  {pick && <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" />}
-                  <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
-                </div>
+                // the box's row: + and its choices on the left, the engine picker, the mic and send on the right, each
+                // taking taps from 44 px (touch-hit)
+                <ComposerToolbar
+                  testId="composer-tools"
+                  start={<>{attachControls}{tools}</>}
+                  end={<>{enginePicker}{actions}</>}
+                />
               ) : (
                 <div className="flex h-composer-line shrink-0 items-center gap-1">{actions}</div>
               )}
@@ -699,51 +757,19 @@ export default function Composer({
           </>
         )}
       </div>
-      {/* under the box, like Claude's: attach on the left, the engine on the right, the note between (the mic is in the
-          box, before send). Phones: attach sits inside the box, as in a room's box, and this row is only there for the
-          engine; a phone's card (`card`) has the engine in its own row inside the box, and no row here. */}
-      {(!phone || (pick && !stacked)) && (
-      <div className="flex items-center gap-2 px-1 pt-1.5 max-md:pt-1" data-testid="composer-controls">
-        <div className="flex flex-1 basis-0 items-center gap-0.5">
-          {!phone && attachControls}
-        </div>
-        {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
+      {/* under the box, on a computer only: the note (the chat's "AI can make mistakes", who sees it, what a request
+          still waits for), as under Claude's box. Attach and the engine are inside the box (ComposerToolbar). */}
+      {!phone && (waiting || footer || who) && (
+      <div className="flex items-center justify-center px-1 pt-1.5" data-testid="composer-controls">
         {waiting ? (
-          <p role="status" className="hidden min-w-0 text-center text-micro break-keep text-muted md:block" data-testid="composer-waits">{waitsFor?.hint}</p>
-        ) : (footer || who) && (
-          <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">
+          <p role="status" className="min-w-0 text-center text-micro break-keep text-muted" data-testid="composer-waits">{waitsFor?.hint}</p>
+        ) : (
+          <p className="min-w-0 text-center text-micro break-keep text-faint" data-testid="composer-footer">
             {footer}
             {footer && who ? ' ' : null}
             {who}
           </p>
         )}
-        <div className="flex flex-1 basis-0 items-center justify-end">
-          {pick && (
-            <div className="relative">
-              {/* a phone: the choices as a sheet (a tap outside, Escape or Back closes it); a computer: the small list */}
-              {phone ? (
-                <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} title={t('composer.engine')} testId="engine-picker" />
-              ) : (<>
-              <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
-                {engineLabel} <ChevronDown size={13} aria-hidden />
-              </button>
-              {engineMenu && (
-                <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
-                  <EngineOptions
-                    engines={engines ?? []}
-                    models={models}
-                    current={engine}
-                    onPick={(p) => {
-                      setEngineMenu(false)
-                      pick(p)
-                    }}
-                  />
-                </ul>
-              )}
-              </>)}
-            </div>
-          )}
-        </div>
       </div>
       )}
       {/* phones: of the note a computer has in the row above, who sees the chat (one line; the bottom is for the box) */}
@@ -758,7 +784,10 @@ export default function Composer({
           {who}
         </p>
       )}
-      {error && (
+      {error && error === limitText && (
+        <CalmNotice className="mt-2" testId="composer-limit" icon={<CirclePause size={16} />} title={error} />
+      )}
+      {error && error !== limitText && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}
           {voice.settingsFor === error && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
@@ -768,8 +797,9 @@ export default function Composer({
         <CalmNotice
           className="mt-2"
           testId="composer-unsent"
-          icon={<WifiOff size={16} />}
-          title={t('conn.unsent')}
+          state={unsent}
+          icon={unsent === 'updating' ? <Loader2 size={16} className="animate-spin" /> : <WifiOff size={16} />}
+          title={t(unsent === 'updating' ? 'conn.updatingUnsent' : 'conn.unsent')}
           action={<Button size="sm" variant="secondary" disabled={!canSend} onClick={submit} data-testid="composer-unsent-retry">{t('common.retry')}</Button>}
         />
       )}

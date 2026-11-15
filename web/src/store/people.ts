@@ -2,7 +2,7 @@
 // again after the server could not resume this window (components/rooms/useRoomsSync.ts) and when someone changes their
 // profile (the quiet profile_changed notice, store/live.ts). The rooms use it for photos (a room's members and authors
 // carry a name only) and the "new 1:1 chat" list.
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { create } from 'zustand'
 import type { Person, UserRef } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -13,8 +13,14 @@ interface PeopleState {
   /** a screen has read the list (a profile change then reads it again; before, nobody needs it) */
   loaded: boolean
   byId: Record<string, Person>
+  /** guests a list other than the directory said are guests (a project's people, GET /api/projects/:id/people): an
+   * owner or admin outside a guest's one place has them in that list but not in the directory. Only added to: a guest
+   * made a member keeps the tag until the next sign-in or reload (rare; reset() clears it) */
+  guestIds: Record<string, true>
   failed: boolean
   load: (force?: boolean) => Promise<void>
+  /** these people are guests (from such a list) */
+  noteGuests: (ids: readonly string[]) => void
   reset: () => void
 }
 
@@ -26,6 +32,7 @@ export const usePeople = create<PeopleState>((set, get) => ({
   people: null,
   loaded: false,
   byId: {},
+  guestIds: {},
   failed: false,
   load(force) {
     if (inflight) {
@@ -49,9 +56,14 @@ export const usePeople = create<PeopleState>((set, get) => ({
       })
     return inflight
   },
+  noteGuests(ids) {
+    const known = get().guestIds
+    if (ids.every((id) => known[id])) return
+    set({ guestIds: { ...known, ...Object.fromEntries(ids.map((id) => [id, true as const])) } })
+  },
   reset: () => {
     again = false
-    set({ people: null, loaded: false, byId: {}, failed: false })
+    set({ people: null, loaded: false, byId: {}, guestIds: {}, failed: false })
   },
 }))
 
@@ -62,6 +74,27 @@ export function usePeopleList(): Person[] | null {
     void usePeople.getState().load()
   }, [])
   return people
+}
+
+/** The directory, read again (once for each person) when a list names someone it does not have: a person who joined a
+ * room a moment ago. Who is a guest comes from the directory (components/GuestTag.tsx), so without this a guest who joins
+ * a room while it is open has no "Guest" tag and no "Includes 1 guest" until the page is reloaded. Only once the
+ * directory has been read, and one read for each unknown person (someone it never lists, a switched-off account, does not
+ * make a read on every change). */
+export function useReadPeopleFor(ids: readonly string[] | null | undefined): void {
+  const loaded = usePeople((s) => s.loaded)
+  const byId = usePeople((s) => s.byId)
+  const asked = useRef(new Set<string>())
+  useEffect(() => {
+    if (!loaded || !ids) return
+    const unknown = ids.filter((id) => !byId[id] && !asked.current.has(id))
+    if (!unknown.length) return
+    for (const id of unknown) asked.current.add(id)
+    // a read that failed is asked again at the next change (not in a loop: `failed` does not change byId)
+    void usePeople.getState().load(true).then(() => {
+      if (usePeople.getState().failed) for (const id of unknown) asked.current.delete(id)
+    })
+  }, [ids, byId, loaded])
 }
 
 /** A person's name as it is now: the directory's (it reloads when someone changes their profile, so a new name shows

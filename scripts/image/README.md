@@ -69,7 +69,7 @@ image mode + the first-boot pieces (`mycel-enroll`).
   `kernel.kptr_restrict=2`, `kernel.dmesg_restrict=1`. Named `99-` so it wins over the kit's `60-mycel.conf`
   (`ptrace_scope = 1` for self-host). Unprivileged user namespaces stay on (bwrap).
 - zram (`ram / 2`, zstd), chrony with only the platform sources (`server 10.200.0.1 iburst` for
-  Proxmox, `server 169.254.169.123 iburst` = Amazon Time Sync for EC2), journald `SystemMaxUse=200M`, system time zone
+  Proxmox, `server 169.254.169.123 iburst` = Amazon Time Sync for EC2), journald `SystemMaxUse=100M`, system time zone
   `Etc/UTC` (the team zone is `MYCEL_TEAM_TZ`), `fstrim.timer`, serial getty on ttyS0, root locked.
 - unattended-upgrades: **Debian-Security only** (`#clear` of the default origins), no automatic reboot (the kit's
   maintenance timer reboots in the team's window); needrestart restarts services automatically.
@@ -288,6 +288,14 @@ yet, so check by hand on the first instance:
 - `resize2fs` after a data volume grow while the instance is stopped (`axdata-grow.service`).
 
 Local test without AWS: `bun test tests/unit/image-build-ami.test.ts` (stub `aws`, `ssh` and `scp` on PATH).
+
+### Built by the release CI
+
+Every stable release builds its AMI in CI (`.github/workflows/team-image.yml`, started by release.yml's `build-ami`
+job): `build-ami.sh` in ap-northeast-2 with `--tag ax:built-by=release-ci`, `--manifest-v2 --copy-to ap-southeast-1`
+signed with the release key, `scripts/release/publish-ami.ts` puts the manifest and `team-image.json` under
+`server/<version>/` on the update feed, and `ami-prune.sh` keeps the newest 3 CI images per region. AWS access is a
+GitHub OIDC role, no stored key. Setup, IAM policy, network and cost: `docs/RELEASE-CI.md` section 10.
 
 ### Several regions: the v2 manifest
 

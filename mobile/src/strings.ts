@@ -1,5 +1,6 @@
 // Native screens only (setup, offline, errors). The web app has its own locales. Korean when the phone's first
-// language is Korean, English otherwise. No native imports here: tests load this file directly.
+// language is Korean, Simplified Chinese when it is any Chinese (zh, zh-Hans, zh-TW, zh-HK: one Chinese table for now),
+// English otherwise. No native imports here: tests load this file directly.
 const en = {
   setupTitle: 'Join your team',
   setupHint: 'Paste the invite link your team lead sent you. If you know the team address (e.g. acme), that works too.',
@@ -35,12 +36,17 @@ const en = {
   notTeam: 'This address is not a team server. Paste the invite link you got.',
   unreachableSetup: 'Could not reach the team server. Check the address, connection and HTTPS certificate.',
   linkUnreachable: 'Could not reach the team server. Check your internet connection and try again.',
+  waking: 'Resuming your team…',
+  wakingDetail: 'This takes about a minute. It opens by itself when it is ready.',
+  wakeTimeout: "Your team didn't start. Try again in a minute, or contact support.",
   saveFailed: 'Could not save the team address. Try again.',
   stillSwitching: 'Still switching teams. Try again in a moment.',
   offlineTitle: 'You are offline',
-  offlineHint: 'Connect to Wi-Fi or mobile data, then try again.',
+  offlineHint: 'Connect to Wi-Fi or mobile data. The page opens by itself when you are back online.',
   unreachableTitle: 'Could not reach your team',
-  unreachableHint: 'The team server did not answer. Check your connection and try again in a moment.',
+  unreachableHint: 'The team server did not answer. The app keeps trying and opens the page as soon as it answers.',
+  updatingTitle: 'Trina is updating',
+  updatingHint: "It will be back in a few minutes. The app opens the page by itself when it's ready.",
   retry: 'Try again',
   changeTeam: 'Change team address',
   otherTeam: 'Connect to another team',
@@ -83,17 +89,74 @@ const ko: Strings = {
   notTeam: '이 주소는 팀 서버가 아니에요. 받은 초대 링크를 붙여 넣어 주세요.',
   unreachableSetup: '팀 서버에 연결할 수 없어요. 주소, 인터넷 연결, HTTPS 인증서를 확인해 주세요.',
   linkUnreachable: '팀 서버에 연결할 수 없어요. 인터넷 연결을 확인하고 다시 시도해 주세요.',
+  waking: '팀을 다시 켜고 있어요…',
+  wakingDetail: '1분쯤 걸려요. 준비되면 저절로 열려요.',
+  wakeTimeout: '팀이 시작되지 않았어요. 1분 뒤에 다시 시도하거나 고객 지원에 문의해 주세요.',
   saveFailed: '팀 주소를 저장하지 못했어요. 다시 시도해 주세요.',
   stillSwitching: '아직 팀을 바꾸는 중이에요. 잠시 후 다시 시도해 주세요.',
   offlineTitle: '인터넷에 연결되어 있지 않아요',
-  offlineHint: 'Wi-Fi나 모바일 데이터를 켠 뒤 다시 시도해 주세요.',
+  offlineHint: 'Wi-Fi나 모바일 데이터를 켜 주세요. 다시 연결되면 화면이 저절로 열려요.',
   unreachableTitle: '팀에 연결할 수 없어요',
-  unreachableHint: '팀 서버가 응답하지 않아요. 연결을 확인하고 잠시 뒤 다시 시도해 주세요.',
+  unreachableHint: '팀 서버가 응답하지 않아요. 앱이 계속 다시 시도하고, 응답하면 바로 열어요.',
+  updatingTitle: '트리나를 업데이트하고 있어요',
+  updatingHint: '몇 분이면 끝나요. 준비되면 앱이 페이지를 저절로 열어요.',
   retry: '다시 시도',
   changeTeam: '팀 주소 바꾸기',
   otherTeam: '다른 팀에 연결',
   browserFailed: '브라우저를 열지 못했어요.',
   channelName: '알림',
+}
+const zh: Strings = {
+  setupTitle: '加入你的团队',
+  setupHint: '粘贴团队负责人发给你的邀请链接。如果知道团队地址（例如 acme），直接输入地址也可以。',
+  setupPlaceholder: '邀请链接或团队地址',
+  connect: '继续',
+  noAddress: '我不知道地址',
+  noTeam: '我还没有团队',
+  noAddressPaste: '粘贴你在微信、钉钉或 Slack 等聊天应用里收到的邀请链接。用过的链接也可以，会打开登录页面。',
+  noAddressDevice: '如果另一台设备已登录，可以在“设置 › 应用”里查看团队地址。',
+  noAddressAsk: '还是不确定？请向团队负责人询问团队地址。',
+  back: '返回',
+  noTeamBody: '团队由团队负责人创建，成员通过邀请链接加入。',
+  noTeamDocs: '自行安装',
+  noTeamEnter: '输入团队地址',
+  backTo: '返回 {team}',
+  outsideBody: '这个地址不是由 Trina 运营的。请确认这是你们公司自己安装的服务器。',
+  outsideConnect: '连接',
+  renamed: '这个团队已迁移到 {host}。要连接新地址吗？',
+  switchTitle: '离开 {old} 并连接到 {new}？',
+  switchBody: '这台手机将退出 {old}，也不会再收到它的通知。',
+  switchYes: '切换',
+  linkTitle: '连接到 {host}？',
+  linkBody: '只有确认这是别人发给你、由你自己打开的链接时才连接。',
+  linkBad: '这个链接无法打开团队。请原样粘贴你收到的邀请链接。',
+  cancel: '取消',
+  emptyAddress: '请粘贴邀请链接或输入团队地址。',
+  hangul: '输入的是韩文字符，输入法可能处于韩文模式。请切换到英文输入后重新输入，或直接粘贴邀请链接。',
+  email: '这里不用邮箱地址。请粘贴邀请链接或输入团队地址。',
+  cutLink: '链接好像不完整。请重新复制完整的链接再粘贴。',
+  invalidAddress: '请输入 HTTPS 团队地址或邀请链接。',
+  teamUnknown: '没有找到名为“{name}”的团队。请检查拼写，或粘贴邀请链接。',
+  suspended: '这个团队的服务目前已暂停。请联系团队负责人。',
+  notTeam: '这个地址不是团队服务器。请粘贴你收到的邀请链接。',
+  unreachableSetup: '无法连接到团队服务器。请检查地址、网络连接和 HTTPS 证书。',
+  linkUnreachable: '无法连接到团队服务器。请检查网络连接后重试。',
+  waking: '正在恢复你的团队…',
+  wakingDetail: '大约需要一分钟。准备好后会自动打开。',
+  wakeTimeout: '你的团队没有启动。请一分钟后重试，或联系客服。',
+  saveFailed: '无法保存团队地址。请重试。',
+  stillSwitching: '正在切换团队，请稍后再试。',
+  offlineTitle: '当前没有网络连接',
+  offlineHint: '请连接 Wi-Fi 或打开移动数据。恢复联网后，页面会自动打开。',
+  unreachableTitle: '无法连接到你的团队',
+  unreachableHint: '团队服务器没有响应。应用会继续重试，服务器一响应就打开页面。',
+  updatingTitle: 'Trina正在更新',
+  updatingHint: '几分钟后就会恢复。准备好后应用会自动打开页面。',
+  retry: '重试',
+  changeTeam: '更改团队地址',
+  otherTeam: '连接其他团队',
+  browserFailed: '无法打开浏览器。',
+  channelName: '通知',
 }
 /** "{team}(으)로 돌아가기" with its values (a value is never read as a pattern). */
 export function fill(s: string, params: Record<string, string>): string {
@@ -104,10 +167,11 @@ export function inputError(t: Strings, error: string): string {
   return error === 'empty' ? t.emptyAddress : error === 'hangul' ? t.hangul : error === 'email' ? t.email : error === 'link' ? t.cutLink : t.invalidAddress
 }
 export function stringsFor(languageCode: string | null | undefined): Strings {
-  return languageCode?.toLowerCase().startsWith('ko') ? ko : en
+  const code = languageCode?.toLowerCase() ?? ''
+  return code.startsWith('ko') ? ko : /^zh(?:$|[-_])/.test(code) ? zh : en
 }
 
-/** iOS permission texts (Info.plist), Korean and English. The web app asks for the camera (photo attachment), the
+/** iOS permission texts (Info.plist), English, Korean and Simplified Chinese. The web app asks for the camera (photo attachment), the
  * microphone (voice input) and the photo library (file picker) inside the WebView. */
 export const IOS_USAGE = {
   en: {
@@ -119,6 +183,11 @@ export const IOS_USAGE = {
     NSCameraUsageDescription: '채팅에 첨부할 사진을 찍을 때 사용해요.',
     NSMicrophoneUsageDescription: '채팅에서 음성으로 입력할 때 사용해요.',
     NSPhotoLibraryUsageDescription: '채팅에 첨부할 사진을 고를 때 사용해요.',
+  },
+  zh: {
+    NSCameraUsageDescription: '拍摄照片并在聊天中发送。',
+    NSMicrophoneUsageDescription: '在聊天中用语音输入文字。',
+    NSPhotoLibraryUsageDescription: '选择照片并在聊天中发送。',
   },
 } as const
 

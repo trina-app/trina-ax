@@ -17,7 +17,7 @@ const NOTE = 'Note from the server (the user did not write this):'
 let h: Harness
 const socks: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-chat-file-placement', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-chat-file-placement', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'dana']) { socks[u] = await h.ws(u, { windowId: `win-fp-${u}` }); await socks[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
@@ -35,7 +35,7 @@ describe('the rule in the instructions', () => {
   })
 
   test('every app language: the chat, a resumed session\'s turn context and a room session have it; sub-agents get only the note\'s line', () => {
-    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es'])
+    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es', 'zh'])
     for (const locale of Locale.options) {
       // the archive folder's word follows the templates folder's language (the team's); without one, the names there
       const t = templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))
@@ -121,7 +121,8 @@ describe('folder names in the note', () => {
 
     // a folder the person may only read is no place for the file
     fs.mkdirSync(path.join(h.team, base, 'Readonly'), { recursive: true })
-    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_fp_ro', ?)").run(`${base}/Readonly`)
+    // (limited: access adds up, so "everyone reads" under a folder where everyone writes needs the limit)
+    h.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('f_fp_ro', ?, 1)").run(`${base}/Readonly`)
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_fp_ro', 'f_fp_ro', 'everyone', NULL, 'read')").run()
     expect(areaSubfolders(h.ctx.files, alice, base).names).not.toContain('Readonly')
     expect(areaSubfolders(h.ctx.files, h.ctx.files.principal('dana'), base).names).toContain('Readonly') // the owner writes everywhere

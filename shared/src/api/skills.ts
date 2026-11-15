@@ -355,7 +355,7 @@ export const SkillMoveTarget = z.object({
   token: z.string().optional(),
 })
 export type SkillMoveTarget = z.infer<typeof SkillMoveTarget>
-/** Where a skill can move ("옮기기…" on the Skills page): where it is, its files, its whole text (shown when a move
+/** Where a skill can move ("옮기기" on the Skills page): where it is, its files, its whole text (shown when a move
  * reaches more people) and each other level. */
 export const SkillMoveOptions = z.object({
   path: RelPath,

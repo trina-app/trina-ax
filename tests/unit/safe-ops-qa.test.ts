@@ -74,13 +74,13 @@ describe('B3: workflow admission', () => {
     }
   })
 
-  test('every refusal code has its own text in all five languages', () => {
+  test('every refusal code has its own text in all six languages', () => {
     const keys = Object.values(SAFE_ERROR_KEYS)
     expect(new Set(keys).size).toBe(keys.length)
     for (const k of ['cleanup', 'hourLimit', 'turnLimit', 'budget', 'notReadyGroup', 'notReadyPrograms', 'groupMemory'] as const)
-      for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(SAFE_OPS_TEXT[k][l].length).toBeGreaterThan(40)
+      for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(SAFE_OPS_TEXT[k][l].length).toBeGreaterThan(40)
     // the old text that mixed both causes is gone
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(SAFE_OPS_TEXT.workflow[l]).not.toMatch(/cleanup|정리|limpieza|pembersihan|後処理/)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(SAFE_OPS_TEXT.workflow[l]).not.toMatch(/cleanup|정리|limpieza|pembersihan|後処理|清理/)
   })
 })
 

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -24,7 +24,7 @@ import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 import { browserAction } from '../../desktop/src/common/browser-action'
-import { contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
+import { CLIPBOARD_PNG_MAX, CLIPBOARD_PNG_SIDE, clipboardPng, contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -116,7 +116,8 @@ describe('first run: what the team address answered, the help screens, the host 
       expect(health(302, null, false, away)).toEqual({ ok: false, error: 'notTeamServer' })
     expect(healthVerdict('http://acme.localhost:19883', { status: 308, location: 'http://acme-co.localhost:19883/api/health', relayError: null, bodyOk: false })).toEqual({ ok: false, rename: 'http://acme-co.localhost:19883' })
     // a rename is asked before the new address is remembered, and followed once only
-    expect(win).toMatch(/if \(!v\.ok && 'rename' in v\) return fail\('notTeamServer'\)/)
+    const check = readFileSync(join(import.meta.dir, '../../desktop/src/common/address.ts'), 'utf8')
+    expect(check).toMatch(/if \(!v\.ok && 'rename' in v\) return \{ ok: false, error: 'notTeamServer' \}/)
     expect(win).toMatch(/if \(origin !== p\.origin && !known\) return \{ ok: false, error: 'renamed'/)
     expect(t('ko', 'err.renamed', { host: 'acme-corp.trina.app' })).toBe('팀 주소가 acme-corp.trina.app(으)로 바뀌었어요. 새 주소로 연결할까요?')
   })
@@ -203,6 +204,49 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
       `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}#x`, `${LINK_SCHEME}://u:p@open?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open:99?url=${enc('https://acme.trina.app')}`,
       `${LINK_SCHEME}://open/x?url=${enc('https://acme.trina.app')}`, `other://open?url=${enc('https://acme.trina.app')}`, `https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`, 'x'.repeat(5000)])
       expect(readDesktopLink(raw)).toBeNull()
+  })
+  test('a chat, room or project page inside the link (QA TC-2266): fixed routes with id-shaped parts only', () => {
+    const team = `https://acme.${TEAM_DOMAIN}`
+    const id = '019a5c3e-7b2d-7c11-9f00-3a1b2c3d4e5f'
+    const page = (inner: string) => desktopPagePath(link(inner))
+    expect(page(`${team}/c/${id}`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/c/${id}/`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/rooms/${id}`)).toEqual({ origin: team, path: `/rooms/${id}` })
+    expect(page(`${team}/rooms/${id}/t/${id}?m=${id}`)).toEqual({ origin: team, path: `/rooms/${id}/t/${id}?m=${id}` })
+    expect(page(`${team}/projects/${id}`)).toEqual({ origin: team, path: `/projects/${id}` })
+    expect(page(`https://team.example.com/c/${id}`)).toEqual({ origin: 'https://team.example.com', path: `/c/${id}` })
+    // the host part is the URL parser's (lower case, no default port)
+    expect(page(`https://ACME.${TEAM_DOMAIN}:443/c/${id}`)).toEqual({ origin: team, path: `/c/${id}` })
+    // a query and fragment are dropped, except a room's one ?m=<id>
+    expect(page(`${team}/c/${id}?next=https://evil.example#x`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/c/${id}?m=${id}`)).toEqual({ origin: team, path: `/c/${id}` })
+    expect(page(`${team}/rooms/${id}?m=${id}&x=1`)).toEqual({ origin: team, path: `/rooms/${id}` })
+    expect(page(`${team}/rooms/${id}?m=..%2Fadmin`)).toEqual({ origin: team, path: `/rooms/${id}` })
+    // the join pages keep their own path (④ asks first); a page that is not one of these opens the team's start
+    expect(page(`${team}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`)).toBeNull()
+    for (const path of ['/', '', '/settings', '/admin/people', '/files', '/files/view?path=a', '/c', '/c/', '/rooms', '/projects/x/files', '/skills', '/login', '/c/a/b', `/c/${'a'.repeat(65)}`,
+      // encoded and normalized tricks: the path must be written as the parser reads it, ids are [A-Za-z0-9_-]
+      '//evil.example/c/x', '//c/x', '/c//x', '/c/x/../../admin', `/c/../c/${id}`, `/c/./${id}`, '/c/%2e%2e', '/c/%2Fevil.example', '/c/x%00', '/c/x%0a', '/c/a.b', '/c/a@evil.example',
+      '/c/x\\..\\admin', '\\evil.example/c/x', '/c/\u0000x', '/c/x\ty', '/c/x\ny', '/c/ｘ', '/c/x;y', '/c/x:y', '/C/x', '/rooms/x/t/', '/rooms/x/t/y/z'])
+      expect(page(team + path)).toBeNull()
+    // nothing that readDesktopLink refuses: another scheme, http, user:password, this machine, a host hidden by a backslash
+    for (const inner of [`http://acme.${TEAM_DOMAIN}/c/${id}`, `https://u:p@acme.${TEAM_DOMAIN}/c/${id}`, `https://${TEAM_DOMAIN}@evil.example/c/${id}`, `https://127.0.0.1/c/${id}`, `https://localhost/c/${id}`,
+      `javascript:alert(1)//acme.${TEAM_DOMAIN}/c/${id}`, `file:///c/${id}`, `data:text/html,/c/${id}`, `//evil.example/c/${id}`])
+      expect(page(inner)).toBeNull()
+    // a backslash ends the host (evil.example), and that page path is then not written as the parser reads it
+    expect(page(`https://evil.example\\@acme.${TEAM_DOMAIN}/c/${id}`)).toBeNull()
+    expect(desktopPagePath(`${LINK_SCHEME}://open?url=${enc(`${team}/c/${id}`)}&next=/x`)).toBeNull()
+    expect(desktopPagePath(`other://open?url=${enc(`${team}/c/${id}`)}`)).toBeNull()
+    expect(desktopPagePath(`${team}/c/${id}`)).toBeNull()
+  })
+  test('the page opens only on a team the app already has, by exact origin; any other link goes to ④', () => {
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const opener = win.slice(win.indexOf('  private openLinkedPage(raw: string): boolean {'), win.indexOf('  /** The "no team yet" screen'))
+    expect(opener).toContain('const page = desktopPagePath(raw)')
+    expect(opener).toContain('this.teams.teams.find((x) => x.origin === page.origin)')
+    expect(opener).toContain('if (!page || !known) return false')
+    expect(opener).not.toMatch(/addTeam|fetch|loadURL/)
+    expect(win).toMatch(/offerLink\(raw: string\) \{\n\s*if \(this\.openLinkedPage\(raw\)\) return\n\s*const p = readDesktopLink\(raw\)/)
   })
   test('the link in a command line (Windows, Linux; a second instance)', () => {
     const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')
@@ -679,8 +723,8 @@ describe('UI strings', () => {
 
   test('ko, en and id have exactly the same keys and no empty strings', () => {
     const keys = Object.keys(STRINGS.ko).sort()
-    for (const l of ['en', 'id', 'ja', 'es'] as const) expect(Object.keys(STRINGS[l]).sort()).toEqual(keys)
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const k of keys) expect((STRINGS[l] as Record<string, string>)[k].length).toBeGreaterThan(0)
+    for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) expect(Object.keys(STRINGS[l]).sort()).toEqual(keys)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) for (const k of keys) expect((STRINGS[l] as Record<string, string>)[k].length).toBeGreaterThan(0)
   })
 
   test('placeholders are the same in every language', () => {
@@ -691,6 +735,7 @@ describe('UI strings', () => {
       expect(ph(STRINGS.id[k])).toBe(ph(STRINGS.ko[k]))
       expect(ph(STRINGS.ja[k])).toBe(ph(STRINGS.en[k]))
       expect(ph(STRINGS.es[k])).toBe(ph(STRINGS.en[k]))
+      expect(ph(STRINGS.zh[k])).toBe(ph(STRINGS.en[k]))
     }
   })
 
@@ -700,12 +745,14 @@ describe('UI strings', () => {
     expect(asUiLocale('in')).toBe('id')
     expect(asUiLocale('ja-JP')).toBe('ja')
     expect(asUiLocale('es-MX')).toBe('es')
+    for (const tag of ['zh', 'zh-CN', 'zh-Hans', 'zh-SG', 'zh-TW', 'zh-HK', 'zh_Hans_CN']) expect(asUiLocale(tag)).toBe('zh')
     expect(asUiLocale('fr-FR')).toBeNull()
     expect(asUiLocale({ locale: 'ko' })).toBeNull()
     expect(asUiLocale('ko'.padEnd(40, 'x'))).toBeNull()
-    expect(UI_LOCALES.map((l) => l.label)).toEqual(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
-    for (const l of ['en', 'id', 'ja', 'es'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
+    expect(UI_LOCALES.map((l) => l.label)).toEqual(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
+    for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
     expect(t('en', 'perm.site.title', { host: 'shop.test' })).toBe('The AI wants to use shop.test')
+    expect(t('zh', 'perm.site.title', { host: 'shop.test' })).toBe('AI 想要使用shop.test')
     expect(t('ko', 'err.notTeamServer')).toBe(`이 주소는 ${PRODUCT.displayName} 팀 서버가 아니에요.`)
   })
 })
@@ -885,6 +932,35 @@ describe('the right-click menu (team page and own screens)', () => {
     expect(menu).toContain('copyImage: () => teamPage() && wc.copyImageAt(p.x, p.y)')
     expect(menu).toContain('saveImage: () => teamPage() && saveableImage(p.srcURL, o.allowedOrigins()) && wc.downloadURL(p.srcURL)')
     expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('context-menu')
+  })
+  // 이미지 복사 through the app (DesktopBridge.copyImage, web/src/lib/copyImage.ts): the PNG bytes the team page read
+  // itself, nothing fetched by the app; anything else refused
+  test('the clipboard takes only PNG bytes of a sane size from the team page', () => {
+    const header = (w: number, h: number) => {
+      const b = new Uint8Array(64)
+      b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      new DataView(b.buffer).setUint32(16, w)
+      new DataView(b.buffer).setUint32(20, h)
+      return b
+    }
+    const png = header(40, 30)
+    expect(clipboardPng(png)).toBe(png)
+    // a small file that claims a huge picture is not decoded
+    expect(clipboardPng(header(CLIPBOARD_PNG_SIDE + 1, 10))).toBeNull()
+    expect(clipboardPng(header(10, 0))).toBeNull()
+    expect(clipboardPng(png.slice(0, 20))).toBeNull()
+    const jpeg = png.slice()
+    jpeg.set([0xff, 0xd8, 0xff])
+    expect(clipboardPng(jpeg)).toBeNull()
+    for (const x of ['iVBORw0KGgo=', [0x89, 0x50], null, undefined, new ArrayBuffer(64), { length: 64 }]) expect(clipboardPng(x)).toBeNull()
+    const big = new Uint8Array(CLIPBOARD_PNG_MAX + 1)
+    big.set(png.subarray(0, 24))
+    expect(clipboardPng(big)).toBeNull()
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const handler = main.slice(main.indexOf("ipcMain.handle('bridge:copy-image'"), main.indexOf("ipcMain.handle('bridge:folder-problem'"))
+    expect(handler).toContain('fromApp(e) ? clipboardPng(bytes) : null')
+    for (const word of [/fetch\(/, /net\.request/, /downloadURL/, /loadURL/]) expect(handler).not.toMatch(word)
+    expect(readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')).toContain("copyImage: (png) => ipcRenderer.invoke('bridge:copy-image'")
   })
 })
 

@@ -42,6 +42,13 @@ const md = (name: string, description = `${name} — does ${name}`) => `---\nnam
 function rule(p: string, subjectType: 'everyone' | 'group' | 'user', subjectId: string | null, access: 'none' | 'read' | 'write') {
   let f = h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string } | null
   if (!f) { f = { id: `f_${crypto.randomUUID()}` }; h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(f.id, p) }
+  // "none" closes the folder: Limit access since access adds up (the limit and its legacy marker everyone: none;
+  // docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+  if (access === 'none') {
+    h.ctx.db.query('UPDATE folders SET limited = 1 WHERE id = ?').run(f.id)
+    if (!h.ctx.db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'everyone'").get(f.id)) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(crypto.randomUUID(), f.id)
+    return
+  }
   h.ctx.db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), f.id, subjectType, subjectId, access)
 }
 /** one answer of a person in a new chat of theirs, the team skill it ran */

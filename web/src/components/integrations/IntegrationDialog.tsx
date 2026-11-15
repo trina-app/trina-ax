@@ -30,11 +30,12 @@ import {
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
-import { SettingRow, useLoad } from '../../pages/admin/common'
+import { SettingRow } from '../../pages/admin/common'
 import { Button, Field, Modal, Switch, inputCls, useCopy } from '../ui'
 import { Tooltip } from '../Tooltip'
 import type { OAuthClientView } from '@mycel/shared/api'
 import { reserveSignInWindow } from './IntegrationRow'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const POLICIES: WritePolicy[] = ['ask', 'allow', 'deny']
 /** the fields inside Advanced (it opens when one of them needs fixing): an MCP server's own app is there, an API's not */
@@ -111,8 +112,8 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   const [advanced, setAdvanced] = useState(false)
   const advancedId = useId()
   const ids = { name: useId(), url: useId(), who: useId(), kind: useId(), auth: useId(), write: useId() }
-  const groups = useLoad(async () => (team ? (await api.call(API.listGroups)).items : []), [team])
-  const users = useLoad(async () => (team ? (await api.call(API.listUsers)).items : []), [team])
+  const groups = useAdminGroups(team)
+  const users = useAdminUsers(team)
   // a template takes no key: what is wrong with one is not this form's
   const checked = validate(f, existing, template ? { app: template.oauthClient, url: template.url } : undefined)
   const errors: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(checked) : checked

@@ -5,6 +5,9 @@ import { z } from 'zod'
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
 export const CALLBACK_PATH = '/api/integrations/google-drive/callback'
+/** settings key of the company's own Google app for the whole Google family (own-app.ts): `{ key, by, at, apps }`, key =
+ * configKey of the client.json it wrote. Here (not in own-app.ts) because oauth.ts reads it too. */
+export const OWN_APP_SETTING = 'integrations.googleOwnApp'
 const ConfigSchema = z.object({
   clientId: z.string().min(1).max(512), clientSecret: z.string().min(1).max(4096),
   redirectUri: z.string().url().refine(s => {

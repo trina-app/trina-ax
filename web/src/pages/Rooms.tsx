@@ -14,11 +14,13 @@
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
+import { useCanStartChat, useGuestHidden } from '../components/GuestView'
+import { guestPlacePath, meGuest } from '../lib/guests'
 import clsx from 'clsx'
 import { ListHeading, ListIcon, rowName } from '../components/list/List'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
@@ -55,6 +57,15 @@ export default function Rooms() {
   // and stays on the list, and a chat opened from it takes that entry, so Back from the chat comes back to the list
   const [params, setParams] = useSearchParams()
   const [picking, setPicking] = useState(false)
+  // the start hint and "or start a new one with +": not a guest's (components/GuestView.tsx)
+  const canStart = useCanStartChat()
+  // a guest opens their one place (Slack's single-channel guests): on a computer a guest in a room gets their room
+  // itself, not "pick one"; a guest in a project with no conversation (no 대화 place) gets their project
+  const me = useMe()
+  const guestPlace = meGuest(me)?.place
+  const guestRoom = guestPlace?.kind === 'room' ? guestPlace.id : undefined
+  const noChats = useGuestHidden().has('chats')
+  const guestHome = guestPlacePath(me)
   const asked = params.has('new')
   useEffect(() => {
     if (!asked) return
@@ -64,7 +75,8 @@ export default function Rooms() {
       return p
     }, { replace: true })
   }, [asked, setParams])
-  const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
+  // the phone's rows, sized by the list tokens (index.css): at least a ListRow's height, faces as big as a ListIcon
+  const row = 'flex min-h-row-min items-center gap-3 px-4 py-2 hover:bg-hover sm:px-6'
   // a computer: the 대화 panel beside the page is the list (with its ⊕ 새 대화), so the page says to pick one and keeps
   // only what the panel has not: the hidden conversations
   const computer = useMediaQuery('(min-width: 768px)')
@@ -73,11 +85,14 @@ export default function Rooms() {
   const folders = useFolders('rooms', !computer)
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
+  if (noChats && guestHome) return <Navigate to={guestHome} replace />
+  // (not while they have hidden conversations: this page is where those are)
+  if (computer && guestRoom && !asked && !hidden.length) return <Navigate to={`/rooms/${guestRoom}`} replace />
   if (computer)
     return (
       <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
-          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t('rail.pickConversation')}</p>
+          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t(canStart ? 'rail.pickConversation' : 'rail.pickConversationOnly')}</p>
           {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         </div>
         {/* /rooms?new=1 (a link that asks for a new conversation) opens the people list here too */}
@@ -107,7 +122,7 @@ export default function Rooms() {
               </section>
             )
           })}
-        {loaded && !failed && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
+        {loaded && !failed && canStart && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
           <button type="button" onClick={() => setPicking(true)} className="mt-2 flex min-h-11 w-full items-center gap-2 px-4 text-left text-sm text-muted hover:text-ink sm:px-6" data-testid="rooms-start-hint">
             <Plus size={16} aria-hidden />
             {t('rooms.startHint')}
@@ -169,7 +184,7 @@ function HiddenRooms({ rooms }: { rooms: Room[] }) {
   return (
     <section className="pt-4 pb-8" data-testid="rooms-hidden">
       <h2>
-        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-sm text-muted hover:text-ink sm:px-6 md:min-h-9 md:text-xs" data-testid="rooms-hidden-toggle">
+        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-xs text-muted hover:text-ink sm:px-6 md:min-h-9" data-testid="rooms-hidden-toggle">
           {t('rooms.hidden.title', { n: rooms.length })}
           <ChevronDown size={14} className={clsx('transition-transform motion-reduce:transition-none', !open && '-rotate-90')} aria-hidden />
         </button>
@@ -205,7 +220,8 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const line = !m ? '' : plainLine(m.excerpt)
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const nameOf = useNameOf()
-  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
+  // an app's message: the app's name (docs/DECISIONS.md "Apps posting in rooms")
+  const who = !m ? null : m.app ? m.app.name : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
   const unread = roomUnread(room)
   const menu = useRowMenu()
   return (
@@ -215,7 +231,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       '[--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
       // while the "⋯" shows over the row's end, the preview stops before it (the time and the count give way)
       'pointer-fine:group-hover:pr-14 group-has-[:focus-visible]:pr-14 pointer-fine:group-has-[[aria-expanded=true]]:pr-14')} data-testid="rooms-row">
-      <RoomIcon room={room} size={40} tile presence />
+      <RoomIcon room={room} size={32} glyph={18} tile presence />
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">

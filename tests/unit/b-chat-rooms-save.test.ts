@@ -32,7 +32,7 @@ const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 let h: Harness
 const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-chat-rooms-save', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-chat-rooms-save', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   // the contract's group ids (and a team room's groupId) are UUIDv7; the fixture's are short
   const db = h.ctx.db
   db.exec('PRAGMA foreign_keys = OFF')
@@ -131,7 +131,7 @@ describe('where it is', () => {
 
 describe('saving a room file from my own chat', () => {
   // review of #678 (TC-664): "Always allow" for saving where more people can see does not skip the room's own card
-  // (the one card asks both); only both choices on skip it
+  // (the one card asks both); only both choices on skip it. The card itself offers "Always allow" for both (TC-1292)
   test('the combined room + wider card: never skipped by "save where more people can see" alone; both on: no card', async () => {
     const { keepAlways } = await import('../../server/src/chat/always-allow')
     const roomId = await teamRoom(['alice', 'erin'], `combo-${uuidv7().slice(-6)}`)
@@ -140,12 +140,30 @@ describe('saving a room file from my own chat', () => {
     try {
       const one = await run('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/combo-one/')), () => 'skip')
       expect(one.cards).toHaveLength(1)
-      expect(one.cards[0]!.options?.map((o) => o.value)).toEqual(['save', 'skip'])
+      expect(one.cards[0]!.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
       expect(fs.existsSync(at(`shared/combo-one/${file.name}`))).toBe(false)
       keepAlways(h.ctx.db, 'alice', 'room_change', null)
       const both = await run('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/combo-two/')), () => 'skip')
       expect(both.cards).toHaveLength(0)
       expect(fs.existsSync(at(`shared/combo-two/${file.name}`))).toBe(true)
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
+  test('the combined card offers Always allow on its first showing; picking it keeps both kinds, then no card (TC-1292)', async () => {
+    const { alwaysOn } = await import('../../server/src/chat/always-allow')
+    const roomId = await teamRoom(['alice', 'erin'], `combo-a-${uuidv7().slice(-6)}`)
+    const { file } = await sentPdf('erin', roomId)
+    h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+    try {
+      const first = await run('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/combo-three/')), () => '__always')
+      expect(first.cards).toHaveLength(1)
+      expect(first.cards[0]!.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
+      expect(fs.existsSync(at(`shared/combo-three/${file.name}`))).toBe(true)
+      expect(alwaysOn(h.ctx.db, 'alice', 'room_change')).toBe(true)
+      expect(alwaysOn(h.ctx.db, 'alice', 'save_wider')).toBe(true)
+      const next = await run('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/combo-four/')), () => 'skip')
+      expect(next.cards).toHaveLength(0)
+      expect(fs.existsSync(at(`shared/combo-four/${file.name}`))).toBe(true)
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 
@@ -158,7 +176,7 @@ describe('saving a room file from my own chat', () => {
     // shared/ is wider than the room: the wider-audience card, the rooms-seen line in front, with what the call saves
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
-    expect(c.options?.map((o) => o.value)).toEqual(['save', 'skip'])
+    expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
     expect(c.question).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first. ')
     expect(c.question).toContain(`messages of the room '${name}'`)
     expect(c.question).toContain(W(`shared/company/${file.name}`))

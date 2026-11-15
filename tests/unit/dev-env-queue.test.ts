@@ -241,6 +241,42 @@ describe('commands wait in the queue (no "busy")', () => {
     expect(rows().filter((x) => x.foreground === 1)).toEqual([])
     expect(runs.size).toBe(1)
   })
+  describe('a second command in the same project', () => {
+    const falcon = { id: '', folderPath: 'projects/falcon', name: 'Falcon' }
+    test('waits for the first with a plain line, holds no team slot, and runs when the first ends', async () => {
+      setSrtSystem(fake, { base: devBase, id: 'mycel', plan: plan(2) })
+      falcon.id = falconId
+      const first = shell('alice', chatFalcon, undefined, falcon).call({ command: 'sleep' })
+      await until(() => active().length === 1)
+      const second = shell('alice', chatFalcon, undefined, falcon).call({ command: 'echo second' })
+      await until(() => steps.length === 1)
+      expect(steps[0]!.run).toMatchObject({ kind: 'command', state: 'waiting', position: null, why: 'project' })
+      // no ticket and no slot: another person's command in another folder runs at once
+      expect(rows().filter((x) => x.foreground === 1)).toEqual([])
+      expect(out(await shell('bob', chatB).call({ command: 'echo other' }))).toContain('other')
+      expect(active().length).toBe(1)
+      finish(active()[0]!.spec.runId)
+      expect(out(await first)).toContain('Exit code 0.')
+      const r = await second
+      expect(out(r)).toContain('second')
+      expect(steps.at(-1)!.run).toMatchObject({ id: steps[0]!.run.id, state: 'started' })
+    })
+    test('stopping the turn while it waits for the project: nothing runs, the step says cancelled', async () => {
+      setSrtSystem(fake, { base: devBase, id: 'mycel', plan: plan(2) })
+      falcon.id = falconId
+      const first = shell('alice', chatFalcon, undefined, falcon).call({ command: 'sleep' })
+      await until(() => active().length === 1)
+      const ac = new AbortController()
+      const second = shell('alice', chatFalcon, ac.signal, falcon).call({ command: 'echo never' })
+      await until(() => steps.length === 1)
+      ac.abort()
+      expect(out(await second)).toContain('did not run')
+      expect(steps.at(-1)!.run).toMatchObject({ state: 'cancelled' })
+      expect(rows().filter((x) => x.foreground === 1)).toEqual([])
+      finish(active()[0]!.spec.runId)
+      await first
+    })
+  })
 })
 
 describe('cancel', () => {

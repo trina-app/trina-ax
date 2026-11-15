@@ -44,7 +44,7 @@ export function InstallGuide() {
   const [here, ...others] = guideOrder(p)
   const push = <p className="mt-3 break-keep text-sm text-muted">{t('apps.pushStep', { button: t('push.enable') })}</p>
   const title = (key: MessageKey, mine: boolean) => (
-    <h3 className="text-sm font-semibold">
+    <h3 className="text-title-sm font-semibold">
       {t(key)}
       {/* phones: in words, not a badge */}
       {mine && (phone ? <span className="font-normal text-muted"> · {t('apps.thisDevice')}</span> : <Badge tone="accent" className="ml-2">{t('apps.thisDevice')}</Badge>)}

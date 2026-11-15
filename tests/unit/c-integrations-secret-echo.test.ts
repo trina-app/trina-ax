@@ -90,7 +90,7 @@ const native = fs.existsSync(GATE)
 
 describe('a turn that repeats the stored key', () => {
   beforeAll(async () => {
-    h = await startHarness({ name: 'c-integrations-secret-echo', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'c-integrations-secret-echo', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
     h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'true') ON CONFLICT(key) DO UPDATE SET value='true'").run()
     const hub = h.rt().hub
     const publish = hub.publish.bind(hub)

@@ -14,6 +14,8 @@ These docs are built for people and for AI agents. Every page has a plain Markdo
 
 Each page has a **Copy page** button. Its menu also has **View as Markdown** and **Copy llms.txt link**.
 
+The user guide (Getting started and Use Trina AX) is also in Simplified Chinese under `/zh/`, with its own `zh/llms.txt`, `zh/llms-full.txt` and Markdown copies. Its source is `docs/site/zh/`: the same file names, a `nav.json` with translated titles, and the app's Chinese labels from `web/src/i18n/zh.ts`. A page with a Chinese twin names it with `hreflang` and has a link to it. The other pages are English only; the Chinese navigation marks them （英文）.
+
 ## Format of llms.txt
 
 ```text
@@ -40,10 +42,11 @@ bun run docs:build        # writes dist/docs-site/
 
 `bun run docs:api` regenerates the [HTTP API reference](../reference/http-api.md) from the API contract. A unit test fails when it is out of date.
 
-The screenshots in `docs/site/images/` come from a running server with made-up data. Refresh them after a UI change:
+The screenshots in `docs/site/images/` (the Chinese pages' own in `docs/site/images/zh/`) come from made-up data. Refresh them after a UI change with one command:
 
 ```sh
-DOCS_SHOT_USER=dion DOCS_SHOT_PASSWORD=… bun run docs:screenshots --url https://team.example.com
+bun run build:native && bun run build:web   # once per worktree
+bun run docs:reshoot                        # --lang en|zh, --only chats, --keep
 ```
 
-It signs in through the form, uses the light theme at 1280×800 (2× pixels), hides the development banner and writes WebP files. `--only scheduled` refreshes one page's shots.
+It starts the fictional Acme company (`bun run demo:company`, filled by `scripts/docs/acme-scene.ts`, with real answers from this computer's Claude Code sign-in) and the quickstart's demo on free ports, signs in through the form, takes every shot in English and in Simplified Chinese (light theme, 1440×900 or a 390×844 phone, 2× pixels, no development banner), writes WebP files, then stops both servers and deletes their data. `bun run docs:screenshots` takes one set from a server you started yourself; the Slack and Google pages' shots come from the web e2e mock server with `--mock`.

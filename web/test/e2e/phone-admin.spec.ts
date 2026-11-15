@@ -135,14 +135,14 @@ test('a page that opens another (Usage → its limits in Team settings): ‹ nam
   await expect(page).toHaveURL(/\/admin\/usage$/)
 })
 
-test('Folder permissions: By folder ↔ By person adds no history on a phone', async ({ page }) => {
+test('Folder permissions: Folders ↔ What a person can open adds no history on a phone', async ({ page }) => {
   await openAdmin(page)
   await page.getByTestId('admin-row-folders').click()
   await expect(page).toHaveURL(/\/admin\/folders$/)
   const length = await historyLength(page)
-  await page.getByRole('tab', { name: t['accessView.byPerson'] }).click()
+  await page.getByRole('tab', { name: t['folders.tabPerson'] }).click()
   await expect(page).toHaveURL(/view=people/)
-  await page.getByRole('tab', { name: t['accessView.byFolder'] }).click()
+  await page.getByRole('tab', { name: t['folders.tabFolders'] }).click()
   await expect(page).not.toHaveURL(/view=people/)
   expect(await historyLength(page)).toBe(length)
   await page.goBack()

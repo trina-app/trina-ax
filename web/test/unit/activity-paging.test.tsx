@@ -12,6 +12,7 @@ import { notificationsChanged } from '../../src/store/live'
 import Activity from '../../src/pages/Activity'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 import { ME } from './rooms-fixtures'
+import { useListCache } from '../../src/store/listCache'
 
 setDefaultTimeout(30_000)
 const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
@@ -50,6 +51,8 @@ beforeAll(() => {
 })
 afterEach(() => {
   asked.length = 0
+  // each test starts from a first visit (store/listCache.ts keeps the last list)
+  useListCache.getState().reset()
   useRooms.getState().reset()
   useSession.setState({ status })
 })

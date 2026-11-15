@@ -16,7 +16,7 @@ const cm = () => 'cm-' + crypto.randomUUID()
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-outside-content', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-outside-content', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-alice-outside' })
   await alice.next('hello')
 })

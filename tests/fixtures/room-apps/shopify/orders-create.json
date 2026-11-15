@@ -1,0 +1,46 @@
+{
+ "id": 5820982911946154,
+ "name": "#9999",
+ "order_number": 1234,
+ "email": "jamie@example.com",
+ "phone": "+1-555-0100",
+ "currency": "USD",
+ "total_price": "403.00",
+ "financial_status": "pending",
+ "cancelled_at": null,
+ "customer": {
+  "id": 115310627314723,
+  "email": "jamie@example.com",
+  "first_name": "Jamie",
+  "last_name": "Rivera",
+  "phone": "+1-555-0100"
+ },
+ "shipping_address": {
+  "first_name": "Jamie",
+  "address1": "123 Fake Street",
+  "city": "Ottawa",
+  "zip": "K2P 0V6",
+  "country": "Canada",
+  "phone": "555-555-5555"
+ },
+ "line_items": [
+  {
+   "id": 1,
+   "title": "Aviator sunglasses",
+   "quantity": 1,
+   "price": "89.99"
+  },
+  {
+   "id": 2,
+   "title": "Mid-century lounger",
+   "quantity": 2,
+   "price": "159.99"
+  },
+  {
+   "id": 3,
+   "title": "Gift wrap",
+   "quantity": 1,
+   "price": "0.00"
+  }
+ ]
+}

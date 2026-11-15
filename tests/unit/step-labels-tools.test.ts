@@ -134,7 +134,7 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     for (const n of ['memo-b.md', 'memo-c.md'])
       expect(shown('write', ko(n, STEP_TEXT.roomOnceStep.ko), 'ko')).toEqual({ label: `파일 저장 · 전사 공유 › 양식 › ${n} · 이번만 허용으로 진행`, path: `shared/양식/${n}` })
     // every why, written in any language, in the screen's language after the path in words
-    for (const key of COVER_STEP_KEYS) for (const from of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const key of COVER_STEP_KEYS) for (const from of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       const label = `${FILE_STEP_VERB.write![from]} · shared/양식/memo-b.md · ${STEP_TEXT[key][from]}`
       expect(shown('write', label, 'en')).toEqual({ label: `Save · Company-wide › 양식 › memo-b.md · ${STEP_TEXT[key].en}`, path: 'shared/양식/memo-b.md' })
     }
@@ -149,7 +149,7 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
   test('remember while its card waits, in the language on screen; a card that ran out (QA TC-214)', () => {
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: 'Asking whether to remember: lunch at 12' }, 'ko').label).toBe('기억할지 묻는 중: lunch at 12')
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: '기억할지 묻는 중: lunch at 12' }, 'ja').label).toBe('記憶するか確認中：lunch at 12')
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       expect(unansweredStep({ tool: 'ask_user', detail: STEP_TEXT.notAnswered[l] })).toBe(true)
       expect(unansweredStep({ tool: 'remember', detail: STEP_TEXT.notAnswered[l] })).toBe(true)
     }

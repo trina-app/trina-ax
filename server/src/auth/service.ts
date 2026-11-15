@@ -20,7 +20,8 @@ import { myStatusOf } from './status-messages'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
-import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
+import { guestDetail } from './guests'
+import { USER_COLS_U, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconOfMe } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
@@ -33,6 +34,7 @@ import { htmlPdfUnavailable } from '../files/html-pdf'
 import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 import { webAllowAll } from '../tools/web-allow-all'
+import { mediaKeyOf } from './media-key'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -111,7 +113,7 @@ export class AuthService implements SessionService {
   async resolve(req: Request, _info: RequestInfo): Promise<AuthInfo | null> {
     const t = readToken(req)
     if (!t) return null
-    const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at AS s_expires, s.last_seen_at AS s_seen, s.temp_login, u.${USER_COLS.split(', ').join(', u.')}
+    const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at AS s_expires, s.last_seen_at AS s_seen, s.temp_login, ${USER_COLS_U}
       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hashToken(t.token)) as (UserRow & { sid: string; client: ClientKind; s_expires: string; s_seen: string; temp_login: number }) | null
     if (!row) return null
     const now = this.now()
@@ -249,6 +251,7 @@ export class AuthService implements SessionService {
     if (!u) return fail('unauthorized')
     const s = this.db.query('SELECT id, client, expires_at, temp_login FROM sessions WHERE id = ?').get(sessionId) as { id: string; client: ClientKind; expires_at: string; temp_login: number } | null
     if (!s) return fail('unauthorized')
+    const mediaKey = mediaKeyOf(this.db, s.id)
     const groups = this.db.query('SELECT g.id, g.name FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY g.name').all(userId) as { id: string; name: string }[]
     const settings = getTeamSettings(this.db)
     // an own default engine / model counts only while the person may pick (Admin > AI engines)
@@ -261,7 +264,9 @@ export class AuthService implements SessionService {
     const address = teamAddressOf(this.ctx, at)
     // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
     const status = myStatusOf(this.db, u.id)
+    const guest = u.role === 'guest' ? guestDetail(this.db, u.id) : undefined
     return {
+      ...(guest ? { guest } : {}),
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
@@ -272,7 +277,7 @@ export class AuthService implements SessionService {
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, projectCreators: settings.projectCreators, ...(address ? { address } : {}) },
-      session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
+      session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,

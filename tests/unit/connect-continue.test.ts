@@ -28,7 +28,7 @@ let h: Harness, svc: FakeServices
 const published: { userId: string; ev: any }[] = []
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'connect-continue', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'connect-continue', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'true') ON CONFLICT(key) DO UPDATE SET value='true'").run()
   const hub = h.rt().hub
   const publish = hub.publish.bind(hub), publishTo = hub.publishTo.bind(hub)

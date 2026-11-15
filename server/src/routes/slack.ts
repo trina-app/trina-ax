@@ -77,6 +77,8 @@ export const slackRoutes: RouteModule = {
     }))
     kit.handle(API.setSlackEnabled, ({ c, body, auth }) => safe(c.get('locale'), () => slack().setEnabled(auth.user.id, body.enabled)))
     kit.handle(API.startSlackSignIn, ({ c, auth }) => safe(c.get('locale'), () => slack().startSignIn(auth.user.id, auth.session.id, auth.session.client)))
+    // Cancel, or the screen stopped waiting: this session's sign-in that still waits is ended (QA TC-1417)
+    kit.handle(API.cancelSlackSignIn, ({ auth }) => { slack().cancelFlows('signin', auth.user.id, auth.session.id) })
     // "I updated them": Slack is asked again which scopes the bot has (reading threads and channels)
     kit.handle(API.recheckSlackReadScopes, ({ auth }) => slack().recheckReadScopes(auth.user.id))
     // Slack sends the browser back here after "Sign in with Slack". Signed in as the person who started it: linked.
@@ -99,6 +101,7 @@ export const slackRoutes: RouteModule = {
     // the team's own app (its tokens) is the owner's alone: the service refuses an admin there
     kit.handle(API.removeSlack, ({ c, auth }) => safe(c.get('locale'), () => slack().remove(auth.user.id, { owner: auth.user.role === 'owner' })))
     // "Add to Slack" (the hosting service's official app): Slack's install page; the browser comes back below
+    kit.handle(API.cancelSlackInstall, ({ auth }) => { slack().cancelFlows('install', auth.user.id, auth.session.id) })
     kit.handle(API.startSlackInstall, ({ c, body, auth }) => safe(c.get('locale'), () => slack().startInstall(auth.user.id, auth.session.id, auth.session.client, teamOrigin(c, ctx, body.origin))))
     // The hosting service sends the browser back here after Slack's "Add to Slack" (only to this team's address it
     // recorded). Signed in as the owner or admin who pressed it: added. No session in this browser: sign in first, then the

@@ -108,7 +108,7 @@ export function SkillsStep({ nextLabel, onNext, onSkip, busy, note }: SkillsStep
   else if (allIn) body = <p className="text-sm text-muted" data-testid="skill-packs-all-in">{t('welcome.skills.allIn', namedProduct(t))}</p>
   else body = (
     <section className="space-y-1" aria-labelledby="skills-packs-title" data-testid="skill-packs">
-      <h3 id="skills-packs-title" className="text-sm font-semibold text-ink">{t('skills.catalog.title', namedProduct(t))}</h3>
+      <h3 id="skills-packs-title" className="text-title-sm font-semibold text-ink">{t('skills.catalog.title', namedProduct(t))}</h3>
       <PackRows
         items={rows}
         checked={checked}
@@ -135,7 +135,7 @@ export function SkillsStep({ nextLabel, onNext, onSkip, busy, note }: SkillsStep
     <div className="space-y-6" data-testid="skills-step">
       <div className="space-y-2">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-ink">{t('welcome.skills.title')}</h2>
+          <h2 className="text-display font-semibold text-ink">{t('welcome.skills.title')}</h2>
           <p className="text-sm text-balance text-muted">{t('welcome.skills.desc')}</p>
         </div>
         {note}

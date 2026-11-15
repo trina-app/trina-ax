@@ -1,2 +1,0 @@
-- Dev environment: on a Mac team server the folder check reads the path of the opened file from the system, so a folder swapped for a link during the check can no longer slip a file from outside into the file history. Linux is unchanged.
-- Team settings › Dev environment: when the server refuses to turn it on, the switch goes back off instead of staying on until the page is reloaded, and the "cannot run" note uses the same friendly Korean as the error.

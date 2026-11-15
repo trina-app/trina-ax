@@ -27,6 +27,9 @@ export const P4_SPECS: Record<string, Spec> = {
   removePushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/remove', { key: 'A'.repeat(43) }), scope: 'byLevel' },
   // public by design (the iPhone's notification extension, with the label key; no session): {} for every failure
   labelPushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/label', { key: 'A'.repeat(43), notificationId: 'n-1' }), scope: 'byLevel' },
+  // Settings › Notifications › Phone: where phone notifications go (owners and admins only; 'off' needs no network)
+  getPushGateway: { build: c => c.get('/api/admin/push-gateway'), scope: 'byLevel' },
+  setPushGateway: { build: c => c.put('/api/admin/push-gateway', { choice: 'off' }), scope: 'byLevel' },
   myDriveConnection: { build: c => c.get('/api/integrations/google-drive?userId=alice'), scope: 'self' },
   authorizeDrive: { build: c => c.post('/api/integrations/google-drive/authorize', {}), scope: 'self' },
   driveFlow: { build: c => c.get('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
@@ -49,6 +52,9 @@ export const P4_SPECS: Record<string, Spec> = {
   googleAppsAdminStatus: { build: c => c.get('/api/admin/google-apps'), scope: 'byLevel' },
   setGoogleAppClient: { build: c => c.put('/api/admin/google-apps/gmail/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
   setGoogleAppMembers: { build: c => c.put('/api/admin/google-apps/gmail/members', { on: true }), scope: 'byLevel' },
+  googleOwnApp: { build: c => c.get('/api/admin/google/own-app'), scope: 'byLevel' },
+  setGoogleOwnApp: { build: c => c.put('/api/admin/google/own-app', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
+  removeGoogleOwnApp: { build: c => c.del('/api/admin/google/own-app'), scope: 'byLevel' },
   // the account shared with the team (QA TC-198): owners and admins only; its sign-in is bound to the admin's session
   authorizeGoogleAppTeam: { build: c => c.post('/api/admin/google-apps/gmail/team/authorize', {}), scope: 'byLevel' },
   googleAppTeamFlow: { build: c => c.get('/api/admin/google-apps/gmail/team/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
@@ -66,7 +72,7 @@ export const P4_SPECS: Record<string, Spec> = {
   listDriveShares: { build: c => c.get('/api/admin/google-drive/shares'), scope: 'byLevel' },
   authorizeDriveShare: { build: c => c.post('/api/admin/google-drive/shares/authorize', {}), scope: 'byLevel' },
   completeDriveShareFlow: { build: c => c.post('/api/admin/google-drive/shares/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },
-  driveShareFolders: { build: c => c.get('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000/folders'), scope: 'byLevel' },
+  driveShareFolders: { allowNotFound: true, build: c => c.get('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000/folders'), scope: 'byLevel' },
   updateDriveShare: { build: c => c.patch('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000', { name: 'Matrix Drive' }), scope: 'byLevel' },
   stopDriveShare: { build: c => c.del('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
 }

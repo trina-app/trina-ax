@@ -11,9 +11,9 @@ import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
 import { costOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
-import { memberOwnAllowed } from './policy'
+import { personalConnectionsAllowed } from './policy'
 import {
-  admins, getRow, markInvalid, notifyOnce, ownerAndAdminsPlusOwnerOf, secretOf, teamDay, unusable,
+  getRow, markInvalid, notifyAboutConnection, secretOf, teamDay, unusable,
   type CredCtx, type CredRow, type Secrets,
 } from './store'
 
@@ -122,7 +122,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       // A late 401 must not start new maintenance after the owner withdrew permission.
       // An already-running refresh still persists rotated tokens; forRequest checks permission before use.
       if (unusable(cc.db, row, new Date(cc.now()), cc.allowedKinds)
-        || row.owner_user_id !== null && !memberOwnAllowed(cc.db)) return 'refused'
+        || row.owner_user_id !== null && !personalConnectionsAllowed(cc.db, row.owner_user_id)) return 'refused'
       const f = await ensureFresh(cc, credentialId, { force: true, sentAccess })
       return f.ok ? 'retry' : f.permanent ? 'refused' : 'temporary'
     },
@@ -142,7 +142,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       }
       // the owner and admins hear about it when it leaves the family without a usable team connection
       if (teamCredentialSummary(cc.db, familyOfKind(row.kind), cc.allowedKinds, new Date(cc.now())).usable === 0 || row.owner_user_id) {
-        notifyOnce(cc, credentialId, { level: 'warn', code: 'credential_limited', message: { ko: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ko') }).ko, en: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'en') }).en, id: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'id') }).id, ja: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ja') }).ja, es: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'es') }).es }, link: '/admin/credentials' }, row.owner_user_id ? ownerAndAdminsPlusOwnerOf(cc, row) : admins(cc.db))
+        notifyAboutConnection(cc, row, { level: 'warn', code: 'credential_limited', message: { ko: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ko') }).ko, en: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'en') }).en, id: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'id') }).id, ja: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'ja') }).ja, es: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'es') }).es, zh: ctAll('nLimited', { label: row.label, time: fmtTime(iso, 'zh') }).zh }, link: '/admin/credentials' })
       }
     },
 

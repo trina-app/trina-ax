@@ -23,21 +23,21 @@ Bring the skills you use with Claude Code or Codex to the team. Pick your `.clau
 Put the team's documents (company intro, reports, forms) into the team's folder. One line says who will see them.
 
 #### Invite
-Copy the ready-made message. It names one skill, and people who join land on that skill's form. When each person signs in to their own AI, the message says so.
+Copy the ready-made message. It names one skill, and people who join land on that skill's form. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
 :::
 
 At the end, **You're all set** offers to try that skill yourself first. It shows once.
 
 ## While the deck builds
 
-The deck is an ordinary chat with Trina. On a computer you see it in your list of Trina chats on the left, beside the steps; you can open it at any time. On a phone it is in your Trina chats on the **트리나** tab.
+The deck is an ordinary chat with Trina. On a computer you see it in **Trina history** in your Trina list on the left, beside the steps; you can open it at any time. On a phone, open the **Trina** tab and press **☰**: it is in **Trina history**.
 
 ## Coming back
 
-- **Continue setup · 2/4** shows near the top of every list beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of the **트리나** tab.
+- **Continue setup · 2/4** shows near the top of the Trina, Chats, Files and Activity lists beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of the **☰** list on the **Trina** tab and of the **Files** tab, and Home shows it as a quiet row under the message box.
 - Opening the app on Home also brings you back to the steps, once per browser session.
 - ✕ hides the row. **Show setup again** in Admin › Home brings it back.
 
 ## When setup counts as finished
 
-The company profile is saved with the deck started or put off, and your skills, team files and the invite are each done or put off. A skill to merge into an existing team skill waits until then; afterwards one notice in **활동** (Activity), **Review skills to merge**, opens the merge chat.
+The company profile is saved with the deck started or put off, and your skills, team files and the invite are each done or put off. A skill to merge into an existing team skill waits until then; afterwards one notice in **Activity**, **Review skills to merge**, opens the merge chat.

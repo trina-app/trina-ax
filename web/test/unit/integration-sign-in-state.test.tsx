@@ -77,8 +77,36 @@ test('back on the page with the sign-in not finished: "not finished yet", 다시
   } finally { await m.unmount() }
 })
 
-test('while still in the sign-in window (no return yet): the waiting line, no 다시 시도', async () => {
+test('Cancel while the service\'s answer is being exchanged: the flow is read again, and one that ended connected is said as connected, never cancelled (security review of #822)', async () => {
+  const deleted: string[] = []
+  const inner = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://team.localhost')
+    if (init?.method === 'DELETE' && url.pathname === '/api/integrations/flows/flow-1') { deleted.push(url.pathname); flowState = 'completed'; return new Response(null, { status: 204 }) }
+    return inner(input, init)
+  }) as typeof fetch
+  const box: { s: ReturnType<typeof useSignIn> | null; done: string[] } = { s: null, done: [] }
+  function Probe() {
+    box.s = useSignIn((id) => { box.done.push(id) })
+    return <span data-testid="state">{box.s.state ? box.s.state.state : 'none'}</span>
+  }
+  const m = await mount(<Probe />)
+  try {
+    await act(() => box.s!.start(ID, null))
+    await m.settle()
+    flowState = 'exchanging'
+    await act(async () => { box.s!.cancel() })
+    // cancelled on the server (it was already being exchanged there: it finishes), then read again: connected
+    await m.until(() => box.done.length > 0, 'connected after all', 6000)
+    expect(deleted).toEqual(['/api/integrations/flows/flow-1'])
+    expect(box.done).toEqual([ID])
+    expect(m.get('state').textContent).toBe('none')
+  } finally { await m.unmount() }
+})
+
+test('while still in the sign-in window (no return yet): the waiting line, with 다시 시도 and 취소 from the start (QA TC-1417: a window closed in the desktop app sent no focus)', async () => {
   const html = await panel({ id: ID, flowId: 'flow-1', url: 'https://mcp.notion.com/authorize', state: 'pending', reason: null })
   expect(html).toContain(translate('ko', 'integrations.signIn.waiting'))
-  expect(html).not.toContain('integration-signin-retry')
+  expect(html).toContain('integration-signin-retry')
+  expect(html).toContain('integration-signin-cancel')
 })

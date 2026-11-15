@@ -115,6 +115,33 @@ test('a code exchanged without the matching verifier fails; expired flows and ch
   expect(everything()).not.toContain(MCP_KEY)
 })
 
+test('Cancel in the app (or a wait that ran out): the flow is cancelled there, a window left open cannot finish it, only its own session may (QA TC-1417)', async () => {
+  const c = await create()
+  const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  const cb = fake.authorize(f.authorizationUrl)
+  const tokenCalls = () => fake.seen.filter((x) => x.path === '/as/token').length
+  const tokensBefore = tokenCalls()
+  // someone else, or another session of the same person: not theirs
+  expect((await bob.try('DELETE', `/api/integrations/flows/${f.flowId}`)).status).toBe(404)
+  const olga2 = h.client()
+  await olga2.login('olga', OWNER_PW)
+  expect((await olga2.try('DELETE', `/api/integrations/flows/${f.flowId}`)).status).toBe(404)
+  expect((await olga.raw('DELETE', `/api/integrations/flows/${f.flowId}`)).status).toBe(204)
+  expect(await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'failed', reason: 'cancelled' })
+  // its secrets are gone, and the service's late answer connects nothing; the window says it was cancelled
+  expect((h.ctx.db.query('SELECT secret_enc FROM integration_oauth_flows WHERE id = ?').get(f.flowId) as { secret_enc: string | null }).secret_enc).toBeNull()
+  const late = await olga.raw('GET', callback(cb))
+  expect(late.status).toBe(400)
+  expect(await late.text()).toContain('취소')
+  expect(tokenCalls()).toBe(tokensBefore)
+  expect(getRow(h.ctx.db, c.id)!.secret_enc).toBeNull()
+  // twice: nothing more changes; a new Connect works as before
+  expect((await olga.raw('DELETE', `/api/integrations/flows/${f.flowId}`)).status).toBe(204)
+  const again = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(again.authorizationUrl)))).status).toBe(200)
+  expect(await olga.call('GET', `/api/integrations/flows/${again.flowId}`)).toMatchObject({ state: 'completed' })
+})
+
 test('a team connection records whose sign-in it is (팀장 넘기기 reads only that); a personal one does not; a moved address or a removal clears it', async () => {
   const signer = (id: string) => (h.ctx.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").get(id) as { user_id: string } | null)?.user_id
   const mine = await connect()

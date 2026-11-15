@@ -66,7 +66,7 @@ describe('levels and room', () => {
 })
 
 describe('a plan smaller than the disk', () => {
-  const plan = (diskGiB: number) => Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB, maxActiveMembers: 3 })
+  const plan = (diskGiB: number) => Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB, maxActiveMembers: 3 })
   const DAY = 24 * 3600_000
   const T0 = Date.parse('2026-11-02T00:00:00.000Z')
   let s: StatFs
@@ -275,6 +275,22 @@ describe('the monitor and the API', () => {
     expect(r.plan).toBeUndefined()
     setPlanForTests(undefined)
   })
+  test('files of deleted chats and rooms (kept 30 days) are counted in the team files and shown as kept', async () => {
+    const sys = path.join(h.ctx.config.teamRoot, '.system')
+    await getOps(h.ctx)!.storage.measure()
+    const before = (await owner.call('GET', '/api/admin/storage')).breakdown
+    for (const d of ['chat-files-orphans/b1/c1', 'rooms-orphans/b2/r1']) {
+      fs.mkdirSync(path.join(sys, d), { recursive: true })
+      fs.writeFileSync(path.join(sys, d, 'f.bin'), Buffer.alloc(400_000))
+    }
+    await getOps(h.ctx)!.storage.measure()
+    const after = (await owner.call('GET', '/api/admin/storage')).breakdown
+    expect(after.kept - (before.kept ?? 0)).toBeGreaterThanOrEqual(800_000)
+    expect(after.team - before.team).toBeGreaterThanOrEqual(800_000)
+    expect(after.other).toBeLessThanOrEqual(before.other)
+    fs.rmSync(path.join(sys, 'chat-files-orphans'), { recursive: true, force: true })
+    fs.rmSync(path.join(sys, 'rooms-orphans'), { recursive: true, force: true })
+  })
   test('from 80%: the owner and admins are told once per 24 h (audited)', () => {
     const ops = getOps(h.ctx)!
     expect(ops.storage.checkAlert()).toBe(false)
@@ -296,7 +312,7 @@ describe('the monitor and the API', () => {
     const told = () => h.hub.events.filter((e) => (e.data as { data?: { message?: string } }).data?.message?.match(/2026-12-(0[78]|1[45])/))
     db.query("DELETE FROM settings WHERE key = ?").run(ALERT_KEY)
     configureStorageGuard({ root: h.ctx.config.teamRoot, statfs: () => s, now: () => now, store: { get: (k) => getSetting<string | null>(db, k) ?? null, set: (k, v) => setSetting(db, k, v) } })
-    setPlanForTests(Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
+    setPlanForTests(Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
     s = disk(80 * GiB, 6 * GiB)
 
     expect(ops.storage.checkAlert()).toBe(true)
@@ -341,7 +357,7 @@ describe('the monitor and the API', () => {
     expect(getSetting<string | null>(db, GRACE_KEY) ?? null).toBeNull()
 
     // writes are refused already at the start: the notice says so, with no date
-    setPlanForTests(Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
+    setPlanForTests(Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
     db.query('DELETE FROM settings WHERE key = ?').run(GRACE_TOLD_KEY)
     s = disk(80 * GiB, 12 * GiB)
     expect(ops.storage.checkAlert()).toBe(true)
@@ -354,7 +370,7 @@ describe('the monitor and the API', () => {
   })
   test('open upload sessions count toward the hard cap: several at once cannot pass it', async () => {
     const MiB = 1024 ** 2
-    setPlanForTests(Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
+    setPlanForTests(Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
     s = disk(80 * GiB, 10 * GiB - 300 * MiB)
     const open = (name: string) => owner.try('POST', '/api/upload-sessions', { target: { kind: 'path', path: `shared/${name}` }, size: 200 * MiB, sha256: 'a'.repeat(64) })
     expect((await open('one.bin')).status).toBe(201)
@@ -381,7 +397,7 @@ describe('the monitor and the API', () => {
     setPlanForTests(null)
     s = disk(20 * GiB, 19.6 * GiB)
     expect((await copy('shared/copy-1.md')).status).toBe(201)
-    setPlanForTests(Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
+    setPlanForTests(Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3 }))
     s = disk(80 * GiB, 11 * GiB)
     expect((await copy('shared/copy-2.md')).status).toBe(507)
     setPlanForTests(undefined)
@@ -410,7 +426,7 @@ describe('backups under a plan smaller than the disk', () => {
     layout = resolveLayout(cfg)
     clock = Date.parse('2026-11-01T04:00:00Z')
     mgr = new BackupManager({ db, dbFile, layout, log: silentLogger, version: '0.1.0', now: () => new Date(clock) })
-    setPlanForTests(Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3, localBackupRetentionDays: 3 }))
+    setPlanForTests(Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB: 5, maxActiveMembers: 3, localBackupRetentionDays: 3 }))
     configureStorageGuard({ root: cfg.teamRoot, statfs: () => s })
   })
   afterAll(() => { configureStorageGuard(null); setPlanForTests(undefined); db.close(); fs.rmSync(base, { recursive: true, force: true }) })

@@ -19,7 +19,7 @@ const folders = (b: { suggested: { path: string }[] }) => b.suggested.map((s) =>
 /** A file-list line for a file as the nightly run would keep it (the sidecar row with its unit's chain). */
 const line = (rel: string, type: string, what: string) => {
   const st = fs.lstatSync(path.join(A.team, ...rel.split('/')))
-  const units = new Units(RuleSet.load(A.ctx.db).ruleFolders())
+  const units = new Units(RuleSet.load(A.ctx.db).boundaryFolders())
   const segs = rel.split('/')
   fileListOf(A.ctx).store.put({ path: rel, size: st.size, mtimeMs: st.mtimeMs, sha: null, kind: null, real: null, fields: { type, names: [], date: '', what, lang: 'en' },
     via: 'model', readAt: new Date().toISOString(), tries: 0, chain: units.chain(units.listFolderOf(segs).split('/').filter(Boolean)), ino: `${st.dev}:${st.ino}`, batch: null })
@@ -118,7 +118,7 @@ describe('the endpoint', () => {
     // quotes the finance group keeps (alice cannot read them), and in falcon (bob reads, cannot write)
     for (const n of ['견적서_A_2024.xlsx', '견적서_B_2024.xlsx', '견적서_C_2024.xlsx']) { write(`groups/finance/견적서/${n}`); write(`projects/falcon/견적/${n}`) }
     // a folder alice can write whose only quotes are in a subfolder closed to her
-    const r0 = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/영업/비공개', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] }) })
+    const r0 = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/영업/비공개', limited: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] }) })
     expect(r0.status).toBe(201)
     for (const n of ['견적서_D_2024.xlsx', '견적서_E_2024.xlsx', '견적서_F_2024.xlsx']) write(`shared/영업/비공개/${n}`)
     write('shared/영업/안내.txt')
@@ -188,7 +188,8 @@ describe('the endpoint', () => {
     // asked from inside that folder: not offered as a place to go
     expect((await suggest('alice', ['shared/회의록/note-a.txt'])).body.recent.map((x: { path: string }) => x.path)).not.toContain('shared/회의록')
     // a folder she can no longer write drops off
-    expect((await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/회의록', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }) })).status).toBe(201)
+    // (view only under shared/'s edit: Limit access, since access adds up)
+    expect((await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/회의록', limited: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }) })).status).toBe(201)
     expect((await suggest('alice', ['shared/note-b.txt'])).body.recent.map((x: { path: string }) => x.path)).not.toContain('shared/회의록')
   })
 

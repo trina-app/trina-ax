@@ -10,8 +10,10 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
+import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
+import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { toast } from '../../store/ui'
-import { Badge, Button, confirmDialog } from '../ui'
+import { Badge, Button, LinkButton, WaitLine, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
@@ -129,12 +131,35 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     }
   }
 
+  /** the flow on the server too, while it still waits: a window left open cannot finish it afterwards (QA TC-1417) */
+  // One the service already answered (being exchanged) is not stopped by it: the flow is read again after, and one that
+  // ended connected says so (the list reads it again) instead of the screen saying cancelled or timed out.
+  const drop = (flowId: string | null | undefined, id: string | undefined) => {
+    if (!flowId) return
+    void (async () => {
+      try { await api.call(API.cancelIntegrationFlow, { params: { id: flowId } }) } catch { /* it expires there by itself */ }
+      try {
+        const f = await api.call(API.integrationFlow, { params: { id: flowId } })
+        if (f.state === 'completed' && id) { setS((x) => (x && x.flowId === flowId ? null : x)); done.current(id) }
+      } catch { /* gone: nothing more to say */ }
+    })()
+  }
   const cancel = () => {
     generation.current++
     popup.current?.close()
     popup.current = null
+    if (s && WAITING.has(s.state)) drop(s.flowId, s.id)
     setS(null)
   }
+  // waiting too long (the window was closed, or left): the wait ends as timed out, with Try again and Close
+  useWaitLimit(waiting, s?.flowId, () => {
+    if (!s?.flowId) return
+    generation.current++
+    popup.current?.close()
+    popup.current = null
+    drop(s.flowId, s.id)
+    setS((x) => (x && x.flowId === s.flowId ? { ...x, state: 'expired', reason: null } : x))
+  })
 
   return { state: s, start, cancel }
 }
@@ -145,8 +170,6 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
   const t = useT()
   const locale = useLocale()
   const [checking, setChecking] = useState<string | null>(null)
-  // one tool on or off for the AI (a second click while its request is on its way is ignored)
-  const switching = useRef(new Set<string>())
   /** a connection that is not there any more (404: an admin changed or deleted the template it was made from while
    * this page was open): say so and read the lists again, instead of "not found" on a row that stays */
   const goneNow = () => {
@@ -158,18 +181,33 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     goneNow()
     return true
   }
+  // one tool on or off for the AI, at once (lib/optimistic.ts), one queue per tool: a refusal puts back what the server
+  // last had for that tool; an answer keeps another tool still on its way as on screen
+  const toolKey = (id: string, name: string) => `integration:${id}:tool:${name}`
+  // the connection as setTool last put it on screen while one of its tools is on its way, else as the page gives it
+  const latest = useRef<Integration | null>(null)
   const setTool = async (i: Integration, name: string, enabled: boolean) => {
-    const key = `${i.id}\n${name}`
-    if (switching.current.has(key)) return
-    switching.current.add(key)
-    try {
-      replace(await api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }))
-    } catch (e) {
-      if (gone(e)) return
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      switching.current.delete(key)
+    const busy = optimisticPendingKeys((k) => k.startsWith(`integration:${i.id}:tool:`)).length > 0
+    if (!busy || latest.current?.id !== i.id) latest.current = i
+    const put = (x: Integration, on: (tool: Integration['tools'][number]) => boolean) => {
+      const next = { ...x, tools: x.tools.map((tool) => ({ ...tool, enabled: on(tool) })) }
+      latest.current = next
+      replace(next)
     }
+    const shown = (tool: Integration['tools'][number]) => tool.enabled !== false
+    const r = await optimistic({
+      key: toolKey(i.id, name), from: shown(i.tools.find((x) => x.name === name) ?? { enabled: true } as Integration['tools'][number]), to: enabled,
+      show: (v) => put(latest.current?.id === i.id ? latest.current : i, (tool) => (tool.name === name ? v : shown(tool))),
+      send: () => api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }),
+      confirmed: (x) => x.tools.find((tool) => tool.name === name)?.enabled !== false,
+      settle: (x) => {
+        const cur = latest.current?.id === i.id ? latest.current : i
+        put(x, (tool) => (tool.name !== name && optimisticPending(toolKey(i.id, tool.name)) ? shown(cur.tools.find((y) => y.name === tool.name) ?? tool) : shown(tool)))
+      },
+      failText: false,
+    })
+    if (r.ok || !r.newest || gone(r.error)) return
+    toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
   }
   /** end the person's own Always allow, so the connection's changes ask again: their own connection's write rule back
    * to "ask"; on a team connection only their own choice (never the team's rule) */
@@ -258,20 +296,20 @@ export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; on
           {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}
         </p>
       ) : (
-        <p role="status">{t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')}</p>
+        // a spinner and how long it can take (QA TC-2132): the wait ends by itself (useWaitLimit)
+        <WaitLine text={t(flow.away ? 'integrations.signIn.notFinished' : 'integrations.signIn.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="integration-signin-wait" />
       )}
       <div className="flex flex-wrap items-center gap-2">
         {!failed && flow.url && (
-          <a href={flow.url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent-text underline">
+          <LinkButton variant="primary" size="sm" href={flow.url}>
             {t('integrations.signIn.open')}
-          </a>
+          </LinkButton>
         )}
-        {(failed || flow.away) && (
-          <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
-            {t('common.retry')}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        {/* always: a window closed before it finished needs a way back (QA TC-1417) */}
+        <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
+          {t('common.retry')}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel} data-testid="integration-signin-cancel">
           {failed ? t('common.close') : t('common.cancel')}
         </Button>
       </div>

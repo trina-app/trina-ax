@@ -112,6 +112,8 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome-rooms').getAttribute('data-done')).toBe('true')
       expect(text(m, 'member-welcome-rooms')).toContain("You're in Everyone and # Sales")
       expect(m.get('member-welcome-rooms-open').getAttribute('href')).toBe('/rooms')
+      // the place is named as the nav names it (Chats), on a computer too, not "Conversations" that no label shows
+      expect(text(m, 'member-welcome-rooms')).toContain("Your team's rooms are in Chats")
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
       expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina")
       expect(m.get('member-welcome-photo').getAttribute('data-optional')).toBe('true')
@@ -272,14 +274,13 @@ describe('no AI for the person', () => {
     } finally { await m.unmount() }
   })
 
-  test('their own AI allowed: the row connects it; the trial credit\'s line when that is why', async () => {
+  test('their own AI allowed: the row connects it', async () => {
     signIn()
-    access = { usable: false, action: 'connect_own', requested: false, trial: 'used' }
+    access = { usable: false, action: 'connect_own', requested: false }
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome-connect'), 'the row')
       expect(text(m, 'member-welcome-ask')).toContain('Connect your AI so Trina can help you')
-      expect(text(m, 'member-welcome-ask')).toContain(en('aiAccess.banner.trialUsed'))
       expect(m.get('member-welcome-connect').getAttribute('data-action')).toBe('connect_own')
       expect(text(m, 'member-welcome-connect')).toBe('Connect my AI')
       expect(m.find('no-ai-card')).toBeNull()

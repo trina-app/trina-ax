@@ -132,8 +132,8 @@ test('cleanup debt fails closed, remains charged, and dead-owner recovery clears
  try { await expect(withWorkflow(A.ctx.files,A.toolCtx('carol'),async()=>{})).rejects.toThrow() }
  finally { A.ctx.db.query("DELETE FROM safe_ops_publications WHERE id='debt-test'").run() }
 })
-test('download-only and unhealthy notices cover ko/en/id/ja/es',()=>{
- for(const key of ['quarantined','workflow'] as const)for(const lang of ['ko','en','id','ja','es'] as const) expect(SAFE_OPS_TEXT[key][lang].length).toBeGreaterThan(20)
+test('download-only and unhealthy notices cover ko/en/id/ja/es/zh',()=>{
+ for(const key of ['quarantined','workflow'] as const)for(const lang of ['ko','en','id','ja','es','zh'] as const) expect(SAFE_OPS_TEXT[key][lang].length).toBeGreaterThan(20)
 })
 
 test('historical copies use the same download-only browser boundary for every authorized user',async()=>{

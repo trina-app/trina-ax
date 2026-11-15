@@ -116,6 +116,8 @@ export function saveTask(ctx: AppContext, rt: ChatRuntime, userId: string, id: s
         cols.save_folder, cols.save_folder_id, cols.save_rule, cols.save_readers, cols.save_sources, cols.personal_sends, s.id, userId)
     audit(ctx.db, { actor: userId, action: 'schedule.edited', target: s.id, detail: { changed, urls: card.urls.length, connections: connections.length, enabled: on, ...(cols.save_folder ? { saveFolder: true } : {}), ...(needsReview(s) ? { wasUnconfirmed: true } : {}) } })
   })()
+  // a new name: the folded row of its runs in the lists says it (Chat.schedule.title)
+  if (after.title !== s.title) rt.schedules.publishRuns(userId, id)
   return rt.schedules.get(userId, id)!
 }
 

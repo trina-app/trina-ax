@@ -71,6 +71,11 @@ export const CredentialsResponse = z.object({
   /** server.json engine.anthropicGateway: Claude API keys are that gateway's keys (any format of the safe shape);
    * absent or null = Anthropic's */
   anthropicGateway: z.object({ label: z.string() }).nullable().optional(),
+  /** present when a guest's AI (Team AI or their own sign-in) cannot answer on this server, and why: 'host_sign_in' =
+   * the AI engines run on this server's own Claude / ChatGPT sign-in (engine.authMode other than managed), which a
+   * guest never uses (docs/DECISIONS.md "Guests: only what they were invited to"). The guest invite and "change AI"
+   * dialogs say so; absent = guests' AI works here. */
+  guestAiUnavailable: z.enum(['host_sign_in']).optional(),
 })
 export type CredentialsResponse = z.infer<typeof CredentialsResponse>
 const Label = z.string().trim().min(1).max(60)
@@ -140,11 +145,9 @@ export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKin
 export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, moveFrom: true })
 export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true })
 
-/** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. `trial`:
- * nothing answers me because the hosting service's trial AI credit (stream B) is used up or over; the line above the
- * composer says that first. */
+/** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. */
 export const AiAccessResponse = z.object({
-  usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(), trial: z.enum(['used', 'ended']).optional(),
+  usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(),
   /** "Trina isn't ready yet": this member told the owner(s) and admins within AI_NOT_READY_WINDOW_MS (POST
    * /api/me/ai-not-ready/tell), so [Tell an admin] reads "Told" after a reload too. The server's own limit record; only
    * the asker's own; never for the owner or an admin; older servers omit it */
@@ -157,25 +160,6 @@ export const AiAccessRequestResponse = z.object({ requested: z.literal(true), al
 export const AiNotReadyTellResponse = z.object({ told: z.literal(true), already: z.boolean() })
 /** one "tried to use Trina but it isn't set up yet" notice per member in this time (the server's limit) */
 export const AI_NOT_READY_WINDOW_MS = 3600_000
-/** The hosting service's trial AI credit (docs/DECISIONS.md "B — Hosted trial AI credit", "Z — trial credit on the API
- * engine"): a key of the hosting service's that answers the team's chats on the app's own API engine only when no AI
- * connection of the team or the person can. `state`: active (answers now), used (the dollar cap is reached), ended
- * (past `endsAt`, paused by the hosting service, or refused by the provider). Dollars as the team server counts them
- * (the provider's reported cost, else list prices). Never the key, not even part of it. */
-/** the credential id of turns answered on the trial credit (turns.credential_id; Admin › Usage by connection): no
- * connection row has it */
-export const TRIAL_CREDENTIAL_ID = 'hosted-trial'
-export const TrialCredit = z.object({
-  active: z.boolean(), state: z.enum(['active', 'used', 'ended']),
-  usedUsd: z.number().nonnegative(), capUsd: z.number().nonnegative(), endsAt: IsoTime,
-  /** the one model trial answers run on (an OpenRouter model id: the trial answers on the API engine) */
-  model: z.string(),
-})
-export type TrialCredit = z.infer<typeof TrialCredit>
-/** null: this server holds no trial credit (not hosted, never had one, or taken away) */
-export const TrialCreditResponse = z.object({ credit: TrialCredit.nullable() })
-export type TrialCreditResponse = z.infer<typeof TrialCreditResponse>
-
 export const CREDENTIALS = {
   getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), did I already ask, and did I already tell an admin that Trina is not ready (within the hour).' }),
   requestAiAccess: endpoint({ method: 'POST', path: '/api/me/ai-access/request', auth: 'user', owner: 'A', response: AiAccessRequestResponse, summary: 'Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI.' }),
@@ -198,6 +182,5 @@ export const CREDENTIALS = {
   startMyCredentialLogin: endpoint({ method: 'POST', path: '/api/me/credential-logins', auth: 'user', owner: 'A', status: 202, body: StartMyLoginBody, response: CredentialLogin, summary: 'Start my own ChatGPT or Claude sign-in.' }),
   getMyCredentialLogin: endpoint({ method: 'GET', path: '/api/me/credential-logins/:id', auth: 'user', owner: 'A', response: CredentialLogin, summary: 'State of my sign-in.' }),
   cancelMyCredentialLogin: endpoint({ method: 'DELETE', path: '/api/me/credential-logins/:id', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Stop my sign-in.' }),
-  trialCredit: endpoint({ method: 'GET', path: '/api/admin/trial-credit', auth: 'admin', owner: 'A', response: TrialCreditResponse, summary: 'The hosting service\'s trial AI credit: active, dollars used of the cap, when it ends. Used only when no AI connection can answer.' }),
   submitMyCredentialLoginCode: endpoint({ method: 'POST', path: '/api/me/credential-logins/:id/code', auth: 'user', owner: 'A', body: SubmitLoginCodeBody, response: CredentialLogin, summary: 'The code Claude showed after approval (sealed), for my Claude sign-in.' }),
 } as const

@@ -59,7 +59,7 @@ const upstream = Bun.serve({
 
 const anthropic = real ? 'https://api.anthropic.com' : `http://127.0.0.1:${upstream.port}`
 const h = await startHarness({
-  name: 'g-sub-real', turnTimeoutMs: 120_000, credentials: [],
+  name: 'g-sub-real', stallTimeoutMs: 120_000, credentials: [],
   realCore: { engine: { authMode: 'managed', claudeBin: claude, codexBin: '/nonexistent/codex', proxyPort, modelUpstream: anthropic } },
 })
 const secrets = resolveLayout(h.ctx.config).secretsDir

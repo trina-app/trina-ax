@@ -101,18 +101,19 @@ describe('durable queue claims', () => {
     })()
     return { db, store, add }
   }
-  test('claim rotates persistently, never overwrites deadline or claims twice', () => {
+  test('claim rotates persistently, writes no deadline (no time limit on one answer) and never claims twice', () => {
     const { db, store, add } = fixture()
     try {
       add('a1', 'a'); add('a2', 'a'); add('b1', 'b')
       const before = store.tickets()
       expect(before.get('a')!).toBeLessThan(before.get('b')!)
-      const claimed = store.claim('a1', 'a', 2700000, '2026-10-27T00:00:00.000Z')!
-      expect(claimed.wallDeadlineAt).toBe('2026-10-27T00:45:00.000Z')
+      const claimed = store.claim('a1', 'a', '2026-10-27T00:00:00.000Z')!
+      expect(claimed).toEqual({ dispatchedAt: '2026-10-27T00:00:00.000Z' })
+      expect(db.query('SELECT wall_deadline_at FROM turns WHERE id=?').get('a1')).toEqual({ wall_deadline_at: null })
       expect(new QueueStore(db).tickets().get('a')!).toBeGreaterThan(before.get('b')!)
-      expect(store.claim('a1', 'a', 2700000)).toBeNull()
+      expect(store.claim('a1', 'a')).toBeNull()
       expect(db.query('SELECT status, dispatched_at FROM turns WHERE id=?').get('a1')).toEqual({ status: 'running', dispatched_at: claimed.dispatchedAt })
-      store.claim('a2', 'a', 2700000)
+      store.claim('a2', 'a')
       expect(store.tickets().has('a')).toBe(false)
       add('a3', 'a')
       expect(store.tickets().get('a')!).toBeGreaterThan(store.tickets().get('b')!)
@@ -146,7 +147,7 @@ describe('durable queue claims', () => {
       add('a1', 'a'); add('a2', 'a')
       const before = [...store.tickets()], sequence = db.query('SELECT next_seq FROM chat_queue_state').get()
       db.exec("CREATE TRIGGER fail_rotate BEFORE UPDATE ON chat_queue_users BEGIN SELECT RAISE(ABORT,'synthetic crash'); END")
-      expect(() => store.claim('a1', 'a', 2700000)).toThrow('synthetic crash')
+      expect(() => store.claim('a1', 'a')).toThrow('synthetic crash')
       expect(db.query("SELECT status,dispatched_at FROM turns WHERE id='a1'").get()).toEqual({ status: 'queued', dispatched_at: null })
       expect([...store.tickets()]).toEqual(before)
       expect(db.query('SELECT next_seq FROM chat_queue_state').get()).toEqual(sequence)

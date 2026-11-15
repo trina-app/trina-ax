@@ -21,8 +21,22 @@ put('skills/report/SKILL.md', text('report'))
 put('skills/report/references/guide.md', '---\nname: Resource name\n---\nPUBLIC_REFERENCE')
 put('skills/report/assets/template.txt', 'PUBLIC_TEMPLATE')
 put('skills/report/private/hidden.md', 'PRIVATE_REFERENCE')
-env.db.query("INSERT INTO folders (id, path) VALUES ('p4-private', 'skills/report/private')").run()
-env.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('p4-deny', 'p4-private', 'user', 'alice', 'none')").run()
+// (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)": a folder alice may not read is a limited folder that
+// does not name her; nobody below the owner and admins reads it here)
+env.db.query("INSERT INTO folders (id, path, limited) VALUES ('p4-private', 'skills/report/private', 1)").run()
+env.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('p4-deny', 'p4-private', 'everyone', NULL, 'none')").run()
+/** close a folder (limited, no rules: only the owner and admins) for one test; returns how to put its rules back */
+function closeFolder(id: string): () => void {
+  const rows = env.db.query('SELECT id, subject_type, subject_id, access FROM folder_rules WHERE folder_id = ?').all(id) as { id: string; subject_type: string; subject_id: string | null; access: string }[]
+  env.db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(id)
+  env.db.query('UPDATE folders SET limited = 1 WHERE id = ?').run(id)
+  env.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(`close-${id}`, id)
+  return () => {
+    env.db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(id)
+    env.db.query('UPDATE folders SET limited = 0 WHERE id = ?').run(id)
+    for (const r of rows) env.db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(r.id, id, r.subject_type, r.subject_id, r.access)
+  }
+}
 const alice = env.files.principal('alice')
 
 test('references and assets are read on demand, with their own rules and no extra skills', async () => {
@@ -48,8 +62,8 @@ test('resource symlinks, hardlinks and path traversal never escape ordinary read
 })
 
 test('revoked manifest access removes discovery and direct reads', () => {
-  env.db.query("INSERT INTO folders (id, path) VALUES ('p4-report', 'skills/report')").run()
-  env.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('p4-report-deny', 'p4-report', 'user', 'alice', 'none')").run()
+  env.db.query("INSERT INTO folders (id, path, limited) VALUES ('p4-report', 'skills/report', 1)").run()
+  env.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('p4-report-deny', 'p4-report', 'everyone', NULL, 'none')").run()
   try {
     expect(listSkills(env.files, alice)).toEqual([])
     expect(readSkill(env.files, alice, 'skills/report/SKILL.md')).toBeNull()
@@ -108,12 +122,12 @@ test('manifest writes need the same exact-byte approval and do not grant folder 
 
 test('a readable skill below a non-readable navigation folder is still discovered', () => {
   const rootId = (env.db.query("SELECT id FROM folders WHERE path='skills'").get() as { id: string }).id
-  env.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-root-none',?,'user','alice','none')").run(rootId)
+  const reopen = closeFolder(rootId)
   env.db.query("INSERT INTO folders (id,path) VALUES ('p4-scoped-report','skills/report')").run()
   env.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-scoped-read','p4-scoped-report','user','alice','read')").run()
   try { expect(listSkills(env.files, alice).map(s => s.path)).toEqual(['skills/report/SKILL.md']) }
   finally {
-    env.db.query("DELETE FROM folder_rules WHERE id='p4-root-none'").run()
+    reopen()
     env.db.query("DELETE FROM folders WHERE id='p4-scoped-report'").run()
   }
 })
@@ -123,7 +137,7 @@ test('a readable ordinary rule below non-readable skills is included without lea
   put('skills/scoped-rule.md', 'P4_VISIBLE_SCOPED_RULE')
   put('skills/ungranted-rule.md', 'P4_HIDDEN_SIBLING_RULE')
   const rootId = (env.db.query("SELECT id FROM folders WHERE path='skills'").get() as { id: string }).id
-  env.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-rule-root-none',?,'user','alice','none')").run(rootId)
+  const reopen = closeFolder(rootId)
   env.db.query("INSERT INTO folders (id,path) VALUES ('p4-scoped-rule','skills/scoped-rule.md')").run()
   env.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-rule-read','p4-scoped-rule','user','alice','read')").run()
   try {
@@ -131,7 +145,7 @@ test('a readable ordinary rule below non-readable skills is included without lea
     expect(rules).toContain('P4_VISIBLE_SCOPED_RULE')
     expect(rules).not.toContain('P4_HIDDEN_SIBLING_RULE')
   } finally {
-    env.db.query("DELETE FROM folder_rules WHERE id='p4-rule-root-none'").run()
+    reopen()
     env.db.query("DELETE FROM folders WHERE id='p4-scoped-rule'").run()
   }
 })

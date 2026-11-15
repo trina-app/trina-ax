@@ -98,8 +98,8 @@ back), `server/src/routes/integrations.ts`, migration
 A template is a service an admin registers once for the team, without a key; each member it is for connects it with
 their own key or sign-in. One shared team key would let everyone's AI act with the key owner's rights, and the service
 would log every call under that one person; a template keeps each call under its member's own rights. In Admin › Connected apps,
-"Add connection" (and a Discover card's +) asks who connects: **For the team (one key)**, a team connection as above,
-the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
+"Add connection" (and a Discover card's +) asks who connects: **One for the team**, a team connection as above,
+the default; or **Each member's own** (a template), which takes the kind, name, address, sign-in method (an
 API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
 note, and never a key or a write rule. The address may not have a query or a fragment (`?…`, `#…`): it goes with every
 member's key, so a key there would reach every member and the service would log their calls under its owner. The

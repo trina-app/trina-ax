@@ -8,12 +8,14 @@ import type { z } from 'zod'
 import type { Group, GroupBody, Locale, UpdateGroupBody } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
+import { rememberAudience } from '../chat/chat-audience'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
+import { failOnePlace, guestsAmong } from '../auth/guests'
 import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
-import { afterAccessChange, captureState, ensureFolderRow, foldersWithRuleOf, keepProjectFloors, resolveFolderPath, type SeenStates } from './folders'
+import { afterAccessChange, captureState, ensureFolderRow, foldersWithRuleOf, keepProjectFloors, originKeepers, resolveFolderPath, rulesOf, writeFolderAccess, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
 import { noTeamRoom } from '../rooms/service'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
@@ -54,6 +56,9 @@ function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale, k
   const found = ctx.db.query(`SELECT id, status FROM users WHERE deleted_at IS NULL AND id IN (${uniq.map(() => '?').join(',')})`).all(...uniq) as { id: string; status: string }[]
   if (found.length !== uniq.length) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberIds': 'unknown person' } })
   if (found.some((u) => u.status !== 'active' && !keep.has(u.id))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.memberIds': 'disabled account' }, params: { reason: 'account_disabled' } })
+  // guests join no group (docs/DECISIONS.md "Guests: only what they were invited to"): 409 guest_one_place, which
+  // points to making them a team member
+  if (guestsAmong(ctx.db, uniq).length) failOnePlace(locale)
   return uniq
 }
 
@@ -107,9 +112,8 @@ export function createGroupAs(ctx: AppContext, actorId: string, b: { name: strin
     ctx.db.query('INSERT INTO groups (id, name, description, folder_id) VALUES (?, ?, ?, ?)').run(id, b.name, b.description ?? null, f.id)
     const add = ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
     for (const u of memberIds) add.run(id, u)
-    ctx.db.query(`INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, 'group', ?, 'write', ?, ?)
-      ON CONFLICT(folder_id, subject_type, subject_id) DO UPDATE SET access = 'write', updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-      .run(newId(), f.id, id, auth.user.id, new Date().toISOString())
+    // the group writes its folder; the other rules of a row that was there stay, and so does its limit (not sent)
+    writeFolderAccess(ctx.db, f.id, { rules: [...rulesOf(ctx.db, f.id).filter((r) => r.access !== 'none' && !(r.subjectType === 'group' && r.subjectId === id)), { subjectType: 'group', subjectId: id, access: 'write' }] }, auth.user.id)
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds, ...viaOf(from) } })
     if (b.room === false) noTeamRoom(ctx.db, id)
   })()
@@ -131,6 +135,11 @@ export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: {
   if (b.name !== undefined && nameTaken(ctx, b.name, id)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
   const memberIds = b.memberIds ? checkMembers(ctx, b.memberIds, locale, new Set((ctx.db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(id) as { user_id: string }[]).map((m) => m.user_id))) : undefined
   const before = captureState(ctx.db)
+  // people the folder access conversion named whose membership here changes keep that access by name (C1-A): said in
+  // the audit row and to the connector (the web asks before saving: POST /api/admin/groups/origin-check)
+  const was = new Set((ctx.db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(id) as { user_id: string }[]).map((m) => m.user_id))
+  const kept = memberIds ? originKeepers(ctx.db, [...[...was].filter((u) => !memberIds.includes(u)), ...memberIds.filter((u) => !was.has(u))].map((userId) => ({ userId, groupId: id }))) : []
+  if (from.seen) from.seen.originKept = kept
   ctx.db.transaction(() => {
     if (b.name !== undefined) ctx.db.query('UPDATE groups SET name = ? WHERE id = ?').run(b.name, id)
     if (b.description !== undefined) ctx.db.query('UPDATE groups SET description = ? WHERE id = ?').run(b.description, id)
@@ -141,7 +150,7 @@ export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: {
       // someone who left the group loses their own Always allow on the team connections it gave them
       pruneMemberAllows(ctx.db)
     }
-    audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds, ...viaOf(from) } })
+    audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds, ...viaOf(from), ...(kept.length ? { originKept: kept.map((k) => ({ userId: k.userId, path: k.path, access: k.access })) } : {}) } })
   })()
   if (memberIds) { afterAccessChange(ctx, before, byOf(auth.user.id, id, from)); notifyTemplateOffers(ctx) }
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
@@ -159,8 +168,15 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
   const g = ctx.db.query('SELECT id, name FROM groups WHERE id = ?').get(id) as { id: string; name: string } | null
   if (!g) fail('not_found')
   const before = captureState(ctx.db)
+  // (C1-A: its members named by the folder access conversion keep that access by name)
+  const kept = originKeepers(ctx.db, (ctx.db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(id) as { user_id: string }[]).map((m) => ({ userId: m.user_id, groupId: id })))
+  if (from.seen) from.seen.originKept = kept
   let pruned: Pruned[] = []
   ctx.db.transaction(() => {
+    // chats shared with the group: who is in them through it, before its members go with it (their old link says it is
+    // no longer shared with them, chat/chat-audience.ts)
+    for (const c of ctx.db.query("SELECT a.chat_id FROM chat_audience a JOIN chats c ON c.id = a.chat_id WHERE a.subject_type = 'group' AND a.subject_id = ? AND c.people_shared_at IS NOT NULL AND c.project_id IS NULL").all(id) as { chat_id: string }[])
+      rememberAudience(ctx.db, c.chat_id, (ctx.db.query("SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0").all(id) as { user_id: string }[]).map((m) => m.user_id))
     const ruled = foldersWithRuleOf(ctx.db, 'group', id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // a project folder in projects/ never ends with no rules (admin/folders.ts keepProjectFloors)
@@ -172,10 +188,13 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
     pruneMemberAllows(ctx.db)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    // chats shared with the group (chat/chat-audience.ts): its row goes in the same transaction (its members lose those
+    // chats unless they are in them otherwise: afterAccessChange below drops them from their windows)
+    ctx.db.query("DELETE FROM chat_audience WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // AI connections assigned to it: the rows go; one left with no group or person is switched off, not team-wide
     pruned = pruneAssignments(ctx.db, auth.user.id, new Date().toISOString())
     const off = pruned.filter((p) => p.switchedOff).map((p) => ({ id: p.id, label: p.label }))
-    audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name, ...(off.length ? { aiConnectionsOff: off } : {}), ...viaOf(from) } })
+    audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name, ...(off.length ? { aiConnectionsOff: off } : {}), ...viaOf(from), ...(kept.length ? { originKept: kept.map((k) => ({ userId: k.userId, path: k.path, access: k.access })) } : {}) } })
   })()
   afterPrune(ctx, auth.user.id, pruned)
   afterAccessChange(ctx, before, byOf(auth.user.id, id, from))

@@ -3,6 +3,7 @@
 //
 //   bun scripts/release/hosting.ts hold   <stable|beta> [--reason "…"] [--version X] [--dry-run]
 //   bun scripts/release/hosting.ts resume <stable|beta> [--version X] [--office-version Y] [--dry-run]
+//   bun scripts/release/hosting.ts promote <stable|beta> [--version X] [--dry-run]   everyone now (ends the ramp)
 //   bun scripts/release/hosting.ts held   <stable|beta>                      what the heads say now (reads only)
 //       (tests and a local feed: [--out FEED_DIR --feed https://127.0.0.1:PORT --trust <public key>,…])
 //
@@ -14,6 +15,9 @@
 // "Updates are paused"), the root update timer, and older servers that know only `ramp` or only `percent`. A server
 // that already runs the release keeps running it (versions never go back). `resume` gives the roll-out back with its
 // steps that had not come yet moved by the time it was held (resumeRollout): the ramp goes on where it stopped.
+// `promote` ends a good release's ramp early: everyone takes it now, as if it had been published with `Rollout: all`
+// (promoteRollout: percent 100, no ramp, the salt kept). It refuses a held head (resume first) and leaves a head that
+// already goes to everyone as it is; minFrom is not touched.
 // `changedAt` on both heads lets a reader that saw the newer head refuse an older copy served again (newerHeadSeen).
 // A held release is not installed by an administrator's "update now" either (Admin › System, `sudo mycel-ctl update`,
 // `teamax update now`): the held head names its own version as minFrom, which also holds the root update timers that do
@@ -31,7 +35,7 @@ import { openSignedManifest } from '../../shared/src/release-manifest'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { silentLogger } from '../../server/src/log'
 import { OfficeRelease, publicKeyOf, verifyRelease } from '../../server/src/office/release'
-import { HeldRollout, holdRollout, readRollout, resumeRollout, rolloutPercent, rampText, type Rollout } from '../../server/src/system/rollout'
+import { HeldRollout, holdRollout, promoteRollout, readRollout, resumeRollout, rolloutPercent, rampText, type Rollout } from '../../server/src/system/rollout'
 import { keyId, ReleaseFeed, UpdateManager } from '../../server/src/system/update'
 import { cloudflareStore, dirStore, readHead, type FeedStore } from './publish-server'
 import type { Channel } from './release-ci'
@@ -42,7 +46,7 @@ const same = (a: Uint8Array | null, b: Uint8Array | null) => !!a && !!b && Buffe
 type Raw = Record<string, unknown> & { rollout?: unknown }
 
 export interface HoldOptions {
-  action: 'hold' | 'resume' | 'held'
+  action: 'hold' | 'resume' | 'promote' | 'held'
   channel: Channel
   /** hold: why (the publish log, `mycel-ctl status`, office logs; the Admin pages only say it is paused) */
   reason?: string
@@ -63,7 +67,7 @@ export interface HoldOptions {
 }
 
 export interface HoldResult {
-  status: 'held' | 'resumed' | 'unchanged' | 'dry-run' | 'shown'
+  status: 'held' | 'resumed' | 'promoted' | 'unchanged' | 'dry-run' | 'shown'
   channel: Channel
   version: string
   uploaded: string[]
@@ -74,8 +78,12 @@ export interface HoldResult {
 
 /** The roll-out a hold or resume writes, from the head's raw rollout (as the servers read it), and the minFrom resume
  * gives back (hold.minFrom; undefined: not kept, the office list) */
-function nextRollout(action: 'hold' | 'resume', raw: unknown, now: Date, reason: string, publishedAt: string | undefined): { rollout: Rollout; minFrom?: string | null } | 'unchanged' {
+function nextRollout(action: 'hold' | 'resume' | 'promote', raw: unknown, now: Date, reason: string, publishedAt: string | undefined): { rollout: Rollout; minFrom?: string | null } | 'unchanged' {
   const cur = readRollout(raw)
+  if (action === 'promote') {
+    const next = promoteRollout(cur, now)
+    return next === 'unchanged' ? 'unchanged' : { rollout: next }
+  }
   if (action === 'hold') return cur?.hold ? 'unchanged' : { rollout: holdRollout(cur, now, reason) }
   if (!cur?.hold) return 'unchanged'
   const held = HeldRollout.safeParse(raw)
@@ -129,7 +137,7 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
   const ups: { key: string; bytes: Uint8Array | string }[] = []
   const nextServer = nextRollout(o.action, raw.rollout, now, reason, head.feed.publishedAt)
   let serverFeed: ReleaseFeed = head.feed
-  if (nextServer === 'unchanged') log(`${headKey}: ${version} is ${o.action === 'hold' ? `already held (since ${head.feed.rollout?.hold?.at})` : 'not held'}: left as it is`)
+  if (nextServer === 'unchanged') log(`${headKey}: ${version} ${o.action === 'hold' ? `is already held (since ${head.feed.rollout?.hold?.at})` : o.action === 'promote' ? 'already goes to every server' : 'is not held'}: left as it is`)
   else {
     // the server head's minFrom: the held version itself while held (update timers that do not know `hold`, 0.4.0-beta.2
     // and older, refuse a release newer than minFrom; the app ignores minFrom and holds by percent 0), given back on resume
@@ -137,6 +145,9 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
     if (o.action === 'hold') {
       const r = nextServer.rollout as HeldRollout
       next = { ...raw, minFrom: version, rollout: { ...r, hold: { ...r.hold, minFrom: typeof raw.minFrom === 'string' ? raw.minFrom : null } } }
+    } else if (o.action === 'promote') {
+      // only the rollout: minFrom stays as published
+      next = { ...raw, rollout: nextServer.rollout }
     } else {
       if (nextServer.minFrom === undefined) throw new Error(`${headKey}'s hold does not say its minFrom from before: look at it by hand`)
       next = { ...raw, minFrom: nextServer.minFrom, rollout: nextServer.rollout }
@@ -154,6 +165,14 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
         for (const channel of ['stable', 'beta']) if (rolloutPercent(f, { now, channel }) !== 0) throw new Error('the held head would still let servers take the release') // never expected
       }
     }
+    if (o.action === 'promote') {
+      // everyone, as every reader sees it: the app and the root timer (ramp, hold), urgent and beta (percent alone), and
+      // servers that know only percent; the minFrom as published
+      for (const f of [serverFeed, { ...serverFeed, urgent: true }, { ...serverFeed, rollout: serverFeed.rollout && { percent: serverFeed.rollout.percent, salt: serverFeed.rollout.salt } }]) {
+        for (const channel of ['stable', 'beta']) if (rolloutPercent(f, { now, channel }) !== 100) throw new Error('the promoted head would not reach every server') // never expected
+      }
+      if (serverFeed.minFrom !== head.feed.minFrom) throw new Error('the promoted head changed minFrom') // never expected
+    }
     const sig = signDetached(bytes, o.pem!)
     if (!verifyDetached(bytes, sig, o.keys)) throw new Error('the signed head does not verify with the trusted keys') // never expected
     ups.push({ key: headKey, bytes }, { key: headKey + '.sig', bytes: sig })
@@ -163,7 +182,7 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
   let officeAfter = office?.release ?? null
   if (office) {
     const next = nextRollout(o.action, office.payload.rollout, now, reason, office.release.publishedAt)
-    if (next === 'unchanged') log(`${officeKey}: ${version} is ${o.action === 'hold' ? 'already held' : 'not held'}: left as it is`)
+    if (next === 'unchanged') log(`${officeKey}: ${version} ${o.action === 'hold' ? 'is already held' : o.action === 'promote' ? 'already goes to every office' : 'is not held'}: left as it is`)
     else {
       // signed over the payload text as written (not through OfficeRelease, which would drop `before`); its minFrom stays
       // (an office of 0.4.0-beta.2 or older, which has no roll-out, does not hold: docs/RELEASE-CI.md 6)
@@ -173,6 +192,7 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
       officeAfter = verifyRelease(text, { keys: o.keys, channel: o.channel, feed })
       if (officeAfter.version !== office.release.version || JSON.stringify(officeAfter.office) !== JSON.stringify(office.release.office)) throw new Error('the new office list does not read as the same release') // never expected
       if (o.action === 'hold' && rolloutPercent(officeAfter, { now, channel: o.channel }) !== 0) throw new Error('the held office list would still let offices take the release') // never expected
+      if (o.action === 'promote' && rolloutPercent(officeAfter, { now, channel: o.channel }) !== 100) throw new Error('the promoted office list would not reach every office') // never expected
       ups.push({ key: officeKey, bytes: text })
       log(`${officeKey}: ${version}, ${describeRollout(office.release.rollout)} -> ${describeRollout(officeAfter.rollout)}`)
     }
@@ -214,13 +234,14 @@ export async function holdRelease(o: HoldOptions): Promise<HoldResult> {
   }
   log(o.action === 'hold'
     ? `held: ${version} on ${o.channel}. Servers and offices not on it yet stay where they are; resume with \`bun scripts/release/hosting.ts resume ${o.channel}\``
+    : o.action === 'promote' ? `promoted: ${version} on ${o.channel} goes to every server and office now`
     : `resumed: ${version} on ${o.channel}, ${describeRollout(serverFeed.rollout)}`)
-  return result(o.action === 'hold' ? 'held' : 'resumed', ups.map((u) => u.key))
+  return result(o.action === 'hold' ? 'held' : o.action === 'promote' ? 'promoted' : 'resumed', ups.map((u) => u.key))
 }
 
 export async function main(argv: string[]): Promise<HoldResult> {
   const [action, channel] = argv
-  if (action !== 'hold' && action !== 'resume' && action !== 'held') throw new Error('usage: hosting.ts hold|resume|held stable|beta [--reason "…"] [--version X] [--dry-run]')
+  if (action !== 'hold' && action !== 'resume' && action !== 'promote' && action !== 'held') throw new Error('usage: hosting.ts hold|resume|promote|held stable|beta [--reason "…"] [--version X] [--dry-run]')
   if (channel !== 'stable' && channel !== 'beta') throw new Error('the channel: stable or beta')
   const val = (name: string): string | undefined => {
     const i = argv.indexOf(name)

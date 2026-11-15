@@ -28,11 +28,11 @@ function AppRowView({ row, badge, note, action, after }: { row: AppRow; badge?: 
         <div className="flex min-w-0 items-start gap-3">
           <Icon size={18} className="mt-px shrink-0 text-muted" aria-hidden />
           <div className="min-w-0">
-            <p className="text-sm text-ink">
+            <p className="text-row font-medium text-ink">
               {NAME[row.os]}
               {badge && <Badge tone="accent" className="ml-2">{badge}</Badge>}
             </p>
-            {note && <div className="mt-0.5 break-keep text-xs text-muted">{note}</div>}
+            {note && <div className="mt-0.5 break-keep text-meta text-muted">{note}</div>}
           </div>
         </div>
         {action && <div className="flex min-w-0 flex-wrap items-center gap-2 max-sm:pl-[30px]">{action}</div>}

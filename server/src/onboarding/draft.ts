@@ -318,6 +318,7 @@ const TEXT: Record<'askWebsite' | 'askText' | 'title' | 'badWebsite' | 'oneOf' |
     id: 'Berkas tidak bisa dilampirkan di obrolan draf profil perusahaan. Kirim alamat situs web atau teks saja.',
     ja: '会社紹介の下書きの会話にはファイルを添付できません。ホームページのアドレスか文章で送ってください。',
     es: 'No se pueden adjuntar archivos en un chat de borrador del perfil de la empresa. Envíe la dirección del sitio web o un texto.',
+    zh: '公司介绍草稿对话中不能添加附件。请改为发送网址或文字。',
   },
   askWebsite: {
     ko: '회사 홈페이지를 읽고 회사 소개 초안을 만들어 주세요.',
@@ -325,6 +326,7 @@ const TEXT: Record<'askWebsite' | 'askText' | 'title' | 'badWebsite' | 'oneOf' |
     id: 'Baca situs web perusahaan kami dan buat draf profil perusahaan.',
     ja: '会社のホームページを読んで、会社紹介の下書きを作ってください。',
     es: 'Lea el sitio web de nuestra empresa y redacte un borrador del perfil de la empresa.',
+    zh: '请阅读我们的公司网站，起草公司介绍。',
   },
   askText: {
     ko: '아래 글로 회사 소개 초안을 만들어 주세요.',
@@ -332,14 +334,16 @@ const TEXT: Record<'askWebsite' | 'askText' | 'title' | 'badWebsite' | 'oneOf' |
     id: 'Buat draf profil perusahaan kami dari teks di bawah ini.',
     ja: '以下の文章から会社紹介の下書きを作ってください。',
     es: 'Redacte un borrador del perfil de nuestra empresa con el texto de abajo.',
+    zh: '请根据下面的文字起草公司介绍。',
   },
-  title: { ko: '회사 소개 초안', en: 'Company profile draft', id: 'Draf profil perusahaan', ja: '会社紹介の下書き', es: 'Borrador del perfil de la empresa' },
+  title: { ko: '회사 소개 초안', en: 'Company profile draft', id: 'Draf profil perusahaan', ja: '会社紹介の下書き', es: 'Borrador del perfil de la empresa', zh: '公司介绍草稿' },
   badWebsite: {
     ko: '홈페이지 주소를 확인해 주세요. 예: acme.example 또는 https://www.acme.example',
     en: 'Check the website address. Example: acme.example or https://www.acme.example',
     id: 'Periksa alamat situs web. Contoh: acme.example atau https://www.acme.example',
     ja: 'ホームページのアドレスを確認してください。例: acme.example または https://www.acme.example',
     es: 'Revise la dirección del sitio web. Ejemplo: acme.example o https://www.acme.example',
+    zh: '请检查网址。例如：acme.example 或 https://www.acme.example',
   },
   oneOf: {
     ko: '홈페이지 주소나 회사 소개 글 중 하나를 넣어 주세요.',
@@ -347,6 +351,7 @@ const TEXT: Record<'askWebsite' | 'askText' | 'title' | 'badWebsite' | 'oneOf' |
     id: 'Isi alamat situs web atau teks tentang perusahaan, salah satu saja.',
     ja: 'ホームページのアドレスか会社紹介の文章のどちらかを入力してください。',
     es: 'Indique la dirección del sitio web o un texto sobre la empresa, solo uno de los dos.',
+    zh: '请提供网址或一段介绍公司的文字。',
   },
 }
 

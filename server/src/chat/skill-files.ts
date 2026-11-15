@@ -9,7 +9,7 @@
 // gains or loses each skill (by name only to who may see that: seesWho), every word the AI would follow, and its yes
 // is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
 // counts, and names only where the person may see them.
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 import { z } from 'zod'
 import { SkillFilesInput, uuidv7 } from '@mycel/shared'
 import type { ConfirmDetail, Locale, TurnRequest } from '@mycel/shared/api'
@@ -45,7 +45,7 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   const r = (why: string, next: string, summary: string) => ({ text: nothing(why, next), summary: `${SKILL_FILES_TOOL} -> refused: ${summary}` })
   const own = 'the user can ask for it in one of their own chats, or do it on the Files screen'
   if (files && files !== exec.files) return r('only the main AI may change skill folders, where the user answers its card; a helper (sub-agent) cannot ask the user', 'put it in your report; the main AI calls skill_files itself', 'sub-agent')
-  if (exec.spec.clientKind === 'schedule') return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
+  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'skill_files') !== 'on') return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
   if (exec.shared) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
   if (exec.templateRun) return r('this run is limited to its scheduled task', own, 'template run')
   if (exec.restricted) return r('this is a draft with no tools for team files', own, 'draft')

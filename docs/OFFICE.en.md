@@ -8,6 +8,8 @@ The Mac runs Trina AX; colleagues use a browser. Office mode runs as the **signe
 
 macOS 13+, Apple Silicon or Intel; a dedicated signed-in account, FileVault, internet (wired preferred), and a permitted Claude connection. No measured Mac capacity guarantee is available. The published ZIP includes runtime tools; Git, Go and Bun installation are not required for recipients. Install Claude Code separately before running the installer; the ZIP does not include it. Follow [the official installation guide](https://code.claude.com/docs/en/setup), using the tested `claude-code` version in the downloaded ZIP’s `app/versions.json`. For the default local-login path, run `claude` as the dedicated Mac user, sign in with an authorized account, and confirm `claude auth status` reports a signed-in account. Alternatively, the installer accepts `--claude-token-file /path/to/token-file` containing a permitted `claude setup-token` output; protect this secret file. Confirm the account's plan permits the intended use; do not treat a personal subscription as an automatic team entitlement.
 
+Guests get no AI in office mode: the whole team's AI runs on this Mac's own Claude sign-in, which a guest (an outside person invited into one room or project) never uses. The admin installer (.pkg, run with `sudo`) gives team and personal AI connections, and guests can use AI there.
+
 Download `TrinaAX-office-<version>-mac.zip` and its `SHA256SUMS` from the [latest release](https://github.com/trina-app/trina-ax/releases/latest). Use the exact downloaded filename, not the newest file in a wildcard. The ZIP contains `TrinaAX-office-<version>/office-install.sh` and `app/docs/OFFICE.md`. PDFs are optional build outputs and are **not guaranteed in the ZIP**. Read the bundled Markdown guide or the online guides.
 
 ```sh
@@ -24,6 +26,22 @@ bash "$OFFICE_DIR/office-install.sh"
 The checksum is an integrity check, not independent authentication. Review the release/source. `--check-only` checks requirements without installing. The installer also downloads the headless browser that turns HTML into PDF (Chrome for Testing's `chrome-headless-shell`, about 105 MB, at the version and SHA-256 pinned by the bundle's list `app/scripts/system/packages.json`) into `~/TeamAX/browser/`, owned by this macOS user. It is downloaded, checked and started once while the server still runs (at most 8 minutes; 4 during an automatic update, which stops the installer after 10 minutes and rolls back), and `current` moves to it only after the server has stopped; the version before stays until the next switch. An update downloads it again only when its list pins another version. If the download fails or the browser does not start, the install goes on with the browser it had (or without HTML to PDF), and the installer's next run (the next update, or running it again) tries again: it never fails or rolls back an update. `office-uninstall.sh` removes the folder. No sudo is needed; the default installation is `~/TeamAX`. Check the installer output for the local setup link; keep its token private. Initial setup is refused over the public internet.
 
 With this Mac's own Claude login (no `--claude-token-file`), the server empties the MCP settings of this macOS user's `~/.claude.json` (user and project MCP servers, `.mcp.json` approvals, and the copies the Claude CLI keeps of the file) at every start and after every AI answer, so that an MCP server an AI turn might plant there can never run outside the sandbox. A new install therefore lists what it would remove (`--check-only` too) and stops. To keep them, install with `--claude-token-file` (in that mode the server never reads or changes `~/.claude.json`) or as another macOS user used only for Trina AX. To let them go, run it again with `--remove-claude-mcp`: the installer saves a copy to `~/TeamAX/config/claude-mcp-backups/` before the server first starts (readable by this macOS user only, never by the AI engine) and stops if it cannot; from then on the server saves a copy before every removal (the activity log names it). Installed offices and automatic updates are not stopped; they keep copies from 0.2.19 on. A reinstall after `office-uninstall.sh` counts as a new install. `~/TeamAX/teamax claude-mcp check` shows what would go, `backups` lists the copies, and `restore <copy>` merges one back without replacing anything, once the server no longer removes them (after switching to `--claude-token-file` and restarting, or after `teamax uninstall-agent`). It first lists every server in full, one escaped line each (command, arguments, env and headers with the values of secret-named ones masked, address), and changes nothing until you run it again with `--yes`: any copy, above all one saved after an AI answer, may hold a server an AI turn planted. `teamax configure --claude-auth local-login` asks the same before leaving the token mode.
+
+## Install with your AI agent
+
+You can let an AI coding agent (Claude Code, Codex) on this Mac do the download, check and install. Copy this prompt:
+
+```text
+Install Trina AX in office mode on this Mac. Follow https://github.com/trina-app/trina-ax/blob/main/docs/OFFICE.en.md
+- First check that Claude Code is installed and signed in ("claude auth status"). If it is not, stop and tell me.
+- Download the exact TrinaAX-office-<version>-mac.zip and SHA256SUMS from the latest GitHub release, compare the checksum, unpack, run office-install.sh --check-only, then office-install.sh.
+- Do not build from source. Do not use sudo.
+- If the installer says it would remove MCP settings from ~/.claude.json, stop and ask me before you use --remove-claude-mcp or --claude-token-file.
+- Do not create the owner account. Do not show the setup link or its token in this chat.
+- At the end, run "~/TeamAX/teamax status" and summarize it. Tell me where the installer printed the local setup link.
+```
+
+You create the owner and the team yourself on the setup page.
 
 ## Address and first run
 
@@ -101,7 +119,7 @@ This optional energy-setting command needs the Mac administrator password; the o
 
 ### Owner setup and the five-step first week
 
-Run `~/TeamAX/teamax setup-link` on the office Mac if the setup page did not open. Keep the one-time link private. Create the team name, language and owner account. The public internet endpoint refuses first-owner setup. Confirm the intended timezone and language; the source supports English, Korean, Indonesian, Japanese and Spanish.
+Run `~/TeamAX/teamax setup-link` on the office Mac if the setup page did not open. Keep the one-time link private. Create the team name, language and owner account. The public internet endpoint refuses first-owner setup. Confirm the intended timezone and language; the source supports English, Korean, Indonesian, Japanese, Spanish and Simplified Chinese.
 
 1. **Permissions:** create groups and folder rules in administration. Test with two fictional member accounts; each should see only its allowed folders. Keep real sensitive data out of the pilot.
 2. **AI connection:** confirm the authorized Claude connection and ask about a fictional file. Office local-login uses the signed-in Mac user's CLI, not the managed Linux connection selector. On fresh teams one company connection serving the whole team is ON, saved choices persist, and managed connections require their own acknowledgment. Provider permission remains a separate requirement.

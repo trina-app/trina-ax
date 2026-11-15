@@ -4,10 +4,12 @@ import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { audit } from '../admin/audit'
 import { fail } from '../http/errors'
+import { forgetUserName } from '../chat/runtime'
 import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
 import { clearStatus, countWrite, setStatus, startStatusClock, tellAfterWrite } from '../auth/status-messages'
 import { teamTimeZone } from '../admin/settings'
 import { presenceFor } from '../realtime/presence'
+import { sharesPlace } from '../auth/guests'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
 const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
@@ -19,9 +21,11 @@ export const peopleRoutes: RouteModule = {
     // statuses start and clear by themselves: the clock tells open windows when one does (auth/status-messages.ts)
     const clock = startStatusClock(ctx)
     // the signed-in person comes from the session, never from the request: nobody can change another person's profile
-    kit.handle(API.listPeople, () => ({ people: listPeople(ctx.db) }))
+    kit.handle(API.listPeople, ({ auth }) => ({ people: listPeople(ctx.db, new Date(), auth.user.id) }))
 
-    kit.handle(API.personAvatar, ({ c, params, query }) => {
+    kit.handle(API.personAvatar, ({ c, auth, params, query }) => {
+      // a guest and a person outside their one place do not see each other (auth/guests.ts): as an unknown person
+      if (!sharesPlace(ctx.db, auth.user.id, params.id)) fail('not_found')
       const a = readAvatar(ctx.db, params.id) ?? fail('not_found')
       const etag = `"${a.version}"`
       // the current version in the address: cached for good; anything else only briefly (it would show an old photo)
@@ -33,9 +37,10 @@ export const peopleRoutes: RouteModule = {
 
     kit.handle(API.updateMyProfile, ({ body, auth }) => {
       const changes = updateProfile(ctx.db, auth.user.id, body)
+      if (changes.name) forgetUserName(ctx, auth.user.id)
       if (Object.keys(changes).length) {
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: Object.keys(changes), ...(changes.name ? { name: changes.name } : {}) } })
-        ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
+        ctx.services.realtime.publishEach(profileChangedFor(ctx.db, auth.user.id))
       }
       const name = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(auth.user.id) as { name: string }).name
       return { id: auth.user.id, name, ...profileOf(ctx.db, auth.user.id) }
@@ -44,7 +49,7 @@ export const peopleRoutes: RouteModule = {
     kit.handle(API.putMyAvatar, async ({ c, query, body, auth }) => {
       const r = await saveAvatar(ctx.db, auth.user.id, body, query.type, c.get('locale'))
       audit(ctx.db, { actor: auth.user.id, action: 'profile.avatar_set', target: auth.user.id, detail: { size: r.size, before: r.before } })
-      ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
+      ctx.services.realtime.publishEach(profileChangedFor(ctx.db, auth.user.id))
       return { avatarVersion: r.version }
     })
 
@@ -93,7 +98,7 @@ export const peopleRoutes: RouteModule = {
       const before = removeAvatar(ctx.db, auth.user.id)
       if (before === null) return
       audit(ctx.db, { actor: auth.user.id, action: 'profile.avatar_remove', target: auth.user.id, detail: { before } })
-      ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
+      ctx.services.realtime.publishEach(profileChangedFor(ctx.db, auth.user.id))
     })
   },
 }

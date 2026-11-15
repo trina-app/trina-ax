@@ -1,5 +1,5 @@
 /** User FIFO; least occupied user first; a durable round-robin ticket breaks ties. */
-export interface QueueTiming { queueSeq?: number; dispatchedAt?: string; wallDeadlineAt?: string }
+export interface QueueTiming { queueSeq?: number; dispatchedAt?: string }
 export interface FairEntry { turnId: string; chatId: string; userId: string; queueSeq: number }
 
 export function selectFairHead<T extends FairEntry>(queue: readonly T[], active: ReadonlyMap<string, number>, tickets: ReadonlyMap<string, number>, busy: ReadonlySet<string> = new Set()): T | null {

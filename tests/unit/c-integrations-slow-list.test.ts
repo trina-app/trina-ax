@@ -49,7 +49,7 @@ function turn(user: Person) {
 
 test('the real limits: the list waits 30 s for a pause and 90 s in all (under the relay\'s 100 s), other requests 30 s; the words say so', () => {
   expect([TIMEOUT_MS, MCP_LIST_IDLE_MS, MCP_LIST_TIMEOUT_MS]).toEqual([30_000, 30_000, 90_000])
-  for (const L of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+  for (const L of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
     expect(TEXT.timeout[L]).toContain(String(MCP_LIST_IDLE_MS / 1000))
     expect(TEXT.list_timeout[L]).toContain(String(MCP_LIST_TIMEOUT_MS / 1000))
   }

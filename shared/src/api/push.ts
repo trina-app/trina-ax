@@ -5,7 +5,9 @@ export const PushSettings = z.object({ configured: z.boolean(), enabled: z.boole
   // Older servers omit display text; keep settings usable during an upgrade or rollback.
   messages: z.object({ title: z.string(), bodies: z.record(PushEventType, z.string()),
     /** the room notification's "Mark as read" button; older servers omit it (no button) */
-    markRead: z.string().optional() }).optional(),
+    markRead: z.string().optional(),
+    /** the line under the sharer's name on a chat.shared notification ("Shared a chat with you."); older servers omit it */
+    chatSharedBy: z.string().optional() }).optional(),
   // The phone app (push-token-v1): whether this server can reach the push gateway, and this session's device.
   // gateway: the host phone tokens go through (owners and admins see it in Settings › Notifications); null = off.
   native: z.object({ available: z.boolean(), deviceId: z.string().nullable(), gateway: z.string().nullable().optional() }).optional(),
@@ -28,8 +30,25 @@ export const PushDeviceRemoveInput = z.object({ key: z.string().regex(/^[A-Za-z0
  * same empty answer as every other failure. */
 export const PushDeviceLabelInput = z.object({ key: z.string().max(200), notificationId: z.string().max(200) }).strict()
 /** A room push's words on the phone, in the person's language: title = who and where ("민준 · #마케팅 › 스레드", a DM
- * "민준"), the same as a browser push's; body = the generic line. Never the message's text. `{}` for every failure. */
+ * "민준"), the same as a browser push's; body = the generic line. Never the message's text. A chat shared with the
+ * person by name: title = the sharer's name, body = a fixed line ("Shared a chat with you."), no roomId; never the
+ * chat's title. `{}` for every failure. */
 export const PushDeviceLabel = z.object({ title: z.string().optional(), body: z.string().optional(), roomId: z.string().optional(), threadId: z.string().optional() })
+/** Where phone notifications go (Settings › Notifications, owners and admins; docs/DECISIONS.md "Owners and admins
+ * choose where phone notifications go"): the edition's gateway ('default', push.trina.app in Trina), 'off', or the team's
+ * own gateway ('custom', for their own build of the phone app). */
+export const PushGatewayChoice = z.enum(['default', 'off', 'custom'])
+export type PushGatewayChoice = z.infer<typeof PushGatewayChoice>
+/** url: the custom address (saved, or the operator's); defaultHost: the edition's gateway host, null = no 'default'
+ * choice on this build; lockedBy: where the operator set it (MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl), which
+ * wins over this page: the row is read-only then. */
+export const PushGatewaySetting = z.object({ choice: PushGatewayChoice, url: z.string().nullable(), defaultHost: z.string().nullable(), lockedBy: z.string().nullable() })
+export type PushGatewaySetting = z.infer<typeof PushGatewaySetting>
+export const PushGatewayInput = z.object({ choice: PushGatewayChoice, url: z.string().max(300).optional() }).strict()
+/** params.reason of a refused save: not an address the gateway rule allows; a private or local address; no answer;
+ * an answer that is not a gateway's `{"ok":true}` at /health; set by the operator (locked) */
+export const PUSH_GATEWAY_PROBLEMS = ['address', 'private', 'unreachable', 'not_gateway', 'locked'] as const
+export type PushGatewayProblem = typeof PUSH_GATEWAY_PROBLEMS[number]
 export const PUSH = {
   getPushSettings: endpoint({ method: 'GET', path: '/api/push', auth: 'user', owner: 'B', response: PushSettings, summary: 'Own push opt-in and current-session binding; disabled until the server is configured.' }),
   subscribePush: endpoint({ method: 'POST', path: '/api/push/subscriptions', auth: 'user', owner: 'B', body: PushSubscriptionInput, response: z.object({ id: z.string() }), summary: 'Explicitly consent to an encrypted push subscription bound to this login session.' }),
@@ -37,6 +56,8 @@ export const PUSH = {
   unsubscribePush: endpoint({ method: 'DELETE', path: '/api/push/subscriptions/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Remove an own current-session subscription.' }),
   registerPushDevice: endpoint({ method: 'POST', path: '/api/push/devices', auth: 'user', owner: 'B', body: PushDeviceInput, response: z.object({ id: z.string(), removeKey: z.string() }), summary: 'The phone app registers its device token for this login session; delivered through the push gateway. Returns a key the app keeps to remove the device later.' }),
   removePushDevice: endpoint({ method: 'POST', path: '/api/push/devices/:id/remove', auth: 'public', owner: 'B', body: PushDeviceRemoveInput, response: empty, status: 204, summary: 'The phone app removes its device when the person switches team, with the key it got at registration (no session needed; always 204).' }),
-  labelPushDevice: endpoint({ method: 'POST', path: '/api/push/devices/:id/label', auth: 'public', owner: 'B', body: PushDeviceLabelInput, response: PushDeviceLabel, summary: 'The iPhone app\'s notification extension asks for the title of a room push it received (who and where, never the text), with the label key whose hash came with its registration (no session; an empty answer for every failure).' }),
+  labelPushDevice: endpoint({ method: 'POST', path: '/api/push/devices/:id/label', auth: 'public', owner: 'B', body: PushDeviceLabelInput, response: PushDeviceLabel, summary: 'The iPhone app\'s notification extension asks for the title of a room push it received (who and where, never the text) or of a chat shared with the person by name (who shared it, never the chat\'s title), with the label key whose hash came with its registration (no session; an empty answer for every failure).' }),
   unregisterPushDevice: endpoint({ method: 'DELETE', path: '/api/push/devices/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Remove this session\'s phone app device.' }),
+  getPushGateway: endpoint({ method: 'GET', path: '/api/admin/push-gateway', auth: 'admin', owner: 'B', response: PushGatewaySetting, summary: 'Where phone notifications go: the default gateway, off or the team\'s own, and whether the server\'s config sets it (read-only then).' }),
+  setPushGateway: endpoint({ method: 'PUT', path: '/api/admin/push-gateway', auth: 'admin', owner: 'B', body: PushGatewayInput, response: PushGatewaySetting, summary: 'Choose where phone notifications go; an own address is saved only when its /health answers {"ok":true}. Refused while the server\'s config sets it. Audited.' }),
 } as const

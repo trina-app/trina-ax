@@ -1,1 +1,0 @@
-- Pinning or unpinning a Trina chat or a conversation now shows at once. Before, the row moved only after the server answered, and a pinned chat could disappear from Recent for a moment before it showed under Pinned. If the pin fails, it goes back and a short message says why.

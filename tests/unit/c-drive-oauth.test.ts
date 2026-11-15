@@ -162,3 +162,18 @@ test('reconnect notification deduplicates the durable episode without account or
   expect(rows).toHaveLength(1)
   expect(JSON.stringify(rows)).not.toContain('CANARY'); expect(JSON.stringify(rows)).not.toContain('alice@example.test')
 })
+test('a deleted account: its Drive sign-in goes and is revoked at Google, though the account is no longer active (account cleanup)', async () => {
+  await connect()
+  const user = (h.ctx.db.query('SELECT user_id FROM drive_connections').get() as { user_id: string }).user_id
+  // as removeAccount leaves it: a tombstone, no longer active (Disconnect itself would refuse)
+  h.ctx.db.query("UPDATE users SET status='disabled', deleted_at=? WHERE id=?").run(new Date().toISOString(), user)
+  await expect(svc.disconnect(user)).rejects.toThrow()
+  await svc.forgetAccount(user)
+  expect(svc.store.connection(user)).toBeNull()
+  expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM drive_oauth_flows WHERE user_id=?').get(user)).toEqual({ n: 0 })
+  expect(fake.revoked).toBe(true)
+  // nothing left: a second run asks Google nothing
+  const calls = fake.calls.length
+  await svc.forgetAccount(user)
+  expect(fake.calls.length).toBe(calls)
+})

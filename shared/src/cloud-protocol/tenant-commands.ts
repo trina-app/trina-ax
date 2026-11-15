@@ -54,6 +54,21 @@ export const TenantOnboarding = z.strictObject({
   goalReached: z.boolean(),
 })
 export type TenantOnboarding = z.infer<typeof TenantOnboarding>
+/** idle-wait output; the fields after `running` come only with --activity (F2 sleep). */
+export const IdleWaitResult = z.object({
+  idle: z.boolean(),
+  running: z.number().int(),
+  sleepable: z.boolean().optional(),
+  /** seconds since the last signed-in request, open connection or running answer (null = unknown) */
+  idleForSec: z.number().int().nonnegative().nullable().optional(),
+  /** open realtime connections (web, desktop and mobile apps) */
+  connections: z.number().int().nonnegative().nullable().optional(),
+  /** seconds until the next enabled schedule is due (0 = due now), null = none */
+  nextScheduleInSec: z.number().int().nonnegative().nullable().optional(),
+})
+export type IdleWaitResult = z.infer<typeof IdleWaitResult>
+/** a team is not sleepable when a schedule is due within this many seconds (plan §1 "What idle means") */
+export const SLEEP_SCHEDULE_GUARD_SEC = 15 * 60
 
 /** What `status` reports (60 s, ax-hostd → control plane). No conversation, file name, person, mail, IP or token. */
 export const TenantStatus = z.strictObject({
@@ -95,6 +110,16 @@ export const TenantStatus = z.strictObject({
 })
 export type TenantStatus = z.infer<typeof TenantStatus>
 
+/**
+ * The `TenantStatus.checks` ids that are `fail` on a freshly installed hosted team that nobody has set up yet (no AI
+ * connection added): the team server's diagnostics (server/src/system/ops.ts) say so, and `overall` is `fail` because
+ * of them. The control plane's update gate (Trina Cloud rule F-14) must not read these as a broken update: it rolls
+ * back only on checks that were not failing before the update. tests/unit/fresh-team-failing-checks.test.ts runs the
+ * diagnostics of such a team and fails when this list and the diagnostics disagree: a new check that fails on a fresh
+ * team goes here, and the control plane is told.
+ */
+export const FRESH_TEAM_FAILING_CHECKS: readonly string[] = Object.freeze(['engine.claude-code'])
+
 /** set-server-config: the server.json keys the control plane may change (anything else is refused). publicOrigins
  * follow HttpsUrl like everywhere in these contracts: https, http only to this machine (dev / tests). */
 export const ServerConfigPatch = z.strictObject({
@@ -103,7 +128,7 @@ export const ServerConfigPatch = z.strictObject({
   engine: z.strictObject({ credentialKinds: z.array(CredentialKind).min(1).max(4) }).optional(),
 }).refine((p) => p.relay !== undefined || p.publicOrigins !== undefined || p.engine !== undefined, 'nothing to change')
 
-/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's and hosted-chat-key-set's stdin. */
+/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's stdin. */
 export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/)
 /** hosted-speech-key-set's stdin: the OpenRouter key the hosting service gives this team for speech-to-text (hosted
  * voice input and video sound, the plan's free hours a team a month: PlanFile speechFreeHours, else 10, counted by
@@ -111,20 +136,6 @@ export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/
  * audits it; a key the team entered itself always comes first. */
 export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
 export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
-
-/** hosted-chat-key-set's stdin: the trial AI credit the hosting service gives this team, so its chats are answered
- * before it connects an AI of its own. `key` is an OpenRouter API key made for this team (its own key limit as the
- * backstop): the app answers with it on its own API engine and one Claude Haiku model, never in Claude Code, whose
- * terms do not allow a key the hosting service pays for. A direct Anthropic key is refused. `capUsd` the dollars the
- * team may spend with it in all (counted by the app across key rotations; raise it to give more), `endsAt` when it
- * stops, `enabled` false to pause it without taking the key away. `{ key: null }` takes it away. The app keeps the
- * key encrypted with its credentials vault and never shows, logs or audits it; any AI connection the team or a
- * person adds always comes first. */
-export const HostedChatKeyInput = z.union([
-  z.strictObject({ key: OpenRouterApiKey, capUsd: z.number().min(0).max(1000), endsAt: IsoTime, enabled: z.boolean() }),
-  z.strictObject({ key: z.null() }),
-])
-export type HostedChatKeyInput = z.infer<typeof HostedChatKeyInput>
 
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
@@ -189,7 +200,18 @@ export const TENANT_COMMANDS = {
   'set-server-config': { args: NoArgs, stdin: ServerConfigPatch, output: z.object({ ok: z.literal(true), restarted: z.boolean() }), timeoutSec: 120 },
   'relay-registration-set': { args: NoArgs, stdin: z.strictObject({ relayRegistration: RelayRegistrationFile }), output: Ok, timeoutSec: 120 },
   'relay-key-proof': { args: z.strictObject({ teamId: RelayTeamId }), stdin: null, output: z.object({ publicKey: Ed25519PublicKeyB64, sig: SignatureB64 }), timeoutSec: 15 },
-  'idle-wait': { args: z.strictObject({ max: z.number().int().min(0).max(3600) }), stdin: null, output: z.object({ idle: z.boolean(), running: z.number().int() }), timeoutSec: (a) => Number(a.max ?? 0) + 30 },
+  /** idle = no answer runs (reimage, resize and reboot wait on it). With `activity` (F2 sleep, a newer mycel-ctl) the
+   * output adds the facts the control plane's sleep policy needs: open web/desktop/mobile connections, seconds since
+   * the last signed-in request, open socket or running answer, and seconds to the next due schedule. Durations, not
+   * times: the guest clock can be behind after a resume. sleepable = no answer, no connection, no schedule in 15 min,
+   * and the server's status is fresh. An older mycel-ctl refuses --activity (usage error): the control plane reads
+   * that as "not sleepable". */
+  'idle-wait': { args: z.strictObject({ max: z.number().int().min(0).max(3600), activity: z.literal(true).optional() }), stdin: null, output: IdleWaitResult, timeoutSec: (a) => Number(a.max ?? 0) + 30 },
+  /** grow the data disk's ext4 file system to its block device's size, online (resize2fs; nothing to do when they
+   * match). The hosting service calls it after it made the disk bigger (a trial team that starts to pay) when the
+   * file system still shows the old size; the image's udev rule normally grows it already. Sizes: statfs of the data
+   * folder before and after. */
+  'data-grow': { args: NoArgs, stdin: null, output: z.object({ grown: z.boolean(), beforeBytes: z.number().int().nonnegative(), afterBytes: z.number().int().nonnegative() }), timeoutSec: 120 },
   'prepare-stop': { args: z.strictObject({ grace: z.number().int().min(0).max(3600) }), stdin: null, output: z.object({ stopped: z.boolean() }), timeoutSec: (a) => Number(a.grace ?? 0) + 60 },
   update: { args: z.strictObject({ version: Version }), stdin: null, output: UpdateResult, timeoutSec: 1800 },
   /** localId: a given local backup (the control plane walks an incremental chain back to its full archive) */
@@ -208,9 +230,6 @@ export const TENANT_COMMANDS = {
   'owner-recovery-claimed': { args: NoArgs, stdin: null, output: z.object({ ok: z.literal(true), cleared: z.boolean() }), timeoutSec: 30 },
   /** the hosting service's speech-to-text key (HostedSpeechKeyInput); `set`: whether the server holds one now */
   'hosted-speech-key-set': { args: NoArgs, stdin: HostedSpeechKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
-  /** the hosting service's trial AI credit (HostedChatKeyInput); `set`: whether the server holds a key now, `usedUsd`:
-   * what the team has spent of the credit so far (the app's count) */
-  'hosted-chat-key-set': { args: NoArgs, stdin: HostedChatKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean(), usedUsd: z.number().nonnegative() }), timeoutSec: 30 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in

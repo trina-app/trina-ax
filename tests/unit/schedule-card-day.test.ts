@@ -5,9 +5,9 @@ import { scheduleCard, scheduleWhen } from '../../server/src/tools/schedules'
 
 const once = { repeat: 'once' as const, time: '16:39', date: '2026-11-10' }
 
-test('a one-time day in the five languages, not the stored form', () => {
+test('a one-time day in the six languages, not the stored form', () => {
   expect(scheduleWhen(once, 'en')).toContain('Nov 10, 2026')
-  for (const L of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+  for (const L of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
     const when = scheduleWhen(once, L)
     expect(when, L).not.toContain('2026-11-10')
     expect(when, L).toContain('16:39')

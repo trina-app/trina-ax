@@ -156,12 +156,17 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
         if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})
-        // the batch of edits a chat turn offers: each file goes through callTool below as its own edit call
-        if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await editFiles(msg.params))
-        const r = await callTool(msg.params)
-        const response = reply(r.result)
-        if (r.beforeDelivery) Object.defineProperty(response, 'beforeDelivery', { value: r.beforeDelivery })
-        return response
+        // while our tool runs the engine waits on it: the turn's stall guard waits too (chat/turn.ts ownCallStarted)
+        let ended: (() => void) | undefined
+        try { ended = extra?.callStarted?.() } catch {}
+        try {
+          // the batch of edits a chat turn offers: each file goes through callTool below as its own edit call
+          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await editFiles(msg.params))
+          const r = await callTool(msg.params)
+          const response = reply(r.result)
+          if (r.beforeDelivery) Object.defineProperty(response, 'beforeDelivery', { value: r.beforeDelivery })
+          return response
+        } finally { try { ended?.() } catch {} }
       }
       default:
         if (msg.id === undefined) return null // notification

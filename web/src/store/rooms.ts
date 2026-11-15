@@ -11,8 +11,9 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
@@ -68,8 +69,12 @@ export interface PendingSend {
   threadRootId: string | null
   /** a reply also sent to the room */
   alsoInRoom: boolean
+  /** "Show message" for these linked messages (SendRoomMessageBody.showMessages) */
+  showMessages?: string[]
   state: 'sending' | 'failed'
   error?: string
+  /** on its way, waiting while Trina is updating: it goes once the server is back */
+  updating?: boolean
   createdAt: string
   /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
    * may have reached the server. Try again is safe (the same client id). */
@@ -184,7 +189,8 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
   const kept = keptPatch(d, roomId, (tl) => ({ ...tl, messages: mergeMessages(tl.messages, [m]) }))
   const room = d.rooms.find((r) => r.id === roomId)
   if (!room) return { ...d, timeline, threadViews, ...kept }
-  if (m.event) return { ...d, timeline, threadViews, ...kept, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
+  // an app's quiet line (server rooms/apps: Quiet, the paused line) counts nowhere, as an event line
+  if (m.event || m.app?.quiet) return { ...d, timeline, threadViews, ...kept, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
   const fresh = m.seq > room.lastSeq
   const mine = !!meId && m.author?.id === meId
   // my message in the room reads the room up to it (as the server does); my reply sent to the room too does not: it was
@@ -281,11 +287,38 @@ const withPin = (r: Room, at: string | undefined): Room => {
   return at ? { ...rest, pinnedAt: at } : rest
 }
 
-/** A room read or heard while my pin of it is still on its way (lib/optimistic.ts): it keeps the pin on screen (the
- * read may be from before it; the pin's own answer decides). */
-function keepPendingPin(d: Pick<RoomsData, 'rooms'>, room: Room): Room {
-  if (!optimisticPending(pinKey(room.id))) return room
-  return withPin(room, d.rooms.find((r) => r.id === room.id)?.pinnedAt)
+const notifyKey = (roomId: string) => `room:${roomId}:notify`
+const nameKey = (roomId: string) => `room:${roomId}:name`
+const readKey = (roomId: string) => `room:${roomId}:read`
+const threadReadKey = (roomId: string, rootId: string) => `room:${roomId}:thread:${rootId}:read`
+const editKey = (roomId: string, messageId: string) => `room:${roomId}:message:${messageId}:edit`
+/** a thread read still on its way: what its news mark and the room's counts were before the first of them */
+const threadSnaps = new Map<string, { had: boolean; before: Pick<Room, 'threadsUnread' | 'mentioned' | 'nextThreadId'> | null }>()
+
+/** My level for a room as it is on screen now (lib/optimistic.ts): `notify` as the server would answer it (what my
+ * default gives the room stays), and `muted` with 끄기 */
+export function withNotifyLevel(r: Room, own: RoomNotifyLevel | null): Room {
+  const byDefault = r.notify?.byDefault ?? roomLevel(r.kind, null, 'direct')
+  return { ...r, muted: own === 'off', notify: { own, byDefault, level: own ?? byDefault } }
+}
+const ownLevel = (r: Room | undefined): RoomNotifyLevel | null => (r?.notify ? r.notify.own : r?.muted ? 'off' : null)
+
+/** my read place in a room and its badge, as the screen has it */
+type ReadPlace = Pick<Room, 'lastReadSeq' | 'unreadCount' | 'mentioned'>
+/** what an edit changes on a message */
+type EditedText = Pick<RoomMessage, 'body' | 'mentions' | 'mentionsAll' | 'editedAt'>
+
+/** A room read or heard while a change of mine to it is still on its way (lib/optimistic.ts: its pin, my level, its
+ * name, my read place): it keeps what is on screen (the read may be from before the change; the change's own answer
+ * decides). */
+function keepPending(d: Pick<RoomsData, 'rooms'>, room: Room): Room {
+  const now = d.rooms.find((r) => r.id === room.id)
+  let r = optimisticPending(pinKey(room.id)) ? withPin(room, now?.pinnedAt) : room
+  if (!now) return r
+  if (optimisticPending(notifyKey(room.id))) r = withNotifyLevel(r, ownLevel(now))
+  if (optimisticPending(nameKey(room.id))) r = { ...r, name: now.name }
+  if (optimisticPending(readKey(room.id)) && now.lastReadSeq > r.lastReadSeq) r = { ...r, lastReadSeq: now.lastReadSeq, unreadCount: now.unreadCount, mentioned: now.mentioned }
+  return r
 }
 
 /** My hidden mark on a room (docs/DECISIONS.md "대화 숨기기"), before the server answers: the room stays in the list,
@@ -327,7 +360,7 @@ const myRef = () => {
   return s.kind === 'signed-in' ? { id: s.me.user.id, name: s.me.user.name } : null
 }
 
-export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean }
+export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean; showMessages?: string[] }
 
 interface RoomsState extends RoomsData {
   kept: Record<string, KeptTimeline>
@@ -374,25 +407,36 @@ interface RoomsState extends RoomsData {
   closeThread: (roomId: string, rootId: string) => void
   loadThread: (roomId: string, rootId: string) => Promise<void>
   loadOlderReplies: (roomId: string, rootId: string) => Promise<void>
+  /** my place in a thread moved to seq: its news mark and the room's badge go at once; a failure puts them back without
+   * a word (asked again with a newer reply, the thread opening again or the connection coming back) */
   markThreadRead: (roomId: string, rootId: string, seq: number) => Promise<void>
   loadMembers: (roomId: string, force?: boolean) => Promise<void>
   send: (roomId: string, input: SendInput) => void
   retry: (roomId: string, clientMessageId: string) => void
   discard: (roomId: string, clientMessageId: string) => void
-  edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<void>
+  /** my message's new text, on screen at once; a failure puts the old text back with a toast (lib/optimistic.ts).
+   * Never rejects: false when it failed and nothing newer of it was made since (the box can open again with the text) */
+  edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<boolean>
   remove: (roomId: string, messageId: string) => Promise<void>
+  /** "Remove preview" on my own message: that link's card goes for everyone (a failure says so in a toast) */
+  hidePreview: (roomId: string, messageId: string, linkedMessageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
+  /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (asked
+   * again with a newer message, the room opening again or the connection coming back) */
   markRead: (roomId: string, seq: number) => Promise<void>
   setMuted: (roomId: string, muted: boolean) => Promise<void>
-  /** my level for a room (null: my default; docs/DECISIONS.md "대화방 알림 설정") */
+  /** my level for a room (null: my default; docs/DECISIONS.md "대화방 알림 설정"). On screen at once; a failure puts
+   * it back with a toast (lib/optimistic.ts), so it never rejects */
   setNotifyLevel: (roomId: string, level: RoomNotifyLevel | null) => Promise<void>
   /** the DM with this person (the existing one when there is one) */
   openDm: (userId: string) => Promise<Room>
   /** a new group chat of me and these people (docs/DECISIONS.md "그룹 대화와 방 이름") */
   createGroup: (userIds: string[], name: string | null) => Promise<Room>
-  /** the room's own name ('' or null: the server's name) */
-  rename: (roomId: string, name: string | null) => Promise<void>
+  /** the room's own name ('' or null: the server's name). On screen at once; a failure puts the old name back with a
+   * toast (lib/optimistic.ts). Never rejects: false when it failed and nothing newer of it was made since (the field
+   * can open again with the name typed) */
+  rename: (roomId: string, name: string | null) => Promise<boolean>
   invite: (roomId: string, userIds: string[]) => Promise<void>
   /** leave a group chat: it goes from the list (and every window) */
   leave: (roomId: string) => Promise<void>
@@ -633,6 +677,23 @@ let timelineGen = 0
 const unsure = new Map<string, number>()
 /** (by the read count when it was marked: only a read that started after it clears it) */
 const markUnsure = (roomId: string) => unsure.set(roomId, timelineGen)
+/** Threads closed a moment ago (by placeKey, the last few): one opened again shows them at once while its newest page
+ * is read (docs/DECISIONS.md "Lists, Search and Settings open at once"). A change in one meanwhile (a reply, an edit, a
+ * delete, reactions) forgets it, so it opens as before, from the server. */
+const keptThreads = new Map<string, Pick<ThreadView, 'root' | 'replies' | 'nextCursor'>>()
+const KEPT_THREADS = 10
+/** forget every kept thread of a room (I am out of it: back in later, its threads open from the server) */
+function forgetKeptThreads(roomId: string) {
+  for (const key of [...keptThreads.keys()]) if (key.startsWith(roomId + '/')) keptThreads.delete(key)
+}
+/** forget the kept threads of the room that this message (or its thread's root) is part of */
+function forgetKeptThread(roomId: string, messageId: string, rootId?: string | null) {
+  for (const [key, tv] of keptThreads) {
+    if (!key.startsWith(roomId + '/')) continue
+    const root = key.slice(roomId.length + 1)
+    if (root === messageId || root === rootId || tv.replies.some((m) => m.id === messageId)) keptThreads.delete(key)
+  }
+}
 /** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
  * takes an answer meant for its earlier showing); a thread's goes with it */
 let threadGenSeq = 0
@@ -729,7 +790,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
   const post = async (roomId: string, p: PendingSend) => {
     try {
-      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
+      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}), ...(p.showMessages?.length ? { showMessages: p.showMessages } : {}) } })
       goneElsewhere.delete(p.clientMessageId)
       patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
@@ -740,6 +801,17 @@ export const useRooms = create<RoomsState>((set, get) => {
       if (goneElsewhere.delete(p.clientMessageId)) {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
         return
+      }
+      // Trina is updating (lib/serverUpdating.ts): it stays on its way with a note and goes once the server is back,
+      // with the same client id (the update's stand-in kept nothing)
+      if (waitsForUpdate(e)) {
+        const mark = (updating: boolean) => setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'sending', updating: updating || undefined } : x)))
+        mark(true)
+        await waitForUpdate()
+        const still = get().pending[roomId]?.find((x) => x.clientMessageId === p.clientMessageId)
+        if (!still) return
+        mark(false)
+        return post(roomId, { ...still, state: 'sending', updating: undefined })
       }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
@@ -765,7 +837,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         const r = await api.call(API.listRooms)
         // (a room left a moment ago that is not mine any more: its kept messages go with it)
         const mine = new Set(r.items.map((x) => x.id))
-        set((s) => ({ rooms: sortRooms(r.items.map((x) => keepPendingPin(s, x))), loaded: true, failed: null, alerts: r.alerts ?? null, kept: Object.values(s.kept).every((tl) => mine.has(tl.roomId)) ? s.kept : Object.fromEntries(Object.entries(s.kept).filter(([id]) => mine.has(id))) }))
+        set((s) => ({ rooms: sortRooms(r.items.map((x) => keepPending(s, x))), loaded: true, failed: null, alerts: r.alerts ?? null, kept: Object.values(s.kept).every((tl) => mine.has(tl.roomId)) ? s.kept : Object.fromEntries(Object.entries(s.kept).filter(([id]) => mine.has(id))) }))
         // what this device kept for rooms I am no longer in, or for too long, goes
         pruneRoomDevice((id) => mine.has(id))
       } catch (e) {
@@ -776,7 +848,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     async fetchRoom(id) {
       try {
         const room = await api.call(API.getRoom, { params: { id } })
-        set((s) => withRoom(s, keepPendingPin(s, room)))
+        set((s) => withRoom(s, keepPending(s, room)))
         return room
       } catch (e) {
         if (isApiError(e, 'not_found') || isApiError(e, 'forbidden')) {
@@ -945,9 +1017,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       // on screen already (the page's thread, now beside a file of it too): one more panel shows it
       if (cur) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders + 1 } } }))
       asked.delete(key)
-      // the root as the timeline has it already: shown at once while the replies load
-      const root = get().timeline?.roomId === roomId ? get().timeline!.messages.find((m) => m.id === rootId) ?? null : null
-      set((s) => ({ threadViews: { ...s.threadViews, [key]: { roomId, rootId, root, replies: [], nextCursor: null, loading: true, error: null, holders: 1 } } }))
+      // the root as the timeline has it already, and the replies as this window last showed them (a room I am still
+      // in): shown at once while the newest page loads
+      const kept = get().rooms.some((r) => r.id === roomId) ? keptThreads.get(key) : undefined
+      keptThreads.delete(key)
+      const root = (get().timeline?.roomId === roomId ? get().timeline!.messages.find((m) => m.id === rootId) : undefined) ?? kept?.root ?? null
+      set((s) => ({ threadViews: { ...s.threadViews, [key]: { roomId, rootId, root, replies: kept?.replies ?? [], nextCursor: kept?.nextCursor ?? null, loading: true, error: null, holders: 1 } } }))
       void get().loadThread(roomId, rootId)
     },
 
@@ -956,8 +1031,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       const cur = get().threadViews[key]
       if (!cur) return
       if (cur.holders > 1) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders - 1 } } }))
-      // the last panel: a read still on its way is dropped
+      // the last panel: a read still on its way is dropped; what it showed is kept for a while (keptThreads)
       threadGens.delete(key)
+      // (only one page of replies: the newest page read when it opens again replaces them, so more would shrink)
+      if (cur.root && !cur.error && !cur.loading && cur.replies.length <= ROOM_PAGE) {
+        keptThreads.delete(key)
+        keptThreads.set(key, { root: cur.root, replies: cur.replies, nextCursor: cur.nextCursor })
+        if (keptThreads.size > KEPT_THREADS) keptThreads.delete(keptThreads.keys().next().value!)
+      }
       set((s) => ({ threadViews: omit(s.threadViews, key) }))
     },
 
@@ -1004,16 +1085,36 @@ export const useRooms = create<RoomsState>((set, get) => {
       const key = placeKey(roomId, rootId)
       if ((asked.get(key) ?? 0) >= seq) return
       asked.set(key, seq)
-      try {
-        const r = await api.call(API.markRoomThreadRead, { params: { id: roomId, messageId: rootId }, body: { seq } })
-        set((s) => withRoom(s, r.room))
-        patchMessages((s) => {
-          const root = findMessage(s, roomId, rootId)
-          return root?.thread?.newReplies ? withThreadSummary(s, roomId, rootId, { ...root.thread, newReplies: false }) : s
-        })
-      } catch {
-        if (asked.get(key) === seq) asked.delete(key)
-      }
+      // read on screen at once: the thread's news mark, and the room's count of followed threads with news (the
+      // server's room follows). Put back: as they were before the first read still on its way (the room is read again
+      // for the exact count)
+      const k = threadReadKey(roomId, rootId)
+      const snap = (optimisticPending(k) && threadSnaps.get(k)) || (() => {
+        const room = get().rooms.find((r) => r.id === roomId)
+        return { had: !!findMessage(get(), roomId, rootId)?.thread?.newReplies, before: room ? { threadsUnread: room.threadsUnread, mentioned: room.mentioned, nextThreadId: room.nextThreadId } : null }
+      })()
+      threadSnaps.set(k, snap)
+      const { had, before } = snap
+      const r = await optimistic<boolean, RoomThreadReadState>({
+        key: k,
+        from: false,
+        to: true,
+        show: (read) => {
+          if (!had) return
+          patchMessages((s) => {
+            const now = findMessage(s, roomId, rootId)
+            return now?.thread && now.thread.newReplies !== !read ? withThreadSummary(s, roomId, rootId, { ...now.thread, newReplies: !read }) : s
+          })
+          if (before) set((s) => ({ rooms: s.rooms.map((x) => (x.id !== roomId ? x : read ? { ...x, threadsUnread: Math.max(0, before.threadsUnread - 1), ...(x.nextThreadId === rootId ? { nextThreadId: null } : {}) } : { ...x, ...before })) }))
+        },
+        send: () => api.call(API.markRoomThreadRead, { params: { id: roomId, messageId: rootId }, body: { seq } }),
+        settle: (reply) => set((s) => withRoom(s, keepPending(s, reply.room))),
+        failText: false,
+      })
+      if (!optimisticPending(k)) threadSnaps.delete(k)
+      // not read: the room is read again for the exact count. The same place is not asked again until the thread opens
+      // again or the connection comes back (asking at once would repeat while the server says no: the news mark is back)
+      if (!r.ok && r.newest) void get().fetchRoom(roomId).catch(() => {})
     },
 
     async loadMembers(roomId, force) {
@@ -1030,7 +1131,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     send(roomId, input) {
-      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, state: 'sending', createdAt: new Date().toISOString() }
+      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, ...(input.showMessages?.length ? { showMessages: input.showMessages } : {}), state: 'sending', createdAt: new Date().toISOString() }
       setPending(roomId, (list) => [...list, p])
       void post(roomId, p)
       // sent from a window around an older message: back to the newest, where it goes
@@ -1051,8 +1152,27 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     async edit(roomId, messageId, body, mentions, mentionsAll) {
-      const m = await api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions, ...(mentionsAll ? { mentionsAll: true } : {}) } })
-      patchMessages((s) => withUpdatedMessage(s, roomId, m))
+      const was = findMessage(get(), roomId, messageId)
+      const textOf = (m: RoomMessage): EditedText => ({ body: m.body, mentions: m.mentions, mentionsAll: m.mentionsAll, editedAt: m.editedAt })
+      const r = await optimistic<EditedText | null, RoomMessage>({
+        key: editKey(roomId, messageId),
+        from: was ? textOf(was) : null,
+        to: { body, mentions, mentionsAll: mentionsAll || undefined, editedAt: new Date().toISOString() },
+        // the text wherever the message shows (patchMessages: a page read on its way gets it too)
+        show: (text) => {
+          if (!text) return
+          patchMessages((s) => {
+            const now = findMessage(s, roomId, messageId)
+            if (!now || now.deletedAt) return s
+            const { mentionsAll: _was, ...rest } = now
+            return withUpdatedMessage(s, roomId, { ...rest, ...text, ...(text.mentionsAll ? { mentionsAll: true } : {}) })
+          })
+        },
+        send: () => api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions, ...(mentionsAll ? { mentionsAll: true } : {}) } }),
+        confirmed: textOf,
+        settle: (m) => patchMessages((s) => withUpdatedMessage(s, roomId, m)),
+      })
+      return r.ok || !r.newest
     },
 
     async remove(roomId, messageId) {
@@ -1060,8 +1180,21 @@ export const useRooms = create<RoomsState>((set, get) => {
       // the room.message.updated event says the same; show it at once
       const m = findMessage(get(), roomId, messageId)
       if (m) {
-        const { reactions: _r, ...rest } = m
+        const { reactions: _r, linkPreviews: _l, ...rest } = m
         patchMessages((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
+      }
+    },
+
+    async hidePreview(roomId, messageId, linkedMessageId) {
+      const m = findMessage(get(), roomId, messageId)
+      // gone from the screen at once; the server's message (and its room.message.updated) says the same
+      if (m?.linkPreviews) patchMessages((s) => withUpdatedMessage(s, roomId, { ...m, linkPreviews: m.linkPreviews!.map((p) => (p.messageId === linkedMessageId ? { ...p, removed: true as const, body: '', files: { count: 0 } } : p)) }))
+      try {
+        const next = await api.call(API.hideRoomLinkPreview, { params: { id: roomId, messageId }, body: { linkedMessageId } })
+        patchMessages((s) => withUpdatedMessage(s, roomId, next))
+      } catch (e) {
+        if (m) patchMessages((s) => withUpdatedMessage(s, roomId, m))
+        toast({ level: 'error', text: errorText(e, currentLocale(), t('error.network')) })
       }
     },
 
@@ -1100,12 +1233,24 @@ export const useRooms = create<RoomsState>((set, get) => {
       if (room && seq <= room.lastReadSeq) return
       if ((asked.get(roomId) ?? 0) >= seq) return
       asked.set(roomId, seq)
-      try {
-        const r = await api.call(API.markRoomRead, { params: { id: roomId }, body: { seq } })
-        set((s) => withReadState(s, roomId, r))
-      } catch {
-        if (asked.get(roomId) === seq) asked.delete(roomId)
-      }
+      // the badge goes at once: read to the room's end, nothing is left (a followed thread's mention stays, as the
+      // server keeps it); read to a place before it, the count waits for the server
+      const place = (r: Room | undefined): ReadPlace => ({ lastReadSeq: r?.lastReadSeq ?? 0, unreadCount: r?.unreadCount ?? 0, mentioned: r?.mentioned ?? false })
+      const end = !!room && seq >= room.lastSeq
+      const r = await optimistic<ReadPlace, RoomReadState>({
+        key: readKey(roomId),
+        from: place(room),
+        to: room ? { lastReadSeq: Math.max(room.lastReadSeq, seq), unreadCount: end ? 0 : room.unreadCount, mentioned: end ? room.threadsUnread > 0 && room.mentioned : room.mentioned } : place(room),
+        show: (p) => set((s) => ({ rooms: s.rooms.map((x) => (x.id === roomId ? { ...x, ...p } : x)) })),
+        send: () => api.call(API.markRoomRead, { params: { id: roomId }, body: { seq } }),
+        confirmed: (reply) => ({ lastReadSeq: reply.lastReadSeq, unreadCount: reply.unreadCount, mentioned: reply.mentioned ?? false }),
+        settle: (reply) => set((s) => withReadState(s, roomId, reply)),
+        failText: false,
+      })
+      // not read: put back as it was, and the room is read again for what came meanwhile. The same place is not asked
+      // again until a newer message, the room opening again or the connection coming back (asking at once would repeat
+      // while the server says no: the badge is back)
+      if (!r.ok && r.newest) void get().fetchRoom(roomId).catch(() => {})
     },
 
     async setMuted(roomId, muted) {
@@ -1114,8 +1259,16 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     async setNotifyLevel(roomId, level) {
-      const room = await api.call(API.updateRoom, { params: { id: roomId }, body: { notifyLevel: level } })
-      set((s) => withRoom(s, room))
+      // on screen at once (the bell, the ticked choice, a grey badge at 끄기); a failure puts it back and says so
+      await optimistic<RoomNotifyLevel | null, Room>({
+        key: notifyKey(roomId),
+        from: ownLevel(get().rooms.find((r) => r.id === roomId)),
+        to: level,
+        show: (own) => set((s) => ({ rooms: s.rooms.map((r) => (r.id === roomId ? withNotifyLevel(r, own) : r)) })),
+        send: () => api.call(API.updateRoom, { params: { id: roomId }, body: { notifyLevel: level } }),
+        confirmed: (room) => ownLevel(room),
+        settle: (room) => set((s) => withRoom(s, keepPending(s, room))),
+      })
     },
 
     async openDm(userId) {
@@ -1131,8 +1284,18 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     async rename(roomId, name) {
-      const room = await api.call(API.updateRoom, { params: { id: roomId }, body: { name: name?.trim() || null } })
-      set((s) => withRoom(s, room))
+      const next = name?.trim() || null
+      // on screen at once (the header, the list, the members dialog); a failure puts the old name back and says so
+      const r = await optimistic<string | null, Room>({
+        key: nameKey(roomId),
+        from: get().rooms.find((r) => r.id === roomId)?.name ?? null,
+        to: next,
+        show: (n) => set((s) => ({ rooms: s.rooms.map((r) => (r.id === roomId ? { ...r, name: n } : r)) })),
+        send: () => api.call(API.updateRoom, { params: { id: roomId }, body: { name: next } }),
+        confirmed: (room) => room.name,
+        settle: (room) => set((s) => withRoom(s, keepPending(s, room))),
+      })
+      return r.ok || !r.newest
     },
 
     async invite(roomId, userIds) {
@@ -1209,6 +1372,8 @@ export const useRooms = create<RoomsState>((set, get) => {
     forgetKept() {
       const open = get().openRoomId
       if (open) markUnsure(open)
+      // the kept threads may have missed changes as well: they open from the server again
+      keptThreads.clear()
       set({ kept: {} })
     },
 
@@ -1233,6 +1398,12 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     handleEvent(ev) {
+      // a kept thread this changes opens from the server next time
+      if (keptThreads.size) {
+        if (ev.type === 'room.message' || ev.type === 'room.message.updated') forgetKeptThread(ev.data.roomId, ev.data.message.id, ev.data.message.threadRootId)
+        else if (ev.type === 'room.reactions') forgetKeptThread(ev.data.roomId, ev.data.messageId)
+        else if (ev.type === 'room.thread') forgetKeptThread(ev.data.roomId, ev.data.rootId)
+      }
       switch (ev.type) {
         case 'room.message': {
           const { roomId, message } = ev.data
@@ -1243,6 +1414,9 @@ export const useRooms = create<RoomsState>((set, get) => {
           return
         }
         case 'room.message.updated':
+          // my edit of it still on its way: the screen has the newer text, the edit's own answer decides (a delete
+          // still goes through)
+          if (!ev.data.message.deletedAt && optimisticPending(editKey(ev.data.roomId, ev.data.message.id))) return
           patchMessages((s) => withUpdatedMessage(s, ev.data.roomId, ev.data.message))
           return
         case 'room.thread':
@@ -1258,6 +1432,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.updated': {
           const { roomId, change, room } = ev.data
           if (change === 'removed' || !room) {
+            forgetKeptThreads(roomId)
             const wasOpen = get().openRoomId === roomId
             set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
             useSideChats.getState().drop(roomId)
@@ -1268,7 +1443,7 @@ export const useRooms = create<RoomsState>((set, get) => {
             }
             return
           }
-          set((s) => withRoom(s, keepPendingPin(s, room)))
+          set((s) => withRoom(s, keepPending(s, room)))
           if (change === 'members') {
             memberReads.delete(roomId)
             // (kept after leaving it, it is read again as the first time: the events do not say whose reactions went)
@@ -1289,6 +1464,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     reset() {
       asked.clear()
+      threadSnaps.clear()
       leaving.clear()
       unsure.clear()
       memberReads.clear()
@@ -1300,6 +1476,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       useSideChats.getState().reset()
       timelineGen++
       threadGens.clear()
+      keptThreads.clear()
       inFlight.clear()
       set({ ...EMPTY })
     },

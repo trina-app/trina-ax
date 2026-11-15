@@ -24,6 +24,8 @@ import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { appPicksPhotos, PHOTO_PICK_LIMITS, pickPhotosFromApp } from '../../lib/mobile'
 import { toast } from '../../store/ui'
+import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
 
 /** WebKit on an iPhone or iPad (an iPad's Safari says it is a Mac, with touch) */
@@ -57,6 +59,8 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
 }) {
   const t = useT()
   const locale = useLocale()
+  // a guest has no team folder: the row names what they can reach (components/chat/TeamFilePicker.tsx)
+  const guest = isGuestMe(useMe())
   const photos = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
   const files = useRef<HTMLInputElement>(null)
@@ -128,7 +132,7 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
           { label: t('composer.files'), icon: <FileText size={18} className="text-muted" aria-hidden />, onSelect: () => files.current?.click(), testId: 'attach-files' },
         ]
       : []),
-    ...(onTeam ? [{ label: t('composer.teamFiles'), icon: <FolderOpen size={18} className="text-accent-text" aria-hidden />, onSelect: onTeam, testId: 'attach-team' }] : []),
+    ...(onTeam ? [{ label: t(guest ? 'picker.guestRoot' : 'composer.teamFiles'), icon: <FolderOpen size={18} className="text-accent-text" aria-hidden />, onSelect: onTeam, testId: 'attach-team' }] : []),
   ]
   return (
     <>

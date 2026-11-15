@@ -89,6 +89,33 @@ test('propose → change a row → remove a row → rename a new folder → [이
   expect(realErrors(errors)).toEqual([])
 })
 
+test('leaving the step before answering: after a reload the same plan shows again; once answered it does not come back', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await toFiles(page)
+  await page.getByTestId('welcome-team-files-input').setInputFiles(FILES)
+  await expect(page.getByTestId('organize-proposal')).toBeVisible()
+  await expect(page.getByTestId('organize-group')).toHaveCount(3)
+  // a change the person made is not kept, the plan is
+  await page.reload()
+  // the setup opens on the next step (the files went up); ← 이전 is the way back to the plan
+  await page.getByTestId('welcome-back').click()
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await expect(page.getByTestId('organize-proposal')).toBeVisible()
+  await expect(page.getByTestId('organize-group')).toHaveCount(3)
+  expect((await (await page.request.get('/__test/organize')).json()).calls).toHaveLength(1)
+  // the files are still loose until the person answers
+  expect(await names(page, 'shared/양식')).toEqual([])
+  await page.getByTestId('organize-apply').click()
+  await expect(page.getByTestId('organize-result-title')).toBeVisible()
+  expect(await names(page, 'shared/양식')).toHaveLength(2)
+  // answered: a reload does not bring the plan back
+  await page.reload()
+  await expect(page.getByTestId('organize-proposal')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('[프로젝트로 묶기]: a team project with the team group as participant, its files moved into its folder (dark)', async ({ page }) => {
   const errors = watchConsole(page)
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -157,7 +184,7 @@ for (const scheme of ['light', 'dark'] as const) {
     // the folder picker and ✕ are full-height touch targets under the name
     const select = row(page, '견적서_양식.md').getByTestId('organize-row-folder')
     expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(36)
-    await select.selectOption({ label: '새 폴더…' })
+    await select.selectOption({ label: '새 폴더' })
     await expect(group(page, '새 폴더')).toBeVisible()
     await page.getByTestId('organize-apply').click()
     await expect(page.getByTestId('organize-result-title')).toBeVisible()

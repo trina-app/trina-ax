@@ -54,21 +54,57 @@ export const RelPath = z.string().max(1024).refine((p) => {
 }, 'path must be relative to the team folder, without "..", "\\\\" or a leading "/"')
 export type RelPath = z.infer<typeof RelPath>
 
-export const Role = z.enum(['owner', 'admin', 'member'])
+/** `guest`: an outside person who reaches only the group chats and projects they were invited to (docs/DECISIONS.md
+ * "Guests: only what they were invited to"). Never a folder rule subject, never set by a role change. */
+export const Role = z.enum(['owner', 'admin', 'member', 'guest'])
 export type Role = z.infer<typeof Role>
+/** A role the members screen can give (a guest comes only from a guest invite). */
+export const TeamRole = Role.exclude(['owner', 'guest'])
+export type TeamRole = z.infer<typeof TeamRole>
+/** How a guest's AI runs: off (default), team connections assigned to them under a limit, or their own sign-in. */
+export const GuestAi = z.enum(['none', 'team', 'own'])
+export type GuestAi = z.infer<typeof GuestAi>
+/** A guest's one place (owner, 2026-11-14): one group chat (`room`) or one project, never several. */
+export const GuestPlace = z.object({ kind: z.enum(['room', 'project']), id: z.string().min(1).max(64) })
+export type GuestPlace = z.infer<typeof GuestPlace>
+/** The AI choice a guest invite carries: `team` needs a team connection and a usage limit (USD a month, a 'block'
+ * budget of the guest's own); `own` = the guest's own Claude/Codex sign-in; `none` (default) = no AI. */
+export const GuestAiChoice = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('none') }),
+  z.object({ mode: z.literal('own') }),
+  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitUsd: z.number().positive().max(100_000) }),
+])
+export type GuestAiChoice = z.infer<typeof GuestAiChoice>
+/** A guest's place with its name, as screens show it (Me.guest, User.guest). */
+export const GuestPlaceNamed = GuestPlace.extend({ name: z.string() })
+/** A guest's details: their one place and their AI (Me.guest for the guest, User.guest for admins). */
+export const GuestDetail = z.object({
+  place: GuestPlaceNamed, ai: GuestAiChoice,
+  /** a removed guest (account off) who is not in their place now: 'left' = taken out of it or left it, 'trashed' = the
+   * project is in the trash (restoring it brings them back), 'gone' = the room was closed or the project deleted for
+   * good. Absent for an active guest and for a removed one who could be switched back on */
+  placeOut: z.enum(['left', 'trashed', 'gone']).optional(),
+  /** Team AI was picked for them, but that team AI account was deleted since: `ai` reads No AI, and the guest is told
+   * that AI can't answer them now (not that it is off) */
+  teamAiGone: z.literal(true).optional(),
+  /** Team AI with this month's limit used up (Admin's row says so; the guest's own screens say it on a send) */
+  aiUsedUp: z.literal(true).optional(),
+})
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>
-export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es'])
+export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es', 'zh'])
 export type Locale = z.infer<typeof Locale>
 /** Language when nothing else decides: no personal choice and no team default stored (a fresh install). */
 export const DEFAULT_LOCALE: Locale = 'en'
 /** Each language named in its own language (language pickers), in the order pickers list them. */
-export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: "日本語", es: "Español" }
-export const LOCALE_ORDER: readonly Locale[] = ['en', 'ko', 'id', 'ja', 'es']
-/** "ko" / "ko-KR" / "in" -> one of ours, else null. */
+export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: "日本語", es: "Español", zh: "简体中文" }
+export const LOCALE_ORDER: readonly Locale[] = ['en', 'ko', 'id', 'ja', 'es', 'zh']
+/** "ko" / "ko-KR" / "in" -> one of ours, else null. Every Chinese tag ("zh", "zh-CN", "zh-Hans", "zh-SG", and also
+ * "zh-TW" / "zh-HK" / "zh-Hant") is "zh": Simplified Chinese is the only Chinese we have, and it reads better for a
+ * Traditional reader than English. */
 export function asLocale(tag: string | null | undefined): Locale | null {
   const base = (tag ?? '').trim().toLowerCase().split(/[-_]/)[0]
-  if (base === 'ko' || base === 'en' || base === 'id' || base === 'ja' || base === 'es') return base
+  if (base === 'ko' || base === 'en' || base === 'id' || base === 'ja' || base === 'es' || base === 'zh') return base
   if (base === 'in') return 'id' // old Java/Android code for Indonesian
   return null
 }

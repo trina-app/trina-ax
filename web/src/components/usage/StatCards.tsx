@@ -9,7 +9,7 @@ export function StatCards({ items, testId = 'usage-stats' }: { items: { label: s
     <dl className={clsx('grid gap-3 max-md:gap-x-3 max-md:gap-y-4', items.length === 2 ? 'grid-cols-2' : items.length === 3 ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4')} data-testid={testId}>
       {items.map((it) => (
         <div key={it.label} className="min-w-0 rounded-xl border border-line bg-surface p-4 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0 md:p-5" data-testid={it.testId}>
-          <dt className="truncate text-sm text-muted max-md:text-xs">{it.label}</dt>
+          <dt className="truncate text-xs text-muted">{it.label}</dt>
           <dd className="mt-2 break-words text-xl font-medium tabular-nums tracking-tight [overflow-wrap:anywhere] max-md:mt-1 max-md:text-lg md:mt-3 2xl:text-2xl">{it.value}</dd>
         </div>
       ))}

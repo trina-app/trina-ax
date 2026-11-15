@@ -34,9 +34,9 @@ const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships
 // eslint-disable-next-line no-control-regex
 export const x = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-const LANG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es-ES' }
-/** The East Asian font charset of each language (Hangul 129, Shift-JIS 128 as signed bytes); 0 elsewhere. */
-const EA_CHARSET: Record<Locale, number> = { ko: -127, ja: -128, en: 0, id: 0, es: 0 }
+const LANG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es-ES', zh: 'zh-CN' }
+/** The East Asian font charset of each language (Hangul 129, Shift-JIS 128, GB2312 134 as signed bytes); 0 elsewhere. */
+const EA_CHARSET: Record<Locale, number> = { ko: -127, ja: -128, zh: -122, en: 0, id: 0, es: 0 }
 
 /** Where the first line's baseline sits in a PowerPoint text box with exact line spacing, as a share of the line
  * pitch (measured with LibreOffice and Quick Look; PowerPoint places it the same way within a pixel or two). */

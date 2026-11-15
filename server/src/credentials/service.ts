@@ -11,7 +11,7 @@ import { newId } from '../db'
 import { fail } from '../http/errors'
 import { ct, ctAll } from './i18n'
 import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './resolve'
-import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
+import { personalConnectionsAllowed, SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
   ASSIGNEES_GONE, CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
@@ -64,7 +64,7 @@ export function duplicateOf(cc: CredCtx, kind: CredentialKind, fp: string, excep
  * can send it again with moveFrom). Never any part of the secret (not even the last 4).
  */
 export function duplicateConflict(cc: CredCtx, dup: CredRow, actor: string, locale: Locale, o: { movable?: boolean } = {}): never {
-  const role = (cc.db.query('SELECT role FROM users WHERE id = ?').get(actor) as { role: string } | null)?.role
+  const role = (cc.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(actor) as { role: string } | null)?.role
   const admin = role === 'owner' || role === 'admin'
   const label = dup.label
   if (dup.owner_user_id === actor) {
@@ -115,7 +115,7 @@ export interface CreateInput {
 
 function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
   if (!i.ownerUserId && SUBSCRIPTION.has(i.kind) && !sharedSubscriptionsAllowed(cc.db)) fail('forbidden', ct('sharedSubscriptionsOff', locale))
-  if (i.ownerUserId && (!memberOwnAllowed(cc.db) || i.ownerUserId !== i.actor)) fail('forbidden', ct('memberOwnOff', locale))
+  if (i.ownerUserId && (i.ownerUserId !== i.actor || !personalConnectionsAllowed(cc.db, i.ownerUserId))) fail('forbidden', ct('memberOwnOff', locale))
 }
 
 /** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed). With moveFrom (a team connection
@@ -195,7 +195,7 @@ export async function createCredential(cc: CredCtx, i: CreateInput, locale: Loca
  */
 function personalGuard(cc: CredCtx, row: CredRow, actor: string, op: 'disable' | 'delete' | 'other', locale: Locale) {
   if (!row.owner_user_id || row.owner_user_id === actor) return
-  const role = (id: string) => (cc.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role
+  const role = (id: string) => (cc.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(id) as { role: string } | null)?.role
   if (role(actor) === 'owner') return
   if (role(actor) === 'admin' && role(row.owner_user_id) === 'member' && (op === 'disable' || op === 'delete')) return
   fail('forbidden', ct('personalNotYours', locale))

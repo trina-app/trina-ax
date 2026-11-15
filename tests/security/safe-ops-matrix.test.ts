@@ -81,7 +81,7 @@ test('1A: no new shared chat, and no safe workflow in a shared chat', async () =
   const db = A.ctx.db
   const projectId = crypto.randomUUID()
   db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, share_chats) VALUES (?, 'Falcon', 'projects/falcon', '', 'alice', ?, 1)").run(projectId, new Date().toISOString())
-  expect(sharesNewChats({ folder_path: 'projects/falcon', share_chats: 1, trashed_with: null })).toBe(false)
+  expect(sharesNewChats({ folder_path: 'projects/falcon', trashed_with: null })).toBe(false)
   const chat = A.chat('alice')
   db.query('UPDATE chats SET project_id = ?, shared_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), chat)
   const turn = A.turn('alice', chat)
@@ -89,6 +89,6 @@ test('1A: no new shared chat, and no safe workflow in a shared chat', async () =
   expect(() => markConfidentialTurn(db, turn)).toThrow(/shared project chat/)
   expect(db.query('SELECT material FROM safe_ops_chats WHERE chat_id = ?').get(chat)).toBeNull()
   delete process.env.MYCEL_SAFE_OPS_1A
-  try { expect(sharesNewChats({ folder_path: 'projects/falcon', share_chats: 1, trashed_with: null })).toBe(true) }
+  try { expect(sharesNewChats({ folder_path: 'projects/falcon', trashed_with: null })).toBe(true) }
   finally { process.env.MYCEL_SAFE_OPS_1A = '1' }
 })

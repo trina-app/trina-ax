@@ -16,7 +16,8 @@
 // count Codex usage; the turn's usage event does). Every refusal is audited. One CONNECT per connection.
 // Office mode with the Mac user's own Claude login (security round 4b): the engine sandbox has no network but this
 // port, and Claude turns get HTTPS_PROXY the same way. A Claude turn's token opens tunnels only to `claudeHosts`
-// (CLAUDE_CONNECT_HOSTS: the API and the login refresh host Claude Code 2.1.306 uses); a Codex turn's only to `hosts`.
+// (CLAUDE_CONNECT_HOSTS: the login refresh host); a Codex turn's only to `hosts`. The Messages API no longer tunnels
+// (TC-359): it goes to the proxy's HTTP path, which reads and checks every request body (model-proxy.ts ownLogin).
 // Without `claudeHosts` (production, subscription mode: Claude goes through the HTTP path) a Claude turn gets 403.
 import crypto from 'node:crypto'
 import net from 'node:net'
@@ -28,11 +29,18 @@ import { audit } from '../admin/audit'
 export const CODEX_CONNECT_HOSTS = ['chatgpt.com:443', 'auth.openai.com:443']
 /** the ChatGPT device sign-in (`codex login --device-auth`) calls auth.openai.com only (codex-rs/login, C13) */
 export const CODEX_LOGIN_HOSTS = ['auth.openai.com:443']
-/** What Claude Code 2.1.306 with the Mac user's login reaches (office mode, local login): the Messages API (and its
- * profile / usage endpoints on the same host) and the OAuth token refresh (platform.claude.com/v1/oauth/token, the
- * TOKEN_URL in the CLI). WebSearch runs at Anthropic (a server tool) and needs no host here; telemetry, error
- * reporting and the auto-updater are off (CLAUDE_LOCK_ENV). Seen in a real turn through this proxy (docs/DECISIONS.md). */
-export const CLAUDE_CONNECT_HOSTS = ['api.anthropic.com:443', 'platform.claude.com:443']
+/** What a Claude turn with the Mac user's login may tunnel to (office mode, local login): only the OAuth token refresh
+ * (platform.claude.com/v1/oauth/token, the TOKEN_URL in the CLI). api.anthropic.com is NOT here any more (TC-359): a
+ * tunnel stays TLS end to end, so a taken-over engine could send mcp_servers, code execution or a fetching server tool
+ * past every check; the Messages API goes to the proxy's HTTP path (ANTHROPIC_BASE_URL) instead. platform.claude.com
+ * answers the Messages API too, so in office mode its tunnel ends at the refresh terminator (`terminate`,
+ * ./refresh-terminator.ts), which passes the refresh and nothing else. WebSearch runs at
+ * Anthropic (a server tool); telemetry, error reporting and the auto-updater are off (CLAUDE_LOCK_ENV). */
+export const CLAUDE_CONNECT_HOSTS = ['platform.claude.com:443']
+/** Claude Code still opens a tunnel to api.anthropic.com for side lookups (its account profile and the like; 2.1.325
+ * tried one or two per turn in a real office turn, TC-359) and goes on when it is refused. Refused like any other host,
+ * without an Activity log line when the caller really is the turn's engine: it happens on every turn. */
+export const CLAUDE_TURN_QUIET = ['api.anthropic.com:443']
 /** proxy_tokens.turn_id of the engine account's Codex login (server CLI codex-login): pending until the launcher
  * reported the login process, then bound to its pid (= its session id: the launcher starts it with setsid) */
 export const CODEX_LOGIN_PENDING = 'codex-login:pending-'
@@ -70,6 +78,9 @@ export interface ConnectOpts {
   turnSession?: (turnId: string) => number | null
   /** open the upstream connection (tests) */
   dial?: (host: string, port: number) => net.Socket
+  /** Claude turns' tunnels to these host:port targets end at a local listener that reads them (office own-login: the
+   * login refresh, ./refresh-terminator.ts) instead of going on to the host */
+  terminate?: { hosts: string[]; dial(): net.Socket }
   /** how long a CONNECT of a sign-in token waits for the server to bind it to the sign-in process */
   loginBindWaitMs?: number
   /** how often open tunnels are re-checked (token revoked or expired, turn no longer running -> closed); default 1000 */
@@ -97,6 +108,7 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
   const loginHosts = new Set(o.loginHosts ?? CODEX_LOGIN_HOSTS)
   const claudeLoginHosts = new Set(o.claudeLoginHosts ?? CLAUDE_LOGIN_HOSTS)
   const claudeLoginQuiet = new Set(CLAUDE_LOGIN_QUIET)
+  const claudeTurnQuiet = new Set(CLAUDE_TURN_QUIET)
   const claudeHosts = o.claudeHosts ? new Set(o.claudeHosts) : null
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
   // Open tunnels outlive the CONNECT check: a tunnel stays open after its token was revoked (turn over, login CLI
@@ -150,6 +162,7 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     let session: number | null = null
     let allowed = hosts
     let quiet: Set<string> | null = null
+    let claudeTurn = false
     if (isLoginToken(r.turn_id)) {
       const claude = r.turn_id.startsWith('claude-login:')
       const [pending, bound] = claude ? [CLAUDE_LOGIN_PENDING, CLAUDE_LOGIN_BOUND] : [CODEX_LOGIN_PENDING, CODEX_LOGIN_BOUND]
@@ -166,7 +179,7 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
       const claude = t?.engine === 'claude-code' && claudeHosts !== null
       const codex = t?.engine === 'codex' && o.codexTurns === true
       if (!t || (!codex && !claude)) return deny(403, t?.engine === 'codex' ? 'Codex turns talk to the proxy, not through tunnels' : 'this turn may not open tunnels', r.user_id, r.turn_id)
-      if (claude) allowed = claudeHosts!
+      if (claude) { allowed = claudeHosts!; quiet = claudeTurnQuiet; claudeTurn = true }
       if (t.status !== 'running') return deny(403, 'the turn is not running', r.user_id, r.turn_id)
       if (o.turnSession) {
         session = o.turnSession(r.turn_id)
@@ -175,7 +188,8 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     }
     // target
     if (!allowed.has(target)) {
-      // the sign-in's own expected lookup (CLAUDE_LOGIN_QUIET) goes unrecorded only when it really comes from that process
+      // the sign-in's / turn's own expected lookup (CLAUDE_LOGIN_QUIET, CLAUDE_TURN_QUIET) goes unrecorded only when it
+      // really comes from that process
       const expected = !!quiet?.has(target) && (!o.peerSession || (await o.peerSession(clientPort, serverPort)) === session)
       return deny(403, 'host not allowed', r.user_id, r.turn_id, expected)
     }
@@ -186,7 +200,7 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     }
     const i = target.lastIndexOf(':')
     const host = target.slice(0, i), port = Number(target.slice(i + 1))
-    const up = (o.dial ?? ((h, p) => net.connect(p, h)))(host, port)
+    const up = claudeTurn && o.terminate?.hosts.includes(target) ? o.terminate.dial() : (o.dial ?? ((h, p) => net.connect(p, h)))(host, port)
     let open = false
     const turnId = r.turn_id
     up.on('connect', () => {

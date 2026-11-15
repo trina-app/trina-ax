@@ -1,1 +1,0 @@
-- **Rooms**: a press on a reaction under a message closes an open emoji picker, as a press anywhere else outside it does.

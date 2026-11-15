@@ -95,6 +95,7 @@ export const PAGER: Record<Locale, PagerText> = {
   id: { slide: 'slide', prev: 'Slide sebelumnya', next: 'Slide berikutnya', deck: 'Presentasi', all: 'Semua slide' },
   ja: { slide: 'スライド', prev: '前のスライド', next: '次のスライド', deck: '資料', all: 'すべてのスライド' },
   es: { slide: 'diapositiva', prev: 'Diapositiva anterior', next: 'Diapositiva siguiente', deck: 'Presentación', all: 'Todas las diapositivas' },
+  zh: { slide: '幻灯片', prev: '上一张幻灯片', next: '下一张幻灯片', deck: '演示文稿', all: '全部幻灯片' },
 }
 
 const STYLE = `

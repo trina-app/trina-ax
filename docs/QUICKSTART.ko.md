@@ -1,6 +1,6 @@
 # 로컬에서 트리나 AX 체험하기
 
-[English](QUICKSTART.md) · [팀장 안내](for-teams.ko.md)
+[English](QUICKSTART.md) · [简体中文](QUICKSTART.zh.md) · [팀장 안내](for-teams.ko.md)
 
 가상 자료로 파일·스킬·앱 권한을 확인하는 체험입니다. **운영 설치가 아니며 AI는 비활성화됩니다.** AI 계정 없이 시작할 수 있습니다. 답변 품질이나 운영 격리를 검증하는 환경은 아닙니다.
 

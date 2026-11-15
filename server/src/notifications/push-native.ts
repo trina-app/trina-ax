@@ -11,12 +11,12 @@ import {
   validPushToken, type PushEnvironment, type PushGatewaySend, type PushLocale, type PushPlatform,
 } from '@mycel/shared/cloud-protocol'
 import type { PushEventType } from '@mycel/shared/api'
-import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
 import { loadOrCreateKey } from '../relay-client/registration'
 import { answerError, errorCode, postPinned, PushSendError, type PushLookup } from './push-transport'
 
-/** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl; unset = off). */
+/** The gateway address: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl (app-config.ts resolvePushGateway), else an owner's or admin's
+ * choice in Settings › Notifications, else the edition default (push-gateway-setting.ts readNativePushConfig). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
 /** badge: the recipient's count for the app icon (push-badge.ts), a number only */
@@ -39,10 +39,6 @@ export function validGatewayUrl(raw: unknown): string | null {
   } catch { return null }
 }
 const loopbackHost = (h: string) => h === '127.0.0.1' || h === 'localhost' || h === '[::1]'
-export function readNativePushConfig(ctx: AppContext): NativePushConfig | null {
-  const url = validGatewayUrl(ctx.config.push?.gatewayUrl)
-  return url ? { url } : null
-}
 /** Device rows are bound to the gateway address: a changed address leaves old rows unused, like a new VAPID key. */
 export const nativeConfigKey = (c: NativePushConfig) => 'native:' + crypto.createHash('sha256').update('push-gateway|' + c.url).digest('hex')
 

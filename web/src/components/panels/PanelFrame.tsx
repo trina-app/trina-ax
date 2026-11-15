@@ -9,6 +9,7 @@ import { useId, useState, type ReactNode } from 'react'
 import { useT } from '../../i18n'
 import { IconButton, useMediaQuery } from '../ui'
 import { PANEL_ALWAYS_PX, useRailPanel } from '../rail/railPanel'
+import { rowBox } from '../list/List'
 
 export const PANEL_ID = 'rail-panel'
 
@@ -50,9 +51,10 @@ export function PanelFrame({ title, actions, top, children, bottom, onScroll, te
   )
 }
 
-/** a panel row's box with no size or colour (index.css "list panels"): 30 px (44 px on a touch screen), a 16 px icon, the
- * words; for a row that sets its own (a quiet row in `text-meta text-muted`, a place row read or open) */
-export const panelRowBox = 'flex h-row w-full pointer-coarse:min-h-11 items-center gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2'
+/** a panel row's box with no size or colour (index.css "list panels"): a ListRow's height (rowBox: 30 px, 48 px on a
+ * phone, 44 px or more on a touch screen), a 16 px icon, the words; for a row that sets its own (a quiet row in
+ * `text-meta text-muted`, a place row read or open) */
+export const panelRowBox = `flex ${rowBox} w-full items-center gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2`
 /** a row at the top of a panel (트리나에게 묻기, 검색, 예약 작업, 팀 스킬; 새 프로젝트): 15 px in ink, as the list's rows */
 export const panelRow = `${panelRowBox} text-row text-ink`
 export const panelRowActive = ({ isActive }: { isActive: boolean }) => clsx(panelRow, isActive && 'bg-hover font-semibold')

@@ -17,6 +17,7 @@ import { canSee, memberRow, MSG_COLS, SEE_MEMBER_SQL, type MessageRow } from '..
 import { vacuumInto } from '../../server/src/system/backup'
 import { migrate, openDb, readMigrations } from '../../server/src/db'
 import type { ReadSource } from '../../server/src/chat/read-scope'
+import { setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -25,6 +26,9 @@ let h: Harness
 let clock = Date.now()
 beforeAll(async () => {
   h = await startHarness({ name: 'b-rooms-search' })
+  // the answers here are judged by the rule for answers from before the cutover (docs/DECISIONS.md "People who see a
+  // shared chat later: nothing new is hidden"): the cutover after all of them
+  setHiddenAnswersCutover(h.ctx.db, '9999-12-31T00:00:00.000Z')
   const db = h.ctx.db
   db.exec('PRAGMA foreign_keys = OFF')
   for (const g of ['marketing', 'finance']) {
@@ -129,11 +133,12 @@ describe('who sees a hit', () => {
 
   test('an old answer hidden from a later member never matches, nor its thread, and its text is in no response', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
-    const a = aiAnswer(roomId, 'alice', 'The brief says HIDDEN-ANSWER-CANARY 견적 비밀', { sources: [folder('groups/marketing')] })
+    // (alice's own folder: an older answer no card could cover stays hidden, rule b; a team folder would not)
+    const a = aiAnswer(roomId, 'alice', 'The brief says HIDDEN-ANSWER-CANARY 견적 비밀', { sources: [{ type: 'user', id: 'alice' }] })
     await send('erin', roomId, 'THREAD-OF-HIDDEN-CANARY 견적', { threadRootId: a.answerId })
     const quoting = await send('erin', roomId, 'QUOTE-CANARY 견적 about the answer', { replyToId: a.answerId })
     await setMembers(groupId, ['alice', 'erin', 'bob'])
-    // alice, who could open the brief, finds all of it
+    // alice, who could open it, finds all of it
     expect((await search('alice', 'CANARY')).items.filter((i) => i.roomId === roomId).map((i) => i.snippet).sort()).toEqual(['QUOTE-CANARY 견적 about the answer', 'THREAD-OF-HIDDEN-CANARY 견적', 'The brief says HIDDEN-ANSWER-CANARY 견적 비밀'])
     // bob: not by its words, not its thread; a message quoting it is his to find, with its own words only
     expect((await search('bob', 'HIDDEN-ANSWER-CANARY')).items).toEqual([])

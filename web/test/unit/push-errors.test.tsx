@@ -145,7 +145,7 @@ describe('what it says', () => {
   })
 
   test('every new line exists in all five languages', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       for (const k of ['push.insecure', 'push.service', 'push.serviceBrave', 'push.browserService', 'push.worker', 'push.storage', 'push.busy', 'push.keyAdmin', 'push.keyMember', 'push.dismissed', 'push.tooMany', 'push.failedUnknown', 'push.denied'] as const) {
         expect(translate(l, k)).not.toBe(k)
         if (l !== 'en') expect(translate(l, k)).not.toBe(translate('en', k))

@@ -8,7 +8,7 @@ export const SIGN_IN_LOCALE_KEY = 'mycel.locale'
  * Self-contained so the PWA build can embed this same bounded policy in its offline document. */
 export function recoveryLocale(recent: unknown, signIn: unknown, device: unknown = null): Locale {
   for (const value of [recent, signIn, device]) {
-    if (value === 'ko' || value === 'en' || value === 'id' || value === 'ja' || value === 'es') return value
+    if (value === 'ko' || value === 'en' || value === 'id' || value === 'ja' || value === 'es' || value === 'zh') return value
   }
   return 'en'
 }

@@ -118,7 +118,7 @@ describe('on screen', () => {
   const before = useLocaleStore.getInitialState().locale
 
   test('still running: the quiet mark says the AI is trying another way, then that it went on once a later step worked', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(l)
       const trying = renderToStaticMarkup(<Steps steps={[guess]} streaming />)
       expect(trying).toContain('data-testid="step-retried"')

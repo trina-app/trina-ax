@@ -5,7 +5,9 @@
 // own notices), and 대화's 멘션·스레드 row a dot for them. Loaded while at least one of them is on screen.
 import { useEffect } from 'react'
 import { create } from 'zustand'
+import type { ActivityTab, InboxNotification } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { optimistic, optimisticEdits, optimisticPending, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
 import { accessChanged, notificationsChanged, reloadAsked } from './live'
 
 /** `unread`: every unread row; `rooms`: its part that is conversation rows (GET /api/notifications roomUnreadCount);
@@ -17,11 +19,25 @@ let stop: (() => void) | null = null
 /** the newest read wins: an older answer that arrives late is dropped */
 let asked = 0
 
+/** the notices this window asked to mark read (since the last person signed in): their own view does not ask again */
+const readAsked = new Set<string>()
+/** this window asked to mark the notice read already (the list did as it opened it): its view does not ask again */
+export const noticeReadAsked = (id: string) => readAsked.has(id)
+
+/** a notice marked read here (lib/optimistic.ts) */
+export const noticeReadKey = (id: string) => `notice:${id}:read`
+const isNoticeKey = (key: string) => key.startsWith('notice:')
+
 function load() {
   const n = ++asked
+  const edits = optimisticEdits(isNoticeKey)
   api.call(API.listNotifications, { query: { limit: 1 } }).then(
     (r) => {
       if (n !== asked) return
+      // a notice marked read here meanwhile: this count may be from before it. Still on its way: its answer reads again;
+      // else read again now
+      if (optimisticPendingKeys(isNoticeKey).length) return
+      if (optimisticEdits(isNoticeKey) !== edits) return load()
       const rooms = Math.min(r.unreadCount, r.roomUnreadCount ?? 0)
       useInbox.setState({ unread: r.unreadCount, rooms, notices: r.noticeUnreadCount ?? r.unreadCount - rooms })
     },
@@ -48,6 +64,7 @@ function watch(): () => void {
  * to a read made for them is dropped. */
 export function resetInbox() {
   asked++
+  readAsked.clear()
   useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
 }
 
@@ -79,3 +96,68 @@ export function useActivityUnread(): number {
 
 /** Read the count again now (the 활동 list read or marked something). */
 export const reloadInboxCount = () => load()
+
+/** a conversation row (a DM, a mention or a thread reply): counted on 대화, not in 활동's own number */
+const roomRow = (item: InboxNotification) => item.code === 'room.dm' || item.code === 'room.mention'
+
+/** The counts with one notice read (-1) or unread again (+1), before the server says so. */
+function count(item: InboxNotification, by: 1 | -1) {
+  useInbox.setState((s) => {
+    const room = roomRow(item)
+    return { unread: Math.max(0, s.unread + by), rooms: room ? Math.max(0, s.rooms + by) : s.rooms, notices: room ? s.notices : Math.max(0, s.notices + by) }
+  })
+}
+
+/** Mark one notice read (docs/DECISIONS.md "Optimistic changes"): read on screen at once (`show` puts its readAt on the
+ * caller's copy; the counts go down by one), then the server; a failure puts it back with a toast and every list reads
+ * again. The counts are read again after. Never rejects. */
+export async function markNoticeRead(item: InboxNotification, show: (readAt: string | null) => void): Promise<OptimisticResult<InboxNotification>> {
+  readAsked.add(item.id)
+  // (the same notice read from two places at once, the list and its own view: counted once)
+  let counted = !!item.readAt || optimisticPending(noticeReadKey(item.id))
+  const r = await optimistic<string | null, InboxNotification>({
+    key: noticeReadKey(item.id),
+    from: item.readAt ?? null,
+    to: new Date().toISOString(),
+    show: (at) => {
+      show(at)
+      if (!!at === counted) return
+      counted = !!at
+      count(item, at ? -1 : 1)
+    },
+    send: () => api.call(API.markNotificationRead, { params: { id: item.id } }),
+    confirmed: (reply) => reply.readAt ?? null,
+  })
+  // not read: every list of it reads again (another place may show it read: the list and its own view share one change)
+  if (!r.ok) notificationsChanged.emit()
+  else load()
+  return r
+}
+
+/** "Mark all as read" of an Activity tab (`only`: its conversation rows, or the other notices, alone): read on screen
+ * at once (`show` puts the time on the caller's unread rows, null puts them back), the counts it empties at zero; a
+ * failure puts the rows back with a toast. The counts are read again after. Never rejects. */
+export async function markAllNoticesRead(tab: ActivityTab, only: 'rooms' | 'notices' | undefined, show: (readAt: string | null) => void): Promise<OptimisticResult<unknown>> {
+  const r = await optimistic<string | null, unknown>({
+    key: `notice:all:${tab}:${only ?? 'any'}:read`,
+    from: null,
+    to: new Date().toISOString(),
+    show: (at) => {
+      show(at)
+      // a tab other than All empties only part of a count: the read after says how much
+      if (!at || tab !== 'all') return
+      useInbox.setState((s) => (only === 'notices' ? { unread: s.rooms, notices: 0 } : only === 'rooms' ? { unread: Math.max(0, s.unread - s.rooms), rooms: 0 } : { unread: 0, rooms: 0, notices: 0 }))
+    },
+    send: () => api.call(API.markAllNotificationsRead, { body: { tab, ...(only ? { only } : {}) } }),
+  })
+  load()
+  return r
+}
+
+/** Rows read again while a read of mine is still on its way (one notice, or "Mark all as read"): a row read on screen
+ * keeps its mark (the read may be from before it; the change's own answer decides). */
+export function keepPendingReads(items: InboxNotification[], before: readonly InboxNotification[] | null): InboxNotification[] {
+  if (!before || !optimisticPendingKeys(isNoticeKey).length) return items
+  const shown = new Map(before.map((y) => [y.id, y.readAt]))
+  return items.map((x) => (x.readAt || !shown.get(x.id) ? x : { ...x, readAt: shown.get(x.id)! }))
+}

@@ -1,6 +1,6 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
-// address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, team list and the teams menu, and
+// address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, a picture put on the clipboard (이미지 복사), team list and the teams menu, and
 // Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
@@ -52,7 +52,9 @@ const bridge: DesktopBridge = {
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   teamMenu: () => ipcRenderer.send('bridge:team-menu'),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
+  setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
+  copyImage: (png) => ipcRenderer.invoke('bridge:copy-image', png instanceof Uint8Array ? png : new Uint8Array(0)),
   browserSettings: {
     get: () => ipcRenderer.invoke('bridge:browser-settings'),
     onChange: on('bridge:browser-settings'),

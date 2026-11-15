@@ -4,7 +4,7 @@
 import { createSHA256 } from 'hash-wasm'
 import { t } from '../i18n'
 import { UPLOADS_KEY } from './localData'
-import { API, ApiError, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, type ApiClient, type UploadComplete, type UploadSession, type UploadTarget } from '@mycel/shared/api'
+import { API, ApiError, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, type ApiClient, type UploadComplete, type UploadSession, type UploadTarget } from '@mycel/shared/api'
 
 /** Up to this size one request is enough; bigger files go chunked. */
 export const SINGLE_REQUEST_MAX = 8 * 1024 * 1024
@@ -318,7 +318,9 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
       out = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name, size: String(total) }, file: body, filename: target.name }, ...request })
-      kept(attachment.size)
+      // a picture kept with a chat shared with people is stored without its place and camera (smaller): the server says
+      // how many bytes it received before that (QA TC-2023)
+      kept(attachment.receivedSize ?? attachment.size)
       out = { kind: 'attachment', attachment }
     } else {
       const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
@@ -423,4 +425,11 @@ export async function cancelUpload(file: File, target: UploadTarget, client: Api
   delete store[fingerprint(file, target)]
   writeStore(storage, store)
   await client.call(API.cancelUploadSession, { params: { id } }).catch(() => {})
+}
+
+/** Files over what the server takes (UPLOAD_SESSION_MAX): the message box refuses them at once, before a checksum of
+ * a huge file is made; `tooBig` is the first of them (named in the message), `fit` the others. */
+export function splitOversize<T extends { size: number }>(files: readonly T[]): { fit: T[]; tooBig: T | undefined } {
+  const tooBig = files.find((f) => f.size > UPLOAD_SESSION_MAX)
+  return { fit: tooBig ? files.filter((f) => f.size <= UPLOAD_SESSION_MAX) : [...files], tooBig }
 }

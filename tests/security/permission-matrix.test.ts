@@ -62,7 +62,7 @@ describe('permission matrix: every route x every persona', () => {
     const problems = judge(k, r)
     if (k.exp === 'allow' && !isGet(k) && !k.skipPositive && (r.status === 401 || r.status === 403)) problems.push(`legit ${k.who} refused by the permission check: ${r.status} ${r.text.slice(0, 160)}`)
     // for an allowed write, a non-permission failure (404/409 from an earlier write, reauth) is not a matrix problem
-    if (k.exp === 'allow' && !isGet(k)) { const i = problems.indexOf(problems.find((p) => p.startsWith('expected allow')) ?? ''); if (i >= 0) problems.splice(i, 1) }
+    if (k.exp === 'allow' && (!isGet(k) || (k.allowNotFound && r.status === 404))) { const i = problems.indexOf(problems.find((p) => p.startsWith('expected allow')) ?? ''); if (i >= 0) problems.splice(i, 1) }
     try { await k.check?.(r, W) } catch (e) { problems.push((e as Error).message) }
     if (k.todo) { expect(problems, `this case should be failing (documents finding: ${k.todo})`).not.toEqual([]); return }
     expect(problems, problems.join(' | ')).toEqual([])
@@ -174,7 +174,8 @@ describe('shared project chat x every persona', () => {
       inst.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(crypto.randomUUID(), falcon.id)
     await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: true })
     chat = (await W.as.memberIn.ok('POST', '/api/chats', { projectId: W.ids.projFalcon })).id
-    await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: false })
+    // (no switch to turn off since 2026-11-13: a team project always shares its new chats, docs/DECISIONS.md "Team
+    // project chats shared by default")
     await W.as.memberIn.ok('POST', `/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: `${CANARY}\n@fake ` + JSON.stringify({ say: 'shared ok' }) })
     for (let i = 0; i < 100 && (await W.as.memberIn.get(`/api/chats/${chat}`)).json.runState !== 'idle'; i++) await Bun.sleep(100)
   })

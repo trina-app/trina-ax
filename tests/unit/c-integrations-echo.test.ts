@@ -111,7 +111,7 @@ const ECHO_TOOLS = [
 ]
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'c-integrations-echo', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000, log: createLogger({ level: 'debug', sink: (l) => logs.push(l) }) })
+  h = await startHarness({ name: 'c-integrations-echo', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000, log: createLogger({ level: 'debug', sink: (l) => logs.push(l) }) })
   sock = await h.ws('alice', { windowId: 'win-echo' })
   await sock.next('hello')
   fake = new FakeServices()

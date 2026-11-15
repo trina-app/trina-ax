@@ -73,7 +73,7 @@ const menuItems = async (m: Mounted) => {
 }
 
 describe('the page of a project I manage without being a member', () => {
-  test('one quiet block with Add me, the Members row, my own chats; no box, files or instructions; Rename and Delete', async () => {
+  test('one quiet block with Add me, the Members row; no box, files, instructions or Trina history; Rename and Move to trash', async () => {
     signedIn('owner')
     routes = {
       [`GET /api/projects/${P1}`]: () => json(200, outside()),
@@ -93,9 +93,10 @@ describe('the page of a project I manage without being a member', () => {
       expect(m.html()).not.toContain('projects/acme-legal')
       // the Members row: its count and Manage
       expect(m.get('project-members').textContent).toBe(`${en('projects.participants')}${en('projects.membersN', { n: 2 })}${en('projects.manage')}`)
-      // my own chats there
-      await m.until(() => m.find('project-chat'), 'my chat', 2000)
-      expect(m.get('project-chats').textContent).toContain('My old notes')
+      // no Trina history with "Ask here" under it: nobody can ask here (QA TC-1066); my own chats stay in my lists
+      await m.settle(30)
+      expect(m.find('project-chats')).toBeNull()
+      expect(m.html()).not.toContain('My old notes')
       // the name's menu: Rename and Delete, no Edit
       expect(await menuItems(m)).toEqual(['project-rename', 'project-delete'])
     } finally { await m.unmount() }
@@ -175,7 +176,12 @@ describe('Add me', () => {
       await m.until(() => m.find('project-files'), 'the files', 2000)
       expect(m.find('project-instructions')).not.toBeNull()
       expect(m.find('project-members-only')).toBeNull()
-      expect(m.get('project-summary').textContent).toBe('Contracts only.')
+      // the instructions show once, in Instructions, and no copy of them under the name (QA TC-980)
+      const times = () => m.container.textContent!.split('Contracts only.').length - 1
+      expect(m.find('project-summary')).toBeNull()
+      expect(times()).toBe(0)
+      await m.click('project-instructions-toggle')
+      expect(times()).toBe(1)
     } finally { await m.unmount() }
   })
 
@@ -266,7 +272,7 @@ describe('in the trash', () => {
   test('Delete for good: its own confirm, then back to the list', async () => {
     signedIn('admin')
     routes = {
-      [`GET /api/projects/${P1}`]: () => json(200, outside({ inTrash: true, audience: 0, membersEditable: false })),
+      [`GET /api/projects/${P1}`]: () => json(200, outside({ inTrash: true, audience: 0, membersEditable: false, sharedChats: 2 })),
       'GET /api/chats': () => json(200, { items: [], nextCursor: null }),
       [`DELETE /api/projects/${P1}`]: () => new Response(null, { status: 204 }),
     }
@@ -279,11 +285,74 @@ describe('in the trash', () => {
       await m.until(() => m.find('dialog-confirm'), 'the confirm', 2000)
       expect(dialogText(m)).toContain("Delete 'Acme legal' for good?")
       expect(dialogText(m)).toContain("Its files are deleted too. This can't be undone.")
+      // its shared chats go to their creators' Deleted history (QA TC-1063)
+      expect(m.container.ownerDocument!.body.querySelector('[data-testid="project-delete-shared"]')?.textContent).toBe('Its shared chats go to their creators\' "Deleted history" for 7 days.')
+      expect(translate('ko', 'projects.deleteForGoodShared', { days: 7, trash: translate('ko', 'sidebar.trash') })).toBe('공유 채팅은 만든 사람의 "삭제한 기록"에 7일 동안 있어요.')
       expect(translate('ko', 'projects.deleteForGoodBody')).toBe('파일도 함께 지워지고 되돌릴 수 없어요.')
       expect(translate('ko', 'projects.deleteForGoodTitle', { name: '주간 보고' })).toBe("'주간 보고'을(를) 완전히 삭제할까요?")
       await m.click('dialog-confirm')
       await m.until(() => m.find('elsewhere'), 'the list', 2000)
       expect(calls(`DELETE /api/projects/${P1}`)).toHaveLength(1)
+    } finally { await m.unmount() }
+  })
+})
+
+describe('in the trash, to its members (QA TC-1060, TC-1062, TC-1066)', () => {
+  const trashed = (o: Partial<Project> = {}) => base({ member: false, canManage: false, canDelete: false, inTrash: true, wasMember: true, membersEditable: undefined, audience: undefined, trashed: { by: { id: 'bob', name: 'Bob' }, at: '2026-11-13T05:40:00.000Z' }, ...o })
+
+  test('a member: the note says who moved it and who can restore it; no buttons, menu, contents or Trina history', async () => {
+    signedIn('member')
+    routes = {
+      [`GET /api/projects/${P1}`]: () => json(200, trashed()),
+      'GET /api/chats': () => json(200, { items: [OWN_CHAT], nextCursor: null }),
+    }
+    const m = await page()
+    try {
+      const note = await m.until(() => m.find('project-in-trash'), 'the note', 2000)
+      expect(note.textContent).toContain(en('projects.inTrash'))
+      expect(m.get('project-trashed-by').textContent).toMatch(/^Moved to the trash by Bob on .+\.$/)
+      expect(m.get('project-trash-restores').textContent).toBe('An admin or Bob, who made it, can restore it.')
+      expect(translate('ko', 'projects.trashRestoresCreator', { name: 'Bob' })).toBe('관리자나 만든 사람(Bob님)이 되돌릴 수 있어요.')
+      for (const id of ['project-restore', 'project-delete-for-good', 'project-menu', 'project-members', 'project-chats', 'composer-input', 'project-members-only', 'project-files', 'project-instructions'])
+        expect({ id, shown: !!m.find(id) }).toEqual({ id, shown: false })
+      expect(m.html()).not.toContain('My old notes')
+      expect(calls('GET /api/files/tree')).toEqual([])
+    } finally { await m.unmount() }
+  })
+
+  test('its creator: Restore (no Delete for good); it comes back as theirs', async () => {
+    signedIn('member')
+    let restored = false
+    routes = {
+      [`GET /api/projects/${P1}`]: () => json(200, restored ? inside({ canManage: true }) : trashed({ canRestore: true, createdBy: { id: 'olga', name: 'Olga' } })),
+      'GET /api/chats': () => json(200, { items: [], nextCursor: null }),
+      'GET /api/files/tree': () => json(200, { path: 'projects/acme-legal', access: 'write', entries: [], nextCursor: null }),
+      [`POST /api/projects/${P1}/restore`]: () => { restored = true; return json(200, inside({ canManage: true })) },
+    }
+    const m = await page()
+    try {
+      await m.until(() => m.find('project-in-trash'), 'the note', 2000)
+      expect(m.find('project-delete-for-good')).toBeNull()
+      expect(m.find('project-trash-restores')).toBeNull()
+      await m.click('project-restore')
+      await m.until(() => m.find('composer-input'), 'the project, back', 3000)
+      expect(calls(`POST /api/projects/${P1}/restore`)).toHaveLength(1)
+      expect(m.find('project-in-trash')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('an admin on a newer server who may not restore it (canRestore absent, its folder purged): no Restore', async () => {
+    signedIn('admin')
+    routes = {
+      [`GET /api/projects/${P1}`]: () => json(200, outside({ inTrash: true, audience: 0, membersEditable: false, trashed: { by: null, at: '2026-11-13T05:40:00.000Z' } })),
+      'GET /api/chats': () => json(200, { items: [], nextCursor: null }),
+    }
+    const m = await page()
+    try {
+      await m.until(() => m.find('project-in-trash'), 'the note', 2000)
+      expect(m.find('project-restore')).toBeNull()
+      expect(m.find('project-delete-for-good')).not.toBeNull()
+      expect(m.get('project-trashed-by').textContent).toMatch(/^Moved to the trash on .+\.$/)
     } finally { await m.unmount() }
   })
 })

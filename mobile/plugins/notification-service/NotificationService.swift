@@ -3,9 +3,12 @@
 // own team, with the label key it got at registration, what the push says: who and where ("민준 · #마케팅 › 스레드", a
 // DM "민준"), never the message's text. The push gateway never sees a name.
 //
-// It acts only on a room notice (code room.*) for the device this phone registered with its current team; it calls only
-// the team address the app stored, never anything from the payload, over https, without cookies, cache or redirects, for
-// at most 5 seconds; on any failure it shows what Apple delivered. Added to the Xcode project by
+// A chat shared with the person by name (code chat.shared; app builds made after this change) is asked the same way: the
+// sharer's name and a fixed line, never the chat's title.
+//
+// It acts only on a room notice (code room.*) or a shared chat (chat.shared) for the device this phone registered with
+// its current team; it calls only the team address the app stored, never anything from the payload, over https, without
+// cookies, cache or redirects, for at most 5 seconds; on any failure it shows what Apple delivered. Added to the Xcode project by
 // ../notification-service.js; the keychain item comes from the app (src/labels.ts, src/push.ts labelSlot).
 import Foundation
 import Security
@@ -69,10 +72,13 @@ enum Label {
     return LabelAccess(origin: origin, deviceId: deviceId, key: key)
   }
 
-  /// The request for a room notice of this phone's device on its current team, or nil.
+  /// A room notice (who and where) or a chat shared with the person by name (who shared it, never the chat's title).
+  static func named(_ code: String) -> Bool { code.hasPrefix("room.") || code == "chat.shared" }
+
+  /// The request for a room notice or a shared chat of this phone's device on its current team, or nil.
   static func request(userInfo: [AnyHashable: Any], access: LabelAccess?) -> URLRequest? {
     // expo-notifications' place for a push's data on iOS: userInfo["body"] (push-gateway/src/apns.ts)
-    guard let data = userInfo["body"] as? [String: Any], let code = data["code"] as? String, code.hasPrefix("room."),
+    guard let data = userInfo["body"] as? [String: Any], let code = data["code"] as? String, named(code),
           let notificationId = data["notificationId"] as? String, isId(notificationId),
           let device = data["device"] as? String, isId(device),
           let access, access.deviceId == device,

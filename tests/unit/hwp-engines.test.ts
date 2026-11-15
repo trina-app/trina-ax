@@ -14,7 +14,7 @@ const key = newKey()
 let pkg: Buffer
 beforeAll(async () => { pkg = (await buildHwpPlugin({ target: `${process.platform}-${process.arch}` as HwpTarget, keyPem: key.pem, provision: false })).bytes })
 for (const engine of ['claude-code','codex'] as const) test(`hwp_render image reaches ${engine} through its real launch and MCP bridge`, async () => {
-  const h=await startHarness({name:`hwp-${engine}`,turnTimeoutMs:20000})
+  const h=await startHarness({name:`hwp-${engine}`,stallTimeoutMs:20000})
   const plugins=pluginsOf(h.ctx)
   plugins.reconfigure({trust:prodTrust(key.pub)})
   const plan=plugins.inspect('dana',pkg,'file','en')

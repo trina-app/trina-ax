@@ -40,7 +40,7 @@ export const grantsOn = (db: Database): boolean => getTeamSettings(db).roomAlway
 
 /** Every active person with their groups (the people a folder's rules decide for). */
 function activePeople(db: Database): Principal[] {
-  const users = db.query("SELECT id, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY id").all() as { id: string; name: string; role: Principal['role'] }[]
+  const users = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY id").all() as { id: string; name: string; role: Principal['role'] }[]
   const groups = new Map<string, string[]>()
   for (const m of db.query('SELECT group_id, user_id FROM group_members ORDER BY group_id').all() as { group_id: string; user_id: string }[]) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
   return users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] }))
@@ -71,7 +71,7 @@ export function folderId(fx: FsCtx, segs: readonly string[]): string | null {
 /** A folder below `from` (exclusive) on the way to `to` (inclusive) that has folder rules of its own: coverage stops
  * there. Both are actual names, `from` a prefix of `to`. */
 export function ruledBetween(rules: RuleSet, from: readonly string[], to: readonly string[]): boolean {
-  const ruled = new Set(rules.ruleFolders())
+  const ruled = new Set(rules.boundaryFolders())
   for (let n = from.length + 1; n <= to.length; n++) if (ruled.has(to.slice(0, n).join('/'))) return true
   return false
 }

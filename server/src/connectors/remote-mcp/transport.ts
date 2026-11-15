@@ -1,3 +1,4 @@
+import { touchActivity } from '../../system/activity'
 import type { AppContext } from '../../context'
 import { readBoundedText } from '../../http/route'
 import { HttpError } from '../../http/errors'
@@ -57,6 +58,8 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     if (origin !== null && origin !== oauth.origin && !HOSTED_ORIGINS.includes(origin)) throw new OAuthError('access_denied', 403)
     if (new URL(request.url).searchParams.has('access_token')) throw new OAuthError('invalid_request')
     if (!match || !live) throw new OAuthError('invalid_token', 401)
+    // a signed-in person works through the connector: use of the team (system/activity.ts, the hosted sleep policy)
+    touchActivity()
     const token = match[1]!
     if (request.method !== 'POST') return new Response(null, { status: 405, headers: { ...noStore, allow: 'POST' } })
     const version = request.headers.get('mcp-protocol-version')

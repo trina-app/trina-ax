@@ -12,7 +12,7 @@ import { useState } from 'react'
 import type { PackCatalogSkill } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { namedProduct } from '../../lib/tabs'
-import { Markdown } from '../Markdown'
+import { Markdown } from '../LazyMarkdown'
 import { quietLink } from '../onboarding/SkillShareReview'
 import { Modal } from '../ui'
 

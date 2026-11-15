@@ -45,7 +45,7 @@ describe('line matches', () => {
   })
 
   test('a word no line has: "nothing found" in every language; a note about the search still shows', () => {
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(l)
       expect(render({ items: [], ...none }, 'zzqx'), l).toContain(esc(translate(l, 'files.search.none')))
     }

@@ -1478,7 +1478,7 @@ ln -sfn "$BASE/root/mycel-ctl" "$CTL_LINK"
 JD="/etc/systemd/journald.conf.d/$ID.conf"
 if [ "$HOSTED" = 1 ] || ! grep -qs '^[[:space:]]*SystemMaxUse=' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/*.conf 2>/dev/null || [ -f "$JD" ]; then
   mkdir -p /etc/systemd/journald.conf.d
-  printf '# %s (%s): the server and launcher log to journald only (spec D4)\n[Journal]\nSystemMaxUse=200M\nMaxRetentionSec=14day\n' "$PRODUCT_NAME" "$ID" > "$ITMP/journald.conf"
+  printf '# %s (%s): the server and launcher log to journald only (spec D4)\n[Journal]\nSystemMaxUse=100M\nMaxRetentionSec=14day\n' "$PRODUCT_NAME" "$ID" > "$ITMP/journald.conf"
   if ! cmp -s "$ITMP/journald.conf" "$JD"; then
     install -o root -g root -m 644 "$ITMP/journald.conf" "$JD"
     have_systemd && { systemctl restart systemd-journald >/dev/null 2>&1 || true; }

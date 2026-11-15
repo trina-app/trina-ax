@@ -6,8 +6,8 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeEnv } from '../lib/env'
-import { addCred, testCredCtx } from '../lib/credentials'
-import { getRow, secretOf, toCredential } from '../../server/src/credentials/store'
+import { addCred, chatgptSecret, testCredCtx } from '../lib/credentials'
+import { getRow, markInvalid, markNeedsReconnect, OWN_CONNECTIONS_LINK, secretOf, toCredential } from '../../server/src/credentials/store'
 import { createKeyFile, keyFileName, openWithKey, readKeyFile, sealWithKey, Vault, VaultError } from '../../server/src/credentials/vault'
 import { Sealer, SEALING_KEY_FILE } from '../../server/src/credentials/seal'
 import { sealSecret } from '../../web/src/lib/seal'
@@ -104,5 +104,39 @@ describe('sealing key', () => {
     fs.mkdirSync(d2, { recursive: true, mode: 0o700 })
     fs.symlinkSync(path.join(d, SEALING_KEY_FILE), path.join(d2, SEALING_KEY_FILE))
     await expect(new Sealer(d2).publicKey()).rejects.toThrow()
+  })
+})
+
+describe('notices about a person\'s own connection (QA 2026-11-13)', () => {
+  test('a member\'s own key refused: the member is sent to Settings › AI accounts, the owner and admins to Admin; a team key: admins only', () => {
+    const mine = addCred(t.cc, 'openai-api-key', 'sk-proj-' + 'M'.repeat(48), { owner: 'alice', label: 'Alice key' })
+    t.notices.length = 0
+    markInvalid(t.cc, mine, 'upstream_401', 401)
+    const toAlice = t.notices.filter((x) => x.to?.includes('alice'))
+    const toAdmins = t.notices.filter((x) => !x.to?.includes('alice'))
+    expect(toAlice).toHaveLength(1)
+    expect(toAlice[0]!.to).toEqual(['alice'])
+    expect(toAlice[0]!.n).toMatchObject({ code: 'credential_rejected', link: OWN_CONNECTIONS_LINK })
+    expect(toAlice[0]!.n.message.en).toBe("Your AI account 'Alice key' was refused. Replace its key or token in Settings › AI accounts.")
+    expect(JSON.stringify(toAlice[0]!.n.message)).not.toMatch(/관리자|Admin/)
+    expect(toAdmins).toHaveLength(1)
+    expect([...toAdmins[0]!.to!].sort()).toEqual(['carol', 'dana'])
+    expect(toAdmins[0]!.n).toMatchObject({ code: 'credential_rejected', link: '/admin/credentials' })
+    // once an hour per connection and code, for everyone
+    markInvalid(t.cc, mine, 'upstream_401', 401)
+    expect(t.notices).toHaveLength(2)
+    // an admin's own connection: that admin gets the Settings text only, the others the Admin one
+    const carols = addCred(t.cc, 'chatgpt', chatgptSecret('acc-carol'), { owner: 'carol', label: 'Carol plan' })
+    t.notices.length = 0
+    markNeedsReconnect(t.cc, carols, 'refresh_invalid_grant')
+    expect(t.notices.map((x) => [x.to, x.n.link])).toEqual([[['dana'], '/admin/credentials'], [['carol'], OWN_CONNECTIONS_LINK]])
+    expect(t.notices[1]!.n.message.ko).toBe("내 AI 계정 'Carol plan'을(를) 다시 연결해야 해요(설정 › AI 계정).")
+    // a team connection: the owner and admins, as before
+    const team = addCred(t.cc, 'openai-api-key', 'sk-proj-' + 'T'.repeat(48), { label: 'Team key' })
+    t.notices.length = 0
+    markInvalid(t.cc, team, 'upstream_401', 401)
+    expect(t.notices).toHaveLength(1)
+    expect([...t.notices[0]!.to!].sort()).toEqual(['carol', 'dana'])
+    expect(t.notices[0]!.n.link).toBe('/admin/credentials')
   })
 })

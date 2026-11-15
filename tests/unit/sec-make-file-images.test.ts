@@ -24,7 +24,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR
 let h: Harness
 let bob: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'sec-make-file-images', askUserTimeoutMs: 5000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'sec-make-file-images', askUserTimeoutMs: 5000, stallTimeoutMs: 60_000 })
   bob = await h.ws('bob', { windowId: 'win-sec-mf-bob' })
   await bob.next('hello')
   fs.writeFileSync(path.join(h.team, 'groups/finance/secret-chart.png'), PNG)
@@ -166,7 +166,7 @@ describe('make_file outside a chat turn (nobody to ask): refused when it would w
     const rel = 'skills/finance-tpl/brand.docx'
     fs.mkdirSync(path.join(h.team, 'skills/finance-tpl'), { recursive: true })
     fs.copyFileSync(path.join(h.team, 'groups/finance/board-memo.docx'), path.join(h.team, rel))
-    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_skills_finance_tpl', 'skills/finance-tpl')").run()
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_skills_finance_tpl', 'skills/finance-tpl')").run(); h.ctx.db.query("UPDATE folders SET limited = 1 WHERE id = 'f_skills_finance_tpl'").run()
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_skills_finance_tpl', 'group', 'finance', 'read')").run(crypto.randomUUID())
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_skills_finance_tpl', 'everyone', NULL, 'none')").run(crypto.randomUUID())
     const bad = await direct(null, { format: 'docx', content: '# Q\n', output: 'shared/tpl.docx', template: rel })

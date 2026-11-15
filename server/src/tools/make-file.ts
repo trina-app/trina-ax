@@ -9,7 +9,7 @@
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
 //   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
 //   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
-//   is refused and nothing is saved. The file has no stored results: Excel / LibreOffice calculate them on open.
+//   is refused and nothing is saved. Simple formulas also store their result (formula-values.ts); Excel / LibreOffice calculate every one on open.
 // Converters run isolated (tools/isolate.ts) in an empty work folder. Images the document refers to by a relative
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
 // The output goes through the policy function; an existing file is never overwritten silently: it gets a conflict
@@ -28,6 +28,7 @@
 //   colours and backgrounds, merged cells, `@page` size and margins, page breaks), never rewritten as Markdown
 //   (files/html-pdf.ts: no network, no scripts, the page's pictures, stylesheets and fonts read with the person's
 //   access). The page and every file it used are the PDF's sources, as for images above.
+import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -68,7 +69,7 @@ import { safeText } from '../safe-ops/strings'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; html?: FromHtml }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; html?: FromHtml }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -133,12 +134,12 @@ const LATIN_FONTS = ['Helvetica Neue', 'Arial', 'Libertinus Serif']
 /** a PDF's language: the team's languages and the two Chinese scripts */
 export type PdfLanguage = Locale | 'zh-Hans' | 'zh-Hant'
 /** typst's lang (and region) for each */
-const TYPST_LANG: Record<PdfLanguage, string> = { ko: 'lang: "ko"', en: 'lang: "en"', id: 'lang: "id"', ja: 'lang: "ja"', es: 'lang: "es"', 'zh-Hans': 'lang: "zh", region: "cn"', 'zh-Hant': 'lang: "zh", region: "tw"' }
+const TYPST_LANG: Record<PdfLanguage, string> = { ko: 'lang: "ko"', en: 'lang: "en"', id: 'lang: "id"', ja: 'lang: "ja"', es: 'lang: "es"', zh: 'lang: "zh", region: "cn"', 'zh-Hans': 'lang: "zh", region: "cn"', 'zh-Hant': 'lang: "zh", region: "tw"' }
 
 /** The fonts of a PDF in `lang`: its own CJK faces first, the other CJK faces (a Japanese report quoting a Korean name
  * still draws it), then Latin fallbacks. A language without CJK of its own keeps Korean first, as before. */
 export function pdfFonts(lang: PdfLanguage): string[] {
-  const first: CjkScript = lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant' ? lang : 'ko'
+  const first: CjkScript = lang === 'zh' ? 'zh-Hans' : lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant' ? lang : 'ko'
   return [...CJK_FONTS[first], ...(Object.keys(CJK_FONTS) as CjkScript[]).filter((k) => k !== first).flatMap((k) => CJK_FONTS[k]), ...LATIN_FONTS]
 }
 /** the font list of a Korean (or Latin-script) PDF */
@@ -251,7 +252,8 @@ export class MakeFile {
       /** pptx from Markdown: what decides the slides (pptx-check.ts) */
       let shape: DeckShape | null = null
       let formulas: number | undefined
-      if (a.format === 'xlsx') formulas = await this.xlsx(text, kind, produced)
+      let stored = 0
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced); formulas = x.formulas; stored = x.stored }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -311,7 +313,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced)
-      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas } : made
+      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -482,8 +484,8 @@ export class MakeFile {
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
-  /** Writes the workbook; returns the number of formula cells. */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<number> {
+  /** Writes the workbook; returns the number of formula cells and how many of them have their result stored. */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<{ formulas: number; stored: number }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -493,24 +495,26 @@ export class MakeFile {
     const wb = new ExcelJS.Workbook()
     wb.creator = PRODUCT.displayName
     wb.created = new Date()
-    // formulas are written without a result: the spreadsheet app calculates them when it opens the file
+    // the spreadsheet app calculates every formula when it opens the file; the simple ones also get a stored result below
     wb.calcProperties.fullCalcOnLoad = true
     const used = new Set<string>()
-    let formulas = 0
+    let formulas = 0, stored = 0
     for (const s of sheets) {
       let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31) || 'Sheet'
       for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
-      s.rows.forEach((row, ri) =>
-        ws.addRow(row.map((v, ci) => {
-          if (ri === 0) return v
-          const cv = cellValue(v)
-          if (typeof cv === 'object' && 'error' in cv) throw new ToolError(`sheet '${name}' cell ${columnName(ci + 1)}${ri + 1}: ${cv.error}; nothing was saved. Start the cell with '= to keep it as text.`)
-          if (typeof cv === 'object') formulas++
-          return cv
-        })),
-      )
+      // the values first, then the results of the simple formulas (formula-values.ts) so a preview shows numbers
+      const grid = s.rows.map((row, ri) => row.map((v, ci) => {
+        if (ri === 0) return v
+        const cv = cellValue(v)
+        if (typeof cv === 'object' && 'error' in cv) throw new ToolError(`sheet '${name}' cell ${columnName(ci + 1)}${ri + 1}: ${cv.error}; nothing was saved. Start the cell with '= to keep it as text.`)
+        if (typeof cv === 'object') formulas++
+        return cv
+      }))
+      addFormulaResults(grid)
+      for (const row of grid) for (const c of row) if (typeof c === 'object' && c !== null && 'formula' in c && (c as { result?: unknown }).result !== undefined) stored++
+      for (const row of grid) ws.addRow(row)
       if (s.rows.length) {
         ws.getRow(1).font = { bold: true }
         const cols = Math.max(...s.rows.map((r) => r.length))
@@ -522,7 +526,7 @@ export class MakeFile {
       }
     }
     await wb.xlsx.writeFile(out)
-    return formulas
+    return { formulas, stored }
   }
 
   private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {

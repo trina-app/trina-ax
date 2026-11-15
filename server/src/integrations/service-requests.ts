@@ -109,7 +109,7 @@ export function askService(ctx: AppContext, user: { id: string; role: string }, 
  * closed. Never throws: an app whose setup cannot be read now is checked again on the next pass. */
 export function settleServiceRequests(ctx: AppContext, service?: RequestableService): number {
   const db = ctx.db
-  const rows = db.query(`SELECT r.id, r.user_id, r.service, r.created_at, u.role, u.status, u.deleted_at FROM service_requests r
+  const rows = db.query(`SELECT r.id, r.user_id, r.service, r.created_at, CASE WHEN u.guest = 1 THEN 'guest' ELSE u.role END AS role, u.status, u.deleted_at FROM service_requests r
     LEFT JOIN users u ON u.id = r.user_id WHERE r.closed_at IS NULL ${service ? 'AND r.service = ?' : ''}`).all(...(service ? [service] : [])) as
     { id: string; user_id: string; service: string; created_at: string; role: string | null; status: string | null; deleted_at: string | null }[]
   if (!rows.length) return 0

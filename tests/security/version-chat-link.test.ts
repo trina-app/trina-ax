@@ -21,6 +21,7 @@ import { uuidv7 } from '@mycel/shared/api'
 import { AnswerSight } from '../../server/src/chat/shared-answers'
 import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { legacyProject } from '../lib/legacy-project'
+import { setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(60_000)
 const PEOPLE: readonly Person[] = ['alice', 'bob', 'carol', 'dana', 'erin']
@@ -29,6 +30,9 @@ let A: CApp
 let falcon: string, atlas: string
 beforeAll(async () => {
   A = await makeCApp('sec-version-chat-link')
+  // answers judged by the rule for those from before the cutover (docs/DECISIONS.md "People who see a shared chat later:
+  // nothing new is hidden")
+  setHiddenAnswersCutover(A.ctx.db, '9999-12-31T00:00:00.000Z')
   falcon = legacyProject(A.ctx.db, A.team, 'alice', { name: 'Falcon', folderPath: 'projects/falcon' })
   atlas = legacyProject(A.ctx.db, A.team, 'bob', { name: 'Atlas', folderPath: 'projects/atlas' })
 })

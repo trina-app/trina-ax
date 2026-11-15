@@ -2,7 +2,7 @@
 // - TC-390: "Admin › Members & invites, with a team invite link made. Look at the Invite links section." → "The link's
 //   row reads as a phone row: its name, then its details (team, uses, expiry) on one or two lines under it, and its
 //   actions (Copy link only, ⋯) on the right or in ⋯; no column of single words." The details were squeezed between the
-//   name and Copy link only, one word per line. Copy, ⋯ › Link settings… and ⋯ › Turn off work as before.
+//   name and Copy link only, one word per line. Copy, ⋯ › Link settings and ⋯ › Turn off work as before.
 // - TC-382 item 4: "Admin › Team settings › General (Team logo) and › File list (Run now)" → "actions as rows or
 //   full-width buttons on phones, not small outline buttons beside text": Upload logo and Run now are list rows across
 //   the screen (Upload logo with the logo now on its right), and do what the buttons did.
@@ -111,7 +111,7 @@ export function phoneCases() {
     await copy.click()
     await expect(page.getByTestId('team-link-row').getByRole('button', { name: t['common.copied'] })).toBeVisible()
     if (browserName === 'chromium') expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/join#t=tl[0-9a-f]+$/)
-    // ⋯ › Link settings… opens the link's popup
+    // ⋯ › Link settings opens the link's popup
     await more.click()
     await page.getByRole('menu').getByTestId('team-link-row-open').click()
     const dialog = page.getByRole('dialog')

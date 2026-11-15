@@ -16,7 +16,8 @@ import { visibleChatItems } from './nav-folders'
 import { pinsOf } from './pins'
 import { canSeeProject } from './projects'
 import type { ChatRuntime } from './runtime'
-import { Audiences, chatView, isSharedRow } from './shared'
+import { Audiences, chatPeople, chatView, isSharedRow, type ChatPeople } from './shared'
+import { inPeopleAudienceSql, isPeopleRow, notHiddenSql } from './chat-audience'
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type ProjectRow } from './store'
 import { fail } from '../http/errors'
 
@@ -33,11 +34,13 @@ const unused = (rt: ChatRuntime, r: ChatRow) => !r.title && r.created_at === r.u
 function myList(rt: ChatRuntime, me: string, who: Principal | null) {
   const db = rt.db
   const rows = db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND ${notInternalChat(db)} AND deleted_at IS NULL
-      AND (user_id = ?1 OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?1)))`).all(me) as ChatRow[]
+      AND (user_id = ?1 OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?1))
+        OR (${inPeopleAudienceSql('?1')} AND ${notHiddenSql('?1')}))`).all(me) as ChatRow[]
   const projects = new Map<string, ProjectRow>()
   for (const p of db.query(`SELECT ${PROJECT_COLS} FROM projects`).all() as ProjectRow[]) if (who && canSeeProject(rt.files, who, p)) projects.set(p.id, p)
-  // a shared chat only while I see its project now (GET /api/chats does the same)
-  const chats = rows.filter((r) => (!isSharedRow(r) || projects.has(r.project_id!)) && !unused(rt, r)).sort(newestFirst)
+  // a shared chat only while I see its project now (GET /api/chats does the same); one shared with me by name or
+  // through a group is in my list while I am in it (the query's own condition: chat/chat-audience.ts), unless I hid it
+  const chats = rows.filter((r) => (!isSharedRow(r) || isPeopleRow(r) || projects.has(r.project_id!)) && !unused(rt, r)).sort(newestFirst)
   return { chats, projects }
 }
 
@@ -68,7 +71,11 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
   for (const r of db.query(`SELECT i.chat_id c, i.folder_id f FROM ${visibleChatItems(db)}`).all(me) as { c: string; f: string }[]) folderOf.set(r.c, r.f)
   const aud = new Audiences(db, rt.files)
   const hide = redactorFor(rt.ctx, me).hide
-  const view = (r: ChatRow): Chat => chatView(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}) })
+  // the other people who wrote in each shared chat this answer returns (the rows' faces; docs/DECISIONS.md "Faces in
+  // every chat list"): one query, made below once the returned rows are known (a row viewed only for its marker needs
+  // none)
+  let people = new Map<string, ChatPeople>()
+  const view = (r: ChatRow): Chat => chatView(rt, me, r, { aud, people, ...(r.user_id === me ? { hide } : {}) })
   // each group's first rows, and the marks of all its rows (a row past `top` is read only for its marker)
   const head = (rows: ChatRow[]) => {
     const top = rows.slice(0, CHAT_GROUPS_TOP).map(view)
@@ -92,8 +99,7 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
   }
   pinned.sort((a, b) => pins.get(b.id)!.localeCompare(pins.get(a.id)!) || b.id.localeCompare(a.id))
 
-  const folders = (db.query("SELECT id, name, position FROM nav_folders WHERE user_id = ? AND kind = 'chats' ORDER BY position, created_at, id").all(me) as { id: string; name: string; position: number }[])
-    .map((f) => ({ id: f.id, name: f.name, position: f.position, ...head(byFolder.get(f.id) ?? []) }))
+  const folderRows = db.query("SELECT id, name, position FROM nav_folders WHERE user_id = ? AND kind = 'chats' ORDER BY position, created_at, id").all(me) as { id: string; name: string; position: number }[]
 
   // the projects with my activity in the last 14 days, the most recent first, at most 8 (rows are newest first)
   const since = new Date(now - CHAT_GROUPS_RECENT_DAYS * DAY).toISOString()
@@ -103,15 +109,24 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
     .filter((g) => g.at >= since)
     .sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id))
     .slice(0, CHAT_GROUPS_PROJECTS_MAX)
+  const otherRows = pageOf(other, undefined, OTHER_PAGE)
+  // the rows returned as chats: pinned, each folder's and shown project's first rows, the other chats' first page
+  const returned = [...pinned, ...folderRows.flatMap((f) => (byFolder.get(f.id) ?? []).slice(0, CHAT_GROUPS_TOP)), ...recent.flatMap((g) => g.rows.slice(0, CHAT_GROUPS_TOP)), ...otherRows.items]
+  people = chatPeople(db, returned.filter(isSharedRow).map((r) => r.id), me)
+  const folders = folderRows.map((f) => ({ id: f.id, name: f.name, position: f.position, ...head(byFolder.get(f.id) ?? []) }))
   const shown = recent.map((g) => ({ projectId: g.id, name: projects.get(g.id)!.name, lastActivityAt: view(g.rows[0]!).updatedAt, folded: g.at < foldBefore, ...head(g.rows) }))
 
-  // every project I can see with chats of my list, pinned ones too (the 프로젝트 panel's meta line)
+  // every project I can see with chats I can open there (the 프로젝트 panel's meta line): mine, and every shared chat of
+  // it, also one I never wrote in (a member who never asked there saw "No chats yet" while the project had shared
+  // chats); never another person's private chat (chatFor 'view': a chat of one person is theirs alone). Pinned ones too
   const activity = new Map<string, { count: number; at: ChatRow }>()
-  for (const r of chats) {
-    if (!r.project_id || !projects.has(r.project_id)) continue
-    const a = activity.get(r.project_id)
+  const inProjects = projects.size ? db.query(`SELECT ${CHAT_COLS} FROM chats WHERE project_id IS NOT NULL AND room_id IS NULL AND ${notInternalChat(db)}
+      AND deleted_at IS NULL AND (user_id = ? OR shared_at IS NOT NULL)`).all(me) as ChatRow[] : []
+  for (const r of inProjects.sort(newestFirst)) {
+    if (!projects.has(r.project_id!) || unused(rt, r)) continue
+    const a = activity.get(r.project_id!)
     if (a) a.count++
-    else activity.set(r.project_id, { count: 1, at: r })
+    else activity.set(r.project_id!, { count: 1, at: r })
   }
   const projectActivity = [...activity.entries()].map(([projectId, a]) => ({ projectId, count: a.count, lastActivityAt: view(a.at).updatedAt }))
 
@@ -120,18 +135,19 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
     folders,
     projects: shown,
     projectsMore: Math.max(0, projects.size - shown.length),
-    other: otherPage(rt, me, other, undefined, OTHER_PAGE, view),
+    other: { items: otherRows.items.map(view), nextCursor: otherRows.nextCursor },
     projectActivity,
   }
 }
 
-function otherPage(rt: ChatRuntime, me: string, rows: ChatRow[], cursor: string | undefined, limit: number, view: (r: ChatRow) => Chat) {
+/** one page of the other chats' rows (newest first) after `cursor` */
+function pageOf(rows: ChatRow[], cursor: string | undefined, limit: number): { items: ChatRow[]; nextCursor: string | null } {
   const cur = decodeCursor(cursor, ['u', 'id'])
   if (cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
   const after = cur ? rows.filter((r) => r.updated_at < cur.u || (r.updated_at === cur.u && r.id < cur.id)) : rows
   const items = after.slice(0, limit)
   const last = items[items.length - 1]
-  return { items: items.map(view), nextCursor: after.length > limit && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
+  return { items, nextCursor: after.length > limit && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
 }
 
 /** GET /api/chats?other=1: the next pages of the other chats (in no project I can see, in no folder of mine, not pinned). */
@@ -144,5 +160,8 @@ export function otherChats(rt: ChatRuntime, me: string, cursor: string | undefin
   const aud = new Audiences(db, rt.files)
   const hide = redactorFor(rt.ctx, me).hide
   const rows = chats.filter((r) => place(r, pins, folderOf, projects).kind === 'other')
-  return otherPage(rt, me, rows, cursor, limit, (r) => chatView(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}) }))
+  // the page first, then the faces of its shared chats (one query)
+  const page = pageOf(rows, cursor, limit)
+  const people = chatPeople(db, page.items.filter(isSharedRow).map((r) => r.id), me)
+  return { items: page.items.map((r) => chatView(rt, me, r, { aud, people, ...(r.user_id === me ? { hide } : {}) })), nextCursor: page.nextCursor }
 }

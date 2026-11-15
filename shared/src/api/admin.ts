@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, UserStatus, page } from './common'
+import { Access, EngineId, GuestAiChoice, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -16,7 +16,7 @@ export const CreateUserBody = z.object({
   username: Username,
   name: PersonName,
   email: z.email().nullable().optional(),
-  role: Role.exclude(['owner']),
+  role: TeamRole,
   groupIds: z.array(Uuid7).default([]),
   /** omitted or null = follows the team default */
   locale: Locale.nullable().optional(),
@@ -34,7 +34,7 @@ export const CreatedUser = z.object({
 export const UpdateUserBody = z.object({
   name: PersonName.optional(),
   email: z.email().nullable().optional(),
-  role: Role.exclude(['owner']).optional(),
+  role: TeamRole.optional(),
   status: UserStatus.optional(),
   groupIds: z.array(Uuid7).optional(),
   /** a language, or null = follow the team default */
@@ -67,6 +67,8 @@ export const UsersResponse = z.object({
   /** The people with an open request to have their account deleted (Settings › Profile › 계정 삭제 요청,
    * shared/src/api/account-deletion.ts). For the owner and the admins, who delete accounts (an admin gets the members' requests only). */
   deletionRequested: z.array(UserId).optional(),
+  /** With `deletionRequested`: when each of those accounts is deleted by itself (ISO). Absent from older servers. */
+  deletionDue: z.record(UserId, IsoTime).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
@@ -80,6 +82,7 @@ export const TransferResult = z.object({ ok: z.literal(true), ended: z.array(End
 
 // ---------------- invites ----------------
 export const CreateInviteBody = z.object({
+  /** `guest` needs `guestPlace` (and only then may a member, not only an admin, make the invite: POST /api/guest-invites) */
   role: Role.exclude(['owner']).default('member'),
   groupIds: z.array(Uuid7).default([]),
   /** default 7 days (tab 1, tab 5) */
@@ -89,7 +92,33 @@ export const CreateInviteBody = z.object({
    * group for 3 days (role, groupIds and expiresInHours are not used; role admin is refused), and the open lead invite
    * before it stops working in the same write. A hint only: nothing about the join changes a role. */
   leadFor: LeadFor.optional(),
+  /** role guest only (required then): the one group chat or project the guest joins */
+  guestPlace: GuestPlace.optional(),
+  /** role guest only: how the guest's AI runs (default none) */
+  guestAi: GuestAiChoice.optional(),
 })
+/** POST /api/guest-invites: a member invites a guest into a group chat they are in, or (the project's creator or an
+ * admin) into a project. Same answer as createInvite. */
+export const CreateGuestInviteBody = z.object({
+  place: GuestPlace,
+  ai: GuestAiChoice.default({ mode: 'none' }),
+  expiresInHours: z.number().int().min(1).max(24 * 30).default(24 * 7),
+  /** who the link is for, in the inviter's words (shown in the invite list); not the account's name */
+  name: z.string().trim().min(1).max(100).optional(),
+})
+/** GET /api/guest-invites/limit: whether one more guest fits the plan, read before the invite dialog shows its form.
+ * `limit`: the plan's guests (null: no cap). For the owner and admins also whether every seat is taken (making a guest a
+ * team member needs one) and the plan page when the server knows it. */
+export const GuestInviteLimit = z.object({
+  full: z.boolean(),
+  limit: z.number().int().nonnegative().nullable(),
+  /** the owner and admins: the active guests now (removed ones do not count), for Admin's "N of M guests"; absent from
+   * an older server. Can be above `limit` after the plan was lowered: nobody is removed, only new invites wait */
+  used: z.number().int().nonnegative().optional(),
+  seatsFull: z.boolean().optional(),
+  manageUrl: z.string().optional(),
+})
+export type GuestInviteLimit = z.infer<typeof GuestInviteLimit>
 /** No mail in v1: the admin copies the link. The token is shown only here. `replacedLead`: a lead invite made with
  * leadFor stopped an earlier open one (the form says "이전에 보낸 팀장 링크는 더 이상 안 돼요"). */
 export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: z.string(), replacedLead: z.boolean().optional() })
@@ -97,6 +126,20 @@ export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: 
 // ---------------- groups ----------------
 export const GroupBody = z.object({ name: z.string().trim().min(1).max(100), description: z.string().max(500).nullable().optional(), memberIds: z.array(UserId).default([]) })
 export const UpdateGroupBody = z.object({ name: z.string().trim().min(1).max(100).optional(), description: z.string().max(500).nullable().optional(), memberIds: z.array(UserId).optional() })
+/**
+ * POST /api/admin/groups/origin-check, before saving a group's members, a person's groups or deleting a group: the
+ * people the one-time folder access conversion named by name (C1-A, docs/DECISIONS.md "Folder access adds up like
+ * Google Drive (P2)") whose membership in one of the groups it recorded changes. They keep that access by name (as
+ * Drive keeps access given by name): the screen warns, with a way to remove it. Each change: a person joins or leaves a
+ * group (or the group goes). Nothing is saved.
+ */
+export const OriginCheckBody = z.object({ changes: z.array(z.object({ userId: UserId, groupId: z.string().min(1).max(64) })).max(5000) })
+/** The one-time Admin notice after the folder access conversion (docs/DECISIONS.md "Folder access adds up like Google
+ * Drive (P2)"): the folders that now list their people by name, and how many were added by name on each. null: nothing
+ * to say (nobody was named, or an owner or admin dismissed it). */
+export const FolderAccessNotice = z.object({ notice: z.object({ at: IsoTime, folders: z.array(z.object({ path: RelPath, count: z.number().int().positive() })) }).nullable() })
+export type FolderAccessNotice = z.infer<typeof FolderAccessNotice>
+export const OriginCheckResponse = z.object({ kept: z.array(z.object({ user: UserRef, path: RelPath, access: Access, groupId: z.string() })) })
 
 // ---------------- folders and rules ----------------
 /** The folder's rules hash the editor started from (`Folder.rulesHash`, `FolderEditPreview.hash`): when the folder's
@@ -104,6 +147,10 @@ export const UpdateGroupBody = z.object({ name: z.string().trim().min(1).max(100
  * refused with 409 and `params.reason` `rules_changed`, and nothing changes. Optional: without it the save replaces
  * whatever is there, as before. */
 const ExpectedHash = z.string().min(1).max(64)
+/** Limit access (Folder.limited). Missing keeps the folder's current value (a new folder: not limited), so a page or
+ * script that does not know it never takes a limit away. Rules give view or edit: a "no access" rule is refused (400
+ * `no_deny_rules`), and so is a role rule (400 `no_role_rules`). */
+const Limited = z.boolean()
 export const CreateFolderBody = z.object({
   path: RelPath,
   /** create the folder on disk if missing */
@@ -111,14 +158,17 @@ export const CreateFolderBody = z.object({
   rules: z.array(FolderRuleInput).max(200).default([]),
   /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
   expectedHash: ExpectedHash.optional(),
+  limited: Limited.optional(),
 })
-export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional() })
+/** A save of a limited folder without `limited` that carries a hash from before the limit (or none) is refused with 409
+ * `client_outdated`: a page from an older build, which would not show the limit. */
+export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional(), limited: Limited.optional() })
 /**
  * "Who sees what" before saving: send the proposed rule sets (each replaces the rules of that folder); the server
  * computes every active person's effective access before/after for those folders and their rule-free subfolders.
  */
 export const PreviewBody = z.object({
-  changes: z.array(z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200) })).min(1).max(50),
+  changes: z.array(z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200), limited: Limited.optional() })).min(1).max(50),
 })
 export const PreviewResponse = z.object({
   folders: z.array(z.object({
@@ -140,10 +190,16 @@ export type PreviewResponse = z.infer<typeof PreviewResponse>
  * no-rule: no folder on the way up has a rule for the person (only the owner and admins).
  */
 export const DecidingRule = z.object({ subjectType: SubjectType, subjectId: z.string().nullable(), access: Access })
-export const AccessReasonKind = z.enum(['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule'])
+export const AccessReasonKind = z.enum(['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule', 'left'])
 export type AccessReasonKind = z.infer<typeof AccessReasonKind>
+/** Since access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): rule = the folder of the
+ * widest rule that applies on the way up to the nearest limited folder (on a tie the nearest), its subject type
+ * (`tier`) and the applying rules there with that access; no-rule `cutAt` = the limited folder that stopped the walk;
+ * left = the person's own "no access" on a project's folder (`folder`). */
 export const AccessReason = z.discriminatedUnion('kind', [
-  z.object({ kind: AccessReasonKind.exclude(['rule']) }),
+  z.object({ kind: AccessReasonKind.exclude(['rule', 'no-rule', 'left']) }),
+  z.object({ kind: z.literal('no-rule'), cutAt: RelPath.optional() }),
+  z.object({ kind: z.literal('left'), folder: RelPath }),
   z.object({ kind: z.literal('rule'), folder: RelPath, tier: SubjectType, rules: z.array(DecidingRule) }),
 ])
 export type AccessReason = z.infer<typeof AccessReason>
@@ -221,7 +277,7 @@ export const PersonAccessResponse = z.object({
 })
 export type PersonAccessResponse = z.infer<typeof PersonAccessResponse>
 export const NewPersonAccessBody = z.object({
-  role: Role.exclude(['owner']), groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
+  role: TeamRole, groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
   prefix: RelPath.optional(), cursor: RelPath.optional(), limit: z.number().int().min(1).max(2000).optional(),
 })
 
@@ -316,7 +372,7 @@ export type AccessTreeResponse = z.infer<typeof AccessTreeResponse>
  * edits (Admin › Folder permissions, the edit panel). Nothing is saved. `path`: a folder with a rule row is taken as
  * stored; any other team folder as typed (actual names on disk, a missing tail as typed). Not for users/.
  */
-export const FolderEditBody = z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200) })
+export const FolderEditBody = z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200), limited: Limited.optional() })
 /** People whose access at the folder changes the same way (`before` → `after`). `less`: write → read or anything →
  * none; `more` the other way. `people` by name, at most 50 of `count`. `chatsReset`: their chats that start a fresh AI
  * session because they lose read (H7). */
@@ -352,6 +408,8 @@ export const FolderEditPreview = z.object({
   /** the folder's rules now, and their hash (`Folder.rulesHash`; no row: the hash of no rules) */
   current: z.array(DecidingRule),
   hash: z.string(),
+  /** the folder is limited now. Absent: an older server */
+  limited: z.boolean().optional(),
   /** at or inside a connected folder (a one-way copy of a folder elsewhere) */
   connected: z.boolean(),
   /** active people, and those of them that rules decide for (not the owner or admins) */
@@ -577,12 +635,19 @@ export const ADMIN = {
 
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
   createInvite: endpoint({ method: 'POST', path: '/api/admin/invites', auth: 'admin', owner: 'A', status: 201, body: CreateInviteBody, response: CreatedInvite, summary: 'New invite link (copy it; no mail in v1).' }),
+  createGuestInvite: endpoint({ method: 'POST', path: '/api/guest-invites', auth: 'user', owner: 'A', status: 201, body: CreateGuestInviteBody, response: CreatedInvite, summary: 'Invite a guest into one place: a group chat the caller is in, or a project the caller created (the owner and admins: any project). 409 plan_limit reason guest_limit over the plan\'s guests.' }),
+  guestInviteLimit: endpoint({ method: 'GET', path: '/api/guest-invites/limit', auth: 'user', owner: 'A', response: GuestInviteLimit, summary: "Whether the plan has room for one more guest (and, for the owner and admins, whether every seat is taken), so the invite and Make team member dialogs say so before the form." }),
+  updateGuestAi: endpoint({ method: 'PATCH', path: '/api/admin/users/:id/guest-ai', auth: 'admin', owner: 'A', body: GuestAiChoice, response: User, summary: "Change a guest's AI: none, own sign-in, or a team connection with a monthly limit." }),
+  convertGuest: endpoint({ method: 'POST', path: '/api/admin/users/:id/convert-guest', auth: 'admin', owner: 'A', response: User, summary: 'Make a guest a team member (takes a seat: 409 plan_limit reason seat_limit when none is free). They keep their place.' }),
   revokeInvite: endpoint({ method: 'DELETE', path: '/api/admin/invites/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Revoke an unused invite.' }),
 
   listGroups: endpoint({ method: 'GET', path: '/api/admin/groups', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Group) }), summary: 'Groups with members.' }),
   createGroup: endpoint({ method: 'POST', path: '/api/admin/groups', auth: 'admin', owner: 'A', status: 201, body: GroupBody, response: Group, summary: 'New group.' }),
   updateGroup: endpoint({ method: 'PATCH', path: '/api/admin/groups/:id', auth: 'admin', owner: 'A', body: UpdateGroupBody, response: Group, summary: 'Rename / change members.' }),
   deleteGroup: endpoint({ method: 'DELETE', path: '/api/admin/groups/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Delete a group (its folder rules go too).' }),
+  folderAccessNotice: endpoint({ method: 'GET', path: '/api/admin/folder-access/notice', auth: 'admin', owner: 'A', response: FolderAccessNotice, summary: 'The one-time notice after the folder access conversion: folders that now list their people by name.' }),
+  dismissFolderAccessNotice: endpoint({ method: 'POST', path: '/api/admin/folder-access/notice/dismiss', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Dismiss the folder access conversion notice for the team.' }),
+  originCheck: endpoint({ method: 'POST', path: '/api/admin/groups/origin-check', auth: 'admin', owner: 'A', body: OriginCheckBody, response: OriginCheckResponse, summary: 'Before a group change: the people named by the folder access conversion who keep access by name after it. Nothing is saved.' }),
 
   listFolders: endpoint({ method: 'GET', path: '/api/admin/folders', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Folder) }), summary: 'Folders that carry rules, with their rules (= /api/admin/folder-rules of the design).' }),
   createFolder: endpoint({ method: 'POST', path: '/api/admin/folders', auth: 'admin', owner: 'A', status: 201, body: CreateFolderBody, response: Folder, summary: 'Put rules on a folder (creates it on disk if asked).' }),

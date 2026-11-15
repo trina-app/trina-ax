@@ -18,10 +18,14 @@ import { SealedSecret } from './credentials'
 /** off: not turned on (or no tokens) · connecting · connected · error: lastError says why */
 export const SlackState = z.enum(['off', 'connecting', 'connected', 'error'])
 export type SlackState = z.infer<typeof SlackState>
+/** Connecting for longer than this (seconds) is a problem, not a wait: a Socket Mode hello comes within seconds and
+ * the hosting service answers its first poll at once, so two minutes means something is in the way. */
+export const SLACK_CONNECTING_SLOW_S = 120
+
 /** reason codes only (never Slack's own text): the screen puts them in the reader's words. The official app's own:
  * broker_unreachable (the hosting service does not answer now), not_served (it does not serve this server now),
  * removed (the app was removed from the workspace: "Add to Slack" again) */
-export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'broker_unreachable', 'not_served', 'removed', 'unknown'])
+export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'broker_unreachable', 'not_served', 'removed', 'bot_refused', 'unknown'])
 export type SlackErrorCode = z.infer<typeof SlackErrorCode>
 
 export const SlackWorkspace = z.object({ teamId: z.string(), name: z.string(), url: z.string().nullable() })
@@ -44,6 +48,10 @@ export const SlackAdmin = z.object({
   /** the Slack app's id (A…), for links to its settings pages in Slack; null until known */
   appId: z.string().nullable(),
   state: SlackState,
+  /** while `state` is connecting: how many seconds it has been (the server's clock); null otherwise. Over
+   * SLACK_CONNECTING_SLOW_S the screens say Slack is not answering, with what to do (docs/DECISIONS.md "Slack: one
+   * state for the list and the page"). Optional: an older server does not send it. */
+  connectingFor: z.number().int().nonnegative().nullable().optional(),
   lastError: SlackErrorCode.nullable(),
   /** where the links in Slack open (the address the owner saved the tokens from) */
   linkOrigin: z.string().nullable(),
@@ -128,5 +136,7 @@ export const SLACK = {
   startSlackSignIn: endpoint({ method: 'POST', path: '/api/slack/signin', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ authorizationUrl: z.string().url() }), summary: 'Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only).' }),
   recheckSlackReadScopes: endpoint({ method: 'POST', path: '/api/admin/slack/read-scopes/recheck', auth: 'admin', owner: 'C', body: z.object({}), response: SlackAdmin, summary: '"I updated them": asks Slack again now which permissions the Slack app\'s bot has (reading threads and channels).' }),
   startSlackInstall: endpoint({ method: 'POST', path: '/api/admin/slack/official/install', auth: 'admin', owner: 'C', body: z.object({ origin: z.string().max(200).optional() }), response: z.object({ authorizationUrl: z.string().url() }), summary: '"Add to Slack": Slack\'s install page of the hosting service\'s official app (10 minutes, this owner or admin only). `origin`: the address the page is open at, where links in Slack open.' }),
+  cancelSlackSignIn: endpoint({ method: 'DELETE', path: '/api/slack/signin/flow', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel my "Sign in with Slack" of this session that is still waiting: a window left open cannot finish it afterwards.' }),
+  cancelSlackInstall: endpoint({ method: 'DELETE', path: '/api/admin/slack/install/flow', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Cancel my "Add to Slack" of this session that is still waiting: a window left open cannot finish it afterwards.' }),
   cancelSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/cancel', auth: 'user', owner: 'C', body: SlackLinkBody, response: empty, status: 204, summary: 'Throw this one-time link away without linking.' }),
 } as const

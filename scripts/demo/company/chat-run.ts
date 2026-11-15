@@ -14,8 +14,9 @@ export function goAhead(options: { label: string; value: string }[]): string | n
 
 export interface RunResult { chatId: string; message: Message; cards: string[] }
 
-export async function runPrompt(api: ApiClient, prompt: string, o: { timeoutMs?: number; log?: (s: string) => void; pollMs?: number } = {}): Promise<RunResult> {
-  const chat = await api.call(API.createChat, { body: {} })
+export async function runPrompt(api: ApiClient, prompt: string, o: { timeoutMs?: number; log?: (s: string) => void; pollMs?: number; projectId?: string; chatId?: string } = {}): Promise<RunResult> {
+  // a new chat (in a project when `projectId`), or the next question in `chatId`
+  const chat = o.chatId ? { id: o.chatId } : await api.call(API.createChat, { body: o.projectId ? { projectId: o.projectId } : {} })
   const started = await api.call(API.sendMessage, { params: { id: chat.id }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID() } })
   const id = started.assistantMessage.id
   const until = Date.now() + (o.timeoutMs ?? 15 * 60_000)

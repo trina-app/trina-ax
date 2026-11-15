@@ -1,1 +1,0 @@
-- **Rooms**: a thread where you once asked the old room "@트리나" and never opened its private answer no longer stays unread after you read it.

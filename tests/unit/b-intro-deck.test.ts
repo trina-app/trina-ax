@@ -737,12 +737,12 @@ function checkPptx(bytes: Uint8Array, out: DeckOut, o: { lang: Locale; title: st
   expect([...names].filter((n) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n))).toHaveLength(N)
   const pres = xml.get('ppt/presentation.xml')!
   expect(all(pres, 'p:sldId').map((s) => relsOf.get('ppt/presentation.xml')!.get(s.attrs['r:id']!))).toEqual(out.slides.map((_, i) => `ppt/slides/slide${i + 1}.xml`))
-  const LANG = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es-ES' }[o.lang]
-  const charset = { ko: '-127', ja: '-128', en: '0', id: '0', es: '0' }[o.lang]
-  for (const [n, buf] of zip.map((e) => [e.name, raw(e.name)] as const)) if (/\.xml$/.test(n)) expect(buf.toString('utf8'), n).not.toContain('charset="-122"')
+  const LANG = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es-ES', zh: 'zh-CN' }[o.lang]
+  const charset = { ko: '-127', ja: '-128', zh: '-122', en: '0', id: '0', es: '0' }[o.lang]
+  for (const [n, buf] of zip.map((e) => [e.name, raw(e.name)] as const)) if (o.lang !== 'zh' && /\.xml$/.test(n)) expect(buf.toString('utf8'), n).not.toContain('charset="-122"')
   out.slides.forEach((s, i) => {
     const sx = xml.get(`ppt/slides/slide${i + 1}.xml`)!
-    // every run in the team's language with the right East Asian charset (Hangul −127, never the Chinese −122)
+    // every run in the team's language with the right East Asian charset (Hangul −127, the Chinese −122 only in a Chinese deck)
     const rprs = [...all(sx, 'a:rPr'), ...all(sx, 'a:endParaRPr')]
     expect(rprs.length).toBeGreaterThan(0)
     for (const r of rprs) {

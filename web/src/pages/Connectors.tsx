@@ -30,11 +30,12 @@ import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
-import { api, API } from '../lib/api'
+import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
-import { useT } from '../i18n'
+import { useLocale, useT } from '../i18n'
+import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
@@ -51,7 +52,6 @@ import { useIntegrationActions } from '../components/integrations/IntegrationRow
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
-import { useLoad } from './admin/common'
 import { mobileApp } from '../lib/mobile'
 
 /** How many Discover cards show before "Show all" (ConnectorsView.tsx). */
@@ -59,7 +59,16 @@ export const POPULAR_FIRST = DISCOVER_FIRST
 
 function useConnectorsState() {
   const admin = isAdmin(useMe())
-  const list = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
+  const t = useT(), locale = useLocale()
+  // the connections as this window last read them (store/listCache.ts, shared with Search): a visit after the first
+  // shows the page at once and reads it again behind it
+  const cached = useCachedRead<IntegrationList>(SHARED.integrations, readIntegrations)
+  const list = {
+    data: cached.data ?? null,
+    error: cached.failed ? errorText(cached.failed, locale, t('error.network')) : null,
+    reload: cached.reload,
+    setData: (f: (d: IntegrationList | null) => IntegrationList | null) => putCached<IntegrationList>(SHARED.integrations, (d) => f(d ?? null) ?? undefined),
+  }
   const drive = useDriveConnection()
   const google = useGoogleApps()
   // a member's asks to add an app the team has not set up (none for an owner or admin)
@@ -247,7 +256,7 @@ function ConnectorsHome() {
       {/* the section's top, like Settings' other sections: its name (a phone's bar says it, so there for screen readers
           only), one line, the search and Add; it scrolls with the list (QA TC-262) */}
       <div data-testid="connectors-header">
-        <h2 className="text-base font-semibold max-md:sr-only">{t('integrations.title')}</h2>
+        <h2 className="text-title font-semibold max-md:sr-only">{t('integrations.title')}</h2>
         <p className="mt-1 text-sm text-muted max-md:mt-0">{t('connectorsPage.desc')}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">{headActions}</div>
       </div>
@@ -271,7 +280,7 @@ function ConnectorsHome() {
             )}
             {yours.length > 0 && (
               <section aria-labelledby="connectors-yours">
-                <h3 id="connectors-yours" className="mb-1 text-sm font-semibold">{t('connectors.yours')}</h3>
+                <h3 id="connectors-yours" className="mb-1 text-title-sm font-semibold">{t('connectors.yours')}</h3>
                 <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
@@ -279,7 +288,7 @@ function ConnectorsHome() {
             {cards.length > 0 && (
               <section aria-labelledby="connectors-discover" data-testid="connector-discover">
                 <div className="mb-1 flex items-center gap-2">
-                  <h3 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
+                  <h3 id="connectors-discover" className="text-title-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
                   {!q && cards.length > POPULAR_FIRST && (
                     // a text link; on a phone 44 px tall (and at least as wide), still without a box
                     <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-end" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">

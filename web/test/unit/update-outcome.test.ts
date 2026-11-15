@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Health, Job } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { goBackOffered, releasePaused, updateOutcome } from '../../src/lib/updateOutcome'
+import { goBackOffered, releaseCannotRead, releasePaused, updateOutcome } from '../../src/lib/updateOutcome'
 
 const job = (o: Partial<Job> = {}): Job => ({
   id: '01900000-0000-7000-8000-0000000000aa', kind: 'update', status: 'done', progress: 1, message: null,
@@ -81,6 +81,15 @@ describe('what an update job really did', () => {
 describe('a paused release (QA TC-361)', () => {
   test('only the publisher\'s pause counts: Home and System offer no install then', () => {
     expect(releasePaused({ hold: 'paused' })).toBe(true)
-    for (const hold of [undefined, null, 'rollout', 'failed', 'root_failed'] as const) expect(releasePaused({ hold }), String(hold)).toBe(false)
+    for (const hold of [undefined, null, 'rollout', 'failed', 'root_failed', 'cannot_read'] as const) expect(releasePaused({ hold }), String(hold)).toBe(false)
+  })
+})
+
+describe('a release that cannot open this server\'s data (a dev build migrated the database further)', () => {
+  test('only cannot_read counts: Home and System say it waits for a newer version and offer no install', () => {
+    expect(releaseCannotRead({ hold: 'cannot_read' })).toBe(true)
+    for (const hold of [undefined, null, 'paused', 'rollout', 'failed', 'root_failed'] as const) expect(releaseCannotRead({ hold }), String(hold)).toBe(false)
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) expect(translate(l, 'adminHome.update.cannotRead', { version: '0.5.3' })).toContain('0.5.3')
+    expect(translate('en', 'adminHome.update.cannotRead', { version: '0.5.3' })).toBe("Version 0.5.3 can't open this server's data yet. Waiting for a newer version.")
   })
 })

@@ -63,7 +63,7 @@ test('the address is the app\'s own chat route on the given origin', () => {
 })
 
 test('the words: the same two sentences in every language, the shared one with the number of people', () => {
-  expect(ko('chat.linkCopiedShared', { n: 4 })).toBe('링크를 복사했어요 · 멤버 4명이 열 수 있어요')
+  expect(ko('chat.linkCopiedShared', { n: 4 })).toBe('링크를 복사했어요 · 4명이 열 수 있어요')
   expect(ko('chat.linkCopiedPrivate')).toBe('링크를 복사했어요 · 나만 열 수 있어요')
   for (const l of ['en', 'es', 'id', 'ja'] as const) {
     expect(translate(l, 'chat.linkCopiedShared', { n: 4 })).toContain('4')
@@ -98,7 +98,7 @@ for (const shared of [true, false]) {
     const c = chat(shared)
     const m = await mount(<MemoryRouter><ProjectChatRow chat={c} /></MemoryRouter>)
     try {
-      if (shared) await m.until(() => usePeople.getState().loaded, 'the people directory')
+      if (c.shared?.people?.length) await m.until(() => usePeople.getState().loaded, 'the people directory')
       const more = m.get('project-chat-menu')
       // beside the row's link, not inside it
       expect(more.closest('a')).toBeNull()

@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { ja } from '../../src/i18n/ja'
 import { es } from '../../src/i18n/es'
+import { zh } from '../../src/i18n/zh'
 import { reset, signIn } from './helpers'
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
@@ -11,7 +12,7 @@ async function screenshot(page: Page, info: TestInfo, name: string) {
   await page.screenshot({ path: dir ? path.join(dir, name) : info.outputPath(name), fullPage: true })
 }
 
-for (const [locale, label, dict] of [['ja', '日本語', ja], ['es', 'Español', es]] as const) {
+for (const [locale, label, dict] of [['ja', '日本語', ja], ['es', 'Español', es], ['zh', '简体中文', zh]] as const) {
   test(`${label}: account picker persists across settings, chat, files, skills and trash`, async ({ page }, info) => {
     await reset(page, { teamLocale: 'en', usersFollowTeam: true })
     await signIn(page)
@@ -39,7 +40,7 @@ for (const [locale, label, dict] of [['ja', '日本語', ja], ['es', 'Español',
   })
 }
 
-for (const [browser, expected] of [['ja-JP', 'ja'], ['es-MX', 'es'], ['fr-FR', 'en']] as const) {
+for (const [browser, expected] of [['ja-JP', 'ja'], ['es-MX', 'es'], ['zh-CN', 'zh'], ['zh-TW', 'zh'], ['fr-FR', 'en']] as const) {
   test.describe(`first-run browser ${browser}`, () => {
     test.use({ locale: browser })
     test(`detects ${expected}, with English for unsupported languages`, async ({ page }) => {

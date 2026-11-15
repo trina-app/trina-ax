@@ -14,16 +14,17 @@ import clsx from 'clsx'
 import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, API, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
+import { api, API, chatFileUrl, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
 import { extOf, parentPath } from '../lib/paths'
 import { PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
-import { openTeamFile, setPanelExpanded, type PreviewFile } from '../lib/sidePanel'
+import { openTeamFile, setPanelExpanded, setPanelGuard, type PreviewFile } from '../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { keptFolder } from '../store/teamFiles'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
@@ -57,6 +58,10 @@ export function useWritable(file: PreviewFile, editable: boolean): boolean {
   const path = file.source === 'team' ? file.path : null
   useEffect(() => {
     if (!path || !editable) return
+    // the file's row in its folder as last listed (store/teamFiles.ts) says it already: nothing to ask (the edit itself
+    // asks again before it opens the editor)
+    const row = keptFolder(parentPath(path))?.entries.find((e) => e.type === 'file' && e.path.normalize('NFC') === path.normalize('NFC'))
+    if (row) return setAnswer({ path, ok: row.access === 'write' })
     let live = true
     api.call(API.content, { query: { path, maxBytes: 1 } }).then(
       (c) => live && setAnswer({ path, ok: c.access === 'write' }),
@@ -129,8 +134,27 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       setLoadingEdit(false)
     }
   }
+  const unsaved = !!editing && editing.draft !== editing.text
+  const askDiscard = () => confirmDialog({ title: t('preview.discardTitle'), confirm: t('preview.discard'), danger: true })
+  // closing the panel (✕, Back on a phone, Esc), opening another file or leaving the page with edits not saved asks
+  // first (lib/sidePanel.ts); a full reload or closing the tab gets the browser's own question
+  useEffect(() => {
+    if (!unsaved) return
+    setPanelGuard(askDiscard)
+    const beforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => {
+      setPanelGuard(null)
+      window.removeEventListener('beforeunload', beforeUnload)
+    }
+    // askDiscard only reads the language; the guard is set while there are edits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unsaved])
   const cancelEdit = async () => {
-    if (editing && editing.draft !== editing.text && !(await confirmDialog({ title: t('preview.discardTitle'), confirm: t('preview.discard'), danger: true }))) return
+    if (unsaved && !(await askDiscard())) return
     setEditing(null)
   }
   const saveEdit = async () => {
@@ -139,6 +163,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     try {
       savingHere(file.path)
       const r = await api.call(API.saveContent, { body: { path: file.path, content: editing.draft, baseSha256: editing.base } })
+      // saved: nothing to lose any more, so what follows (a conflict copy opening in this panel) is not asked about
+      setPanelGuard(null)
       setEditing(null)
       if (r.conflict) {
         // one notice (the live event for this save is not shown again): my content is in the copy, opened now
@@ -206,6 +232,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const download = () =>
     file.source === 'team' ? startDownload(fileUrl(file.path), file.name)
     : file.source === 'room' ? startDownload(roomFileUrl(file.roomId, file.fileId, { download: '1' }), file.name)
+    : file.source === 'chat' ? startDownload(chatFileUrl(file.chatId, file.fileId, { download: '1' }), file.name)
     : saveBlob(file.blob, file.name)
   // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
   const teamPath = file.source === 'team' ? file.path : null

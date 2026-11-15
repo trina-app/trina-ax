@@ -32,7 +32,7 @@ const looked = (host: string) => lookups.filter((x) => x === host.toLowerCase())
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'site-allow', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'site-allow', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   noteEgressIp(h.ctx, '198.51.100.7')
   alice = await h.ws('alice', { windowId: 'win-site-allow' })
   await alice.next('hello')

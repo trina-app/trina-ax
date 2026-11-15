@@ -24,7 +24,8 @@ import { aiName } from '../../lib/tabs'
 import { connectorsPlace } from '../../pages/settingsTabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
-import { Button } from '../ui'
+import { Button, WaitLine } from '../ui'
+import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { useDriveConnection } from '../settings/DriveConnection'
 import { LogoTile } from '../integrations/ConnectorsView'
 import { IntegrationDialog } from '../integrations/IntegrationDialog'
@@ -63,7 +64,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
   return (
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-ink">{t('welcome.tools.title')}</h2>
+        <h2 className="text-display font-semibold text-ink">{t('welcome.tools.title')}</h2>
         <p className="text-sm text-balance text-muted">{t('welcome.tools.desc', { ai: aiName(t), where: connectorsPlace(t) })}</p>
       </div>
       <div className="space-y-4">
@@ -142,14 +143,15 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
             <Button size="sm" variant="ghost" disabled={d.busy} onClick={() => { keep(null); setNote(null); void d.cancel() }} data-testid="welcome-tools-drive-other">{t('welcome.tools.other')}</Button>
           </div>
         ) : flow ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" role="status" data-testid="welcome-tools-drive-waiting">
-            <span className="text-muted">{d.popupBlocked ? t('welcome.tools.popupBlocked') : t('drive.waitingShort')}</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="welcome-tools-drive-waiting">
+            <WaitLine className="text-muted" text={d.popupBlocked ? t('welcome.tools.popupBlocked') : t('drive.waitingShort')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} />
             {d.authorizationUrl && (
               <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className={quietLink}
                 onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>
                 {t('drive.openGoogle')}
               </a>
             )}
+            <Button size="sm" variant="secondary" disabled={d.busy} onClick={start} data-testid="welcome-tools-drive-retry">{t('common.retry')}</Button>
             <Button size="sm" variant="ghost" disabled={d.busy} onClick={cancel} data-testid="welcome-tools-drive-cancel">{t('common.cancel')}</Button>
           </div>
         ) : (
@@ -221,7 +223,8 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
             <LogoTile src={connectorLogo(c)} className={logoCls} />
             <div className="min-w-0 flex-1 space-y-0.5">
               <p className="text-sm font-medium text-ink">{c.name}</p>
-              <p className={`text-sm break-words ${(flow && !waiting) || errors[c.id] ? 'text-warn' : 'text-muted'}`} role={waiting ? 'status' : undefined} data-testid="welcome-tools-service-line">{line}</p>
+              {waiting ? <WaitLine className="text-sm text-muted" text={line} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="welcome-tools-service-line" />
+                : <p className={`text-sm break-words ${flow || errors[c.id] ? 'text-warn' : 'text-muted'}`} data-testid="welcome-tools-service-line">{line}</p>}
               {waiting && flow.url && <a href={flow.url} target="_blank" rel="noopener noreferrer" className={`${quietLink} text-sm`}>{t('integrations.signIn.open')}</a>}
             </div>
             {on ? (
@@ -230,7 +233,7 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
               </span>
             ) : waiting ? (
               <div className="flex shrink-0 gap-1">
-                {flow.away && <Button size="sm" variant="secondary" onClick={() => void connect(c)} data-testid="welcome-tools-service-retry">{t('common.retry')}</Button>}
+                <Button size="sm" variant="secondary" onClick={() => void connect(c)} data-testid="welcome-tools-service-retry">{t('common.retry')}</Button>
                 <Button size="sm" variant="ghost" onClick={signIn.cancel} data-testid="welcome-tools-service-cancel">{t('common.cancel')}</Button>
               </div>
             ) : (
@@ -271,12 +274,11 @@ function OtherTools({ added, onAdded }: { added: Integration[]; onAdded: (i: Int
             const waiting = !!mine && ['starting', 'pending', 'exchanging'].includes(mine.state)
             return (
               <li key={i.id} className="flex min-w-0 flex-wrap items-center gap-x-2 text-muted" data-testid="welcome-tools-mcp-item" data-status={i.status}>
-                <span className="min-w-0 break-words">
-                  {waiting ? t('welcome.tools.signingIn', { name: i.name })
-                    : mine ? t('welcome.tools.signInFailed', { name: i.name })
+                {waiting ? <WaitLine text={t('welcome.tools.signingIn', { name: i.name })} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} /> : <span className="min-w-0 break-words">
+                  {mine ? t('welcome.tools.signInFailed', { name: i.name })
                       : i.status === 'error' || i.status === 'needs_auth' ? t('welcome.tools.mcpCheck', { name: i.name })
                         : t('welcome.tools.connected', { name: i.name })}
-                </span>
+                </span>}
                 {waiting && mine?.url && <a href={mine.url} target="_blank" rel="noopener noreferrer" className={quietLink}>{t('integrations.signIn.open')}</a>}
                 {waiting && <Button size="sm" variant="ghost" onClick={signIn.cancel}>{t('common.cancel')}</Button>}
                 {mine && !waiting && <Button size="sm" variant="ghost" onClick={() => void signIn.start(i.id)}>{t('common.retry')}</Button>}

@@ -9,6 +9,11 @@ The AI also reads Slack, with the app's bot token only: the thread it is asked i
 and channels the app was invited to and that person is in ("Marketplace-safe reading" below). It never reads Slack as
 the person and has no Slack search.
 
+**What it reads, in one line** (Slack's page in Admin › Connected apps says it before the app is added, QA TC-2142):
+messages in the channels and threads the app is invited to, other apps' alerts there included (the bot scopes
+`channels:history` and `groups:history`). Each answer uses only what the person who asked can open, and nothing outside
+the invited channels is read.
+
 Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터", "Slack through the official Trina AX app", "Admins manage
 Slack too" and "Slack: reading with the bot token only".
 

@@ -59,6 +59,7 @@ export const TEXT = {
     id: 'Tugas terjadwal ini dibuat tanpa kartu konfirmasi, jadi dijeda. Tugas ini menjalankan instruksi di bawah sendiri, tanpa ada yang mengawasi. Periksa instruksi dan alamatnya, lalu pilih apakah akan melanjutkannya.\n\nJudul: {title}\nJadwal: {when}',
     ja: 'この定期タスクは確認カードなしで作成されたため一時停止しています。定期タスクは誰も見ていないときに下の指示をそのまま実行します。指示とアドレスを確認し、再開するか選んでください。\n\nタイトル：{title}\n予定：{when}',
     es: 'Esta tarea programada se creó sin su tarjeta de confirmación, así que está en pausa. Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones y elija si reanudarla.\n\nTítulo: {title}\nHorario: {when}',
+    zh: '此定时任务创建时没有经过确认卡片，因此已暂停。它会在无人看管的情况下自动执行下面的指令。请检查指令和其中的地址，然后选择是否恢复。\n\n标题：{title}\n时间：{when}',
   } satisfies L5,
   /** "수정" in Settings (chat/schedule-edit.ts): the edited task, as it will run */
   editQuestion: {
@@ -67,14 +68,16 @@ export const TEXT = {
     id: 'Ubah tugas terjadwal ini menjadi seperti berikut? Tugas ini menjalankan instruksi di bawah sendiri, tanpa ada yang mengawasi. Periksa instruksi dan alamatnya.\n\nJudul: {title}\nJadwal: {when}',
     ja: 'この定期タスクを次のように変更しますか？定期タスクは誰も見ていないときに下の指示をそのまま実行します。指示とアドレスを確認してください。\n\nタイトル：{title}\n予定：{when}',
     es: '¿Cambiar esta tarea programada a lo siguiente? Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones.\n\nTítulo: {title}\nHorario: {when}',
+    zh: '要把此定时任务改成下面这样吗？它会在无人看管的情况下自动执行下面的指令。请检查指令和其中的地址。\n\n标题：{title}\n时间：{when}',
   } satisfies L5,
-  project: { ko: '프로젝트: {name}', en: 'Project: {name}', id: 'Proyek: {name}', ja: 'プロジェクト：{name}', es: 'Proyecto: {name}' } satisfies L5,
+  project: { ko: '프로젝트: {name}', en: 'Project: {name}', id: 'Proyek: {name}', ja: 'プロジェクト：{name}', es: 'Proyecto: {name}', zh: '项目：{name}' } satisfies L5,
   question: {
     ko: 'AI가 예약 작업을 만들려고 해요. 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: {title}\n일정: {when}',
     en: 'The AI wants to create a scheduled task. It runs the instruction below on its own, with nobody watching. Check the instruction and its addresses.\n\nTitle: {title}\nSchedule: {when}',
     id: 'AI ingin membuat tugas terjadwal. Tugas ini menjalankan instruksi di bawah sendiri, tanpa ada yang mengawasi. Periksa instruksi dan alamatnya.\n\nJudul: {title}\nJadwal: {when}',
     ja: 'AIが定期タスクを作成しようとしています。定期タスクは誰も見ていないときに下の指示をそのまま実行します。指示とアドレスを確認してください。\n\nタイトル：{title}\n予定：{when}',
     es: 'La IA quiere crear una tarea programada. Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones.\n\nTítulo: {title}\nHorario: {when}',
+    zh: 'AI 想创建一个定时任务。它会在无人看管的情况下自动执行下面的指令。请检查指令和其中的地址。\n\n标题：{title}\n时间：{when}',
   } satisfies L5,
   urls: {
     ko: '실행할 때마다 아래 주소 {n}개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
@@ -82,6 +85,7 @@ export const TEXT = {
     id: 'Setiap kali berjalan, tugas ini membuka {n} alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
     ja: '実行のたびに下の{n}件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
     es: 'En cada ejecución abre sin preguntar las {n} direcciones de abajo. Una dirección puede sacar datos; revise cada una completa.',
+    zh: '每次运行时，它会不经询问打开下面的{n}个地址。地址可能会把数据带出去，请完整检查每一个地址。',
   } satisfies L5,
   urlsBlocked: {
     ko: '아래 주소 {n}개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 주소마다 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
@@ -89,14 +93,16 @@ export const TEXT = {
     id: 'Di server ini, tugas belum bisa membuka {n} alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi setiap alamat perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
     ja: 'このサーバーでは、実行時に下の{n}件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、アドレスごとに人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
     es: 'En este servidor, las ejecuciones aún no pueden abrir las {n} direcciones de abajo: el servidor del equipo no conoce su propia dirección pública, así que cada dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones las abrirán sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
+    zh: '在此服务器上，运行时还不能打开下面的{n}个地址：团队服务器还不知道自己的公网地址，所以每个地址都需要有人确认，而运行时没有人在场。服务器知道自己的公网地址后，运行时会不经询问打开它们。地址可能会把数据带出去，请完整检查每一个地址。',
   } satisfies L5,
-  /** one address: English and Spanish say it in the singular; Korean, Indonesian and Japanese count it like the rest */
+  /** one address: English and Spanish say it in the singular; Korean, Indonesian, Japanese and Chinese count it like the rest */
   urlsOne: {
     ko: '실행할 때마다 아래 주소 1개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
     en: 'On each run it opens the address below without asking. An address can carry data out, so check it in full.',
     id: 'Setiap kali berjalan, tugas ini membuka 1 alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
     ja: '実行のたびに下の1件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
     es: 'En cada ejecución abre sin preguntar la dirección de abajo. Una dirección puede sacar datos; revísela completa.',
+    zh: '每次运行时，它会不经询问打开下面的1个地址。地址可能会把数据带出去，请完整检查这个地址。',
   } satisfies L5,
   urlsBlockedOne: {
     ko: '아래 주소 1개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 이 주소를 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
@@ -104,6 +110,7 @@ export const TEXT = {
     id: 'Di server ini, tugas belum bisa membuka 1 alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi alamat itu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
     ja: 'このサーバーでは、実行時に下の1件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、このアドレスには人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
     es: 'En este servidor, las ejecuciones aún no pueden abrir la dirección de abajo: el servidor del equipo no conoce su propia dirección pública, así que la dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
+    zh: '在此服务器上，运行时还不能打开下面的1个地址：团队服务器还不知道自己的公网地址，所以这个地址需要有人确认，而运行时没有人在场。服务器知道自己的公网地址后，运行时会不经询问打开它。地址可能会把数据带出去，请完整检查这个地址。',
   } satisfies L5,
   /** addresses with a query over MAX_UNCONFIRMED_QUERY characters: a person must confirm each one every time
    * (url-gate.ts ③), and nobody is there during a run, so runs never open them */
@@ -113,6 +120,7 @@ export const TEXT = {
     id: 'Tugas tidak pernah membuka {n} alamat dengan kueri panjang (lebih dari {max} karakter, disorot di bawah) saat berjalan: alamat seperti itu selalu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan.',
     ja: '長いクエリ（{max}文字超、下で強調表示）が付いた{n}件のアドレスは実行時に開きません。このようなアドレスは毎回人の確認が必要ですが、実行中は確認する人がいません。',
     es: 'Las ejecuciones nunca abren las {n} direcciones con una consulta larga (más de {max} caracteres, resaltadas abajo): una dirección así siempre necesita que alguien la confirme, y durante una ejecución no hay nadie.',
+    zh: '运行时永远不会打开下面{n}个带有长查询（超过{max}个字符，已高亮）的地址：这类地址每次都需要有人确认，而运行时没有人在场。',
   } satisfies L5,
   longQueryOne: {
     ko: '주소 뒤에 긴 내용({max}자 넘는 쿼리)이 붙은 아래 주소 1개는 실행 때 열지 않아요(강조 표시). 이런 주소는 늘 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요.',
@@ -120,6 +128,7 @@ export const TEXT = {
     id: 'Tugas tidak pernah membuka 1 alamat dengan kueri panjang (lebih dari {max} karakter, disorot di bawah) saat berjalan: alamat seperti itu selalu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan.',
     ja: '長いクエリ（{max}文字超、下で強調表示）が付いた1件のアドレスは実行時に開きません。このようなアドレスは毎回人の確認が必要ですが、実行中は確認する人がいません。',
     es: 'Las ejecuciones nunca abren la dirección con una consulta larga (más de {max} caracteres, resaltada abajo): una dirección así siempre necesita que alguien la confirme, y durante una ejecución no hay nadie.',
+    zh: '运行时永远不会打开下面这个带有长查询（超过{max}个字符，已高亮）的地址：这类地址每次都需要有人确认，而运行时没有人在场。',
   } satisfies L5,
   opaque: {
     ko: '알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
@@ -127,6 +136,7 @@ export const TEXT = {
     id: 'Ada string panjang yang sulit dibaca (disorot). String itu bisa membawa data; periksa isinya.',
     ja: '読み取りにくい長い文字列が含まれています（強調表示）。データを運べるため、内容を確認してください。',
     es: 'Contiene cadenas largas difíciles de leer (resaltadas). Pueden llevar datos; compruebe qué son.',
+    zh: '其中包含难以看懂的长字符串（已高亮）。它们可能夹带数据，请确认是什么。',
   } satisfies L5,
   connections: {
     ko: '이 연결 서비스는 AI가 묻지 않고 보내도록 설정돼 있어요: {names}. 이 예약 작업이 여기에 보내도 될지 골라 주세요.',
@@ -134,32 +144,33 @@ export const TEXT = {
     id: 'Layanan terhubung ini membiarkan AI mengirim tanpa bertanya: {names}. Pilih apakah tugas terjadwal ini boleh mengirim ke sana.',
     ja: '次の接続サービスはAIが確認なしで送信できる設定です：{names}。この定期タスクがそこへ送信してよいか選んでください。',
     es: 'Estos servicios conectados permiten que la IA envíe sin preguntar: {names}. Elija si esta tarea programada puede enviarles datos.',
+    zh: '这些已连接的服务允许 AI 不经询问发送内容：{names}。请选择此定时任务是否可以向它们发送。',
   } satisfies L5,
-  labelPrompt: { ko: '지시문', en: 'Instruction', id: 'Instruksi', ja: '指示', es: 'Instrucción' } satisfies L5,
+  labelPrompt: { ko: '지시문', en: 'Instruction', id: 'Instruksi', ja: '指示', es: 'Instrucción', zh: '指令' } satisfies L5,
   labelUrls: {
     ko: '실행 때 묻지 않고 여는 주소', en: 'Addresses opened without asking on each run', id: 'Alamat yang dibuka tanpa bertanya setiap kali berjalan',
-    ja: '実行時に確認なしで開くアドレス', es: 'Direcciones que abre sin preguntar en cada ejecución',
+    ja: '実行時に確認なしで開くアドレス', es: 'Direcciones que abre sin preguntar en cada ejecución', zh: '每次运行时不经询问打开的地址',
   } satisfies L5,
   labelUrlsLongQuery: {
     ko: '실행 때 열지 않는 주소(긴 쿼리)', en: 'Addresses runs never open (long query)', id: 'Alamat yang tidak pernah dibuka saat berjalan (kueri panjang)',
-    ja: '実行時に開かないアドレス（長いクエリ）', es: 'Direcciones que las ejecuciones nunca abren (consulta larga)',
+    ja: '実行時に開かないアドレス（長いクエリ）', es: 'Direcciones que las ejecuciones nunca abren (consulta larga)', zh: '运行时永远不会打开的地址（长查询）',
   } satisfies L5,
   labelUrlsBlocked: {
     ko: '지시문의 주소(지금은 실행 때 열 수 없음)', en: 'Addresses in the instruction (runs cannot open them yet)', id: 'Alamat dalam instruksi (belum bisa dibuka saat berjalan)',
-    ja: '指示内のアドレス（実行時はまだ開けません）', es: 'Direcciones de la instrucción (las ejecuciones aún no pueden abrirlas)',
+    ja: '指示内のアドレス（実行時はまだ開けません）', es: 'Direcciones de la instrucción (las ejecuciones aún no pueden abrirlas)', zh: '指令中的地址（运行时还不能打开）',
   } satisfies L5,
-  create: { ko: '만들기', en: 'Create', id: 'Buat', ja: '作成する', es: 'Crear' } satisfies L5,
-  createWrite: { ko: '만들기(연결 서비스에 보내기 허용)', en: 'Create, may send to those services', id: 'Buat, boleh mengirim ke layanan itu', ja: '作成する（そのサービスへの送信を許可）', es: 'Crear y permitir enviar a esos servicios' } satisfies L5,
-  createNoWrite: { ko: '만들기(연결 서비스에는 보내지 않음)', en: 'Create, never send to connected services', id: 'Buat, jangan kirim ke layanan terhubung', ja: '作成する（接続サービスには送信しない）', es: 'Crear sin enviar a servicios conectados' } satisfies L5,
-  deny: { ko: '만들지 않기', en: 'Don’t create', id: 'Jangan buat', ja: '作成しない', es: 'No crear' } satisfies L5,
-  resume: { ko: '다시 켜기', en: 'Resume', id: 'Lanjutkan', ja: '再開する', es: 'Reanudar' } satisfies L5,
-  resumeWrite: { ko: '다시 켜기(연결 서비스에 보내기 허용)', en: 'Resume, may send to those services', id: 'Lanjutkan, boleh mengirim ke layanan itu', ja: '再開する（そのサービスへの送信を許可）', es: 'Reanudar y permitir enviar a esos servicios' } satisfies L5,
-  resumeNoWrite: { ko: '다시 켜기(연결 서비스에는 보내지 않음)', en: 'Resume, never send to connected services', id: 'Lanjutkan, jangan kirim ke layanan terhubung', ja: '再開する（接続サービスには送信しない）', es: 'Reanudar sin enviar a servicios conectados' } satisfies L5,
-  save: { ko: '바꾸기', en: 'Save changes', id: 'Simpan perubahan', ja: '変更する', es: 'Guardar cambios' } satisfies L5,
-  saveWrite: { ko: '바꾸기(연결 서비스에 보내기 허용)', en: 'Save, may send to those services', id: 'Simpan, boleh mengirim ke layanan itu', ja: '変更する（そのサービスへの送信を許可）', es: 'Guardar y permitir enviar a esos servicios' } satisfies L5,
-  saveNoWrite: { ko: '바꾸기(연결 서비스에는 보내지 않음)', en: 'Save, never send to connected services', id: 'Simpan, jangan kirim ke layanan terhubung', ja: '変更する（接続サービスには送信しない）', es: 'Guardar sin enviar a servicios conectados' } satisfies L5,
-  dontSave: { ko: '바꾸지 않기', en: 'Don’t change', id: 'Jangan ubah', ja: '変更しない', es: 'No cambiar' } satisfies L5,
-  keep: { ko: '계속 멈춰 두기', en: 'Keep it paused', id: 'Tetap jeda', ja: '一時停止のままにする', es: 'Mantener en pausa' } satisfies L5,
+  create: { ko: '만들기', en: 'Create', id: 'Buat', ja: '作成する', es: 'Crear', zh: '创建' } satisfies L5,
+  createWrite: { ko: '만들기(연결 서비스에 보내기 허용)', en: 'Create, may send to those services', id: 'Buat, boleh mengirim ke layanan itu', ja: '作成する（そのサービスへの送信を許可）', es: 'Crear y permitir enviar a esos servicios', zh: '创建，允许向这些服务发送' } satisfies L5,
+  createNoWrite: { ko: '만들기(연결 서비스에는 보내지 않음)', en: 'Create, never send to connected services', id: 'Buat, jangan kirim ke layanan terhubung', ja: '作成する（接続サービスには送信しない）', es: 'Crear sin enviar a servicios conectados', zh: '创建，从不向已连接的服务发送' } satisfies L5,
+  deny: { ko: '만들지 않기', en: 'Don’t create', id: 'Jangan buat', ja: '作成しない', es: 'No crear', zh: '不创建' } satisfies L5,
+  resume: { ko: '다시 켜기', en: 'Resume', id: 'Lanjutkan', ja: '再開する', es: 'Reanudar', zh: '恢复' } satisfies L5,
+  resumeWrite: { ko: '다시 켜기(연결 서비스에 보내기 허용)', en: 'Resume, may send to those services', id: 'Lanjutkan, boleh mengirim ke layanan itu', ja: '再開する（そのサービスへの送信を許可）', es: 'Reanudar y permitir enviar a esos servicios', zh: '恢复，允许向这些服务发送' } satisfies L5,
+  resumeNoWrite: { ko: '다시 켜기(연결 서비스에는 보내지 않음)', en: 'Resume, never send to connected services', id: 'Lanjutkan, jangan kirim ke layanan terhubung', ja: '再開する（接続サービスには送信しない）', es: 'Reanudar sin enviar a servicios conectados', zh: '恢复，从不向已连接的服务发送' } satisfies L5,
+  save: { ko: '바꾸기', en: 'Save changes', id: 'Simpan perubahan', ja: '変更する', es: 'Guardar cambios', zh: '保存更改' } satisfies L5,
+  saveWrite: { ko: '바꾸기(연결 서비스에 보내기 허용)', en: 'Save, may send to those services', id: 'Simpan, boleh mengirim ke layanan itu', ja: '変更する（そのサービスへの送信を許可）', es: 'Guardar y permitir enviar a esos servicios', zh: '保存，允许向这些服务发送' } satisfies L5,
+  saveNoWrite: { ko: '바꾸기(연결 서비스에는 보내지 않음)', en: 'Save, never send to connected services', id: 'Simpan, jangan kirim ke layanan terhubung', ja: '変更する（接続サービスには送信しない）', es: 'Guardar sin enviar a servicios conectados', zh: '保存，从不向已连接的服务发送' } satisfies L5,
+  dontSave: { ko: '바꾸지 않기', en: 'Don’t change', id: 'Jangan ubah', ja: '変更しない', es: 'No cambiar', zh: '不更改' } satisfies L5,
+  keep: { ko: '계속 멈춰 두기', en: 'Keep it paused', id: 'Tetap jeda', ja: '一時停止のままにする', es: 'Mantener en pausa', zh: '保持暂停' } satisfies L5,
   /** the save folder the card allows (chat/schedule-scope.ts), its readers now and the places that may go there */
   saveLine: {
     ko: '새 파일 저장: {folder} (지금 {n}명이 볼 수 있어요). 넣어도 되는 내용: {sources}',
@@ -167,6 +178,7 @@ export const TEXT = {
     id: 'Menyimpan file baru di: {folder} (sekarang {n} orang dapat melihatnya). Isi yang boleh masuk: {sources}',
     ja: '新しいファイルの保存先：{folder}（今{n}人が見られます）。入れてよい内容：{sources}',
     es: 'Guarda archivos nuevos en: {folder} (ahora lo pueden ver {n} personas). Contenido que puede ir ahí: {sources}',
+    zh: '新文件保存到：{folder}（现在有{n}人能看到）。可能放到那里的内容：{sources}',
   } satisfies L5,
   saveLineBare: {
     ko: '새 파일 저장: {folder} (지금 {n}명이 볼 수 있어요).',
@@ -174,20 +186,21 @@ export const TEXT = {
     id: 'Menyimpan file baru di: {folder} (sekarang {n} orang dapat melihatnya).',
     ja: '新しいファイルの保存先：{folder}（今{n}人が見られます）。',
     es: 'Guarda archivos nuevos en: {folder} (ahora lo pueden ver {n} personas).',
+    zh: '新文件保存到：{folder}（现在有{n}人能看到）。',
   } satisfies L5,
   /** rooms a run may read (no save folder). Read only: a run never posts to a room (post_to_room refuses in a scheduled
    * run, chat/post-to-room.ts), so the line says nothing of sending; a send after reading one goes only to the person's
    * own connections the sendsLine pins (QA on dev 1565b39f1: "읽고 보내도 되는" promised a post to the room) */
   roomsLine: {
     ko: '읽을 수 있는 대화: {rooms}', en: 'Conversations it may read: {rooms}', id: 'Percakapan yang boleh dibaca: {rooms}',
-    ja: '読んでよいトーク：{rooms}', es: 'Conversaciones que puede leer: {rooms}',
+    ja: '読んでよいトーク：{rooms}', es: 'Conversaciones que puede leer: {rooms}', zh: '它可以读取的对话：{rooms}',
   } satisfies L5,
   /** the person's own connections and the recipients the card pins */
-  sendsLine: { ko: '보낼 수 있는 곳: {list}', en: 'Where it may send: {list}', id: 'Tempat yang boleh dikirimi: {list}', ja: '送信してよい先：{list}', es: 'Adónde puede enviar: {list}' } satisfies L5,
+  sendsLine: { ko: '보낼 수 있는 곳: {list}', en: 'Where it may send: {list}', id: 'Tempat yang boleh dikirimi: {list}', ja: '送信してよい先：{list}', es: 'Adónde puede enviar: {list}', zh: '它可以发送到：{list}' } satisfies L5,
   /** the person's own folder, as the app names it (web scheduled.sourceMineFiles; shared/folder-labels.ts OWN_FILES_LABEL) */
-  sourceMine: { ko: '내 파일', en: 'my files', id: 'file saya', ja: '自分のファイル', es: 'mis archivos' } satisfies L5,
-  sourceRoom: { ko: '#{name} 대화', en: '#{name} conversation', id: 'percakapan #{name}', ja: '#{name}のトーク', es: 'conversación #{name}' } satisfies L5,
-  sourceRoot: { ko: '팀 폴더 맨 위', en: 'the top of the team folder', id: 'bagian atas folder tim', ja: 'チームフォルダーの最上位', es: 'la raíz de la carpeta del equipo' } satisfies L5,
+  sourceMine: { ko: '내 파일', en: 'my files', id: 'file saya', ja: '自分のファイル', es: 'mis archivos', zh: '我的文件' } satisfies L5,
+  sourceRoom: { ko: '#{name} 대화', en: '#{name} conversation', id: 'percakapan #{name}', ja: '#{name}のトーク', es: 'conversación #{name}', zh: '#{name} 对话' } satisfies L5,
+  sourceRoot: { ko: '팀 폴더 맨 위', en: 'the top of the team folder', id: 'bagian atas folder tim', ja: 'チームフォルダーの最上位', es: 'la raíz de la carpeta del equipo', zh: '团队文件夹的最上层' } satisfies L5,
   /** "다시 확인" after the save permission lapsed (chat/schedule-review.ts) */
   recheckQuestion: {
     ko: '이 예약 작업의 저장 허용을 멈춰 뒀어요: {why}. 그동안 결과는 내 파일에 저장해요. 아래 폴더에 다시 새 파일을 저장해도 될지 골라 주세요.\n\n제목: {title}\n일정: {when}',
@@ -195,17 +208,18 @@ export const TEXT = {
     id: 'Penyimpanan untuk tugas terjadwal ini dijeda: {why}. Sementara itu hasilnya masuk ke File saya. Pilih apakah tugas ini boleh menyimpan file baru di folder di bawah lagi.\n\nJudul: {title}\nJadwal: {when}',
     ja: 'この定期タスクの保存の許可を一時停止しています：{why}。その間、結果は自分のファイルに保存されます。下のフォルダーに再び新しいファイルを保存してよいか選んでください。\n\nタイトル：{title}\n予定：{when}',
     es: 'El guardado de esta tarea programada está en pausa: {why}. Mientras tanto, sus resultados van a Mis archivos. Elija si puede volver a guardar archivos nuevos en la carpeta de abajo.\n\nTítulo: {title}\nHorario: {when}',
+    zh: '此定时任务的保存已暂停：{why}。在此期间，它的结果会放到“我的文件”。请选择是否允许它再次把新文件保存到下面的文件夹。\n\n标题：{title}\n时间：{when}',
   } satisfies L5,
-  lapse_folder: { ko: '저장 폴더가 옮겨졌거나, 이름이 바뀌었거나, 지워졌어요', en: 'the save folder was moved, renamed or deleted', id: 'folder simpan dipindahkan, diganti namanya, atau dihapus', ja: '保存先フォルダーが移動、名前変更、または削除されました', es: 'la carpeta de guardado se movió, se renombró o se eliminó' } satisfies L5,
-  lapse_rules: { ko: '저장 폴더의 권한 설정이 바뀌었어요', en: 'the save folder\'s permissions changed', id: 'izin folder simpan berubah', ja: '保存先フォルダーの権限が変わりました', es: 'cambiaron los permisos de la carpeta de guardado' } satisfies L5,
-  lapse_access: { ko: '저장 폴더에 쓸 권한이 없어졌어요', en: 'you can no longer write in the save folder', id: 'Anda tidak bisa lagi menulis di folder simpan', ja: '保存先フォルダーに書き込む権限がなくなりました', es: 'ya no puede escribir en la carpeta de guardado' } satisfies L5,
-  resave: { ko: '다시 허용', en: 'Allow again', id: 'Izinkan lagi', ja: 'もう一度許可する', es: 'Permitir de nuevo' } satisfies L5,
-  leaveLapsed: { ko: '그대로 두기', en: 'Leave it', id: 'Biarkan', ja: 'そのままにする', es: 'Dejarlo así' } satisfies L5,
-  once: { ko: '{date} {time}에 한 번', en: 'once on {date} at {time}', id: 'sekali pada {date} pukul {time}', ja: '{date} {time}に1回', es: 'una vez el {date} a las {time}' } satisfies L5,
-  daily: { ko: '매일 {time}', en: 'every day at {time}', id: 'setiap hari pukul {time}', ja: '毎日 {time}', es: 'todos los días a las {time}' } satisfies L5,
-  weekdays: { ko: '평일(월–금) {time}', en: 'every weekday (Mon–Fri) at {time}', id: 'setiap hari kerja (Sen–Jum) pukul {time}', ja: '平日（月〜金） {time}', es: 'cada día laborable (lun–vie) a las {time}' } satisfies L5,
-  weekly: { ko: '매주 {weekday} {time}', en: 'every {weekday} at {time}', id: 'setiap {weekday} pukul {time}', ja: '毎週{weekday} {time}', es: 'cada {weekday} a las {time}' } satisfies L5,
-  monthly: { ko: '매월 {day}일 {time}', en: 'every month on day {day} at {time}', id: 'setiap bulan tanggal {day} pukul {time}', ja: '毎月{day}日 {time}', es: 'cada mes el día {day} a las {time}' } satisfies L5,
+  lapse_folder: { ko: '저장 폴더가 옮겨졌거나, 이름이 바뀌었거나, 지워졌어요', en: 'the save folder was moved, renamed or deleted', id: 'folder simpan dipindahkan, diganti namanya, atau dihapus', ja: '保存先フォルダーが移動、名前変更、または削除されました', es: 'la carpeta de guardado se movió, se renombró o se eliminó', zh: '保存文件夹已被移动、重命名或删除' } satisfies L5,
+  lapse_rules: { ko: '저장 폴더의 권한 설정이 바뀌었어요', en: 'the save folder\'s permissions changed', id: 'izin folder simpan berubah', ja: '保存先フォルダーの権限が変わりました', es: 'cambiaron los permisos de la carpeta de guardado', zh: '保存文件夹的权限已更改' } satisfies L5,
+  lapse_access: { ko: '저장 폴더에 쓸 권한이 없어졌어요', en: 'you can no longer write in the save folder', id: 'Anda tidak bisa lagi menulis di folder simpan', ja: '保存先フォルダーに書き込む権限がなくなりました', es: 'ya no puede escribir en la carpeta de guardado', zh: '你已无法写入保存文件夹' } satisfies L5,
+  resave: { ko: '다시 허용', en: 'Allow again', id: 'Izinkan lagi', ja: 'もう一度許可する', es: 'Permitir de nuevo', zh: '再次允许' } satisfies L5,
+  leaveLapsed: { ko: '그대로 두기', en: 'Leave it', id: 'Biarkan', ja: 'そのままにする', es: 'Dejarlo así', zh: '暂不处理' } satisfies L5,
+  once: { ko: '{date} {time}에 한 번', en: 'once on {date} at {time}', id: 'sekali pada {date} pukul {time}', ja: '{date} {time}に1回', es: 'una vez el {date} a las {time}', zh: '{date} {time}（一次）' } satisfies L5,
+  daily: { ko: '매일 {time}', en: 'every day at {time}', id: 'setiap hari pukul {time}', ja: '毎日 {time}', es: 'todos los días a las {time}', zh: '每天 {time}' } satisfies L5,
+  weekdays: { ko: '평일(월–금) {time}', en: 'every weekday (Mon–Fri) at {time}', id: 'setiap hari kerja (Sen–Jum) pukul {time}', ja: '平日（月〜金） {time}', es: 'cada día laborable (lun–vie) a las {time}', zh: '每个工作日（周一至周五） {time}' } satisfies L5,
+  weekly: { ko: '매주 {weekday} {time}', en: 'every {weekday} at {time}', id: 'setiap {weekday} pukul {time}', ja: '毎週{weekday} {time}', es: 'cada {weekday} a las {time}', zh: '每{weekday} {time}' } satisfies L5,
+  monthly: { ko: '매월 {day}일 {time}', en: 'every month on day {day} at {time}', id: 'setiap bulan tanggal {day} pukul {time}', ja: '毎月{day}日 {time}', es: 'cada mes el día {day} a las {time}', zh: '每月{day}日 {time}' } satisfies L5,
 } as const
 
 export type CardMode = 'create' | 'review' | 'edit' | 'recheck'

@@ -87,17 +87,17 @@ export function transcribeConfig(dataDir: string, env: Record<string, string | u
 }
 
 export const LABELS = {
-  model: { ko: (mb: number) => `음성 인식 모델 내려받는 중 (${mb} MB, 처음 한 번만)`, en: (mb: number) => `Downloading the speech model (${mb} MB, first time only)`, id: (mb: number) => `Mengunduh model suara (${mb} MB, hanya sekali)`, ja: (mb: number) => `音声認識モデルをダウンロード中（${mb} MB、初回のみ）`, es: (mb: number) => `Descargando el modelo de voz (${mb} MB, solo la primera vez)` },
-  convert: { ko: '오디오 변환 중', en: 'Converting audio', id: 'Mengonversi audio', ja: "音声を変換中", es: "Convirtiendo audio" },
-  run: { ko: '받아쓰는 중', en: 'Transcribing', id: 'Mentranskripsi', ja: "文字起こし中", es: "Transcribiendo" },
+  model: { ko: (mb: number) => `음성 인식 모델 내려받는 중 (${mb} MB, 처음 한 번만)`, en: (mb: number) => `Downloading the speech model (${mb} MB, first time only)`, id: (mb: number) => `Mengunduh model suara (${mb} MB, hanya sekali)`, ja: (mb: number) => `音声認識モデルをダウンロード中（${mb} MB、初回のみ）`, es: (mb: number) => `Descargando el modelo de voz (${mb} MB, solo la primera vez)`, zh: (mb: number) => `正在下载语音识别模型（${mb} MB，仅首次需要）` },
+  convert: { ko: '오디오 변환 중', en: 'Converting audio', id: 'Mengonversi audio', ja: "音声を変換中", es: "Convirtiendo audio", zh: "正在转换音频" },
+  run: { ko: '받아쓰는 중', en: 'Transcribing', id: 'Mentranskripsi', ja: "文字起こし中", es: "Transcribiendo", zh: "正在转写" },
 }
 
-export const fail = (ko: string, en: string, id: string, ja: string, es: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' | 'forbidden' = 'unavailable', reason?: string) => new JobFailure(code, { ko, en, id, ja, es }, reason)
+export const fail = (ko: string, en: string, id: string, ja: string, es: string, zh: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' | 'forbidden' = 'unavailable', reason?: string) => new JobFailure(code, { ko, en, id, ja, es, zh }, reason)
 
 export const MISSING_WHISPER = () => fail(
   '받아쓰기 도구(whisper.cpp)가 서버에 없어요. 서버 맥에서 `brew install whisper-cpp`를 실행한 뒤 다시 해 주세요.',
   'The transcription tool (whisper.cpp) is not installed on the server. Run `brew install whisper-cpp` on the server Mac, then try again.',
-  'Alat transkripsi (whisper.cpp) belum terpasang di server. Jalankan `brew install whisper-cpp` di Mac server, lalu coba lagi.', "文字起こしツール（whisper.cpp）がサーバーにありません。サーバーのMacで`brew install whisper-cpp`を実行して再試行してください。", "La herramienta de transcripción (whisper.cpp) no está instalada en el servidor. Ejecute `brew install whisper-cpp` en la Mac del servidor y vuelva a intentarlo.")
+  'Alat transkripsi (whisper.cpp) belum terpasang di server. Jalankan `brew install whisper-cpp` di Mac server, lalu coba lagi.', "文字起こしツール（whisper.cpp）がサーバーにありません。サーバーのMacで`brew install whisper-cpp`を実行して再試行してください。", "La herramienta de transcripción (whisper.cpp) no está instalada en el servidor. Ejecute `brew install whisper-cpp` en la Mac del servidor y vuelva a intentarlo.", "服务器上没有安装转写工具（whisper.cpp）。请在服务器 Mac 上运行 `brew install whisper-cpp`，然后重试。")
 
 const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHISPER_MODELS[cfg.model]
 
@@ -151,16 +151,16 @@ async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 
   try { return await downloadTo(cfg, spec, file, part, label, dl, h) } finally { dl.done() }
 }
 
-const STALLED = () => fail('음성 인식 모델 내려받기가 멈췄거나 너무 느려서 중단했어요(인터넷 연결 확인). 다시 시도해 주세요.', 'The speech model download stopped or was too slow, so it was cancelled (check the internet connection). Please try again.', 'Unduhan model suara berhenti atau terlalu lambat sehingga dibatalkan (periksa koneksi internet). Coba lagi.', "音声認識モデルのダウンロードが止まったか遅すぎたため中止しました（インターネット接続を確認してください）。再試行してください。", "La descarga del modelo de voz se detuvo o era demasiado lenta y se canceló (revise la conexión a internet). Vuelva a intentarlo.", 'unavailable', 'stalled')
+const STALLED = () => fail('음성 인식 모델 내려받기가 멈췄거나 너무 느려서 중단했어요(인터넷 연결 확인). 다시 시도해 주세요.', 'The speech model download stopped or was too slow, so it was cancelled (check the internet connection). Please try again.', 'Unduhan model suara berhenti atau terlalu lambat sehingga dibatalkan (periksa koneksi internet). Coba lagi.', "音声認識モデルのダウンロードが止まったか遅すぎたため中止しました（インターネット接続を確認してください）。再試行してください。", "La descarga del modelo de voz se detuvo o era demasiado lenta y se canceló (revise la conexión a internet). Vuelva a intentarlo.", "语音识别模型下载停住了或太慢，已取消（请检查网络连接）。请重试。", 'unavailable', 'stalled')
 
 async function downloadTo(cfg: TranscribeConfig, spec: ModelSpec, file: string, part: string, label: string, dl: DownloadDeadline, h: Pick<JobHandle, 'progress' | 'signal'> | undefined): Promise<string> {
   let res: Response
   try { res = await fetch(cfg.baseUrl + spec.file, { signal: dl.signal, redirect: 'follow' }) } catch (e) {
     if (h?.signal.aborted) throw e
     if (dl.stalled()) throw STALLED()
-    throw fail('음성 인식 모델을 내려받지 못했어요(인터넷 연결 확인).', 'Could not download the speech model (check the internet connection).', 'Gagal mengunduh model suara (periksa koneksi internet).', "音声認識モデルをダウンロードできませんでした。インターネット接続を確認してください。", "No se pudo descargar el modelo de voz. Revise la conexión a internet.")
+    throw fail('음성 인식 모델을 내려받지 못했어요(인터넷 연결 확인).', 'Could not download the speech model (check the internet connection).', 'Gagal mengunduh model suara (periksa koneksi internet).', "音声認識モデルをダウンロードできませんでした。インターネット接続を確認してください。", "No se pudo descargar el modelo de voz. Revise la conexión a internet.", "无法下载语音识别模型（请检查网络连接）。")
   }
-  if (!res.ok || !res.body) throw fail(`음성 인식 모델을 내려받지 못했어요(HTTP ${res.status}).`, `Could not download the speech model (HTTP ${res.status}).`, `Gagal mengunduh model suara (HTTP ${res.status}).`, `音声認識モデルをダウンロードできませんでした（HTTP ${res.status}）。`, `No se pudo descargar el modelo de voz (HTTP ${res.status}).`)
+  if (!res.ok || !res.body) throw fail(`음성 인식 모델을 내려받지 못했어요(HTTP ${res.status}).`, `Could not download the speech model (HTTP ${res.status}).`, `Gagal mengunduh model suara (HTTP ${res.status}).`, `音声認識モデルをダウンロードできませんでした（HTTP ${res.status}）。`, `No se pudo descargar el modelo de voz (HTTP ${res.status}).`, `无法下载语音识别模型（HTTP ${res.status}）。`)
   const hash = crypto.createHash('sha256')
   const fh = await fs.promises.open(part, 'w', 0o600)
   let got = 0
@@ -180,11 +180,11 @@ async function downloadTo(cfg: TranscribeConfig, spec: ModelSpec, file: string, 
     fs.rmSync(part, { force: true })
     if (h?.signal.aborted) throw e
     if (dl.stalled()) throw STALLED()
-    throw fail('음성 인식 모델을 내려받는 중 연결이 끊겼어요. 다시 시도해 주세요.', 'The speech model download was interrupted. Please try again.', 'Unduhan model suara terputus. Coba lagi.', "音声認識モデルのダウンロードが中断されました。再試行してください。", "La descarga del modelo de voz se interrumpió. Vuelva a intentarlo.")
+    throw fail('음성 인식 모델을 내려받는 중 연결이 끊겼어요. 다시 시도해 주세요.', 'The speech model download was interrupted. Please try again.', 'Unduhan model suara terputus. Coba lagi.', "音声認識モデルのダウンロードが中断されました。再試行してください。", "La descarga del modelo de voz se interrumpió. Vuelva a intentarlo.", "语音识别模型下载中断了。请重试。")
   } finally { try { reader.releaseLock() } catch {} await fh.close() }
   if (got !== spec.size || hash.digest('hex') !== spec.sha256) {
     fs.rmSync(part, { force: true })
-    throw fail('내려받은 음성 인식 모델이 손상됐어요. 다시 시도해 주세요.', 'The downloaded speech model is damaged. Please try again.', 'Model suara yang diunduh rusak. Coba lagi.', "ダウンロードした音声認識モデルが破損しています。再試行してください。", "El modelo de voz descargado está dañado. Vuelva a intentarlo.", 'internal')
+    throw fail('내려받은 음성 인식 모델이 손상됐어요. 다시 시도해 주세요.', 'The downloaded speech model is damaged. Please try again.', 'Model suara yang diunduh rusak. Coba lagi.', "ダウンロードした音声認識モデルが破損しています。再試行してください。", "El modelo de voz descargado está dañado. Vuelva a intentarlo.", "下载的语音识别模型已损坏。请重试。", 'internal')
   }
   fs.renameSync(part, file)
   return file
@@ -198,7 +198,7 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
   if (!cfg.ffmpegBin && !NATIVE.has(x)) {
     throw fail(`이 형식(${x || '알 수 없음'})을 읽으려면 서버에 ffmpeg가 필요해요(\`brew install ffmpeg\`). wav·mp3·flac·ogg는 바로 돼요.`,
       `Reading this format (${x || 'unknown'}) needs ffmpeg on the server (\`brew install ffmpeg\`). wav, mp3, flac and ogg work without it.`,
-      `Format ini (${x || 'tidak dikenal'}) memerlukan ffmpeg di server (\`brew install ffmpeg\`).`, `この形式（${x || "不明"}）を読み取るにはサーバーにffmpegが必要です（\`brew install ffmpeg\`）。wav、mp3、flac、oggはそのまま使えます。`, `Leer este formato (${x || "desconocido"}) requiere ffmpeg en el servidor (\`brew install ffmpeg\`). wav, mp3, flac y ogg funcionan sin él.`)
+      `Format ini (${x || 'tidak dikenal'}) memerlukan ffmpeg di server (\`brew install ffmpeg\`).`, `この形式（${x || "不明"}）を読み取るにはサーバーにffmpegが必要です（\`brew install ffmpeg\`）。wav、mp3、flac、oggはそのまま使えます。`, `Leer este formato (${x || "desconocido"}) requiere ffmpeg en el servidor (\`brew install ffmpeg\`). wav, mp3, flac y ogg funcionan sin él.`, `读取这种格式（${x || "未知"}）需要服务器上有 ffmpeg（\`brew install ffmpeg\`）。wav、mp3、flac 和 ogg 不需要它也能用。`)
   }
   const model = await ensureModel(cfg, h, loc)
   // voice input goes before a video read's sound (jobs/whisper-turns.ts): a piece running now stops, none starts
@@ -252,7 +252,7 @@ export async function whisperFile(cfg: TranscribeConfig, model: string, work: st
   const out = r.code === 0 ? readOutput(work, 'out.json', WHISPER_JSON_MAX) : null
   if (!out?.ok) {
     const why = r.killed ?? (r.code !== 0 ? 'exit ' + r.code : 'no output')
-    throw fail(`받아쓰기에 실패했어요(${why}).`, `Transcription failed (${why}).`, `Transkripsi gagal (${why}).`, `文字起こしに失敗しました（${why}）。`, `La transcripción falló (${why}).`, 'internal', why)
+    throw fail(`받아쓰기에 실패했어요(${why}).`, `Transcription failed (${why}).`, `Transkripsi gagal (${why}).`, `文字起こしに失敗しました（${why}）。`, `La transcripción falló (${why}).`, `转写失败（${why}）。`, 'internal', why)
   }
   return parseWhisperJson(out.bytes.toString('utf8'))
 }
@@ -270,7 +270,7 @@ export async function convertToWav(ffmpeg: string, work: string, audio: string, 
 
 /** whisper's JSON of one recording (a few MB for an hour) */
 const WHISPER_JSON_MAX = 32 * 1024 ** 2
-export const UNREADABLE = () => fail('오디오 파일을 읽을 수 없어요.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', "音声ファイルを読み取れませんでした。", "No se pudo leer el archivo de audio.", 'bad_request')
+export const UNREADABLE = () => fail('오디오 파일을 읽을 수 없어요.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', "音声ファイルを読み取れませんでした。", "No se pudo leer el archivo de audio.", "无法读取音频文件。", 'bad_request')
 
 /** whisper-cli -oj output -> TranscribeResult */
 export function parseWhisperJson(s: string): TranscribeResult {

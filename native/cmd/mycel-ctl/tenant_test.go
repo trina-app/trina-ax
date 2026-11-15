@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -288,73 +289,11 @@ func TestTenantHostedSpeechKeySet(t *testing.T) {
 	}
 }
 
-func TestTenantHostedChatKeySet(t *testing.T) {
-	tb := newTestBase(t, "0.3.0")
-	f := &fakeTenant{adminOut: map[string]string{"hosted-chat-key": `{"ok":true,"set":true,"usedUsd":1.25}`}}
-	f.install(t)
-	key := "sk-or-v1-" + strings.Repeat("0a", 32)
-	grant := `{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`
-	code, out, errs := tb.tctl(grant, "hosted-chat-key-set", "--json")
-	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-chat-key" {
-		t.Fatalf("%d %q %s %v", code, out, errs, f.adminCalls)
-	}
-	// the key goes on admin.js's stdin only: never in its argv, the answer or stderr
-	if jsonOf(t, f.adminStdin[0])["key"] != key || strings.Contains(out, key) || strings.Contains(errs, key) {
-		t.Fatalf("key handling: stdin %q out %q err %q", f.adminStdin[0], out, errs)
-	}
-	if m := jsonOf(t, f.adminStdin[0]); m["endsAt"] != "2026-11-18T15:00:00Z" || m["enabled"] != true || len(m) != 4 {
-		t.Fatalf("stdin passed on: %q", f.adminStdin[0])
-	}
-	if m := jsonOf(t, out); m["ok"] != true || m["set"] != true || m["usedUsd"] != 1.25 || f.restarts != 0 {
-		t.Fatalf("answer %q, %d restarts", out, f.restarts)
-	}
-	// paused, then taken away
-	if code, _, _ := tb.tctl(`{"key":"`+key+`","capUsd":12.5,"endsAt":"2026-11-19T00:00:00+09:00","enabled":false}`, "hosted-chat-key-set", "--json"); code != 0 {
-		t.Fatalf("paused: %d", code)
-	}
-	f.adminOut["hosted-chat-key"] = `{"ok":true,"set":false,"usedUsd":1.25}`
-	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-chat-key-set", "--json"); code != 0 || jsonOf(t, out)["set"] != false || f.adminStdin[2] != `{"key":null}` {
-		t.Fatalf("null: %d %q %v", code, out, f.adminStdin)
-	}
-	// refused before admin.js runs
-	f.adminCalls = nil
-	for _, bad := range []string{``, `{}`, `{"key":null,"capUsd":1}`, `[1]`, `{"key":1}`,
-		// a direct Anthropic key or a subscription token: the trial never runs in Claude Code
-		`{"key":"sk-ant-api03-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"sk-ant-oat01-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"sk-or-short","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z"}`,
-		`{"key":"` + key + `","capUsd":-1,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"` + key + `","capUsd":"10","endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"` + key + `","capUsd":10,"endsAt":"next week","enabled":true}`,
-		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":"yes"}`,
-		`{"key":"` + key + `","capUsd":null,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"` + key + `","capUsd":10,"endsAt":null,"enabled":true}`,
-		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":null}`,
-		`{"key":"` + key + `; rm -rf /","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
-		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true,"x":1}`,
-	} {
-		if code, out, errs := tb.tctl(bad, "hosted-chat-key-set", "--json"); code == 0 || out != "" || strings.Contains(errs, key) {
-			t.Fatalf("accepted %q: %d %q %s", bad, code, out, errs)
-		}
-	}
-	if len(f.adminCalls) != 0 {
-		t.Fatalf("admin.js ran for refused stdin: %v", f.adminCalls)
-	}
-	// an admin.js answer without set or usedUsd is not passed on
-	for _, ans := range []string{`{"ok":true,"set":true}`, `{"ok":true,"usedUsd":0}`, `{"ok":true,"set":true,"usedUsd":-1}`} {
-		f.adminOut["hosted-chat-key"] = ans
-		if code, out, _ := tb.tctl(`{"key":null}`, "hosted-chat-key-set", "--json"); code == 0 || out != "" {
-			t.Fatalf("answer %s got through: %d %q", ans, code, out)
-		}
-	}
-}
-
 func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	systemdRunDir = t.TempDir()
 	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
-	f := &fakeTenant{turns: []int{2, 1, 0}}
+	f := &fakeTenant{turns: []int{2, 1, 0}, adminOut: map[string]string{}}
 	f.install(t)
 	if code, out, errs := tb.tctl("", "idle-wait", "--json", "--max", "600"); code != 0 || strings.TrimSpace(out) != `{"idle":true,"running":0}` {
 		t.Fatalf("%d %q %s", code, out, errs)
@@ -363,6 +302,26 @@ func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--max", "0"); code != 0 || strings.TrimSpace(out) != `{"idle":false,"running":3}` {
 		t.Fatalf("%d %q", code, out)
 	}
+	// --activity (F2 sleep): admin.js cloud-idle facts; sleepable only when idle here too
+	f.turns = []int{0}
+	f.adminOut["cloud-idle"] = `{"fresh":true,"connections":0,"idleForSec":1900,"nextScheduleInSec":null,"queued":0,"sleepable":true}`
+	if code, out, errs := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || strings.TrimSpace(out) != `{"connections":0,"idle":true,"idleForSec":1900,"nextScheduleInSec":null,"running":0,"sleepable":true}` {
+		t.Fatalf("%d %q %s", code, out, errs)
+	}
+	f.turns = []int{1}
+	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || !strings.Contains(out, `"sleepable":false`) || !strings.Contains(out, `"running":1`) {
+		t.Fatalf("a running answer must not be sleepable: %d %q", code, out)
+	}
+	f.turns = []int{0}
+	f.adminOut["cloud-idle"] = `{"fresh":false,"connections":null,"idleForSec":null,"nextScheduleInSec":null,"queued":null,"sleepable":false}`
+	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || strings.TrimSpace(out) != `{"connections":null,"idle":true,"idleForSec":null,"nextScheduleInSec":null,"running":0,"sleepable":false}` {
+		t.Fatalf("stale status must not be sleepable: %d %q", code, out)
+	}
+	f.adminErr = errors.New("admin.js failed")
+	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || !strings.Contains(out, `"sleepable":false`) {
+		t.Fatalf("an admin.js failure must not be sleepable: %d %q", code, out)
+	}
+	f.adminErr = nil
 	f.turns = []int{0}
 	if code, out, errs := tb.tctl("", "prepare-stop", "--json", "--grace", "60"); code != 0 || strings.TrimSpace(out) != `{"stopped":true}` {
 		t.Fatalf("%d %q %s", code, out, errs)
@@ -476,6 +435,12 @@ func TestTenantArgvVectors(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{adminOut: map[string]string{"relay-key": `{"publicKey":"PK","sig":"S"}`, "reset-link": `{"url":"https://a.b/c","expiresAt":"x"}`, "cloud-backup": `{"localId":"20261022T020000Z-daily"}`, "cloud-status": `{}`}}
 	f.install(t)
+	// data-grow runs findmnt and resize2fs
+	oldF, oldR := findmntBin, resize2fsBin
+	t.Cleanup(func() { findmntBin, resize2fsBin = oldF, oldR })
+	findmntBin, resize2fsBin = filepath.Join(tb.fakeBin, "findmnt"), filepath.Join(tb.fakeBin, "resize2fs")
+	must(t, os.WriteFile(findmntBin, []byte("#!/bin/sh\necho /dev/nvme1n1\n"), 0o755))
+	must(t, os.WriteFile(resize2fsBin, []byte("#!/bin/sh\nexit 0\n"), 0o755))
 	b, err := os.ReadFile("../../../shared/src/cloud-protocol/vectors/vectors.json")
 	must(t, err)
 	var v struct {

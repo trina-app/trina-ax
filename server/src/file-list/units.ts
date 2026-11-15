@@ -30,7 +30,7 @@ const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 
 export class Units {
   private rules: Set<string>
-  /** `ruleFolders`: every folder path with at least one rule row (RuleSet.ruleFolders(); '' = the team root). Rows
+  /** `ruleFolders`: every folder path with at least one rule row (RuleSet.boundaryFolders(); '' = the team root). Rows
    * under users/ never decide anything (decide() answers a personal path before looking at rules) and are dropped. */
   constructor(ruleFolders: Iterable<string>) {
     this.rules = new Set([...ruleFolders].filter((f) => f !== 'users' && !f.startsWith('users/')))

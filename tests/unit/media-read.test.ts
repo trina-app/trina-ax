@@ -675,7 +675,7 @@ describe('long OpenRouter pieces: whisper names one language for a whole piece f
 })
 
 describe('slow local transcripts: frames first, measured pieces, small servers, voice input first, silence', () => {
-  const localFails = (o: { timeoutMs: number }, reason: string) => { clockMs += o.timeoutMs; throw new JobFailure('internal', { ko: `받아쓰기에 실패했어요(${reason}).`, en: `Transcription failed (${reason}).`, id: `Transkripsi gagal (${reason}).`, ja: `文字起こしに失敗しました（${reason}）。`, es: `La transcripción falló (${reason}).` }, reason) }
+  const localFails = (o: { timeoutMs: number }, reason: string) => { clockMs += o.timeoutMs; throw new JobFailure('internal', { ko: `받아쓰기에 실패했어요(${reason}).`, en: `Transcription failed (${reason}).`, id: `Transkripsi gagal (${reason}).`, ja: `文字起こしに失敗しました（${reason}）。`, es: `La transcripción falló (${reason}).`, zh: `转写失败（${reason}）。` }, reason) }
   test('frames first (H2): whisper.cpp that runs into the read\'s time still leaves every frame, and the retry of frames skips the sound', async () => {
     A.ctx.db.query(SPEED).run()
     probe = video(124)
@@ -1152,7 +1152,7 @@ describe('review of the small-server fixes', () => {
     shortFile(1)
     spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
       local.calls++
-      if (o.language) throw new JobFailure('internal', { ko: '받아쓰기에 실패했어요(exit 1).', en: 'Transcription failed (exit 1).', id: 'x', ja: 'x', es: 'x' }, 'exit 1')
+      if (o.language) throw new JobFailure('internal', { ko: '받아쓰기에 실패했어요(exit 1).', en: 'Transcription failed (exit 1).', id: 'x', ja: 'x', es: 'x', zh: 'x' }, 'exit 1')
       return { text: '', language: 'la', languageP: 0.2, durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'the first answer' }] }
     }))
     const rel = put('retry-fails.m4a')

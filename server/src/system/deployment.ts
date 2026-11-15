@@ -19,6 +19,23 @@ export function isHosted(cfg: AppConfig | Record<string, unknown>): boolean {
   return deploymentOf(cfg) === 'hosted'
 }
 
+/** The team's public host name, for the addresses Google sends people back to (google-drive/admin-setup.ts
+ * driveRedirectUri, google-apps/config.ts redirectUriOf): server.json `tunnel.host` (a self-installed server's public
+ * address), else on a hosted server the host of its first https `publicOrigins` entry. The hosting service's enrollment
+ * writes the team address there, never `tunnel` (shared/src/cloud-protocol/enroll.ts EnrollServerConfig), and a team
+ * rename changes it the same way. null: no public https address. */
+export function publicHostOf(cfg: Pick<AppConfig, 'publicOrigins'> & Partial<Pick<AppConfig, 'tunnel' | 'deployment'>>): string | null {
+  if (cfg.tunnel?.host) return cfg.tunnel.host
+  if (!isHosted(cfg as Record<string, unknown>)) return null
+  for (const o of cfg.publicOrigins ?? []) {
+    try {
+      const u = new URL(o)
+      if (u.protocol === 'https:' && !u.username && !u.password && (u.pathname === '/' || u.pathname === '')) return u.host
+    } catch {}
+  }
+  return null
+}
+
 /** The way this server runs: the hosted service, a customer's own server (Linux or the Mac role-account install),
  * office mode (one Mac in a small office), or development. */
 export type RunKind = 'hosted' | 'selfhost' | 'office' | 'dev'

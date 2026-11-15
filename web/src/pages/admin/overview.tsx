@@ -4,10 +4,10 @@
 // them at once while they are read again (no jump on a phone's Back), and the owner's server checks are not asked again
 // within a minute (they run every check on the server).
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { CredentialState, EngineStatus, Locale, UpdateStatus } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API } from '../../lib/api'
+import { forgetAdminReads, loadAdminEngines, loadAdminInvites, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 import { formatShortDateTime, intlTag, localDay, localDayRange } from '../../lib/format'
 import { turnWhen } from '../../lib/updateTurn'
 import { useRealNavigationType } from '../../lib/realPath'
@@ -16,7 +16,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { Button } from '../../components/ui'
 import { useAction } from './common'
 import { useUpdateInstall } from './jobs'
-import { releasePaused } from '../../lib/updateOutcome'
+import { releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
 import { homeCheck, technicalEngineState } from './plain'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only): Home's
@@ -52,6 +52,8 @@ function turnLine(t: (k: MessageKey, v?: Record<string, string | number>) => str
 function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, locale: Locale, u: UpdateStatus, version: string) {
   // the publisher paused this release (a bad one; server/src/system/rollout.ts hold): it does not install by itself
   if (releasePaused(u)) return t('adminHome.update.paused', { version })
+  // it cannot open this server's data yet (server/src/system/update.ts releaseCanRead): it waits for a newer release
+  if (releaseCannotRead(u)) return t('adminHome.update.cannotRead', { version })
   if (u.needsRoot) {
     if (u.hold === 'root_failed') return t('adminHome.update.rootFailed', { version })
     // the update timer keeps the staged roll-out too (turnAt): on this server's turn, or never by itself (null: the
@@ -80,43 +82,16 @@ function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => s
 export type State<T> = { data: T | null; error: string | null }
 const settled = (...s: State<unknown>[]) => s.every((x) => x.data !== null || x.error !== null)
 
-/** The answers read this session, by what was asked (the session's id is part of the key: another sign-in starts empty). */
-const memo = new Map<string, { at: number; data: unknown }>()
-
 /** Tests only. */
-export const clearOverviewMemo = () => memo.clear()
+export const clearOverviewMemo = () => forgetAdminReads()
 
 /** Admin › System read the server checks itself: the kept ones are old now (the list's badge must not lag behind). */
-export const forgetKeptChecks = () => {
-  for (const k of [...memo.keys()]) if (k.includes(':diagnostics:')) memo.delete(k)
-}
+export const forgetKeptChecks = () => forgetAdminReads((k) => k.startsWith('overview:diagnostics:'))
 
-/** useLoad (common.tsx) that starts from the last answer this session and reads again, unless that answer is younger
- * than `fresh` ms. */
-function useKeptLoad<T>(key: string, fn: () => Promise<T>, fresh = 0) {
-  const t = useT()
-  const locale = useLocale()
-  const [data, setData] = useState<T | null>(() => (memo.get(key)?.data as T | undefined) ?? null)
-  const [error, setError] = useState<string | null>(null)
-  const reload = useCallback(async () => {
-    try {
-      const d = await fn()
-      memo.set(key, { at: Date.now(), data: d })
-      setData(d)
-      setError(null)
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  useEffect(() => {
-    const kept = memo.get(key)
-    if (kept) setData(kept.data as T)
-    if (kept && Date.now() - kept.at < fresh) return
-    void reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reload])
-  return { data, error, reload }
+/** A kept admin read (store/adminPeople.ts): starts from the last answer and reads again when it is older than
+ * `fresh` ms (default: a minute) or a change was made since. */
+function useKeptLoad<T>(key: string, fn: () => Promise<T>, fresh?: number) {
+  return useAdminRead<T>(key, fn, fresh === undefined ? {} : { maxAge: fresh })
 }
 
 export interface AttentionItem { key: string; text: string; to: string; actions?: ReactNode; job?: string | null }
@@ -136,11 +111,13 @@ export function useAdminOverview() {
   const locale = useLocale()
   const me = useMeStrict()
   const owner = isOwner(me)
-  const k = (what: string) => `${me.session.id}:${what}`
+  // shared with the other admin screens where the read is the same (users:noAi with Members, engines, invites); the
+  // store is emptied at sign-out, so no session in the key
+  const k = (what: string) => `overview:${what}`
   // "No AI": the people who cannot use any AI connection now (the same list as Admin › Members)
-  const users = useKeptLoad(k('users'), () => api.call(API.listUsers, { query: { noAi: '1' } }))
-  const invites = useKeptLoad(k('invites'), async () => (await api.call(API.listInvites)).items)
-  const engines = useKeptLoad(k('engines'), () => api.call(API.engines))
+  const users = useAdminUsersNoAi()
+  const invites = useKeptLoad('invites', loadAdminInvites)
+  const engines = useKeptLoad('engines', loadAdminEngines)
   const credentials = useKeptLoad(k('credentials'), async () => (await api.call(API.listCredentials)).items.filter((c) => c.scope === 'team'))
   const services = useKeptLoad(k('services'), async () => (await api.call(API.listTeamIntegrations)).items)
   const plugins = useKeptLoad(k('plugins'), async () => (await api.call(API.listPlugins)).installed)
@@ -193,10 +170,11 @@ export function useAdminOverview() {
   const upd = update.data?.u
   const newVersion = upd && !upd.managed && office.data && !office.data.v ? upd.available?.version : undefined
   // "Install now" is the same install as Admin > System's (jobs.tsx); not when the release needs root (the timer does it)
-  const install = useUpdateInstall({ version: newVersion, onDone: () => void update.reload() })
+  const install = useUpdateInstall({ version: newVersion, running: upd?.running, onDone: () => void update.reload() })
   // by hand it works when automatic updates are off or will not install it (a window that never opens, not this server's turn, on hold)
-  // a paused release (the publisher holds it) offers no install button: the server says no to it
-  const canInstall = !!newVersion && !upd?.needsRoot && !releasePaused(upd) && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
+  // a paused release (the publisher holds it), or one that cannot open this server's data, offers no install button:
+  // the server says no to it
+  const canInstall = !!newVersion && !upd?.needsRoot && !releasePaused(upd) && !releaseCannotRead(upd) && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
 
   const attention: AttentionItem[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/providers' })),

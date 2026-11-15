@@ -7,36 +7,49 @@ type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
-    id: 'Tugas terjadwal selesai.', ja: '定期タスクが完了しました。', es: 'Se completó una tarea programada.',
+    id: 'Tugas terjadwal selesai.', ja: '定期タスクが完了しました。', es: 'Se completó una tarea programada.', zh: '定时任务已完成。',
   },
   'schedule.failure': {
     ko: '예약 작업에 확인할 일이 있어요. 앱에서 확인해 주세요.',
     en: 'A scheduled task needs your attention.',
-    id: 'Tugas terjadwal perlu perhatian Anda.', ja: '定期タスクの確認が必要です。', es: 'Una tarea programada requiere su atención.',
+    id: 'Tugas terjadwal perlu perhatian Anda.', ja: '定期タスクの確認が必要です。', es: 'Una tarea programada requiere su atención.', zh: '有一个定时任务需要你查看。',
   },
   'connection.reconnect': {
     ko: '연결에 다시 로그인이 필요해요.',
     en: 'A connection needs you to sign in again.',
-    id: 'Koneksi perlu login ulang.', ja: '接続のために再ログインが必要です。', es: 'Una conexión requiere que vuelva a iniciar sesión.',
+    id: 'Koneksi perlu login ulang.', ja: '接続のために再ログインが必要です。', es: 'Una conexión requiere que vuelva a iniciar sesión.', zh: '有一个连接需要你重新登录。',
   },
   // an answer in my own AI chat needs me (finished, failed or waits for me); older team servers never send it
   'chat.answer_done': {
     ko: '트리나가 대화에 답했어요.',
     en: 'Trina replied in your chat.',
-    id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.',
+    id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.', zh: 'Trina在你的对话中回复了。',
+  },
+  // someone shared a chat with the person by name; older team servers never send it. An iPhone app with the notification
+  // extension asks its own team for who (never the chat's title) and shows that instead (apns.ts mutableCode)
+  'chat.shared': {
+    ko: '누군가 채팅을 공유했어요.',
+    en: 'Someone shared a chat with you.',
+    id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
+  },
+  // an app in a room the person manages paused for the day; older team servers never send it
+  'room_app.paused': {
+    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a room was paused for today.',
+    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
   },
 }
 
 export const MESSAGE_TEXT: ByLocale = {
-  ko: '새 메시지가 있어요', en: 'You have a new message', id: 'Ada pesan baru', ja: '新しいメッセージがあります', es: 'Tienes un mensaje nuevo',
+  ko: '새 메시지가 있어요', en: 'You have a new message', id: 'Ada pesan baru', ja: '新しいメッセージがあります', es: 'Tienes un mensaje nuevo', zh: '你有一条新消息',
 }
 
 export const OTHER_TEXT: ByLocale = {
-  ko: '새 알림이 있어요', en: 'You have a new notification', id: 'Ada notifikasi baru', ja: '新しいお知らせがあります', es: 'Tienes una notificación nueva',
+  ko: '새 알림이 있어요', en: 'You have a new notification', id: 'Ada notifikasi baru', ja: '新しいお知らせがあります', es: 'Tienes una notificación nueva', zh: '你有一条新通知',
 }
 
 export function alertBody(code: string, locale: PushLocale): string {

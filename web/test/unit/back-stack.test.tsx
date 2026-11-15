@@ -19,7 +19,7 @@ import { rowValue } from '../../src/pages/admin/PhoneRoot'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 
 const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')
-const historyAt = (idx: number | null) => Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: { state: idx === null ? null : { usr: null, key: 'k', idx } } })
+const historyAt = (idx: number | null, key?: string) => Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: { state: idx === null ? null : { usr: null, ...(key === undefined ? {} : { key }), idx } } })
 
 beforeAll(() => installDom())
 afterAll(() => {
@@ -230,6 +230,19 @@ describe('the hook in the app', () => {
       await m.until(() => seen.length > 0 && last().type === 'PUSH' && (last().state as Record<string, unknown> | null)?.[BELOW] === '/admin', 'the page again, over the list')
       expect(last().path).toBe('/admin/members?member=bob#x')
       expect(m.get('label').textContent).toBe('Admin')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('Back arrived before the effect ran (the browser already shows another entry): no list is put under the page', async () => {
+    seen = []
+    historyAt(2, 'another-entry')
+    const m = await mount(app(['/settings/notifications']))
+    try {
+      await press(m.get('go'))
+      await m.settle(30)
+      expect(seen.filter((s) => s.path.startsWith('/admin')).every((s) => s.type === 'PUSH' && !s.state)).toBe(true)
     } finally {
       await m.unmount()
     }

@@ -16,8 +16,11 @@
 ;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the few login files
 ;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the login keychain
 ;; (Security framework) and, with PROXY_PORT=0 (dev), direct HTTPS to the vendor. Office mode passes PROXY_PORT with
-;; LOCAL_LOGIN=1: the engine's only network is then the local proxy, whose CONNECT allow-list names the vendor hosts
-;; (security round 4b, server/src/proxy/connect.ts); no :443 anywhere and no DNS.
+;; LOCAL_LOGIN=1: the engine's only network is then the local proxy (security round 4b); no :443 anywhere and no DNS.
+;; Its model requests go to the proxy's HTTP path, which checks every body like managed mode, and its login refresh
+;; tunnel ends at the proxy's refresh terminator, which passes the refresh only (TC-359, server/src/proxy/
+;; refresh-terminator.ts). The login stays readable below: Claude Code signs its requests with it and refreshes it
+;; (rotating the refresh token in the keychain); the proxy decides where it can be used.
 ;; SBPL applies the LAST matching rule, so the broad denies come first and the narrow allows after them.
 (version 1)
 (deny default)
@@ -106,7 +109,8 @@
 ;; --- network -----------------------------------------------------------------------------------------------------
 (allow network-outbound (literal (param "TOOLS_SOCK")))
 ;; PROXY_PORT=0: no model proxy (dev / local login talks to the vendor directly, see below). Office mode with the Mac
-;; user's login sets it too: Claude Code then reaches the vendor through the proxy's CONNECT tunnel (HTTPS_PROXY).
+;; user's login sets it too: Claude Code's model requests then go to the proxy's checked HTTP path and its login
+;; refresh through the proxy's CONNECT tunnel, which ends at the proxy's refresh terminator (TC-359).
 (if (not (equal? (param "PROXY_PORT") "0"))
   (allow network-outbound (remote tcp (string-append "localhost:" (param "PROXY_PORT")))))
 
@@ -193,8 +197,9 @@
     (allow system-socket)
     ;; direct network only without the proxy (dev). With PROXY_PORT (office) nothing here: no :443 to any address (the
     ;; internet, the office LAN's chart server or NAS), no DNS (udp 53, mDNSResponder: names are a channel out too) and
-    ;; no trustd / ocspd (they fetch certificate URLs on the caller's behalf). The engine's TLS runs end to end through
-    ;; the proxy's CONNECT tunnel to the allowed vendor hosts only (security round 4b).
+    ;; no trustd / ocspd (they fetch certificate URLs on the caller's behalf). Model requests go to the proxy in plain
+    ;; HTTP and are checked there; the login refresh's TLS ends at the proxy's refresh terminator (security round 4b,
+    ;; TC-359).
     (if (equal? (param "PROXY_PORT") "0")
       (begin
         (allow mach-lookup

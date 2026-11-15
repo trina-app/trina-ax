@@ -12,7 +12,8 @@
 // mic right before send (the clip stays on the left), Space held in the box on a computer, a finger held on the mic; the words go into the box as
 // text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
 // voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
-// The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame; the clip is the
+// The round send button is the screen's one primary action. Computers: the text on top and one row under it inside the
+// frame, the clip on the left and the mic and send on the right (chat/ComposerToolbar.tsx, as every message box). Phones: the same frame (QA TC-1550), but one line inside it with only the clip and send; the clip is the
 // attach sheet every message box has there (components/chat/AttachSheet.tsx: 사진 보관함, 사진 찍기, 파일, 팀 파일). A team
 // file is copied as my upload in the room (POST /api/rooms/:id/team-file, the copy "대화방에 보내기" makes) and sent by
 // id like any upload; a line under the files says how many more people it reaches (members who cannot open the team
@@ -23,8 +24,10 @@
 // is writing here (RoomTypingLine, docs/DECISIONS.md "입력 중 표시").
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
+import { composerInset, composerRadius } from '../chat/composerBox'
+import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
-import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, X } from 'lucide-react'
+import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
@@ -40,7 +43,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
@@ -49,10 +52,13 @@ import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
+import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 import { AttachSheet } from '../chat/AttachSheet'
+import { ComposerToolbar } from '../chat/ComposerToolbar'
 import TeamFilePicker from '../chat/TeamFilePicker'
 import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
+import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
 
 interface Upload {
   key: number
@@ -60,6 +66,8 @@ interface Upload {
   status: 'uploading' | 'done' | 'failed'
   roomFile?: RoomFile
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
   abort: AbortController
   /** a team file (the attach sheet's 팀 파일): its team path, and once copied how many other members cannot open it */
   teamPath?: string
@@ -88,6 +96,8 @@ onRoomDraftElsewhere((key) => {
 /** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
   const t = useT()
+  // a guest whose AI is off: no "✦ to ask on the side" in the box (components/GuestView.tsx)
+  const guestNoAi = useGuestNoAi()
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
   const key = placeKey(roomId, threadRootId)
@@ -194,7 +204,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
   const behindPanel = usePanelExpanded()
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty && !guestNoAi ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
@@ -217,7 +227,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: f } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
 
@@ -246,7 +256,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
   const addTeamFiles = (picked: FileEntry[]) => {
@@ -283,6 +293,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const ready = files.filter((f) => f.status === 'done')
   const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX && !voice.busy
 
+  // links to messages some readers here cannot see: Slack's "Only show link" / "Show message" (MessageLinkChoice.tsx)
+  const linkChoice = useLinkChoice(roomId, threadRootId, text)
   const all = mention.mentionsAll()
   // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
   const ask = asking && all
@@ -298,7 +310,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setAsking(false)
     // "stopped" before the message, so nobody sees it arrive under "… is typing"
     typing.stop()
-    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
+    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom, ...(linkChoice.showMessages.length ? { showMessages: linkChoice.showMessages } : {}) })
+    linkChoice.reset()
     setText('')
     setFiles([])
     mention.reset()
@@ -308,14 +321,110 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     input.current?.focus()
   }
 
+  // the clip: the attach sheet on a phone, the file input on a computer
+  const attach = (
+    <>
+      {phone ? (
+        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
+      ) : (
+        <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
+          <Paperclip size={18} />
+        </IconButton>
+      )}
+      {!phone && (
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          data-testid="room-file-input"
+          onChange={(e) => {
+            addFiles(Array.from(e.target.files ?? []))
+            e.target.value = ''
+          }}
+        />
+      )}
+    </>
+  )
+  const field = (
+    <TokenTextarea
+      ref={input}
+      rows={1}
+      value={text}
+      aria-label={t('composer.label')}
+      placeholder={placeholder}
+      // not disabled: the focus stays in the box while the words are on their way
+      readOnly={voice.busy}
+      aria-busy={voice.transcribing || undefined}
+      maxLength={ROOM_MESSAGE_MAX}
+      {...mention.inputProps}
+      onBlur={() => typing.stop()}
+      onPaste={(e) => {
+        const pasted = pastedFiles(e.clipboardData)
+        if (pasted.length) {
+          e.preventDefault()
+          addFiles(pasted)
+        }
+      }}
+      onKeyDown={(e) => {
+        if (mention.onKeyDown(e)) return
+        if (voice.onKeyDown(e)) return
+        // the question about "@전체": Esc puts it away, Enter answers it as 보내기
+        if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+          e.preventDefault()
+          e.stopPropagation()
+          setAsking(false)
+          return
+        }
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+          // touch screens: Enter makes a new line (the button sends)
+          if (window.matchMedia?.('(pointer: coarse)').matches) return
+          e.preventDefault()
+          submit(ask)
+        }
+      }}
+      containerClassName={phone ? 'min-w-0 flex-1' : undefined}
+      // a phone: the whole box (the files' row, the text field, its buttons and padding) stays within about 35 % of
+      // what is in sight, so the messages keep the rest while the keyboard is up (QA TC-252); at least one line
+      className={clsx(
+        'max-h-[200px] resize-none text-reading leading-reading text-ink outline-none placeholder:text-faint',
+        // one line on a phone; on a computer the text alone on top, as in the AI chat's box (its padding)
+        phone ? 'px-1.5 py-2' : 'px-4.5 pt-3 pb-1',
+        // the other rows: about 5rem, 6rem with the files' row (measured at 390 × 480)
+        files.length > 0
+          ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
+          : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
+      )}
+      data-testid="room-input"
+    />
+  )
+  // the mic right before send, as in ChatGPT's box
+  const sendControls = (
+    <>
+      <VoiceMic voice={voice} mic={mic} tip />
+      <Tooltip label={t('chat.send')}>
+        <button
+          type="button"
+          onClick={() => submit(ask)}
+          disabled={!canSend}
+          aria-label={t('chat.send')}
+          className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+          data-testid="room-send"
+        >
+          <ArrowUp size={18} aria-hidden />
+        </button>
+      </Tooltip>
+    </>
+  )
+
   return (
-    <div ref={root} className="relative shrink-0 pb-[var(--box-bottom)] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className={clsx('relative shrink-0 pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
       <VoiceLive voice={voice} />
       {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
       <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
       {above}
       <div
-        className={clsx('relative mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
+        className={clsx('relative mx-auto max-w-[780px]', composerRadius, 'border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="room-composer"
       >
@@ -338,6 +447,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             </div>
           </div>
         )}
+        {!voice.recording && <MessageLinkChoice choice={linkChoice} />}
         {files.length > 0 && (
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
           // pictures are one pane of the image viewer (← →)
@@ -361,20 +471,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     // its own bytes in the image viewer, or the room's copy the server gave back
                     item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
-                  <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} title={f.error}>
+                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'sr-only'}>
                     {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
+                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                 </li>
               ) : (
-                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
+                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                  <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
+                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
                     {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
-                  <IconButton tip label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">
-                    <X size={13} />
-                  </IconButton>
+                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
+                  <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),
             )}
@@ -387,102 +497,38 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </p>
         )}
         {voice.recording ? (
-          // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:pr-3 max-md:pl-2" />
+          phone ? (
+            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
+            <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
+          ) : (
+            // a computer's box keeps its height: the text as it was on top (it cannot be typed in while recording), the
+            // bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
+            <>
+              <p aria-hidden className={clsx('max-h-[200px] overflow-hidden px-4.5 pt-3 pb-1 text-reading leading-reading break-words whitespace-pre-wrap', text ? 'text-ink' : 'text-faint')} data-testid="room-text-held">
+                {text || placeholder}
+              </p>
+              <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
+            </>
+          )
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
-            {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
-                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last. A phone: 8 px on the
-                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
-            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
-              <div className="flex h-composer-line shrink-0 items-center">
-                {phone ? (
-                  <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
-                ) : (
-                  <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
-                    <Paperclip size={18} />
-                  </IconButton>
-                )}
+            {/* A phone: one line, bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
+                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last; 8 px on the
+                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic). A computer: the text
+                on top and the box's row under it inside the frame (ComposerToolbar, as every message box: QA TC-1400) */}
+            {phone ? (
+              <div className="flex items-end gap-1 py-1.5 pr-3 pl-2">
+                <div className="flex h-composer-line shrink-0 items-center">{attach}</div>
+                {field}
+                <div className="flex h-composer-line shrink-0 items-center gap-1">{sendControls}</div>
               </div>
-              {!phone && (
-                <input
-                  ref={picker}
-                  type="file"
-                  multiple
-                  hidden
-                  data-testid="room-file-input"
-                  onChange={(e) => {
-                    addFiles(Array.from(e.target.files ?? []))
-                    e.target.value = ''
-                  }}
-                />
-              )}
-              <TokenTextarea
-                ref={input}
-                rows={1}
-                value={text}
-                aria-label={t('composer.label')}
-                placeholder={placeholder}
-                // not disabled: the focus stays in the box while the words are on their way
-                readOnly={voice.busy}
-                aria-busy={voice.transcribing || undefined}
-                maxLength={ROOM_MESSAGE_MAX}
-                {...mention.inputProps}
-                onBlur={() => typing.stop()}
-                onPaste={(e) => {
-                  const pasted = pastedFiles(e.clipboardData)
-                  if (pasted.length) {
-                    e.preventDefault()
-                    addFiles(pasted)
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (mention.onKeyDown(e)) return
-                  if (voice.onKeyDown(e)) return
-                  // the question about "@전체": Esc puts it away, Enter answers it as 보내기
-                  if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setAsking(false)
-                    return
-                  }
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                    // touch screens: Enter makes a new line (the button sends)
-                    if (window.matchMedia?.('(pointer: coarse)').matches) return
-                    e.preventDefault()
-                    submit(ask)
-                  }
-                }}
-                containerClassName="min-w-0 flex-1"
-                // a phone: the whole box (the files' row, the text field, its buttons and padding) stays within about 35 % of
-                // what is in sight, so the messages keep the rest while the keyboard is up (QA TC-252); at least one line
-                className={clsx(
-                  'max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint',
-                  // the other rows: about 5rem, 6rem with the files' row (measured at 390 × 480)
-                  files.length > 0
-                    ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
-                    : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
-                )}
-                data-testid="room-input"
-              />
-              {/* the mic right before send, as in ChatGPT's box */}
-              <div className="flex h-composer-line shrink-0 items-center gap-1">
-                <VoiceMic voice={voice} mic={mic} tip />
-                <Tooltip label={t('chat.send')}>
-                  <button
-                    type="button"
-                    onClick={() => submit(ask)}
-                    disabled={!canSend}
-                    aria-label={t('chat.send')}
-                    className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-                    data-testid="room-send"
-                  >
-                    <ArrowUp size={18} aria-hidden />
-                  </button>
-                </Tooltip>
-              </div>
-            </div>
+            ) : (
+              <>
+                {field}
+                <ComposerToolbar testId="room-composer-tools" start={attach} end={sendControls} />
+              </>
+            )}
           </>
         )}
       </div>

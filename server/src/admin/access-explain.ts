@@ -55,7 +55,7 @@ export function explainFolder(ctx: AppContext, q: { path?: string; cursor?: stri
   if (!shownSegs(segs.join('/'))) fail('validation', msg('accessNotTeamFolder', locale), { fields: { 'query.path': 'not a team folder' } })
 
   const state = captureState(ctx.db) // active people (by name, then id) and the rules
-  const ruleFolder = ruleFolderOf(new Set(state.rules.ruleFolders()), segs)
+  const ruleFolder = ruleFolderOf(new Set(state.rules.boundaryFolders()), segs)
   // below the nearest rule folder nothing carries rules: every answer here is the answer there
   const at = ruleFolder === null ? segs : segsOf(ruleFolder)
   const all = [...state.principals].sort(byPerson).map((u) => ({ u, ...state.rules.explain(u, at) }))
@@ -75,7 +75,7 @@ export function explainFolder(ctx: AppContext, q: { path?: string; cursor?: stri
   }
   const inactive: FolderAccessResponse['inactive'] = []
   for (const [id, rules] of off) {
-    const u = ctx.db.query('SELECT id, name, role FROM users WHERE id = ?').get(id) as { id: string; name: string; role: Role } | null
+    const u = ctx.db.query(`SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(id) as { id: string; name: string; role: Role } | null
     const p: Principal = { id, name: u?.name ?? id, role: u?.role ?? 'member', groups: u ? groupsOf(ctx, id) : [] }
     const e = state.rules.explain(p, at)
     inactive.push({ user: { id, name: p.name }, role: p.role, access: e.access, reason: e.reason, rules })
@@ -104,7 +104,7 @@ function teamFolders(ctx: AppContext, rules: RuleSet): Candidate[] {
     c.kinds.add(kind)
     return c
   }
-  for (const f of rules.ruleFolders()) add(f, 'rules')
+  for (const f of rules.boundaryFolders()) add(f, 'rules')
   try {
     for (const d of fs.readdirSync(ctx.files.fx.root, { withFileTypes: true })) if (d.isDirectory()) add(d.name, 'top')
   } catch { /* no team folder yet */ }
@@ -133,7 +133,7 @@ function personAccess(ctx: AppContext, p: Principal, who: { user: { id: string; 
   // the person's own folder, from the member list only (nothing below it is looked at)
   if (who.user) cands.push({ path: `users/${p.id}`, segs: ['users', p.id], kinds: new Set(['personal']) })
   const pg = pageByPath(cands, q)
-  const ruleFolders = new Set(rules.ruleFolders())
+  const ruleFolders = new Set(rules.boundaryFolders())
   const memo = new Map<string, Explained>()
   const dirs = new Map<string, boolean>()
   let listing: Listing | undefined // the readable folders, found once for every row (when a row needs them)
@@ -162,7 +162,7 @@ function personAccess(ctx: AppContext, p: Principal, who: { user: { id: string; 
 }
 
 export function explainPerson(ctx: AppContext, id: string, q: PageQ): PersonAccessResponse {
-  const u = ctx.db.query('SELECT id, name, role, status FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string; role: Role; status: UserStatus } | null
+  const u = ctx.db.query(`SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE id = ? AND deleted_at IS NULL`).get(id) as { id: string; name: string; role: Role; status: UserStatus } | null
   if (!u) return fail('not_found')
   // a person who is switched off is shown as they would be when switched back on (status says so)
   return personAccess(ctx, { id: u.id, name: u.name, role: u.role, groups: groupsOf(ctx, id) }, { user: { id: u.id, name: u.name }, status: u.status }, q)
@@ -260,7 +260,7 @@ export function teamFolderOf(p: string, caseInsensitive: boolean): 'shared' | 's
  * the tree takes it (personal folders, .system/, temp names refused before anything is read), with its names on disk.
  * Nothing is saved; the rules are checked as a save checks them.
  */
-export function explainEdit(ctx: AppContext, body: { path: string; rules: FolderRuleInput[] }, locale: Locale): FolderEditPreview {
+export function explainEdit(ctx: AppContext, body: { path: string; rules: FolderRuleInput[]; limited?: boolean }, locale: Locale): FolderEditPreview {
   const db = ctx.db
   let p: string
   const row = getFolderByPath(db, body.path)
@@ -281,11 +281,11 @@ export function explainEdit(ctx: AppContext, body: { path: string; rules: Folder
   const segs = segsOf(p)
   const connected = segs.length >= 2 && segs[0] === 'connected' && !!db.query('SELECT 1 FROM connected_folders WHERE name = ?').get(segs[1]!)
   // people switched off: not counted, but what they would get when switched back on is (latentMore)
-  const uncounted = (db.query("SELECT id, name, role FROM users WHERE status != 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Role }[])
+  const uncounted = (db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status != 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Role }[])
     .map((u) => ({ ...u, groups: groupsOf(ctx, u.id) }))
   const out = editPreview(
     { rules: state.rules, people: state.principals, uncounted, groupName: (id) => groupNames.get(id) ?? null, personName: (id) => userNames.get(id) ?? null },
-    p, body.rules, { team: teamFolderOf(p, ctx.files.fx.caseInsensitive), chats: (id) => chatsWithEngineSession(db, id) },
+    p, body.rules, { team: teamFolderOf(p, ctx.files.fx.caseInsensitive), chats: (id) => chatsWithEngineSession(db, id), limited: body.limited },
   )
   return { path: p, exists: isDir(ctx.files.fx.root, segs, new Map()), connected, ...out }
 }

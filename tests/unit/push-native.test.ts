@@ -14,7 +14,8 @@ import { HttpError } from '../../server/src/http/errors'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { registerPushPath } from '../../server/src/notifications/push-events'
 import { createNativeTransport, signedGatewayRequest, validGatewayUrl, type NativeSend } from '../../server/src/notifications/push-native'
-import { loadAppConfig } from '../../server/src/app-config'
+import { loadAppConfig, resolvePushGateway } from '../../server/src/app-config'
+import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 import { parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewaySigningString } from '../../shared/src/cloud-protocol/push-gateway'
 
 let h: Harness, p: PushService
@@ -209,7 +210,7 @@ test('the gateway request is signed with the team key over the exact body; priva
   expect(again.body).toBe(sentBody)
 })
 
-test('gateway address setting: https host only; off by default, server.json or MYCEL_PUSH_GATEWAY turn it on', () => {
+test('gateway address setting: https host only; a dev server has none, server.json or MYCEL_PUSH_GATEWAY turn it on', () => {
   for (const ok of ['https://push.trina.app', 'https://push.example.test/']) expect(validGatewayUrl(ok)).toBe(ok.replace(/\/$/, ''))
   for (const bad of ['http://push.example.test', 'https://u@push.example.test', 'https://push.example.test:444', 'https://push.example.test/v1', 'https://push.example.test?x', 'https://localhost', 42,
     'http://127.0.0.1', 'http://10.0.0.5:8787', 'http://push.example.test:8787', 'http://127.0.0.1:8787/v1', 'http://u@127.0.0.1:8787']) expect(validGatewayUrl(bad)).toBeNull()
@@ -217,8 +218,8 @@ test('gateway address setting: https host only; off by default, server.json or M
   for (const ok of ['http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787']) expect(validGatewayUrl(ok)).toBe(ok)
   const dir = path.join(WORK, 'push-native-config'); fs.mkdirSync(dir, { recursive: true })
   const file = (o: object) => { const f = path.join(dir, `server-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f }
-  const load = (extra: Record<string, string>, o: object = {}) => { try { return loadAppConfig({ argv: ['--config', file(o)], env: extra }).push } catch (e) { return (e as Error).name } }
-  expect(load({})).toEqual({ gatewayUrl: null }) // off until the operator chooses a gateway
+  const load = (extra: Record<string, string>, o: object = {}) => { try { return { gatewayUrl: loadAppConfig({ argv: ['--config', file(o)], env: extra }).push?.gatewayUrl } } catch (e) { return (e as Error).name } }
+  expect(load({})).toEqual({ gatewayUrl: null }) // a developer's server never gets the edition default
   expect(load({}, { push: { gatewayUrl: 'https://push.example.test' } })).toEqual({ gatewayUrl: 'https://push.example.test' })
   expect(load({}, { push: { gatewayUrl: null } })).toEqual({ gatewayUrl: null })
   expect(load({ MYCEL_PUSH_GATEWAY: '' })).toEqual({ gatewayUrl: null })
@@ -226,6 +227,43 @@ test('gateway address setting: https host only; off by default, server.json or M
   expect(load({ MYCEL_PUSH_GATEWAY: 'http://push.example.test' })).toBe('ConfigError')
   expect(load({ MYCEL_PUSH_GATEWAY: 'http://127.0.0.1:8787' })).toEqual({ gatewayUrl: 'http://127.0.0.1:8787' })
   expect(load({ MYCEL_PUSH_GATEWAY: 'http://10.0.0.5:8787' })).toBe('ConfigError')
+})
+
+test('the edition default gateway: Trina servers use push.trina.app unless the operator sets another or turns it off', () => {
+  const trina = 'https://push.trina.app'
+  // Trina edition: nothing set → the default
+  expect(resolvePushGateway(undefined, undefined, trina)).toBe(trina)
+  // neutral core: no default, off until the operator chooses a gateway
+  expect(resolvePushGateway(undefined, undefined, '')).toBeNull()
+  expect(resolvePushGateway(undefined, 'https://push.example.test', '')).toBe('https://push.example.test')
+  // explicit off: an empty or "off" variable is not the same as an unset one, and wins over server.json
+  for (const off of ['', 'off', 'OFF', ' off ', ' ']) {
+    expect(resolvePushGateway(off, undefined, trina)).toBeNull()
+    expect(resolvePushGateway(off, 'https://push.example.test', trina)).toBeNull()
+  }
+  for (const off of [null, '', 'off']) expect(resolvePushGateway(undefined, off, trina)).toBeNull()
+  // explicit address: the variable first, then server.json, both over the default
+  expect(resolvePushGateway('https://push.example.test', undefined, trina)).toBe('https://push.example.test')
+  expect(resolvePushGateway('https://push.example.test', 'https://other.example.test', trina)).toBe('https://push.example.test')
+  expect(resolvePushGateway(undefined, 'https://push.example.test', trina)).toBe('https://push.example.test')
+
+  // through loadAppConfig: installed servers and office Macs get the edition's default, dev servers do not
+  expect(SERVICE_HOSTS.pushGatewayUrl).toBe(trina) // this repository is the Trina edition
+  const dir = path.join(WORK, 'push-native-default'); fs.mkdirSync(dir, { recursive: true })
+  const file = (o: object) => { const f = path.join(dir, `server-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f }
+  const load = (env: Record<string, string>, o: object) => { try { return { gatewayUrl: loadAppConfig({ argv: ['--config', file(o)], env }).push?.gatewayUrl } } catch (e) { return (e as Error).name } }
+  const prod = { mode: 'prod', teamRoot: path.join(dir, 'team'), dataDir: path.join(dir, 'data'), logDir: path.join(dir, 'logs') }
+  expect(load({}, prod)).toEqual({ gatewayUrl: trina })
+  expect(load({}, { office: true })).toEqual({ gatewayUrl: trina })
+  expect(load({}, { mode: 'dev' })).toEqual({ gatewayUrl: null })
+  expect(load({ MYCEL_PUSH_GATEWAY: '' }, prod)).toEqual({ gatewayUrl: null })
+  expect(load({ MYCEL_PUSH_GATEWAY: 'off' }, prod)).toEqual({ gatewayUrl: null })
+  expect(load({}, { ...prod, push: { gatewayUrl: null } })).toEqual({ gatewayUrl: null })
+  expect(load({}, { ...prod, push: { gatewayUrl: 'off' } })).toEqual({ gatewayUrl: null })
+  expect(load({}, { ...prod, push: { gatewayUrl: '' } })).toEqual({ gatewayUrl: null })
+  expect(load({ MYCEL_PUSH_GATEWAY: 'https://push.example.test' }, prod)).toEqual({ gatewayUrl: 'https://push.example.test' })
+  expect(load({}, { ...prod, push: { gatewayUrl: 'https://push.example.test' } })).toEqual({ gatewayUrl: 'https://push.example.test' })
+  expect(load({ MYCEL_PUSH_GATEWAY: 'http://push.example.test' }, prod)).toBe('ConfigError')
 })
 
 test('the app removes its device after a team switch with the key from registration, without a session; nothing else does', async () => {

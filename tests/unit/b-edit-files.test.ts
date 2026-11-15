@@ -26,7 +26,7 @@ const editFiles = (file_paths: string[], old_string: string, new_string: string,
 let h: Harness
 const socks: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-edit-files', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-edit-files', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'dana']) { socks[u] = await h.ws(u, { windowId: `win-ef-${u}` }); await socks[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })

@@ -83,7 +83,7 @@ test('missing launcher status and legacy login from HTTP microtasks return failu
 test('prod recovery keeps admission closed while missing/busy/unknown, then dispatches durable FIFO once at idle', async () => {
   const sock = path.join(shortDir(), 'launcher.sock'), f = fixture('resume', sock)
   f.add('a1', 'a'); f.add('a2', 'a'); f.add('b1', 'b')
-  f.store.claim('a1', 'a', 2700000)
+  f.store.claim('a1', 'a')
   const tickets = [...f.store.tickets()]
   await Promise.all([f.rt.recover(), f.rt.recover()])
   expect(f.rt.queueDiagnostics().recovery).toBe('launcher_unreachable')

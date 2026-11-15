@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite'
 import { UserPrefs, type Locale, type Role, type User, type UserRef } from '@mycel/shared/api'
 import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { teamDefaultLocale } from '../admin/settings'
+import { guestDetail } from './guests'
 
 export interface UserRow {
   id: string
@@ -29,7 +30,11 @@ export interface UserRow {
   temp_password_failures: number
 }
 
-export const USER_COLS = 'id, username, name, email, password_hash, role, status, must_change_password, locale, locale_follows_team, prefs, created_at, last_seen_at, deleted_at, password_reset_by, password_reset_at, temp_password_expires_at, temp_password_failures'
+/** The users columns of a UserRow. `role` is the role as the API knows it: a guest is stored as role 'member' with
+ * users.guest = 1 (migration 122_a_guests.sql) and reads 'guest'. Never splice a table alias into it: use USER_COLS_U. */
+export const USER_COLS = "id, username, name, email, password_hash, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, must_change_password, locale, locale_follows_team, prefs, created_at, last_seen_at, deleted_at, password_reset_by, password_reset_at, temp_password_expires_at, temp_password_failures"
+/** USER_COLS of the users table aliased `u` (a join). */
+export const USER_COLS_U = "u.id, u.username, u.name, u.email, u.password_hash, CASE WHEN u.guest = 1 THEN 'guest' ELSE u.role END AS role, u.status, u.must_change_password, u.locale, u.locale_follows_team, u.prefs, u.created_at, u.last_seen_at, u.deleted_at, u.password_reset_by, u.password_reset_at, u.temp_password_expires_at, u.temp_password_failures"
 
 /** Live (not deleted) user by id. */
 export function getUser(db: Database, id: string): UserRow | null {
@@ -66,8 +71,11 @@ export function toUser(db: Database, r: UserRow): User {
     groupIds: userGroupIds(db, r.id),
     createdAt: r.created_at,
     lastSeenAt: r.last_seen_at,
+    // a guest: their one place and AI (the admin users list; docs/DECISIONS.md "Guests: only what they were invited to")
+    ...(r.role === 'guest' ? withGuest(db, r.id) : {}),
   }
 }
+const withGuest = (db: Database, id: string) => { const g = guestDetail(db, id); return g ? { guest: g } : {} }
 
 /** The person's own language, or null when they follow the team default. */
 export const localeChoice = (r: Pick<UserRow, 'locale' | 'locale_follows_team'>): Locale | null => (r.locale_follows_team ? null : r.locale)

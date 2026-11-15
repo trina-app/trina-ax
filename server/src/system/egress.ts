@@ -44,7 +44,7 @@ export async function assertPublicHttps(raw: string, o: { lookup?: Lookup; allow
 const T = {
   ko: (why: string) => `${PRODUCT.displayName} Cloud에서는 인터넷의 공개 https 주소만 쓸 수 있어요(${why}).`,
   en: (why: string) => `On ${PRODUCT.displayName} Cloud only public https addresses on the internet can be used (${why}).`,
-  id: (why: string) => `Di ${PRODUCT.displayName} Cloud hanya alamat https publik di internet yang bisa dipakai (${why}).`, ja: (why: string) => `${PRODUCT.displayName} Cloudではインターネット上の公開httpsアドレスのみ使用できます（${why}）。`, es: (why: string) => `En ${PRODUCT.displayName} Cloud solo se pueden usar direcciones https públicas de internet (${why}).`,
+  id: (why: string) => `Di ${PRODUCT.displayName} Cloud hanya alamat https publik di internet yang bisa dipakai (${why}).`, ja: (why: string) => `${PRODUCT.displayName} Cloudではインターネット上の公開httpsアドレスのみ使用できます（${why}）。`, es: (why: string) => `En ${PRODUCT.displayName} Cloud solo se pueden usar direcciones https públicas de internet (${why}).`, zh: (why: string) => `在${PRODUCT.displayName} Cloud 上只能使用互联网上的公开 https 地址（${why}）。`,
 }
 
 /** PUT /api/admin/engines/api-config: in the cloud, refuse an address that is not public https (400). */

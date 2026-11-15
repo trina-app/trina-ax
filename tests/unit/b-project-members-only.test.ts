@@ -14,11 +14,12 @@ import { auditSight } from '../../server/src/admin/audit-sight'
 import { membersOnlyOnce } from '../../server/src/chat/members-only-once'
 import { setSetting } from '../../server/src/admin/settings'
 import { ruleFolderOf } from '../../server/src/admin/access-rows'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(60_000)
 const P = (id: string, role: Principal['role'], groups: string[] = []): Principal => ({ id, name: id, role, groups })
 const rules = (rows: [string, 'everyone' | 'role' | 'group' | 'user', string | null, 'none' | 'read' | 'write'][]) =>
-  new RuleSet(rows.map(([path, subject_type, subject_id, access]) => ({ path, subject_type, subject_id, access })))
+  ruleWorld(rows.map(([path, subject_type, subject_id, access]) => ({ path, subject_type, subject_id, access })))
 const segs = (p: string) => p.split('/')
 
 describe('the members-only zone of the permission function', () => {
@@ -156,7 +157,8 @@ describe('the steps that run once at the first start', () => {
     db.query('INSERT INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)').run(msg, chat, JSON.stringify([{ c: ['alice', 'carol', 'dana', 'erin'], s: [] }]))
     const folder = db.query("SELECT id FROM folders WHERE path = 'projects/Team plan'").get() as { id: string }
     const rid = uuidv7()
-    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'role', 'admin', 'read')").run(rid, folder.id)
+    // (the only role row the database takes since P2 is role admin: write; inside a project it goes too)
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'role', 'admin', 'write')").run(rid, folder.id)
     const sid = uuidv7()
     db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, save_folder) VALUES (?, 'carol', 't', 'p', 'daily', '09:00', 'projects/Team plan')").run(sid)
     // a folder in projects/ that no project uses (an older build's delete kept it)
@@ -177,7 +179,8 @@ describe('the steps that run once at the first start', () => {
     expect(db.query("SELECT 1 FROM audit_log WHERE action = 'project.adopted' AND target = 'projects/Left over'").get()).not.toBeNull()
     expect(m.items.some((x) => x.folderPath === 'projects/Left over' && x.membersEditable)).toBe(true)
     // once: a role rule made after it stays (a second start does nothing)
-    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'role', 'admin', 'read')").run(rid, folder.id)
+    // (the only role row the database takes since P2 is role admin: write; inside a project it goes too)
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'role', 'admin', 'write')").run(rid, folder.id)
     await membersOnlyOnce(h.ctx)
     expect(db.query('SELECT 1 FROM folder_rules WHERE id = ?').get(rid)).not.toBeNull()
     db.query('DELETE FROM folder_rules WHERE id = ?').run(rid)

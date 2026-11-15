@@ -115,7 +115,7 @@ describe('nobody sees a file name or text they cannot open through any list', ()
 
   let policies = ''
   test('a narrower rule on a sub-folder: its lines leave the wider list at once', async () => {
-    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', limited: true, rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }] }) })
     expect(r.status).toBe(201)
     policies = r.body.id
     expect((await listsOf('bob')).get('shared/_FILES.md') ?? '').not.toContain('CANARY-HR-15')
@@ -126,7 +126,7 @@ describe('nobody sees a file name or text they cannot open through any list', ()
   })
 
   test('the rules of that folder changed (a person added): only they gain its lines', async () => {
-    const r = await A.json(`/api/admin/folders/${policies}/rules`, { as: 'dana', ...jsonBody({ rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'user', subjectId: 'bob', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }, 'PUT') })
+    const r = await A.json(`/api/admin/folders/${policies}/rules`, { as: 'dana', ...jsonBody({ limited: true, rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'user', subjectId: 'bob', access: 'read' }] }, 'PUT') })
     expect(r.status).toBe(200)
     await checkEveryone('policies for carol and bob, before a run')
     expect(await fl.start('now')).toBe('done')
@@ -172,7 +172,7 @@ describe('nobody sees a file name or text they cannot open through any list', ()
     // one call held both (one unit): each line names both canaries, which everyone in shared/ may see
     expect((await listsOf('alice')).get('shared/_FILES.md') ?? '').toContain('CANARY-TEAMB-22')
     // now team-b becomes bob's only: the mixed lines must not show anywhere bob's file text could reach alice
-    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/team-b', rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/team-b', limited: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] }) })
     expect(r.status).toBe(201)
     reader.answer = (files) => files.map((f) => JSON.stringify(defaultAnswer(f))).join('\n')
     await checkEveryone('team-b split off, before a run')

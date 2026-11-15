@@ -4,12 +4,14 @@
 // members?: boolean, reason?: 'unsupported' | 'service_limited' | null, blocked?, connect?: {userId, status?, serviceDown?,
 // writePolicy?}, team?: {email, access?} | null}. A sign-in is pending once, then ready with the person's synthetic
 // account. The account shared with the team (owners and admins): its own sign-in, its people, Remove. Never a token.
+// `hosted` / `ownApp` (server.ts POST /__test/google-own-app): the hosting service is the Google sign-in (every card set
+// up, nothing to set up here), and the company's own Google app is used instead (each card follows Drive's).
 import type { GoogleAppAdminStatus, GoogleAppId, GoogleAppTeam, GoogleAppTool, GoogleAppView, IntegrationAccess } from '@mycel/shared/api'
 
 type Reason = 'unsupported' | 'service_limited'
 type Blocked = GoogleAppAdminStatus['blocked']
 interface Conn { status: 'connected' | 'needs_reconnect'; account: { name: string | null; email: string | null }; writePolicy: 'ask' | 'allow'; serviceDown: boolean }
-interface Team { account: Conn['account']; access: IntegrationAccess; by: { id: string; name: string }; alwaysAllowed: Set<string> }
+interface Team { account: Conn['account']; access: IntegrationAccess; by: { id: string; name: string }; alwaysAllowed: Set<string>; status: GoogleAppTeam['status'] }
 interface App { client: 'none' | 'app' | 'drive'; members: boolean; reason: Reason | null; blocked: Blocked; conns: Map<string, Conn>; team: Team | null }
 
 export const GOOGLE_APP_IDS: GoogleAppId[] = ['gmail', 'calendar', 'docs', 'sheets']
@@ -58,15 +60,35 @@ export class MockGoogleApps {
   /** whom a rule includes, and how many active people (the mock server's users and groups) */
   covers: Covers = (a) => a.everyone
   countOf: (a: IntegrationAccess) => number = () => 0
+  /** the hosting service is the Google sign-in (a hosted team): every card is set up by it */
+  hosted = false
+  /** the company's own Google app signs in instead (each card the same as Drive) */
+  ownApp = false
 
   reset() {
     this.apps = new Map(GOOGLE_APP_IDS.map((id) => [id, fresh()]))
     this.flows.clear()
+    this.hosted = false
+    this.ownApp = false
+  }
+  /** the company's Google app was set or removed: every sign-in made with the other app needs a new one */
+  signInsEnded() {
+    for (const a of this.apps.values()) {
+      for (const c of a.conns.values()) c.status = 'needs_reconnect'
+      if (a.team) a.team.status = 'needs_reconnect'
+    }
+  }
+  /** people with a Google app connected here, and the accounts shared with the team */
+  signInCounts() {
+    const people = new Set<string>(), teams = [...this.apps.values()].filter((a) => a.team).length
+    for (const a of this.apps.values()) for (const id of a.conns.keys()) people.add(id)
+    return { people, teams }
   }
   app(id: string): App | null { return this.apps.get(id as GoogleAppId) ?? null }
 
   reasonOf(a: App): GoogleAppView['reason'] {
     if (a.reason) return a.reason
+    if (this.hosted) return null
     if (a.client === 'none') return 'not_set_up'
     return null
   }
@@ -80,6 +102,12 @@ export class MockGoogleApps {
   list(userId: string) { return { apps: GOOGLE_APP_IDS.map((id) => this.view(id, userId)) } }
   adminStatus(id: GoogleAppId, driveAppAvailable: boolean): GoogleAppAdminStatus {
     const a = this.apps.get(id)!
+    if (this.hosted) {
+      return {
+        id, configured: true, source: this.ownApp ? 'drive' : 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, driveAppAvailable: true,
+        apis: APIS[id], membersCanConnect: true, connectedMembers: [...a.conns.values()].filter((c) => c.status === 'connected').length, team: this.teamView(a),
+      }
+    }
     const configured = a.client !== 'none'
     return {
       id, configured, source: a.client === 'drive' ? 'drive' : a.client === 'app' ? 'app' : 'none', canSetUp: a.blocked === null, blocked: a.blocked,
@@ -90,11 +118,11 @@ export class MockGoogleApps {
   }
   teamView(a: App): GoogleAppTeam | null {
     if (!a.team) return null
-    return { id: `team-${[...this.apps.entries()].find(([, x]) => x === a)![0]}`, status: 'connected', account: a.team.account, access: a.team.access, usedBy: this.countOf(a.team.access), connectedBy: a.team.by, connectedAt: new Date().toISOString() }
+    return { id: `team-${[...this.apps.entries()].find(([, x]) => x === a)![0]}`, status: a.team.status, account: a.team.account, access: a.team.access, usedBy: this.countOf(a.team.access), connectedBy: a.team.by, connectedAt: new Date().toISOString() }
   }
   /** the shared account's sign-in (the server checks the admin role) */
   authorizeTeam(id: GoogleAppId, userId: string) {
-    if (this.apps.get(id)!.client === 'none') return null
+    if (this.apps.get(id)!.client === 'none' && !this.hosted) return null
     const flowId = `gapp-team-${id}-${crypto.randomUUID()}`
     this.flows.set(flowId, { app: id, userId, polls: 0, account: { name: 'Team mailbox', email: `team-${id}@example.test` }, team: true })
     return { flowId, authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=synthetic-team-${id}`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
@@ -109,7 +137,7 @@ export class MockGoogleApps {
     this.flows.delete(flowId)
     const a = this.apps.get(id)!
     const same = a.team?.account.email === f.account.email
-    a.team = { account: f.account, access: a.team?.access ?? { everyone: false, groups: [], users: [] }, by: user, alwaysAllowed: same ? a.team!.alwaysAllowed : new Set() }
+    a.team = { account: f.account, access: a.team?.access ?? { everyone: false, groups: [], users: [] }, by: user, alwaysAllowed: same ? a.team!.alwaysAllowed : new Set(), status: 'connected' }
     return true
   }
   setTeamAccess(id: GoogleAppId, access: IntegrationAccess) {
@@ -164,7 +192,7 @@ export class MockGoogleApps {
       if (c) a.conns.set(c.userId, { status: c.status ?? 'connected', account: { name: c.name ?? 'Fixture', email: c.email ?? 'fixture@example.test' }, writePolicy: c.writePolicy ?? 'ask', serviceDown: !!c.serviceDown })
       const t = body.team as { email?: string; access?: IntegrationAccess; alwaysAllowed?: string[] } | null | undefined
       if (t === null) a.team = null
-      else if (t) a.team = { account: { name: 'Team mailbox', email: t.email ?? `team-${id}@example.test` }, access: t.access ?? { everyone: true, groups: [], users: [] }, by: { id: 'u_owner', name: 'Owner' }, alwaysAllowed: new Set(t.alwaysAllowed ?? []) }
+      else if (t) a.team = { account: { name: 'Team mailbox', email: t.email ?? `team-${id}@example.test` }, access: t.access ?? { everyone: true, groups: [], users: [] }, by: { id: 'u_owner', name: 'Owner' }, alwaysAllowed: new Set(t.alwaysAllowed ?? []), status: 'connected' }
     }
   }
 }

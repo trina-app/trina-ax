@@ -10,7 +10,11 @@
 //   GET /api/health  503 {ok: false, status: "migrating", version, migrating: {since, pending, copiedBytes, dbBytes},
 //                    time}; a signed-out caller through the office internet address gets no version and no
 //                    progress (the /api/health rule, routes/system.ts)
-//   anything else    503 {error: {code: "unavailable", ...}}
+//   a page load      503 "Trina is updating" (system/updating-page.ts): a browser opening a link meanwhile (a shared
+//                    chat) sees a page that reloads itself and opens the link when the new version is up (QA TC-2260)
+//   anything else    503 {error: {code: "unavailable", params: {reason: "updating"}}} with x-mycel-updating: 1, so the
+//                    web app says "Trina is updating" and sends what waits once the server answers (web/src/lib/
+//                    serverUpdating.ts)
 // The bootstrap and mycel-ctl update keep waiting while they see "migrating" with the version they started, up to their
 // own limit (native/cmd/mycel-bootstrap --migrate-timeout). When the child is done the stand-in stops and the server
 // starts as before: openDb then finds nothing left to do.
@@ -22,8 +26,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppConfig } from '../app-config'
 import { openDb, pendingMigrationCount, SchemaTooNewError } from '../db'
+import { projectsCaseInsensitive, setProjectsCaseInsensitive } from '../policy/access'
 import { directFetch } from '../http/tunnel'
 import type { Logger } from '../log'
+import { UPDATING_HEADER, updatingPageResponse, wantsUpdatingPage } from './updating-page'
 
 export const MIGRATING_STATUS = 'migrating'
 /** the environment variable that makes the server entry a migrator (runMigrateChild) */
@@ -71,16 +77,18 @@ export async function migrateBeforeStart(o: MigrateBeforeStartOptions): Promise<
         const body = env.tunnel
           ? { ok: false, status: MIGRATING_STATUS, time }
           : { ok: false, status: MIGRATING_STATUS, version: o.version, migrating: { since, pending, copiedBytes: copiedBytes(), dbBytes }, time }
-        return Response.json(body, { status: 503, headers: { 'retry-after': '10', 'cache-control': 'no-store' } })
+        return Response.json(body, { status: 503, headers: { 'retry-after': '10', 'cache-control': 'no-store', [UPDATING_HEADER]: '1' } })
       }
-      return Response.json({ error: { code: 'unavailable', message: 'The server is updating its database after an update. Try again in a few minutes.' } },
-        { status: 503, headers: { 'retry-after': '30', 'cache-control': 'no-store' } })
+      if (wantsUpdatingPage(req)) return updatingPageResponse(req)
+      return Response.json({ error: { code: 'unavailable', message: 'Trina is updating. It will be back in a few minutes.', params: { reason: 'updating' } } },
+        { status: 503, headers: { 'retry-after': '30', 'cache-control': 'no-store', [UPDATING_HEADER]: '1' } })
     }, o.peerIp),
   })
   let removeHandlers = () => {}
   try {
     const child = Bun.spawn([process.execPath, o.entry], {
-      env: { ...process.env, [MIGRATE_DB_ENV]: o.file, ...(o.migrationsDir ? { MYCEL_MIGRATE_DIR: o.migrationsDir } : {}) },
+      // (the team folder's case mode, as main.ts found it: the folder access conversion judges projects/<name> by it)
+      env: { ...process.env, [MIGRATE_DB_ENV]: o.file, MYCEL_PROJECTS_CASE_INSENSITIVE: projectsCaseInsensitive() ? '1' : '0', ...(o.migrationsDir ? { MYCEL_MIGRATE_DIR: o.migrationsDir } : {}) },
       stdin: 'ignore', stdout: 'pipe', stderr: 'inherit',
     })
     childPid = child.pid
@@ -124,6 +132,7 @@ export async function migrateBeforeStart(o: MigrateBeforeStartOptions): Promise<
 /** The child (MYCEL_MIGRATE_DB set): open and migrate the database, close it. Returns the exit code. */
 export function runMigrateChild(file: string, migrationsDir = process.env.MYCEL_MIGRATE_DIR || undefined): number {
   const out = (m: object) => process.stdout.write(JSON.stringify(m) + '\n')
+  if (process.env.MYCEL_PROJECTS_CASE_INSENSITIVE === '0' || process.env.MYCEL_PROJECTS_CASE_INSENSITIVE === '1') setProjectsCaseInsensitive(process.env.MYCEL_PROJECTS_CASE_INSENSITIVE === '1')
   try {
     openDb(file, { migrationsDir, log: { warn: (warn: string, fields?: Record<string, unknown>) => out({ warn, fields }) } }).close()
     return 0

@@ -10,19 +10,23 @@
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
 // line of a batch) opens 검토 at that person. /skills?catalog=open ("스킬 넣기" on Home and in the goal card) opens the
 // ready-made skills the team lacks, unfolded, for owners and admins.
+// The lists are read side by side and kept (store/listCache.ts): a visit after the first shows them at once and reads
+// them again behind it (docs/DECISIONS.md "Lists, Search and Settings open at once").
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useLocale, useT } from '../i18n'
+import { readCached, useCachedRead } from '../store/listCache'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
-import { AvailableSkills } from '../components/AvailableSkills'
+import { AVAILABLE_KEY, AvailableSkills, readAvailable } from '../components/AvailableSkills'
+import { ListHeading, ListRow } from '../components/list/List'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
@@ -41,24 +45,54 @@ const historyLink = (c: SkillChange) => {
   return `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}`
 }
 
+/** 팀 스킬's lists, kept together (store/listCache.ts) */
+interface SkillsPage {
+  overview: SkillsOverview
+  mine: SkillSuggestion[]
+  /** the suggestions to review: null when the person manages no skills folder */
+  review: SkillSuggestion[] | null
+  shares: SkillShare[]
+  /** every recent change under skills/: the owner and admins only */
+  changes: SkillChange[] | null
+}
+
+/** The page's lists in two rounds of requests side by side (before: five one after another): the overview, my
+ * suggestions and the changes, then what the overview says there is to review. */
+async function readSkillsPage(admin: boolean): Promise<SkillsPage> {
+  const [overview, mine, changes] = await Promise.all([
+    api.call(API.skillsOverview),
+    api.call(API.listSkillSuggestions, { query: { scope: 'mine', limit: 100 } }).then((r) => r.items),
+    admin ? api.call(API.listSkillChanges, { query: { limit: 100 } }).then((r) => r.items) : Promise.resolve(null),
+  ])
+  const [review, shares] = await Promise.all([
+    overview.managedFolders.length ? api.call(API.listSkillSuggestions, { query: { scope: 'review', limit: 100 } }).then((r) => r.items) : Promise.resolve(null),
+    // share proposals to the person's groups that others made (the server lists only what they may apply)
+    overview.sharesToReview ? api.call(API.listSkillShares, { query: { scope: 'review' } }).then((r) => r.items) : Promise.resolve([]),
+  ])
+  return { overview, mine, review, shares, changes }
+}
+
 export default function Skills() {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
   const [params, setParams] = useSearchParams()
-  const [overview, setOverview] = useState<SkillsOverview | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // the page's lists as this window last read them (store/listCache.ts): a visit after the first shows them at once
+  const admin = isAdmin(me)
+  const page = useCachedRead<SkillsPage>(`skills:page:${admin ? 'admin' : 'member'}`, () => readSkillsPage(admin))
+  const overview = page.data?.overview ?? null
+  const error = page.failed ? errorText(page.failed, locale, t('error.network')) : null
   // a manager of a skills folder (the team's, or a group's: docs/DECISIONS.md "Group skills"), or someone with a share
   // proposal to one of their groups to apply
   const manages = !!overview?.managedFolders.length || !!overview?.sharesToReview
-  const [shares, setShares] = useState<SkillShare[] | null>(null)
   const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') || params.get('batch') ? 'review' : 'skills')
   // ?batch=<id>: the person whose batch the Inbox line named, once the review list is in
   const [batch, setBatch] = useState<string | null>(params.get('batch'))
   const [query, setQuery] = useState('')
-  const [review, setReview] = useState<SkillSuggestion[] | null>(null)
-  const [mine, setMine] = useState<SkillSuggestion[] | null>(null)
-  const [changes, setChanges] = useState<SkillChange[] | null>(null)
+  const review = page.data?.review ?? null
+  const mine = page.data?.mine ?? null
+  const changes = page.data?.changes ?? null
+  const shares = page.data?.shares ?? null
   const [open, setOpen] = useState<SkillSuggestion | null>(null)
   // ?run=<path>: that skill's form, on top of the page; closing it takes the parameter out of the address
   const run = params.get('run')
@@ -68,25 +102,10 @@ export default function Skills() {
     setParams(next, { replace: true })
   }
 
-  const load = useCallback(async () => {
-    try {
-      const o = await api.call(API.skillsOverview)
-      setOverview(o)
-      setMine((await api.call(API.listSkillSuggestions, { query: { scope: 'mine', limit: 100 } })).items)
-      if (o.managedFolders.length) setReview((await api.call(API.listSkillSuggestions, { query: { scope: 'review', limit: 100 } })).items)
-      // share proposals to the person's groups that others made (the server lists only what they may apply)
-      setShares(o.sharesToReview ? (await api.call(API.listSkillShares, { query: { scope: 'review' } })).items : [])
-      if (isAdmin(me)) setChanges((await api.call(API.listSkillChanges, { query: { limit: 100 } })).items)
-      setError(null)
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me])
-  useEffect(() => {
-    void load()
-    return skillsChanged.on(() => void load())
-  }, [load])
+  const load = page.reload
+  useEffect(() => skillsChanged.on(() => void load()), [load])
+  // the skills tab's list waits for the overview to show; its read does not (the list joins it)
+  useEffect(() => void readCached(AVAILABLE_KEY, readAvailable).catch(() => {}), [])
   // a link chose the tab: "my suggestions" (its ?mine= is gone from the address by then) or 스킬 넣기's open catalog
   const linkedTab = useRef(!!params.get('mine') || params.get('catalog') === 'open')
   // first visit: managers land on what waits for them
@@ -142,7 +161,7 @@ export default function Skills() {
       <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
         <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="skills-header">
           {/* phones: the top bar says the name (components/PhoneTopBar.tsx) */}
-          <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{t('skills.title')}</h1>
+          <h1 className="text-title font-semibold tracking-tight max-md:sr-only">{t('skills.title')}</h1>
           {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} panels={panels} />}
           {overview && current === 'skills' && (
             <div className="relative w-full sm:ml-auto sm:w-56">
@@ -196,15 +215,19 @@ function ShareReviews({ items }: { items: SkillShare[] | null }) {
   if (!items?.length) return null
   return (
     <section className="mb-5" aria-label={t('skills.sharesToReview')} data-testid="share-review-list">
-      <h2 className="mb-1 text-sm font-medium">{t('skills.sharesToReview')}</h2>
-      <ul className="-mx-2 divide-y divide-line">
+      <ListHeading as="h2" className="mb-1">{t('skills.sharesToReview')}</ListHeading>
+      {/* the page's lists' density (ListRow scale="page"), as the skills under it */}
+      <ul>
         {items.map((s) => (
-          <li key={s.id}>
-            <Link to={`/skills/share/${s.id}`} className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-hover" data-testid="share-review-row" data-id={s.id}>
-              <Users size={16} className="shrink-0 text-muted" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{t('skills.shareRow', { who: s.proposer?.name ?? '', group: s.targetGroup?.name ?? '', n: s.candidates.filter((c) => c.group !== 'excluded').length })}</span>
-            </Link>
-          </li>
+          <ListRow
+            scale="page"
+            key={s.id}
+            to={`/skills/share/${s.id}`}
+            icon={<Users />}
+            name={t('skills.shareRow', { who: s.proposer?.name ?? '', group: s.targetGroup?.name ?? '', n: s.candidates.filter((c) => c.group !== 'excluded').length })}
+            testId="share-review-row"
+            link={{ 'data-id': s.id }}
+          />
         ))}
       </ul>
     </section>

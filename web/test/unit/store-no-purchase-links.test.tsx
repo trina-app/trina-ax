@@ -112,7 +112,7 @@ describe('the store wording in every language', () => {
       expect({ id, k, link: /https?:|www\.|\.app\b/.test(s), price: /[$€₩¥]|\d+\s?(usd|krw|idr)/i.test(s) }).toEqual({ id, k, link: false, price: false })
     }
     // none says to change the plan
-    const change: Record<string, RegExp> = { en: /change/i, ko: /올리|바꿔|바꾸/, id: /ubah/i, ja: /変更/, es: /cambi/i }
+    const change: Record<string, RegExp> = { en: /change/i, ko: /올리|바꿔|바꾸/, id: /ubah/i, ja: /変更/, es: /cambi/i, zh: /更改|升级|变更/ }
     for (const { id } of LOCALES) for (const k of STORE_KEYS) expect({ id, k, steer: change[id].test(DICTS[id][k]) }).toEqual({ id, k, steer: false })
   })
 })

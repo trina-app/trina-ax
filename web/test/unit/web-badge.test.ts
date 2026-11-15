@@ -219,7 +219,7 @@ describe('the settings line', () => {
     expect(at({ app: true })).toBeNull()
     expect(translate('ko', 'push.badgeHint.mac')).toBe("Dock 아이콘에 숫자가 안 보이면 시스템 설정 › 알림 › Trina AX에서 '앱 아이콘에 배지 표시'를 켜 주세요.")
     expect(translate('ko', 'push.badgeHint.windows')).toContain('작업 표시줄 앱에 배지 표시')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const p of ['mac', 'windows', 'ios', 'other'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) for (const p of ['mac', 'windows', 'ios', 'other'] as const) {
       expect(translate(l, `push.badgeHint.${p}`)).not.toMatch(/[{}]|push\.badgeHint/)
     }
   })

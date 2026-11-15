@@ -33,7 +33,7 @@ const exists = (rel: string) => fs.existsSync(path.join(h.team, ...rel.split('/'
 const read = (rel: string) => fs.readFileSync(path.join(h.team, ...rel.split('/')))
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'c-make-file-html-pdf', askUserTimeoutMs: 5000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'c-make-file-html-pdf', askUserTimeoutMs: 5000, stallTimeoutMs: 60_000 })
   bob = await h.ws('bob', { windowId: 'win-html-pdf-bob' })
   await bob.next('hello')
   // bob (finance) writes shared/ and groups/finance/, reads projects/falcon/, cannot read groups/marketing/

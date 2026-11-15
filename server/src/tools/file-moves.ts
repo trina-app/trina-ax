@@ -30,21 +30,21 @@ import { askConfirm } from './url-gate'
 
 export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file'] as const
 
-const t = (ko: string, en: string, id: string, ja: string, es: string): Record<Locale, string> => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 export const TEXT = {
-  move: t('AI가 {n}개 항목을 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} to {to}.', 'AI ingin memindahkan {n} item ke {to}.', "AIが{n}個の項目を{to}に移動しようとしています。", "La IA quiere mover {n, plural, one {# elemento} other {# elementos}} a {to}."),
-  copy: t('AI가 파일 {n}개를 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n, plural, one {# file} other {# files}} to {to}.', 'AI ingin menyalin {n} berkas ke {to}.', "AIが{n}個のファイルを{to}にコピーしようとしています。", "La IA quiere copiar {n, plural, one {# archivo} other {# archivos}} a {to}."),
+  move: t('AI가 {n}개 항목을 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} to {to}.', 'AI ingin memindahkan {n} item ke {to}.', "AIが{n}個の項目を{to}に移動しようとしています。", "La IA quiere mover {n, plural, one {# elemento} other {# elementos}} a {to}.", "AI 想把{n, plural, one {#个项目} other {#个项目}}移到{to}。"),
+  copy: t('AI가 파일 {n}개를 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n, plural, one {# file} other {# files}} to {to}.', 'AI ingin menyalin {n} berkas ke {to}.', "AIが{n}個のファイルを{to}にコピーしようとしています。", "La IA quiere copiar {n, plural, one {# archivo} other {# archivos}} a {to}.", "AI 想把{n, plural, one {#个文件} other {#个文件}}复制到{to}。"),
   // the target folder is not there yet: the tool makes it after a yes
-  moveNew: t('AI가 {n}개 항목을 새로 만들 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} to {to}, a new folder it will make.', 'AI ingin memindahkan {n} item ke {to}, folder baru yang akan dibuatnya.', "AIが{n}個の項目を、新しく作るフォルダー{to}に移動しようとしています。", "La IA quiere mover {n, plural, one {# elemento} other {# elementos}} a {to}, una carpeta nueva que creará."),
-  copyNew: t('AI가 파일 {n}개를 새로 만들 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n, plural, one {# file} other {# files}} to {to}, a new folder it will make.', 'AI ingin menyalin {n} berkas ke {to}, folder baru yang akan dibuatnya.', "AIが{n}個のファイルを、新しく作るフォルダー{to}にコピーしようとしています。", "La IA quiere copiar {n, plural, one {# archivo} other {# archivos}} a {to}, una carpeta nueva que creará."),
-  added: t('지금보다 {n}명이 더 볼 수 있게 돼요.', '{n, plural, one {# more person} other {# more people}} will be able to see {count, plural, one {it} other {them}}.', '{n} orang lagi akan bisa melihatnya.', "{count, plural, one {この項目} other {これらの項目}}を閲覧できる人が{n}人増えます。", "{n, plural, one {# persona más podrá} other {# personas más podrán}} {count, plural, one {verlo} other {verlos}}."),
-  lost: t('지금 볼 수 있는 {n}명은 더 이상 볼 수 없게 돼요.', '{n, plural, one {# person} other {# people}} who can see {count, plural, one {it} other {them}} now will no longer be able to.', '{n} orang yang kini bisa melihatnya tidak akan bisa lagi.', "{count, plural, one {この項目} other {これらの項目}}を現在閲覧できる{n}人が閲覧できなくなります。", "{n, plural, one {# persona que ahora puede} other {# personas que ahora pueden}} {count, plural, one {verlo} other {verlos}} {n, plural, one {dejará} other {dejarán}} de tener acceso."),
-  askMove: t('옮길까요?', '{count, plural, one {Move it?} other {Move them?}}', 'Pindahkan?', "{count, plural, one {移動しますか？} other {移動しますか？}}", "{count, plural, one {¿Moverlo?} other {¿Moverlos?}}"),
-  askCopy: t('복사할까요?', '{count, plural, one {Copy it?} other {Copy them?}}', 'Salin?', "{count, plural, one {コピーしますか？} other {コピーしますか？}}", "{count, plural, one {¿Copiarlo?} other {¿Copiarlos?}}"),
-  more: t('외 {n}개', 'and {n} more', 'dan {n} lainnya', "ほか{n}個", "y {n} más"),
-  yesMove: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover"),
-  yesCopy: t('복사하기', 'Copy', 'Salin', "コピー", "Copiar"),
-  no: t('하지 않기', 'Don’t', 'Jangan', "実行しない", "No hacerlo"),
+  moveNew: t('AI가 {n}개 항목을 새로 만들 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} to {to}, a new folder it will make.', 'AI ingin memindahkan {n} item ke {to}, folder baru yang akan dibuatnya.', "AIが{n}個の項目を、新しく作るフォルダー{to}に移動しようとしています。", "La IA quiere mover {n, plural, one {# elemento} other {# elementos}} a {to}, una carpeta nueva que creará.", "AI 想把{n, plural, one {#个项目} other {#个项目}}移到{to}，这是它将新建的文件夹。"),
+  copyNew: t('AI가 파일 {n}개를 새로 만들 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n, plural, one {# file} other {# files}} to {to}, a new folder it will make.', 'AI ingin menyalin {n} berkas ke {to}, folder baru yang akan dibuatnya.', "AIが{n}個のファイルを、新しく作るフォルダー{to}にコピーしようとしています。", "La IA quiere copiar {n, plural, one {# archivo} other {# archivos}} a {to}, una carpeta nueva que creará.", "AI 想把{n, plural, one {#个文件} other {#个文件}}复制到{to}，这是它将新建的文件夹。"),
+  added: t('지금보다 {n}명이 더 볼 수 있게 돼요.', '{n, plural, one {# more person} other {# more people}} will be able to see {count, plural, one {it} other {them}}.', '{n} orang lagi akan bisa melihatnya.', "{count, plural, one {この項目} other {これらの項目}}を閲覧できる人が{n}人増えます。", "{n, plural, one {# persona más podrá} other {# personas más podrán}} {count, plural, one {verlo} other {verlos}}.", "将有{n, plural, one {另外#人} other {另外#人}}能看到{count, plural, one {它} other {它们}}。"),
+  lost: t('지금 볼 수 있는 {n}명은 더 이상 볼 수 없게 돼요.', '{n, plural, one {# person} other {# people}} who can see {count, plural, one {it} other {them}} now will no longer be able to.', '{n} orang yang kini bisa melihatnya tidak akan bisa lagi.', "{count, plural, one {この項目} other {これらの項目}}を現在閲覧できる{n}人が閲覧できなくなります。", "{n, plural, one {# persona que ahora puede} other {# personas que ahora pueden}} {count, plural, one {verlo} other {verlos}} {n, plural, one {dejará} other {dejarán}} de tener acceso.", "现在能看到{count, plural, one {它} other {它们}}的{n, plural, one {#人} other {#人}}将无法再看到。"),
+  askMove: t('옮길까요?', '{count, plural, one {Move it?} other {Move them?}}', 'Pindahkan?', "{count, plural, one {移動しますか？} other {移動しますか？}}", "{count, plural, one {¿Moverlo?} other {¿Moverlos?}}", "{count, plural, one {要移动吗？} other {要移动吗？}}"),
+  askCopy: t('복사할까요?', '{count, plural, one {Copy it?} other {Copy them?}}', 'Salin?', "{count, plural, one {コピーしますか？} other {コピーしますか？}}", "{count, plural, one {¿Copiarlo?} other {¿Copiarlos?}}", "{count, plural, one {要复制吗？} other {要复制吗？}}"),
+  more: t('외 {n}개', 'and {n} more', 'dan {n} lainnya', "ほか{n}個", "y {n} más", "等另外{n}个"),
+  yesMove: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover", "移动"),
+  yesCopy: t('복사하기', 'Copy', 'Salin', "コピー", "Copiar", "复制"),
+  no: t('하지 않기', 'Don’t', 'Jangan', "実行しない", "No hacerlo", "不要"),
 }
 /** A count's form first ("{n, plural, one {# item} other {# items}}", shared/src/plural.ts), then the plain values. */
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))

@@ -6,12 +6,12 @@
 import { Fragment, type ReactNode } from 'react'
 import type { Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
-import { DICTS, format, type MessageKey, type Params } from '../../i18n'
+import { format, messageOf, type MessageKey, type Params } from '../../i18n'
 
 const MARK = '\u0000'
 
 export function isolate(locale: Locale, key: MessageKey, params: Params, keys: readonly string[]): ReactNode {
-  const template = dropDoubleHonorifics(DICTS[locale]?.[key] ?? DICTS.en[key], params)
+  const template = dropDoubleHonorifics(messageOf(locale, key) ?? key, params)
   const marked = format(template, { ...params, ...Object.fromEntries(keys.map((k) => [k, `${MARK}${k}${MARK}`])) }, locale)
   return marked.split(MARK).map((part, i) => (i % 2 ? <bdi key={i}>{String(params[part] ?? '')}</bdi> : <Fragment key={i}>{part}</Fragment>))
 }

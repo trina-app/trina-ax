@@ -19,7 +19,7 @@ type ChunkTry = { sent: number[]; end: 'ok' | 'net' | number }
 
 /** A tiny upload-session server: records calls, can fail chunk PUTs on purpose. With `sent`, each watched request
  * reports those shares of its body before it is answered, as lib/xhr.ts does; `tries` scripts a chunk try by try. */
-function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[]; sent?: number[]; tries?: Record<number, ChunkTry[]>; storedSize?: number } = {}) {
+function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[]; sent?: number[]; tries?: Record<number, ChunkTry[]>; storedSize?: number; receivedSize?: number } = {}) {
   const calls: string[] = []
   const watched: string[] = []
   const parts: { name: string; type: string; size: number; declared: FormDataEntryValue | null }[] = []
@@ -43,7 +43,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
     }
     if (method === 'POST' && url.pathname === '/api/uploads') {
       const fd = init!.body as FormData
-      return json({ id: uuidv7(), name: fd.get('name'), path: 'users/u/.attachments/c/a.pdf', size: stored(fd), mime: 'application/pdf', kind: 'pdf' }, 201)
+      return json({ id: uuidv7(), name: fd.get('name'), path: 'users/u/.attachments/c/a.pdf', size: stored(fd), mime: 'application/pdf', kind: 'pdf', ...(o.receivedSize !== undefined ? { receivedSize: o.receivedSize } : {}) }, 201)
     }
     if (method === 'POST' && url.pathname === '/api/transcribe') {
       const fd = init!.body as FormData
@@ -542,6 +542,14 @@ describe('uploads', () => {
       expect(errorText(e, currentLocale(), 'network')).toBe(translate(currentLocale(), 'files.incompleteUpload'))
     })
 
+    test('a photo whose place the server cut out is smaller when kept: the bytes it received are what count (QA TC-2023)', async () => {
+      const ok = await uploadFile(thousand(), attachment(), { client: fakeServer({ storedSize: 880, receivedSize: 1000 }).client, storage: null })
+      expect(ok.kind === 'attachment' && ok.attachment.size).toBe(880)
+      // a part that did not arrive whole still fails, whatever was kept
+      const e = await uploadFile(thousand(), attachment(), { client: fakeServer({ storedSize: 880, receivedSize: 0 }).client, storage: null }).catch((x: unknown) => x)
+      expect(errorText(e, currentLocale(), 'network')).toBe(translate(currentLocale(), 'files.incompleteUpload'))
+    })
+
     test('an empty file stays an upload (.gitkeep), and says it is empty', async () => {
       const s = fakeServer()
       const r = await uploadFile(new File([], '.gitkeep'), { kind: 'path', path: 'docs/.gitkeep', onExists: 'rename' }, { client: s.client, storage: null })
@@ -683,5 +691,15 @@ describe('uploads', () => {
     expect(Object.keys(kept)).toHaveLength(REMEMBER_MAX)
     expect(kept['stale-0']).toBeUndefined()
     expect(Object.keys(kept).at(-1)).toBe(fingerprint(file, { kind: 'path', path: 'x/big.bin', onExists: 'rename' }))
+  })
+})
+
+describe('files over the server limit (QA TC-1156)', () => {
+  test('splitOversize keeps the files that fit and names the first one that does not', async () => {
+    const { splitOversize } = await import('../../src/lib/upload')
+    const { UPLOAD_SESSION_MAX } = await import('@mycel/shared/api')
+    const a = { name: 'a.txt', size: 10 }, big = { name: 'huge.bin', size: UPLOAD_SESSION_MAX + 1 }, edge = { name: 'edge.bin', size: UPLOAD_SESSION_MAX }
+    expect(splitOversize([a, edge])).toEqual({ fit: [a, edge], tooBig: undefined })
+    expect(splitOversize([a, big, edge])).toEqual({ fit: [a, edge], tooBig: big })
   })
 })

@@ -11,7 +11,11 @@ let seq = 100
 
 export interface MockRoom {
   /** the bodies of POST /api/rooms/:id/messages, in order */
-  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null; alsoInRoom?: boolean }[]
+  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null; alsoInRoom?: boolean; showMessages?: string[] }[]
+  /** the bodies of POST …/message-links/audience, in order (message links: the box's question) */
+  asked: { links: { roomId: string; messageId: string }[]; threadRootId?: string }[]
+  /** POST …/messages/:id/hide-preview, in order */
+  hidden: { messageId: string; linkedMessageId: string }[]
   /** the reactions put on or taken off (PUT …/reactions), in order */
   reacted: { messageId: string; emoji: string; on: boolean }[]
   /** a message put into the room as the server would have it (an answer shared from the side chat): in its thread or
@@ -24,14 +28,17 @@ export interface MockRoom {
 export interface MockMessage { id: string; author: { id: string; name: string }; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }
 
 /** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
- * room (my notification level) answers with the room changed. */
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; room?: Record<string, unknown> }): Promise<MockRoom> {
+ * room (my notification level) answers with the room changed. `me`: who is signed in and sends (the owner olga by
+ * default; a guest made with /__test/guest, for a guest's own view). `audience`: what POST …/message-links/audience
+ * answers (default: nothing to ask). */
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; room?: Record<string, unknown>; me?: { id: string; name: string }; audience?: Record<string, unknown>[] }): Promise<MockRoom> {
   // its answers count for the feature map (docs/FEATURES.md) like the mock server's
   reportBrowserAnswers(page)
-  const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
+  const state: MockRoom = { sent: [], reacted: [], asked: [], hidden: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
-  const members = [{ id: 'olga', name: 'Olga' }, ...o.members]
+  const me = o.me ?? { id: 'olga', name: 'Olga' }
+  const members = [me, ...o.members]
   const message = (m: { id: string; author: { id: string; name: string } | null; body: string; mentions?: string[]; mentionsAll?: boolean; threadRootId?: string; extra?: Record<string, unknown> }, n: number) => ({
     id: m.id, roomId: ROOM_ID, seq: n, authorKind: 'user', author: m.author, askedBy: null, visibility: 'room', body: m.body, replyTo: null,
     mentions: m.mentions ?? [], ...(m.mentionsAll ? { mentionsAll: true } : {}), files: [], createdAt: at(n), editedAt: null, deletedAt: null,
@@ -78,6 +85,21 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       mine.set(react[1]!, list)
       return route.fulfill(json({ reactions: list.map((emoji) => ({ emoji, count: 1, mine: true, users: [{ id: 'olga', name: 'Olga' }] })) }))
     }
+    // message links: the box's question, and the sender's "Remove preview" (the message without that card)
+    if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/message-links/audience`) {
+      state.asked.push(req.postDataJSON() as MockRoom['asked'][number])
+      return route.fulfill(json({ items: o.audience ?? [] }))
+    }
+    const hide = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/hide-preview$/.exec(path)
+    if (hide && method === 'POST') {
+      const b = req.postDataJSON() as { linkedMessageId: string }
+      state.hidden.push({ messageId: hide[1]!, linkedMessageId: b.linkedMessageId })
+      const m = all.find((x) => x.id === hide[1]) as Record<string, unknown> | undefined
+      if (!m) return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
+      // the chip stays (its place), the card goes
+      m.linkPreviews = ((m.linkPreviews as { messageId: string }[] | undefined) ?? []).map((x) => (x.messageId === b.linkedMessageId ? { ...x, body: '', files: { count: 0 }, removed: true } : x))
+      return route.fulfill(json(m))
+    }
     const thread = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/thread(\/read)?$/.exec(path)
     const root = thread && messages.find((m) => m.id === thread[1])
     if (thread && root && method === 'GET' && !thread[2]) return route.fulfill(json({ root, items: replies(root.id), nextCursor: null }))
@@ -88,7 +110,7 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       const n = ++seq
       const id = `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
       // a reply comes back as one, and is in its thread when the thread is read again
-      const sent = message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll, ...(b.threadRootId ? { threadRootId: b.threadRootId, extra: b.alsoInRoom ? { alsoInRoom: true } : {} } : {}) }, n)
+      const sent = message({ id, author: me, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll, ...(b.threadRootId ? { threadRootId: b.threadRootId, extra: b.alsoInRoom ? { alsoInRoom: true } : {} } : {}) }, n)
       if (b.threadRootId) all.push(sent)
       return route.fulfill(json(sent, 201))
     }

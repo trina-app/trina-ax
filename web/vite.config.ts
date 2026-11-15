@@ -6,22 +6,26 @@
 // scripts/build-vendor.ts and served from /vendor/ (artifact frames may not load anything from public CDNs).
 // pdf.js's data files (CMaps, fonts, image decoders) go to dist/assets/pdfjs-<version>/ (scripts/pdfjs-assets.ts).
 // The emoji picker's names come from two lazy modules the build makes from emojibase-data (scripts/emoji-data.ts).
+// Each language's words are their own file, loaded when shown (scripts/locales-on-demand.ts); after the vendor build,
+// scripts/compress-dist.ts writes the .br / .gz copies the team server sends.
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type UserConfig } from 'vite'
 import pkg from './package.json' with { type: 'json' }
 import { emojiData } from './scripts/emoji-data.ts'
+import { localesOnDemand } from './scripts/locales-on-demand.ts'
 import { pdfjsAssets } from './scripts/pdfjs-assets.ts'
 import { productPages } from './scripts/product-pages.ts'
+import { demoConfig } from './demo/vite.ts'
 
 const API_TARGET = process.env.MYCEL_API_TARGET ?? 'http://127.0.0.1:19100'
 
-export default defineConfig({
+const config: UserConfig = {
   // one tsconfig for every file: web imports mobile/src/protocol.ts, and mobile/tsconfig.json extends
   // expo/tsconfig.base, which a clean checkout does not have (mobile/ is not a workspace; vite 8 reads the
   // nearest tsconfig per file otherwise and the build fails with "Tsconfig not found expo/tsconfig.base")
   tsconfig: 'tsconfig.json',
-  plugins: [react(), tailwindcss(), productPages(), pdfjsAssets(), emojiData()],
+  plugins: [localesOnDemand(), react(), tailwindcss(), productPages(), pdfjsAssets(), emojiData()],
   define: {
     __WEB_VERSION__: JSON.stringify(pkg.version),
     __WEB_BUILD__: JSON.stringify(process.env.MYCEL_WEB_BUILD ?? new Date().toISOString()),
@@ -39,4 +43,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 3000,
   },
   worker: { format: 'es' },
-})
+}
+
+// `--mode demo` (bun run build:demo): the hands-on demo build, web/demo/vite.ts; every other mode builds the product as it is
+export default defineConfig(({ mode }) => (mode === 'demo' ? demoConfig(config) : config))

@@ -4,7 +4,7 @@
 // the name is a 44px button.
 import clsx from 'clsx'
 import { ChevronDown } from 'lucide-react'
-import { MenuButton } from './rooms/MenuButton'
+import { MenuButton, menuBoxCls, menuRowCls } from './rooms/MenuButton'
 import { useMediaQuery } from './ui'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useOverlayEntry } from '../lib/backCloses'
@@ -15,6 +15,9 @@ export interface TitleMenuItem {
   onSelect: () => void
   danger?: boolean
   testId: string
+  /** shown but off, `hint` beside it saying why (rooms/MenuButton.tsx MenuItem) */
+  disabled?: boolean
+  hint?: string
 }
 
 /** heading: the name is the page's heading (the chat screen), with this test id; the menu itself stays outside it */
@@ -27,7 +30,7 @@ export function TitleMenu({ name, items, testId, heading }: { name: string; item
   const [open, setOpen] = useState(false)
   // phones: Back closes the menu, not the page (lib/backCloses.ts)
   useOverlayEntry(open, () => setOpen(false))
-  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])]
   useEffect(() => {
     if (!open) return
     menuItems()[0]?.focus()
@@ -81,24 +84,32 @@ export function TitleMenu({ name, items, testId, heading }: { name: string; item
           buttonClassName="hidden!"
           openRequest={sheet}
           focusBack={() => nameButton.current?.focus()}
-          items={items.map((it) => ({ label: it.label, icon: it.icon, onSelect: it.onSelect, danger: it.danger, testId: it.testId }))}
+          items={items.map((it) => ({ label: it.label, icon: it.icon, onSelect: it.onSelect, danger: it.danger, testId: it.testId, disabled: it.disabled, hint: it.hint }))}
         />
       )}
       {open && !phone && (
-        <div role="menu" aria-label={name} className="absolute top-full left-0 z-30 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
+        // the app's menu box and row (rooms/MenuButton.tsx): as wide as its longest item, so "Share with project
+        // members" stays on one line (QA TC-1083)
+        <div role="menu" aria-label={name} className={clsx('absolute top-full left-0 z-30 mt-1', menuBoxCls)}>
           {items.map((it) => (
             <button
               key={it.testId}
               role="menuitem"
               type="button"
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover', it.danger && 'text-danger')}
+              disabled={it.disabled}
+              className={clsx(menuRowCls, '-outline-offset-2 hover:bg-hover focus:bg-hover disabled:cursor-not-allowed disabled:bg-transparent', it.danger && 'text-danger')}
               onClick={() => {
                 setOpen(false)
                 it.onSelect()
               }}
               data-testid={it.testId}
             >
-              {it.icon} {it.label}
+              {/* off: greyed, the hint (why) kept readable, as rooms/MenuButton.tsx */}
+              <span className={clsx('contents', it.disabled && '[&>svg]:opacity-40')}>{it.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className={clsx(it.disabled && 'opacity-40')}>{it.label}</span>
+                {it.hint && <span className={it.disabled ? 'block text-xs text-muted' : 'ml-1.5 text-muted'}>{it.hint}</span>}
+              </span>
             </button>
           ))}
         </div>

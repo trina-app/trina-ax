@@ -1,0 +1,27 @@
+{
+ "id": "evt_3TestRefund0001",
+ "object": "event",
+ "created": 1794650000,
+ "livemode": false,
+ "type": "charge.refunded",
+ "data": {
+  "object": {
+   "id": "ch_3TestCharge0001",
+   "object": "charge",
+   "amount": 4900,
+   "amount_refunded": 4900,
+   "currency": "usd",
+   "payment_intent": "pi_3TestPayment0001",
+   "refunded": true,
+   "billing_details": {
+    "name": "Jamie Rivera",
+    "email": "jamie@example.com"
+   },
+   "payment_method_details": {
+    "card": {
+     "last4": "4242"
+    }
+   }
+  }
+ }
+}

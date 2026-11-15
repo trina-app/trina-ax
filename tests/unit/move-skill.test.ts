@@ -1,5 +1,5 @@
 // Moving and copying a skill between levels (server/src/skills/move.ts, docs/DECISIONS.md "Project skills"): the AI's
-// move_skill (`keep`: a copy) and the Skills page's 옮기기… (GET / POST /api/skills/move). Write on both places for a
+// move_skill (`keep`: a copy) and the Skills page's 옮기기 (GET / POST /api/skills/move). Write on both places for a
 // move, read on the original for a copy; no skill of that name at the target, a SKILL.md folder for a project, no wider
 // skill of the name for a project (a copy keeps its original, so a same-name project copy is refused: give it a name).
 // The AI may propose any move the Skills page makes (owner, 2026-11-10): its card says who gains and loses it (by name
@@ -224,7 +224,7 @@ describe('in the app: the Skills page and the AI', () => {
   const cm = () => 'cm-' + crypto.randomUUID()
   const status = async (p: Promise<unknown>) => { try { await p; return 200 } catch (e) { return (e as { status: number }).status } }
   beforeAll(async () => {
-    h = await startHarness({ name: 'move-skill-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'move-skill-app', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
     // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
     // project uses, when they run (after the start, in their own time): the fixture's falcon is this suite's own
     // project (made below, as before that build), so the one the steps made for it goes, once the steps are done
@@ -239,7 +239,9 @@ describe('in the app: the Skills page and the AI', () => {
 
   type Card = { question: string; options?: { value: string }[]; details?: { label: string; text: string; collapsedAt?: number; fields?: { name: string; value: string }[] }[]; note?: string }
   async function turn(user: string, content: string, o: { project?: boolean | string; answer?: string | null; meanwhile?: () => void } = {}) {
-    const chat = await h.api(user).call(API.createChat, { body: o.project === false ? {} : { projectId: typeof o.project === 'string' ? o.project : FALCON } })
+    // the person's own chat ("Only me": a team project's new chats are shared, and moving skills is not a shared chat's
+    // tool; docs/DECISIONS.md "Team project chats shared by default")
+    const chat = await h.api(user).call(API.createChat, { body: o.project === false ? {} : { projectId: typeof o.project === 'string' ? o.project : FALCON, private: true } })
     const r = await h.api(user).call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
     let card = null as Card | null
     if (o.answer !== undefined) {
@@ -405,7 +407,7 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('after a room read the move card is the only card, the room line first (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")', async () => {
-    const chat = await h.api('carol').call(API.createChat, { body: { projectId: FALCON } })
+    const chat = await h.api('carol').call(API.createChat, { body: { projectId: FALCON, private: true } })
     h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat.id)
     const r = await h.api('carol').call(API.sendMessage, { params: { id: chat.id }, body: { content: moveCall({ skill: 'ops', to: 'project' }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.carol!.next('turn.request', (f) => f.data.turnId === r.turnId)
@@ -424,15 +426,18 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('the card is bound to who gets it: someone losing the project after it is shown makes it stale, named for an admin', async () => {
-    const fin = "UPDATE folder_rules SET access = ? WHERE folder_id = (SELECT id FROM folders WHERE path = 'projects/falcon') AND subject_type = 'group' AND subject_id = 'finance'"
+    // (finance loses falcon: its rule goes; a "no access" rule no longer exists since access adds up)
+    const where = "folder_id = (SELECT id FROM folders WHERE path = 'projects/falcon') AND subject_type = 'group' AND subject_id = 'finance'"
+    const was = h.ctx.db.query(`SELECT id, folder_id, access FROM folder_rules WHERE ${where}`).get() as { id: string; folder_id: string; access: string }
+    const fin = { run: (a: string) => (a === 'none' ? h.ctx.db.query(`DELETE FROM folder_rules WHERE ${where}`).run() : h.ctx.db.query("INSERT OR REPLACE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', ?)").run(was.id, was.folder_id, a)) }
     try {
       // the team's quote into falcon: alice newly may change it there (a card, no longer a refusal)
-      const r = await turn('carol', moveCall({ skill: 'quote', to: 'project' }), { answer: 'move', meanwhile: () => h.ctx.db.query(fin).run('none') })
+      const r = await turn('carol', moveCall({ skill: 'quote', to: 'project' }), { answer: 'move', meanwhile: () => fin.run('none') })
       expect(fields(r.card)['고칠 수 있게 돼요']).toBe('Alice Kim')
       expect(r.content).toContain('Not moved: since the card was shown, it would no longer reach Bob Lee')
       expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true)
       expect(fs.existsSync(path.join(h.team, 'projects/falcon/skills/quote'))).toBe(false)
-    } finally { h.ctx.db.query(fin).run('read') }
+    } finally { fin.run(was.access) }
   })
 
   test('moved after yes: the card says who loses it, SKILL.md folded, every file; audited with both levels and counts; announced', async () => {
@@ -500,10 +505,12 @@ describe('in the app: the Skills page and the AI', () => {
     const o = await h.api('alice').call(API.skillMoveOptions, { query: { path: 'users/alice/skills/launch/SKILL.md' } })
     const hawk = o.targets.find((x) => x.to.level === 'project' && x.to.projectId === HAWK)!
     expect(hawk.blocked).toBeUndefined()
-    h.ctx.db.query("UPDATE folder_rules SET access = 'none' WHERE id = 'r_hawk_fin'").run()
+    // (finance loses hawk: its rule goes)
+    const fin = h.ctx.db.query("SELECT folder_id FROM folder_rules WHERE id = 'r_hawk_fin'").get() as { folder_id: string }
+    h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_hawk_fin'").run()
     try {
       expect(await status(h.api('alice').call(API.moveSkill, { body: { path: o.path, to: hawk.to, token: hawk.token! } }))).toBe(409)
-    } finally { h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = 'r_hawk_fin'").run() }
+    } finally { h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_hawk_fin', ?, 'group', 'finance', 'read')").run(fin.folder_id) }
     const again = (await h.api('alice').call(API.skillMoveOptions, { query: { path: o.path } })).targets.find((x) => x.to.level === 'project' && x.to.projectId === HAWK)!
     const done = await h.api('alice').call(API.moveSkill, { body: { path: o.path, to: again.to, token: again.token! } })
     expect(done.path).toBe('projects/hawk/skills/launch/SKILL.md')
@@ -530,6 +537,32 @@ describe('in the app: the Skills page and the AI', () => {
     expect(answer.content).toContain('Not moved: a scheduled run has nobody to confirm the card')
     expect(answer.content).toContain('Tell the user to move the skill in a chat or with the Move item')
     expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true)
+  })
+
+  test('a scheduled run is no longer refused up front when its own person chose Always allow for skill changes; another member\'s choice does not count (owner 2026-11-14, TC-1296)', async () => {
+    const { keepAlways } = await import('../../server/src/chat/always-allow')
+    const mine = path.join(h.team, 'users/carol/skills')
+    const before = new Set(fs.existsSync(mine) ? fs.readdirSync(mine) : [])
+    const runOf = async (who: string) => {
+      const rt = h.rt()
+      const now = new Date()
+      const made = rt.schedules.create('carol', { title: `Copy ${who}`, prompt: moveCall({ skill: 'quote', to: 'personal', keep: true }), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
+      expect(rt.schedules.runDue(now)).toContain(made.id)
+      const chatId = rt.schedules.get('carol', made.id)!.last_chat_id!
+      await waitFor(() => (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+      return (h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { content: string }).content
+    }
+    const REFUSED = 'Not copied: a scheduled run has nobody to confirm the card'
+    keepAlways(h.ctx.db, 'dana', 'skill_files', null)
+    try {
+      expect(await runOf('dana-only')).toContain(REFUSED) // carol's task: dana's choice is not carol's
+      keepAlways(h.ctx.db, 'carol', 'skill_files', null)
+      expect(await runOf('carol')).not.toContain(REFUSED) // her own: past the up-front refusal
+      expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true) // a copy: the original stays
+    } finally {
+      h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id IN ('carol', 'dana')").run()
+      if (fs.existsSync(mine)) for (const d of fs.readdirSync(mine)) if (!before.has(d)) fs.rmSync(path.join(mine, d), { recursive: true, force: true })
+    }
   })
 
   test('the file tools refuse skill folders and point at move_skill for a move or a copy', async () => {

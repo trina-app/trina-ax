@@ -1,0 +1,18 @@
+{
+ "id": "evt_3TestDispute0001",
+ "object": "event",
+ "created": 1794660000,
+ "livemode": false,
+ "type": "charge.dispute.created",
+ "data": {
+  "object": {
+   "id": "dp_1TestDispute",
+   "object": "dispute",
+   "amount": 4900,
+   "currency": "usd",
+   "charge": "ch_3TestCharge0001",
+   "payment_intent": "pi_3TestPayment0001",
+   "reason": "product_not_received"
+  }
+ }
+}

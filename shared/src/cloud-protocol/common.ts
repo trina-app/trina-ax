@@ -3,10 +3,10 @@
 import { z } from 'zod'
 
 export const IsoTime = z.iso.datetime({ offset: true })
-export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es'])
+export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es', 'zh'])
 export type Locale = z.infer<typeof Locale>
-/** External control-plane text; older publishers may omit Japanese and Spanish (English fallback). */
-export const I18nText = z.object({ ko: z.string().min(1).max(500), en: z.string().min(1).max(500), id: z.string().min(1).max(500), ja: z.string().min(1).max(500).optional(), es: z.string().min(1).max(500).optional() })
+/** External control-plane text; older publishers may omit Japanese, Spanish and Chinese (English fallback). */
+export const I18nText = z.object({ ko: z.string().min(1).max(500), en: z.string().min(1).max(500), id: z.string().min(1).max(500), ja: z.string().min(1).max(500).optional(), es: z.string().min(1).max(500).optional(), zh: z.string().min(1).max(500).optional() })
 export type I18nText = z.infer<typeof I18nText>
 
 /** Team address label <slug>.treesoop.com: the relay's name rule (shared/src/relay-protocol/names.ts, kept equal by a test). */

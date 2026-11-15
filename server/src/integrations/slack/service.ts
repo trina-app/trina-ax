@@ -28,7 +28,7 @@
 // last listed for the bot token). Nothing of Slack's messages is stored here: read in real time for one turn.
 import crypto from 'node:crypto'
 import path from 'node:path'
-import { DEFAULT_LOCALE, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, Locale as LocaleSchema, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
@@ -60,6 +60,24 @@ const EMAIL_TRUST_MS = 7 * 86_400_000
 export const SLACK_CALLBACK_PATH = '/api/integrations/slack/oauth/callback'
 const SLACK_AUTHORIZE = 'https://slack.com/openid/connect/authorize'
 const LINK_AGAIN_MS = 60_000
+
+/** Why no new connect link now, from this Slack account's links of the last hour: `n` made, the oldest's time, the
+ * newest one still to be used. The hourly cap is said with the time a link can be had again (QA chatB: the 11th link
+ * of an hour said "in a few minutes"); a link sent within the minute: "use it". null: a new link may be made. */
+export function linkWaitOf(recent: { n: number; first: string | null; last: string | null }, now: number): { key: 'linkWait' } | { key: 'linkHourly'; again: number } | null {
+  // the oldest link of the hour leaves the count an hour after it was made (the next whole minute, so "after 14:05" holds)
+  if (recent.n >= LINK_PER_HOUR) return { key: 'linkHourly', again: Math.ceil(((recent.first ? Date.parse(recent.first) : now) + 3600_000) / 60_000) * 60_000 }
+  if (recent.last && Date.parse(recent.last) > now - LINK_AGAIN_MS) return { key: 'linkWait' }
+  return null
+}
+
+/** linkWaitOf's answer in words, in the asker's language; the time in Slack's date token, so Slack shows it in each
+ * person's own time zone (the text after | is for an app that cannot: UTC) */
+export function linkWaitText(w: NonNullable<ReturnType<typeof linkWaitOf>>, locale: Locale): string {
+  if (w.key === 'linkWait') return say('linkWait', locale)
+  const utc = new Date(w.again).toISOString().slice(11, 16)
+  return say('linkHourly', locale, { n: String(LINK_PER_HOUR), at: `<!date^${Math.floor(w.again / 1000)}^{time}|${utc} UTC>` })
+}
 const ANSWER_WAIT_MS = 2 * 60 * 60_000
 const KEEP_MS = 7 * 86_400_000
 const AAD = 'slack:workspace'
@@ -84,8 +102,8 @@ interface ConfigRow {
 /** sealed together: the two tokens and, for Sign in with Slack, the app's client secret (own app); the bot token alone
  * (the official app: the app-level token and the client secret stay at the hosting service) */
 interface Tokens { bot: string; app?: string; clientSecret?: string }
-interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null }
-interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string }
+interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null; reason: string | null }
+interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string; reason: string | null }
 /** test deps: also the hosting service's broker (null: none; left out: from the environment, broker.ts) */
 export interface SlackConnectorDeps extends SlackDeps {
   broker?: SlackBrokerOptions | null; pollWaitMs?: number
@@ -150,6 +168,9 @@ export const SIGNIN_CODE = /^[A-Za-z0-9._-]{8,512}$/
 const CODE = SIGNIN_CODE
 const APP_TOKEN = /^xapp-[A-Za-z0-9-]{10,250}$/
 
+/** a flow's reason once it was cancelled in the app (cancelFlows) */
+const CANCELLED_HERE = 'cancelled_here'
+
 export class SlackConnector {
   readonly api: SlackApi
   readonly box: SecretBox
@@ -185,9 +206,25 @@ export class SlackConnector {
   readonly shared = new Map<string, { ids: Set<string>; at: number }>()
   /** the bot's scopes were asked of Slack (checkBotScopes): at most every 10 minutes from refresh */
   private scopesCheckedAt = 0
+  /** the live connection's state and when it began (this server's clock): how long "connecting" has lasted
+   * (adminView connectingFor). Memory only: a restart starts connecting again. */
+  private liveSince: { state: SlackState; at: number } | null = null
 
   constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
+    // every call made with the saved bot token (posts, ephemerals, users.info, conversations.*, the scopes check at start
+    // and every 10 minutes): Slack refusing that token (account_inactive, token_revoked, invalid_auth, not_authed) is
+    // said in Admin as such ("Replace tokens"; the official app: removed), not left "Connected" (QA TC-2140: the scopes
+    // check logged account_inactive and nothing changed, even after a restart). A network error or a rate limit changes
+    // nothing (tokenRefused only takes TOKEN_GONE); a token that is not the saved bot token (one being checked before
+    // a save, the app-level token) says nothing about it.
+    const call = this.api.call.bind(this.api)
+    this.api.call = async (method, token, body, o) => {
+      try { return await call(method, token, body, o) } catch (e) {
+        if (e instanceof SlackApiError && TOKEN_GONE.has(e.code) && token && token === this.botToken()) this.tokenRefused(e, token)
+        throw e
+      }
+    }
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'slack'))
     // a fake Slack (offline tests) never reaches a real hosting service, whatever the environment says
@@ -274,6 +311,7 @@ export class SlackConnector {
       // the variable was taken away: nothing comes in (the status line says not served)
       if (!this.broker) { this.noteState('error', 'not_served'); this.stopPoller(); return }
       if (!this.feed) {
+        this.liveSince = { state: 'connecting', at: this.now() }
         this.feed = new SlackBrokerFeed({
           client: this.broker, log: this.log, retryMs: this.deps.retryMs, ...(this.deps.pollWaitMs !== undefined ? { waitMs: this.deps.pollWaitMs } : {}),
           onEvent: (e) => this.onBrokerEvent(e),
@@ -286,6 +324,7 @@ export class SlackConnector {
       return
     }
     if (!this.socket) {
+      this.liveSince = { state: 'connecting', at: this.now() }
       this.socket = new SlackSocket({
         api: this.api, log: this.log, retryMs: this.deps.retryMs, expectedAppId: cfg!.app_id,
         appToken: () => this.tokens()?.app ?? null,
@@ -298,9 +337,13 @@ export class SlackConnector {
   }
 
   private noteState(s: SlackState, err: SlackErrorCode | null) {
+    if (this.liveSince?.state !== s) this.liveSince = { state: s, at: this.now() }
     // the official app removed from the workspace: that stays the reason until it is added again
     const now = this.config()
     if (now?.last_error === 'removed' && !now.secret_enc) return
+    // the own app's bot token Slack refused: that stays the reason until new tokens are saved (the app-level token
+    // still connects, so the connection coming back says nothing about the bot token)
+    if (now?.mode === 'own' && now.last_error === 'bot_refused') return
     try { this.db.query('UPDATE slack_config SET last_error = ? WHERE id = 1 AND last_error IS NOT ?').run(err, err) } catch {}
     // each new connection reads the bot's name again: it may have been renamed in Slack's app settings
     if (s === 'connected') void this.readBotName()
@@ -340,15 +383,19 @@ export class SlackConnector {
     const linked = (this.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n
     const official = cfg?.mode === 'official'
     const live = official ? this.feed : this.socket
-    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : live?.state ?? (official && !this.broker ? 'error' : 'connecting')
+    const botRefused = !official && !!cfg?.secret_enc && cfg.last_error === 'bot_refused'
+    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : botRefused ? 'error' : live?.state ?? (official && !this.broker ? 'error' : 'connecting')
     // the official app removed from the workspace: said whether it is on or off, until it is added again
     const removed = official && !cfg?.secret_enc && cfg?.last_error === 'removed'
-    const lastError = (removed ? 'removed' : cfg?.enabled ? (live?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
+    const lastError = (removed ? 'removed' : botRefused && cfg?.enabled ? 'bot_refused' : cfg?.enabled ? (live?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
     return {
       mode: official ? 'official' : 'own', official: !!this.broker && this.brokerOk,
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
       workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
-      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
+      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state,
+      // how long it has been connecting: the screens turn a long wait into a problem with a next step
+      connectingFor: state === 'connecting' ? Math.max(0, Math.floor((this.now() - (this.liveSince?.state === 'connecting' ? this.liveSince.at : this.now())) / 1000)) : null,
+      lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
       signIn: official ? !!cfg?.secret_enc && !!this.broker : !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
       // reading needs the bot's two history scopes: missing (an app from before them: "Update Slack permissions"), ok,
@@ -580,7 +627,7 @@ export class SlackConnector {
 
   /** an account that may use the app now (no password change pending) */
   private person(userId: string) {
-    return this.db.query("SELECT id, name, username, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
+    return this.db.query("SELECT id, name, username, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
   }
 
   /** The Slack account as Slack says it now (users.info): of this workspace, a person (no bot, not deactivated), and its
@@ -740,6 +787,8 @@ export class SlackConnector {
   async finishSignIn(input: { state?: string; code?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'signin_expired', client: 'web' }
     const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as SigninFlowRow | null
+    // cancelled in the app (cancelFlows): nothing is linked, and the window says so
+    if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'signin_cancelled_here', client: f.client }
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'signin_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
@@ -897,6 +946,14 @@ export class SlackConnector {
     }
   }
 
+  /** Cancel (or the screen stopped waiting, QA TC-1417): this person's sign-in or install of this session that still
+   * waits is ended, so a browser window left open cannot finish it afterwards (an install of another workspace would drop
+   * everyone's links). One already being finished is not stopped. */
+  cancelFlows(kind: 'signin' | 'install', userId: string, session: string) {
+    const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+    this.db.query(`UPDATE ${table} SET state = 'failed', reason = ? WHERE user_id = ? AND session_id = ? AND state = 'pending'`).run(CANCELLED_HERE, userId, session)
+  }
+
   /** The hosting service sent the browser back after Slack's "Add to Slack": only a browser signed in as the owner
    * or admin who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
    * The handoff is redeemed with this flow's verifier for the install and its bot token (sealed to a key made for
@@ -904,6 +961,8 @@ export class SlackConnector {
   async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
     if (!input.state || !STATE.test(input.state)) return { result: 'install_expired', client: 'web' }
     const f = this.db.query('SELECT * FROM slack_install_flows WHERE state_hash = ?').get(sha(input.state)) as InstallFlowRow | null
+    // cancelled in the app (cancelFlows): nothing is added (no other workspace replaces this one), and the window says so
+    if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'install_cancelled_here', client: f.client }
     if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'install_expired', client: f?.client ?? 'web' }
     const out = (result: string) => ({ result, client: f.client })
     const end = (reason: string) => { this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
@@ -1076,14 +1135,34 @@ export class SlackConnector {
     this.refresh()
   }
 
-  /** A post Slack refused because the bot token no longer works: with the official app that is the same as Slack's
-   * own "removed" event (the hosting service may not have heard yet). */
-  private tokenRefused(e: unknown) {
-    if (e instanceof SlackApiError && TOKEN_GONE.has(e.code) && this.config()?.mode === 'official') this.removedInSlack('tokens_revoked')
+  /** A post (or a read, read.ts) Slack refused because the bot token no longer works: with the official app that is the
+   * same as Slack's own "removed" event (the hosting service may not have heard yet). Any other error: nothing. */
+  tokenRefused(e: unknown, bot?: string) {
+    if (!(e instanceof SlackApiError) || !TOKEN_GONE.has(e.code)) return
+    const cfg = this.config()
+    // only the token saved now: a post made with an older one (the workspace removed and added the official app again
+    // meanwhile, or new own tokens were saved) must not remove or mark the new install (security review of #893)
+    if (bot !== undefined && this.tokens(cfg)?.bot !== bot) return
+    if (cfg?.mode === 'official') this.removedInSlack('tokens_revoked')
+    // the team's own app: its bot token is revoked; Admin says so (and offers new tokens) instead of "Connected"
+    // (only the token that is saved now: a call made with tokens replaced meanwhile says nothing about the new ones)
+    else if (cfg?.mode === 'own' && cfg.secret_enc && cfg.last_error !== 'bot_refused' && (bot === undefined || this.tokens(cfg)?.bot === bot)) {
+      this.db.query("UPDATE slack_config SET last_error = 'bot_refused', updated_at = ? WHERE id = 1 AND mode = 'own'").run(iso(this.now()))
+      audit(this.db, { actor: null, action: 'slack.bot_token_refused', target: cfg.team_id, detail: { reason: e.code } })
+      this.log.warn('slack refused the own app\'s bot token', { reason: e.code })
+    }
   }
 
-  private localeOf(userId: string | null): Locale {
-    if (userId) try { return getChatRuntime(this.ctx).userLocale(userId) } catch {}
+  /** The language of what the app says in Slack for a person (working…, "Answering as", Open in, links, notices): their
+   * Trina language, which users.locale keeps (the team's default for someone who follows it); else the team's default,
+   * then English. Not the language they asked the AI to answer in (prefs.answerLocale): that is for the answer itself,
+   * and with it a Korean person who has answers in English got English status lines in a Korean Slack (QA TC-1418). */
+  localeOf(userId: string | null): Locale {
+    if (userId) {
+      const r = this.db.query('SELECT locale FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as { locale: string | null } | null
+      const l = LocaleSchema.safeParse(r?.locale)
+      if (l.success) return l.data
+    }
     try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE }
   }
 
@@ -1136,7 +1215,7 @@ export class SlackConnector {
 
   private async ephemeral(bot: string, q: Pick<Question, 'channel' | 'user' | 'threadTs'>, text: string, blocks?: unknown[]) {
     try { await this.api.call('chat.postEphemeral', bot, { channel: q.channel, user: q.user, ...(q.threadTs ? { thread_ts: q.threadTs } : {}), text, ...(blocks ? { blocks } : {}) }) }
-    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); this.tokenRefused(e) }
+    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); this.tokenRefused(e, bot) }
   }
 
   private async question(cfg: ConfigRow, q: Question) {
@@ -1217,10 +1296,12 @@ export class SlackConnector {
     if (!cfg.link_origin) return
     const tooSoon = () => {
       const now = this.now()
-      const recent = this.db.query('SELECT count(*) n, max(created_at) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; last: string | null }
-      return recent.n >= LINK_PER_HOUR || (!!recent.last && Date.parse(recent.last) > now - LINK_AGAIN_MS)
+      // the wait is for a link still to be used: one that was cancelled or used does not hold a new one back
+      const recent = this.db.query('SELECT count(*) n, min(created_at) first, max(CASE WHEN used_at IS NULL THEN created_at END) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; first: string | null; last: string | null }
+      return linkWaitOf(recent, now)
     }
-    if (tooSoon()) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
+    const wait = tooSoon()
+    if (wait) { await this.ephemeral(bot, q, linkWaitText(wait, locale)); return }
     // who this Slack account is, as Slack says: shown on the link page next to the person who confirms. No answer from
     // Slack: no link (we could not check the account is of this workspace)
     const m = await this.slackMember(bot, q.user, cfg)
@@ -1228,10 +1309,10 @@ export class SlackConnector {
     if (!m.ours) { await this.ephemeral(bot, q, say('outsider', locale)); return }
     const names = { display: m.name, real: m.realName, handle: m.handle }
     const token = crypto.randomBytes(32).toString('base64url')
-    let made = false
+    let made = false, late: ReturnType<typeof linkWaitOf> = null
     this.db.transaction(() => {
       // two questions at once: the second sees the first's link (the check above ran before the wait for Slack)
-      if (tooSoon()) return
+      if ((late = tooSoon())) return
       const now = this.now()
       // only the newest link of this Slack account works
       this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(iso(now), q.team, q.user)
@@ -1239,7 +1320,7 @@ export class SlackConnector {
         .run(sha(token), q.team, q.enterprise, q.user, names.display ?? names.real ?? names.handle, names.real, names.handle, q.channel, q.threadTs, iso(now + LINK_TTL_MS), iso(now))
       made = true
     })()
-    if (!made) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
+    if (!made) { await this.ephemeral(bot, q, linkWaitText(late ?? { key: 'linkWait' }, locale)); return }
     const url = `${cfg.link_origin}/slack/link?t=${token}`
     await this.ephemeral(bot, q, say('linkPrompt', locale), [
       { type: 'section', text: { type: 'mrkdwn', text: say('linkPrompt', locale) } },
@@ -1364,7 +1445,7 @@ export class SlackConnector {
       }
       else this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
       this.log.warn('slack answer could not be delivered', { reason: code })
-      this.tokenRefused(e)
+      this.tokenRefused(e, tk.bot)
     }
   }
 

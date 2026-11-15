@@ -12,7 +12,7 @@ import { API, ApiError, type SkillSuggestion } from '@mycel/shared/api'
 import { TurnFiles } from '../../server/src/files/service'
 import { sha256 } from '../../server/src/files/store'
 import { lineDiff } from '../../server/src/skills/diff'
-import { replaceRules } from '../../server/src/admin/folders'
+import { setFolderAccess } from '../lib/folder-access'
 import { RuleSet } from '../../server/src/policy/access'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
@@ -25,7 +25,7 @@ const CANARY_FIN = 'SKILL-SUGGESTION-CANARY-FIN-9b2'
 let h: Harness
 const socks: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'skill-managers', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'skill-managers', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) {
     socks[u] = await h.ws(u, { windowId: `win-sm-${u}` })
     await socks[u]!.next('hello')
@@ -80,7 +80,7 @@ describe('"팀 스킬 관리": a write rule on skills/, nothing else', () => {
     expect(folderRules()).toEqual([{ t: 'everyone', s: null, a: 'read' }])
     // Admin > 폴더 권한 and the toggle are the same rows: a rule set there shows here
     const fid = (h.ctx.db.query("SELECT id FROM folders WHERE path = 'skills'").get() as { id: string }).id
-    replaceRules(h.ctx.db, fid, [{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'write' }], 'carol')
+    setFolderAccess(h.ctx.db, fid, [{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'write' }], 'carol')
     expect((await h.api('carol').call(API.listSkillManagers)).items).toContainEqual({ subjectType: 'user', subjectId: 'erin', path: 'skills' })
     await setManager('carol', { subjectType: 'user', subjectId: 'erin', enabled: false })
     expect(folderRules()).toEqual([{ t: 'everyone', s: null, a: 'read' }])
@@ -90,14 +90,14 @@ describe('"팀 스킬 관리": a write rule on skills/, nothing else', () => {
     const fid = (h.ctx.db.query("SELECT id FROM folders WHERE path = 'skills'").get() as { id: string }).id
     const folderRules = () => h.ctx.db.query('SELECT subject_type AS t, subject_id AS s, access AS a FROM folder_rules WHERE folder_id = ?').all(fid)
     // the edit panel saved skills/ as "follow the folder above" with Erin writing: one rule left
-    replaceRules(h.ctx.db, fid, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }], 'carol')
+    setFolderAccess(h.ctx.db, fid, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }], 'carol')
     await setManager('carol', { subjectType: 'user', subjectId: 'erin', enabled: false })
     expect(folderRules()).toEqual([{ t: 'role', s: 'admin', a: 'write' }])
     // as with no rules there: every member gets at skills/ what they get at the team root; admins and the owner write
     const rules = RuleSet.load(h.ctx.db)
     for (const u of ['alice', 'bob', 'erin']) expect(rules.access(h.ctx.files.principal(u), ['skills'])).toBe(rules.access(h.ctx.files.principal(u), []))
     for (const u of ['carol', 'dana']) expect(rules.access(h.ctx.files.principal(u), ['skills'])).toBe('write')
-    replaceRules(h.ctx.db, fid, [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'carol')
+    setFolderAccess(h.ctx.db, fid, [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'carol')
   })
 
   test('limited to a subfolder for a group: only that folder (created on disk), nobody else gains anything', async () => {

@@ -73,7 +73,7 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
   return (
     <div className="space-y-4" data-testid="invite-step">
       <div>
-        {title !== null && <h2 className="mb-1 text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
+        {title !== null && <h2 className="mb-1 text-display font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
         <p className="text-sm text-muted">{t(sharing ? 'teamLink.stepDescShare' : 'teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}

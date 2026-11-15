@@ -7,16 +7,18 @@
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
 import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../lib/connectors'
-import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
+import type { Project, Schedule, ScheduleReviewCard, ScheduleRun } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { formatDateTime, formatRelative } from '../lib/format'
+import { formatDateTime, formatElapsed } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
 import { newChatPath } from '../lib/newChat'
-import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
+import { optimistic } from '../lib/optimistic'
+import { cardLine, lastRunOf, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runLabel, runReason, runTone, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
+import { putCached, readSchedules, scheduleKey, SHARED, useCachedRead } from '../store/listCache'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
@@ -29,38 +31,36 @@ import { MenuButton } from '../components/rooms/MenuButton'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
+import { ListHeading, ListRow } from '../components/list/List'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
+
+/** a task's on / off: its queue (lib/optimistic.ts) */
 
 /** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them, when a
  * task's run changes (chat.updated of a task's last run chat: Run now's from its answer on, a run at its time once the
  * list is read again at that time, lib/scheduleText.ts nextDueRead), and after a reset connection, so the "Last run"
  * block follows a run without a reload. */
+/** GET /api/schedules */
+type ScheduleList = { items: Schedule[]; timeZone: string }
+
 function useScheduleList() {
   const t = useT(), locale = useLocale()
-  const [items, setItems] = useState<Schedule[] | null>(null)
+  // the list as this window last read it (store/listCache.ts, shared with the "paused for review" banner and Search):
+  // a visit after the first shows it at once and reads it again behind it
+  // (an on / off still on its way stays as on screen: readSchedules keeps it for every reader)
+  const list = useCachedRead<ScheduleList>(SHARED.schedules, readSchedules)
+  const items = list.data?.items ?? null
+  const tz = list.data?.timeZone ?? ''
+  const error = list.failed ? errorText(list.failed, locale, t('error.network')) : null
   const shown = useRef<Schedule[] | null>(null)
   shown.current = items
-  const [tz, setTz] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const life = useRef(0), revision = useRef(0)
-  const load = useCallback(async () => {
-    const generation = life.current, rev = ++revision.current
-    try {
-      const r = await api.call(API.listSchedules)
-      if (generation !== life.current || rev !== revision.current) return
-      setItems(r.items)
-      setTz(r.timeZone)
-      setError(null)
-    } catch (e) {
-      if (generation === life.current && rev === revision.current) setError(errorText(e, locale, t('error.network')))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // `life` changes when the page goes: an action's answer that comes after it changes nothing here
+  const life = useRef(0)
+  const load = list.reload
   useEffect(() => {
     life.current++
-    void load()
     // the events of one run come close together (its chat made, queued, running): read once for them
     let timer: ReturnType<typeof setTimeout> | null = null
     const soon = () => { timer ??= setTimeout(() => { timer = null; void load() }, 250) }
@@ -79,9 +79,11 @@ function useScheduleList() {
     const timer = setTimeout(() => void load(), wait)
     return () => clearTimeout(timer)
   }, [items, load])
-  const replace = (u: Schedule) => { revision.current++; setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null) }
-  const add = (u: Schedule) => { revision.current++; setItems((cur) => [u, ...(cur ?? []).filter((x) => x.id !== u.id)]) }
-  const drop = (id: string) => { revision.current++; setItems((cur) => cur?.filter((x) => x.id !== id) ?? null) }
+  // a change made here shows at once; a read on its way when it was made is read again (it may be from before it)
+  const edit = (f: (cur: Schedule[]) => Schedule[]) => putCached<ScheduleList>(SHARED.schedules, (d) => (d ? { ...d, items: f(d.items) } : d))
+  const replace = (u: Schedule) => edit((cur) => cur.map((x) => (x.id === u.id ? u : x)))
+  const add = (u: Schedule) => edit((cur) => [u, ...cur.filter((x) => x.id !== u.id)])
+  const drop = (id: string) => edit((cur) => cur.filter((x) => x.id !== id))
   return { items, tz, error, load, replace, add, drop, life }
 }
 
@@ -175,7 +177,7 @@ function ScheduleCard({ s }: { s: Schedule }) {
     // a lapsed save folder: the task opens with its card to check it again ("다시 확인")
     <Link to={`/scheduled/${s.id}`} state={s.saveLapsed ? { recheck: true } : undefined} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
       <span className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
+        <span className="min-w-0 truncate text-row font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
       <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{s.templateId ? schedulePreview(s) : <WithRoomNames text={s.prompt} />}</span>
@@ -259,7 +261,7 @@ export function ScheduledList() {
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && (
           <div data-testid="scheduled-empty">
-            <EmptyState icon={<CalendarClock size={28} aria-hidden />} title={t('schedules.empty')}>
+            <EmptyState screen icon={<CalendarClock size={28} aria-hidden />} title={t('schedules.empty')}>
               <p>{t('scheduled.emptyBody')}</p>
               {/* the same two ways to start as the "New task" menu, shown as buttons so the first step is visible; the
                   one primary button on the page stays "New task" */}
@@ -302,15 +304,127 @@ export function ScheduledList() {
 function Side({ label, children, testId }: { label: string; children: ReactNode; testId: string }) {
   return (
     <section className="py-4 first:pt-0" data-testid={testId}>
-      <h2 className="text-sm font-medium">{label}</h2>
+      <h2 className="text-meta font-medium">{label}</h2>
       <div className="mt-1.5 text-sm text-muted">{children}</div>
     </section>
   )
 }
 
+/** The task page's run history: the first page, the pages "Show more" added, and whether there are more. */
+export type RunsState = { items: ScheduleRun[] | null; more: boolean; busy: boolean; failed: boolean; onMore: () => void }
+
+const RUNS_PAGE = 10
+
+/** A task's runs (GET /api/schedules/:id/runs), newest first: the first 10, more with "Show more"; read again when the
+ * task's own last run changes (a run starts, ends, or "Run now"), keeping as many rows as were shown. */
+function useScheduleRuns(s: Schedule | null): RunsState {
+  const t = useT(), locale = useLocale()
+  const [items, setItems] = useState<ScheduleRun[] | null>(null)
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const shown = useRef(RUNS_PAGE)
+  const life = useRef(0)
+  const id = s?.id ?? null
+  const key = s ? `${s.id}|${s.running ? 1 : 0}|${s.lastChatId ?? ''}|${s.lastOutcomeAt ?? ''}|${s.lastOutcome ?? ''}` : null
+  useEffect(() => { shown.current = RUNS_PAGE; setItems(null); setCursor(null) }, [id])
+  useEffect(() => {
+    if (!id) return
+    const generation = ++life.current
+    api.call(API.listScheduleRuns, { params: { id }, query: { limit: Math.min(shown.current, 100) } }).then((r) => {
+      if (generation !== life.current) return
+      setItems(r.items); setCursor(r.nextCursor); setFailed(false)
+    }, () => { if (generation === life.current) setFailed(true) })
+  }, [id, key])
+  const onMore = () => {
+    if (!id || !cursor || busy) return
+    const generation = life.current
+    setBusy(true)
+    api.call(API.listScheduleRuns, { params: { id }, query: { cursor, limit: RUNS_PAGE } }).then((r) => {
+      if (generation !== life.current) return
+      setItems((cur) => { const next = [...(cur ?? []), ...r.items.filter((x) => !cur?.some((y) => y.id === x.id))]; shown.current = next.length; return next })
+      setCursor(r.nextCursor)
+    }, (e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })).finally(() => setBusy(false))
+  }
+  return { items, more: !!cursor, busy, failed, onMore }
+}
+
+/** The runs under the task's "Runs" heading: a row each, with its dot, date and time, how long it took and, for one
+ * that did not succeed, why; the row opens its chat ("Open"). A run of it now is the live first row. */
+function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsState }) {
+  const t = useT(), locale = useLocale()
+  const last = lastRunOf(s)
+  // the history on its way: a skeleton (not the last run as a placeholder row whose time then jumps)
+  if (runs && !runs.items && !runs.failed) return <Skeleton lines={2} />
+  const items = runs?.items && !runs.failed ? runs.items : last ? [last] : []
+  // a run started a moment ago that the history has not got yet (it is read again when the task changes)
+  const list = s.running && !items.some((r) => r.status === 'running') && last ? [last, ...items] : items
+  if (!list.length) return <p className="mt-2 text-meta text-faint">{t('scheduled.noRuns')}</p>
+  const newest = list[0]!
+  // what to do next, under the newest row, only when that run failed (red, not "finished with problems") and it is the
+  // run the task's own last result is about (not one the server leaves out of it, TC-360)
+  const failed = !s.running && newest.status === s.lastOutcome && runTone(newest) === 'danger'
+  const next = failed ? outcomeReason(s, t) : ''
+  const keyLink = failed && newest.status === 'needs_key' && s.lastNeed ? s.lastNeed : null
+  return (
+    <>
+      <ul className="mt-1 -mx-3">
+        {list.map((r, i) => {
+          const tone = runTone(r)
+          const took = r.endedAt && r.startedAt ? formatElapsed(Date.parse(r.endedAt) - Date.parse(r.startedAt), locale) : ''
+          const reason = runReason(r, t, { membersOnly: i === 0 && s.lastOutcome === 'project_gone' && !!s.lastMembersOnly })
+          const meta = [runLabel(r, t), took].filter(Boolean).join(' · ')
+          const row = (
+            <ListRow key={r.id} to={r.chatId ? `/c/${r.chatId}` : undefined} testId={r.chatId ? 'schedule-run-link' : 'schedule-run'}
+              link={{ 'data-outcome': r.status, 'data-run': r.id }}
+              name={
+                // the dot in the name's line (not a row icon: on a phone that is a 32px tile)
+                <span className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden className={clsx('size-2 shrink-0 rounded-full', tone ? DOT[tone] : 'bg-accent motion-safe:animate-pulse')} />
+                  {r.startedAt ? <time dateTime={r.startedAt} className="truncate">{formatDateTime(r.startedAt, locale, tz || undefined)}</time> : <span className="truncate">{runLabel(r, t)}</span>}
+                </span>
+              }
+              meta={
+                <span className={clsx(tone && tone !== 'ok' && TEXT[tone])} title={reason || undefined}>
+                  {meta}
+                  {reason && <span data-testid="schedule-outcome-reason"> · {reason}</span>}
+                </span>
+              }
+              end={r.chatId ? <span className="shrink-0 self-center text-meta text-accent-text">{t('scheduled.openRun')}</span> : undefined} />
+          )
+          if (i > 0 || (!next && !keyLink)) return row
+          return (
+            <Fragment key={r.id}>
+              {row}
+              {/* the newest run failed: what to do ("…then use Run now") right under it, as a third line in line with
+                  its second (the row's inset); a key it needed links to where it is connected */}
+              <li className="px-3 pb-1.5" data-testid="schedule-next-step">
+                {next && <p className="text-meta text-muted">{next}</p>}
+                {keyLink && (
+                  <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(keyLink.templateId)}`} className="mt-0.5 inline-block text-meta text-accent-text hover:underline" data-testid="schedule-connect-template">
+                    {t('integrations.template.connectNamed', { name: keyLink.name })}
+                  </Link>
+                )}
+              </li>
+            </Fragment>
+          )
+        })}
+      </ul>
+      {/* in line with the rows' dots (no inset of its own) */}
+      {runs?.more && !runs.failed && (
+        <button type="button" disabled={runs.busy} onClick={runs.onMore} className="mt-2 inline-flex min-h-6 items-center text-meta text-accent-text hover:underline disabled:opacity-50 pointer-coarse:min-h-11" data-testid="schedule-runs-more">
+          {runs.busy ? t('common.loading') : t('scheduled.showMoreRuns')}
+        </button>
+      )}
+    </>
+  )
+}
+
 /** One task: the part the page draws (exported for tests). The actions are absent where they are not offered. */
-export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onReview, review }: {
+export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onReview, review, runs }: {
   s: Schedule; tz: string | null
+  /** its run history (useScheduleRuns); without it (a test, an older server) the one last run the task knows */
+  runs?: RunsState
   /** the project it runs in, when it has one and it can be read */
   project?: Pick<Project, 'id' | 'name'> | null
   onToggle: () => void
@@ -343,33 +457,13 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
     : waiting ? t('schedules.reviewHint') : state === 'paused' ? t('schedules.pausedHint') : ''
   const long = !s.templateId && (s.prompt.length > 180 || s.prompt.split('\n').length > 3)
   const ran = s.lastRunAt || s.lastChatId || s.running
-  const reason = s.running ? '' : outcomeReason(s, t)
   // when the last run ended (a "Run now" run too: it moves only lastChatId); older servers: the last run at its time
   const lastAt = s.lastOutcomeAt ?? s.lastRunAt
-  // The API keeps only the last run (lastChatId, lastOutcome, lastOutcomeAt, running), so the section shows that one run
-  // under its heading: how it went and when ("Succeeded · 2 minutes ago", or "Running"), why in plain words, and a link
-  // to its chat.
-  const runState = runStateLabel(s, t)
-  const tone = s.running || s.lastOutcome === 'done' ? null : s.lastOutcome ? outcomeTone(s.lastOutcome) : null
-  const runLine = (
-    <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-1.5 text-sm text-ink" data-testid="schedule-outcome" data-outcome={s.running ? 'running' : s.lastOutcome ?? undefined}>
-        {(s.running || s.lastOutcome) && <span className={clsx('size-2 shrink-0 rounded-full', s.running ? 'bg-accent' : DOT[s.lastOutcome === 'done' ? 'ok' : outcomeTone(s.lastOutcome)])} aria-hidden />}
-        <span className="min-w-0">
-          {runState && <span className={clsx(tone && TEXT[tone])}>{runState}</span>}
-          {runState && !s.running && lastAt && <span className="text-muted" aria-hidden> · </span>}
-          {!s.running && lastAt && <time dateTime={lastAt} title={when(lastAt)} className="text-muted">{formatRelative(lastAt, locale)}</time>}
-        </span>
-      </span>
-      {reason && <span className="mt-1 block text-xs text-muted" data-testid="schedule-outcome-reason">{reason}</span>}
-      {s.lastChatId && <span className="mt-1 block text-xs text-accent-text">{t(s.running ? 'schedules.openRun' : 'scheduled.openResult')}</span>}
-    </span>
-  )
   return (
     <div data-testid="schedule-view" data-review={waiting ? 'waiting' : undefined}>
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <div className="min-w-0 flex-[1_1_18rem]">
-          <h1 className="text-[1.625rem] font-semibold tracking-tight break-words sm:text-[1.875rem]">{name}</h1>
+          <h1 className="text-display font-semibold tracking-tight break-words">{name}</h1>
           {(status || badOutcome) && (
             <p className={clsx('mt-1.5 text-sm', waiting ? 'text-warn' : 'text-muted')} data-testid="schedule-status">
               {status}
@@ -421,26 +515,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
       {/* phone: what it is first, then its runs; wide: the runs on the left, what it is beside them */}
       <div className="mt-8 grid gap-x-12 gap-y-8 border-t border-line pt-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-labelledby={`${base}-history`} className="order-2 min-w-0 lg:order-1" data-testid="schedule-history">
-          <h2 id={`${base}-history`} className="text-sm font-medium">{t('scheduled.lastRunTitle')}</h2>
-          {ran ? (
-            <ul className="mt-2 divide-y divide-line">
-              <li>
-                {s.lastChatId ? (
-                  <Link to={`/c/${s.lastChatId}`} className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-hover" data-testid="schedule-run-link">{runLine}</Link>
-                ) : (
-                  <div className="flex items-center gap-3 py-2.5">{runLine}</div>
-                )}
-                {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
-                {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
-                    {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
-                  </Link>
-                )}
-              </li>
-            </ul>
-          ) : (
-            <p className="mt-2 text-sm text-faint">{t('scheduled.noRuns')}</p>
-          )}
+          <ListHeading as="h2" id={`${base}-history`}>{t('scheduled.runsTitle')}</ListHeading>
+          <RunList s={s} tz={tz} runs={runs} />
         </section>
         <div className="order-1 min-w-0 divide-y divide-line lg:order-2">
           <Side label={t('schedules.field.prompt')} testId="schedule-instructions">
@@ -501,6 +577,7 @@ export function ScheduledTask() {
   const location = useLocation()
   const { items, tz, error, load, replace, drop, life } = useScheduleList()
   const s = items?.find((x) => x.id === id) ?? null
+  const runs = useScheduleRuns(s)
   const [projects, setProjects] = useState<Project[] | null>(null)
   useEffect(() => {
     let live = true
@@ -508,12 +585,17 @@ export function ScheduledTask() {
     return () => { live = false }
   }, [])
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+  // on / off shows at once (lib/optimistic.ts); a refusal puts back what the server has, with one toast
   const toggle = async (x: Schedule) => {
-    const generation = life.current
-    try {
-      const u = await api.call(API.updateSchedule, { params: { id: x.id }, body: { enabled: !x.enabled } })
-      if (generation === life.current) replace(u)
-    } catch (e) { fail(e) }
+    const enabled = !x.enabled
+    // the kept list takes it also when the page is gone by now (Search and the banner read it)
+    await optimistic({
+      key: scheduleKey(x.id), from: x.enabled, to: enabled,
+      show: (v) => replace({ ...x, enabled: v }),
+      send: () => api.call(API.updateSchedule, { params: { id: x.id }, body: { enabled } }),
+      confirmed: (u) => u.enabled,
+      settle: (u) => replace(u),
+    })
   }
   // "다시 확인": the task's card, here; resuming is answering it
   const [review, setReview] = useState<ScheduleReviewCard | null>(null)
@@ -535,8 +617,8 @@ export function ScheduledTask() {
     const generation = life.current
     try {
       const u = await api.call(API.confirmScheduleReview, { params: { id: x.id }, body: { requestId, answer: value } })
-      if (generation !== life.current) return
       replace(u)
+      if (generation !== life.current) return
       setReview(null)
       schedulesChanged.emit()
       if (value === 'resave') toast({ level: 'success', text: t('schedules.resaveDone') })
@@ -569,8 +651,8 @@ export function ScheduledTask() {
     setRunning(true)
     try {
       const r = await api.call(API.runScheduleNow, { params: { id: x.id }, body: {} })
-      if (generation !== life.current) return
       replace(r.schedule)
+      if (generation !== life.current) return
       // and read again: a quick run may have ended before this answer came (its chat's events are followed from here)
       void load()
       toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
@@ -583,8 +665,8 @@ export function ScheduledTask() {
     if (generation !== life.current) return
     try {
       await api.call(API.deleteSchedule, { params: { id: x.id } })
-      if (generation !== life.current) return
       drop(x.id)
+      if (generation !== life.current) return
       if (x.needsReview) schedulesChanged.emit()
       navigate('/scheduled', { replace: true })
     } catch (e) { fail(e) }
@@ -625,12 +707,12 @@ export function ScheduledTask() {
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={5} />}
         {items && !s && (
-          <EmptyState title={t('scheduled.notFound')}>
+          <EmptyState screen title={t('scheduled.notFound')}>
             <Link to="/scheduled" className="text-sm text-accent-text hover:underline">{t('settings.schedules')}</Link>
           </EmptyState>
         )}
         {s && (
-          <ScheduleView s={s} tz={tz || null} project={project} running={running}
+          <ScheduleView s={s} tz={tz || null} project={project} running={running} runs={runs}
             onToggle={() => void toggle(s)} onRunNow={() => void runNow(s)} onReview={() => void openReview(s)}
             review={review ? <AskCard key={review.request.requestId} req={review} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} /> : undefined} />
         )}

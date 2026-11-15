@@ -217,14 +217,16 @@ test('Groups: title with the count, search, quiet rows; Edit and Delete in "…"
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Folder permissions: the same header, with the by folder / by person switch under the line', async ({ page }) => {
+test('Folder permissions: the same header, with the Folders / What a person can open switch under the line', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/folders')
   const header = page.getByTestId('folders-header')
   await expect(header).toContainText(t['folders.pageDesc'])
-  await header.getByRole('tab', { name: t['accessView.byPerson'] }).click()
+  await expect(header.getByRole('tablist', { name: t['admin.folders'] }).getByRole('tab')).toHaveText([t['folders.tabFolders'], t['folders.tabPerson']])
+  await header.getByRole('tab', { name: t['folders.tabPerson'] }).click()
   await expect(page).toHaveURL(/view=people/)
+  await expect(page.getByTestId('access-person-search')).toBeVisible()
 })
 
 test('People pages at phone width: stacked rows, nothing sticks out', async ({ page }) => {

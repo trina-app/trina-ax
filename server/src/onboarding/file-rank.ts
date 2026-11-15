@@ -44,11 +44,12 @@ export interface FileRankScope { chatId: string; userId: string; material: FileR
 export const FILE_RANK_REFUSAL = 'This chat only picks which of the listed files the team should have: no tool and no team file is available here. Answer from the material in your instructions.'
 
 const TEXT = {
-  title: { ko: '팀 파일 살펴보기', en: 'Looking at team files', id: 'Melihat file tim', ja: 'チームのファイルを確認', es: 'Revisando archivos del equipo' },
+  title: { ko: '팀 파일 살펴보기', en: 'Looking at team files', id: 'Melihat file tim', ja: 'チームのファイルを確認', es: 'Revisando archivos del equipo', zh: '正在查看团队文件' },
   ask: {
     ko: '이 폴더에서 팀에 올리면 좋을 파일을 골라 주세요.', en: 'Pick the files from this folder that the team should have.',
     id: 'Pilih file dari folder ini yang sebaiknya dimiliki tim.', ja: 'このフォルダーからチームに置くとよいファイルを選んでください。',
     es: 'Elija los archivos de esta carpeta que el equipo debería tener.',
+    zh: '请从这个文件夹中挑出团队应该有的文件。',
   },
 } satisfies Record<string, Record<Locale, string>>
 

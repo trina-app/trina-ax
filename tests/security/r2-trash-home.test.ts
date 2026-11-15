@@ -7,15 +7,17 @@
 // #5: a trashed group / project / rule folder was listed in its members' trash, but their restore failed with 404
 // (they cannot write groups/ or projects/). Trashing those folders is admin-only, and so is seeing and restoring them.
 // Inside projects/<name> the owner and admins act only as members (docs/DECISIONS.md "Project contents only for
-// members"): a project folder's trash is its members' and the owner's and admins' who are members; the others put it
-// back through the project (POST /api/projects/:id/restore).
+// members"): a project's own folder in the trash is one row for the owner and admins (they manage every team project,
+// QA TC-1061) and for its creator while a member (QA TC-1062); restoring it never shows its contents to anyone who is
+// not a member.
 // Fixture: alice, erin = marketing (groups/marketing write); bob = finance (groups/finance, projects/atlas write);
 // carol = admin; dana = owner; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
-import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
+import { ensureFolderRow } from '../../server/src/admin/folders'
+import { setFolderAccess } from '../lib/folder-access'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { legacyProjectFolder } from '../lib/legacy-project'
 
@@ -34,7 +36,7 @@ const read = (who: Who, p: string) => A.json('/api/files/content' + q({ path: p 
 function ruleFolder(p: string, group: string) {
   fs.mkdirSync(path.join(A.team, ...p.split('/')), { recursive: true, mode: 0o700 })
   const rules = [{ subjectType: 'group', subjectId: group, access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] as FolderRuleInput[]
-  A.ctx.db.transaction(() => replaceRules(A.ctx.db, ensureFolderRow(A.ctx.db, p).id, rules, 'carol'))()
+  A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, ensureFolderRow(A.ctx.db, p).id, rules, 'carol'))()
 }
 
 describe('#1 trash items follow the folder they were trashed from', () => {
@@ -81,7 +83,7 @@ describe('#1 trash items follow the folder they were trashed from', () => {
     legacyProjectFolder(A.ctx.db, A.team, 'projects/atlas', [{ subjectType: 'group', subjectId: 'finance', access: 'write' }, { subjectType: 'user', subjectId: 'carol', access: 'write' }])
     const folder = await del('carol', 'projects/atlas')
     // Admin › Folder permissions no longer makes a folder at a projects/<name>: an older build's admin did
-    const made = await A.json('/api/admin/folders', { as: 'carol', ...jsonBody({ path: 'projects/atlas', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    const made = await A.json('/api/admin/folders', { as: 'carol', ...jsonBody({ path: 'projects/atlas', limited: true, rules: [] }) })
     expect([made.status, made.body.error?.params?.reason]).toEqual([409, 'project_members_only'])
     legacyProjectFolder(A.ctx.db, A.team, 'projects/atlas', [{ subjectType: 'group', subjectId: 'marketing', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol')
     expect(await ids('alice')).not.toContain(file)
@@ -120,9 +122,9 @@ describe('#5 a trashed group / project / rule folder: listed and restored by adm
       expect((await restore(who, folder)).status).toBe(404)
     }
     expect(await ids('carol')).toContain(folder)
-    // the owner, no member of it: not in her files trash, no restore from there (she restores the project instead)
-    expect(await ids('dana')).not.toContain(folder)
-    expect((await restore('dana', folder)).status).toBe(404)
+    // the owner, no member of it, manages it: since QA TC-1061 it is one row of her files trash too (named as the project),
+    // and restoring it there brings back the project, not its contents to her (below, as through the project)
+    expect(await ids('dana')).toContain(folder)
     const r = await restore('carol', folder)
     expect(r.status).toBe(200)
     expect((await read('alice', 'projects/launch/memo.md')).status).toBe(200)

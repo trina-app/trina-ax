@@ -20,7 +20,7 @@ const ready = !!TOOLS.normalizer && isolation() !== 'none' && !!(TOOLS.pdfkit ||
 let h: Harness
 beforeAll(async () => {
   delete process.env.MYCEL_SAFE_OPS_1A
-  h = await startHarness({ name: 'vision-engines', turnTimeoutMs: 40_000 })
+  h = await startHarness({ name: 'vision-engines', stallTimeoutMs: 40_000 })
   fs.writeFileSync(path.join(h.team, 'users/alice/receipt.png'), makePng(320, 200))
   fs.writeFileSync(path.join(h.team, 'users/alice/scan.pdf'), makePagesPdf([{ lines: ['A text page with plenty of words on it.'] }, { image: CCITT_SCAN }]))
 }, 120_000)

@@ -145,8 +145,10 @@ export function parseRange(h: string | null | undefined, size: number): { start:
   return { start, end }
 }
 
-/** `via`: how the request came (http/env.ts info.via); 'relay' keeps the lazily read Bun.file body (see the top). */
-export async function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string }): Promise<Response> {
+/** `via`: how the request came (http/env.ts info.via); 'relay' keeps the lazily read Bun.file body (see the top).
+ * `cache`: the Cache-Control instead of `private, no-cache` (only ever a private one: auth/media-key.ts keptMediaCache,
+ * for a file whose address always means the same bytes, read with this sign-in's key). */
+export async function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string; cache?: `private, ${string}` }): Promise<Response> {
   const { fd, st } = openChecked(o.abs)
   fs.closeSync(fd)
   const size = st.size
@@ -156,7 +158,7 @@ export async function streamFile(o: { abs: string; name: string; req: Request; d
     'Accept-Ranges': 'bytes',
     'ETag': etag,
     'Last-Modified': st.mtime.toUTCString(),
-    'Cache-Control': 'private, no-cache',
+    'Cache-Control': o.cache ?? 'private, no-cache',
     'X-Content-Type-Options': 'nosniff',
   })
   if (o.disposition === 'inline' && ACTIVE.test(type)) type = 'text/plain; charset=utf-8'

@@ -13,7 +13,7 @@
 // own on top of the viewer's, so Back closes the sheet first, then the viewer, then leaves the page.
 import { useSyncExternalStore } from 'react'
 import { API, type Attachment, type Me, type RoomFile, type UserRef } from '@mycel/shared/api'
-import { api, fileUrl, roomFileUrl, startDownload, thumbnailUrl } from './api'
+import { api, chatFileUrl, fileUrl, roomFileUrl, startDownload, thumbnailUrl } from './api'
 import { opensWithoutServer, previewKind, previewLimit, roomNoPreview, serverPreview } from './preview'
 import { roomPreview, type PreviewFile } from './sidePanel'
 import { holdOverlayEntry, whenOverlaysSettled } from './backCloses'
@@ -56,6 +56,9 @@ export interface ViewerItem {
    * shows the message's thread: `rootId`, its root (a reply's thread root, else the message itself); `threadable`
    * false: a message that cannot have a thread (an AI answer only its asker sees), shown alone */
   room?: RoomPlace
+  /** a team file's path (an AI chat's attachment, an answer's picture): its link in the right-click menu
+   * (lib/fileMenu.ts itemLink) */
+  path?: string
 }
 
 /** Where a room's picture or file was sent: the room, the file, and the message with its thread (absent: one not sent
@@ -217,6 +220,24 @@ export function roomFileItem(roomId: string, f: RoomFile, me: Pick<Me, 'server'>
 }
 
 /** A picture attached in the AI chat: its thumbnail, then the team file by its path (a HEIC photo as the server's JPEG). */
+/** A picture kept with a chat shared with people (Attachment source 'chat'): its thumbnail, then the original through the
+ * chat (whoever sees it now). A HEIC photo or one past the preview limit keeps its thumbnail. */
+export function chatFileItem(chatId: string, a: Attachment, meta: ViewerMetaValue = {}): ViewerItem {
+  const drawable = !serverPreview(a.name) && a.size <= IMAGE_MAX
+  const inline = chatFileUrl(chatId, a.id)
+  return {
+    key: `chat:${chatId}:${a.id}`,
+    name: a.name,
+    thumb: thumbnailUrl(a.id),
+    original: drawable ? inline : null,
+    width: a.width,
+    height: a.height,
+    download: () => startDownload(chatFileUrl(chatId, a.id, { download: '1' }), a.name),
+    href: drawable ? inline : null,
+    ...shown(meta),
+  }
+}
+
 export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): ViewerItem {
   const heic = serverPreview(a.name)
   const big = a.size > IMAGE_MAX
@@ -229,6 +250,7 @@ export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): Viewe
     height: a.height,
     download: () => startDownload(fileUrl(a.path), a.name),
     href: big || heic ? null : fileUrl(a.path, 'inline'),
+    path: a.path,
     ...shown(meta),
   }
 }
@@ -236,7 +258,7 @@ export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): Viewe
 /** A team picture in an answer: the picture on the page is the original already. */
 export function teamImageItem(path: string, name: string, meta: ViewerMetaValue = {}): ViewerItem {
   const inline = fileUrl(path, 'inline')
-  return { key: `team:${path}`, name, thumb: inline, original: inline, download: () => startDownload(fileUrl(path), name), href: inline, ...shown(meta) }
+  return { key: `team:${path}`, name, thumb: inline, original: inline, download: () => startDownload(fileUrl(path), name), href: inline, path, ...shown(meta) }
 }
 
 /** A picture in a message box, not sent yet: drawn from its own bytes; nothing to download or open. */

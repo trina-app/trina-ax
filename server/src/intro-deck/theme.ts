@@ -143,6 +143,7 @@ export const THEME_NAME: Record<Locale, Record<DeckTheme, string>> = {
   id: { paper: 'Kertas terang', ink: 'Gelap', brand: 'Warna merek' },
   ja: { paper: '明るい紙', ink: 'ダーク', brand: 'ブランドカラー' },
   es: { paper: 'Papel claro', ink: 'Oscuro', brand: 'Color de marca' },
+  zh: { paper: '浅色纸张', ink: '深色', brand: '品牌色' },
 }
 /** The font face file the deck's page loads from this server (web/scripts/build-vendor.ts writes it). */
 export const DECK_FONT_CSS = '/vendor/fonts/pretendard.css'

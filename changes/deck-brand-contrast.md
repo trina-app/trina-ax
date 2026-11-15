@@ -1,1 +1,0 @@
-- Intro decks: in the brand-colour look, the big numbers, the footer and the contact labels on the coloured slides are easy to read again. The lighter shades in the coloured background are now kept as dark as the brand colour, and small labels reach 4.5:1.

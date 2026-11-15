@@ -36,7 +36,7 @@ delete schema.$schema
 export const shareSkillsTool = {
   name: 'share_skills',
   description: [
-    'Propose the user\'s own Claude Code or Codex skills to their team in the team app. This is the only way to add skills from here: a SKILL.md saved with write, edit or upload_file is an ordinary file, not a skill, and writes into skill folders are refused. Only the team\'s owner or an admin can share; a member suggests a skill in the app instead (팀 스킬 › 스킬로 제안). Nothing changes in the team until the team lead confirms the proposal in the app, and the server checks every skill again.',
+    'Propose the user\'s own Claude Code or Codex skills to their team in the team app. This is the only way to add skills from here: a SKILL.md saved with write, edit or upload_file is an ordinary file, not a skill, and writes into skill folders are refused. Only the team\'s owner or an admin can share; a member suggests a skill in the app instead (Team skills › Suggest as skill; in Korean 팀 스킬 › 스킬로 제안). Nothing changes in the team until the team lead confirms the proposal in the app, and the server checks every skill again.',
     'To propose them to one of the user\'s groups only (its members alone see and use them, and they review it), set "group" to that group\'s name; omit it for the whole team. The user can still change where it goes in the app.',
     'Before calling: (1) call skills_list to see the team\'s skills. (2) Claude Code: look for skills in ~/.claude/skills/<name>/ (origin "user"), in the .claude/skills/<name>/ folders of the projects you know (origin "project", with "project" set to the project folder\'s own name only, never a full path), and ~/.claude/commands/*.md (origin "command": the one .md file); plugin skills (under ~/.claude/plugins) are never sent: list them under "excluded" with reason "plugin". Read ~/.claude/CLAUDE.md and the CLAUDE.md of the projects you know. Codex: set "app": "codex"; look in ~/.agents/skills/<name>/ and ~/.codex/skills/<name>/ (origin "user"; never ~/.codex/skills/.system, Codex\'s own), the .agents/skills/ and .codex/skills/ folders of the projects you know (origin "project"), and ~/.codex/prompts/*.md if there are any (origin "command"). Read ~/.codex/AGENTS.md (AGENTS.override.md when it is there) and the AGENTS.md of the projects you know. (3) Send the rule files\' text joined as rule.text: the server keeps only the lines that fit the whole team as one team rule.',
     'Never send a file that contains an API key, a token, a password or a private key, nor a .env, *.pem, *.key, id_rsa, id_ed25519, .npmrc, .netrc or credentials file: list that skill under "excluded" with reason "secret" (and "kind", such as "slack" or "openai") and send none of its files.',
@@ -52,6 +52,17 @@ export const shareSkillsTool = {
 export type ShareOutcome = { text: string; isError?: boolean; audit: Record<string, unknown> }
 const refuse = (text: string, audit: Record<string, unknown> = {}): ShareOutcome => ({ text, isError: true, audit })
 
+/** Where a member suggests a skill in the app, in each language: the page title (skills.title) › the button
+ * (suggest.button), word for word as web/src/i18n shows them (tests/unit/remote-mcp-share.test.ts checks it). */
+export const SUGGEST_PATH: Record<Locale, string> = {
+  en: 'Team skills › Suggest as skill',
+  ko: '팀 스킬 › 스킬로 제안',
+  id: 'Skill tim › Usulkan sebagai skill',
+  ja: 'チームスキル › スキルとして提案',
+  es: 'Habilidades del equipo › Sugerir como habilidad',
+  zh: '团队技能 › 推荐为技能',
+}
+
 function localeOf(ctx: AppContext, id: string): Locale {
   const v = LocaleSchema.safeParse((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(id) as { locale: string } | null)?.locale)
   return v.success ? v.data : teamDefaultLocale(ctx.db)
@@ -65,7 +76,10 @@ function problems(e: z.ZodError): string {
 /** share_skills: the scope check ran in RemoteTools.call. */
 export function shareSkills(ctx: AppContext, oauth: RemoteOAuth, user: Principal, args: unknown, runtime: () => ChatRuntime | null = () => { try { return getChatRuntime(ctx) } catch { return null } }): ShareOutcome {
   if (user.role !== 'owner' && user.role !== 'admin') {
-    return refuse('Only the team\'s owner or an admin can share skills with the team. A member suggests a skill in the team app instead: 팀 스킬 › 스킬로 제안 (Team skills › Suggest as a skill). Nothing was sent.', { refused: 'member' })
+    // the member's own app language, and English for the agent when that is another language
+    const locale = localeOf(ctx, user.id)
+    const where = locale === 'en' ? SUGGEST_PATH.en : `${SUGGEST_PATH[locale]} (${SUGGEST_PATH.en})`
+    return refuse(`Only the team's owner or an admin can share skills with the team. A member suggests a skill in the team app instead: ${where}. Nothing was sent.`, { refused: 'member' })
   }
   const input = ShareSkillsInput.safeParse(args ?? {})
   if (!input.success) return refuse(`Invalid input: ${problems(input.error)}. Nothing was sent; fix these and call share_skills again (a skill that does not fit goes under "excluded").`, { refused: 'input' })

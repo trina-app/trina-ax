@@ -29,8 +29,7 @@ async function newMember(username: string, groups: string[] = []): Promise<Clien
 
 /** a restricted folder under shared/ with names.md written twice by hr; trashed by the owner. Returns v1's id. */
 async function trashedWithVersion(F: string): Promise<string> {
-  await owner.ok('POST', '/api/admin/folders', { path: F, create: true, rules: [
-    { subjectType: 'everyone', subjectId: null, access: 'none' },
+  await owner.ok('POST', '/api/admin/folders', { path: F, create: true, limited: true, rules: [
     { subjectType: 'group', subjectId: hrGroup, access: 'write' },
   ] })
   await hr.ok('PUT', '/api/files/content', { path: `${F}/names.md`, content: 'SECRET v1: Alice, Bob, Carol\n', baseSha256: null })

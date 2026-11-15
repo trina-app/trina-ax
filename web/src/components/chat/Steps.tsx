@@ -33,7 +33,7 @@ import { useLocale, useT } from '../../i18n'
 import { openExternal, safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
-import { TeamImage } from '../Markdown'
+import { TeamImage } from '../LazyMarkdown'
 import { Tooltip } from '../Tooltip'
 
 type TFunction = ReturnType<typeof useT>
@@ -123,11 +123,13 @@ function QueueLine({ step }: { step: Step }) {
   const locale = useLocale()
   const run = step.devEnvRun!
   // a command's ticket goes with its call: once the step ended there is nothing to watch
-  const watching = run.state === 'waiting' && (run.kind === 'job' || step.status === 'running')
+  const watching = run.state === 'waiting' && !run.why && (run.kind === 'job' || step.status === 'running')
   const place = useQueuePlace(watching ? run.id : null)
   const [busy, setBusy] = useState(false)
   if (run.state === 'expired') return <p className="ml-6 px-1 text-xs text-danger" data-testid="devenv-queue-full">{t('devEnvQueue.full')}</p>
   if (run.state === 'cancelled') return <p className="ml-6 px-1 text-xs text-muted" data-testid="devenv-queue-cancelled">{t('devEnvQueue.cancelled')}</p>
+  // waiting for another command of the same project: no place in line and no Cancel (it holds no slot)
+  if (run.state === 'waiting' && run.why === 'project' && step.status === 'running') return <p className="ml-6 px-1 text-xs text-muted" data-testid="devenv-queue-project" role="status">{t('devEnvQueue.waitingProject')}</p>
   if (!watching || place === 'gone') return null
   const n = typeof place === 'number' ? place : run.position
   const cancel = async () => {

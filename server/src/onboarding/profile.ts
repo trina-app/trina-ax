@@ -134,6 +134,7 @@ const SAVE_TEXT: Record<'website' | 'tooLong' | 'source', Record<Locale, string>
     id: 'Alamat situs web tidak valid. Contoh: https://acme.example',
     ja: 'ホームページのアドレスが正しくありません。例: https://acme.example',
     es: 'La dirección del sitio web no es válida. Ejemplo: https://acme.example',
+    zh: '网址无效。例如：https://acme.example',
   },
   tooLong: {
     ko: `회사 소개가 너무 길어요. 모두 합쳐 ${PROFILE_BLOCK_MAX}자 안으로 줄여 주세요.`,
@@ -141,6 +142,7 @@ const SAVE_TEXT: Record<'website' | 'tooLong' | 'source', Record<Locale, string>
     id: `Profil perusahaan terlalu panjang. Buat total di bawah ${PROFILE_BLOCK_MAX} karakter.`,
     ja: `会社紹介が長すぎます。合計${PROFILE_BLOCK_MAX}文字以内にしてください。`,
     es: `El perfil de la empresa es demasiado largo. Manténgalo por debajo de ${PROFILE_BLOCK_MAX} caracteres en total.`,
+    zh: `公司介绍太长了。请控制在总共${PROFILE_BLOCK_MAX}个字符以内。`,
   },
   source: {
     ko: '출처 주소가 올바르지 않아요.',
@@ -148,6 +150,7 @@ const SAVE_TEXT: Record<'website' | 'tooLong' | 'source', Record<Locale, string>
     id: 'Alamat sumber tidak valid.',
     ja: '出典のアドレスが正しくありません。',
     es: 'Una dirección de origen no es válida.',
+    zh: '来源网址无效。',
   },
 }
 

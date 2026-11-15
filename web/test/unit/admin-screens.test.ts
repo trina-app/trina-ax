@@ -19,9 +19,7 @@ describe('adminParent', () => {
     expect(adminParent('/admin/members/bob')).toBe('/admin/members')
     expect(adminParent('/admin/audit/abc?kind=auth')).toBe('/admin/audit')
   })
-  test('Folder permissions: the editor under its folder, the folder under the tree, a person under By person', () => {
-    expect(adminParent('/admin/folders?folder=a%2Fb&rules=a%2Fb')).toBe('/admin/folders?folder=a%2Fb')
-    expect(adminParent('/admin/folders?rules=gone')).toBe('/admin/folders')
+  test('Folder permissions: the folder under the tree, a person under By person', () => {
     expect(adminParent('/admin/folders?folder=a')).toBe('/admin/folders')
     expect(adminParent('/admin/folders?folder=')).toBe('/admin/folders')
     expect(adminParent('/admin/folders?view=people&person=bob')).toBe('/admin/folders?view=people')
@@ -38,7 +36,7 @@ test('adminChain: the pages above, outermost first, without 나', () => {
   expect(adminChain('/admin/usage')).toEqual(['/admin'])
   expect(adminChain('/admin/connectors/gmail')).toEqual(['/admin', '/admin/connectors'])
   expect(adminChain('/admin/system/storage')).toEqual(['/admin', '/admin/system'])
-  expect(adminChain('/admin/folders?folder=a&rules=a')).toEqual(['/admin', '/admin/folders', '/admin/folders?folder=a'])
+  expect(adminChain('/admin/folders?folder=a')).toEqual(['/admin', '/admin/folders'])
 })
 
 test('isAdminDetail: a page under another page of its section', () => {

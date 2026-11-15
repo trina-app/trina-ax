@@ -67,7 +67,7 @@ const del = ['project-chat-delete', ko('common.delete')]
 async function items(c: Chat, o: { onMove?: (c: Chat) => void } = {}) {
   const m = await mount(<MemoryRouter><ProjectChatRow chat={c} {...o} /></MemoryRouter>)
   try {
-    if (c.shared) await m.until(() => usePeople.getState().loaded, 'the people directory')
+    if (c.shared?.people?.length) await m.until(() => usePeople.getState().loaded, 'the people directory')
     await m.click('project-chat-menu')
     return (m.container.querySelectorAll('[role="menuitem"]') as unknown as FakeElement[]).map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
   } finally {

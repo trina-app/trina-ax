@@ -241,6 +241,8 @@ describe('route registry', () => {
       'GET /mcp', 'POST /mcp', 'DELETE /mcp', 'PUT /connector-uploads/:token',
       // the platforms' own formats for the phone app's links (tests/unit/app-links.test.ts)
       'GET /.well-known/apple-app-site-association', 'GET /.well-known/assetlinks.json',
+      // an app's room address, its token the auth, and anything else under /in/ (tests/unit/b-room-apps-*.test.ts; matrix: ROOM_APPS_RAW_COVERED)
+      'POST /in/:token', 'ALL /in/*', 'ALL /in',
     ])
     for (const [k, mod] of ctx.implemented) if (mod !== 'test') expect(contract.has(k) || offContract.has(k), `${k} (${mod})`).toBe(true)
   })
@@ -329,12 +331,13 @@ describe('migrations', () => {
     expect(() => readMigrations(dir('dup', { '005_a_x.sql': '', '005_b_y.sql': '' }))).toThrow('two migrations with number 5')
   })
   test('every repo migration is numbered in its component\'s range (db.ts header, docs/WORKPLAN.md)', () => {
-    const range: Record<string, [number, number]> = { a: [100, 199], b: [200, 299], c: [300, 399], f: [600, 699], g: [700, 799] }
+    // B has a second range, 400–499, once 200–299 is full (docs/DECISIONS.md "B gets a second range, 400–499")
+    const ranges: Record<string, [number, number][]> = { a: [[100, 199]], b: [[200, 299], [400, 499]], c: [[300, 399]], f: [[600, 699]], g: [[700, 799]] }
     const wrong = readMigrations().filter((m) => {
       const c = /^\d{3}_([a-z])_/.exec(m.name)?.[1]
       if (c === undefined) return m.version > 99
-      const r = range[c]
-      return !r || m.version < r[0] || m.version > r[1]
+      const rs = ranges[c]
+      return !rs || !rs.some(([lo, hi]) => m.version >= lo && m.version <= hi)
     }).map((m) => m.name)
     expect(wrong).toEqual([])
   })

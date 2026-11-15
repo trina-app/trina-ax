@@ -5,6 +5,7 @@
 // the place already lit opens its start; 트리나 with its "?", pressed from another place, opens the first chat that
 // waits on me. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
 // the photo in order; Up/Down/Home/End move between them too. The rail takes no shortcut of its own.
+import { useGuestHidden } from '../GuestView'
 import clsx from 'clsx'
 import { Bell, FolderOpen, MessageCircle, PanelLeftOpen, SquareKanban } from 'lucide-react'
 import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
@@ -14,6 +15,7 @@ import { RAIL_ITEMS, railLinkState, railTarget, useRailHere, useRailMemory, type
 import { aiName } from '../../lib/tabs'
 import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
 import { useChats } from '../../store/chats'
+import { loadChatList } from '../../lib/chatListLoad'
 import { useRooms } from '../../store/rooms'
 import { useAttention, useWaitingChats } from '../../store/sessionMarkers'
 import { AiTabIcon } from '../BottomTabs'
@@ -27,15 +29,16 @@ import { useRailPanel } from './railPanel'
 export function Rail({ showList }: { showList: boolean }) {
   const t = useT()
   const current = useRailHere()
+  // a guest: no 파일, no 프로젝트 without one, no 대화 for a guest in a project with none (components/GuestView.tsx)
+  const guestHidden = useGuestHidden()
   const last = useRailMemory((s) => s.last)
   const attention = useAttention()
   // 트리나's mark counts the AI chats of the chat list: read it here, whichever place opens first (대화, 파일, 활동), not
   // only when 트리나's list mounts (QA: eight unseen answers showed no mark until 트리나 was visited)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
-  const loadChats = useChats((s) => s.loadChats)
   useEffect(() => {
-    if (!chatsLoaded) void loadChats(true).catch(() => {})
-  }, [chatsLoaded, loadChats])
+    if (!chatsLoaded) void loadChatList().catch(() => {})
+  }, [chatsLoaded])
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
   const notices = useActivityUnread()
@@ -63,7 +66,7 @@ export function Rail({ showList }: { showList: boolean }) {
     <nav aria-label={t('rail.label')} onKeyDown={onKey} className="flex h-full w-[clamp(72px,4.5rem,88px)] shrink-0 flex-col items-stretch border-r border-line bg-subtle" data-testid="rail">
       <TeamMenu />
       <ul className="mt-2 flex flex-col gap-1 px-1.5">
-        {RAIL_ITEMS.map((item) => {
+        {RAIL_ITEMS.filter((item) => !guestHidden.has(item)).map((item) => {
           const lit = item === current
           const to = item === 'ai' && firstWaiting ? `/c/${firstWaiting.id}` : railTarget(item, current, last)
           return (

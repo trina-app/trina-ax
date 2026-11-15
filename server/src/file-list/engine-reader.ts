@@ -5,7 +5,7 @@
 // needs one to check its token and caller and to count the usage, and Admin › Usage then shows it like any other use.
 //
 // Which connection: a team-wide AI account only (credentials/resolve.ts tier "team": not anyone's own, not assigned to a
-// person or a group); never a person's own account and never the hosted trial credit. On a development or office server
+// person or a group); never a person's own account. On a development or office server
 // (local-login) the engine's own sign-in on that computer.
 // Which engine: Claude Code when the team can use it (on in Admin, installed, and in managed mode a team account), on
 // Haiku (Claude Code's alias; with a gateway its haiku model, and without one nothing runs). Else Codex on its catalog's
@@ -164,10 +164,14 @@ export class EngineReader implements Reader {
           tokenKind = c.kind === 'anthropic-api-key' ? 'api-key' : 'oauth'
           proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools })
           unsubscribe = core.proxy!.subscribe(turn.id, onProxy)
-        } else if (tunnelPort !== null) proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, tools })
+        } else if (tunnelPort !== null) {
+          // office own-login: the proxy's checked HTTP path (TC-359); a refusal ends the call like in managed mode
+          proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, family: 'anthropic', tools })
+          unsubscribe = core.proxy!.subscribe(turn.id, onProxy)
+        }
         const message = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n'
         lr = buildClaudeReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt, message, model: this.model!, timeoutMs: READER_TIMEOUT_MS, proxyToken, tokenKind,
-          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}) }, conf)
+          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}) }, conf)
       } else {
         const conf = this.pick.conf
         let proxy: { port: number; token: string } | undefined

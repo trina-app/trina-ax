@@ -44,6 +44,11 @@ describe('the file list status', () => {
       expect(html).toMatch(/data-testid="file-list-run"[^>]*disabled|disabled[^>]*data-testid="file-list-run"/)
     }
     expect(text(lines({ problem: 'limited' }))).toContain("The AI's usage limit stopped the last run.")
+    const failed = lines({ problem: 'failed' })
+    expect(text(failed)).toContain("The last file list run didn't finish. Trina will try again.")
+    expect(failed).toContain('data-testid="file-list-problem"')
+    // unlike no_ai, Run now still works: the next run may well go through
+    expect(failed).toContain('data-testid="file-list-run"')
   })
   test('a run going: says so instead of Run now', () => {
     const html = lines({ running: true })

@@ -9,6 +9,8 @@ import { isSchema, type BinaryBody, type Endpoint, type MultipartBody, type Para
 import type { AppEnv } from './env'
 import { HttpError, fail } from './errors'
 import { msg } from '../auth/messages'
+import { GUEST_ENDPOINTS } from '../auth/guest-endpoints'
+import { removedSignInReason } from '../auth/account-removal'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
 import { demoGuard } from '../demo/guard'
@@ -80,6 +82,8 @@ export function enforceAuth(ep: Endpoint, auth: AuthInfo | null) {
   if (!auth) fail('unauthorized')
   if (auth!.user.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required')
   const role = auth!.user.role
+  // a guest: only the endpoints of the guest allow-list (auth/guest-endpoints.ts), whatever their auth level
+  if (role === 'guest' && !GUEST_ENDPOINTS.has(ep)) fail('forbidden')
   if ((ep.auth === 'admin' || ep.auth === 'admin-reauth') && role !== 'admin' && role !== 'owner') fail('forbidden')
   if ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && role !== 'owner') fail('forbidden')
 }
@@ -95,6 +99,8 @@ export class RouteKit {
     this.ctx.implemented.set(key, this.module)
     this.app.on(ep.method, ep.path, async (c) => {
       const auth = c.get('auth')
+      // a sign-in that ended because its account was removed says so, to that sign-in's holder only (TC-1974)
+      if (!auth && ep.auth !== 'public') { const why = removedSignInReason(this.ctx, c.req.raw); if (why) fail('unauthorized', undefined, { params: { reason: why } }) }
       enforceAuth(ep, auth)
 
       const params = c.req.param() as ParamsOf<E>

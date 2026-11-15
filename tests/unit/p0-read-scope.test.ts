@@ -19,7 +19,7 @@ let h: Harness
 let bob: TestSocket
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'p0-read-scope', askUserTimeoutMs: 5000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p0-read-scope', askUserTimeoutMs: 5000, stallTimeoutMs: 60_000 })
   bob = await h.ws('bob', { windowId: 'win-p0-bob' })
   alice = await h.ws('alice', { windowId: 'win-p0-alice' })
   await bob.next('hello')

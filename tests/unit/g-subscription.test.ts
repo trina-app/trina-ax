@@ -92,7 +92,7 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(ENGINE_DIR, 'claude'), `#!${path.join(ENGINE_DIR, 'bun')}\nimport './fake-engine.ts'\n`, { mode: 0o755 })
   const proxyPort = await freePort()
   h = await startHarness({
-    name: 'g-subscription', turnTimeoutMs: 60_000,
+    name: 'g-subscription', stallTimeoutMs: 60_000,
     realCore: { engine: { authMode: 'managed', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '/nonexistent/codex', proxyPort, modelUpstream: `http://127.0.0.1:${upstream.port}` } },
     credentials: [],
   })

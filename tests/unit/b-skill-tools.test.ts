@@ -60,7 +60,7 @@ beforeAll(async () => {
   put('users/alice/skills/draft-mail/SKILL.md', `---\nname: draft-mail\ndescription: ${MINE} drafts a mail\n---\nDRAFT-STEPS\n`)
   // skills/finance: the finance group only (bob)
   const folder = 'f_skills_finance_' + newId()
-  h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, 'skills/finance')
+  h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(folder, 'skills/finance')
   h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(newId(), folder)
   h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'read')").run(newId(), folder)
 })

@@ -1,15 +1,24 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
+import { GuestLanding, NotForGuests, NotForRoomGuests, useGuestPlacePath } from './components/GuestView'
+import { ShareChatHost } from './components/chat/ShareChat'
+import { ChatShareHost } from './components/chat/ChatShareDialog'
+import { WideningDraftHost } from './components/WideningDraftHost'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { ApiError, errorText } from './lib/api'
+import { Loader2 } from 'lucide-react'
+import { ApiError, errorText, isServerUpdating, isTeamWaking, setMediaKey } from './lib/api'
+import { useWakeWait } from './lib/wakeWait'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useFileLists } from './store/fileLists'
+import { useListCache } from './store/listCache'
+import { useProjectPage } from './store/projectPage'
+import { useTeamFiles } from './store/teamFiles'
 import { useChatGroups } from './store/chatGroups'
 import { useNavFolders } from './store/navFolders'
 import { useAiAccess } from './store/aiAccess'
@@ -23,8 +32,10 @@ import { useEngines } from './store/engines'
 import { resetInbox } from './store/inbox'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
+import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
-import { setBeforePersonSwitch, useSession } from './store/session'
+import { setBeforePersonSwitch, useMe, useSession } from './store/session'
+import { isGuestMe } from './lib/guests'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
@@ -41,10 +52,12 @@ import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
-import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { useLogoutTo } from './lib/logout'
+import { afterJoinSet, afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
 import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
+import { RoomAppsHost } from './components/rooms/apps/AppsHost'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -81,8 +94,9 @@ function Splash() {
 const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/') || isOldConnectorsPath(path)
 
 /** Settings is a dialog over a page (components/settings/SettingsDialog.tsx): the page it was opened from, or Home when
- * its address was opened directly. `close` goes back to that page: back through the history entries Settings added on
- * top of it, or straight to it when there are none. */
+ * its address was opened directly (a guest: their one place, components/GuestView.tsx useGuestPlacePath). `close` goes
+ * back to that page: back through the history entries Settings added on top of it, or straight to it when there are
+ * none. */
 function useSettingsOverlay() {
   const location = useLocation()
   const navType = useNavigationType()
@@ -90,6 +104,7 @@ function useSettingsOverlay() {
   const page = useRef<Location | null>(null)
   const depth = useRef(0)
   const open = isSettings(location.pathname)
+  const guestHome = useGuestPlacePath()
   // the phone's back stack notes what is under each entry the first time it shows, before any page renders and reads
   // it (lib/backStack.ts: the list under a page opened from a link, and the ‹ button's label)
   noteLocation(location, navType)
@@ -101,19 +116,21 @@ function useSettingsOverlay() {
     else if (navType === 'POP') depth.current = Math.max(0, depth.current - 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key])
-  const under: Location = open ? (page.current ?? { pathname: '/', search: '', hash: '', state: null, key: 'settings-home' }) : location
+  const home = guestHome ?? '/'
+  const under: Location = open ? (page.current ?? { pathname: home, search: '', hash: '', state: null, key: 'settings-home' }) : location
   const close = useCallback(() => {
     const back = page.current
     if (depth.current > 0 && back) navigate(-depth.current)
-    else navigate(back ? `${back.pathname}${back.search}${back.hash}` : '/', { replace: true })
-  }, [navigate])
+    else navigate(back ? `${back.pathname}${back.search}${back.hash}` : home, { replace: true })
+  }, [navigate, home])
   const real = useMemo(() => ({ pathname: location.pathname, navigationType: navType }), [location.pathname, navType])
   return { open, under, close, real }
 }
 
 /** Everything one person's window keeps in memory of their own: chats, the messages waiting to be sent, the projects
- * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards and the
- * chat counted as on screen. */
+ * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards, the
+ * chat counted as on screen, the lists kept by key (store/listCache.ts: skills, Search, Settings, tasks, 활동) and the
+ * admin screens' kept reads. */
 function dropPersonStores() {
   // the changes still on their way to the server (lib/optimistic.ts) write nothing into the next person's stores
   resetOptimistic()
@@ -122,6 +139,9 @@ function dropPersonStores() {
   useSendQueue.getState().reset()
   useProjects.getState().reset()
   useFileLists.getState().reset()
+  useListCache.getState().reset()
+  useTeamFiles.getState().reset()
+  useProjectPage.getState().reset()
   useChatGroups.getState().reset()
   useNavFolders.getState().reset()
   useAiAccess.getState().reset()
@@ -135,6 +155,7 @@ function dropPersonStores() {
   useJobs.getState().reset()
   useSessionMarkers.getState().reset()
   useRailMemory.getState().reset()
+  resetAdminReads()
 }
 
 // Another person signing in over a signed-in one in this window (a password reset link on a shared computer,
@@ -147,6 +168,12 @@ setBeforePersonSwitch(() => {
   clearLocalData()
   forgetStepsSeen()
 })
+
+// the addresses of room pictures carry this sign-in's media key (lib/api.ts roomFileUrl): set before any screen of the
+// session draws (a store subscription runs as the status changes, before React renders), none while signed out
+const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session?.mediaKey ?? null : null)
+setMediaKey(mediaKeyOf(useSession.getState()))
+useSession.subscribe((s) => setMediaKey(mediaKeyOf(s)))
 
 /** The page load after another person signed in over the signed-in one (tests replace it). */
 export const personSwitch = { reload: () => location.reload() }
@@ -174,6 +201,66 @@ export function useSessionLifecycle(): boolean {
   return signedIn
 }
 
+/** How often the page asks the server again on its own while "Can't reach" shows. */
+const RETRY_MS = 5000
+
+/** The offline page: it asks again by itself (every few seconds, when the network comes back, when the tab is looked at
+ * again) and the screen the person was on returns when the server answers; the button asks at once. */
+function CantReach({ hint, detail, waking, updating }: { hint: string; detail: string; waking?: boolean; updating?: boolean }) {
+  const t = useT()
+  const load = useSession((s) => s.load)
+  // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
+  // (this page shows only for a connection that fails: an answer that is not "starting" is another connection error)
+  const wake = useWakeWait(waking ? 'waking' : 'connection')
+  useEffect(() => {
+    let asking = false
+    const ask = () => {
+      if (asking || document.visibilityState === 'hidden') return
+      asking = true
+      void load().finally(() => { asking = false })
+    }
+    const timer = setInterval(ask, RETRY_MS)
+    window.addEventListener('online', ask)
+    document.addEventListener('visibilitychange', ask)
+    return () => { clearInterval(timer); window.removeEventListener('online', ask); document.removeEventListener('visibilitychange', ask) }
+  }, [load])
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
+      <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+        <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+        {PRODUCT.displayName}
+      </p>
+      {updating ? (
+        // Trina is updating (an update migrates the database): the words of the page a browser gets meanwhile
+        // (server/src/system/updating-page.ts); it opens by itself once the server answers
+        <>
+          <p className="flex items-center gap-2 font-medium" role="status" data-testid="team-updating"><Loader2 size={16} className="animate-spin text-muted" aria-hidden />{t('conn.updating')}</p>
+          <p className="max-w-md text-sm text-balance text-muted">{t('conn.updatingDetail')}</p>
+        </>
+      ) : waking && wake.gaveUp ? (
+        // still "starting" after 3 minutes: the start failed. [Try again] waits 3 more minutes (the page keeps asking)
+        <>
+          <p className="max-w-md font-medium text-balance" role="alert" data-testid="team-wake-failed">{t('conn.wakeFailed')}</p>
+          <Button onClick={() => { wake.restart(); void load() }} data-testid="team-wake-retry">{t('common.retry')}</Button>
+        </>
+      ) : waking ? (
+        // the team's server was turned off for no use and is starting (about a minute): a calm wait, not an error
+        <>
+          <p className="flex items-center gap-2 font-medium" role="status" data-testid="team-waking"><Loader2 size={16} className="animate-spin text-muted" aria-hidden />{t('conn.waking')}</p>
+          <p className="max-w-md text-sm text-balance text-muted">{t('conn.wakingDetail')}</p>
+        </>
+      ) : (
+        <>
+          <p className="font-medium">{t('conn.cantReach')}</p>
+          <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
+          {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
+          <Button onClick={() => void load()}>{t('common.retry')}</Button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function Gate() {
   const t = useT()
   const locale = useLocale()
@@ -183,7 +270,8 @@ function Gate() {
   const settings = useSettingsOverlay()
 
   useEffect(() => {
-    void load()
+    // main.tsx asked already (before the first render); this one counts only when nothing did (tests mount Gate alone)
+    if (useSession.getState().status.kind === 'loading') void load()
   }, [load])
 
   useSessionLifecycle()
@@ -200,18 +288,7 @@ function Gate() {
     const hint = t('conn.cantReachHint')
     const text = errorText(status.error, locale, hint)
     const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
-        <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
-          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
-          {PRODUCT.displayName}
-        </p>
-        <p className="font-medium">{t('conn.cantReach')}</p>
-        <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
-        {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
-        <Button onClick={() => void load()}>{t('common.retry')}</Button>
-      </div>
-    )
+    return <CantReach hint={hint} detail={detail} waking={isTeamWaking(status.error)} updating={isServerUpdating(status.error)} />
   }
   if (status.kind === 'setup')
     return (
@@ -254,6 +331,7 @@ function Gate() {
       <RealPath.Provider value={settings.real}>
       {/* keyed by the person: another person signed in over this one starts every screen afresh (useSessionLifecycle) */}
       <div key={status.me.user.id} className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
+      {/* a guest (lib/guests.ts): the pages that are not theirs go to Home (components/GuestView.tsx NotForGuests) */}
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
@@ -267,29 +345,30 @@ function Gate() {
           {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
           <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
-          <Route path="files" element={<Files />} />
-          <Route path="files/view" element={<FileView />} />
-          <Route path="projects" element={<ProjectList />} />
+          <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
+          <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
+          {/* a guest in a room has no projects: their room instead of an empty list (components/GuestView.tsx) */}
+          <Route path="projects" element={<NotForRoomGuests><ProjectList /></NotForRoomGuests>} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="projects/:projectId/files" element={<ProjectFiles />} />
-          <Route path="admin" element={<AdminLayout />} />
-          <Route path="admin/:section" element={<AdminLayout />} />
+          <Route path="admin" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin/:section" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
-          <Route path="admin/:section/:sub" element={<AdminLayout />} />
+          <Route path="admin/:section/:sub" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
-          <Route path="admin/:section/:sub/:item" element={<AdminLayout />} />
+          <Route path="admin/:section/:sub/:item" element={<NotForGuests><AdminLayout /></NotForGuests>} />
           <Route path="trash" element={<Trash />} />
-          <Route path="skills" element={<Skills />} />
+          <Route path="skills" element={<NotForGuests><Skills /></NotForGuests>} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
-          <Route path="skills/share/:id" element={<SkillSharePage />} />
-          <Route path="scheduled" element={<ScheduledList />} />
-          <Route path="scheduled/:id" element={<ScheduledTask />} />
+          <Route path="skills/share/:id" element={<NotForGuests><SkillSharePage /></NotForGuests>} />
+          <Route path="scheduled" element={<NotForGuests><ScheduledList /></NotForGuests>} />
+          <Route path="scheduled/:id" element={<NotForGuests><ScheduledTask /></NotForGuests>} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
-          <Route path="welcome" element={<Welcome />} />
+          <Route path="welcome" element={<NotForGuests><Welcome /></NotForGuests>} />
           {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
-          <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          <Route path="slack/link" element={<NotForGuests><SlackLink key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
           {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}
           <Route path="slack/signin-return" element={<SlackSignInReturn />} />
           <Route path="slack/done" element={<SlackDone signedIn />} />
@@ -343,6 +422,10 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <RoomAppsHost />
+        <ShareChatHost />
+        <ChatShareHost />
+        <WideningDraftHost />
         <StatusDialogHost />
         <ImageViewerHost />
         <Toaster />
@@ -357,10 +440,19 @@ export default function App() {
 export function AfterJoin() {
   const t = useT()
   const team = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.team.name : ''))
-  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet() }))
+  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet(), token: readJoinToken(window.location).token }))
+  const signOutToJoin = useLogoutTo()
   const told = useRef(false)
   useEffect(() => {
-    if (!target.joined && team && !told.current) { told.current = true; toast({ level: 'info', text: t('teamLink.alreadyIn', { team }) }) }
+    if (!target.joined && team && !told.current) {
+      told.current = true
+      // a shared computer: the next person can sign this one out and come back to the same link (the link is in the address only here)
+      const token = target.token
+      toast({
+        level: 'info', text: t('teamLink.alreadyIn', { team }), ms: 15000,
+        action: token ? { label: t('teamLink.signOutToJoin'), run: () => void signOutToJoin(`/join#t=${token}`) } : undefined,
+      })
+    }
     return () => clearAfterJoin()
     // once, on arriving
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -386,7 +478,7 @@ function NotFound() {
   return (
     // the layout already has the <main> landmark; the page heading is an h1 like on other pages
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="not-found">
-      <h1 className="text-lg font-semibold text-balance text-ink">{t('notFound.title')}</h1>
+      <h1 className="text-display font-semibold text-balance text-ink">{t('notFound.title')}</h1>
       <p className="max-w-md text-sm text-balance text-muted">{t('notFound.hint')}</p>
       <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-3">
         {t('notFound.home')}
@@ -396,10 +488,12 @@ function NotFound() {
 }
 
 /** Signed in while on /login (or /password): go where the person was heading (?next=, same-site paths only); otherwise
- * Home, or on a phone the 대화 list (signedInHome). */
+ * Home, or on a phone the 대화 list (signedInHome); a guest, their one place (components/GuestView.tsx GuestLanding). */
 function AfterSignIn() {
   const next = safeNext(useLocation().search)
+  const guest = isGuestMe(useMe())
   // no ?next: a landing (lib/welcome.ts LANDING_STATE), where an owner with unfinished welcome steps goes to them
   if (next) return <Navigate to={next} replace />
+  if (guest) return <GuestLanding />
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
 }

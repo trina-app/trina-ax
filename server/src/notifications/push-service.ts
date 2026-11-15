@@ -11,17 +11,20 @@ import { Vault } from '../credentials/vault'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
 import { PHONE_TAKEN, pushMessages, TEXT } from './text'
-import { eventEnabled, getPreferences } from './preferences'
+import { eventEnabled, getPreferences, pushEventEnabled } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { noticeWanted } from '../rooms/alerts'
 import { handoverPushWanted } from '../admin/handover-notices'
 import { roomNoticeOut } from '../rooms/inbox'
 import { chatAnswerWanted } from './chat-answers'
+import { chatShareLabel, chatShareWanted } from './chat-shares'
+import { roomAppPushWanted } from '../rooms/apps/notice'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
+import { readNativePushConfig } from './push-gateway-setting'
 import { phoneDecision, type PhoneDecision } from './away'
-import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
+import { createNativeTransport, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null
@@ -53,6 +56,12 @@ const SOURCES=[
   {inbox:'handover_notices',deliveries:'handover_push_deliveries',only:"AND event_type IN ('owner.lead_joined','owner.reauth_locked')",unread:"(read_at IS NULL OR event_type='owner.reauth_locked')",wanted:handoverPushWanted,due:'?'},
   // an answer in my own AI chat (migration 347): after its wait, only while it is still unseen or its card still open
   {inbox:'chat_answer_notices',deliveries:'chat_answer_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,_now:number,ctx:AppContext)=>chatAnswerWanted(ctx,id),due:'MAX(?,n.push_at)'},
+  // a chat shared with me by name (migration 351; a group's people get the Inbox row alone): while I still see it,
+  // outside my quiet hours, with "Chats shared with me" on
+  {inbox:'chat_share_notices',deliveries:'chat_share_push_deliveries',only:'AND named=1',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatShareWanted(ctx,id,now),due:'?'},
+  // an app in a room the person manages paused for the day (migration 352): while unread, the app still paused and the
+  // person still in its room (rooms/apps/notice.ts)
+  {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {
@@ -164,8 +173,10 @@ export class PushService {
    * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
    * the message's first line while the person's messagePreview is on (else the generic line). No session: the label key from registration is the proof. Only for a
    * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and
-   * still the person's to read (the room left or hidden, the message deleted or a private preview: nothing). Every
-   * failure gets the same empty answer, and nothing is logged. */
+   * still the person's to read (the room left or hidden, the message deleted or a private preview: nothing). A chat
+   * shared with the person by name (chat_share_notices, chat-shares.ts) is answered the same way: the sharer's name and
+   * a fixed line, never the chat's title, while the person still sees the chat. Every failure gets the same empty
+   * answer, and nothing is logged. */
   label(id:string,input:z.infer<typeof PushDeviceLabelInput>):z.infer<typeof PushDeviceLabel>{
     // one way out for every failure, a thrown one too (a busy database, a row gone meanwhile): the same {}
     try{return this.labelOf(id,input)}catch{return{}}
@@ -178,12 +189,20 @@ export class PushService {
     if(!row?.label_hash||!right||!KEY.test(input.key)||!ID.test(input.notificationId)||!this.admitLabel(row.id,now))return none
     const native=this.o.native()
     if(!native||row.config_key!==nativeConfigKey(native)||!this.session(row.user_id,row.session_id)||!this.enabled(row.user_id))return none
-    // sent (tried at least once) to this device, so only a notice this phone may have got, and within a push's day
+    const locale=getUser(db,row.user_id)?.locale??teamDefaultLocale(db)
+    // sent (tried at least once) to this device, so only a notice this phone may have got, and within a push's day.
+    // A chat shared with me by name (chat-shares.ts): the sharer's name and a fixed line, never the chat's title
+    const share=db.query(`SELECT n.id FROM chat_share_notices n WHERE n.id=? AND n.user_id=? AND n.named=1 AND n.read_at IS NULL AND n.suppressed=0
+      AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM chat_share_push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
+      .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id) as {id:string}|null
+    if(share){
+      if(!pushEventEnabled(getPreferences(db,row.user_id),'chat.shared')||!chatShareWanted(this.ctx,share.id,now))return none
+      return chatShareLabel(this.ctx,share.id,locale)??none
+    }
     const notice=db.query(`SELECT n.id,n.user_id,n.event_type,n.source_id FROM room_notices n WHERE n.id=? AND n.user_id=? AND n.read_at IS NULL AND n.suppressed=0 AND n.quiet=0
       AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM room_push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
       .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id) as {id:string;user_id:string;event_type:'room.dm'|'room.mention';source_id:string}|null
     if(!notice||!eventEnabled(getPreferences(db,row.user_id),notice.event_type)||!noticeWanted(db,notice.id,now))return none
-    const locale=getUser(db,row.user_id)?.locale??teamDefaultLocale(db)
     // the Inbox's and a browser push's rule of what the person may still see of the notice's message
     const room=roomNoticeOut(db,notice,locale,{preview:getPreferences(db,row.user_id).messagePreview}),title=room?.label?plainLabel(room.label,120):''
     if(!room||!title||!ID.test(room.id))return none
@@ -227,7 +246,7 @@ export class PushService {
     if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))return null
     const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND ${src.unread} ${src.only}`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
-    if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
+    if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!pushEventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
     if(src.wanted&&!src.wanted(this.ctx.db,notificationId,this.o.now(),this.ctx))return null
     return{sub,event:row.event_type}
   }
@@ -241,7 +260,7 @@ export class PushService {
     db.query(`INSERT INTO ${src.deliveries}(notification_id,subscription_id,next_at,expires_at)
       SELECT n.id,s.id,${src.due},strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
       JOIN push_preferences p ON p.user_id=n.user_id AND p.enabled=1
-      WHERE n.suppressed=0 AND ${src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)} ${src.only.replace('quiet','n.quiet')} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
+      WHERE n.suppressed=0 AND ${src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)} ${src.only.replace(/quiet|named/g,(c)=>`n.${c}`)} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
       AND NOT EXISTS(SELECT 1 FROM ${src.deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
       ORDER BY n.created_at,n.id LIMIT 500 ON CONFLICT(notification_id,subscription_id) DO NOTHING`).run(now,this.iso(this.o.now()-TTL_MS),keys[0]??'',keys[1]??'')
     }

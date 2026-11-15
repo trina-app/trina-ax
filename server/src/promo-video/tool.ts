@@ -27,6 +27,7 @@ export const STYLE_NAME: Record<Locale, Record<PromoStyle, string>> = {
   id: { ink: 'Tegas', deep: 'Editorial', mono: 'Mono' },
   ja: { ink: 'インパクト', deep: 'エディトリアル', mono: 'モノ' },
   es: { ink: 'Impacto', deep: 'Editorial', mono: 'Mono' },
+  zh: { ink: '醒目', deep: '杂志风', mono: '黑白' },
 }
 
 const PLAYER: Record<Locale, PlayerText> = {
@@ -35,6 +36,7 @@ const PLAYER: Record<Locale, PlayerText> = {
   id: { play: 'Putar', pause: 'Jeda', soundOn: 'Nyalakan suara', soundOff: 'Matikan suara', stills: 'Adegan {n}' },
   ja: { play: '再生', pause: '一時停止', soundOn: '音をオン', soundOff: '音をオフ', stills: 'シーン {n}' },
   es: { play: 'Reproducir', pause: 'Pausa', soundOn: 'Activar sonido', soundOff: 'Silenciar', stills: 'Escena {n}' },
+  zh: { play: '播放', pause: '暂停', soundOn: '打开声音', soundOff: '关闭声音', stills: '场景{n}' },
 }
 
 export const PROMO_TOOL_DESCRIPTION =

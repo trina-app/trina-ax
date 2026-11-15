@@ -18,6 +18,7 @@ import { httpError } from '../team-files/errors'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
+import { keptMediaCache } from '../auth/media-key'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -56,7 +57,11 @@ export const roomsRoutes: RouteModule = {
     // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
-    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale') }))
+    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
+    // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts): the composer's
+    // "someone here can't see that message" question, and the sender's "Remove preview"
+    kit.handle(API.roomMessageLinkAudience, ({ auth, params, body }) => rooms.linkAudience(auth.user.id, params.id, body))
+    kit.handle(API.hideRoomLinkPreview, ({ auth, params, body }) => rooms.hidePreview(auth.user.id, params.id, params.messageId, body.linkedMessageId))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
@@ -67,7 +72,7 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMembers, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.members(auth.user.id, params.id) } })
     // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): any member invites or leaves; the manager, or an owner or
     // admin in it, takes someone out
-    kit.handle(API.inviteRoomMembers, ({ auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds))
+    kit.handle(API.inviteRoomMembers, ({ c, auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds, c.get('locale')))
     kit.handle(API.removeRoomMember, ({ auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId))
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
@@ -109,7 +114,11 @@ export const roomsRoutes: RouteModule = {
       // is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp)
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via })
+      // a room file's id always means the same bytes: its thumbnail (only ever an <img> in the app) is kept by this
+      // browser for this sign-in when the address carries the session's own media key (auth/media-key.ts); all checks
+      // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list
+      const cache = query.thumb && !query.download && !f.quarantined ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via, cache })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,
     // isolation and cache). The inline read's checks run on every request, before the cache and the render and again

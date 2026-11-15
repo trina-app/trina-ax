@@ -108,6 +108,41 @@ export const SetGoogleAppClientBody = z.union([
   SetDriveClientBody,
 ])
 
+/** The company's own Google app for the whole Google family (Drive, Gmail, Calendar, Docs, Sheets), set once by an owner
+ * or admin where the hosting service is the Google sign-in (docs/GOOGLE-APPS.md "The company's own Google app").
+ * - `available`: it can be set or replaced here; `blocked` says why not: "server" the operator set a Google client of
+ *   their own, "not_service" this server does not sign in through the hosting service (set up each card instead),
+ *   "public_host" no public https address for Google to send people back to;
+ * - `active`: set now; `setBy` / `setAt`: who set it and when (null when not set; setBy null too when that person is gone);
+ * - `canGoBack`: removing it goes back to the hosting service's Google sign-in: there is one AND it answered that it
+ *   serves this team. false: removing it turns Google off until it is set again (the page says so before it asks);
+ * - `stale`: set, but the team's address changed since: Google still sends people back to the old address until the
+ *   admin adds the new return addresses in Google Cloud and replaces the app here;
+ * - `people`: active people with a Google connection here (Drive or any of the four apps) who connect again after a
+ *   change; `shared`: Drives shared with the team plus the team's shared Google accounts, which an admin reconnects;
+ * - `returnAddresses`: the two addresses to add in Google Cloud (both must be in the uploaded file), null without a
+ *   public address.
+ * Never the client ID or secret. */
+export const GoogleOwnAppStatus = z.object({
+  available: z.boolean(),
+  blocked: z.enum(['server', 'not_service', 'public_host']).nullable(),
+  active: z.boolean(),
+  /** set, but the team's address changed since: add the new return addresses in Google Cloud, then Replace (an older
+   * server leaves it out) */
+  stale: z.boolean().optional(),
+  canGoBack: z.boolean(),
+  setBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+  setAt: z.string().nullable(),
+  people: z.number().int(),
+  shared: z.number().int(),
+  returnAddresses: z.object({ drive: z.string(), apps: z.string() }).nullable(),
+})
+export type GoogleOwnAppStatus = z.infer<typeof GoogleOwnAppStatus>
+/** The company's Google app: the JSON file Google Cloud downloads (it must list both return addresses), or its client ID
+ * and secret (the same shape as Google Drive's setup). */
+export const SetGoogleOwnAppBody = SetDriveClientBody
+export type SetGoogleOwnAppBody = z.infer<typeof SetGoogleOwnAppBody>
+
 const AppParam = '/:app'
 export const GOOGLE_APPS = {
   myGoogleApps: endpoint({ method: 'GET', path: '/api/integrations/google-apps', auth: 'user', owner: 'C', response: z.object({ apps: z.array(GoogleAppView) }), summary: 'Own Gmail, Calendar, Docs and Sheets connections and whether each can be connected; never a token.' }),
@@ -125,5 +160,8 @@ export const GOOGLE_APPS = {
   completeGoogleAppTeamFlow: endpoint({ method: 'POST', path: `/api/admin/google-apps${AppParam}/team/flows/:id/complete`, auth: 'admin', owner: 'C', body: z.object({ create: z.boolean().optional() }).strict(), response: GoogleAppAdminStatus, summary: "Confirm the Google account shown: it becomes the team's shared account for the app (a new one is used by nobody until its people are saved; a reconnect keeps them). `create`: only when there is none yet (else 409 team_exists: another admin connected one meanwhile). Members' own connections are not touched." }),
   setGoogleAppTeam: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/team`, auth: 'admin', owner: 'C', body: z.object({ access: IntegrationAccess }).strict(), response: GoogleAppAdminStatus, summary: 'Who may use the shared account: everyone, groups or people (the same rule as a team connection).' }),
   removeGoogleAppTeam: endpoint({ method: 'DELETE', path: `/api/admin/google-apps${AppParam}/team`, auth: 'admin', owner: 'C', query: z.object({ id: z.string().max(100).optional() }), response: z.object({ removed: z.boolean(), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: "Remove the shared account at once; Google is asked to revoke only when no other sign-in here uses the same Google account." }),
+  googleOwnApp: endpoint({ method: 'GET', path: '/api/admin/google/own-app', auth: 'admin', owner: 'C', response: GoogleOwnAppStatus, summary: "Whether the company's own Google app signs in for Google Drive, Gmail, Calendar, Docs and Sheets, who set it, whether it can be set here, and how many sign-ins a change would end; never the client." }),
+  setGoogleOwnApp: endpoint({ method: 'PUT', path: '/api/admin/google/own-app', auth: 'admin', owner: 'C', body: SetGoogleOwnAppBody, response: GoogleOwnAppStatus, summary: "Use the company's own Google app (the downloaded file listing both return addresses, or its client ID and secret) for all five Google apps. Only where the hosting service is the Google sign-in and the operator set no client; existing Google sign-ins connect again." }),
+  removeGoogleOwnApp: endpoint({ method: 'DELETE', path: '/api/admin/google/own-app', auth: 'admin', owner: 'C', response: GoogleOwnAppStatus, summary: "Stop using the company's own Google app: the client it wrote is deleted and all five Google apps go back to the hosting service's sign-in (or turn off where there is none)." }),
   setGoogleAppMembers: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/members`, auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: GoogleAppAdminStatus, summary: 'The old members switch, kept for older apps: admin-only, changes nothing (every member may connect their own once the app is set up).' }),
 } as const

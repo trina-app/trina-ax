@@ -39,7 +39,7 @@ async function raw(who: string, method: string, p: string, body?: unknown): Prom
 const names = async (who: string, manage: boolean) => ((await raw(who, 'GET', `/api/projects${manage ? '?manage=1' : ''}`)).json.items as { id: string; name: string; member?: boolean; instructions: string; canManage?: boolean }[])
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-projects-after-update', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-projects-after-update', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   const db = h.ctx.db
   db.query("INSERT INTO users (id, username, name, role) VALUES ('frank', 'frank', 'Frank Admin', 'admin')").run()
   addTestPerson('frank', { id: 'frank', name: 'Frank Admin', role: 'admin', locale: 'en' })

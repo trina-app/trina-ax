@@ -285,7 +285,7 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
   if (to.level === 'project' && !manifest) block('moveNotFolder', { name: skill.name })
   if (to.level !== 'personal' && rules.access(user, target.split('/')) !== 'write') block('moveNoWrite', { where: levelFolder(to, L) })
   // a copy lands without the folder rules inside the skill's folder: its restricted files would reach more people
-  if (copy && manifest && rules.ruleFolders().some((f) => foldKey(f).startsWith(foldKey(source) + '/'))) block('copyRuled', { name: skill.name })
+  if (copy && manifest && rules.boundaryFolders().some((f) => foldKey(f).startsWith(foldKey(source) + '/'))) block('copyRuled', { name: skill.name })
   // a skills folder that is not there yet (a project's first skill, a person's first own skill) is free: runMove makes it
   // a name that cannot be made there (a folder of the same name in other letter case, a look-alike) is taken too; the
   // person's rights to write there were checked above

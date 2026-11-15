@@ -7,23 +7,29 @@ import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { useInboxUnread, useNoticeUnread } from '../../store/inbox'
 import { ErrorNote, Skeleton, Switch, useMediaQuery } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
 import { isDesktop } from '../../lib/desktop'
-import { deletionNoticeText } from './AccountDeletion'
+import { deletionDueText, deletionNoticeText } from './AccountDeletion'
 import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
+import { PhoneGatewayRow } from './PhoneGatewayRow'
+import { isAdmin, useMe } from '../../store/session'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
+import { leaverNoticeLink, leaverNoticeText, pausedNoticeLink, pausedNoticeText } from '../rooms/apps/PausedNotice'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
- * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
-const workKeys = ['chatAnswers', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+ * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림"); chatShares: a push
+ * when someone shares a chat with me by name (docs/DECISIONS.md "Chats shared with me: a push that names the sharer";
+ * a server from before it leaves it out: no row) */
+const workKeys = ['chatAnswers', 'chatShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -99,6 +105,14 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
   return r.open ? `${who} ${t('notifications.resetLink.openHint')}` : who
 }
 
+/** "{name} joined the team.", or for a guest the one place they joined: "{name} joined 'Quote prep' as a guest." (a group
+ * chat with no name, or a place the reader is not in: "joined a group chat / a project as a guest") */
+export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
+  if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
+  if (j.guestPlace.name) return t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name })
+  return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -111,11 +125,18 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
   if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
-  if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
+  if (item.code === 'team.joined') return item.joined ? joinedText(item.joined, t) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
+  // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
+  // there; one I no longer see says so (no title, no link)
+  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
-  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
+  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
+  if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
   if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
+  // an app in a room paused for the day (docs/DECISIONS.md "Apps posting in rooms")
+  if (item.code === 'room_app.paused' && item.roomApp) return pausedNoticeText(item.roomApp, t, locale)
+  if (item.code === 'room_app.leaver' && item.roomAppLeaver) return leaverNoticeText(item.roomAppLeaver, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
   if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
@@ -149,6 +170,9 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // an app that paused: its settings in its room, while I am in it
+  if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
+  if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }
   if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
@@ -161,29 +185,42 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
-  if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
+  if (item.code === 'team.joined') {
+    // a guest joined: the owner and admins open Admin › Members (no id); the member who invited them, the room or project
+    // they joined while they are in it (its id); anyone else nowhere (null)
+    const place = item.joined?.guestPlace
+    if (place && place.id !== undefined) return place.id ? { to: place.kind === 'room' ? `/rooms/${encodeURIComponent(place.id)}` : `/projects/${encodeURIComponent(place.id)}`, testId: 'notification-joined-link' } : null
+    return { to: '/admin/members', testId: 'notification-joined-link' }
+  }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
+  // my own account's deletion date while the request is open: the page where I can keep the account
+  if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
   return null
 }
 
+const PREFERENCES_KEY = 'settings:notificationPreferences'
+
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
+  const admin = isAdmin(useMe())
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
   // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole
-  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
+  // as the server last said them here (store/listCache.ts): a visit after the first shows the switches at once and
+  // reads them again behind it
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(() => peekCached<NotificationPreferences>(PREFERENCES_KEY) ?? null)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
   /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
   const queued = useRef<Partial<NotificationPreferences> | null>(null)
   /** what the server has, as its last answer said (a read, or a save's answer): what a failed save goes back to */
-  const saved = useRef<NotificationPreferences | null>(null)
+  const saved = useRef<NotificationPreferences | null>(preferences)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
   /** `keepError`: the read after a failed save, which leaves that save's message up */
   const load = useCallback(async (keepError = false) => {
@@ -192,7 +229,7 @@ export function Notifications() {
       const prefs = await api.call(API.getNotificationPreferences)
       if (generation !== life.current || seq !== sequence.current) return
       // while my changes are being saved, the switches show them, not a read from before the last one landed
-      if (!writing.current) { saved.current = prefs; setPreferences(prefs) }
+      if (!writing.current) { saved.current = prefs; setPreferences(prefs); rememberCached(PREFERENCES_KEY, prefs) }
       if (!keepError) setError(null)
     } catch (e) { if (!keepError && generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
@@ -213,6 +250,7 @@ export function Notifications() {
     try {
       for (let body: Partial<NotificationPreferences> | null = patch; body; body = queued.current, queued.current = null) {
         saved.current = await api.call(API.updateNotificationPreferences, { body })
+        rememberCached(PREFERENCES_KEY, saved.current)
       }
     } catch (e) {
       queued.current = null; writing.current = false
@@ -231,7 +269,7 @@ export function Notifications() {
   // 이 기기 (docs/DECISIONS.md "대화방 알림 설정"). No frames; the title is in the bar above on a phone
   // (SettingsDialog.tsx), so here it is for screen readers only.
   return <section className="flex flex-col gap-5" data-testid="notifications">
-    <div><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
+    <div><h2 className="text-title font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!preferences && !error && <Skeleton lines={3} />}
     {/* the notices themselves are on their own page, Activity (pages/Activity.tsx); a phone's 나 list has its row with
@@ -248,10 +286,12 @@ export function Notifications() {
         control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
     </PrefSection>}
     {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
-        device; a server from before it leaves it out (no row) */}
-    {preferences?.phoneWhen && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
-      <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
-        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />
+        device; a server from before it leaves it out (no row). Owners and admins also choose where the whole team's
+        phone notifications go (docs/DECISIONS.md "Owners and admins choose where phone notifications go") */}
+    {(preferences?.phoneWhen || admin) && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+      {preferences?.phoneWhen && <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
+        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />}
+      {admin && <PhoneGatewayRow />}
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

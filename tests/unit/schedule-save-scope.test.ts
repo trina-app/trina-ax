@@ -37,7 +37,7 @@ const MINE: ScopeSource = { type: 'user', id: 'alice' }
 let h: Harness, svc: FakeServices
 let notes: { id: string; slug: string }
 beforeAll(async () => {
-  h = await startHarness({ name: 'schedule-save-scope', timeZone: 'Asia/Seoul', askUserTimeoutMs: 2000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'schedule-save-scope', timeZone: 'Asia/Seoul', askUserTimeoutMs: 2000, stallTimeoutMs: 60_000 })
   noteEgressIp(h.ctx, '198.51.100.7')
   svc = new FakeServices()
   integrationsOf(h.ctx, { net: svc.net() })
@@ -126,11 +126,11 @@ describe('the card', () => {
     expect(plain[0]!.question).not.toContain('넣어도 되는 내용')
     expect(plain[0]!.options.map((o) => o.value)).toEqual(['create', 'deny'])
     expect(latest()!.save_sources).toBeNull()
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const k of ['saveLine', 'saveLineBare', 'sendsLine', 'recheckQuestion', 'resave'] as const) expect(TEXT[k][L].length).toBeGreaterThan(3)
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) for (const k of ['saveLine', 'saveLineBare', 'sendsLine', 'recheckQuestion', 'resave'] as const) expect(TEXT[k][L].length).toBeGreaterThan(3)
     // the person's own folder is 내 파일 on the card, as the app names it (web scheduled.sourceMineFiles)
     expect(TEXT.sourceMine.ko).toBe('내 파일')
     expect(TEXT.recheckQuestion.ko).toContain('내 파일')
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(TEXT.recheckQuestion[L]).not.toMatch(/내 폴더|own folder|folder Anda|自分のフォルダー|propia carpeta/)
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(TEXT.recheckQuestion[L]).not.toMatch(/내 폴더|own folder|folder Anda|自分のフォルダー|propia carpeta|自己的文件夹/)
   })
 
   test('refused before the card: a top, own, skills, missing or file folder; unknown places; an own connection without recipients; send_to for a team one', async () => {
@@ -388,7 +388,7 @@ describe('lapses (Q1 a)', () => {
     const s = task(fake(read('groups/marketing/campaign-brief.md'), write(`${SAVE}/c.md`), { say: 'done' }), { sources: [MINE, marketing] })
     expect(lapseOf(h.ctx, row(s.id))).toBeNull()
     const id = uuidv7()
-    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_groups_marketing', 'user', 'erin', 'none')").run(id)
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_groups_marketing', 'user', 'erin', 'read')").run(id)
     try {
       expect(lapseOf(h.ctx, row(s.id))).toBe('rules')
       await run(s.id)

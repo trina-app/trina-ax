@@ -10,7 +10,7 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-full-disk', turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-full-disk', stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-alice-disk' })
   await alice.next('hello')
 })

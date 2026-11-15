@@ -1,0 +1,6 @@
+/* macOS permission prompts (ko). The English base is mac.extendInfo in desktop/electron-builder.config.ts. */
+"NSMicrophoneUsageDescription" = "채팅 음성 입력에 마이크를 사용합니다.";
+"NSLocalNetworkUsageDescription" = "사무실 안에서 팀 서버에 직접 연결합니다.";
+"NSDesktopFolderUsageDescription" = "고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.";
+"NSDocumentsFolderUsageDescription" = "고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.";
+"NSDownloadsFolderUsageDescription" = "고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.";

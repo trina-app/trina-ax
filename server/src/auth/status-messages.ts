@@ -17,7 +17,7 @@ import type { AppContext } from '../context'
 import { teamTimeZone } from '../admin/settings'
 import { fail } from '../http/errors'
 import { zonedDay } from '../system/time-zone'
-import { MY_PROFILE_CHANGED, PROFILE_CHANGED } from './profiles'
+import { MY_PROFILE_CHANGED, PROFILE_CHANGED, profileChangedFor } from './profiles'
 import { LIVE_SQL, planStatus, STATUS_TEXT, statusOut, type StatusRow } from './status-plan'
 
 export { LIVE_SQL, planStatus, STATUS_TEXT, statusForAi, statusOut, type StatusPlan, type StatusRow } from './status-plan'
@@ -103,14 +103,16 @@ export function clearStatus(db: Database, userId: string, now: Date): { removed:
 export function tellAfterWrite(ctx: AppContext, userId: string, r: { changed: boolean; cleared: string[] }): void {
   const rt = ctx.services.realtime
   if (!r.changed && !r.cleared.length) return rt.publish(userId, MY_PROFILE_CHANGED)
-  const own = new Set([userId, ...r.cleared])
-  rt.publishEach((to) => (own.has(to) ? MY_PROFILE_CHANGED : PROFILE_CHANGED))
+  rt.publishEach(profileChangedFor(ctx.db, [userId, ...r.cleared]))
 }
 
-/** A person's account was turned off or deleted (admin/users.ts): when they had a status the team sees, open windows
- * read the directory again, so their emoji and a DM's line go at once. */
-export function statusGoneWithAccount(ctx: AppContext, hadStatus: boolean): void {
-  if (hadStatus) ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
+/** A person's account was turned off, deleted or switched on again (admin/users.ts): when they had a status the team
+ * sees, open windows read the directory again, so their emoji and a DM's line go at once. Only the windows of people who
+ * may see that person (`seen`: auth/guests.ts seenBy, read before the change, and after it for a switch-on): a guest's
+ * going is not signalled to the members outside their place, nor a member's to a guest outside that member's places
+ * (the notice is empty, but its time would show that the guest was there). */
+export function statusGoneWithAccount(ctx: AppContext, hadStatus: boolean, seen: readonly ((to: string) => boolean)[]): void {
+  if (hadStatus) ctx.services.realtime.publishEach((to) => (seen.some((f) => f(to)) ? PROFILE_CHANGED : null))
 }
 
 // ---------------- writes per person ----------------
@@ -159,8 +161,7 @@ export class StatusClock {
     }
     this.lastLook = now
     if (changed.length) {
-      const own = new Set(changed)
-      this.ctx.services.realtime.publishEach((to) => (own.has(to) ? MY_PROFILE_CHANGED : PROFILE_CHANGED))
+      this.ctx.services.realtime.publishEach(profileChangedFor(this.ctx.db, changed))
     }
     this.arm()
     return changed

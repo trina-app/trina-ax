@@ -55,7 +55,7 @@ export function ScheduleTemplates({ onCreated, inDialog, onCancel }: { onCreated
   const chevron = <ChevronRight size={16} className="shrink-0 text-faint md:hidden" aria-hidden />
   const dayName = (day: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day)))
   return <section className={inDialog ? 'space-y-3' : 'mb-5 space-y-3 rounded-xl border border-line p-4'} data-testid="schedule-templates" aria-labelledby={inDialog ? undefined : 'schedule-templates-title'}>
-    {!inDialog && <h3 id="schedule-templates-title" className="text-sm font-semibold">{t('scheduleTemplates.title')}</h3>}
+    {!inDialog && <h3 id="schedule-templates-title" className="text-title-sm font-semibold">{t('scheduleTemplates.title')}</h3>}
     <p className="text-xs text-muted">{t('scheduleTemplates.hint')}</p>
     <fieldset disabled={busy} className="space-y-3">
       <Field label={t('scheduleTemplates.template')}><select className={inputCls} value={templateId} onChange={e => { setTemplateId(e.target.value as typeof templateId); setCreated(false) }} data-testid="template-kind">

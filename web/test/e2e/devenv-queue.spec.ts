@@ -73,6 +73,20 @@ test('a queued job keeps its place in line after the answer; Cancel takes it out
   await expect(a.getByTestId('devenv-queue')).toHaveCount(0)
 })
 
+test('a command that waits for another command of the same project says so, with no place in line and no Cancel', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await ask(page, 'Build the site, devqueueproject')
+  const a = lastAnswer(page)
+  const line = a.getByTestId('devenv-queue-project')
+  await expect(line).toHaveText('Waiting for another command in this project to finish…')
+  await expect(a.getByTestId('devenv-queue')).toHaveCount(0)
+  await expect(a.getByTestId('devenv-queue-cancel')).toHaveCount(0)
+  await shot(page, 'waiting-for-project')
+  await expect(a).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await expect(page.getByTestId('devenv-queue-project')).toHaveCount(0)
+})
+
 test('Korean: the waiting line in the team language', async ({ page }) => {
   await reset(page)
   await signIn(page)

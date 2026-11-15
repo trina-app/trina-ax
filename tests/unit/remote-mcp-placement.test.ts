@@ -37,6 +37,9 @@ async function setup(name: string, as: 'owner' | 'member' = 'owner') {
     h.ctx.db.query('INSERT OR IGNORE INTO folders (id, path) VALUES (?, ?)').run('f_' + folder.replace(/\W/g, '_'), folder)
     const { id } = h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(folder) as { id: string }
     h.ctx.db.query("DELETE FROM folder_rules WHERE folder_id = ? AND subject_type = 'everyone'").run(id)
+    // anything below edit is limited since access adds up (nothing from above reaches it): "none" with the legacy marker
+    // everyone: none, "read" as everyone views there only
+    h.ctx.db.query('UPDATE folders SET limited = ? WHERE id = ?').run(access === 'write' ? 0 : 1, id)
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, ?)").run('r_' + id, id, access)
   }
   const call = (tool: string, args: Record<string, unknown>) => tools.call(token, tool, args)

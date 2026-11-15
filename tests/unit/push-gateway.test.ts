@@ -398,14 +398,16 @@ describe('push gateway: APNs', () => {
     expect(sandbox!.headers.get('authorization')).toBe(auth) // the token is reused
   })
 
-  test('only room notices are mutable; the generic alert is the fallback and no name or new field reaches APNs', async () => {
+  test('only room notices and a chat shared by name are mutable; the generic alert is the fallback and no name or new field reaches APNs', async () => {
     const h = harness()
-    for (const [i, code] of ['room.dm', 'room.mention', 'schedule.success', 'connection.reconnect', 'chat.reply', 'roomx.dm'].entries()) await expectOk(await h.send(body({ notificationId: `m${i}`, code, locale: 'en', tag: 'dev_7' })))
+    for (const [i, code] of ['room.dm', 'room.mention', 'schedule.success', 'connection.reconnect', 'chat.reply', 'roomx.dm', 'chat.shared', 'chat.shared_x'].entries()) await expectOk(await h.send(body({ notificationId: `m${i}`, code, locale: 'en', tag: 'dev_7' })))
     const sent = h.apnsCalls().map(c => JSON.parse(c.body) as { aps: Record<string, unknown>; body: Record<string, string> })
-    expect(sent.map(p => p.aps['mutable-content'] ?? null)).toEqual([1, 1, null, null, null, null])
+    expect(sent.map(p => p.aps['mutable-content'] ?? null)).toEqual([1, 1, null, null, null, null, 1, null])
     // what the phone shows when the extension gets no answer (or the app has none): today's words, unchanged
     expect(sent[0]!.aps.alert).toEqual({ title: 'Trina AX', body: 'You have a new message' })
     expect(sent[1]!.aps.alert).toEqual({ title: 'Trina AX', body: 'You have a new message' })
+    // a chat shared by name: its own generic line, never who or which chat (the extension asks the team for who)
+    expect(sent[6]!.aps.alert).toEqual({ title: 'Trina AX', body: 'Someone shared a chat with you.' })
     for (const p of sent) {
       expect(Object.keys(p).sort()).toEqual(['aps', 'body'])
       expect(Object.keys(p.aps).filter(k => k !== 'mutable-content').sort()).toEqual(['alert', 'sound'])
@@ -636,7 +638,9 @@ describe('push gateway: configuration, text and logs', () => {
   })
 
   test('generic text only: the event texts are the team server\'s; room./chat. say "new message", the rest "new notification"', () => {
-    for (const code of ['schedule.success', 'schedule.failure', 'connection.reconnect', 'chat.answer_done'] as const) expect(EVENT_TEXT[code]).toEqual(TEXT[code])
+    for (const code of ['schedule.success', 'schedule.failure', 'connection.reconnect', 'chat.answer_done', 'chat.shared', 'room_app.paused'] as const) expect(EVENT_TEXT[code]).toEqual(TEXT[code])
+    expect(alertBody('chat.shared', 'ko')).toBe('누군가 채팅을 공유했어요.')
+    expect(alertBody('room_app.paused', 'en')).toBe('An app in a room was paused for today.')
     expect(alertBody('chat.answer_done', 'en')).toBe('Trina replied in your chat.')
     expect(alertBody('room.message', 'id')).toBe('Ada pesan baru')
     expect(alertBody('chat.mention', 'es')).toBe('Tienes un mensaje nuevo')

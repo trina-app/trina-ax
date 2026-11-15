@@ -34,7 +34,7 @@ describe('a project whose restricted folder is in the trash', () => {
   test('members neither list, open nor use it; it holds no path; admins only manage it; it follows its folder back', async () => {
     // shared/secret: finance writes, everyone else nothing
     fs.mkdirSync(path.join(h.team, 'shared/secret'), { recursive: true })
-    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_shared_secret', 'shared/secret')").run()
+    h.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('f_shared_secret', 'shared/secret', 1)").run()
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_secret_fin', 'f_shared_secret', 'group', 'finance', 'write'), ('r_secret_all', 'f_shared_secret', 'everyone', NULL, 'none')").run()
     const p = await oldProject(h, 'bob', { name: 'Secret plan', folderPath: 'shared/secret', instructions: `${CANARY}: follow the finance plan.` })
     // alice's chat names the project (attached while she could see it; here directly)

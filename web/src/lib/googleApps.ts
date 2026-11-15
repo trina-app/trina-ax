@@ -3,7 +3,7 @@
 // Google Sheets come from the server's Google apps (shared/src/api/google-apps.ts). Words only through message keys:
 // people see "Connect", the app's name and what the AI can do, never how it is wired.
 import type { DriveConnection, GoogleAppId, GoogleAppView } from '@mycel/shared/api'
-import { DICTS, type MessageKey } from '../i18n'
+import { hasMessage, type MessageKey } from '../i18n'
 import { SERVICE_CATALOG } from '@mycel/shared'
 import { APP_CONNECTORS, appConnectorLogo } from './connectors'
 
@@ -31,10 +31,9 @@ export const categoryKey = (id: BuiltInId): MessageKey => `gapps.${id === 'googl
  * what it does from `gapps.tool.<name>` and `gapps.toolDesc.<name>`; one the app does not know yet keeps the server's
  * words. */
 export function toolWords<T extends { name: string; title: string; description?: string }>(t: (k: MessageKey) => string, tools: readonly T[]): T[] {
-  const known = DICTS.en as Record<string, string>
   return tools.map((x) => {
     const title = `gapps.tool.${x.name}`, desc = `gapps.toolDesc.${x.name}`
-    return { ...x, title: title in known ? t(title as MessageKey) : x.title, description: desc in known ? t(desc as MessageKey) : x.description }
+    return { ...x, title: hasMessage(title) ? t(title) : x.title, description: hasMessage(desc) ? t(desc) : x.description }
   })
 }
 

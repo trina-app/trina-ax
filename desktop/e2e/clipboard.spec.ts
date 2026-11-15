@@ -1,7 +1,7 @@
 // The answer's "Copy" (web/src/lib/clipboard.ts) inside the desktop app: the team page may put formatted text on the
 // clipboard (text/html beside text/plain) through the async clipboard (the session allows clipboard-sanitized-write
 // for the team origin, src/main/security.ts) and through the copy command (its fallback on a plain-http team server).
-// A picture goes the same way as a PNG (the image viewer's 복사). It writes the computer's real clipboard: what was on it
+// A picture goes the same way as a PNG (the image viewer's 복사), and through the app's own bridge (copyImage). It writes the computer's real clipboard: what was on it
 // is put back afterwards.
 import { expect, test } from '@playwright/test'
 import { ACME, addTeam, close, launch, newUserData } from './helpers'
@@ -94,6 +94,27 @@ test('the team page puts both text/html and text/plain, and a PNG, on the clipbo
       return null
     })
     expect(image).toEqual({ width: 40, height: 20, left: 0, right: 255 })
+    // the app's own way (DesktopBridge.copyImage, the right-click menu's 이미지 복사): PNG bytes the page made, put on the
+    // clipboard by the main process; bytes that are no PNG are refused and leave the clipboard as it was
+    await app.evaluate(({ clipboard }) => clipboard.clear())
+    const viaApp = await page.evaluate(async () => {
+      const c = document.createElement('canvas')
+      c.width = 30
+      c.height = 10
+      c.getContext('2d')!.fillRect(0, 0, 30, 10)
+      const png = new Uint8Array(await (await new Promise<Blob>((r) => c.toBlob((x) => r(x!), 'image/png'))).arrayBuffer())
+      const b = (window as unknown as { mycelDesktop: { copyImage?: (png: Uint8Array) => Promise<boolean> } }).mycelDesktop
+      return { has: typeof b.copyImage, ok: await b.copyImage!(png), junk: await b.copyImage!(new TextEncoder().encode('<html>not a picture</html>')) }
+    })
+    expect(viaApp).toEqual({ has: 'function', ok: true, junk: false })
+    const sized = await app.evaluate(async ({ clipboard, nativeImage }) => {
+      for (const item of await clipboard.read()) {
+        if (!item.types.includes('image/png')) continue
+        return nativeImage.createFromBuffer(Buffer.from(await (await item.getType('image/png') as Blob).arrayBuffer())).getSize()
+      }
+      return null
+    })
+    expect(sized).toEqual({ width: 30, height: 10 })
   } finally {
     await app.evaluate(async ({ clipboard, ClipboardItem }, s) => {
       clipboard.clear()

@@ -11,9 +11,9 @@ Costs are estimates of the equivalent API price, not bills. Subscription connect
 
 ## Your own usage
 
-Open **Settings › Usage** (your photo at the bottom of the bar on the left › **Settings**; on a phone the **나** tab). It shows your answers, tokens and estimated cost, and how full each limit that applies to you is. You only ever see your own numbers.
+Open **Settings › Usage** (your photo at the bottom of the bar on the left › **Settings**; on a phone the **Me** tab). It shows your answers and estimated cost, which AI answered them, and how full each limit that applies to you is. You only ever see your own numbers.
 
-![Settings › Usage: Your usage, your answers by model for this month, and answers, tokens and estimated cost](../images/usage/mine.webp "Your own usage, in Settings")
+![Settings › Usage: Your usage this month, whether a limit applies to you, your answers and estimated cost, and Your answers by AI](../images/usage/mine.webp "Your own usage, in Settings")
 
 :::note
 Personal usage is new in 0.4.0. Before that, only admins see usage, in **Admin › Usage**.
@@ -39,6 +39,11 @@ Personal skills are never counted by name, so no admin sees what someone keeps p
 ## Set limits
 
 There are no limits by default. Admins add them in **Admin › Team settings**, under **Usage limits**.
+
+For one person, it is quicker from **Admin › Members & invites**: open their **…** menu and choose **Usage limit…**. The
+dialog is already for that person and opens with the limit they have, with how much of it they used. Pick **Per day** or
+**Per month** to see or set each one, and **Remove limit** to take one away. People with a limit show it in one quiet line
+under their name, with **Over limit** once it is used up. On a phone, open the person and tap **Usage limit**.
 
 | Limit for | Period |
 |---|---|

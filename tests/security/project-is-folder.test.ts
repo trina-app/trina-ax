@@ -113,43 +113,60 @@ describe('one project per folder', () => {
     expect(r.status).toBe(200)
     expect(r.body.folderPath).toBe('projects/Share me-2')
     expect(exists(A.team, 'projects/Share me-2/a.md')).toBe(true)
-    // the files moved: the personal folder went to alice's own trash (restorable), not left as a second copy
+    // the files moved: no personal folder left, and nothing of it in the trash (no second copy to restore)
     expect(exists(A.team, p.folderPath)).toBe(false)
-    expect(A.ctx.db.query("SELECT 1 FROM trash_items WHERE original_path = ?").get(p.folderPath)).not.toBeNull()
+    expect(A.ctx.db.query("SELECT 1 FROM trash_items WHERE original_path = ? OR original_path LIKE ?").get(p.folderPath, p.folderPath + '/%')).toBeNull()
     // the old project did not come alive: no folder at its path, and it is still the only one naming it
     expect(exists(A.team, 'projects/Share me')).toBe(false)
     expect(folderOf('01900000-0000-7000-8000-00000000a004')).toBe('projects/Share me')
     expect(countOn('projects/Share me')).toBe(1)
   })
 
-  test('sharing keeps the personal folder when the copy was not whole or it holds more than the project (a hidden file, a skills folder, an older project elsewhere)', async () => {
-    const hidden = await ok(create('alice', { name: 'Keep hidden', scope: 'personal', slug: 'keep-hidden' }))
+  test('sharing moves everything in the folder, hidden files and a skills folder too: nothing stays behind, nothing goes to the trash', async () => {
+    const hidden = await ok(create('alice', { name: 'Move hidden', scope: 'personal', slug: 'move-hidden' }))
     fs.writeFileSync(path.join(A.team, hidden.folderPath, 'a.md'), 'a\n')
     fs.writeFileSync(path.join(A.team, hidden.folderPath, '.secret'), 's\n')
-    expect((await A.json(`/api/projects/${hidden.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })).status).toBe(200)
-    expect(exists(A.team, hidden.folderPath + '/.secret')).toBe(true)
-    const skills = await ok(create('alice', { name: 'Keep skills', scope: 'personal', slug: 'keep-skills' }))
+    const h = await A.json(`/api/projects/${hidden.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })
+    expect(h.status).toBe(200)
+    expect(exists(A.team, hidden.folderPath)).toBe(false)
+    expect(exists(A.team, h.body.folderPath + '/.secret')).toBe(true)
+    const skills = await ok(create('alice', { name: 'Move skills', scope: 'personal', slug: 'move-skills' }))
     fs.mkdirSync(path.join(A.team, skills.folderPath, 'skills'), { recursive: true })
     fs.writeFileSync(path.join(A.team, skills.folderPath, 'skills', 'x.md'), 'x\n')
-    await A.json(`/api/projects/${skills.id}/share`, { as: 'alice', ...jsonBody({ participants: [], skillsOk: true }) })
-    expect(exists(A.team, skills.folderPath + '/skills/x.md')).toBe(true)
+    const k = await A.json(`/api/projects/${skills.id}/share`, { as: 'alice', ...jsonBody({ participants: [], skillsOk: true }) })
+    expect(k.status).toBe(200)
+    expect(exists(A.team, skills.folderPath)).toBe(false)
+    expect(exists(A.team, k.body.folderPath + '/skills/x.md')).toBe(true)
+    for (const f of [hidden.folderPath, skills.folderPath]) expect(A.ctx.db.query('SELECT 1 FROM trash_items WHERE original_path = ?').get(f)).toBeNull()
+  })
+
+  test('sharing refuses a folder that holds another project (it would land below projects/<name>); nothing changes', async () => {
+    const outer = await ok(create('alice', { name: 'Outer', scope: 'personal', slug: 'outer' }))
+    fs.mkdirSync(path.join(A.team, outer.folderPath, 'inner'))
+    fs.writeFileSync(path.join(A.team, outer.folderPath, 'inner', 'i.md'), 'i\n')
+    legacyProject(A.ctx.db, A.team, 'alice', { id: '01900000-0000-7000-8000-00000000a020', name: 'Inner', folderPath: outer.folderPath + '/inner' })
+    const r = await A.json(`/api/projects/${outer.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })
+    expect(r.status).toBe(409)
+    expect(r.body.error.params.reason).toBe('project_inside')
+    expect(exists(A.team, outer.folderPath + '/inner/i.md')).toBe(true)
+    expect(folderOf(outer.id)).toBe(outer.folderPath)
+    expect(exists(A.team, 'projects/Outer')).toBe(false)
   })
 
   test('sharing: a project made on the new folder\'s path in the moment since is 409, and the folder goes again', async () => {
     const p = await ok(create('alice', { name: 'Share race', scope: 'personal', slug: 'share-race' }))
     fs.writeFileSync(path.join(A.team, p.folderPath, 'b.md'), 'b\n')
-    const files = componentC(A.ctx).files as unknown as { copyFolderInto: (...a: unknown[]) => unknown }
-    const real = files.copyFolderInto
-    files.copyFolderInto = (...a: unknown[]) => {
-      const out = real.apply(componentC(A.ctx).files, a)
+    const files = componentC(A.ctx).files as unknown as { moveFolderOnto: (...a: unknown[]) => unknown }
+    const real = files.moveFolderOnto
+    // a project made on the new folder's path after the route's own check: the move's transaction refuses it
+    files.moveFolderOnto = (...a: unknown[]) => {
       staleProject('01900000-0000-7000-8000-00000000a010', 'Raced', a[2] as string)
-      return out
+      return real.apply(componentC(A.ctx).files, a)
     }
     try {
       const r = await A.json(`/api/projects/${p.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })
       expect(r.status).toBe(409)
-      expect(r.body.error.message).toContain('Raced')
-    } finally { files.copyFolderInto = real }
+    } finally { files.moveFolderOnto = real }
     expect(exists(A.team, 'projects/Share race')).toBe(false)
     expect(A.ctx.db.query("SELECT 1 FROM folders WHERE path = 'projects/Share race'").get()).toBeNull()
     expect(folderOf(p.id)).toBe(p.folderPath)

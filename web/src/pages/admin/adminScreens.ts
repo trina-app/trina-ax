@@ -20,7 +20,7 @@ export const ADMIN_DETAILS: Readonly<Record<string, { phoneOnly: boolean }>> = {
 
 /** Folder permissions' query: the folder chosen in the tree, the folder whose rule editor is open (a phone's own entry,
  * over the folder's; a rule row outside the tree has no folder under it), By person and the person chosen there. */
-export const FOLDER_Q = { folder: 'folder', rules: 'rules', view: 'view', person: 'person', isNew: 'new' } as const
+export const FOLDER_Q = { folder: 'folder', view: 'view', person: 'person' } as const
 
 function split(to: string): { pathname: string; q: URLSearchParams } {
   const at = to.search(/[?#]/)
@@ -38,9 +38,8 @@ export function adminParent(to: string): string | null {
   if (sub) return `/admin/${section}`
   if (section === 'folders') {
     const folder = q.get(FOLDER_Q.folder)
-    if (q.has(FOLDER_Q.rules)) return folder !== null ? `/admin/folders?${new URLSearchParams({ folder })}` : '/admin/folders'
     if (folder !== null) return '/admin/folders'
-    if (q.get(FOLDER_Q.view) === 'people' && (q.has(FOLDER_Q.person) || q.get(FOLDER_Q.isNew) === '1')) return '/admin/folders?view=people'
+    if (q.get(FOLDER_Q.view) === 'people' && q.has(FOLDER_Q.person)) return '/admin/folders?view=people'
   }
   return '/admin'
 }

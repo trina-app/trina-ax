@@ -61,7 +61,7 @@ describe('which list a folder belongs to', () => {
     expect(folderKindName((k, p) => translate('ko', k, { name, ...p }), 'chats')).toBe('트리나 폴더')
     expect(folderKindName((k, p) => translate('ko', k, p), 'rooms')).toBe('대화 폴더')
     expect(translate('ko', 'navFolders.separateRooms', { name })).toBe('대화 폴더는 트리나 폴더와 따로 있어요.')
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const)
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
       for (const k of ['navFolders.kindChats', 'navFolders.kindRooms', 'navFolders.separateRooms', 'navFolders.separateChats', 'teamMenu.switch'] as const) {
         const v = translate(l, k, { name: 'Trina' })
         expect(v).not.toBe(k)

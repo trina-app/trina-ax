@@ -17,11 +17,13 @@
 // Chat.shared.canUpload false: `computer` off) is offered team files only: pasted files are ignored and files dragged from
 // the computer get the not-allowed cursor (on the chat's page, its drop overlay says why), so nobody picks a file only
 // to be refused.
+// In a chat shared with people and groups the file is kept with the chat (Attachment source 'chat'): the line under the
+// row says everyone who sees the chat can open it, and ✕ before sending removes it (DELETE /api/attachments/:id).
 import clsx from 'clsx'
-import { FileAudio, FileText, FolderOpen, Loader2, X } from 'lucide-react'
+import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
@@ -29,17 +31,18 @@ import { formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
+import { cancelUpload, splitOversize, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { dragKind, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { UploadLabel } from '../UploadLabel'
-import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
-import { Tooltip } from '../Tooltip'
+import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 
 export interface Pending {
   id: string
@@ -55,11 +58,15 @@ export interface Pending {
   progress: UploadProgress | null
   attachment?: Attachment
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
   abort: AbortController
 }
 
 /** A file from this computer that a shared chat saved in its project folder (the server attached it as a team file). */
 export const savedInProject = (f: Pick<Pending, 'source' | 'attachment'>): boolean => f.source === 'upload' && f.attachment?.source === 'team'
+/** A file from this computer kept with a chat shared with people (not sent yet: ✕ removes it on the server too). */
+export const keptWithChat = (f: Pick<Pending, 'source' | 'attachment'>): boolean => f.source === 'upload' && f.attachment?.source === 'chat'
 
 /** Its chip taken out before sending: that file goes to the team trash (the server leaves it when it was sent, moved or
  * edited meanwhile). Nothing else about the box waits for it. */
@@ -116,8 +123,12 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const addFiles = async (all: File[]) => {
     if (!all.length || !computer) return
     onError(null)
-    const list = all.slice(0, Math.max(0, room()))
-    if (list.length < all.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
+    // a file over what the server takes is refused here, before anything is read or sent (the sha256 of a huge file
+    // would take minutes before the server could say no)
+    const { fit, tooBig } = splitOversize(all)
+    const list = fit.slice(0, Math.max(0, room()))
+    if (list.length < fit.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
+    else if (tooBig) onError(t('composer.fileTooBig', { name: tooBig.name, max: formatSize(UPLOAD_SESSION_MAX, locale) }))
     if (!list.length) return
     const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: null, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])
@@ -137,13 +148,13 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
           if (r.kind !== 'attachment') throw new Error('unexpected upload result')
           // removed just as it finished: what it saved in a shared chat's project folder goes too
           const saved = savedInProject({ source: 'upload', attachment: r.attachment })
-          if (it.abort.signal.aborted) return saved ? discardSaved(r.attachment) : undefined
+          if (it.abort.signal.aborted) return saved || r.attachment.source === 'chat' ? discardSaved(r.attachment) : undefined
           // saved in the project folder: the chip shows the name it got there ("견적 (2).pdf", "CLAUDE (2).md")
           update(it.id, { status: 'done', attachment: r.attachment, ...(saved ? { name: r.attachment.name } : {}) })
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
           if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
-          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
+          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
         }
       }),
     )
@@ -190,7 +201,7 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const removeFile = (f: Pending) => {
     f.abort?.abort()
     setFiles((p) => p.filter((x) => x.id !== f.id))
-    if (f.status === 'done' && savedInProject(f)) discardSaved(f.attachment!)
+    if (f.status === 'done' && (savedInProject(f) || keptWithChat(f))) discardSaved(f.attachment!)
   }
 
   const ready = files.filter((f) => f.status === 'done')
@@ -333,6 +344,8 @@ export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File
 export function ComposerFileList({ files, onRemove, className }: { files: Pending[]; onRemove: (f: Pending) => void; className?: string }) {
   const t = useT()
   const words = useFolderWords()
+  // a guest: their project's folder without the Projects step on the way (lib/guestFiles.ts)
+  const guest = isGuestMe(useMe())
   const locale = useLocale()
   if (!files.length) return null
   return (
@@ -364,7 +377,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                 {f.status === 'uploading' && t('composer.attaching', { name: f.name })}
                 {f.status === 'done' && `${t('composer.attached', { name: f.name })} ${f.size !== null ? formatSize(f.size, locale) : ''}`}
               </span>
-              <span className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} role="alert" title={f.error}>
+              <span className={f.status === 'failed' ? FAILED_REASON : 'sr-only'} role="alert">
                 {f.status === 'failed' && (
                   <>
                     <span className="sr-only">{f.name}: </span>
@@ -372,6 +385,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                   </>
                 )}
               </span>
+              {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
             </li>
           )
         return (
@@ -399,7 +413,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                 <span className="max-w-[180px] truncate font-medium">{f.name}</span>
               )}
               {/* the team folder it is in, visible without hovering (phones) */}
-              {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(folderOf(f.attachment?.path ?? f.path ?? '')) || t('files.root')}</span>}
+              {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(guest ? folderOf(f.attachment?.path ?? f.path ?? '').replace(/^projects\//, '') : folderOf(f.attachment?.path ?? f.path ?? '')) || t(guest ? 'picker.guestRoot' : 'files.root')}</span>}
             </span>
             {/* both stay through the whole upload, so a screen reader hears each change */}
             <span className="flex items-center">
@@ -417,7 +431,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                   </>
                 )}
               </span>
-              <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
+              <span className={FAILED_REASON} role="alert">
                 {f.status === 'failed' && (
                   <>
                     <span className="sr-only">{f.name}: </span>
@@ -425,12 +439,9 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                   </>
                 )}
               </span>
+              {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
             </span>
-            <Tooltip label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })}>
-              <button type="button" aria-label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })} title="" onClick={() => onRemove(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
-                <X size={14} />
-              </button>
-            </Tooltip>
+            <ChipRemove label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })} onClick={() => onRemove(f)} />
           </li>
         )
       })}
@@ -442,11 +453,21 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
 /**
  * A shared project chat's line under the chips while a file from this computer is attached: it is saved in the project
  * folder (the folder it went to, else the one the team's language names) and who can see it there (`audience`: the
- * project's people, as the line under the box counts them). Nothing while only team files are attached.
+ * project's people, as the line under the box counts them). In a chat shared with people (`kind` people) the file is
+ * kept with the chat: everyone who sees the chat can open it. Nothing while only team files are attached.
  */
-export function SharedUploadLine({ files, audience, className }: { files: Pending[]; audience: number; className?: string }) {
+export function SharedUploadLine({ files, audience, kind, className }: { files: Pending[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
   const t = useT()
   const team = useMe()?.team.defaultLocale
+  if (kind === 'people') {
+    const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || keptWithChat(f)))
+    if (!ups.length) return null
+    return (
+      <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="shared-upload-line">
+        {t('chat.share.uploadLine')}
+      </p>
+    )
+  }
   // on its way, or saved there (an upload of my own folder from before the chat was shared is not: the send refuses it)
   const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || savedInProject(f)))
   if (!ups.length) return null

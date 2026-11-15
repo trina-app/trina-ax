@@ -14,13 +14,15 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isAdmin, isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMe, useMeStrict } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, SignInLinks, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 import { CREDENTIAL_PROBLEMS } from './overview'
 import { LogoTile } from '../../components/integrations/ConnectorsView'
+import { useAdminGroups, useAdminRead, useAdminUsers } from '../../store/adminPeople'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -54,6 +56,8 @@ export type Family = 'claude' | 'codex'
 /** The team's AI accounts for Admin › AI providers (pages/admin/Engines.tsx): the list, what an owner and an admin may
  * do with each, and the dialogs. Each provider row shows its own family (ProviderAccounts); the settings for members'
  * own accounts are in the Team provider settings tab (Engines.tsx MemberAccounts). */
+export const loadTeamCredentials = () => api.call(API.listCredentials)
+
 export function useTeamCredentials() {
   const t = useT()
   const me = useMeStrict()
@@ -61,11 +65,9 @@ export function useTeamCredentials() {
   const owner = isAdmin(me)
   const act = useAction()
   const actOk = useActionOk()
-  const state = useLoad(() => api.call(API.listCredentials))
-  // the hosting service's trial AI credit, when this team has one (an older server or an error: nothing shown)
-  const trial = useLoad(() => api.call(API.trialCredit).catch(() => ({ credit: null })))
-  const groups = useLoad(async () => (owner ? (await api.call(API.listGroups)).items : []), [owner])
-  const users = useLoad(async () => (owner ? (await api.call(API.listUsers)).items : []), [owner])
+  const state = useAdminRead('credentials', loadTeamCredentials)
+  const groups = useAdminGroups(owner)
+  const users = useAdminUsers(owner)
   /** the family whose Add account dialog is open */
   const [adding, setAdding] = useState<Family | null>(null)
   const [editing, setEditing] = useState<Credential | null>(null)
@@ -115,7 +117,7 @@ export function useTeamCredentials() {
       {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
     </>
   )
-  return { me, owner, users, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
+  return { me, owner, users, state, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
 }
 export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 
@@ -339,6 +341,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
 }) {
   const t = useT()
   const locale = useLocale()
+  // a guest's own account: no word about the company's or the team's keys (only their own answers them, lib/guests.ts)
+  const guest = isGuestMe(useMe())
   const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? initialKind ?? null)
   const [label, setLabel] = useState(replace?.label ?? '')
   const [secret, setSecret] = useState('')
@@ -493,7 +497,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
           : <ChatgptProgress l={login} personal={personal} />)
         : (
           <div className="space-y-4">
-            {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
+            {personal && <p className="text-sm text-muted">{t(guest ? 'credentials.personalFirstGuest' : 'credentials.personalFirst')}</p>}
             {!personal && !sharedSubscriptions && kinds.some((k) => SUBSCRIPTION.has(k)) && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
             {!replace && (!initialKind || otherWays) && (
               <fieldset className="space-y-2">
@@ -508,7 +512,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                       <input type="radio" name="kind" disabled={off} checked={kind === k} onChange={() => { setKind(k); setError(null); setMove(null) }} data-testid={`kind-${k}`} />
                       <span>
                         <span className="font-medium">{via ? t('credentials.kind.gateway', { label: via.label }) : t(`credentials.kind.${k}` as MessageKey)}</span>
-                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
+                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t((guest && (k === 'anthropic-api-key' || k === 'openai-api-key') ? `credentials.kind.${k}.descGuest` : `credentials.kind.${k}.desc`) as MessageKey)}</span>
                       </span>
                     </label>
                   )
@@ -605,22 +609,21 @@ function CommandLine({ text }: { text: string }) {
 
 /** Claude: open the authorize page (a new tab, or copy its link to another browser), paste the code it shows; then
  * the check, then the result */
-function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
+export function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
   const t = useT()
+  const [opened, setOpened] = useState(false)
+  const codeRef = useRef<HTMLInputElement>(null)
   if (l.state === 'starting') return <p className="text-sm text-muted" data-testid="claude-starting">{t('credentials.claude.starting')}</p>
   if ((l.state === 'code' || l.state === 'checking') && l.url) {
     const bad = code.trim() !== '' && !CLAUDE_CODE_RE.test(code.trim())
     return (
       <div className="space-y-4" data-testid="claude-code">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
-            {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
-          </a>
-          {/* the same link for another browser (the one signed in to Claude) or another device */}
-          <CopyButton text={l.url} label={t('credentials.claude.copyLink')} showLabel />
-        </div>
+        {/* Open is the main action until it is used (or a code is in), then Connect is: one primary at a time. Copy
+            link: the same link for another browser (the one signed in to Claude) or another device. */}
+        <SignInLinks url={l.url} label={t('credentials.claude.open')} copyLabel={t('credentials.claude.copyLink')} primary={!opened && code.trim() === ''}
+          testId="claude-open" onOpen={() => { setOpened(true); setTimeout(() => codeRef.current?.focus(), 0) }} />
         <Field label={t('credentials.claude.code')} error={bad ? t('credentials.claude.codeInvalid') : null}>
-          <input className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
+          <input ref={codeRef} className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
             onChange={(e) => onCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSubmit() }} />
         </Field>
         {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
@@ -642,10 +645,7 @@ function ChatgptProgress({ l, personal }: { l: CredentialLogin; personal?: boole
   if (l.state === 'code' && l.url && l.code) return (
     <ol className="list-decimal space-y-3 pl-5 text-sm" data-testid="chatgpt-code">
       <li>{t('credentials.chatgpt.step1')}
-        <span className="mt-1 flex items-center gap-2">
-          <a className="break-all text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener">{l.url}</a>
-          <CopyButton text={l.url} />
-        </span>
+        <div className="mt-2"><SignInLinks url={l.url} label={t('credentials.chatgpt.open')} copyLabel={t('credentials.claude.copyLink')} testId="chatgpt-open" /></div>
       </li>
       <li>{t('credentials.chatgpt.step2')}
         <span className="mt-1 flex items-center gap-2"><code className="text-xl font-semibold tracking-widest" data-testid="chatgpt-user-code">{l.code}</code><CopyButton text={l.code} /></span>
@@ -716,11 +716,13 @@ export function MyCredentials() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   const state = useLoad(() => api.call(API.myCredentials))
   const [adding, setAdding] = useState<Family | null>(null)
+  // a guest with their own sign-in: only their own account answers them, never the team's (lib/guests.ts)
+  const guest = isGuestMe(useMe())
   return (
     <Loadable state={state}>
       {(d) => (
         // a phone: Settings' bar says "Providers", so the card has no frame and its title is for screen readers
-        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t('settings.credentials.desc')}>
+        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t(guest ? 'settings.credentials.descGuest' : 'settings.credentials.desc')}>
           <div className="space-y-5" data-testid="my-providers">
             {(['claude', 'codex'] as const).map((fam) => {
               const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))
@@ -729,7 +731,7 @@ export function MyCredentials() {
               return (
                 <section key={fam} aria-labelledby={`my-cred-${fam}`} data-testid={`my-provider-${fam}`}>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <h3 id={`my-cred-${fam}`} className="text-sm font-medium">{t(`credentials.group.${fam}`)}</h3>
+                    <h3 id={`my-cred-${fam}`} className="text-title-sm font-semibold">{t(`credentials.group.${fam}`)}</h3>
                     {d.allowed && kinds.length > 0 && !phone && (
                       <Button size="sm" onClick={() => setAdding(fam)} data-testid={`my-credential-add-${fam}`}><Plus size={14} aria-hidden /> {t('providers.addAccount')}</Button>
                     )}

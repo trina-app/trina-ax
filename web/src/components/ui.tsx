@@ -1,8 +1,8 @@
 // Shared building blocks. Every icon-only button takes an aria-label (translated); modals trap focus and give it
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
-import { Check, ChevronDown, CircleAlert, Copy, Loader2, X } from 'lucide-react'
-import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { Check, ChevronDown, CircleAlert, Copy, ExternalLink, Loader2, X } from 'lucide-react'
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import { useT } from '../i18n'
@@ -27,6 +27,27 @@ const PHONE_TARGET = 'max-md:min-h-11'
  * a grant), never a plain "no". Don't recolour a variant with className: the classes are not merged, and the variant's
  * own colour can win. */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ghost-danger'
+/** The look of a Button, also for a link that must look like one (LinkButton) */
+export function buttonClass({ variant = 'secondary', size = 'md', busy, className }: { variant?: Variant; size?: 'sm' | 'md'; busy?: boolean; className?: string } = {}) {
+  return clsx(
+    'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
+    size === 'sm' ? 'h-8 px-2.5 text-label' : 'h-9 px-3.5 text-sm',
+    PHONE_TARGET,
+    'max-md:min-w-11',
+    variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
+    // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
+    // (a busy one, with its spinner, keeps the accent: it is working, not off)
+    // with a quiet edge, so it still reads as a button that is off (and not as one to press) (QA: "Create link" vanished on a dialog)
+    variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-faint dark:disabled:opacity-100 dark:disabled:ring-1 dark:disabled:ring-line-strong dark:disabled:ring-inset dark:disabled:hover:bg-hover',
+    // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
+    variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
+    variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',
+    variant === 'danger' && 'border border-danger/70 bg-surface text-danger hover:bg-danger-soft',
+    variant === 'ghost-danger' && 'text-danger hover:bg-danger-soft',
+    className,
+  )
+}
+
 export function Button({ variant = 'secondary', size = 'md', busy, className, children, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' | 'md'; busy?: boolean }) {
   return (
     <button
@@ -35,26 +56,59 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       disabled={disabled || busy}
       // busy disables; a caller that must keep the focus (an action that asks the server first) says busy itself
       aria-busy={busy || props['aria-busy'] || undefined}
-      className={clsx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-2.5 text-label' : 'h-9 px-3.5 text-sm',
-        PHONE_TARGET,
-        'max-md:min-w-11',
-        variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
-        // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
-        // (a busy one, with its spinner, keeps the accent: it is working, not off)
-        variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-faint dark:disabled:opacity-100 dark:disabled:hover:bg-hover',
-        // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
-        variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
-        variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',
-        variant === 'danger' && 'border border-danger/70 bg-surface text-danger hover:bg-danger-soft',
-        variant === 'ghost-danger' && 'text-danger hover:bg-danger-soft',
-        className,
-      )}
+      className={buttonClass({ variant, size, busy, className })}
     >
       {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}
       {children}
     </button>
+  )
+}
+
+/** A link to another site (a sign-in or approval page) that looks like a Button: it opens in a new tab and carries the
+ * external-link mark. Not for links inside text. */
+export function LinkButton({ variant = 'secondary', size = 'md', className, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: Variant; size?: 'sm' | 'md' }) {
+  return (
+    <a target="_blank" rel="noopener noreferrer" {...props} className={buttonClass({ variant, size, className })}>
+      {children}
+      <ExternalLink size={size === 'sm' ? 13 : 14} aria-hidden />
+    </a>
+  )
+}
+
+/** A text-only action in a line or a row ("How to connect", "Show the step", "Regenerate", "Remove app"): it looks like
+ * a link but is a button, and its own box is a real tap target, at least 44 px tall on a phone and 24 px on a computer
+ * (WCAG 2.5.8), not a small box with a bigger invisible one. `tone`: accent (default) or danger (a destructive one). In a
+ * line of text it sits in the line's middle (items-center on the line), so the line grows to its height on a phone. */
+export function TextAction({ tone = 'accent', className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: 'accent' | 'danger' }) {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={clsx(
+        'inline-flex min-h-6 shrink-0 items-center rounded-md text-left font-medium hover:underline disabled:cursor-not-allowed disabled:opacity-40 max-md:min-h-11',
+        tone === 'danger' ? 'text-danger' : 'text-accent-text',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** The first step of a sign-in in another tab: Open (a LinkButton) and Copy link beside it, for the browser or device
+ * that is signed in to the service. `primary`: Open is the dialog's main action; the caller passes false once it was
+ * used, so the next step's button (Connect) is the only primary one. */
+export function SignInLinks({ url, label, copyLabel, primary = true, size = 'md', onOpen, testId }: { url: string; label: string; copyLabel: string; primary?: boolean; size?: 'sm' | 'md'; onOpen?: () => void; testId?: string }) {
+  const t = useT()
+  const { copied, copy } = useCopy()
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <LinkButton href={url} variant={primary ? 'primary' : 'secondary'} size={size} onClick={onOpen} data-testid={testId}>{label}</LinkButton>
+      <Button size={size} variant="secondary" onClick={() => void copy(url)}>
+        {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />}
+        <span>{copied ? t('common.copied') : copyLabel}</span>
+      </Button>
+    </div>
   )
 }
 
@@ -122,6 +176,20 @@ export function Spinner({ className, label }: { className?: string; label?: stri
   )
 }
 
+/** A wait people can see (QA TC-2132): the spinner, what it waits for, and under it how long it can take (`hint`: a
+ * truthful limit, from the constant that ends the wait). One `status` region for both lines. */
+export function WaitLine({ text, hint, className, testId }: { text: ReactNode; hint?: ReactNode; className?: string; testId?: string }) {
+  return (
+    <span role="status" className={clsx('flex min-w-0 items-start gap-2', className)} data-testid={testId}>
+      <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin text-faint" aria-hidden />
+      <span className="min-w-0">
+        <span className="block break-words">{text}</span>
+        {hint && <span className="block text-xs break-words text-faint" data-testid={testId ? `${testId}-hint` : undefined}>{hint}</span>}
+      </span>
+    </span>
+  )
+}
+
 export function Skeleton({ lines = 3, className }: { lines?: number; className?: string }) {
   return (
     <div className={clsx('space-y-2', className)} aria-hidden>
@@ -132,11 +200,14 @@ export function Skeleton({ lines = 3, className }: { lines?: number; className?:
   )
 }
 
-export function EmptyState({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
+/** `screen`: the page's whole content is this empty state (an empty folder, no projects yet, not found): its line is a
+ * display heading (24px, 22px on phones). Without it (a search with no match, an empty list inside a card, a pane or a
+ * dialog) the line is a section title (17px). */
+export function EmptyState({ icon, title, children, screen }: { icon?: ReactNode; title: string; children?: ReactNode; screen?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       {icon && <div className="text-faint">{icon}</div>}
-      <p className="max-w-md font-medium text-balance text-ink">{title}</p>
+      <p className={clsx('max-w-md font-semibold text-balance break-words text-ink', screen ? 'text-display' : 'text-title-sm')}>{title}</p>
       {children && <div className="max-w-md text-sm text-balance text-muted">{children}</div>}
     </div>
   )
@@ -286,7 +357,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 max-sm:pr-3 max-sm:pl-4 sm:py-3">
-          <h2 id={titleId} className="min-w-0 font-semibold">
+          <h2 id={titleId} className="min-w-0 text-title-sm font-semibold">
             {title}
           </h2>
           <IconButton label={t('common.close')} onClick={onClose}>
@@ -304,7 +375,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
-  | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
+  | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean; resolve: (ok: boolean) => void }
   | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number; resolve: (v: string | null) => void }
 )
 
@@ -318,7 +389,8 @@ export function menuOpener(): HTMLElement | null {
   return [...btns].find((b) => !menu!.contains(b)) ?? null
 }
 
-export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; danger?: boolean }): Promise<boolean> {
+/** `cancel`: the words of the button that keeps things as they are (Cancel by default; "Keep editing" for a discard). */
+export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean }): Promise<boolean> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
@@ -363,8 +435,8 @@ export function DialogHost() {
       returnTo={req.returnTo}
       footer={
         <>
-          <Button variant="ghost" onClick={() => close(false)}>
-            {t('common.cancel')}
+          <Button variant="ghost" onClick={() => close(false)} data-testid="dialog-cancel">
+            {(req.kind === 'confirm' && req.cancel) || t('common.cancel')}
           </Button>
           <Button variant={req.kind === 'confirm' && req.danger ? 'danger' : 'primary'} disabled={req.kind === 'prompt' && ((!req.allowEmpty && !value.trim()) || !!problem)} onClick={() => close(true)} data-testid="dialog-confirm">
             {req.confirm}
@@ -854,7 +926,7 @@ export function PageHeader({ title, desc, actions, testId }: { title: ReactNode;
       <div className={clsx(pageColumn, 'flex flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
         {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
-        <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
+        <h1 className="text-title font-semibold tracking-tight max-md:sr-only">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted max-md:mt-0">{desc}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

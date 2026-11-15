@@ -19,10 +19,11 @@ import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
+import { type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
+import { optimistic, optimisticPending } from '../lib/optimistic'
 import { deviceKind, deviceLabel } from '../lib/userAgent'
 import { offeredDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
 import { phoneApps, type AppClient } from '../lib/apps'
@@ -30,6 +31,8 @@ import { browser, canInstallIn, installGuideShown, isStandalone, platform } from
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { isGuestMe, meGuest } from '../lib/guests'
+import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
@@ -51,7 +54,7 @@ import { squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AiAllowances } from '../components/settings/AiAllowances'
-import { AccountDeletion } from '../components/settings/AccountDeletion'
+import { AccountDeletion, deletionRowText, useMyDeletionRequest } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
@@ -59,6 +62,7 @@ import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
 import { SettingsBarAction, useSettingsBar } from '../components/settings/SettingsBar'
+import { SettingRow } from '../components/settings/SettingRow'
 import { MenuButton } from '../components/rooms/MenuButton'
 import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
@@ -109,7 +113,7 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
 function Section({ title, children, desc, page }: { title: string; children: React.ReactNode; desc?: string; page?: boolean }) {
   return (
     <section className="mb-8">
-      <h2 className={clsx('mb-1 text-base font-semibold', page && 'max-md:sr-only')}>{title}</h2>
+      <h2 className={clsx('mb-1 text-title-sm font-semibold', page && 'max-md:sr-only')}>{title}</h2>
       {desc && <p className="mb-3 text-sm text-muted">{desc}</p>}
       <div className={clsx(!desc && 'mt-3', !desc && page && 'max-md:mt-0')}>{children}</div>
     </section>
@@ -117,29 +121,12 @@ function Section({ title, children, desc, page }: { title: string; children: Rea
 }
 
 /** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (below
- * 768 px the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
- * hairline under it on a phone. `quietHint`: on a phone the hint is for screen readers only (an error still shows).
- * `value`: a value to read, not a control (the username): it stays on the right on a phone too. */
+ * 768 px the control goes under its name): the shared settings row (components/settings/SettingRow.tsx), `divided`.
+ * `framed`: a field with its own frame, no hairline under it on a phone. `quietHint`: on a phone the hint is for screen
+ * readers only (an error still shows). `value`: a value to read, not a control (the username): it stays on the right on a
+ * phone too. */
 function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, value, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; quietHint?: boolean; value?: boolean; children: React.ReactNode }) {
-  return (
-    <div className={clsx('flex border-b border-line py-3 last:border-b-0 md:flex-row md:items-center md:justify-between md:gap-6', value ? 'items-start justify-between gap-4' : 'flex-col gap-2', framed && 'max-md:border-b-0')}>
-      <div className="min-w-0">
-        {htmlFor ? (
-          <label htmlFor={htmlFor} className="text-sm text-ink">
-            {label}
-          </label>
-        ) : (
-          <p className="text-sm text-ink">{label}</p>
-        )}
-        {hint && (
-          <p id={hintId} className={clsx('mt-0.5 text-xs', hintError ? 'text-danger' : 'text-muted', quietHint && !hintError && 'max-md:sr-only')} role={hintError ? 'alert' : undefined}>
-            {hint}
-          </p>
-        )}
-      </div>
-      <div className={clsx('min-w-0 md:w-72 md:max-w-[60%] md:shrink-0', value && 'max-md:max-w-[60%] max-md:text-right')}>{children}</div>
-    </div>
-  )
+  return <SettingRow divided id={htmlFor} title={label} desc={hint} descId={hintId} descError={hintError} quietDesc={quietHint} framed={framed} inline={value} control={children} />
 }
 
 function Profile() {
@@ -147,6 +134,11 @@ function Profile() {
   const ids = useId()
   const locale = useLocale()
   const me = useMeStrict()
+  // who sees the profile, and the role line: a guest is seen only by the people of their one place and is in no group
+  // (lib/guests.ts), so no "No groups" for them
+  const guestPlace = meGuest(me)?.place
+  const visible = !isGuestMe(me) ? t('profile.visible') : guestPlace?.name ? t('profile.visibleGuest', { place: guestPlace.name }) : t('profile.visibleGuestSome')
+  const groupsLine = me.groups.map((g) => g.name).join(', ') || (isGuestMe(me) ? '' : t('settings.noGroups'))
   const signedIn = useSession((s) => s.signedIn)
   const setLocale = useSession((s) => s.setLocale)
   const setTheme = useSession((s) => s.setTheme)
@@ -160,6 +152,12 @@ function Profile() {
   const [busy, setBusy] = useState(false)
   const previewUrl = photo && photo !== 'remove' ? photo.url : null
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
+  // the "Delete account" row says the date and offers "Keep my account" while a deletion is pending (TC-1976); a request
+  // that cannot be read leaves the plain link to the page
+  const deletion = useMyDeletionRequest()
+  const setDeletion = deletion.setValue
+  useEffect(() => { api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion])
+  const deletionRow = deletionRowText(t, deletion.value, locale)
   // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
   // changed
   // the one-line status is no longer asked for here (kept on the account, shown nowhere)
@@ -216,7 +214,7 @@ function Profile() {
               />
               {/* the hints under the group: the email's and who sees what */}
               <PhoneSection className="mb-0">
-                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {t('profile.visible')}</span>} testId="profile-fields">
+                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {visible}</span>} testId="profile-fields">
                   <PhoneField label={t('auth.name')} id={`${ids}-name`}>
                     <input id={`${ids}-name`} className={phoneFieldCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" />
                   </PhoneField>
@@ -259,7 +257,7 @@ function Profile() {
           <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
           </Row>
-          <p className="pt-3 text-xs text-muted">{t('profile.visible')}</p>
+          <p className="pt-3 text-xs text-muted" data-testid="profile-visible">{visible}</p>
           </>
           )}
           <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
@@ -285,7 +283,7 @@ function Profile() {
           <PhoneSection className="mb-0">
             <PhoneListGroup testId="profile-account">
               <PhoneListRow title={t('auth.username')} badge={<span className="max-w-[60%] truncate text-sm text-muted" data-testid="profile-username">{me.user.username}</span>} />
-              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}</span>} />
+              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)}{groupsLine && ` · ${groupsLine}`}</span>} />
             </PhoneListGroup>
           </PhoneSection>
         ) : (
@@ -299,20 +297,26 @@ function Profile() {
             {/* phones: the role in words, not a badge */}
             {phone ? (
               <span className="block text-sm text-muted md:text-right">
-                {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+                {t(`role.${me.user.role}`)}{groupsLine && ` · ${groupsLine}`}
               </span>
             ) : (
               <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted md:justify-end">
-                <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+                <Badge>{t(`role.${me.user.role}`)}</Badge>{groupsLine && ` · ${groupsLine}`}
               </span>
             )}
           </Row>
-          {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)); a phone has it as
-              the page's last row */}
-          {!phone && <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
-            <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
-              {t('accountDeletion.title')}
-            </Link>
+          {/* a person deletes their own account, 7 days after asking (App Store review 5.1.1(v)); a phone has it as the
+              page's last row */}
+          {!phone && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
+            {deletionRow.keep ? (
+              <Button type="button" size="sm" busy={deletion.busy} onClick={() => void deletion.keep()} data-testid="account-deletion-keep">
+                {t('accountDeletion.cancel')}
+              </Button>
+            ) : (
+              <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
+                {t('accountDeletion.request')}
+              </Link>
+            )}
           </Row>}
         </div>
         )}
@@ -371,8 +375,10 @@ function Profile() {
       <TextSizeSetting />
       {phone && (
         <PhoneSection className="-mt-6">
-          <PhoneListGroup title={t('accountDeletion.row')} footer={t('accountDeletion.rowHint')}>
-            <PhoneListRow title={t('accountDeletion.title')} to="/settings/account/delete" testId="account-deletion-link" />
+          <PhoneListGroup title={t('accountDeletion.row')} footer={deletionRow.hint}>
+            {deletionRow.keep
+              ? <PhoneListRow title={t('accountDeletion.cancel')} onClick={() => void deletion.keep()} disabled={deletion.busy} testId="account-deletion-keep" />
+              : <PhoneListRow title={t('accountDeletion.request')} to="/settings/account/delete" testId="account-deletion-link" />}
           </PhoneListGroup>
         </PhoneSection>
       )}
@@ -547,8 +553,8 @@ function MyEngine() {
   const model = engine ? me.user.prefs.model ?? null : null
   const save = async (e: EngineId | null, m: string | null) => {
     try {
-      await updatePrefs({ engine: e, model: e ? m : null })
-      toast({ level: 'success', text: t('common.saved') })
+      // shown at once (store/session.ts); "saved" with the server's answer
+      if (await updatePrefs({ engine: e, model: e ? m : null })) toast({ level: 'success', text: t('common.saved') })
     } catch (err) {
       toast({ level: 'error', text: errorText(err, locale, t('error.network')) })
     }
@@ -613,7 +619,9 @@ const DEVICE_ICON = { phone: Smartphone, tablet: Tablet, laptop: Laptop, compute
 function Security({ all = false }: { all?: boolean }) {
   const t = useT()
   const locale = useLocale()
-  const [sessions, setSessions] = useState<Session[] | null>(null)
+  // as this window last read them (store/listCache.ts): shown at once on a visit after the first, read again behind
+  const [sessions, setSessions] = useState<Session[] | null>(() => peekCached<Session[]>('settings:sessions') ?? null)
+  useEffect(() => { if (sessions) rememberCached('settings:sessions', sessions) }, [sessions])
   // what the read threw, kept until a read works (components/LoadError.tsx)
   const [error, setError] = useState<unknown>(null)
   const load = async () => {
@@ -767,13 +775,18 @@ export function MemoriesNotUsed({ use }: { use: { inUse: number; total: number }
   )
 }
 
+/** a memory's correction: its queue (lib/optimistic.ts) */
+const memoryKey = (id: string) => `memory:${id}:text`
+
 /** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. A phone: rows,
  * "+" in the bar, a row opens a sheet to correct it with "Forget" (which asks first), "Forget all" a red row. */
-function Memories() {
+export function Memories() {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [items, setItems] = useState<Memory[] | null>(null)
+  const shown = useRef(items)
+  shown.current = items
   const [cursor, setCursor] = useState<string | null>(null)
   // how many the AI gets now of how many are kept (the newest that fit; the others are marked "not used", QA TC-213)
   const [use, setUse] = useState<{ inUse: number; total: number } | null>(null)
@@ -787,7 +800,9 @@ function Memories() {
     failedMore.current = more
     try {
       const r = await api.call(API.listMemories, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
-      setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
+      // a correction still on its way stays as on screen (the read may be from before it)
+      const kept = (list: Memory[]) => list.map((m) => (optimisticPending(memoryKey(m.id)) ? shown.current?.find((x) => x.id === m.id) ?? m : m))
+      setItems((cur) => kept(more && cur ? [...cur, ...r.items] : r.items))
       setCursor(r.nextCursor)
       if (r.inUse !== undefined && r.total !== undefined) setUse({ inUse: r.inUse, total: r.total })
       setError(null)
@@ -831,7 +846,22 @@ function Memories() {
     toast({ level: 'success', text: said })
   }
   const add = (text: string) => saving(() => api.call(API.createMemory, { body: { text } }), (m) => setItems((cur) => [m, ...(cur ?? []).filter((x) => x.id !== m.id)]), t('memory.added'))
-  const update = (id: string, text: string) => saving(() => api.call(API.updateMemory, { params: { id }, body: { text } }), (m) => setItems((cur) => cur?.map((x) => (x.id === m.id ? m : x)) ?? null), t('memory.updated'))
+  // a correction shows at once and the form closes (lib/optimistic.ts); a refusal puts back what the server has, with
+  // one toast in the server's words. "Updated" comes with the answer.
+  const update = async (id: string, text: string) => {
+    const was = items?.find((x) => x.id === id)
+    if (!was) return
+    const put = (m: Memory) => setItems((cur) => cur?.map((x) => (x.id === m.id ? m : x)) ?? null)
+    setEditing(null)
+    const r = await optimistic({
+      key: memoryKey(id), from: was, to: { ...was, text },
+      show: put,
+      send: () => api.call(API.updateMemory, { params: { id }, body: { text } }),
+      confirmed: (m) => m,
+      settle: put,
+    })
+    if (r.ok && r.newest) toast({ level: 'success', text: t('memory.updated') })
+  }
   const addButton = (
     <Button size="sm" onClick={() => setEditing('new')} disabled={editing === 'new'} data-testid="memory-add">
       <Plus size={14} aria-hidden /> {t('memory.add')}

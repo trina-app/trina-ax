@@ -33,7 +33,8 @@ const project = (who: string, folderPath: string, name: string, instructions = '
 /** a finance-only folder under shared/ (everyone else: nothing) */
 function financeOnly(dir: string, id: string) {
   fs.mkdirSync(path.join(h.team, dir), { recursive: true })
-  h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(`f_${id}`, dir)
+  // (limited: the legacy marker everyone: none is its cut; docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+  h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(`f_${id}`, dir)
   h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'write'), (?, ?, 'everyone', NULL, 'none')").run(`r_${id}_f`, `f_${id}`, `r_${id}_e`, `f_${id}`)
 }
 const trash = (who: string, p: string) => h.api(who).call(API.remove, { query: { path: p } })

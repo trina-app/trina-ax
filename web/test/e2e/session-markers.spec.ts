@@ -42,7 +42,7 @@ test('a grey ring while it runs, then the dot and an ink title; "···" takes i
   await expect(row.getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
   await expect(row.getByRole('img', { name: '새 답' })).toBeVisible()
   // (an unread name: 600 in ink, one look in every panel since #697, list/List.tsx rowName)
-  await expect(row.getByRole('link')).toHaveClass(/font-semibold text-ink/)
+  await expect(row.getByRole('link').locator('.text-row')).toHaveClass(/font-semibold text-ink/)
   // one marker in the "···" slot, its right edge 12 px in (the rooms' pills' column)
   const marker = row.getByTestId('chat-marker')
   const menu = row.getByRole('button', { name: '기록 메뉴' })

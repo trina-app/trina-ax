@@ -52,13 +52,16 @@ async function dragTo(page: Page, x: number, divider = 'thread-divider', overlay
 }
 
 test('drag, limits, remembered after reload, double-click reset, arrow keys', async ({ page }) => {
+  // wide enough for the 600 px drag: at 1360 the room's 420 px beside the rail and its list (288 px since the panels'
+  // type pass) leaves the thread 596
+  await page.setViewportSize({ width: 1600, height: 900 })
   await openThread(page)
   const divider = page.getByTestId('thread-divider')
   await expect(divider).toHaveAttribute('role', 'separator')
   await expect(divider).toHaveAttribute('aria-orientation', 'vertical')
   await expect(divider).toHaveAttribute('aria-label', DICTS.ko['rooms.threadResize'])
   const vw = page.viewportSize()!.width
-  // 1360 px: the room row is 1360 - 280 (sidebar); the thread starts at 440 px, the room keeps at least 420
+  // the room row is the window less the rail and its list; the thread starts at 440 px, the room keeps at least 420
   const row = (await threadWidth(page)) + (await roomWidth(page))
   const first = await threadWidth(page)
   expect(first).toBe(440)
@@ -141,6 +144,8 @@ test('a phone shows the thread full screen and no divider, whatever width a comp
 })
 
 test('the preview panel still resizes, and the two panels keep their own widths', async ({ page }) => {
+  // wide enough for the preview to widen from its default (preview-resize.spec.ts)
+  await page.setViewportSize({ width: 1600, height: 900 })
   await openThread(page)
   await dragTo(page, page.viewportSize()!.width - 560)
   await expect.poll(() => threadWidth(page)).toBe(560)

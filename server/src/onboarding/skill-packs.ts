@@ -172,21 +172,25 @@ const SUMMARY: Record<string, Record<Locale, string>> = {
     ko: '회사 소개로 6~10장짜리 소개서를 만들어요', en: 'Makes a 6–10 slide company profile from the company intro',
     id: 'Membuat profil perusahaan 6–10 slide dari info perusahaan', ja: '会社紹介から6〜10枚の会社紹介資料を作ります',
     es: 'Crea un dosier de empresa de 6 a 10 diapositivas con la información de la empresa',
+    zh: '根据公司介绍制作6–10页的公司介绍资料',
   },
   'card-news': {
     ko: '회사 소개로 정사각형 카드 5장을 만들어요', en: 'Makes 5 square promo cards from the company intro',
     id: 'Membuat 5 kartu persegi dari info perusahaan', ja: '会社紹介から正方形のカードを5枚作ります',
     es: 'Crea 5 tarjetas cuadradas con la información de la empresa',
+    zh: '根据公司介绍制作5张方形宣传卡片',
   },
   'promo-video': {
     ko: '회사 소개로 18초짜리 세로 영상을 만들어요', en: 'Makes an 18-second vertical video from the company intro',
     id: 'Membuat video vertikal 18 detik dari info perusahaan', ja: '会社紹介から18秒の縦長の動画を作ります',
     es: 'Crea un vídeo vertical de 18 segundos con la información de la empresa',
+    zh: '根据公司介绍制作18秒的竖版视频',
   },
   humanizer: {
     ko: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', en: 'Rewrites text that reads as AI-written so a person seems to have written it',
     id: 'Merapikan tulisan yang terasa buatan AI agar terdengar ditulis manusia', ja: 'AIが書いたように見える文章を、人が書いたように整えます',
     es: 'Reescribe textos que suenan a IA para que parezcan escritos por una persona',
+    zh: '把读起来像AI写的文字改写得像真人写的',
   },
 }
 

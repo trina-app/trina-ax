@@ -76,7 +76,7 @@ const ContentName = z.string().min(1).max(80)
 const ContentSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, 'lowercase letters, digits and "-"')
 const ContentPath = z.string().min(1).max(512)
   .refine((p) => !p.startsWith('/') && !p.split('/').some((s) => s === '..' || s === '.' || s === ''), 'a team path like shared/a.md')
-const ContentAccess = z.enum(['none', 'read', 'write'])
+const ContentAccess = z.enum(['read', 'write'])
 const ContentRule = z.union([
   z.object({ group: ContentName, access: ContentAccess }).strict(),
   z.object({ user: Username, access: ContentAccess }).strict(),
@@ -103,7 +103,10 @@ export const DemoContentCompany = z.object({
   }).strict()).min(3).max(60),
   groups: z.array(z.object({ name: ContentName, description: z.string().max(200) }).strict()).max(20),
   /** folder rules beyond the group folders (each group gets groups/<name>/, written by its members) */
-  rules: z.array(z.object({ path: ContentPath, rules: z.array(ContentRule).min(1).max(20), why: z.string().max(200).optional() }).strict()).max(60),
+  // access adds up from the folders above; `limited` cuts what comes from above (docs/DECISIONS.md "Folder access adds
+  // up like Google Drive (P2)")
+  rules: z.array(z.object({ path: ContentPath, rules: z.array(ContentRule).max(20), limited: z.boolean().optional(), why: z.string().max(200).optional() }).strict()
+    .refine((r) => r.rules.length > 0 || r.limited === true, 'a rule or limited: true')).max(60),
   /** who uploads a sample file: the first entry whose path is the file or a folder above it, else defaultUploader */
   uploaders: z.array(z.object({ path: ContentPath, username: Username }).strict()).max(100).default([]),
   /** default: the owner */

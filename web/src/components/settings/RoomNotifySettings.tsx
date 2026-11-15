@@ -9,15 +9,14 @@ import { Check } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NotificationPreferences, QuietHours, RoomNotifyDefault, RoomNotifyLevel } from '@mycel/shared/api'
 import { QUIET_HOURS_DEFAULT } from '@mycel/shared/api'
-import { errorText } from '../../lib/api'
-import { useLocale, useT } from '../../i18n'
+import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { useMeStrict } from '../../store/session'
-import { toast } from '../../store/ui'
 import { inputCls, Switch, useMediaQuery } from '../ui'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { roomNotify } from '../rooms/RoomNotifyMenu'
 import { PrefRow, PrefSection } from './PrefRows'
+import { settingDesc, settingName } from './SettingRow'
 import { PhoneChoicePill } from '../phone/PhoneChoice'
 
 const LEVELS: readonly RoomNotifyDefault[] = ['direct', 'all', 'none']
@@ -39,15 +38,15 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
   return (
     <PrefSection title={t('notifications.section.rooms')} testId="notifications-rooms">
       <div className="py-3.5" data-testid="notification-room-level">
-        <p id="np-room-level" className="text-sm font-medium text-ink">{t('notifications.roomLevel')}</p>
-        <p id="np-room-level-desc" className="mt-0.5 text-sm text-muted">{t('notifications.roomLevelDesc')}</p>
+        <p id="np-room-level" className={settingName}>{t('notifications.roomLevel')}</p>
+        <p id="np-room-level-desc" className={clsx('mt-0.5', settingDesc)}>{t('notifications.roomLevelDesc')}</p>
         {phone ? (
           <div role="radiogroup" aria-labelledby="np-room-level" aria-describedby="np-room-level-desc" className="mt-2 flex flex-col divide-y divide-line border-y border-line">
             {LEVELS.map((l) => {
               const on = prefs.roomLevel === l
               return (
                 <button key={l} type="button" role="radio" aria-checked={on} onClick={() => { if (!on) onChange({ roomLevel: l }) }}
-                  className="flex min-h-12 items-center gap-3 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2" data-testid={`notification-room-level-${l}`}>
+                  className="flex min-h-12 items-center gap-3 text-left text-row hover:bg-hover focus-visible:-outline-offset-2" data-testid={`notification-room-level-${l}`}>
                   <span className={clsx('min-w-0 flex-1', on && 'font-medium')}>{t(`notifications.roomLevel.${l}`)}</span>
                   <Check size={18} className={clsx('shrink-0 text-accent', !on && 'invisible')} aria-hidden />
                 </button>
@@ -114,7 +113,7 @@ function QuietHoursRow({ quiet, onChange }: { quiet: QuietHours; onChange: (q: Q
 /** The rooms I turned off (끄기), each with its level to change back. A room changed here stays in the list until the
  * page is left, so nothing jumps under the pointer. */
 function MutedRooms() {
-  const t = useT(), locale = useLocale()
+  const t = useT()
   const rooms = useRooms((s) => s.rooms)
   const title = useRoomTitle()
   useEffect(() => { if (!useRooms.getState().loaded) void useRooms.getState().loadRooms() }, [])
@@ -127,20 +126,20 @@ function MutedRooms() {
   const set = async (roomId: string, level: RoomNotifyLevel | null) => {
     touched.current.add(roomId)
     bump((n) => n + 1)
-    try { await useRooms.getState().setNotifyLevel(roomId, level) }
-    catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
+    // on screen at once; a failure puts it back with its own toast (store/rooms.ts setNotifyLevel)
+    await useRooms.getState().setNotifyLevel(roomId, level)
   }
   return (
     <div className="py-3.5" data-testid="notification-muted-rooms">
-      <p className="text-sm font-medium text-ink">{t('notifications.mutedRooms', { count: off.length })}</p>
-      <p className="mt-0.5 text-sm text-muted">{t('notifications.mutedRoomsDesc')}</p>
+      <p className={settingName}>{t('notifications.mutedRooms', { count: off.length })}</p>
+      <p className={clsx('mt-0.5', settingDesc)}>{t('notifications.mutedRoomsDesc')}</p>
       <ul className="mt-2 divide-y divide-line">
         {shown.map((r) => {
           const n = roomNotify(r), id = `np-room-${r.id}`
           return (
             <li key={r.id} className="flex items-center gap-3 py-2" data-testid="notification-muted-room">
               <RoomIcon room={r} size={24} />
-              {phone ? <span className="min-w-0 flex-1 truncate text-sm">{title(r)}</span> : <label htmlFor={id} className="min-w-0 flex-1 truncate text-sm">{title(r)}</label>}
+              {phone ? <span className="min-w-0 flex-1 truncate text-row">{title(r)}</span> : <label htmlFor={id} className="min-w-0 flex-1 truncate text-row">{title(r)}</label>}
               {phone ? (
                 <PhoneChoicePill bare label={title(r)} value={n.own ?? 'default'} onChange={(v) => void set(r.id, v === 'default' ? null : v)} testId="notification-muted-room-level" className="max-w-[55%] shrink-0"
                   options={[{ value: 'default', label: `${t('rooms.notify.default')} · ${t(`rooms.notify.${n.byDefault}`)}` }, ...(['all', 'mentions', 'off'] as const).map((l) => ({ value: l, label: t(`rooms.notify.${l}`) }))]} />

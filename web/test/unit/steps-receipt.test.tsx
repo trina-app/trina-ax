@@ -160,7 +160,7 @@ describe('a question that runs a skill', () => {
       await m.click('user-form-answers-toggle')
       expect(m.get('user-form-answers').getAttribute('data-open')).toBeNull()
     } finally { await m.unmount() }
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([translate(l, 'chat.showAll'), translate(l, 'chat.showLess')].every((x) => x && !x.startsWith('chat.'))).toBe(true)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([translate(l, 'chat.showAll'), translate(l, 'chat.showLess')].every((x) => x && !x.startsWith('chat.'))).toBe(true)
     m = await mount(at('/card-news 인스타그램용으로 5장'))
     try {
       await m.until(() => m.find('skill-chip'), 'the chip')

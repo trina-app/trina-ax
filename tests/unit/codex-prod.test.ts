@@ -380,7 +380,7 @@ describe('managed Codex turns (fake Codex through the real launcher and the mode
   let chatgptId = ''
   beforeAll(async () => {
     const up = `http://127.0.0.1:${codexUp.port}`
-    h = await startHarness({ name: 'codex-prod', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000, proxyDial: dial, upstreams: { chatgpt: up + '/backend-api/codex', openai: up + '/v1', openaiAuth: up } })
+    h = await startHarness({ name: 'codex-prod', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000, proxyDial: dial, upstreams: { chatgpt: up + '/backend-api/codex', openai: up + '/v1', openaiAuth: up } })
     setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true) // explicit shared-subscription fixture, not the product default
     // the team's ChatGPT plan (a subscription comes before the harness's OpenAI key of the same priority)
     chatgptId = addCred(credentialsOf(h.ctx), 'chatgpt', REAL, { label: 'Team ChatGPT', plan: 'pro' })

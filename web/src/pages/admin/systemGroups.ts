@@ -43,6 +43,9 @@ export const systemGroup = (id: string | undefined, o: { owner: boolean; feature
  * does not have, the list. */
 export function systemRedirect(o: { sub: string | undefined; phone: boolean; owner: boolean; features: Features }): string | null {
   if (!o.sub) return null
-  if (!o.phone || !systemGroup(o.sub, o)) return '/admin/system'
+  const g = systemGroup(o.sub, o)
+  if (!g) return '/admin/system'
+  // a computer's one page, at that part (System.tsx scrolls to the card with the id system-<group>)
+  if (!o.phone) return `/admin/system#system-${g.id}`
   return null
 }

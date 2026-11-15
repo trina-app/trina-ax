@@ -50,7 +50,8 @@ expect(daemonState(launchctlExit: 0, output: "state = waiting") == .notRunning, 
 expect(Lang.forTeam("ko") == .ko && Lang.forTeam("id") == .id && Lang.forTeam(nil) == .en && Lang.forTeam("fr") == .en, "language: the team default, else English")
 expect(Lang.forTeam(nil, lastSeen: "ko") == .ko && Lang.forTeam("en", lastSeen: "ko") == .en, "language: the last team default seen while the server is off")
 expect(Lang.forTeam("ja") == .ja && Lang.forTeam("es") == .es, "Japanese and Spanish team languages")
-for language in [Lang.ja, Lang.es] {
+expect(["zh", "zh-CN", "zh-Hans", "zh-SG", "zh-TW", "zh-HK"].allSatisfy { Lang.forTeam($0) == .zh }, "Chinese team languages")
+for language in [Lang.ja, Lang.es, Lang.zh] {
     let localized = menuState(status: s, statusAge: 10, health: healthy, daemon: .running, lang: language, product: "Acme")
     expect(localized.headline.contains("Acme"), "localized menubar preserves product name")
     expect(localized.headline != menuState(status: s, statusAge: 10, health: healthy, daemon: .running, lang: .en, product: "Acme").headline, "localized menubar is translated")

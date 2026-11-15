@@ -17,7 +17,7 @@ const render = (l: Locale, role: 'owner' | 'admin' | 'member' | undefined, initi
   Object.assign(useLocaleStore.getInitialState(), { locale: l })
   return renderToStaticMarkup(<MemoryRouter><NotReadyButton role={role} initial={initial} /></MemoryRouter>)
 }
-const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 
 test('the owner and an admin: [Connect AI], never the member\'s button', () => {
   for (const l of LOCALES) for (const role of ['owner', 'admin'] as const) {

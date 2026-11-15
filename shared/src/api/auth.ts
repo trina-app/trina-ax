@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
+import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
@@ -18,6 +18,8 @@ export const PersonName = z.string().trim().min(1).max(100).refine((s) => !NAME_
 
 /** GET /api/me */
 export const Me = z.object({
+  /** only for a guest: their one place and AI choice */
+  guest: GuestDetail.optional(),
   user: z.object({
     id: UserId,
     username: z.string(),
@@ -80,6 +82,9 @@ export const Me = z.object({
     /** made by signing in with a temporary password: the forced change asks only for the new password (true only
      * while mustChangePassword) */
     tempLogin: z.boolean().optional(),
+    /** this sign-in's key for addresses of pictures that never change (a room file thumbnail's ?k=): with it the server
+     * lets this browser keep them (server/src/auth/media-key.ts); a new sign-in gets a new one. Absent from older servers. */
+    mediaKey: z.string().max(64).optional(),
   }),
   server: z.object({
     version: z.string(), dev: z.boolean(),
@@ -144,12 +149,23 @@ export const InviteInfo = z.object({
   expiresAt: IsoTime,
   /** false when expired, used or revoked (the page shows why instead of the form) */
   valid: z.boolean(),
+  /** why a link does not work (only while `valid` is false; absent from an older server): expired, already used, turned
+   * off by hand, its maker can no longer invite (left, switched off, lost the room or project), or the room or project
+   * of a guest link is gone. Only the reason: nothing about the team, the maker or the place */
+  reason: z.enum(['expired', 'used', 'revoked', 'inviter_gone', 'place_gone']).optional(),
   /** who made the invite ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */
   inviterName: z.string().nullable().optional(),
   /** true while every seat of the plan is taken: accepting is refused until a seat is free (the page says so instead
    * of the form). Absent from an older server */
   full: z.boolean().optional(),
+  /** a guest invite: the one place the guest joins, by kind and name */
+  guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string() }).optional(),
+  /** a guest invite: who the link is for, as the inviter typed it (the form's Name starts with it); absent without one */
+  guestName: z.string().optional(),
+  /** a guest invite: the AI choice the inviter made (none, the team's, or the guest's own sign-in), only while the link works:
+   * the page tells a guest who must connect their own account before they open it. Absent from an older server */
+  guestAi: z.enum(['none', 'team', 'own']).optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

@@ -23,7 +23,7 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
   // edit_hwp and make_file .hwpx come with the HWP plugin (tools/hwp-writing.ts): on, but where a test turns it off
   hwpPluginOn(h.ctx)
   alice = await h.ws('alice', { windowId: 'win-i-main' })

@@ -1,5 +1,5 @@
 // The desktop app's languages, without any other import (the own screens' bundles use it too: no shared runtime code).
-export type UiLocale = 'ko' | 'en' | 'id' | 'ja' | 'es'
+export type UiLocale = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 
 /** Language before the team page or the person said otherwise. */
 export const DEFAULT_UI_LOCALE: UiLocale = 'en'
@@ -11,13 +11,14 @@ export const UI_LOCALES: { id: UiLocale; label: string }[] = [
   { id: 'id', label: 'Bahasa Indonesia' },
   { id: 'ja', label: '日本語' },
   { id: 'es', label: 'Español' },
+  { id: 'zh', label: '简体中文' },
 ]
 
-/** "ko" / "ko-KR" / "in" -> one of ours, else null (anything that is not a language code is refused). */
+/** "ko" / "ko-KR" / "in" / "zh-TW" -> one of ours (every Chinese tag, Hans or Hant, gets the Simplified texts), else null (anything that is not a language code is refused). */
 export function asUiLocale(v: unknown): UiLocale | null {
   if (typeof v !== 'string' || v.length > 16) return null
   const base = v.toLowerCase().split(/[-_]/)[0]
-  if (base === 'ko' || base === 'en' || base === 'id' || base === 'ja' || base === 'es') return base
+  if (base === 'ko' || base === 'en' || base === 'id' || base === 'ja' || base === 'es' || base === 'zh') return base
   if (base === 'in') return 'id' // old Java/Android code for Indonesian
   return null
 }

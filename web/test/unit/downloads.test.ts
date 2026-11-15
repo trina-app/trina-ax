@@ -136,7 +136,7 @@ describe('desktop downloads', () => {
       expect(view).not.toContain('/downloads/')
       expect(view).not.toContain('app-row-mac')
     }
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(DICTS[l]['apps.windowsStore']).toContain('Microsoft Store')
       expect(DICTS[l]['apps.windowsStore']).not.toMatch(/\.exe|SmartScreen/)
     }
@@ -162,7 +162,7 @@ describe('desktop downloads', () => {
     expect(hostedFeed).toContain('Diagnostics')
     expect(hostedFeed).not.toMatch(/teamax|desktop-refresh|INSTALL-LINUX|office-install/)
     for (const server of ['office', 'feed', 'folder', 'hosted', 'hosted-feed'] as const) expect(view({ server, owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.noDownloads')}</p>`)
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(DICTS[l]['apps.noDownloadsOwnerHosted']).not.toMatch(/trina_admin|desktop-refresh|INSTALL-LINUX/)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(DICTS[l]['apps.noDownloadsOwnerHosted']).not.toMatch(/trina_admin|desktop-refresh|INSTALL-LINUX/)
     // what /api/me says picks the hint: a hosted tenant never gets a self-installed server's hint
     expect(downloadsSourceOf({ deployment: 'hosted', windowsApp: 'feed' })).toBe('hosted-feed')
     expect(downloadsSourceOf({ deployment: 'hosted' })).toBe('hosted')
@@ -170,7 +170,7 @@ describe('desktop downloads', () => {
     expect(downloadsSourceOf({ deployment: 'self', windowsApp: 'feed' })).toBe('feed')
     expect(downloadsSourceOf({ deployment: 'self', windowsApp: 'folder' })).toBe('folder')
     expect(downloadsSourceOf({})).toBe('office') // an office Mac, or an older server
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(translate(l, 'apps.noDownloadsOwnerFeed', { feed: host })).toContain(host)
       expect(DICTS[l]['apps.noDownloadsOwnerLinux']).toContain('desktop-refresh --from')
     }
@@ -194,7 +194,7 @@ describe('desktop downloads', () => {
     expect(answersFileInputs(bridge())).toBe(false)
   })
   test('the line shown instead names the App Store, in every language, and no .dmg', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(DICTS[l]['apps.macStore']).toContain('App Store')
       expect(DICTS[l]['apps.macStore']).not.toContain('.dmg')
     }

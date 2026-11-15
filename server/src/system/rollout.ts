@@ -210,7 +210,7 @@ export function newRollout(channel: 'stable' | 'beta', mode: 'staged' | 'all', s
 /** "10% → 50% after 24 h → 100% after 48 h" (publish logs) */
 export const rampText = (ramp: readonly RampStep[]) => ramp.map((s, i) => (i === 0 && s.afterHours === 0 ? `${s.percent}%` : `${s.percent}% after ${s.afterHours} h`)).join(' → ')
 
-// ---------------- hold and resume (scripts/release/hold.ts, docs/RELEASE-CI.md 6) ----------------
+// ---------------- hold, resume and promote (scripts/release/hold.ts, docs/RELEASE-CI.md 6) ----------------
 
 /** the roll-out a hold keeps to give back on resume (the head's own, without hold and changedAt); null: it had none.
  * Servers drop it (zod strips unknown keys, Go ignores them); only the hold script reads it, strictly */
@@ -264,6 +264,21 @@ export function resumeRollout(held: HeldRollout, publishedAt: string | undefined
     return { afterHours: Math.min(8760, Math.ceil(s.afterHours * HOUR_MS + heldFor) / HOUR_MS), percent: s.percent }
   })
   return { percent: b.percent, salt: b.salt, ...(ramp ? { ramp } : {}), ...(b.since ? { since: b.since } : {}), changedAt: iso }
+}
+
+/**
+ * The rollout of a promoted head (`bun scripts/release/hosting.ts promote <channel>`, docs/RELEASE-CI.md 6): the staged
+ * roll-out ends now and every install takes the release by itself, as if it had been published with `Rollout: all`.
+ * percent 100 and no ramp (servers that know only `percent`, or `ramp` without `hold`, read 100 too), the salt kept and
+ * changedAt set, so a reader that saw this head keeps it over an older copy served again (newerHeadSeen). 'unchanged':
+ * the head already goes to everyone (no roll-out, or 100% without a ramp). A held head is not promoted: resume it first
+ * (a hold is a person's decision about a bad release; promote must not lift it by the way).
+ */
+export function promoteRollout(prev: Rollout | undefined, at: Date): Rollout | 'unchanged' {
+  if (prev?.hold) throw new Error(`the roll-out is held (since ${prev.hold.at}): resume it first`)
+  if (!prev || (!prev.ramp?.length && prev.percent >= 100)) return 'unchanged'
+  if (at.getTime() <= changedMs(prev)) throw new Error(`this computer's clock (${at.toISOString()}) is not later than the head's last change (${prev.changedAt}): fix the clock first`)
+  return { percent: 100, salt: prev.salt, changedAt: at.toISOString() }
 }
 
 /**

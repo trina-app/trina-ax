@@ -149,7 +149,7 @@ describe('a project whose folder is in the trash (an admin\'s view)', () => {
 describe('the chat title menu', () => {
   const items = (m: { container: { querySelectorAll(s: string): ArrayLike<{ getAttribute(n: string): string | null; textContent: string | null }> } }) =>
     Array.from(m.container.querySelectorAll('[role="menuitem"]')).map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
-  test('Rename, Move to project…, Delete; "Change project…" for a chat in a project, also one the person cannot see', async () => {
+  test('Rename, Move to project, Delete; "Change project" for a chat in a project, also one the person cannot see', async () => {
     let moved = 0
     const m = await mount(<ChatTitleMenu chat={{ projectId: null }} title="Acme board summary" onRename={() => {}} onMove={() => moved++} onDelete={() => {}} />)
     await m.click('chat-menu')

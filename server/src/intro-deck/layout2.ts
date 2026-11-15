@@ -44,13 +44,14 @@ export interface DeckDoc2 {
   notes: string[][]
 }
 
-const LABEL_DECK: Record<Locale, string> = { ko: '회사 소개서', en: 'Company profile', id: 'Profil perusahaan', ja: '会社紹介資料', es: 'Presentación corporativa' }
+const LABEL_DECK: Record<Locale, string> = { ko: '회사 소개서', en: 'Company profile', id: 'Profil perusahaan', ja: '会社紹介資料', es: 'Presentación corporativa', zh: '公司介绍' }
 const LABEL_CONTACT: Record<Locale, Record<'person' | 'phone' | 'email' | 'website' | 'address', string>> = {
   ko: { person: '담당', phone: '전화', email: '이메일', website: '웹사이트', address: '주소' },
   en: { person: 'Contact', phone: 'Phone', email: 'Email', website: 'Website', address: 'Address' },
   id: { person: 'Kontak', phone: 'Telepon', email: 'Email', website: 'Situs web', address: 'Alamat' },
   ja: { person: '担当', phone: '電話', email: 'メール', website: 'ウェブサイト', address: '住所' },
   es: { person: 'Contacto', phone: 'Teléfono', email: 'Correo', website: 'Sitio web', address: 'Dirección' },
+  zh: { person: '联系人', phone: '电话', email: '邮箱', website: '网站', address: '地址' },
 }
 export const siteText = (u: string) => u.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
 

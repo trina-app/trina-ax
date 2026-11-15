@@ -170,8 +170,8 @@ test('skills_list: restricted skills folders and personal skills follow the conn
     const memberId = f.member.id
     put('skills/finance/close.md', '---\nname: Month close\ndescription: RESTRICTED-SKILL-CANARY\n---\nsteps\n')
     put(`users/${memberId}/skills/mine.md`, '---\nname: Mine\ndescription: MEMBER-PERSONAL-CANARY\n---\nsteps\n')
-    // skills/finance: nobody but owner and admins (everyone none overrides the everyone-read rule of skills/)
-    f.h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('mcp-skills-finance', 'skills/finance')").run()
+    // skills/finance: nobody but owner and admins (limited: the everyone-read rule of skills/ does not reach it)
+    f.h.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('mcp-skills-finance', 'skills/finance', 1)").run()
     f.h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('mcp-skills-finance-none', 'mcp-skills-finance', 'everyone', NULL, 'none')").run()
     const out = await f.tools.call(f.token, 'skills_list', {})
     expect(out.isError).toBeUndefined()

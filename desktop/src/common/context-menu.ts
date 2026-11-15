@@ -2,7 +2,9 @@
 // its own, so a right-click on a photo, a link or selected text did nothing in the app. What is under the pointer
 // (Electron's context-menu facts) decides the items, in the app's language: a photo 이미지 복사 / 이미지 저장…, a link
 // 링크 복사, selected text 복사, a text field 잘라내기 / 복사 / 붙여넣기 / 모두 선택. Nothing else: no Inspect, nothing
-// that opens a link (docs/DECISIONS.md "Desktop: a right-click menu"). Pure: unit-tested in
+// that opens a link (docs/DECISIONS.md "Desktop: a right-click menu"). The team page answers a right-click on a room's
+// or chat's picture or file and the image viewer's picture with its own menu (web/src/components/FileMenu.tsx), so
+// this one does not open there (docs/DECISIONS.md "A right-click menu on pictures and files"). Pure: unit-tested in
 // tests/unit/e-desktop-common.test.ts.
 import { originOf } from './address'
 import { t, type UiLocale } from './i18n'
@@ -84,4 +86,26 @@ export function saveableImage(src: string, allowedOrigins: readonly string[]): b
   if (u.protocol !== 'http:' && u.protocol !== 'https:' && u.protocol !== 'blob:') return false
   // a blob: address's origin is the page's that made it ("blob:https://acme.example/…" → https://acme.example)
   return u.origin !== 'null' && allowedOrigins.includes(u.origin)
+}
+
+/** The most a picture the team page hands the app for the clipboard may be (bridge:copy-image). */
+export const CLIPBOARD_PNG_MAX = 64 * 1024 * 1024
+/** …and its largest side in pixels, read from its header before the system decodes it (a small file can claim a huge
+ * picture) */
+export const CLIPBOARD_PNG_SIDE = 16384
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+/**
+ * The PNG bytes the team page asks to put on the clipboard (DesktopBridge.copyImage: the image viewer's 이미지 복사,
+ * the right-click menu of a picture), or null: not bytes, no PNG, or larger than CLIPBOARD_PNG_MAX. The page read the
+ * picture itself through its own file routes; the app only writes what it was given and fetches nothing.
+ */
+export function clipboardPng(x: unknown): Uint8Array | null {
+  if (!(x instanceof Uint8Array) || x.byteLength < 8 + 25 || x.byteLength > CLIPBOARD_PNG_MAX) return null
+  if (!PNG_SIGNATURE.every((b, i) => x[i] === b)) return null
+  // the IHDR chunk comes first: its width and height (big-endian) at bytes 16 and 20
+  const v = new DataView(x.buffer, x.byteOffset, x.byteLength)
+  if (String.fromCharCode(x[12]!, x[13]!, x[14]!, x[15]!) !== 'IHDR') return null
+  const w = v.getUint32(16), h = v.getUint32(20)
+  return w > 0 && h > 0 && w <= CLIPBOARD_PNG_SIDE && h <= CLIPBOARD_PNG_SIDE ? x : null
 }

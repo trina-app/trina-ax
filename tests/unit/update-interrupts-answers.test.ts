@@ -15,6 +15,7 @@ import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { CHAT_ERROR_MESSAGES } from '../../shared/src/api/errors'
 import { CONFIRMED } from '../lib/schedule-card'
 import { waitFor } from '../lib/wait'
+import { beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 
 let h: Harness, rt: ChatRuntime
 const spies: { mockRestore(): void }[] = []
@@ -292,3 +293,52 @@ test('a scheduled run that only waited for the launcher at the server stop: no o
   expect(await waitFor(() => turnStatus(run.id) === 'done')).toBe(true)
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM turns WHERE schedule_id=?').get(s.id) as { n: number }).n).toBe(1)
 }, 60_000)
+
+// An update that cuts a step off mid-way (a dev-environment command, a render) says so: the step shows as stopped,
+// not failed, and the answer's line names it, with Try again (the answer is an error the person sends again).
+test('the server stopping for an update while a step runs: the step is stopped and the answer says a step was cut', async () => {
+  await setup('update-step')
+  const a = newChat()
+  engines.set(a, async (exec) => {
+    exec.steps.push({ id: 'render-1', kind: 'tool', tool: 'box_shell', label: 'npx remotion render', status: 'running', startedAt: new Date().toISOString(), endedAt: null } as never)
+    await runsUntilStopped()(exec)
+  })
+  const running = send(a)
+  expect(await waitFor(() => turnStatus(running.turnId) === 'running' && execs[0]?.steps.length === 1)).toBe(true)
+  rt.shutdownCause = () => 'update'
+  await rt.shutdown()
+  const m = message(running.assistantMessage.id)
+  expect(m).toMatchObject({ status: 'error', error: { code: 'unavailable', params: { reason: 'updating_step' } } })
+  expect(m.error.message).toBe(CHAT_ERROR_MESSAGES.updating_step.en)
+  const steps = JSON.parse((h.ctx.db.query('SELECT steps FROM messages WHERE id=?').get(running.assistantMessage.id) as { steps: string }).steps)
+  expect(steps).toMatchObject([{ id: 'render-1', status: 'error', stopped: true }])
+}, 60_000)
+
+test('a step left running when the server went for an update (no orderly end): the next start stops it and says so', async () => {
+  await setup('recover-step')
+  const a = newChat(), b = newChat()
+  const pause = spyOn(rt, 'schedule').mockImplementation(() => {})
+  const left = send(a), plain = send(b)
+  const step = { id: 'cmd-1', kind: 'tool', tool: 'box_shell', label: 'npx remotion render', status: 'running', startedAt: new Date().toISOString(), endedAt: null }
+  h.ctx.db.query('UPDATE messages SET steps=? WHERE id=?').run(JSON.stringify([step]), left.assistantMessage.id)
+  h.ctx.db.query("UPDATE turns SET status='running' WHERE id IN (?,?)").run(left.turnId, plain.turnId)
+  setSetting(h.ctx.db, STOPPED_FOR_UPDATE, new Date().toISOString())
+  pause.mockRestore()
+  for (const x of spies.splice(0)) x.mockRestore()
+  await h.close()
+  await setup('recover-step', { reuse: true })
+  expect(message(left.assistantMessage.id).error).toMatchObject({ params: { reason: 'updating_step' } })
+  expect(message(plain.assistantMessage.id).error).toMatchObject({ params: { reason: 'updating' } })
+  const steps = JSON.parse((h.ctx.db.query('SELECT steps FROM messages WHERE id=?').get(left.assistantMessage.id) as { steps: string }).steps)
+  expect(steps).toMatchObject([{ id: 'cmd-1', status: 'error', stopped: true }])
+  expect(steps[0].endedAt).toBeTruthy()
+}, 60_000)
+
+test('while an update waits for running work no scheduled run starts; it runs once the wait is over', async () => {
+  await setup('wait-schedule')
+  const s = rt.schedules.create('olga', { title: 'Synthetic', prompt: 'synthetic task', repeat: 'once', date: '2099-10-27', time: '09:00' }, new Date('2099-10-26T00:00:00Z'), CONFIRMED)
+  const at = new Date('2099-10-27T09:05:00Z')
+  beginUpdateWait(at, new Date(at.getTime() + 30 * 60_000))
+  try { expect(rt.schedules.runDue(at)).toEqual([]) } finally { endUpdateWait() }
+  expect(rt.schedules.runDue(at)).toEqual([s.id])
+}, 30_000)

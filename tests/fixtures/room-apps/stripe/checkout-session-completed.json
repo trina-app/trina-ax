@@ -1,0 +1,23 @@
+{
+ "id": "evt_1TestCheckout0001",
+ "object": "event",
+ "created": 1794646800,
+ "livemode": false,
+ "type": "checkout.session.completed",
+ "data": {
+  "object": {
+   "id": "cs_test_a1",
+   "object": "checkout.session",
+   "amount_total": 4900,
+   "currency": "usd",
+   "mode": "payment",
+   "payment_status": "paid",
+   "payment_intent": "pi_3TestPayment0001",
+   "customer_details": {
+    "email": "jamie@example.com",
+    "name": "Jamie Rivera",
+    "phone": null
+   }
+  }
+ }
+}

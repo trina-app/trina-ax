@@ -97,7 +97,10 @@ async function writingOff() {
   const s = await shown()
   expect(s.editHwp).toBe(false)
   expect(s.formats).toEqual(['docx', 'pptx', 'xlsx', 'pdf'])
-  expect(s.description).not.toMatch(/hwpx|hangul|edit_hwp/i)
+  // no Hangul writing is offered, only one sentence that tells the person how to get it
+  expect(s.description).not.toMatch(/edit_hwp|\bformat "hwpx"|hwpx \(Hangul\)/i)
+  expect(s.description).toContain('an admin can turn on the Hangul plugin (Admin > Plugins')
+  expect(s.description).toContain('ask an admin')
   expect(s.template).not.toMatch(/hwpx/i)
   const call = turn()
   const made = await call('make_file', { content: MD, format: 'hwpx', output: 'users/alice/out/보고서' })

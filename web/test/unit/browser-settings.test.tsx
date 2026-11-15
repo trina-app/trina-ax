@@ -237,7 +237,7 @@ describe('"Allow all websites" for the AI\'s web reads (the team allows it: Me.t
     expect(both).toContain('data-testid="browser-site"')
   })
   test('the risk sentence and the new texts in five languages', () => {
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       expect(WEB_ALLOW_ALL_RISK[l].length).toBeGreaterThan(20)
       expect(translate(l, 'settings.browser.allHintWeb', { risk: WEB_ALLOW_ALL_RISK[l] })).toContain(WEB_ALLOW_ALL_RISK[l])
       expect(translate(l, 'teamSettings.webAllowAllHint', { risk: WEB_ALLOW_ALL_RISK[l] })).toContain(WEB_ALLOW_ALL_RISK[l])
@@ -247,7 +247,7 @@ describe('"Allow all websites" for the AI\'s web reads (the team allows it: Me.t
     // the switch is a part of 트리나에게 허용한 것 there); the card itself says only "Settings" (it cannot tell a phone)
     expect(translate('ko', 'settings.browser.allOnFromCard', { place: translate('ko', 'settings.browser') })).toContain('설정 › 브라우저')
     expect(translate('ko', 'settings.browser.allOnFromCard', { place: translate('ko', 'settings.allowances') })).toContain('설정 › 트리나에게 허용한 것')
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       const place = translate(l, 'settings.allowances')
       expect(translate(l, 'settings.browser.allOnFromCard', { place })).toContain(place)
     }

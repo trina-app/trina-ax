@@ -53,6 +53,7 @@ import { aiName } from '../lib/tabs'
 import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
+import { isGuestMe } from '../lib/guests'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap, useMediaQuery } from './ui'
 import { contentQueryReady } from './FileContentSearch'
@@ -69,8 +70,14 @@ import { RoomIcon, useRoomTitle } from './rooms/RoomIcon'
 import { useAvatarOf, usePeopleList } from '../store/people'
 import { useRooms } from '../store/rooms'
 import { useChats } from '../store/chats'
+import { useInboxUnread } from '../store/inbox'
+import { readIntegrations, readSchedules, readSkillList, SHARED, useCachedRead } from '../store/listCache'
+import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
+import { ChatFaces, otherWriters } from './chat/SharedChat'
+import { AppTile, SenderTag, useAppName } from './rooms/apps/AppParts'
+import { serviceOf } from '../lib/roomApps'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -226,19 +233,20 @@ export function roomsAndPeople(rooms: readonly Room[], people: readonly Person[]
   return found.sort((a, b) => isPerson(a) - isPerson(b) || a.rank - b.rank || b.at.localeCompare(a.at) || a.name.localeCompare(b.name)).slice(0, few).map((x) => x.item)
 }
 
-/** The lists Search reads once when it opens; null while loading, 'error' when one could not be read. */
-function useList<T>(load: () => Promise<T>): T | null | 'error' {
-  const [v, setV] = useState<T | null | 'error'>(null)
-  useEffect(() => {
-    let live = true
-    load().then((x) => live && setV(x), () => live && setV('error'))
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return v
+/** How long a list Search read stays good for the next time it opens: a list read that recently shows as it is,
+ * without asking the server again (the realtime changes that touch one mark it stale: store/listCache.ts). */
+export const SEARCH_LIST_AGE_MS = 30_000
+
+/** A list Search shows (store/listCache.ts): what this window last read at once, read again when it opens unless that
+ * read is recent (`always`: read again on every open, for lists no realtime change marks stale: a task the AI made, a
+ * connection added on another device); null while nothing was read yet, 'error' when it could not be read and nothing
+ * was kept. */
+function useList<T>(key: string, load: () => Promise<T>, o: { always?: boolean } = {}): T | null | 'error' {
+  const { data, failed } = useCachedRead<T>(key, load, { minAgeMs: o.always ? undefined : SEARCH_LIST_AGE_MS })
+  return data !== undefined ? data : failed ? 'error' : null
 }
+const readRecent = () => api.call(API.listChats, { query: { limit: 30 } }).then((p) => p.items)
+const readProjects = () => api.call(API.listProjects).then((r) => r.items)
 const ok = <T,>(v: T | null | 'error'): T | null => (v === 'error' ? null : v)
 
 /** The project search was opened in (QA TC-421): a project's page (its files too) or a chat in a project; null anywhere
@@ -308,13 +316,19 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // Esc closes an open row menu first, then the dialog
   useFocusTrap(ref, true, () => (menu ? closeMenu() : onClose()))
 
-  const recent = useList(() => api.call(API.listChats, { query: { limit: 30 } }).then((p) => p.items))
-  const projects = useList(() => api.call(API.listProjects).then((r) => r.items))
-  const skills = useList<Skill[]>(() => api.call(API.listSkills).then((r) => r.items))
-  const schedules = useList(() => api.call(API.listSchedules).then((r) => r.items))
-  const mcp = useList(() => api.call(API.listIntegrations))
-  const unread = useList(() => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => r.unreadCount))
+  const recent = useList('search:recent', readRecent)
+  // the project list as Search last read it, with each project's name as this window knows it now (a rename here)
+  const projectsRead = useList('search:projects', readProjects)
+  const projectsById = useProjects((s) => s.byId)
+  const projects = useMemo(() => (Array.isArray(projectsRead) ? projectsRead.map((p) => projectsById[p.id] ?? p) : projectsRead), [projectsRead, projectsById])
+  const skills = useList<Skill[]>(SHARED.skills, readSkillList)
+  const scheduleList = useList(SHARED.schedules, readSchedules, { always: true })
+  const schedules = useMemo(() => (scheduleList && scheduleList !== 'error' ? scheduleList.items : scheduleList), [scheduleList])
+  const mcp = useList(SHARED.integrations, readIntegrations, { always: true })
+  // the window's own unread count (the rail's), not a read of its own
+  const unread = useInboxUnread()
   const admin = isAdmin(useMe())
+  const guest = isGuestMe(useMe())
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
   const myRooms = useRooms((s) => s.rooms)
@@ -516,22 +530,25 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
       { key: 'act:chat', kind: 'action', icon: AskAi, title: t('sidebar.askAi', { name: aiName(t) }), href: newChatPath() },
-      { key: 'act:project', kind: 'action', icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
-      { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
+      // a guest makes no projects or scheduled tasks and has no Files page (components/GuestView.tsx)
+      ...(guest ? [] : [
+        { key: 'act:project', kind: 'action' as const, icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
+        { key: 'act:schedule', kind: 'action' as const, icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
+      ]),
     ]
     const m = ok(mcp)
     // Settings › Connectors for everyone (it has no item in the rail or its panels): owners and admins who may add their own go straight to
     // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
-    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: t('files.root') })
+    if (!guest) list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: t('files.root') })
     // 모든 프로젝트 and Usage (in Settings) are found here too
     list.push(
       { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
       { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
     )
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
-    const n = ok(unread) ?? 0
+    const n = unread
     list.push({
       key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/activity', terms: `${t('inbox.title')} ${t('notifications.title')}`,
       sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
@@ -544,7 +561,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale, admin])
+  }, [mcp, unread, locale, admin, guest])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -880,6 +897,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                         {r.sub && <span className={clsx('ml-2 text-xs', r.marker ? clsx('font-medium', MARKER_TEXT[r.marker.kind]) : r.attention ? 'text-accent-text' : 'text-faint')} data-testid={r.marker ? 'search-marker-reason' : undefined}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
                       </span>
                     )}
+                    {/* a shared chat someone else wrote in: their faces, as in the Trina list (docs/DECISIONS.md "Faces in every
+                        chat list"); the names are in the option's words for a screen reader */}
+                    {r.chat && otherWriters(r.chat.shared) && (
+                      <span className="flex shrink-0 items-center" data-testid="search-row-faces">
+                        <ChatFaces shared={r.chat.shared!} on="surface" selected={lit(r)} testId="search-row" />
+                      </span>
+                    )}
                     {/* the 트리나 list's own marker; its words are the row's second part already */}
                     {r.marker && (
                       <span aria-hidden className="flex shrink-0 items-center" data-testid="search-row-marker" data-marker={r.marker.kind}>
@@ -996,14 +1020,17 @@ function MessageHit({ hit, room, text }: { hit: RoomSearchHit; room: RoomSearchR
   const locale = useLocale()
   const person = useAvatarOf(hit.author)
   const ai = hit.authorKind === 'ai'
-  const name = ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
+  // an app's message (docs/DECISIONS.md "Apps posting in rooms"): the app's name with the "App" tag, never a person
+  const appName = useAppName()
+  const name = hit.app ? appName(hit.app) : ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
   const where = useWhere()(room, hit.author?.id)
   return (
     <>
-      {ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
+      {hit.app ? <AppTile service={serviceOf(hit.app)} size="face" /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
-          <span className="shrink-0 font-medium text-ink">{name}</span>
+          <span className="shrink-0 font-medium text-ink" data-testid="search-message-author">{name}</span>
+          {hit.app && <SenderTag />}
           <span className="min-w-0 truncate text-xs text-faint" data-testid="search-message-room">
             {where}
             {hit.threadRootId && ` · ${t('search.inThread')}`}

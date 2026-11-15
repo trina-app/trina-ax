@@ -1,6 +1,7 @@
 // Profiles and the people directory (docs/DECISIONS.md "프로필과 사람 목록"): the one-line title and status and the
 // photo of each person, in user_profiles (migration 115). A row exists only for people who set something.
 import type { Database } from 'bun:sqlite'
+import { guestDetail, reachFilter, sharesPlace } from './guests'
 import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
@@ -8,19 +9,19 @@ import { prepareAvatar, type AvatarProblem } from './avatar'
 import { LIVE_SQL, statusOut } from './status-plan'
 
 type T = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 const KB = AVATAR_MAX_BYTES / 1024
 
 /** Refusals of a photo, in the uploader's language. */
 export const AVATAR_TEXT: Record<AvatarProblem, T> = {
-  type: t('PNG, JPEG, WebP 사진만 올릴 수 있어요.', 'Only PNG, JPEG or WebP photos can be used.', 'Hanya foto PNG, JPEG, atau WebP yang bisa dipakai.', 'PNG、JPEG、WebPの写真のみ使用できます。', 'Solo se pueden usar fotos PNG, JPEG o WebP.'),
-  mismatch: t('파일 내용이 PNG, JPEG, WebP 사진이 아니에요. 다른 사진을 골라 주세요.', 'The file is not really a PNG, JPEG or WebP photo. Choose another photo.', 'Isi berkas bukan foto PNG, JPEG, atau WebP. Pilih foto lain.', '実際のファイル形式がPNG、JPEG、WebPではありません。別の写真を選んでください。', 'El archivo no es realmente una foto PNG, JPEG o WebP. Elija otra foto.'),
-  too_big: t(`사진은 ${KB}KB까지 올릴 수 있어요.`, `The photo can be at most ${KB} KB.`, `Foto paling besar ${KB} KB.`, `写真は最大${KB} KBです。`, `La foto puede ocupar como máximo ${KB} KB.`),
-  not_square: t('사진은 정사각형이어야 해요. 화면에서 고르면 알아서 잘라 드려요.', 'The photo must be square. Choosing it in the app crops it for you.', 'Foto harus persegi. Memilihnya di aplikasi akan memotongnya otomatis.', '写真は正方形である必要があります。アプリで選ぶと自動で切り抜きます。', 'La foto debe ser cuadrada. Al elegirla en la app se recorta sola.'),
-  too_small: t(`가로와 세로가 ${AVATAR_MIN_PX}px 이상인 사진을 올려 주세요.`, `Use a photo at least ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} pixels.`, `Pakai foto minimal ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} piksel.`, `${AVATAR_MIN_PX} × ${AVATAR_MIN_PX}ピクセル以上の写真を使ってください。`, `Use una foto de al menos ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} píxeles.`),
-  too_large: t(`가로와 세로가 ${AVATAR_MAX_PX}px 이하인 사진을 올려 주세요.`, `Use a photo at most ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} pixels.`, `Pakai foto paling besar ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} piksel.`, `${AVATAR_MAX_PX} × ${AVATAR_MAX_PX}ピクセル以下の写真を使ってください。`, `Use una foto de como máximo ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} píxeles.`),
-  broken: t('사진 파일이 손상된 것 같아요. 다른 사진을 골라 주세요.', 'The photo file seems damaged. Choose another photo.', 'Berkas foto tampaknya rusak. Pilih foto lain.', '写真ファイルが破損しているようです。別の写真を選んでください。', 'El archivo de la foto parece dañado. Elija otra foto.'),
-  animated: t('움직이는 사진은 쓸 수 없어요.', 'Animated photos cannot be used.', 'Foto bergerak tidak bisa dipakai.', '動く写真は使用できません。', 'No se pueden usar fotos animadas.'),
+  type: t('PNG, JPEG, WebP 사진만 올릴 수 있어요.', 'Only PNG, JPEG or WebP photos can be used.', 'Hanya foto PNG, JPEG, atau WebP yang bisa dipakai.', 'PNG、JPEG、WebPの写真のみ使用できます。', 'Solo se pueden usar fotos PNG, JPEG o WebP.', '只能使用 PNG、JPEG 或 WebP 照片。'),
+  mismatch: t('파일 내용이 PNG, JPEG, WebP 사진이 아니에요. 다른 사진을 골라 주세요.', 'The file is not really a PNG, JPEG or WebP photo. Choose another photo.', 'Isi berkas bukan foto PNG, JPEG, atau WebP. Pilih foto lain.', '実際のファイル形式がPNG、JPEG、WebPではありません。別の写真を選んでください。', 'El archivo no es realmente una foto PNG, JPEG o WebP. Elija otra foto.', '此文件实际上不是 PNG、JPEG 或 WebP 照片。请选择其他照片。'),
+  too_big: t(`사진은 ${KB}KB까지 올릴 수 있어요.`, `The photo can be at most ${KB} KB.`, `Foto paling besar ${KB} KB.`, `写真は最大${KB} KBです。`, `La foto puede ocupar como máximo ${KB} KB.`, `照片最大为${KB} KB。`),
+  not_square: t('사진은 정사각형이어야 해요. 화면에서 고르면 알아서 잘라 드려요.', 'The photo must be square. Choosing it in the app crops it for you.', 'Foto harus persegi. Memilihnya di aplikasi akan memotongnya otomatis.', '写真は正方形である必要があります。アプリで選ぶと自動で切り抜きます。', 'La foto debe ser cuadrada. Al elegirla en la app se recorta sola.', '照片必须是正方形。在应用中选择照片时会自动裁剪。'),
+  too_small: t(`가로와 세로가 ${AVATAR_MIN_PX}px 이상인 사진을 올려 주세요.`, `Use a photo at least ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} pixels.`, `Pakai foto minimal ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} piksel.`, `${AVATAR_MIN_PX} × ${AVATAR_MIN_PX}ピクセル以上の写真を使ってください。`, `Use una foto de al menos ${AVATAR_MIN_PX} × ${AVATAR_MIN_PX} píxeles.`, `请使用至少${AVATAR_MIN_PX} × ${AVATAR_MIN_PX}像素的照片。`),
+  too_large: t(`가로와 세로가 ${AVATAR_MAX_PX}px 이하인 사진을 올려 주세요.`, `Use a photo at most ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} pixels.`, `Pakai foto paling besar ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} piksel.`, `${AVATAR_MAX_PX} × ${AVATAR_MAX_PX}ピクセル以下の写真を使ってください。`, `Use una foto de como máximo ${AVATAR_MAX_PX} × ${AVATAR_MAX_PX} píxeles.`, `请使用最多${AVATAR_MAX_PX} × ${AVATAR_MAX_PX}像素的照片。`),
+  broken: t('사진 파일이 손상된 것 같아요. 다른 사진을 골라 주세요.', 'The photo file seems damaged. Choose another photo.', 'Berkas foto tampaknya rusak. Pilih foto lain.', '写真ファイルが破損しているようです。別の写真を選んでください。', 'El archivo de la foto parece dañado. Elija otra foto.', '照片文件似乎已损坏。请选择其他照片。'),
+  animated: t('움직이는 사진은 쓸 수 없어요.', 'Animated photos cannot be used.', 'Foto bergerak tidak bisa dipakai.', '動く写真は使用できません。', 'No se pueden usar fotos animadas.', '不能使用动态照片。'),
 }
 const refuse = (problem: AvatarProblem, locale: Locale): never =>
   fail(problem === 'too_big' ? 'payload_too_large' : 'validation', AVATAR_TEXT[problem][locale] ?? AVATAR_TEXT[problem].en, {
@@ -32,8 +33,14 @@ const refuse = (problem: AvatarProblem, locale: Locale): never =>
 export const PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'profile_changed', message: '' } } as const
 /** The same to the person who changed it: their windows also read their own account again (GET /api/me). */
 export const MY_PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'my_profile_changed', message: '' } } as const
-/** publishEach builder: MY_PROFILE_CHANGED to `userId`, PROFILE_CHANGED to everyone else. */
-export const profileChangedFor = (userId: string) => (to: string) => (to === userId ? MY_PROFILE_CHANGED : PROFILE_CHANGED)
+/** publishEach builder: MY_PROFILE_CHANGED to `who` (one person, or the people whose profile or status changed),
+ * PROFILE_CHANGED to everyone else who may see at least one of them. A guest and the people outside their one place
+ * never reach each other (auth/guests.ts), so neither gets even this empty "someone changed" notice about the other
+ * (it would show, by its time, that the guest is there). */
+export const profileChangedFor = (db: Database, who: string | Iterable<string>) => {
+  const own = new Set(typeof who === 'string' ? [who] : who)
+  return (to: string) => (own.has(to) ? MY_PROFILE_CHANGED : [...own].some((id) => sharesPlace(db, to, id)) ? PROFILE_CHANGED : null)
+}
 
 interface ProfileRow { title: string; status_text: string; avatar_version: number | null }
 const person = (id: string, name: string, p: ProfileRow | null): Person => ({
@@ -44,19 +51,26 @@ const person = (id: string, name: string, p: ProfileRow | null): Person => ({
 })
 
 /** Everyone who can sign in (not deactivated, not deleted), by name, with their status message now (started, not
- * cleared: auth/status-messages.ts). Nothing else about them. */
-export function listPeople(db: Database, now = new Date()): Person[] {
+ * cleared: auth/status-messages.ts). Nothing else about them. `viewerId`: only the people that viewer may reach (a
+ * guest sees the people of their one place; a member does not see a guest outside their places: auth/guests.ts). */
+export function listPeople(db: Database, now = new Date(), viewerId?: string): Person[] {
+  const reach = viewerId ? reachFilter(db, viewerId) : null
   const iso = now.toISOString()
-  const rows = db.query(`SELECT u.id, u.name, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
+  const rows = db.query(`SELECT u.id, u.name, u.guest, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
     LEFT JOIN user_profiles p ON p.user_id = u.id
     LEFT JOIN user_status_messages s ON s.user_id = u.id AND ${LIVE_SQL}
     WHERE u.deleted_at IS NULL AND u.status = 'active' ORDER BY lower(u.name), u.id`).all(iso, iso) as {
-    id: string; name: string; title: string | null; status_text: string | null; avatar_version: number | null
+    id: string; name: string; guest: number; title: string | null; status_text: string | null; avatar_version: number | null
     emoji: string | null; text: string | null; clears_at: string | null; until_day: string | null
   }[]
-  return rows.map((r) => ({
+  return rows.filter((r) => !reach || reach(r.id)).map((r) => ({
     ...person(r.id, r.name, { title: r.title ?? '', status_text: r.status_text ?? '', avatar_version: r.avatar_version }),
     ...(r.emoji ? { statusMessage: statusOut({ emoji: r.emoji, text: r.text ?? '', clears_at: r.clears_at, until_day: r.until_day }) } : {}),
+    // the "Guest" tag: only on a guest the viewer may see at all (reachFilter: the people of the guest's place; nobody
+    // else gets the guest in their list)
+    ...(r.guest === 1 ? { guest: true as const } : {}),
+    // where that guest is, by name: the viewer sees them only when they share that place, so it is a place of the viewer's
+    ...(r.guest === 1 ? ((d) => (d ? { guestPlace: d.place } : {}))(guestDetail(db, r.id)) : {}),
   }))
 }
 

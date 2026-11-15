@@ -6,7 +6,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, answer, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, text, windowShot } from './helpers'
+import { ACME, addTeam, answer, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, text, view, windowShot } from './helpers'
 
 const SHOTS = process.env.SHOTS_DIR
 
@@ -116,6 +116,49 @@ test('the AI in control: a calm signal that comes and goes; no solid accent colo
   }
 })
 
+test('the pane follows the look chosen on the team page (setTheme), not only the computer\'s', async () => {
+  const app = await launch(newUserData())
+  try {
+    const page = await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
+    const source = () => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)
+    for (const t of ['dark', 'light', 'system'] as const) {
+      await page.evaluate((v) => (window as any).mycelDesktop.setTheme(v), t)
+      await expect.poll(source).toBe(t)
+    }
+    await page.evaluate(() => (window as any).mycelDesktop.setTheme('dark'))
+    await expect.poll(() => windowColour(app)).toBe('#0E0C0B')
+    // anything else is ignored
+    await page.evaluate(() => (window as any).mycelDesktop.setTheme('purple'))
+    await page.waitForTimeout(200)
+    expect(await source()).toBe('dark')
+    await page.evaluate(() => (window as any).mycelDesktop.setTheme('light'))
+    await expect.poll(() => windowColour(app)).toBe('#FCFBF8')
+
+    // a site open in the in-app browser has no bridge: it cannot set the app's look
+    newTurn()
+    const nav = await call(ACME, 'navigate', { url: `${SHOP}/` })
+    await answer(app, '이번만 허용', 'site')
+    expect((await result(ACME, nav.callId)).result.ok).toBe(true)
+    const guest = await view(app, (u) => u.startsWith(SHOP))
+    const tried = await guest.evaluate(() => {
+      const w = window as any
+      const had = typeof w.mycelDesktop
+      try {
+        w.mycelDesktop?.setTheme?.('dark')
+      } catch {
+        /* nothing to call */
+      }
+      return had
+    })
+    expect(tried).toBe('undefined')
+    await page.waitForTimeout(300)
+    expect(await source()).toBe('light')
+    expect(await windowColour(app)).toBe('#FCFBF8')
+  } finally {
+    await close(app)
+  }
+})
+
 test.describe('screenshots', () => {
   test.skip(!SHOTS, 'SHOTS_DIR not set')
 
@@ -129,6 +172,11 @@ test.describe('screenshots', () => {
       for (const dark of [false, true]) {
         const mode = dark ? 'dark' : 'light'
         await theme(app, page, dark)
+        // the pane with no tab and the AI not at work: the page background and the one-line hint
+        await page.evaluate(() => (window as any).mycelDesktop.pane.open())
+        await expect(c.locator('.empty')).toBeVisible()
+        await page.waitForTimeout(400)
+        await windowShot(app, join(SHOTS!, `empty-${mode}.png`))
         // a fresh pane: the first page of a turn asks first, then loads late
         newTurn()
         const first = await call(ACME, 'navigate', { url: `${SHOP}/slow?ms=6000` })

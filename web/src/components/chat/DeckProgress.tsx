@@ -106,7 +106,7 @@ export default function DeckProgress({ build, steps, streaming, start, chatId }:
   return (
     <section className="mb-3" aria-label={t('deck.progress.title')} data-testid="deck-progress" data-run={run} data-phase={build?.phase ?? 'reading'}>
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
-        <h3 className="text-reading font-semibold text-ink">{t('deck.progress.title')}</h3>
+        <h3 className="text-title-sm font-semibold text-ink">{t('deck.progress.title')}</h3>
         <span className="shrink-0 text-xs text-faint tabular-nums" title={t('deck.progress.elapsed', { time: clock(now - begin) })} data-testid="deck-clock">
           {clock(now - begin)}
         </span>

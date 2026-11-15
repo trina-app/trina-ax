@@ -67,18 +67,12 @@ export function saveFolderId(fx: FsCtx, segs: readonly string[]): string | null 
   } catch { return null }
 }
 
-/** The folder rules that decide who reads and writes `segs` (actual names): those of every ruled folder from the team
- * root down to it, as one hash. Subjects are groups, people and roles, never who is in a group: a member joining or
- * leaving a group changes nothing here (Q1 a), a rule added, changed or removed on the way does. */
-export function ruleFingerprint(rules: RuleSet, segs: readonly string[]): string {
-  const levels: [string, string[]][] = []
-  for (let n = 0; n <= segs.length; n++) {
-    const p = segs.slice(0, n).join('/')
-    const at = rules.rulesAt(p)
-    if (at.length) levels.push([p, at.map((r) => `${r.subjectType}\u0000${r.subjectId ?? ''}\u0000${r.access}`).sort()])
-  }
-  return sha(JSON.stringify(levels))
-}
+/** The folder rules that decide who reads and writes `segs` (actual names): those of every boundary folder from the
+ * team root down to it, and whether each is limited, as one hash (policy/fingerprint.ts). Subjects are groups, people
+ * and roles, never who is in a group: a member joining or leaving a group changes nothing here (Q1 a), a rule added,
+ * changed or removed on the way, or Limit access turned on or off (turning it off widens the audience), does. */
+export { ruleFingerprint } from '../policy/fingerprint'
+import { ruleFingerprint } from '../policy/fingerprint'
 
 /** Why `segs` (a folder, actual names) cannot be a save folder, or null: the team root, a top folder, a group's or a
  * person's own folder itself (rooms' grants refuse the same, chat/turn.ts roomGrantTarget), the person's own folder

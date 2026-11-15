@@ -36,11 +36,14 @@ async function makeMine(p: Page, name: string) {
   await p.getByTestId('project-create').click()
   await expect(p.getByRole('heading', { level: 1, name })).toBeVisible()
 }
-/** 멤버 추가's 공유하기, and its plain confirm */
+/** 멤버 추가's 공유하기: the dialog itself says what sharing does and that it can't go back; no second confirm (QA TC-1069) */
 async function shareConfirmed(p: Page) {
+  // new chats are shared with them from now on; it cannot go back (docs/DECISIONS.md "Team project chats shared by default")
+  await expect(p.getByTestId('project-share-note')).toContainText('지금부터 여기서 시작하는 채팅도 함께 봐요.')
+  await expect(p.getByTestId('project-share-note')).toContainText('다시 나만 보는 프로젝트로 되돌릴 수 없어요.')
+  // no folder sentence
+  await expect(p.getByRole('dialog')).not.toContainText('프로젝트 폴더로 옮겨')
   await p.getByTestId('project-share-confirm').click()
-  await expect(p.getByRole('dialog').filter({ hasText: '이 프로젝트를 함께 쓸까요?' })).toBeVisible()
-  await p.getByTestId('dialog-confirm').click()
   await expect(p.getByRole('dialog')).toHaveCount(0)
 }
 
@@ -61,13 +64,15 @@ test('the owner\'s case: every count is the members, the owner and admins only w
   await d.getByTestId('project-participants-search').fill('리드')
   await d.getByTestId(`participant-add-group-${lead}`).click()
   // Dana, who is in the group too, counts once: 3 members, and nothing about the owner and Eve
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명')
+  await expect(d.getByTestId('project-access-summary')).toHaveText('3명')
   await shareConfirmed(d)
   await expect(d.getByRole('heading', { level: 1, name: '견적서 제작' })).toBeVisible()
   const id = d.url().split('/').pop()!
   await expect(d.getByTestId('project-members')).toContainText('멤버3명')
   await d.getByTestId('project-members-manage').click()
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명')
+  // one count, me included, the same as the Add people dialog's; no second list of the same people (QA TC-1065)
+  await expect(d.getByTestId('project-access-summary')).toHaveText('3명')
+  await expect(d.getByTestId('project-people-count')).toHaveCount(0)
   await expect(d.getByTestId('project-access-summary-role')).toHaveCount(0)
   await ctx.close()
 
@@ -108,11 +113,15 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('project-participants-search').click()
   await expect(b.getByTestId('project-participants-results').getByText('영업', { exact: true })).toBeVisible()
   await expect(b.getByTestId('participant-add-user-jiwoo')).toBeVisible()
+  // a member reads no group's people: my group says it is mine; I am listed as already in (추가됨), not to add again
+  await expect(b.locator('[data-testid^="participant-add-group-"]').filter({ hasText: '영업' })).toContainText('영업내 부서')
+  await expect(b.getByTestId('participant-add-user-bob')).toBeDisabled()
+  await expect(b.getByTestId('participant-add-user-bob')).toContainText('추가됨')
   await b.getByTestId('project-participants-search').fill('소라')
   await expect(b.getByTestId('participant-add-user-jiwoo')).toHaveCount(0)
   await b.getByTestId('participant-add-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toBeVisible()
-  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 2명')
+  await expect(b.getByTestId('project-access-summary')).toHaveText('2명')
   await shareConfirmed(b)
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!
@@ -146,23 +155,27 @@ test('a member makes a team project with a person, then adds one more: the confi
   expect(access.participants.map((x) => x.subjectId)).toEqual(['bob', 'sora', 'jiwoo'])
   await expect(b.getByTestId('project-members')).toContainText('3명')
 
-  // taking someone out: struck through until the save, then saved at once (no confirm)
+  // taking someone out: struck through until the save, then a confirm that names who loses access (QA TC-1067)
   await b.getByTestId('project-members-manage').click()
   await b.getByTestId('participant-remove-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toHaveAttribute('data-state', 'removed')
   await b.getByTestId('project-members-save').click()
+  await expect(b.getByTestId('project-narrow-line')).toHaveText('1명이 더 이상 볼 수 없어요: 김소라')
+  await b.getByTestId('dialog-confirm').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   expect(((await (await b.request.get(`/api/projects/${id}/access`)).json()) as { participants: { subjectId: string }[] }).participants.map((x) => x.subjectId)).toEqual(['bob', 'jiwoo'])
   await expect(b.getByTestId('project-members')).toContainText('2명')
 
-  // deleting it moves it to the trash with its folder (no box to tick); its creator does not see it there
+  // deleting it moves it to the trash with its folder (no box to tick); its creator keeps it there, with Restore (QA TC-1062)
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-delete').click()
   await expect(b.getByRole('dialog')).toContainText("'주간 보고'을(를) 휴지통으로 옮길까요?")
-  await expect(b.getByRole('dialog')).toContainText('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+  await expect(b.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await expect(b.getByTestId('project-delete-trash-folder')).toHaveCount(0)
   await b.getByTestId('dialog-confirm').click()
-  await expect(b).toHaveURL(/\/projects$/)
+  await expect(b.getByTestId('project-in-trash')).toBeVisible()
+  await expect(b.getByTestId('project-restore')).toBeVisible()
+  await expect(b.getByTestId('project-delete-for-good')).toHaveCount(0)
   expect((await page.request.get(`/api/files/tree?path=${encodeURIComponent('projects/주간 보고')}`)).status()).toBe(404)
   await b.context().close()
 })
@@ -253,10 +266,10 @@ test('members only: another setting of the folder goes with ×, those inside the
   await expect(d).not.toContainText('계약')
   await expect(d).not.toContainText('여기서는 바꿀 수 없어요.')
   await expect(d).not.toContainText('폴더 권한에서 보기')
-  await expect(page.getByTestId('project-access-summary')).toHaveText('멤버 2명')
+  await expect(page.getByTestId('project-access-summary')).toHaveText('2명')
   await page.getByTestId('project-other-rule-remove-user-jiwoo').click()
   await expect(page.getByTestId('project-other-rule-user-jiwoo')).toHaveAttribute('data-state', 'removed')
-  await expect(page.getByTestId('project-access-summary')).toHaveText('멤버 1명')
+  await expect(page.getByTestId('project-access-summary')).toHaveText('1명')
   // Sora added: what she will see is not counted for someone who does not read it
   await page.getByTestId('project-participants-search').fill('소라')
   await page.getByTestId('participant-add-user-sora').click()

@@ -13,6 +13,10 @@ import { createContext, useContext, useLayoutEffect, useMemo, useRef, type React
 import { useT } from '../i18n'
 import { useFileDrop } from './chat/ComposerFiles'
 
+/** The app's drop look on a small part that takes a file (the skills sheet's, the company's Google app file): a dashed
+ * outline around it while a file is over it. */
+export const dropOverCls = 'bg-accent-soft/70 outline-2 outline-offset-[10px] outline-accent/55 outline-dashed'
+
 /** A message box as a zone's target: what takes the files, and why it would take none of them now (or null). */
 export interface DropTarget {
   files: (files: File[]) => void

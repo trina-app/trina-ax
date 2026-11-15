@@ -152,6 +152,10 @@ export const ReleaseFeed = z.object({
    * root/VERSION older than it needs the root update, one at it or newer does not, whatever needsRoot says (that is
    * for the updaters of 0.2.18 and older then; releaseNeedsRoot) */
   rootSince: z.string().optional(),
+  /** the reader level of this release's build (scripts/release/publish-server.ts: the highest min_compatible_reader
+   * among its migrations, which is its SCHEMA_READER_LEVEL, db.ts): it opens a database that needs that level or less.
+   * A server whose database needs more never takes it (releaseCanRead). Read leniently: absent or unreadable = unknown */
+  minReaderRequired: z.number().int().min(1).optional().catch(undefined),
 })
 export type ReleaseFeed = z.infer<typeof ReleaseFeed>
 
@@ -266,7 +270,9 @@ export class UpdateManager {
   status(): UpdateStatus {
     const st = this.readState()
     let available: UpdateStatus['available'] = null
-    const newer = this.stagedVersions().filter((v) => compareVersions(v, this.o.version) > 0).sort(compareVersions).at(-1)
+    // a staged copy that cannot open the database (a try that rolled back left it) is not offered: its button would only
+    // be refused; the feed's release says what waits (hold cannot_read)
+    const newer = this.stagedVersions().filter((v) => compareVersions(v, this.o.version) > 0 && this.canRead(v)).sort(compareVersions).at(-1)
     if (newer) {
       const dir = path.join(this.versionsDir(), newer)
       let notes = ''
@@ -281,7 +287,7 @@ export class UpdateManager {
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
     const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && this.needsRoot(chk.feed))
-    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, ...(prev ? { previousNeedsRestore: !this.canRead(prev) } : {}), feed: this.feedUsable, needsRoot }
+    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, ...(prev ? { previousNeedsRestore: !this.canRead(prev) } : {}), feed: this.feedUsable, needsRoot, ...(this.feedUsable && chk?.error ? { checkFailed: true } : {}) }
   }
 
   /** Can this staged version open the database as it is now? Its bundle's highest min_compatible_reader is its reader
@@ -291,6 +297,16 @@ export class UpdateManager {
   canRead(version: string): boolean {
     if (!this.o.appDir || !this.o.dbReaderLevel) return true
     return bundleReaderLevel(path.join(this.versionsDir(), version)) >= this.o.dbReaderLevel()
+  }
+
+  /** Can this release open the database as it is now? A database migrated by a build of a higher reader level (a dev
+   * build, 0.5.3-dev.x at level 7, under a stable 0.5.3 at level 6 that sorts after it) is refused by it at start
+   * (exit 75), and the bootstrap rolls back: installing it only restarts the server for nothing. The feed's
+   * minReaderRequired says the release's level; a copy staged here says it too (canRead). Unknown: yes. */
+  releaseCanRead(f: Pick<ReleaseFeed, 'version' | 'minReaderRequired'>): boolean {
+    if (!this.o.dbReaderLevel) return true
+    if (f.minReaderRequired !== undefined && f.minReaderRequired < this.o.dbReaderLevel()) return false
+    return !this.stagedVersions().includes(f.version) || this.canRead(f.version)
   }
 
   /** The last verified feed check (null = never checked or it failed). */

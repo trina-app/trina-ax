@@ -10,15 +10,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, isRequestableService, type RequestableService } from '@mycel/shared/api'
 import { api, isApiError } from '../../lib/api'
 import { useT } from '../../i18n'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { Button } from '../ui'
 
 export type AskState = 'none' | 'sent' | 'already'
 
 /** A member's asks, kept by the Connectors layout so the list's cards and the app's page agree. `admin`: owners and
  * admins have none (they set the app up themselves) and the server is not asked. */
+const ASKS_KEY = 'connectors:asks'
 export function useServiceAsks(admin: boolean) {
   const t = useT()
-  const [open, setOpen] = useState<Set<RequestableService> | null>(null)
+  // as this window last had them (store/listCache.ts): the cards say "Asked" at once on a visit after the first
+  const [open, setOpen] = useState<Set<RequestableService> | null>(() => (admin ? null : peekCached<Set<RequestableService>>(ASKS_KEY) ?? null))
+  useEffect(() => { if (open && !admin) rememberCached(ASKS_KEY, open) }, [open, admin])
   /** what a tap here answered (sent, or already when another window had asked) */
   const [answered, setAnswered] = useState<Partial<Record<RequestableService, 'sent' | 'already'>>>({})
   const [busy, setBusy] = useState<RequestableService | null>(null)

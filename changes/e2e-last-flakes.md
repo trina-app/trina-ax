@@ -1,1 +1,0 @@
-- **Tests**: the last feature-map failures after the navigation rail: the invite step's one intro, English skill tabs as a picker in a wide font, room links opened from the keyboard, a project dialog closed before the next page, one more dragover before a real drop.

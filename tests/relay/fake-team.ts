@@ -1,6 +1,7 @@
 // A team server for the relay conformance tests: the real relay client (server/src/relay-client) in its own Bun
 // process with a small app instead of the Hono app (ported from spike-relay/team-server.ts).
 //   /hello                 { instance, epoch, ip }
+//   /api/integrations/oauth/callback   { path, query } (F2 wake tests)
 //   /bytes?n=&rid=         n patterned bytes, produced on demand (debug: produced, lastPullAt, cancelAt)
 //   /upload?rid=&delay=    sha256 of the request body (delay ms per chunk = slow disk; debug: bytes, errorAt)
 //   /slow?ms=              answers after ms
@@ -28,6 +29,8 @@ async function app(req: Request, info: { ip: string | null }): Promise<Response>
   const rid = u.searchParams.get('rid') ?? ''
   switch (u.pathname) {
     case '/hello': return Response.json({ instance: INSTANCE, epoch: EPOCH, ip: info.ip })
+    // F2 wake tests: an OAuth callback arrives intact (path and query) once the team server is awake
+    case '/api/integrations/oauth/callback': return Response.json({ path: u.pathname, query: u.search })
     case '/slow': await Bun.sleep(Number(u.searchParams.get('ms') ?? 1000)); return new Response('late')
     case '/_debug': return Response.json(debug.get(rid) ?? null)
     case '/bytes': {

@@ -5,12 +5,12 @@
 import { expect, test } from 'bun:test'
 import { scopeLines } from '../../server/src/tools/schedules'
 
-const LANGS = ['en', 'ko', 'id', 'ja', 'es'] as const
+const LANGS = ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const
 
 test('rooms are listed as conversations it may read, in every language, with no word of sending', () => {
   expect(scopeLines({ save: null, rooms: ['#sales conversation'], sends: [] }, 'en')).toEqual(['Conversations it may read: #sales conversation'])
   expect(scopeLines({ save: null, rooms: ['#영업팀 대화'], sends: [] }, 'ko')).toEqual(['읽을 수 있는 대화: #영업팀 대화'])
-  const sending = { en: /send/i, ko: /보내/, id: /kirim/i, ja: /送信/, es: /envi/i }
+  const sending = { en: /send/i, ko: /보내/, id: /kirim/i, ja: /送信/, es: /envi/i, zh: /发送/ }
   for (const L of LANGS) {
     const [line] = scopeLines({ save: null, rooms: ['#room'], sends: [] }, L)
     expect(line, L).toContain('#room')

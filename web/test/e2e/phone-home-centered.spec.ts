@@ -9,24 +9,25 @@ import { homeCenteredCases } from './phone-home-centered.cases'
 
 homeCenteredCases()
 
-test('a computer keeps its Home: no mark, the box under the greeting, its row (+ and the engine) under the box', async ({ page }) => {
+test('a computer keeps its Home: no mark, the box under the greeting, + and the engine in its row inside the box (QA TC-1400)', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.emulateMedia({ colorScheme: 'light' })
   await reset(page)
   await signIn(page)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('home-mark')).toBeHidden()
-  await expect(page.getByTestId('composer-tools')).toHaveCount(0)
-  const controls = page.getByTestId('composer-controls')
-  await expect(controls.getByTestId('attach-button')).toBeVisible()
-  await expect(controls.getByTestId('engine-picker')).toBeVisible()
+  const tools = page.getByTestId('composer').getByTestId('composer-tools')
+  await expect(tools.getByTestId('attach-button')).toBeVisible()
+  await expect(tools.getByTestId('engine-picker')).toBeVisible()
+  // nothing under the box (Home has no note)
+  await expect(page.getByTestId('composer-controls')).toHaveCount(0)
   const greeting = (await page.getByRole('heading', { level: 1 }).boundingBox())!
   const card = (await page.getByTestId('composer').boundingBox())!
   expect(greeting.y + greeting.height).toBeLessThanOrEqual(card.y)
-  expect((await controls.boundingBox())!.y).toBeGreaterThanOrEqual(card.y + card.height - 1)
-  // the box's text and its buttons share one line
-  const input = (await page.getByTestId('composer-input').boundingBox())!, send = (await page.getByTestId('send').boundingBox())!
-  expect(send.y).toBeLessThan(input.y + input.height)
+  // the text on top, the row under it inside the box
+  const input = (await page.getByTestId('composer-input').boundingBox())!, row = (await tools.boundingBox())!
+  expect(row.y).toBeGreaterThanOrEqual(input.y + input.height - 1)
+  expect(row.y + row.height).toBeLessThanOrEqual(card.y + card.height)
   if (process.env.SHOTS_DIR) {
     fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true })
     await page.waitForTimeout(300)

@@ -36,7 +36,7 @@ const responses: string[] = []
 const logs: string[] = []
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'template-chat-schedule', askUserTimeoutMs: 8000, turnTimeoutMs: 60_000, log: createLogger({ level: 'debug', name: 'test', sink: (l) => logs.push(l) }) })
+  h = await startHarness({ name: 'template-chat-schedule', askUserTimeoutMs: 8000, stallTimeoutMs: 60_000, log: createLogger({ level: 'debug', name: 'test', sink: (l) => logs.push(l) }) })
   const hub = h.rt().hub
   const publish = hub.publish.bind(hub), publishTo = hub.publishTo.bind(hub)
   hub.publish = (userId, ev) => { published.push({ userId, ev: JSON.parse(JSON.stringify(ev)) }); publish(userId, ev) }

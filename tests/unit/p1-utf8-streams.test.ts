@@ -43,7 +43,7 @@ describe('through the launcher and the gate', () => {
   let h: Harness
   let alice: TestSocket
   beforeAll(async () => {
-    h = await startHarness({ name: 'p1-utf8', turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'p1-utf8', stallTimeoutMs: 60_000 })
     alice = await h.ws('alice', { windowId: 'win-p1-utf8' })
     await alice.next('hello')
   })

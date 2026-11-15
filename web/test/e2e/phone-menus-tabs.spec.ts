@@ -322,8 +322,8 @@ for (const lang of ['ko', 'en'] as const) {
     test('Folder permissions: its two tabs fit the width as one segmented row', async ({ page }) => {
       await start(page, lang)
       await page.goto('/admin/folders')
-      const tabs = page.getByRole('tablist', { name: t['accessView.tabs'] })
-      await expect(tabs.getByRole('tab')).toHaveText([t['accessView.byFolder'], t['accessView.byPerson']])
+      const tabs = page.getByRole('tablist', { name: t['admin.folders'] })
+      await expect(tabs.getByRole('tab')).toHaveText([t['folders.tabFolders'], t['folders.tabPerson']])
       expect(await tabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
       for (const tab of await tabs.getByRole('tab').all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44)
       expect(await fitsPage(page)).toBe(true)

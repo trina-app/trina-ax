@@ -50,7 +50,18 @@ git commit -am "0.3.0-beta.1"
 # 2) main에 들어간 그 커밋에 태그를 단다. 태그 메시지가 릴리스 노트가 된다(설치의 "새 버전" 안내, GitHub Release).
 git tag -a v0.3.0-beta.1 -m "새 기능: …"
 git push origin v0.3.0-beta.1
+
+# 3) 태그를 단 바로 뒤, dev의 버전을 다음 PATCH로 올린다(server·desktop·web package.json, 예: 0.3.0 → 0.3.1). 작은 PR 하나.
+#    Right after tagging, bump dev to the next patch version (one small PR to dev).
 ```
+
+- 3)의 이유: dev 빌드의 버전은 `<package version>-dev.<UTC 시각>`이다(dev-build.yml). SemVer에서 `0.5.5-dev.N`은
+  pre-release라 `0.5.5`보다 **낮다**. 그래서 dev가 방금 낸 버전에 머물면 dev 빌드가 정식 릴리스보다 옛 것으로 정렬되고,
+  그 릴리스를 받은 서버는 뒤의 dev 빌드를 옛 버전으로 본다. dev-build.yml은 dev 빌드가 그 버전의 릴리스보다 새롭다고
+  여기므로, 태그 뒤 dev를 `0.5.6`으로 올려 `0.5.6-dev.N`이 `0.5.5` 뒤에 오게 한다. Docker 예시(docker/env.example 등)는
+  공개된 최신 릴리스를 가리키므로 이때 올리지 않는다(릴리스 PR에서 올린다). 휴대폰 앱 버전은 따로 간다.
+  Why: a dev build is `X.Y.Z-dev.N`, which sorts before `X.Y.Z`; dev-build.yml assumes dev builds are newer than the
+  release, which holds only once dev is on the next version. The Docker examples stay on the latest published kit.
 
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
 - 태그의 커밋은 main에 있어야 한다(리뷰된 커밋만 나간다). 아니면 prepare가 비밀값을 읽기 전에 멈춘다(`is not on main`). 손으로 다시 돌릴 때는 "Use workflow from"이 그 태그여야 한다(브랜치면 멈춘다).
@@ -67,10 +78,11 @@ git push origin v0.3.0-beta.1
 | 1 | prepare | 태그 = 버전 확인, 태그의 커밋이 main에 있는지, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
-| 2 | build-office | 사무실 zip(macos-15, 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
+| 2 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것) | 없음 |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
 | 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
+| 5 | build-ami | stable만, publish와 github-release 뒤: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
 
 2의 네 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
@@ -88,6 +100,8 @@ git push origin v0.3.0-beta.1
 | `server/<version>/manifest-linux-<arch>.json` + `.sig` | 묶음의 서명된 파일 목록(다음 릴리스가 root 파일 변경을 판단) | 안 함 |
 | `server/<version>/<version>-linux-<arch>.tar.zst` | 설치된 서버가 받는 업데이트 묶음 | 영구 |
 | `server/<version>/<kit>-<version>-linux-<arch>.tar.gz` | 새 설치용 kit(`docs/INSTALL-LINUX.md` 3장) | 영구 |
+| `server/<version>/teamax-<templateVersion>.v2.ami.json` + `.sha256`, `.sig` | stable 릴리스의 새 팀 서버 이미지(AMI) 목록, 지역별 AMI 하나씩(10장) | json·sig 안 함, sha256 영구 |
+| `server/<version>/team-image.json` | 그 릴리스의 이미지가 어느 목록인지(`templateVersion`, `manifest`, `sha256`). 컨트롤 플레인이 버전으로 찾는 곳 | 안 함 |
 
 Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준다. 나머지는 404다.
 
@@ -199,7 +213,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
    bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/". "bucket objects can be listed: yes"도 본다(이게 안 되면 publish가 멈춘다)
    ```
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
-6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그로 제한하고 (2) 필요하면 승인자를 정한 뒤, 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다. environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다).
+6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그와 `main`(feed.yml)으로 제한하고, (2) 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다(권장). 승인자는 두지 않는다: 태그 push가 승인이다(대표 결정 2026-11-14). environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다). 2026-11-14 설정됨(10장 "처음 한 번").
 
 ## 5. beta → stable
 
@@ -226,6 +240,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `HTTP 404, but the file is there`로 멈춤 | 피드는 404인데 버킷에는 있다. 아무것도 덮어쓰지 않았다 | Worker 배포를 본다(`hosting.ts status`) |
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
+| build-office가 맥 러너를 못 받아 데스크톱만 빠짐(2026-11-12 v0.5.2, 11-13 v0.5.3), 그 run을 더는 다시 돌릴 수 없음 | 서버 피드는 나갔고 사무실 피드(윈도우·맥 zip)는 이전 릴리스에 남는다 | Actions → Release → Run workflow, "Use workflow from"과 tag는 그 태그, **office_only** 체크. 테스트·리눅스 빌드·서버 피드는 건너뛰고 사무실 zip과 윈도우 설치 파일만 빌드해 사무실 피드에 올린다(리눅스 파일은 GitHub Release에서 받아 SHA256SUMS에만 넣는다). 맥 러너가 또 없으면 **mac_runner**에 `macos-15-intel`(다른 러너 풀; Go·swiftc가 두 프로세서를 같이 빌드해 같은 universal zip). 기본값은 레포 변수 `RELEASE_MAC_RUNNER`, 없으면 macos-15. 이 입력은 이 변경이 들어간 뒤의 태그부터 있다 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
 
@@ -271,11 +286,27 @@ bun scripts/release/hosting.ts resume stable                                    
   rollout을 보지 않는다(제어판이 고른다); 멈춘 머리의 `minFrom`을 제어판이 어떻게 읽는지는 그쪽 레포에서 확인한다.
 - 시험: `tests/unit/release-hold.test.ts`(계산, 업데이트, 임시 키·임시 피드로 스크립트), `TestScheduledUpdateHeld`(root 타이머).
 
+### 지금 모두에게 (promote a good release)
+
+좋은 stable 릴리스의 단계적 배포를 앞당겨 끝낸다: 모든 서버·사무실이 지금 스스로 받는다(처음부터 `Rollout: all`로 낸 것처럼). 새 버전을
+낼 필요가 없다.
+
+- 키와 토큰이 이 맥에 없으면 GitHub에서: Actions → **Feed** → Run workflow(main에서), action `promote`, channel `stable`, version(머리가
+  지금 말하는 버전, 예: `0.5.3`). 먼저 dry_run 그대로 돌려 무엇을 올릴지 보고, 다시 dry_run을 끄고 돌린다. 끝에 `held`가 두 머리를 보여 준다.
+  같은 워크플로로 `hold`(reason 필수)·`resume`·`held`도 된다. release.yml과 같은 concurrency 그룹이라 릴리스가 올라가는 동안에는 기다린다.
+  다만 GitHub은 그룹마다 기다리는 run을 하나만 두므로, 릴리스 run이 기다리는 중에 Feed를 돌리면 그 릴리스 run이 취소된다: 그때는 돌리지
+  않는다(`held`는 읽기만 해서 다른 그룹). main에서 도므로 `release` environment에 "v* 태그만" 규칙을 넣게 되면 main도 허용해야 한다.
+- 키가 있는 곳에서는 `bun scripts/release/hosting.ts promote stable --version 0.5.3 [--dry-run]`.
+- 하는 일(`promoteRollout`): 두 머리의 rollout을 percent 100, ramp 없음, salt 그대로, 새 `changedAt`으로 다시 서명한다. `minFrom`과 버전 파일은
+  그대로다. ramp를 모르는 서버(percent만), hold를 모르는 서버, urgent·beta 모두 100%로 읽는다. 앞의 머리를 본 서버는 `changedAt`이 더
+  나중이라 이것을 받는다(newerHeadSeen). 이미 모두에게 가는 머리는 그대로 둔다.
+- 멈춘 머리는 promote하지 않는다(먼저 `resume`: 멈춤은 사람이 내린 결정이라 promote가 덩달아 풀지 않게). 사무실 목록이 다른 버전이면 그대로 둔다.
+
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.
 - GitHub Release 파일 확인: 받은 폴더에서 `bun scripts/release/release-ci.ts verify-sums SHA256SUMS`(이 빌드의 공개키로 `.sig`를 확인한 뒤 옆의 파일 sha256을 본다).
 
-**Desktop builds missing.** The Linux server release does not wait for the desktop builds. When `build-office` or `build-windows` fails or gets no hosted runner (macOS on 2026-11-02, 03 and 04), `publish` still signs and publishes the Linux builds to the server feed. It does not change the office feed (the offices keep the previous release) and logs a `::warning::`. `SHA256SUMS` lists only the files that are in the release, and the GitHub Release body starts with a line that names the missing downloads. To add them, use "Re-run failed jobs" in the same run (artifacts stay 7 days): `publish` runs again, uploads the same server files again (they are skipped), publishes the office feed and adds the files to the GitHub Release. Remove the "not in this release yet" line from the release body by hand. A person who cancels the run still stops `publish`.
+**Desktop builds missing.** The Linux server release does not wait for the desktop builds. When `build-office` or `build-windows` fails or gets no hosted runner (macOS on 2026-11-02, 03 and 04), `publish` still signs and publishes the Linux builds to the server feed. It does not change the office feed (the offices keep the previous release) and logs a `::warning::`. `SHA256SUMS` lists only the files that are in the release, and the GitHub Release body starts with a line that names the missing downloads. To add them, use "Re-run failed jobs" in the same run (artifacts stay 7 days): `publish` runs again, uploads the same server files again (they are skipped), publishes the office feed and adds the files to the GitHub Release. The GitHub Release job removes the "not in this release yet" line once both desktop files are there. A person who cancels the run still stops `publish`. When the run can no longer be re-run (artifacts gone, or GitHub lost its jobs), run the workflow by hand from the same tag with **office_only**: it skips the tests, the Linux builds and the server feed, builds only the office zip and the Windows installer, and publishes the office feed (the Linux files are taken from the GitHub Release for `SHA256SUMS` only). The office zip runs on **mac_runner**, else the repository variable `RELEASE_MAC_RUNNER`, else `macos-15`; `macos-15-intel` draws from another pool and builds the same universal zip. Both inputs exist only in tags made after they were added.
 
 ## 7. 키를 바꿀 때
 
@@ -321,6 +352,76 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 6. 트리나 AX는 공개 레포다.
    - 공개 레포에서도 fork PR은 비밀값을 받지 않고, release.yml은 PR로 돌지 않는다.
    - 공개 전에 `gh secret list`로 필요한 비밀값만 있는지 본다.
+
+## 10. 새 팀 서버 이미지 (AMI)
+
+새 팀의 서버(EC2)가 시작하는 이미지는 stable 릴리스마다 CI가 만든다(대표 결정 2026-11-14). 사람이 할 일은 처음 한 번의 설정뿐이다.
+
+### 흐름
+
+1. release.yml의 `build-ami` job: stable 릴리스가 피드에 오르고 GitHub Release가 생기면(publish·github-release 성공) `team-image.yml`을 그 태그로 시작한다(`gh workflow run`). release.yml 안에서 직접 만들지 않는 이유: 이미지는 최대 3시간 걸리고, release.yml의 concurrency 그룹은 feed.yml(배포 멈추기·promote)과 같다. 멈추기가 이미지를 기다리면 안 된다. GitHub은 한 concurrency 그룹에 대기 run을 하나만 두므로, stable 릴리스 둘이 잇달아 나가면 앞의 것의 run이 빠질 수 있다. 그때는 손으로 다시 돌린다.
+2. `team-image.yml`(environment `release`, Actions → Team image에서 손으로도 돌릴 수 있다: "Use workflow from"과 tag 모두 그 태그):
+   1. 설정 확인. 태그가 아직 이 run의 커밋인지 보고(태그가 옮겨졌으면 멈춘다), 그 커밋(`github.sha`)을 받는다. `AWS_ROLE_ARN`, `AMI_SUBNET_ID`, 두 비밀값 중 하나라도 없으면 notice만 남기고 성공으로 끝난다. 피드에 `server/<version>/team-image.json`이 이미 있으면 할 일이 없다.
+   2. GitHub Release의 서명된 `*-linux-amd64.tar.gz` kit를 받아 `SHA256SUMS.sig`로 확인한다. `mycel-enroll`·`mycel-link`는 같은 태그에서 빌드한다(`native/build.sh`, 고정 Go).
+   3. AWS 로그인: GitHub OIDC(`aws-actions/configure-aws-credentials`, SHA 고정). 저장된 AWS 키는 어디에도 없다. 세션은 4시간.
+   4. `scripts/image/build-ami.sh`로 ap-northeast-2에서 AMI를 만든다(`--tag ax:built-by=release-ci`). 같은 릴리스의 앞선 시도가 만든 AMI가 있으면 그것을 쓴다.
+   5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1`(키 없이): 싱가포르로 복사하고 v2 목록을 쓴다. 그다음 짧은 서명 단계가 목록에 릴리스 키로 서명한다(`ax-template-v1\n<templateVersion>\n<sha256>`, 스크립트·hostd와 같은 메시지). 키는 그 단계의 몇 초 동안만 `$RUNNER_TEMP`의 600 파일로 있고 바로 지운다. 이 템플릿의 서명된 목록이 피드에 이미 있으면(앞선 시도가 목록까지 올리고 멈춤) 새로 만들지 않고 그것을 받아 쓴다. 새로 만들면 `builtAt`이 달라 피드가 받지 않는다.
+   6. `scripts/release/publish-ami.ts`: 목록, `.sha256`, `.sig`를 `server/<version>/`에 올리고 마지막에 `team-image.json`을 올린다. 올리기 전에 서명을 이 제품의 키로 확인하고, 피드에 다른 바이트가 있으면 덮어쓰지 않고 멈춘다.
+   7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 최근 3개 릴리스의 것만 남기고 나머지는 등록 해제 + 스냅샷 삭제. 순서는 만든 날짜가 아니라 `ax:template`의 버전 순서다(옛 태그로 손으로 돌린 run이 새 릴리스의 이미지를 밀어내지 않는다). 방금 올린 이미지, 손으로 만든 이미지, `ax:keep=true` 태그가 있는 이미지, 아직 인스턴스가 쓰는 이미지, EC2 launch template(최신·기본 버전)이 쓰는 이미지는 지우지 않는다. launch template을 읽지 못하면 그 지역에서는 아무것도 지우지 않는다.
+   8. 취소·실패하면 마지막 단계가 상태 파일로 `build-ami.sh --cleanup`을 돌려 빌더·작업 볼륨·보안 그룹을 지운다. 상태 파일은 `ami-build-state` 아티팩트로도 남긴다(7일).
+
+컨트롤 플레인은 `<feed>/server/<version>/team-image.json`을 읽어 목록 URL을 알고, 목록의 `.sig`를 `TRINA_RELEASE_KEYS`로 확인한다(trina-cloud F1c).
+
+**네트워크.** 빌더는 러너에서 SSH로 다룬다. 빌드마다 보안 그룹을 새로 만들어 그 러너의 주소(/32)에서만 22번을 열고, 끝나면 지운다. 로그인 키·호스트 키도 빌드마다 새로 만든다. 그래서 `AMI_SUBNET_ID`의 서브넷은 인터넷 게이트웨이로 가는 경로가 있고 NACL이 22번 인바운드를 모든 곳(0.0.0.0/0, GitHub 러너 주소는 매번 다르다)에서, 응답 포트를 허용해야 한다. 기본 VPC의 서브넷이면 그대로 된다. 팀 서브넷은 안 된다(NACL이 SSH를 막는다). SSM으로 바꾸지 않은 이유: Debian AMI에는 SSM 에이전트가 없고, 빌더에 인스턴스 프로필을 주려면 역할에 `iam:PassRole`과 상시 프로필이 필요하다. SSH 방식은 상시로 열린 것이 없다.
+
+### 처음 한 번 (대표)
+
+**1–3을 마치기 전에는 `AWS_ROLE_ARN`을 넣지 않는다.** (2026-11-14 대표가 1–6을 마쳤다.) 보호가 없으면 push 권한이 있는 누구나 아무 브랜치에서 `environment: release`를 쓰는 workflow로 OIDC 토큰을 받을 수 있다. 보호는 세 겹이다: (1) `v*` 태그 ruleset(태그를 만들고 옮길 수 있는 사람을 제한), (2) environment의 배포 대상(`v*` 태그와 `main`만), (3) AWS 역할의 OIDC subject(`team-image.yml`의 `v*` 태그 run만). 승인자는 두지 않는다. 이 레포 설정은 대표만 바꾼다.
+
+1. **environment `release` 보호**: Settings → Environments → `release`.
+   - Deployment branches and tags → **Selected branches and tags** → 태그 규칙 `v*`와 브랜치 `main`. `main`이 필요한 이유: feed.yml(배포 멈추기·promote)이 main에서 돌고 이 environment를 쓴다. 이미지 역할은 신뢰 정책이 `team-image.yml`의 `v*` 태그 run만 받으므로 `main`을 허용해도 main의 run은 역할을 받지 못한다.
+   - **Required reviewers는 두지 않는다**(대표 결정 2026-11-14): 태그 push가 곧 승인이다. 그래서 release.yml·이미지 run은 승인을 기다리지 않는다.
+   - (권장) 레포 비밀값 `RELEASE_SIGNING_KEY`·`CLOUDFLARE_API_TOKEN`을 이 environment의 비밀값으로 옮긴다. 지금은 레포 비밀값이라 environment 보호가 키를 지키지 못한다.
+2. **`v*` 태그 ruleset**: Settings → Rules → Rulesets → New tag ruleset, 대상 `v*`, Restrict creations·updates·deletions. 우회 목록에는 admin과 maintain 역할을 넣는다(릴리스 태그는 maintain 계정이 push한다).
+3. **OIDC subject에 workflow를 넣는다**(레포 설정, 한 번). 기본 subject `repo:…:environment:release`는 release.yml·feed.yml도 받는다. subject에 `job_workflow_ref`를 넣으면 역할이 `team-image.yml`의 `v*` 태그 run만 믿을 수 있다:
+   ```sh
+   gh api -X PUT repos/trina-app/trina-ax/actions/oidc/customization/sub \
+     -F use_default=false -f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'
+   gh api repos/trina-app/trina-ax/actions/oidc/customization/sub     # 확인
+   ```
+   그 뒤 subject는 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v0.5.3` 꼴이다. **이 레포는 `use_immutable_subject=true`**라 실제 subject의 앞부분은 이름 대신 owner·repo id가 붙은 `repo:trina-app@349611973/trina-ax@1436599521:…`이다(레포나 조직 이름이 바뀌어도, 같은 이름의 다른 레포가 생겨도 subject가 바뀌지 않는다). `job_workflow_ref` 부분은 그대로 이름이다. 신뢰 정책은 두 꼴을 모두 받는다. 이 레포에서 OIDC를 쓰는 다른 곳은 dev-build.yml의 cosign 서명뿐이고, 그 인증서는 subject가 아니라 workflow 경로(`--certificate-identity`)로 확인하므로 영향이 없을 것이다. 바꾼 뒤 dev 빌드 한 번이 서명·확인되는지 본다. 이 설정을 안 하면 아래 신뢰 정책이 맞지 않아 역할을 받을 수 없다.
+4. **GitHub OIDC 공급자**(계정에 아직 없으면): IAM → Identity providers → OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
+5. **역할을 만든다**(예: `trina-team-image-ci`).
+   - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. subject가 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*` 또는 immutable 꼴 `repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`인 토큰만 받는다(`StringLike`에 두 값의 목록, 3이 필요). 즉 environment `release`의 `team-image.yml`이 `v*` 태그에서 돌 때만이다. fork PR은 OIDC 토큰을 받지 못한다. 이 조건은 1·2(태그 대상 제한, 태그 ruleset)와 함께여야 뜻이 있다: `v*` 태그를 만들 수 있는 사람은 그 태그의 `team-image.yml`을 바꿀 수 있다.
+   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더와 작업 볼륨은 Debian 계정(136693071363)의 이미지·스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). IAM 권한(`iam:*`, `PassRole`)은 없다.
+   - 최대 세션 시간(MaxSessionDuration)을 **4시간**(14400초)으로 올린다. 워크플로가 4시간을 요청한다.
+   - 계정의 EBS 기본 암호화 키가 고객 관리 키(CMK)면 그 키의 `kms:CreateGrant`, `kms:Decrypt`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:ReEncrypt*`, `kms:DescribeKey`를 더한다(AWS 관리 키 `aws/ebs`면 필요 없다).
+6. **레포 변수**(Settings → Secrets and variables → Actions → Variables, 비밀값이 아니다):
+   ```sh
+   gh variable set AWS_ROLE_ARN  --repo trina-app/trina-ax --body 'arn:aws:iam::<ACCOUNT_ID>:role/trina-team-image-ci'
+   gh variable set AMI_SUBNET_ID --repo trina-app/trina-ax --body 'subnet-…'     # ap-northeast-2, 위 "네트워크"
+   ```
+   계정 번호는 `AWS_ROLE_ARN`에서 읽는다(`build-ami.sh --account`). 비밀값 `RELEASE_SIGNING_KEY`·`CLOUDFLARE_API_TOKEN`은 이미 있는 것을 쓴다.
+7. **첫 확인**: 다음 stable 릴리스 뒤 Actions → Team image run을 본다. 또는 이미 나간 stable 태그로 손으로 돌린다(그 태그에 `team-image.yml`이 있어야 한다). 성공하면 `<feed>/server/<version>/team-image.json`이 열린다. `UnauthorizedOperation`으로 멈추면 메시지의 인코딩된 부분을 `aws sts decode-authorization-message`로 풀어 빠진 권한을 본다.
+
+### 실패했을 때
+
+| 어디서 | 상태 | 할 일 |
+|---|---|---|
+| 설정 확인: notice "not set up" | 아무것도 안 함 | 위 "처음 한 번" |
+| build-ami.sh 중간 | 스크립트가 만든 것(빌더, 작업 볼륨, 보안 그룹)을 스스로 지운다 | 다시 실행(Re-run failed jobs) |
+| 취소·시간 초과 | 마지막 단계가 상태 파일로 `--cleanup`을 돌린다 | 그 단계가 경고를 남겼으면 `ami-build-state` 아티팩트의 상태 파일로 `scripts/image/build-ami.sh --cleanup <파일> --account <id>`. 상태 파일이 없으면 태그 `ax:managed=ami-build`로 찾아 손으로 지운다 |
+| 복사·서명·올리기 | AMI는 남아 있다 | Re-run failed jobs. 같은 릴리스의 AMI를 다시 쓰고(아직 `pending`이면 기다린다), 복사는 client token으로 두 번 생기지 않는다. 목록이 이미 피드에 있으면 그것을 받아 쓰고 `team-image.json`만 올린다 |
+| publish-ami: `names another image already` | 그 릴리스에 다른 이미지가 이미 올라가 있다 | 덮어쓰지 않는다. 다음 릴리스를 기다리거나 사람이 본다 |
+
+**정리(최근 3개)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 3개 릴리스 안에 있어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(두 지역 모두).
+
+### 비용 (한 번 빌드)
+
+- 빌더 t3a.medium 약 30–45분 ≈ $0.04, 작업·루트 볼륨 gp3 20 GiB × 2 약 1시간 ≈ $0.01, 공인 IPv4 1시간 ≈ $0.005.
+- 싱가포르 복사: 지역 간 전송 약 $0.08/GB × 실제 쓴 블록(이미지 약 4–6 GB) ≈ $0.3–0.5.
+- 합 **≈ $0.4–0.6 / 빌드**. GitHub 러너는 공개 레포라 무료.
+- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 2지역 × 최근 3개 ≈ **월 $1.2–1.8**(정리가 그 이상 쌓이지 않게 한다).
 
 ## User-facing release notes
 

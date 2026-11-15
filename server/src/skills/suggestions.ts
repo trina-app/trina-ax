@@ -180,7 +180,7 @@ export function createSuggestion(ctx: AppContext, userId: string, b: { source: {
     // an answer in one of the caller's own chats (not deleted): nobody suggests from someone else's conversation, nor
     // from a shared project chat (several people wrote it; docs/DECISIONS.md "Shared project chats"), also once it stopped
     // being shared (a deleted project's, the rollback guard: chat/shared.ts severalAuthors)
-    const m = ctx.db.query('SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.id = ? AND c.id = ? AND c.user_id = ? AND c.deleted_at IS NULL AND c.shared_at IS NULL')
+    const m = ctx.db.query('SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.id = ? AND c.id = ? AND c.user_id = ? AND c.deleted_at IS NULL AND c.shared_at IS NULL AND c.people_shared_at IS NULL')
       .get(b.source.messageId, b.source.chatId, userId) as { id: string } | null
     if (m && severalAuthors(ctx.db, b.source.chatId)) fail('not_found', st('sourceNotYours', locale, { me: userId }))
     if (!m) fail('not_found', st('sourceNotYours', locale, { me: userId }))

@@ -65,8 +65,9 @@ export function useNameFallback(): (room: Room) => string {
 }
 
 /** `tile`: the icon on a round tile the size of an avatar (lists); without it a bare 16px icon in a box of that size
- * (the 대화 panel's rows and the room header, lined up with the DMs' pictures). */
-export function RoomIcon({ room, size, tile, presence }: { room: Room; size: number; tile?: boolean; presence?: boolean }) {
+ * (the 대화 panel's rows and the room header, lined up with the DMs' pictures). `glyph`: the tile's icon size (45% of the
+ * tile unless set; the phone's 대화 tab gives a ListIcon's 18px in its 32px tile). */
+export function RoomIcon({ room, size, glyph, tile, presence }: { room: Room; size: number; glyph?: number; tile?: boolean; presence?: boolean }) {
   // the photo comes from the people directory: read it where a DM shows (the 대화 list), not only in a room
   usePeopleList()
   const peer = useAvatarOf(room.kind === 'dm' ? (room.peers[0] ?? null) : null)
@@ -80,7 +81,7 @@ export function RoomIcon({ room, size, tile, presence }: { room: Room; size: num
     )
   return (
     <span aria-hidden className="flex shrink-0 items-center justify-center rounded-full bg-hover text-muted" style={{ width: size, height: size }}>
-      <Icon size={Math.round(size * 0.45)} />
+      <Icon size={glyph ?? Math.round(size * 0.45)} />
     </span>
   )
 }

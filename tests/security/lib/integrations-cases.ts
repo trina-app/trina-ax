@@ -17,6 +17,7 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   stopAlwaysAllow: { build: c => c.del(`/api/integrations/${NONE}/always-allow`), scope: 'nobody' },
   authorizeIntegration: { build: c => c.post(`/api/integrations/${NONE}/authorize`, {}), scope: 'nobody' },
   integrationFlow: { build: c => c.get(`/api/integrations/flows/${NONE}`), scope: 'nobody' },
+  cancelIntegrationFlow: { build: c => c.del(`/api/integrations/flows/${NONE}`), scope: 'nobody' },
   listTeamIntegrations: { build: c => c.get('/api/admin/integrations'), scope: 'byLevel' },
   createTeamIntegration: { build: c => c.post('/api/admin/integrations', { kind: 'http', name: 'Team matrix', url: 'https://integration-matrix.invalid/api', auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [], users: [] } }), scope: 'byLevel' },
   // an admin's request to a member to connect a service as their own (tests/unit/c-integration-requests.test.ts: only the

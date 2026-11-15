@@ -40,6 +40,14 @@ test('the status and Run now; no switch to turn it off', async ({ page }) => {
   expect(realErrors(errors)).toEqual([])
 })
 
+test('the last run did not finish: a plain line, and Run now still works', async ({ page }) => {
+  await open(page)
+  await page.request.post('/__test/file-list', { data: { problem: 'failed' } })
+  await page.reload()
+  await expect(page.getByTestId('file-list-problem')).toHaveText(t['fileList.problem.failed'])
+  await expect(page.getByTestId('file-list-run')).toBeEnabled()
+})
+
 test('why it cannot run: no team AI account, and the host turned it off', async ({ page }) => {
   await open(page)
   await page.request.post('/__test/file-list', { data: { problem: 'no_ai', signIn: null } })

@@ -57,7 +57,7 @@ export function BrowserSettingsView({ settings: s, web, serverPolicyOff = false,
   if (asSwitch && web && !desktop)
     return (
       <section className="mb-8 border-t border-line pt-5" data-testid="browser-settings" data-part="">
-        <h3 className="mb-1 text-sm font-semibold">{t('settings.browser.access')}</h3>
+        <h3 className="mb-1 text-title-sm font-semibold">{t('settings.browser.access')}</h3>
         <p className="mb-1 text-sm text-muted">{t('settings.browser.descWeb')}</p>
         <div className="flex items-start gap-4 py-3">
           <div className="min-w-0 flex-1">
@@ -87,7 +87,7 @@ export function BrowserSettingsView({ settings: s, web, serverPolicyOff = false,
   return (
     <div data-testid="browser-settings">
       <section className="mb-8">
-        <h2 className="mb-1 flex items-center gap-2 text-base font-semibold">
+        <h2 className="mb-1 flex items-center gap-2 text-title-sm font-semibold">
           {t('settings.browser.access')}
           {value === 'all' && (
             <span data-testid="browser-all-on">
@@ -132,7 +132,7 @@ export function BrowserSettingsView({ settings: s, web, serverPolicyOff = false,
       </section>
       {s && (
         <section className="mb-8">
-          <h2 className="mb-1 text-base font-semibold">{t('settings.browser.sites')}</h2>
+          <h2 className="mb-1 text-title-sm font-semibold">{t('settings.browser.sites')}</h2>
           <p className="mb-3 text-sm text-muted">{t('settings.browser.sitesHint')}</p>
           {rows.length ? (
             <>

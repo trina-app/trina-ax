@@ -12,7 +12,7 @@ test('a limit that ends at midnight reads as midnight, in each language and in t
   expect(limitResetText(midnight, 'en', 'Asia/Seoul')).toMatch(/^Nov 12(,| at) 00:00$/)
   expect(limitResetText(midnight, 'ja', 'Asia/Seoul')).toBe('11月12日 00:00')
   for (const l of ['id', 'es'] as const) expect(limitResetText(midnight, l, 'Asia/Seoul')).toMatch(/12.*00[.:]00/)
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(limitResetText(midnight, l, 'Asia/Seoul')).not.toMatch(/오전|AM|PM|午前|12[.:]00/)
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(limitResetText(midnight, l, 'Asia/Seoul')).not.toMatch(/오전|AM|PM|午前|12[.:]00/)
   // the end of a day's and of a month's limit, as the server works it out
   const now = new Date('2026-11-30T05:00:00Z')
   expect(limitResetText(periodEnd('day', now, 'Asia/Seoul'), 'ko', 'Asia/Seoul')).toBe('12월 1일 0시')

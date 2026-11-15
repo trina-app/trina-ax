@@ -906,12 +906,16 @@ describe('/welcome', () => {
       expect(m.get('welcome-progress').querySelectorAll('li')[1]!.getAttribute('aria-current')).toBe('step')
     } finally { await m.unmount() }
     // connected elsewhere after the step was shown: opening the steps records it done
+    useAiAccess.getState().reset() // a later visit: the earlier read is old news
+    useWelcome.getState().reset()
     progress = { ...fresh(), steps: { ai: 'skipped', profile: null, result: null, invite: null } } as WelcomeProgress
     const m1 = await app()
     try {
       await m1.until(() => stepOf(m1) === 'profile', 'the profile step')
       expect(progress!.steps.ai).toBe('done')
     } finally { await m1.unmount() }
+    useAiAccess.getState().reset()
+    useWelcome.getState().reset()
     progress = fresh()
     const m3 = await app()
     try {
@@ -1722,7 +1726,7 @@ describe('the company profile step without AI (stream D, also in Admin › Team 
     } finally { await m.unmount() }
   })
 
-  test('AI gone by the time the person presses Read (the trial credit ran out): no draft, the button instead', async () => {
+  test('AI gone by the time the person presses Read (a connection removed): no draft, the button instead', async () => {
     signIn('owner')
     const m = await mount(<MemoryRouter><ProfileStep onDone={() => {}} initialWebsite="https://acme.example/" /></MemoryRouter>)
     try {

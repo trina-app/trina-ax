@@ -2,32 +2,38 @@
 // its folder name, a legacy file with a broken header). The server reports only entries the viewer can read. A skill
 // whose form does not parse (`inputs`) still works, so it gets a note of its own that says so.
 import { AlertTriangle } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { SkillIssue } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath, issuesIn, issueText } from '../lib/skillIssues'
 import { navigateTo } from '../lib/nav'
 import { useT } from '../i18n'
+import { useCachedRead } from '../store/listCache'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
+
+const NONE: SkillIssue[] = []
+const readIssues = () => api.call(API.listSkillIssues).then((r) => r.items)
 
 export function SkillIssues({ folder, className }: { folder?: string; className?: string }) {
   const t = useT()
-  const [items, setItems] = useState<SkillIssue[]>([])
+  // as this window last read it (store/listCache.ts), read again behind it
+  const { data, reload } = useCachedRead<SkillIssue[]>('skills:issues', readIssues)
+  const items = data ?? NONE
   useEffect(() => {
-    let active = true, generation = 0
-    const load = () => {
-      const g = ++generation
-      api.call(API.listSkillIssues).then((r) => { if (active && g === generation) setItems(r.items) }, () => {})
-    }
-    load()
+    const load = () => void reload()
     const offs = [
       accessChanged.on(load), skillsChanged.on(load), reloadAsked.on(load),
       filesChanged.on((changes) => { if (changes.some((c) => isSkillsPath(c.path) || (c.from && isSkillsPath(c.from)))) load() }),
     ]
-    return () => { active = false; for (const off of offs) off() }
-    // a new folder on the Files screen also loads again (the list may be older than the realtime connection)
-  }, [folder])
+    return () => { for (const off of offs) off() }
+  }, [reload])
+  // a new folder on the Files screen also loads again (the list may be older than the realtime connection)
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) { first.current = false; return }
+    void reload()
+  }, [folder, reload])
   const shown = issuesIn(items, folder)
   const broken = shown.filter((i) => i.problem !== 'inputs'), forms = shown.filter((i) => i.problem === 'inputs')
   if (!shown.length) return null

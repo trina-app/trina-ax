@@ -5,6 +5,7 @@
 // A phone (below 768 px): each app is one row to tap (no outline Connect buttons), and the apps that are set up in a
 // terminal on a computer (Claude Code, Codex) say so instead of opening their steps. With the connector off, the server
 // setup lines to copy are a computer's: the phone says Off and "컴퓨터에서 설정해요" (QA TC-270, ADM-15).
+import clsx from 'clsx'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, ChevronRight, ExternalLink } from 'lucide-react'
@@ -15,7 +16,9 @@ import { useT } from '../../i18n'
 import { Badge, useMediaQuery } from '../../components/ui'
 import { AiAppDialog, AiAppLogo, AiAppRows, appName, CONNECTOR_GUIDE, connectedTo, ConnectorOff } from '../../components/integrations/AiAppConnect'
 import { ConnectorAddress } from '../AiApps'
+import { ConnectionRow, connectionLogo } from '../../components/integrations/ConnectionRow'
 import { AdminPageHeader, Loadable, useLoad } from './common'
+import { settingDesc, settingName } from '../../components/settings/SettingRow'
 
 export default function AdminAiApps() {
   const t = useT()
@@ -38,8 +41,8 @@ export default function AdminAiApps() {
               </p>
               {on && remote.resource ? <ConnectorAddress resource={remote.resource} /> : phone ? (
                 <div data-testid="ai-apps-on-computer">
-                  <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
-                  <p className="mt-1 text-sm text-muted">{t('admin.onComputerAiApps')}</p>
+                  <p className={settingName}>{t('admin.onComputer')}</p>
+                  <p className={clsx('mt-0.5', settingDesc)}>{t('admin.onComputerAiApps')}</p>
                 </div>
               ) : <ConnectorOff admin />}
               {phone
@@ -73,32 +76,18 @@ function PhoneAppRows({ on, onConnect, connected }: { on: boolean; onConnect: (a
       {AI_APPS.map((app) => {
         const mine = connectedTo(app, connected)
         const computer = ON_COMPUTER.includes(app.id)
-        const body = (
-          <>
-            <AiAppLogo app={app} className="size-9" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{appName(app, t)}</span>
-              <span className="mt-0.5 block truncate text-xs text-muted">{computer ? t('admin.onComputer') : t(`aiApps.${app.id}.desc`)}</span>
-            </span>
-            {mine.length > 0 && (
-              <span className="inline-flex max-w-[40%] shrink-0 items-center gap-1 truncate text-xs text-ok" data-testid={`ai-app-connected-${app.id}`}>
-                <Check size={14} className="shrink-0" aria-hidden />
-                <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
-              </span>
-            )}
-          </>
+        const status = mine.length > 0 && (
+          <span className="inline-flex max-w-32 items-center gap-1 truncate text-xs text-ok" data-testid={`ai-app-connected-${app.id}`}>
+            <Check size={14} className="shrink-0" aria-hidden />
+            <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
+          </span>
         )
+        const open = on && !computer
         return (
-          <li key={app.id} data-testid={`ai-app-${app.id}`} data-computer={computer || undefined}>
-            {on && !computer ? (
-              <button type="button" className="flex min-h-14 w-full items-center gap-3 py-2 text-left -outline-offset-2 hover:bg-hover" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>
-                {body}
-                <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-              </button>
-            ) : (
-              <div className="flex min-h-14 items-center gap-3 py-2">{body}</div>
-            )}
-          </li>
+          <ConnectionRow key={app.id} testId={`ai-app-${app.id}`} data={{ 'data-computer': computer ? 'true' : undefined }}
+            logo={<AiAppLogo app={app} className={connectionLogo} />} name={appName(app, t)} line={computer ? t('admin.onComputer') : t(`aiApps.${app.id}.desc`)}
+            whole onOpen={open ? () => onConnect(app) : undefined} openLabel={t('aiApps.connectTitle', { name: appName(app, t) })} openTestId={`ai-app-connect-${app.id}`}
+            end={(status || open) && <>{status}{open && <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />}</>} />
         )
       })}
     </>

@@ -1,0 +1,2 @@
+{"event":"upsert","type":"userChat","entity":{"id":"6512ab01cd","channelId":"12345","state":"opened","managed":false,"userId":"u-77","name":"","tags":[]},
+ "refers":{"user":{"name":"Jamie Rivera","email":"jamie@example.com","mobileNumber":"+82 10 0000 0000","city":"Seoul"},"message":{"plainText":"Hi, my order hasn't arrived yet."}}}

@@ -48,7 +48,7 @@ const chatsBefore = { chats: useChats.getState().chats, requests: useChats.getSt
 const inboxBefore = useInbox.getState().unread
 // the setup row (onboarding/SetupRow.tsx, on top of every list panel) reads these: put them back as they were
 const welcomeBefore = (({ loaded, progress }) => ({ loaded, progress }))(useWelcome.getState())
-const aiAccessBefore = (({ loaded, usable, action, requested, trial, sending, failed }) => ({ loaded, usable, action, requested, trial, sending, failed }))(useAiAccess.getState())
+const aiAccessBefore = (({ loaded, usable, action, requested, sending, failed }) => ({ loaded, usable, action, requested, sending, failed }))(useAiAccess.getState())
 const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')
 let inboxCount = 0
 beforeAll(() => {

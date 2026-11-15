@@ -15,9 +15,10 @@
 //           PUSH_GATEWAY_DEDUPE_MS is answered 200 without sending again, so a replayed request sends nothing.
 // Content:  the notification never carries message content (App Review 4.5.4): the gateway picks a generic text from
 //           `code` and `locale` itself. `path` is where the app opens, made only of ids. No request field carries a
-//           name. For a room code (`room.*`) the APNs payload is mutable (`mutable-content: 1`): the iPhone app's
-//           notification service extension may ask its own team server for who and where and replace the title; the
-//           generic text stays in the payload as the fallback.
+//           name. For a room code (`room.*`) and `chat.shared` (a chat shared with the person by name) the APNs payload
+//           is mutable (`mutable-content: 1`): the iPhone app's notification service extension may ask its own team
+//           server for who (and where) and replace the title; the generic text stays in the payload as the fallback. A
+//           gateway from before a code shows its fallback line for it (`chat.*`: "You have a new message").
 // Data:     the app reads { notificationId, code, path?, tag? }: on iOS from the APNs payload's top-level `body` object
 //           (expo-notifications reads remote data from userInfo["body"]), on Android from FCM `data` (flat strings,
 //           never a key named "body").
@@ -40,7 +41,7 @@ export type PushPlatform = (typeof PUSH_PLATFORMS)[number]
 /** APNs environment of the app build that made the token; android is always 'production' */
 export const PUSH_ENVIRONMENTS = ['sandbox', 'production'] as const
 export type PushEnvironment = (typeof PUSH_ENVIRONMENTS)[number]
-export const PUSH_LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+export const PUSH_LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 export type PushLocale = (typeof PUSH_LOCALES)[number]
 
 export interface PushGatewaySend {

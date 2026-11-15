@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiClient, type FileEntry } from '@mycel/shared/api'
 import { exists, jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
+import { setFolderAccess } from '../lib/folder-access'
 
 // the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
 setDefaultTimeout(30_000)
@@ -151,7 +152,9 @@ describe('mkdir / move / rename', () => {
     const db = A.ctx.db
     write('groups/marketing/q4/plan.md', 'plan')
     db.query("INSERT INTO folders (id, path) VALUES ('f_q4_secret', 'groups/marketing/q4/secret')").run()
-    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_q4', 'f_q4_secret', 'user', 'erin', 'none')").run()
+    // erin kept out: the folder is limited and names alice (access adds up: docs/DECISIONS.md "Folder access adds up like
+    // Google Drive (P2)")
+    setFolderAccess(db, 'f_q4_secret', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], null, { limited: true })
     write('groups/marketing/q4/secret/s.md', 'secret')
     db.query("INSERT INTO projects (id, name, folder_path) VALUES ('p_q4', 'Q4', 'groups/marketing/q4')").run()
     // erin can't touch the secret subfolder, so she may not move its parent; alice can write it, but a folder holding a

@@ -21,8 +21,8 @@
 // goes to the engine on a pipe inherited as fd 3 (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3, Claude Code reads it once
 // and drops the variable), never in argv or the environment: every process of the engine account can read another's
 // environment (KERN_PROCARGS2, not filterable by the sandbox). ANTHROPIC_BASE_URL is set from --proxy-port (the
-// root-owned LaunchDaemon arguments), not from the server's request, and credential variables in the request's
-// environment are dropped.
+// root-owned LaunchDaemon arguments), not from the server's request (a request that names it gets the proxy's address;
+// office own-login, TC-359), and credential variables in the request's environment are dropped.
 package main
 
 import (
@@ -841,8 +841,16 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		// Codex's own refresh goes to the proxy, which refuses it (the server refreshes; credentials D10)
 		env = append(env, fmt.Sprintf("CODEX_REFRESH_TOKEN_URL_OVERRIDE=http://127.0.0.1:%d/codex/oauth/token", *proxyPort))
 	}
+	// ANTHROPIC_BASE_URL is only ever the model proxy of --proxy-port: a request may ask for it (office mode with the
+	// Mac user's own login sends Claude Code's model requests to the proxy's checked HTTP path, TC-359), never name
+	// another address
+	wantBaseURL := false
 	for k, v := range req.Env {
-		if secretEnv[k] || (*proxyPort > 0 && k == "ANTHROPIC_BASE_URL") {
+		if *proxyPort > 0 && k == "ANTHROPIC_BASE_URL" {
+			wantBaseURL = true
+			continue
+		}
+		if secretEnv[k] {
 			continue
 		}
 		v = rel(subst.Replace(v))
@@ -872,9 +880,10 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		tokenRead = pr
 		req.ModelToken = nil
 		env = append(env, fdVar+"=3")
-		if *proxyPort > 0 {
-			env = append(env, fmt.Sprintf("ANTHROPIC_BASE_URL=http://127.0.0.1:%d", *proxyPort))
-		}
+		wantBaseURL = true
+	}
+	if wantBaseURL && *proxyPort > 0 {
+		env = append(env, fmt.Sprintf("ANTHROPIC_BASE_URL=http://127.0.0.1:%d", *proxyPort))
 	}
 	closeToken := func() {
 		if tokenRead != nil {

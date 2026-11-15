@@ -17,6 +17,7 @@ import { useSession } from '../../src/store/session'
 import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type FakeElement } from './dom-host'
+import { useListCache } from '../../src/store/listCache'
 
 setDefaultTimeout(30_000)
 const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
@@ -80,6 +81,8 @@ afterAll(() => {
 })
 afterEach(() => {
   asked.length = 0
+  // each test opens Search afresh (store/listCache.ts keeps its lists)
+  useListCache.getState().reset()
   mine = []; ofProject = []; found = []
   useUi.setState({ searchOpen: false })
   useChats.setState({ chats: [], others: {}, chatsLoaded: false, requests: {} })

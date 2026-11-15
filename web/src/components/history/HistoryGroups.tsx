@@ -1,11 +1,13 @@
 // Trina history grouped by project (docs/DECISIONS.md "Trina history by project"; the grouping itself is
 // lib/historyGroups.ts), like the Claude Code desktop app's sidebar: a small grey header per project (its name, which
 // opens the project's page, a folder icon, and ▾, which folds the group), its chats under it newest first, and the
-// chats in no project last under "Other chats". The Trina panel's history while it is filtered (nav/HistoryList.tsx):
-// every project, every row.
+// chats in no project last under "Other chats". One list for both places that show it: the Trina panel's default list
+// (panels/TrinaList.tsx: at most five projects and three rows each, then "N more" in place and "Show all") and its
+// filtered history (nav/HistoryList.tsx: every project, every row); the caps are the caller's.
 //
 // - A folded group is remembered per person in this browser. Its header keeps the strongest mark of its chats ("?",
-//   then the dot, then the ring), so a folded group never hides a chat that waits.
+//   then the dot, then the ring), so a folded group never hides a chat that waits; a group's "N more" carries the mark
+//   of the rows it holds back.
 // - + on a project's header (on hover and keyboard focus; always on a touch screen) opens the project's page with its
 //   "New chat in this project" box ready, the same as starting there. Its words are "Ask Trina in <project>" (the
 //   AI action's one name everywhere: docs/AGENTS/plan/20261112-1839-nav-rail.md §2.0), never "new chat".
@@ -14,10 +16,11 @@
 //   gone (store/projects.ts `drop`) leaves at once.
 import clsx from 'clsx'
 import { ChevronDown, FolderKanban, Plus } from 'lucide-react'
+import { foldRuns } from '../nav/TaskRunsRow'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
-import { groupByProject, hasProjects, strongestMark, type HistoryGroup } from '../../lib/historyGroups'
+import { capGroups, groupByProject, hasProjects, strongestMark, type Caps, type ShownGroup } from '../../lib/historyGroups'
 import type { MarkerView } from '../../lib/sessionMarkers'
 import { useT } from '../../i18n'
 import { aiName } from '../../lib/tabs'
@@ -27,6 +30,7 @@ import { useMeStrict } from '../../store/session'
 import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
 import { SessionMarker } from '../chat/ChatState'
 import { Tooltip } from '../Tooltip'
+import { headBox, rowBox } from '../list/List'
 
 /** how long a window coming back to the front waits before the project list is read again */
 const REFOCUS_READ_MS = 60_000
@@ -119,49 +123,105 @@ export function useFoldedGroups() {
 export type HistoryGroupsState = ReturnType<typeof useHistoryGroups>
 
 /**
- * The history's chats (pins left out by the caller, in its order) grouped by project. `grouped` is false when no chat
- * is in a project the person sees: the caller shows its plain list then, without headers.
+ * The history's chats (pins left out by the caller, in its order) grouped by project and capped (`caps`, none: every
+ * project and row). `grouped` is false when no chat is in a project the person sees: the caller shows its plain list
+ * then, without headers. "N more" opens a group in place and "Show all" the projects past the cap, for this visit;
+ * folding a group closes its "N more" again.
  */
-export function useHistoryGroups(chats: readonly Chat[]) {
+export function useHistoryGroups(chats: readonly Chat[], caps: Omit<Caps, 'opened'> = {}) {
   const projects = useSeenProjects(chats)
-  const { folded, toggle: fold } = useFoldedGroups()
+  const { folded, toggle } = useFoldedGroups()
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
+  const [all, setAll] = useState(false)
   const requests = useChats((s) => s.requests)
   const cards = useMemo(() => cardChats(requests), [requests])
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
   const view = useCallback((c: Chat): MarkerView => ({ card: cards.has(c.id), here: c.id === here }), [cards, here])
   const groups = useMemo(() => groupByProject(chats, projects.sees), [chats, projects.sees])
-  return { ready: projects.ready, grouped: hasProjects(groups), shown: groups, view, projects, folded, fold }
+  const { shown, behind } = useMemo(
+    () => capGroups(groups, { ...caps, ...(all ? { projects: undefined } : {}), opened }),
+    [groups, caps.projects, caps.rows, caps.open, opened, all], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const fold = useCallback(
+    (key: string) => {
+      toggle(key)
+      setOpened((s) => {
+        if (!s.has(key)) return s
+        const next = new Set(s)
+        next.delete(key)
+        return next
+      })
+    },
+    [toggle],
+  )
+  const openMore = useCallback((key: string) => setOpened((s) => new Set([...s, key])), [])
+  const showAll = useCallback(() => setAll(true), [])
+  return { ready: projects.ready, grouped: hasProjects(groups), shown, behind, view, projects, folded, fold, openMore, showAll }
 }
 
 /** The groups, each with its header and its rows (`row`: the caller's row, the same as a plain list's). `onNavigate`:
  * called when a header leads to a project. */
-export function HistoryGroups({ state, row, onNavigate }: { state: HistoryGroupsState; row: (c: Chat) => ReactNode; onNavigate: () => void }) {
+/** `menuSpace`: the rows are chats with a "···" (nav/ChatItem.tsx), so a task's folded runs keep clear of it (TaskRunsRow) */
+export function HistoryGroups({ state, row, pool, onNavigate, menuSpace }: { state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void; menuSpace?: boolean }) {
+  const t = useT()
+  const behindMark = state.behind.length ? strongestMark(state.behind.flatMap((g) => g.chats), state.view) : null
   return (
     <div data-testid="history-groups">
       {state.shown.map((g) => (
-        <Group key={g.key} group={g} state={state} row={row} onNavigate={onNavigate} />
+        <Fragment key={g.key}>
+          {/* "Show all": the projects past the cap, after the last one in sight (the other chats stay last) */}
+          {g.projectId === null && state.behind.length > 0 && <ShowAll mark={behindMark} onClick={state.showAll} label={t('history.showAll', { n: state.behind.length })} />}
+          {/* a project whose chats here are all older runs of a task whose newest run is in another group: no empty header */}
+          {(!pool || !g.chats.length || foldRuns(g.chats, row, { pool }).length > 0) && <Group group={g} state={state} row={row} pool={pool} onNavigate={onNavigate} menuSpace={menuSpace} />}
+        </Fragment>
       ))}
+      {!state.shown.some((g) => g.projectId === null) && state.behind.length > 0 && <ShowAll mark={behindMark} onClick={state.showAll} label={t('history.showAll', { n: state.behind.length })} />}
     </div>
   )
 }
 
-function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: HistoryGroupsState; row: (c: Chat) => ReactNode; onNavigate: () => void }) {
+/** a quiet row like "N more", with the strongest mark of what it holds back */
+function MoreRow({ label, mark, onClick, testId, markTestId }: { label: string; mark: ReturnType<typeof strongestMark>; onClick: () => void; testId: string; markTestId: string }) {
+  const t = useT()
+  return (
+    <button type="button" onClick={onClick} className={clsx(rowBox, 'flex w-full items-center gap-2 rounded-lg px-3 text-meta text-muted hover:bg-hover')} data-testid={testId}>
+      <span className="truncate">{label}</span>
+      {mark && (
+        <span className="ml-auto flex shrink-0 items-center" data-testid={markTestId}>
+          <SessionMarker marker={mark.marker} label={reasonText(mark.marker.reason, t)} />
+        </span>
+      )}
+    </button>
+  )
+}
+
+function ShowAll({ mark, onClick, label }: { mark: ReturnType<typeof strongestMark>; onClick: () => void; label: string }) {
+  return (
+    <div className="mt-2">
+      <MoreRow label={label} mark={mark} onClick={onClick} testId="history-show-all" markTestId="history-show-all-mark" />
+    </div>
+  )
+}
+
+function Group({ group, state, row, pool, onNavigate, menuSpace }: { group: ShownGroup; state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void; menuSpace?: boolean }) {
   const t = useT()
   const navigate = useNavigate()
   const listId = useId()
   const folded = state.folded.has(group.key)
   const project = group.projectId ? state.projects.project(group.projectId) : undefined
   const name = project?.name ?? ''
-  // a folded group: the strongest mark of all its chats on the header
+  // a folded group: the strongest mark of all its chats on the header; open, its "N more" the mark of the rows it holds
   const headMark = folded ? strongestMark(group.chats, state.view) : null
+  const moreMark = !folded && group.hidden.length ? strongestMark(group.hidden, state.view) : null
   // a chat can start in the project from its page: not when its folder is in the trash or the person only manages it
   const canStart = !!project && !project.inTrash && project.member !== false
   const fold = () => state.fold(group.key)
   return (
     <div className="mt-2 first:mt-0" data-testid="history-group" data-group={group.projectId ? 'project' : 'other'} data-folded={folded ? '' : undefined}>
+      {/* a section header's row and words, as ListSection's (components/list/List.tsx headBox, text-list-head) */}
       {/* the heading is the group's name only (the link, or the other chats' fold), so a screen reader's list of
           headings reads the projects; the icon and ▾ follow it */}
-      <div className={clsx('group/head relative flex h-row items-center gap-1 pr-9 pl-3 text-list-head font-semibold text-list-head-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
+      <div className={clsx(headBox, 'group/head relative pr-9 pl-3 text-list-head font-semibold text-list-head-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
         {group.projectId ? (
           <>
             {/* the name's link is as tall as the header: 28 px, 44 px on a phone */}
@@ -210,7 +270,12 @@ function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: 
         )}
       </div>
       <ul id={listId} hidden={folded} data-testid="history-group-rows">
-        {!folded && group.chats.map((c) => <Fragment key={c.id}>{row(c)}</Fragment>)}
+        {!folded && foldRuns(group.rows, row, { pool, menuSpace })}
+        {!folded && group.hidden.length > 0 && (
+          <li>
+            <MoreRow label={t('history.group.more', { n: group.hidden.length })} mark={moreMark} onClick={() => state.openMore(group.key)} testId="history-group-more" markTestId="history-group-more-mark" />
+          </li>
+        )}
       </ul>
     </div>
   )

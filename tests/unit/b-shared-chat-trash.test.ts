@@ -15,12 +15,13 @@ import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { updateGroupAs } from '../../server/src/admin/groups'
 import { WITHHELD_ANSWER } from '../../server/src/chat/shared'
-import { withheldFrom } from '../../server/src/chat/shared-answers'
+import { setHiddenAnswersCutover, withheldFrom } from '../../server/src/chat/shared-answers'
 import { createSuggestion } from '../../server/src/skills/suggestions'
 import { runExport } from '../../server/src/system/export'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import fs from 'node:fs'
 import path from 'node:path'
+import { setFolderAccess } from '../lib/folder-access'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -30,7 +31,10 @@ let h: Harness
 const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-shared-chat-trash', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-shared-chat-trash', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
+  // the answers here are judged by the rule for answers from before the cutover (docs/DECISIONS.md "People who see a
+  // shared chat later: nothing new is hidden"): the cutover after all of them
+  setHiddenAnswersCutover(h.ctx.db, '9999-12-31T00:00:00.000Z')
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'Falcon project notes.' })
   projectId = p.id
@@ -84,8 +88,7 @@ describe('deleting a project', () => {
     const trashedAt = row(trashed.id)!.deleted_at
     expect(await trashIds('dana')).toContain(trashed.id)
     // a private chat of dana's in the project
-    db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
-    const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
+    const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id, private: true } })
     const from = mark()
 
     // the first delete (docs/DECISIONS.md "Project contents only for members"): the project and its folder go to the
@@ -194,7 +197,8 @@ describe('deleting a project', () => {
     const erins = await h.api('erin').call(API.createChat, { body: { projectId: q.id } })
     await ask('erin', erins.id, 'erin asks\n' + fake({ say: 'ok' }))
     const fid = (db().query("SELECT id FROM folders WHERE path = 'shared/acme-purged'").get() as { id: string }).id
-    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('acme-purged-erin', ?, 'user', 'erin', 'none')").run(fid)
+    // the folder's own setting keeps erin out: limited, nobody named (access adds up since P2)
+    setFolderAccess(db(), fid, [], null, { limited: true })
     const { trashId } = await h.api('dana').call(API.remove, { query: { path: 'shared/acme-purged' } })
     await h.api('dana').call(API.purgeTrash, { params: { id: trashId } })
     await h.api('dana').call(API.deleteProject, { params: { id: q.id } })

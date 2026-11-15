@@ -25,8 +25,8 @@ let A: CApp
 beforeAll(async () => {
   A = await makeCApp('sec-r3-hidden-vs-missing')
   // an admin-made 'none' folder under the everyone-read skills/ (alice: read-only parent)
-  const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'skills/performance-reviews', create: true, rules: [
-    { subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'carol', access: 'write' }] }) })
+  const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'skills/performance-reviews', create: true, limited: true, rules: [
+    { subjectType: 'user', subjectId: 'carol', access: 'write' }] }) })
   expect(r.status).toBeLessThan(300)
   fs.writeFileSync(path.join(A.team, 'skills', 'performance-reviews', 'q3.md'), 'secret review\n')
 })

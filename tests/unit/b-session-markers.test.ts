@@ -36,7 +36,7 @@ function sse(calls: { id: string; name: string; args: unknown }[], text?: string
 
 beforeAll(async () => {
   mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { if (req.method === 'GET') return Response.json({ data: [{ id: 'm-1' }] }); await req.json(); const next = script.shift() ?? sse([], '(no script)'); return next === FAIL ? Response.json({ error: { message: 'provider down' } }, { status: 500 }) : new Response(next) } })
-  h = await startHarness({ name: 'b-session-markers', askUserTimeoutMs: 8000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-session-markers', askUserTimeoutMs: 8000, stallTimeoutMs: 60_000 })
   writeApiEngine(h.ctx.config.dataDir, { baseUrl: `http://127.0.0.1:${mock.port}/v1`, model: 'm-1', label: 'M1' })
   const confs = h.rt().engines.get()
   confs.api = { baseUrl: `http://127.0.0.1:${mock.port}/v1`, model: 'm-1', label: 'M1', key: null }

@@ -18,6 +18,8 @@ export interface WelcomeState {
   link?: { id: number; host: string; hosted: boolean } | null
   /** a link from outside that cannot open a team */
   linkError?: string | null
+  /** the team being added is starting after a pause (about a minute); the add goes on by itself */
+  waking?: boolean
 }
 export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string; next?: string }
 export interface PanePrompt {
@@ -62,6 +64,8 @@ export interface MycelUi {
     answerLink(yes: boolean, host: string): Promise<AddTeamResult | null>
     /** ④ is on screen for this offer */
     linkShown(id: number): void
+    /** Cancel while a sleeping trial team starts: the add stops (its result is error 'cancelled') */
+    cancelWake(): void
     open(id: string): void
     remove(id: string): Promise<void>
     back(): void

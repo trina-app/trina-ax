@@ -19,7 +19,7 @@ export interface FigEnv { cv: Canvas; c: FitCtx; pics: Record<string, PicInfo>; 
 export interface Box { x: number; y: number; w: number; h: number }
 type F<K extends DeckFigure['kind']> = Extract<DeckFigure, { kind: K }>
 
-const NEXT: Record<Locale, string> = { ko: '다음', en: 'Next', id: 'Berikut', ja: '次へ', es: 'Después' }
+const NEXT: Record<Locale, string> = { ko: '다음', en: 'Next', id: 'Berikut', ja: '次へ', es: 'Después', zh: '接下来' }
 const center = (o: Box) => ({ cx: o.x + o.w / 2, cy: o.y + o.h / 2 })
 const ROUND = { cap: 'round' as const, join: 'round' as const }
 const clampKey = (k: number | undefined, n: number, dflt: number) => (k !== undefined && k >= 0 && k < n ? k : dflt)

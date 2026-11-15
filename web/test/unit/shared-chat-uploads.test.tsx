@@ -55,7 +55,7 @@ describe('the line under the chips', () => {
 
   test('a file from the computer: where it is saved (the folder it went to) and how many people see it there', async () => {
     expect(await lineOf([chip({ attachment: att({ source: 'team' }) })])).toBe(LINE('채팅 첨부', 3))
-    expect(LINE('채팅 첨부', 3)).toBe('프로젝트 폴더(채팅 첨부)에 저장돼요 · 멤버 3명이 볼 수 있어요')
+    expect(LINE('채팅 첨부', 3)).toBe('프로젝트 폴더(채팅 첨부)에 저장돼요 · 3명이 볼 수 있어요')
     // a folder already there under another language's name is the one named
     expect(await lineOf([chip({ attachment: att({ source: 'team', path: 'projects/quotation/Chat attachments/견적.pdf' }) })], 5)).toBe(LINE('Chat attachments', 5))
     // still uploading: the folder the team's language names
@@ -65,6 +65,22 @@ describe('the line under the chips', () => {
   test('nothing for no chips, team files only, or an upload that failed', async () => {
     expect(await lineOf([])).toBeNull()
     expect(await lineOf([chip({ source: 'team', path: 'projects/quotation/견적서 양식.xlsx', attachment: att({ source: 'team', path: 'projects/quotation/견적서 양식.xlsx' }) })])).toBeNull()
+    expect(await lineOf([chip({ status: 'failed', error: 'x' })])).toBeNull()
+  })
+})
+
+describe('the line under the chips in a chat shared with people', () => {
+  const lineOf = async (files: Pending[]) => {
+    const m = await mount(<SharedUploadLine files={files} audience={3} kind="people" />)
+    try { return m.find('shared-upload-line')?.textContent ?? null } finally { await m.unmount() }
+  }
+  test('a file kept with the chat: everyone who sees the chat can open it (no folder, no count)', async () => {
+    const line = translate('ko', 'chat.share.uploadLine')
+    expect(translate('en', 'chat.share.uploadLine')).toBe('Everyone who sees this chat can open it')
+    expect(await lineOf([chip({ attachment: att({ source: 'chat', path: '' }) })])).toBe(line)
+    expect(await lineOf([chip({ status: 'uploading' })])).toBe(line)
+    // nothing for team files only or a failed upload
+    expect(await lineOf([chip({ source: 'team', path: 'shared/a.md', attachment: att({ source: 'team', path: 'shared/a.md' }) })])).toBeNull()
     expect(await lineOf([chip({ status: 'failed', error: 'x' })])).toBeNull()
   })
 })

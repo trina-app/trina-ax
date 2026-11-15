@@ -1,8 +1,9 @@
-// "Who can open it" on the Files page, for admins (docs/DECISIONS.md "Who can open it, like Drive's Share"): what the
+// "Who can open it" on the Files page, for admins (docs/DECISIONS.md "Who can open it, like Drive's Share", "Folder access
+// adds up like Google Drive (P2)"): what the
 // panel shows and when it asks before saving. Words and comparisons only: who can open what is the server's answer for
 // the draft on screen (POST /api/admin/access/edit-preview, the permission function itself); nothing here decides access.
-import type { Access, AccessTreeWho, FolderEditChange, FolderEditPreview, FolderEditWarning, Group } from '@mycel/shared/api'
-import type { Basic, Draft } from './access-edit'
+import type { Access, AccessTreeWho, FolderEditChange, FolderEditPreview, FolderEditWarning } from '@mycel/shared/api'
+import type { Basic } from './access-edit'
 import type { MessageKey } from '../i18n'
 
 type T = (key: MessageKey, params?: Record<string, string | number>) => string
@@ -20,8 +21,62 @@ export const hasPanel = (path: string) => !NO_PANEL.has(path)
 /** The folder that holds `path` ('' for a top folder); null for the team root. */
 export const parentOf = (path: string): string | null => (path === '' ? null : path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-/** What "everyone" gets with a basic access (the general access): "same as above" is what the folder above gives. */
-export const generalLevel = (basic: Basic, above: Access): Access => (basic === 'follow' ? above : basic === 'named' ? 'none' : basic)
+/**
+ * General access as Drive shows it (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): Restricted, or the
+ * team with a role. What the team gets here: its own setting, and on a folder that is not limited also what it gets from
+ * the folders above (access adds up; the wider wins).
+ */
+export const generalLevel = (basic: Basic, limited: boolean, above: Access): Access => {
+  const own: Access = basic === 'read' || basic === 'write' ? basic : 'none'
+  return limited || RANK[own] >= RANK[above] ? own : above
+}
+export type Audience = 'restricted' | 'team'
+export const audienceOf = (level: Access): Audience => (level === 'none' ? 'restricted' : 'team')
+
+/**
+ * The basic access a General access pick saves. Back to what the folder had: kept as it was. Restricted: no setting of
+ * the team's here. On a folder that is not limited a role equal to what it gets from above needs no setting either. The
+ * dialog offers nothing lower than that there: lower needs Limit access first (pickable).
+ */
+export function pickBasic(level: Access, o: { initial: Basic; limited: boolean; above: Access }): Basic {
+  const own = o.initial === 'read' || o.initial === 'write' ? o.initial : 'none'
+  if (level === own) return o.initial === 'read' || o.initial === 'write' ? o.initial : o.limited ? 'named' : 'follow'
+  if (level === 'none') return o.limited ? 'named' : 'follow'
+  if (!o.limited && level === o.above) return 'follow'
+  return level
+}
+/** On a folder that is not limited, a team role (or Restricted) lower than what the folders above give cannot be chosen:
+ * access adds up. */
+export const pickable = (level: Access, o: { limited: boolean; above: Access }): boolean => o.limited || RANK[level] >= RANK[o.above]
+
+/**
+ * What a person or group row gets from the folders above (on a folder that is not limited), from the server's rows of
+ * who decides with no rules here (`above`): the widest rule that applies to them, and its folder. A role below it cannot
+ * be chosen here ("Editor from 'Company-wide'"). A person counts only their own rules above and the team's, never their
+ * groups. null: nothing from above.
+ */
+export function inheritedOf(above: readonly AccessTreeWho[] | null | undefined, n: { subjectType: 'user' | 'group'; subjectId: string }): { access: Access; folder: string } | null {
+  let best: { access: Access; folder: string } | null = null
+  for (const w of above ?? []) {
+    if (w.reason !== 'rule' || w.folder === null || !w.subject || w.access === 'none' || w.count <= 0) continue
+    const s = w.subject
+    const applies = s.type === 'everyone'
+      // a person: their own rules above and the team's, never their groups (a group they leave later must not leave
+      // them a raised row by name; re-review of #787, as the server's raiseToAbove)
+      || (n.subjectType === 'user' && s.type === 'user' && s.id === n.subjectId)
+      || (n.subjectType === 'group' && s.type === 'group' && s.id === n.subjectId)
+    if (applies && (!best || RANK[w.access] > RANK[best.access])) best = { access: w.access, folder: w.folder }
+  }
+  return best
+}
+
+/** Drive's "Access removed" on a limited folder: the people who can open the folder above but not this one (the limit
+ * stops them), from the folder answers of both (no row of their own here). */
+export function removedPeople(here: readonly { user: { id: string; name: string }; access: Access; reason: { kind: string; cutAt?: string } }[], above: readonly { user: { id: string }; access: Access }[], path: string): { id: string; name: string }[] {
+  const opensAbove = new Set(above.filter((p) => p.access !== 'none').map((p) => p.user.id))
+  return here.filter((p) => p.access === 'none' && p.reason.kind === 'no-rule' && p.reason.cutAt === path && opensAbove.has(p.user.id))
+    .map((p) => p.user).sort((a, b) => a.name.localeCompare(b.name))
+}
 
 /** The people and groups the folders above let in here (or keep out), from the server's answer: the person and group
  * rules of a folder above that decide for someone here. Groups first, then people, by name; "no access" last. */
@@ -40,24 +95,6 @@ export function aboveRows(next: readonly AccessTreeWho[], path: string): AboveRo
   }
   return out.sort((a, b) => (a.access === 'none') !== (b.access === 'none') ? (a.access === 'none' ? 1 : -1)
     : a.type !== b.type ? (a.type === 'group' ? -1 : 1) : a.name.localeCompare(b.name))
-}
-
-/** A person set here who is also in a group set here with another setting: the person's own setting wins here (the
- * permission function's order), and the row says so. The first such group by name, or null. */
-export function overridingGroup(d: Draft, userId: string, groups: ReadonlyMap<string, Group>): Group | null {
-  const mine = d.named.find((n) => n.subjectType === 'user' && n.subjectId === userId)
-  if (!mine) return null
-  const hits = d.named
-    .filter((n) => n.subjectType === 'group' && n.access !== mine.access)
-    .map((n) => groups.get(n.subjectId))
-    .filter((g): g is Group => !!g && g.memberIds.includes(userId))
-    .sort((a, b) => a.name.localeCompare(b.name))
-  return hits[0] ?? null
-}
-
-/** "In Sales, but can only view here" */
-export function overrideText(t: T, group: string, mine: Access): string {
-  return t(mine === 'write' ? 'folderAccess.inGroupEdit' : mine === 'read' ? 'folderAccess.inGroupView' : 'folderAccess.inGroupNone', { group })
 }
 
 /** Names said in a line: at most three, then "and N others" (the server sends up to 50 names of `count`). */

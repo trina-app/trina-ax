@@ -31,7 +31,7 @@ const published: { userId: string; ev: any }[] = []
 
 beforeAll(async () => {
   if (!native) return
-  h = await startHarness({ name: 'sec-save-url-echo', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'sec-save-url-echo', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'true') ON CONFLICT(key) DO UPDATE SET value='true'").run()
   noteEgressIp(h.ctx, '198.51.100.20')
   const hub = h.rt().hub

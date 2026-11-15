@@ -15,6 +15,8 @@ import { createLogger, type Logger } from './log'
 import { applyPendingRestore, recordRestore } from './system/backup'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
+import { setProjectsCaseInsensitive } from './policy/access'
+import { detectCaseInsensitive } from './policy/resolve'
 import { reloadManagedFiles } from './system/managed'
 import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
 import { guardOfficeClaudeJson } from './engine/claude-json-guard'
@@ -22,7 +24,6 @@ import { setupServerCgroups } from './system/cgroups'
 import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
 import { isHosted } from './system/deployment'
 import { dropHostedSpeechKey } from './credentials/speech-key'
-import { dropHostedChatKey } from './credentials/hosted-chat'
 import { settleHostedFallback } from './admin/engine-choice'
 import { repointDeckLinks } from './auth/team-links'
 import { retireLegacyDefaultSkills } from './onboarding/retired-skills'
@@ -161,6 +162,10 @@ export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   setupServerCgroups({ log, mode: cfg.mode }) // Linux production: S/main + S/conv before any child process (no-op elsewhere)
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
+  // whether the team folder's disk ignores letter case, before anything migrates: the one-time folder access conversion
+  // (policy/convert-additive.ts) must judge projects/<name> as the server will (on a case-sensitive disk Projects/ is an
+  // ordinary folder); the files service sets the same again later
+  setProjectsCaseInsensitive(fs.existsSync(cfg.teamRoot) ? detectCaseInsensitive(cfg.teamRoot) : true)
   const restored = applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   removeOldSemanticIndex(cfg.dataDir, log)
   void removeKnowledgeGraphData(cfg.dataDir, log)
@@ -176,8 +181,6 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   try { recordRestore(db, restored) } catch (e) { log.error('could not log the restore', { err: e }) }
   // the hosting service's speech key belongs to its hosted servers only (a hosted team's backup restored here keeps none)
   if (!isHosted(cfg) && dropHostedSpeechKey(db)) log.info('removed the hosting service\'s speech-to-text key: this server is not hosted')
-  // the same for its trial AI credit
-  if (!isHosted(cfg) && dropHostedChatKey(db)) log.info('removed the hosting service\'s trial AI key: this server is not hosted')
   // a hosted server turns "다른 AI로 대신 답하기" on once (it used to come with the trial key, whatever the switch said)
   if (settleHostedFallback({ db, config: cfg })) log.info('turned on "answer with the other AI" for this hosted server')
   const ctx = createContext({ config: cfg, db, log })

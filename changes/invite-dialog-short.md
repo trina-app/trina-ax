@@ -1,1 +1,0 @@
-- Invite people: one line on what to do, the invite link on one line (shortened in the middle) with a Copy button, and the message to send below it in smaller, quieter text.

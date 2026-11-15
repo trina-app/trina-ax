@@ -11,6 +11,7 @@
 import type { Database } from 'bun:sqlite'
 import { plainLabel, type InboxNotification, type Locale } from '@mycel/shared/api'
 import { ROOM_WORDS } from '../notifications/text'
+import { parseStored, unescapeMarkdown } from './apps/card'
 import { groupName, isHiddenFor, MENTIONS_SQL, parseMentions, seenSeq, sharedAnswerOf } from './store'
 
 /** Which room notices are rows of the Inbox (on room_notices `n` and its message `m`): mentions ("@전체" too) and
@@ -92,8 +93,8 @@ export function roomRowOf(db: Database, userId: string, noticeId: string, cutoff
 }
 
 type RoomInfo = { kind: 'team' | 'all' | 'dm' | 'group'; name: string | null; group_id: string | null; last_read_seq: number; visible_from_seq: number; history_from_seq: number | null }
-type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string; deleted_at: string | null; event: string | null; answer_at: number | null; answer_cut: number }
-const MSG = 'm.id, m.seq, m.author_kind, m.author_id, m.body, m.created_at, m.deleted_at, m.event, m.answer_at, m.answer_cut'
+type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string; deleted_at: string | null; event: string | null; answer_at: number | null; answer_cut: number; app_id: string | null; app_card: string | null }
+const MSG = 'm.id, m.seq, m.author_kind, m.author_id, m.body, m.created_at, m.deleted_at, m.event, m.answer_at, m.answer_cut, m.app_id, m.app_card'
 /** A row counts at most this many messages (the pill says 99+ past 99), so a long run costs no more than that. */
 export const COUNT_MAX = 100
 /** What counts in a row for `?` (the person), on room_messages `m`: a message for the whole room they see (from where
@@ -112,8 +113,12 @@ const roomName = (db: Database, room: Pick<RoomInfo, 'kind' | 'name' | 'group_id
   const name = room.name || groupName(db, room)
   return name ? plainLabel(name, NAME_MAX) : null
 }
-/** Who wrote a message, as the row says it */
-const writer = (db: Database, m: Pick<Msg, 'author_kind' | 'author_id'>) => ({
+/** The app's name as it was when it posted (a rename never changes what was said before). */
+function appName(_db: Database, m: Pick<Msg, 'app_id' | 'app_card'>): string {
+  return parseStored(m.app_card)?.app.name ?? 'App'
+}
+/** Who wrote a message, as the row says it: an app's message (rooms/apps) by the app's name and "App" (never a person) */
+const writer = (db: Database, m: Pick<Msg, 'author_kind' | 'author_id' | 'app_id' | 'app_card'>) => m.app_card ? { from: plainLabel(`${appName(db, m)} · App`, NAME_MAX), fromId: null } : ({
   from: m.author_kind === 'ai' ? null : (() => { const n = nameOf(db, m.author_id); return n ? plainLabel(n, NAME_MAX) : null })(),
   fromId: m.author_kind === 'ai' ? null : m.author_id, ...(m.author_kind === 'ai' ? { ai: true as const } : {}),
 })
@@ -121,6 +126,8 @@ const writer = (db: Database, m: Pick<Msg, 'author_kind' | 'author_id'>) => ({
 /** The first line of a message as the Inbox shows it: an AI answer's (and an answer shared from an AI chat, after the
  * person's own note when there is none) without its Markdown marks. */
 function messageLine(m: Msg): string {
+  // an app's message: its plain text, one line, at most 120 characters (a push's line)
+  if (m.app_card) return plainLabel(unescapeMarkdown(m.body).split('\n').map((l) => l.trim()).find(Boolean) ?? '', 120)
   const shared = sharedAnswerOf(m)
   if (shared) {
     const note = previewLine(m.body.slice(0, shared.at))

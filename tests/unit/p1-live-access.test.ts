@@ -13,7 +13,7 @@ const readBudget = { tool: 'read', args: { file_path: 'groups/finance/budget.md'
 let h: Harness
 let bob: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'p1-live-access', turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p1-live-access', stallTimeoutMs: 60_000 })
   bob = await h.ws('bob', { windowId: 'win-p1-live-access' })
   await bob.next('hello')
 })

@@ -16,7 +16,7 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
-  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true }
+  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, chatAnswers: true, chatShares: true }
   // the signed-in notice names the task for the Inbox (schedule.title); the lock screen never shows it
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null, schedule: { title: 'PRIVATE TASK TITLE' } }
   let status = 200, gate: Promise<void> | null = null
@@ -174,6 +174,61 @@ test('an AI chat\'s answer: generic words, a click opens the chat from the signe
   off.preferences({ chatAnswers: false })
   off.item({ id: 'event-1', code: 'chat.answer_done', readAt: null, link: 'chat', chatId })
   await off.push({ ...payload, code: 'chat.answer_done' })
+  expect(off.shown).toHaveLength(0)
+})
+
+test('an app\'s paused notice: generic words (never the app\'s or the room\'s name), a click opens the room from the signed-in notice', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-0000000000a1'
+  const w = worker()
+  w.item({ id: 'event-1', code: 'room_app.paused', readAt: null, link: 'room', chatId: null, roomApp: { appId: 'app-1', name: 'PRIVATE APP', roomId, roomName: 'PRIVATE ROOM' } })
+  await w.push({ ...payload, code: 'room_app.paused', roomId: 'evil' })
+  expect(w.shown).toHaveLength(1)
+  expect(w.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(w.shown[0]!.options).toMatchObject({ body: 'An app in a room was paused for today.', data: { notificationId: 'event-1', roomId } })
+  expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
+  await w.clickShown()
+  expect(w.navigated).toEqual([`https://team.example/rooms/${roomId}`])
+  // no longer in the room (no link): the inbox, as the other notices
+  const gone = worker()
+  gone.item({ id: 'event-1', code: 'room_app.paused', readAt: null, link: null, chatId: null, roomApp: { appId: 'app-1', name: 'x', roomId: null } })
+  await gone.push({ ...payload, code: 'room_app.paused' })
+  expect(gone.shown[0]!.options.data).toEqual({ notificationId: 'event-1' })
+  await gone.clickShown()
+  expect(gone.navigated).toEqual(['https://team.example/settings/notifications'])
+})
+
+test('a chat shared with me by name: the sharer as the title from the signed-in notice, never the chat\'s title; a click opens the chat; "Chats shared with me" off shows nothing', async () => {
+  const chatId = '0190f5a0-0000-7000-8000-0000000000c2'
+  const w = worker()
+  w.configure({ messages: pushMessages('en') })
+  w.item({ id: 'event-1', code: 'chat.shared', readAt: null, link: 'chat', chatId, chatShared: { name: 'Mia\u202e Kim', title: 'PRIVATE TITLE' } })
+  await w.push({ ...payload, code: 'chat.shared', chatId: 'evil', name: 'PRIVATE' })
+  expect(w.shown).toHaveLength(1)
+  expect(w.shown[0]!.title).toBe('Mia Kim')
+  expect(w.shown[0]!.options).toMatchObject({ body: 'Shared a chat with you.', data: { notificationId: 'event-1', chatId } })
+  expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
+  await w.clickShown()
+  expect(w.navigated).toEqual([`https://team.example/c/${chatId}`])
+  // a server that does not name the sharer (or a gone account): the generic words
+  const unnamed = worker()
+  unnamed.configure({ messages: pushMessages('en') })
+  unnamed.item({ id: 'event-1', code: 'chat.shared', readAt: null, link: 'chat', chatId, chatShared: { name: null, title: null } })
+  await unnamed.push({ ...payload, code: 'chat.shared' })
+  expect(unnamed.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(unnamed.shown[0]!.options.body).toBe('Someone shared a chat with you.')
+  // no longer shared with me (gone): the generic words, no name even if the server sent one
+  const gone = worker()
+  gone.configure({ messages: pushMessages('en') })
+  gone.item({ id: 'event-1', code: 'chat.shared', readAt: null, link: null, chatId: null, chatShared: { name: 'Mia', title: null, gone: true } })
+  await gone.push({ ...payload, code: 'chat.shared' })
+  expect(gone.shown[0]!.title).toBe(pushMessages('en').title)
+  expect(gone.shown[0]!.options.body).toBe('Someone shared a chat with you.')
+  expect(JSON.stringify(gone.shown)).not.toContain('Mia')
+  const off = worker()
+  off.configure({ messages: pushMessages('en') })
+  off.preferences({ chatShares: false })
+  off.item({ id: 'event-1', code: 'chat.shared', readAt: null, link: 'chat', chatId, chatShared: { name: 'Mia', title: null } })
+  await off.push({ ...payload, code: 'chat.shared' })
   expect(off.shown).toHaveLength(0)
 })
 

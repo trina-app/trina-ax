@@ -229,6 +229,12 @@ describe('backup, restore, export jobs', () => {
     expect(fs.statSync(path.join(ctx.config.teamRoot, res.path)).size).toBe(res.size)
     expect((await post('/api/admin/export', { what: [] })).status).toBe(400)
     expect((await post('/api/admin/export', { what: ['files'], password: 'short' })).status).toBe(400)
+    // the activity log says who exported what (QA TC-1225); the password is never in it, a refused request is not
+    const rows = ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'export.start'").all() as { actor_id: string; detail: string }[]
+    expect(rows.length).toBe(1)
+    expect(rows[0]!.actor_id).toBe('olga')
+    expect(JSON.parse(rows[0]!.detail)).toEqual({ what: ['memories', 'files'], encrypted: true })
+    expect(rows[0]!.detail).not.toContain('export-pass')
   })
 })
 

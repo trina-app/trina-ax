@@ -18,7 +18,7 @@
 
 ## 휴대폰 앱
 
-[mobile.json](mobile.json)은 휴대폰 앱의 이름, 색, bundle id(`app.trina.ax`), Apple 팀 ID를 정하고, [mobile/](mobile/)에는 웹 마크(`web/public/favicon.svg`)로 만든 앱 아이콘·Android 아이콘 전경·시작 화면 이미지(PNG)와 그 SVG 원본이 있습니다. `mobile/`에서 `MYCEL_MOBILE_EDITION=trina`로 빌드하면 적용되고, 없으면 중립 Team AX 앱입니다. 휴대폰 푸시는 팀 서버 운영자가 푸시 게이트웨이(`MYCEL_PUSH_GATEWAY` 또는 server.json의 `push.gatewayUrl`, 트리나 호스팅: `https://push.trina.app`)를 정해야 켜집니다. 스토어 제출에 필요한 것은 [STORE-SUBMISSION.md](../../../mobile/STORE-SUBMISSION.md)에 있습니다.
+[mobile.json](mobile.json)은 휴대폰 앱의 이름, 색, bundle id(`app.trina.ax`), Apple 팀 ID를 정하고, [mobile/](mobile/)에는 웹 마크(`web/public/favicon.svg`)로 만든 앱 아이콘·Android 아이콘 전경·시작 화면 이미지(PNG)와 그 SVG 원본이 있습니다. `mobile/`에서 `MYCEL_MOBILE_EDITION=trina`로 빌드하면 적용되고, 없으면 중립 Team AX 앱입니다. 휴대폰 푸시는 [service.json](service.json)의 `pushGatewayUrl`(`https://push.trina.app`)로 기본으로 켜져 있습니다. 팀 서버 운영자는 `MYCEL_PUSH_GATEWAY`(또는 server.json의 `push.gatewayUrl`)로 다른 게이트웨이를 정하거나 `off`/`''`로 끌 수 있습니다. 스토어 제출에 필요한 것은 [STORE-SUBMISSION.md](../../../mobile/STORE-SUBMISSION.md)에 있습니다.
 
 ## 앱 받는 곳
 

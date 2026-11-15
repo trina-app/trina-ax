@@ -6,7 +6,7 @@ import { expect, test } from 'bun:test'
 import { CHAT_ERROR_MESSAGES, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type ChatErrorReason } from '../../shared/src/api'
 import { engineError, tr } from '../../server/src/chat/i18n'
 
-const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const JARGON = /\b(engine|proxy|API|HTTP|endpoint)\b|엔진|프록시|エンジン|プロキシ|mesin AI|motor de IA|\(HTTP|관리 ›|Admin ›|Admin >|관리자 >/i
 
 test('no engine, proxy, API, HTTP code or admin menu in any chat error, in any language', () => {
@@ -32,13 +32,14 @@ test('an error stored with the earlier words and no reason is still told apart (
     ['crash', 'Mesin AI berhenti tiba-tiba. Coba lagi.'],
     ['no_credential', 'このエンジン用のAI接続がありません。管理者に知らせてください。'],
     ['model_not_found', 'El servicio de IA no reconoce el modelo configurado. Pida a su administrador que revise el nombre del modelo del motor API.'],
-    ['trial_credit_used', '체험 AI 크레딧을 다 썼어요. 팀장이 관리 › AI 연결에서 팀의 AI를 연결하면 이어서 쓸 수 있어요.'],
     // the 합니다체 before 0.2.16 still counts too
     ['crash', 'AI 엔진이 예기치 않게 멈췄습니다. 다시 시도해 주세요.'],
   ]
   for (const [reason, message] of old) expect(chatErrorReason({ code: CHAT_ERROR_MESSAGES[reason].code, message })).toBe(reason)
   // and the new words, as stored by this server for older clients
   for (const l of LOCALES) expect(chatErrorReason({ code: 'busy', message: CHAT_ERROR_MESSAGES.wall_timeout[l] })).toBe('wall_timeout')
+  // the stall guard's words (one answer has no time limit since 2026-11-14), read back without params.reason too
+  for (const l of LOCALES) expect(chatErrorReason({ code: 'internal', message: CHAT_ERROR_MESSAGES.stalled[l] })).toBe('stalled')
   // the generic default of engine_unavailable, old and new, is a default text (shown in the language on screen)
   expect(isDefaultErrorMessage('engine_unavailable', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).')).toBe(true)
   expect(isDefaultErrorMessage('engine_unavailable', ERROR_MESSAGES.engine_unavailable.ja)).toBe(true)

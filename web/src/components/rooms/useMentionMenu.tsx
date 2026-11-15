@@ -22,6 +22,7 @@ import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { StatusEmoji } from '../StatusMessage'
 import { Avatar } from '../Avatar'
+import { GuestTagFor } from '../GuestTag'
 
 /** A mention's look in the box: the accent colour of a sent mention on its soft background. The shadows widen the
  * background sideways without moving a letter (not up or down: on phones two lines' backgrounds would touch). */
@@ -57,10 +58,11 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
   const allowed = !!everyone
   const tokens = useMemo(() => mentionTokens(text, picked.filter((p) => (p.id === ALL_MENTION_ID ? allowed : members.some((m) => m.id === p.id)))), [text, picked, members, allowed])
   const at = useMemo(() => {
-    const a = caret === null ? null : mentionAt(text, caret)
+    // (names of two words may be typed out: the list stays while one of them still fits, "@전체"'s words too)
+    const a = caret === null ? null : mentionAt(text, caret, [...shown.filter((m) => m.id !== meId).map((m) => m.name), ...(allowed ? MENTION_ALL_WORDS : [])])
     // right after a person's mention (or "@전체"): it is done, no list
     return a && tokens.some((x) => x.start === a.start) ? null : a
-  }, [text, caret, tokens])
+  }, [text, caret, tokens, shown, meId, allowed])
   const allName = t('rooms.mentionAll')
   const hits = useMemo(() => {
     if (!at || closedFor === text) return []
@@ -173,6 +175,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
                 <>
                   <Avatar user={{ ...u, avatarVersion: byId[u.id]?.avatarVersion }} size={22} />
                   <span className="truncate font-medium text-ink">{u.name}</span>
+                  <GuestTagFor userId={u.id} />
                   <StatusEmoji userId={u.id} className="-ml-1" />
                   {byId[u.id]?.title && <span className="truncate text-xs text-muted">{byId[u.id]!.title}</span>}
                 </>

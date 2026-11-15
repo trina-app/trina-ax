@@ -4,7 +4,8 @@
 // Payload: { aps: { alert, sound, badge?, mutable-content? }, body: { notificationId, code, path?, device? } } and nothing else
 // (device = the request's tag, see fcm.ts appData). expo-notifications reads a remote notification's data on iOS from
 // userInfo["body"]. A room notice (code room.*) is mutable: the phone app's notification service extension may replace
-// the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"). The
+// the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"); so is a
+// chat shared with the person by name (code chat.shared: who shared it, never the chat's title). The
 // generic alert stays as it is: an app without the extension (1.0.0), or an extension that gets no answer, shows it.
 // `badge`: the request's count for the app icon (iOS shows it only when the person allowed badges).
 import { validPushBadge, type PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
@@ -45,8 +46,9 @@ export const APNS_CREDENTIAL_REASONS = new Set([
   'TopicDisallowed', 'BadTopic', 'MissingTopic', 'Forbidden',
 ])
 
-/** Room notices (room.dm, room.mention, …): the app's extension may put who and where in the title. Nothing else. */
-export const mutableCode = (code: string) => code.startsWith('room.')
+/** Room notices (room.dm, room.mention, …): the app's extension may put who and where in the title; a chat shared with
+ * the person by name (chat.shared): who shared it. Nothing else. */
+export const mutableCode = (code: string) => code.startsWith('room.') || code === 'chat.shared'
 
 /** APNs apns-collapse-id is at most 64 bytes; a longer notification id collapses by its hash. */
 async function collapseId(notificationId: string): Promise<string> {

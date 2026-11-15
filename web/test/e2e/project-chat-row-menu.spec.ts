@@ -67,15 +67,18 @@ test('my own chat: a sheet across the bottom with every item; rename and delete 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('a chat of my own outside a shared project can move to another project from its row', async ({ page }) => {
+test('a chat of my own that only I see in a team project can move from its row, and be shared with the members', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const r = await post(page, '/api/projects', { name: 'Solo', scope: 'team', folderPath: 'marketing', instructions: '' })
   const id = ((await r.json()) as { id: string }).id
-  expect((await post(page, '/api/chats', { projectId: id, title: 'Draft' })).ok()).toBeTruthy()
+  // "Only me" (docs/DECISIONS.md "Team project chats shared by default")
+  expect((await post(page, '/api/chats', { projectId: id, title: 'Draft', private: true })).ok()).toBeTruthy()
   await page.goto(`/projects/${id}`)
+  // only its creator lists it, with a lock
+  await expect(page.getByTestId('project-chat').getByTestId('private-icon')).toBeVisible()
   const { items } = await openMenu(page, 'Draft')
-  expect(items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-rename', 'project-chat-move', 'project-chat-delete'])
+  expect(items).toEqual(['project-chat-pin', 'project-chat-copy-link', 'project-chat-rename', 'project-chat-move', 'project-chat-share', 'project-chat-delete'])
   await page.getByTestId('project-chat-move').click()
   await expect(page.getByRole('dialog')).toBeVisible()
 })

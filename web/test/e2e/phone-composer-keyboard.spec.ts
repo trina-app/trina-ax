@@ -1,8 +1,9 @@
 // A phone's message box with the keyboard up (QA TC-252): the text field and send stay in sight. A room's box with six
 // files, the "@" list and a long draft in a 390 x 480 view (the keyboard took the rest; lib/viewport.ts sets
 // .keyboard-open and --app-h): its files in one sideways row, the "@" list at most a quarter of what is in sight and over
-// the newest messages (not pushing the box), the text field at most 30 %, the messages still showing. The AI chat's box: the row under it (the engine picker) and the
-// who-sees line go while the keyboard is up and come back after. The keyboard is the window made shorter, as the iPhone
+// the newest messages (not pushing the box), the text field at most 30 %, the messages still showing. The AI chat's box: the
+// who-sees line goes while the keyboard is up and comes back after (the engine picker stays: it is in the box's row).
+// The keyboard is the window made shorter, as the iPhone
 // app's WebView and Android do (phone-keyboard.spec.ts). SHOTS_DIR=<folder>: both boxes with the keyboard up.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -92,7 +93,7 @@ test("a room's box: six files, the @ list and a long draft keep the text field a
   expect((await box(input)).height).toBeGreaterThan(KB * 0.3 + 1)
 })
 
-test("the AI chat's box: the engine row and the who-sees line hide while the keyboard is up", async ({ page }) => {
+test("the AI chat's box: the engine stays in the box's row, the who-sees line hides while the keyboard is up", async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
   await reset(page)
   await signIn(page)
@@ -100,14 +101,15 @@ test("the AI chat's box: the engine row and the who-sees line hide while the key
   await page.getByTestId('send').click()
   await expect(page).toHaveURL(/\/c\//)
   await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
-  const controls = page.getByTestId('composer-controls'), who = page.getByTestId('composer-phone-footer')
-  await expect(controls).toBeVisible()
-  await expect(page.getByTestId('engine-picker')).toBeVisible()
+  // the engine picker is in the box's row (QA TC-1400): nothing of the box under it but the who-sees line
+  const engine = page.getByTestId('composer-tools').getByTestId('engine-picker'), who = page.getByTestId('composer-phone-footer')
+  await expect(page.getByTestId('composer-controls')).toHaveCount(0)
+  await expect(engine).toBeVisible()
   await expect(who).toBeVisible()
   const input = page.getByTestId('composer-input')
   await input.click()
   await keyboard(page, true)
-  await expect(controls).toBeHidden()
+  await expect(engine).toBeVisible()
   await expect(who).toBeHidden()
   await input.fill(Array.from({ length: 20 }, (_, i) => `${i + 1}번째 줄`).join('\n'))
   expect((await box(input)).height).toBeLessThanOrEqual(KB * 0.3 + 1)
@@ -115,6 +117,6 @@ test("the AI chat's box: the engine row and the who-sees line hide while the key
   await inSight(page.getByTestId('send'))
   await shot(page, 'keyboard-chat-390x480.png')
   await keyboard(page, false)
-  await expect(controls).toBeVisible()
+  await expect(engine).toBeVisible()
   await expect(who).toBeVisible()
 })

@@ -3,11 +3,12 @@
 // with the way to Scheduled tasks (the 트리나 panel's row; "다시 확인" on the task's page). Not shown on that screen itself. A phone
 // (below 768 px): one row you tap, with a short line and a chevron, not a banner of two lines with a small link.
 import { ChevronRight, ShieldAlert } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { api, API } from '../lib/api'
+import type { Schedule } from '@mycel/shared/api'
 import { useT } from '../i18n'
 import { notificationsChanged, reloadAsked, schedulesChanged } from '../store/live'
+import { readCached, readSchedules, SHARED, useListCache } from '../store/listCache'
 import { useMe } from '../store/session'
 import { useRealPath } from '../lib/realPath'
 
@@ -17,17 +18,19 @@ export default function ScheduleReviewBanner() {
   const t = useT()
   const me = useMe()
   const pathname = useRealPath()
-  const [n, setN] = useState(0)
   const signedIn = !!me
+  // the person's tasks as this window last read them (store/listCache.ts, shared with Scheduled tasks and Search): a
+  // screen that mounts the banner again (Settings opening) reads them only when that read is older than RELOAD_MS
+  const items = useListCache((s) => (s.data[SHARED.schedules] as { items: Schedule[] } | undefined)?.items)
+  // an older server has no needsReview: nothing waits
+  const n = signedIn && items ? items.filter((s) => s.needsReview && !s.enabled && !s.resumeBlockedReason).length : 0
   useEffect(() => {
     if (!signedIn) return
-    let gone = false
-    // an older server has no needsReview: nothing waits
-    const load = () => api.call(API.listSchedules).then((r) => { if (!gone) setN(r.items.filter((s) => s.needsReview && !s.enabled && !s.resumeBlockedReason).length) }, () => {})
-    void load()
-    const id = setInterval(load, RELOAD_MS)
-    const offs = [notificationsChanged.on(() => void load()), schedulesChanged.on(() => void load()), reloadAsked.on(() => void load())]
-    return () => { gone = true; clearInterval(id); for (const off of offs) off() }
+    const load = (fresh = true) => void readCached(SHARED.schedules, readSchedules, { fresh, minAgeMs: RELOAD_MS }).catch(() => {})
+    load(false)
+    const id = setInterval(() => load(), RELOAD_MS)
+    const offs = [notificationsChanged.on(() => load()), schedulesChanged.on(() => load()), reloadAsked.on(() => load())]
+    return () => { clearInterval(id); for (const off of offs) off() }
   }, [signedIn])
   if (!n || pathname.startsWith('/scheduled')) return null
   return (

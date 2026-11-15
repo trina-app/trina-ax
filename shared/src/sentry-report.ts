@@ -57,24 +57,39 @@ const SCRUB: readonly [RegExp, string][] = [
   [/(?<![A-Za-z0-9])'[^']*(?:'|$)|"[^"]*(?:"|$)|`[^`]*(?:`|$)/g, '[text]'],
   [/\bBearer\s+\S+/gi, 'Bearer [redacted]'],
   [new RegExp(`(?<![A-Za-z0-9])(${SECRET_NAME})(?![A-Za-z0-9])\\s*[:=]\\s*(?:Bearer \\[redacted\\]|\\S+)`, 'gi'), '$1=[redacted]'],
+  // Korean labels (password, PIN, token, code): the value after them, with or without a colon, and after a particle:
+  // 비밀번호|비번|암호|토큰|인증번호, written as escapes because Korean text in code belongs in the language tables
+  [/(\uBE44\uBC00\uBC88\uD638|\uBE44\uBC88|\uC554\uD638|\uD1A0\uD070|\uC778\uC99D\uBC88\uD638)[\uC740\uB294\uC774\uAC00\uC744\uB97C]?(?![\uAC00-\uD7A3])\s*[:=]?\s*(?:Bearer \[redacted\]|\S+)/g, '$1=[redacted]'],
   [/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]'],
-  [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z]{2,}/g, '[email]'],
+  // the domain may be Korean (홍길동@회사.한국): keepText must not let it through
+  [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z\uAC00-\uD7A3]{2,}/g, '[email]'],
   [/\S*[\\/]\S*/g, '[path]'],
   [/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[ip]'],
   [/(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi, '[ip]'],
-  // a host or a file of any kind: whatever has a dot inside a word (acme.trina.app, registry.db, plan.key)
-  [/\b[\w-]+(?:\.[\w-]+)+\b/g, '[name]'],
+  // a host or a file of any kind: whatever has a dot inside a word (acme.trina.app, registry.db, plan.key, 회사.한국);
+  // letters of any script, so a Korean host is caught even when keepText keeps Hangul
+  [/(?<![\p{L}\p{N}_-])[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+/gu, '[name]'],
   [/\b[A-Za-z0-9_-]{20,}\b/g, '[id]'],
   [/\+?\d[\d ().-]{5,}\d/g, '[number]'],
-  // the code's own messages are English: other letters here came from a person (a team name, a file)
-  [/[^\x00-\x7F]+/g, '[text]'],
 ]
+/** the code's own messages are English: other letters here came from a person (a team name, a file) */
+const NON_ASCII: readonly [RegExp, string] = [/[^\x00-\x7F]+/g, '[text]']
+/** keepText: Hangul (syllables, jamo, compatibility jamo; not the invisible fillers) stays; any other non-ASCII letter, mark or symbol still goes */
+const NON_ASCII_BUT_HANGUL: readonly [RegExp, string] = [/[^\x00-\x7F\u1100-\u115E\u1161-\u11FF\u3131-\u3163\u3165-\u318E\uAC00-\uD7A3]+/g, '[text]']
+
+export interface ScrubOptions {
+  /** Keep Korean (Hangul) words. Only for a message written in code, such as a fixed alert title ("예약 작업 실패:
+   *  backup"): never for text that holds a name, a file, a message or anything a person typed. Every other rule still
+   *  runs (quoted text, tokens, secrets, URLs, emails, paths, IPs, hosts, long ids, numbers, other scripts). */
+  keepText?: boolean
+}
 
 /** A message with addresses, paths, secrets and long ids taken out. It cannot recognise plain English words as a name. */
-export function scrubText(s: string): string {
+export function scrubText(s: string, o: ScrubOptions = {}): string {
   let out = s.split('\n', 1)[0]!.slice(0, MAX_SCRUB_INPUT)
   for (const [re, to] of SCRUB) out = out.replace(re, to)
-  return out.slice(0, MAX_MESSAGE)
+  const [re, to] = o.keepText === true ? NON_ASCII_BUT_HANGUL : NON_ASCII
+  return out.replace(re, to).slice(0, MAX_MESSAGE)
 }
 
 export interface Frame { filename: string; function: string; lineno: number; colno: number; in_app: boolean }
@@ -120,6 +135,16 @@ export interface ErrorInput {
   tags?: Record<string, string>
   /** how long a repeat of this error stays out (default one minute; LONG_REPEAT_WINDOW_MS for a revoked key) */
   repeatWindowMs?: number
+  /** 'warning' for something that did not fail a request or a job; `fatal` wins over it */
+  level?: 'error' | 'warning'
+  /** Sentry's grouping, instead of type, message and frames: at most MAX_FINGERPRINT parts, each a code
+   *  (TAG_VALUE_RE) or a route pattern (ROUTE_VALUE_RE). One part that is neither, or too many parts, and the event
+   *  goes without a fingerprint (Sentry's own grouping). */
+  fingerprint?: string[]
+  /** 'message': the scrubbed message as `message.formatted`, no exception and no frames (an alert, not a throw) */
+  kind?: 'exception' | 'message'
+  /** keep Korean words in the message: see ScrubOptions.keepText. Only for messages written in code. */
+  keepText?: boolean
 }
 
 export interface EventOptions { release: string; environment: string; logger: string; tags: Record<string, string>; now: number }
@@ -127,52 +152,91 @@ export interface EventOptions { release: string; environment: string; logger: st
 const TAG_KEY_RE = /^[a-z][a-z0-9_]{0,31}$/
 /** a tag value is a code (instance a, provider apns, reason InvalidProviderToken, log event ops_keys_unusable) */
 export const TAG_VALUE_RE = /^[A-Za-z0-9_.:@-]{1,64}$/
+/** A route pattern as the router names it (Hono's c.req.routePath: /api/teams/:id, /t/:slug/api/*), never a real
+ *  path. Literal parts are short lowercase words: no dots (hosts, files), no @ (emails), no capitals and at most two
+ *  digits (ids, tokens, numbers); parameter names are short letters only (:id, :teamId). Not a proof: a real path
+ *  whose parts look like words (/u/kimminsu/files, a token made only of letters) passes, so callers pass the router's
+ *  pattern (c.req.routePath) only, never the request path. Allowed as the `route` tag and as a fingerprint part. */
+export const ROUTE_VALUE_RE = /^(?:\/(?:(?!(?:[a-z_-]*\d){3})[a-z][a-z0-9_-]{0,23}|:[a-z][A-Za-z_]{0,23}\??|\*))+\/?$|^\/$/
+const MAX_ROUTE = 128
+const MAX_FINGERPRINT = 4
+
+function routeValue(v: string): boolean {
+  return v.length <= MAX_ROUTE && ROUTE_VALUE_RE.test(v)
+}
 
 function cleanTags(...all: (Record<string, string> | undefined)[]): Record<string, string> {
   const out: Record<string, string> = {}
   for (const tags of all) {
     for (const [k, v] of Object.entries(tags ?? {})) {
       if (Object.keys(out).length >= MAX_TAGS) break
-      if (TAG_KEY_RE.test(k) && typeof v === 'string' && TAG_VALUE_RE.test(v)) out[k] = v
+      if (TAG_KEY_RE.test(k) && typeof v === 'string' && (TAG_VALUE_RE.test(v) || (k === 'route' && routeValue(v)))) out[k] = v
     }
   }
   return out
 }
 
+/** A code part that looks like personal data or a key: an email (@), 7+ digits in a row (a phone, a resident or order
+ *  number, a date), an IPv4 address, or a 20+ character run with a digit in it (a key, a UUID, a provider id).
+ *  Codes and versions (job-failed, InvalidProviderToken, 0.4.0) pass. */
+function looksLikeData(p: string): boolean {
+  return p.includes('@') || /\d[\d-]{5,}\d/.test(p) || /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/.test(p)
+    || (p.match(/[A-Za-z0-9_-]{20,}/g) ?? []).some((run) => /\d/.test(run))
+}
+
+/** The fingerprint as sent, or null: all parts pass, or none is sent. */
+export function cleanFingerprint(parts: unknown): string[] | null {
+  if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_FINGERPRINT) return null
+  for (const p of parts) if (typeof p !== 'string' || !((TAG_VALUE_RE.test(p) && !looksLikeData(p)) || routeValue(p))) return null
+  return [...parts] as string[]
+}
+
 /** Everything Sentry receives. Adding a field here is a privacy decision: see docs/DECISIONS.md first. */
 export function buildEvent(i: ErrorInput, o: EventOptions): Record<string, unknown> {
-  const frames = i.stack ? parseStack(i.stack, i.message) : []
-  return {
+  const text = scrubText(i.message, { keepText: i.keepText === true })
+  const fingerprint = i.fingerprint === undefined ? null : cleanFingerprint(i.fingerprint)
+  const event: Record<string, unknown> = {
     event_id: randomBytes(16).toString('hex'),
     timestamp: o.now / 1000,
     platform: 'node',
-    level: i.fatal ? 'fatal' : 'error',
+    level: i.fatal ? 'fatal' : i.level === 'warning' ? 'warning' : 'error',
     logger: o.logger,
     release: o.release,
     environment: o.environment,
     sdk: { name: 'mycel.sentry-report', version: '1.0.0' },
     tags: cleanTags(o.tags, i.tags),
-    exception: {
-      values: [{
-        type: i.type && /^[A-Za-z_$][\w$]{0,79}$/.test(i.type) ? i.type : 'Error',
-        value: scrubText(i.message),
-        ...(frames.length ? { stacktrace: { frames } } : {}),
-        mechanism: { type: o.logger, handled: !i.fatal },
-      }],
-    },
+    ...(fingerprint ? { fingerprint } : {}),
   }
+  if (i.kind === 'message') {
+    event.message = { formatted: text }
+    return event
+  }
+  const frames = i.stack ? parseStack(i.stack, i.message) : []
+  event.exception = {
+    values: [{
+      type: i.type && /^[A-Za-z_$][\w$]{0,79}$/.test(i.type) ? i.type : 'Error',
+      value: text,
+      ...(frames.length ? { stacktrace: { frames } } : {}),
+      mechanism: { type: o.logger, handled: !i.fatal },
+    }],
+  }
+  return event
 }
 
+const ERROR_CATEGORIES: readonly string[] = ['error', 'default']
+const MONITOR_CATEGORIES: readonly string[] = ['monitor']
+
 /** Seconds to wait from Sentry's answer, or null. X-Sentry-Rate-Limits lists "seconds:categories:scope" entries; only
- *  those for errors (or for every category) apply here. */
-export function pauseSeconds(limits: string | null, status: number, retryAfter: string | null): number | null {
+ *  those for `categories` (errors by default; ['monitor'] for check-ins) or for every category apply. A 429 without
+ *  a header for these categories pauses whatever was sent. */
+export function pauseSeconds(limits: string | null, status: number, retryAfter: string | null, categories: readonly string[] = ERROR_CATEGORIES): number | null {
   if (limits) {
     let wait = 0
     for (const entry of limits.split(',')) {
       const [secs = '', cats = ''] = entry.trim().split(':')
       const n = Number.parseInt(secs, 10)
       const list = cats.split(';').filter(Boolean)
-      if (Number.isFinite(n) && (list.length === 0 || list.includes('error') || list.includes('default'))) wait = Math.max(wait, n)
+      if (Number.isFinite(n) && (list.length === 0 || list.some((c) => categories.includes(c)))) wait = Math.max(wait, n)
     }
     if (wait > 0) return wait
   }
@@ -239,7 +303,8 @@ export class ErrorReporter {
   private admit(i: ErrorInput, now: number): boolean {
     const frames = i.stack ? afterMessage(i.stack, i.message).split('\n').filter((l) => /^\s*at /.test(l)).slice(0, 2).join('|') : ''
     const tags = Object.entries(i.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(',')
-    const key = `${i.type}|${tags}|${i.message.slice(0, 100)}|${frames.slice(0, 400)}`
+    const kind = `${i.kind ?? 'exception'}|${i.level ?? 'error'}|${Array.isArray(i.fingerprint) ? i.fingerprint.join('\u0000').slice(0, 300) : ''}`
+    const key = `${i.type}|${tags}|${i.message.slice(0, 100)}|${frames.slice(0, 400)}|${kind}`
     this.sentAt = this.sentAt.filter((t) => t <= now && now - t < 60_000)
     // a clock set back must not hold an error out for the whole jump
     for (const [k, until] of this.recent) if (until <= now || until - now > MAX_PAUSE_MS) this.recent.delete(k)
@@ -264,6 +329,118 @@ export class ErrorReporter {
     const wait = pauseSeconds(res.headers.get('x-sentry-rate-limits'), res.status, res.headers.get('retry-after'))
     if (wait !== null) this.pausedUntil = this.now() + Math.min(wait * 1000, MAX_PAUSE_MS)
     await res.body?.cancel()
+  }
+}
+
+export interface CheckInSchedule { type: 'crontab'; value: string }
+export interface CheckInIntervalSchedule { type: 'interval'; value: number; unit: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year' }
+
+/** What a check-in may say. Anything else, and any field that fails its rule, is left out (the status is required). */
+export interface CheckInBody {
+  status: 'in_progress' | 'ok' | 'error'
+  /** to close an in_progress check-in: a UUID or 32 hex characters */
+  check_in_id?: string
+  /** seconds the job ran */
+  duration?: number
+  environment?: string
+  monitor_config?: {
+    schedule: CheckInSchedule | CheckInIntervalSchedule
+    /** minutes */
+    checkin_margin?: number
+    /** minutes */
+    max_runtime?: number
+    /** an IANA name: UTC, Asia/Seoul */
+    timezone?: string
+    failure_issue_threshold?: number
+    recovery_threshold?: number
+  }
+}
+
+export interface CheckInOptions {
+  fetch?: FetchFn
+  /** default 5 s, at most 30 s */
+  timeoutMs?: number
+  now?: () => number
+}
+
+/** sent: Sentry took it; off: no usable key or slug, or no valid status; paused: Sentry asked for a pause on check-ins;
+ *  failed: a network error, a timeout or an error answer */
+export type CheckInResult = 'sent' | 'off' | 'paused' | 'failed'
+
+const CHECK_IN_ID_RE = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+/** the same rule as relay/deploy/relay-checkin.sh */
+const CRONTAB_RE = /^[0-9A-Za-z*/,\- ]{9,60}$/
+const TIMEZONE_RE = /^(?:UTC|[A-Z][A-Za-z_]{1,30}(?:\/[A-Z][A-Za-z0-9_+-]{1,30}){1,2})$/
+const INTERVAL_UNITS: readonly string[] = ['minute', 'hour', 'day', 'week', 'month', 'year']
+const MAX_CHECK_IN_TIMEOUT_MS = 30_000
+/** a check-in pause per project: errors and check-ins are limited apart, so neither pauses the other */
+const checkInPausedUntil = new Map<string, number>()
+
+function count(v: unknown, max: number): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max ? v : undefined
+}
+
+/** The body as sent, or null without a valid status. Only the fields named here can leave. */
+export function cleanCheckInBody(b: unknown): Record<string, unknown> | null {
+  if (!b || typeof b !== 'object') return null
+  const i = b as Record<string, unknown>
+  if (i.status !== 'in_progress' && i.status !== 'ok' && i.status !== 'error') return null
+  const out: Record<string, unknown> = { status: i.status }
+  if (typeof i.check_in_id === 'string' && CHECK_IN_ID_RE.test(i.check_in_id)) out.check_in_id = i.check_in_id
+  if (typeof i.duration === 'number' && Number.isFinite(i.duration) && i.duration >= 0 && i.duration <= 7 * 86_400) out.duration = i.duration
+  if (typeof i.environment === 'string' && /^[a-z0-9._-]{1,32}$/.test(i.environment)) out.environment = i.environment
+  const mc = i.monitor_config && typeof i.monitor_config === 'object' ? i.monitor_config as Record<string, unknown> : null
+  const sc = mc?.schedule && typeof mc.schedule === 'object' ? mc.schedule as Record<string, unknown> : null
+  let schedule: Record<string, unknown> | null = null
+  if (sc?.type === 'crontab' && typeof sc.value === 'string' && CRONTAB_RE.test(sc.value)) schedule = { type: 'crontab', value: sc.value }
+  else if (sc?.type === 'interval' && count(sc.value, 10_000) && typeof sc.unit === 'string' && INTERVAL_UNITS.includes(sc.unit)) schedule = { type: 'interval', value: sc.value, unit: sc.unit }
+  // a monitor_config without a valid schedule is left out whole: Sentry refuses one
+  if (mc && schedule) {
+    const config: Record<string, unknown> = { schedule }
+    const margin = count(mc.checkin_margin, 40_320)
+    const runtime = count(mc.max_runtime, 40_320)
+    const fails = count(mc.failure_issue_threshold, 720)
+    const recovers = count(mc.recovery_threshold, 720)
+    if (margin) config.checkin_margin = margin
+    if (runtime) config.max_runtime = runtime
+    if (typeof mc.timezone === 'string' && TIMEZONE_RE.test(mc.timezone)) config.timezone = mc.timezone
+    if (fails) config.failure_issue_threshold = fails
+    if (recovers) config.recovery_threshold = recovers
+    out.monitor_config = config
+  }
+  return out
+}
+
+/** A cron check-in from code (docs.sentry.io "Crons > HTTP"). Never throws and never logs: a check-in is a side note to
+ *  the job, so the job's result, timing and retries must not depend on it (await it, or not, as the caller likes).
+ *  Only cleanCheckInBody's fields are sent; the first check-in with monitor_config creates the monitor. A rate limit
+ *  for the monitor category (or for every category, or a 429) pauses check-ins to that project; a limit for errors only
+ *  does not, and a check-in limit never pauses ErrorReporter. */
+export async function checkIn(dsn: string | undefined, slug: string, body: CheckInBody, o: CheckInOptions = {}): Promise<CheckInResult> {
+  try {
+    const url = checkInUrl(dsn, slug)
+    const clean = cleanCheckInBody(body)
+    if (!url || !clean) return 'off'
+    const t = parseDsn(dsn)!
+    const project = `${t.base}/api/${t.project}`
+    const now = o.now ?? Date.now
+    const paused = checkInPausedUntil.get(project) ?? 0
+    // a clock set back must not leave check-ins paused for its whole jump
+    if (paused - now() > MAX_PAUSE_MS) checkInPausedUntil.delete(project)
+    else if (now() < paused) return 'paused'
+    const send = o.fetch ?? ((u: string, init: RequestInit) => fetch(u, init))
+    const res = await send(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(clean),
+      signal: AbortSignal.timeout(Math.min(Math.max(Number.isFinite(o.timeoutMs) ? o.timeoutMs! : SEND_TIMEOUT_MS, 1), MAX_CHECK_IN_TIMEOUT_MS)),
+    })
+    const wait = pauseSeconds(res.headers.get('x-sentry-rate-limits'), res.status, res.headers.get('retry-after'), MONITOR_CATEGORIES)
+    if (wait !== null) checkInPausedUntil.set(project, now() + Math.min(wait * 1000, MAX_PAUSE_MS))
+    try { await res.body?.cancel() } catch { /* the answer is not needed */ }
+    return res.ok ? 'sent' : 'failed'
+  } catch {
+    return 'failed'
   }
 }
 

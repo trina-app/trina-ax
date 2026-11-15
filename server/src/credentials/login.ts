@@ -23,7 +23,7 @@ import { CLAUDE_LOGIN_BOUND, CLAUDE_LOGIN_PENDING, CODEX_LOGIN_BOUND, CODEX_LOGI
 import { issueProxyToken, revokeProxyTokens } from '../proxy/model-proxy'
 import { parseDeviceLogin } from '../system/codex-login'
 import { ct } from './i18n'
-import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
+import { personalConnectionsAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
 import { createCredential, duplicateOf, insertRow, replaceSecret } from './service'
 import { connectionsChanged, fingerprintOf, getRow, metaOf, noticeMember, noticeOwners, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
@@ -101,7 +101,7 @@ class Logins {
   /** a team sign-in stores a connection only if its starter is still an active owner or admin (demoted or disabled while
    * it ran); a personal one only if the account is still active (not disabled, not deleted) */
   private mayConnectForTeam(userId: string): boolean {
-    const u = this.cc.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(userId) as { role: string; status: string; deleted_at: string | null } | null
+    const u = this.cc.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status, deleted_at FROM users WHERE id = ?`).get(userId) as { role: string; status: string; deleted_at: string | null } | null
     return !!u && !u.deleted_at && u.status === 'active' && (u.role === 'owner' || u.role === 'admin')
   }
   private accountActive(userId: string): boolean {
@@ -136,7 +136,7 @@ class Logins {
     const kind = i.kind ?? 'chatgpt'
     this.prune()
     if (!cc.allowedKinds.has(kind)) fail('validation', ct('kindNotAllowed', i.locale), { fields: { 'body.kind': 'not allowed on this server' } })
-    if (i.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db)) fail('forbidden', ct(i.personal ? 'memberOwnOff' : 'sharedSubscriptionsOff', i.locale))
+    if (i.personal ? !personalConnectionsAllowed(cc.db, i.userId) : !sharedSubscriptionsAllowed(cc.db)) fail('forbidden', ct(i.personal ? 'memberOwnOff' : 'sharedSubscriptionsOff', i.locale))
     if (i.reconnectId) {
       const r = getRow(cc.db, i.reconnectId)
       if (!r || r.kind !== kind || (i.personal && r.owner_user_id !== i.userId) || (!i.personal && r.owner_user_id !== null)) fail('not_found')
@@ -264,7 +264,7 @@ class Logins {
   private storeChatgpt(l: Login, json: string): { ok: true; id: string } | { ok: false; reason: string } {
     const { cc } = this
     if (!this.starterOk(l)) return { ok: false, reason: 'policy_changed' }
-    if (!cc.allowedKinds.has('chatgpt') || (l.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
+    if (!cc.allowedKinds.has('chatgpt') || (l.personal ? !personalConnectionsAllowed(cc.db, l.userId) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
     let a: { tokens?: { id_token?: unknown; access_token?: unknown; refresh_token?: unknown; account_id?: unknown }; last_refresh?: unknown }
     try { a = JSON.parse(json) } catch { return { ok: false, reason: 'unreadable' } }
     const t = a.tokens
@@ -300,7 +300,7 @@ class Logins {
     const { cc } = this
     if (!this.starterOk(l)) return { ok: false, reason: 'policy_changed' }
     // the policies again, now (as storeChatgpt): a reconnect goes through replaceSecret, which does not check them
-    if (!cc.allowedKinds.has('anthropic-oauth') || (l.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
+    if (!cc.allowedKinds.has('anthropic-oauth') || (l.personal ? !personalConnectionsAllowed(cc.db, l.userId) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
     try {
       // looked at again inside the write itself: the provider check below takes seconds, and the starter may have lost the right meanwhile
       const ensure = () => { if (!this.starterOk(l)) fail('forbidden') }
@@ -354,7 +354,7 @@ class Logins {
     // by the owner; the owner's own by nobody else (docs/PERMISSIONS.md)
     const other = l.userId !== userId
     if (other && l.personal) {
-      const role = (id: string) => (this.cc.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role
+      const role = (id: string) => (this.cc.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(id) as { role: string } | null)?.role
       const mine = role(userId), theirs = role(l.userId)
       if (!(mine === 'owner' || (mine === 'admin' && theirs === 'member'))) return fail('forbidden', ct('loginNotYours', locale))
     }

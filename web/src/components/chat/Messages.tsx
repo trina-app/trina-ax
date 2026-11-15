@@ -20,12 +20,12 @@ import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, Ci
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
-import { thumbnailUrl } from '../../lib/api'
-import { answerHtml } from '../../lib/richCopy'
+import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
+import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
-import { formatSize } from '../../lib/format'
-import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
+import { formatResetDay, formatSize } from '../../lib/format'
+import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
@@ -34,13 +34,14 @@ import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
+import { meGuest } from '../../lib/guests'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Avatar } from '../Avatar'
-import { Markdown } from '../Markdown'
+import { Markdown } from '../LazyMarkdown'
 import AiAccessButton from './AiAccessButton'
 import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
@@ -65,7 +66,9 @@ import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 import { EngineSheet } from './EngineSheet'
 import { Tooltip } from '../Tooltip'
 import { useViewerItem } from '../ImageViewer'
-import { attachmentItem } from '../../lib/imageViewer'
+import { attachmentItem, chatFileItem } from '../../lib/imageViewer'
+import { itemImage, teamFileLink } from '../../lib/fileMenu'
+import { useFileMenu } from '../FileMenu'
 
 export { ENGINE_LABEL }
 
@@ -112,6 +115,11 @@ const typeOf = (name: string) => {
   return ext && ext.length <= 5 ? ext.toUpperCase() : ''
 }
 
+/** The failed answers whose words send a member to an admin (no AI, the AI not ready; the monthly limit is the error
+ * code budget_exceeded): a guest reads "ask the person who invited you" instead (lib/guests.ts). */
+// (a guest with their own sign-in reads the member's "connect your own" for the no-AI ones, with its button)
+const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'engine_missing'])
+
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
   const { index, count, siblingIds } = m.branch
@@ -131,16 +139,25 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
   )
 }
 
-export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 'start' | 'end' }) {
+/** `chatId`: the chat the message is in (a file kept with a chat shared with people opens through it) */
+export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; align?: 'start' | 'end'; chatId?: string }) {
   const t = useT()
   const locale = useLocale()
   const [thumbFailed, setThumbFailed] = useState(false)
   // the soft box holds the place while the thumbnail loads; then a picture with transparency sits on the page itself
   const [thumbLoaded, setThumbLoaded] = useState(false)
   const team = a.source === 'team'
+  // a file from the computer kept with a chat shared with people: read through the chat, no team path (no link)
+  const kept = a.source === 'chat' && !!chatId
+  const item = (meta?: Parameters<typeof attachmentItem>[1]) => (kept ? chatFileItem(chatId!, a, meta) : attachmentItem(a, meta))
   // a picture opens the image viewer (the chat's other pictures by ← →), any other file the side panel
   const picture = a.kind === 'image' && !thumbFailed && !(team && a.unavailable)
-  const viewer = useViewerItem(picture ? (meta) => attachmentItem(a, meta) : null)
+  const viewer = useViewerItem(picture ? (meta) => item(meta) : null)
+  // its right-click menu (components/FileMenu.tsx): 이미지 복사 (a picture), 링크 복사 (the team file), 내려받기; none
+  // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
+  const fileMenu = useFileMenu(team && a.unavailable ? null : kept
+    ? { name: a.name, image: picture ? itemImage(item()) : null, download: () => startDownload(chatFileUrl(chatId!, a.id, { download: '1' }), a.name) }
+    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -151,11 +168,14 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   if (picture)
     return (
       // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
+      <>
       <Tooltip label={t('common.previewNamed', { name: a.name })}>
-        <button type="button" ref={viewer.ref} onClick={viewer.open} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })} data-testid="attachment-image">
+        <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44 pointer-coarse:[-webkit-touch-callout:none]', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })} data-testid="attachment-image">
           <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onLoad={() => setThumbLoaded(true)} onError={() => setThumbFailed(true)} className={clsx('block h-full w-full object-cover', !thumbLoaded && 'bg-subtle')} />
         </button>
       </Tooltip>
+      {fileMenu.menu}
+      </>
     )
   const ext = typeOf(a.name)
   const body = (
@@ -184,9 +204,12 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
     : {}
   // every attachment opens the file panel; a format without a viewer shows the notice and a download button there
   return (
-    <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={() => openTeamFile(a.path)} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag}>
-      {body}
-    </button>
+    <>
+      <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={(e) => !fileMenu.guard(e) && (kept ? openFilePreview({ source: 'chat', chatId: chatId!, fileId: a.id, name: a.name }) : openTeamFile(a.path))} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag} {...fileMenu.bind}>
+        {body}
+      </button>
+      {fileMenu.menu}
+    </>
   )
 }
 
@@ -271,7 +294,7 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
     <div className={clsx('flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[80%]', sending && 'opacity-70')} data-testid="user-form-run">
       <SkillChip title={skillLabel(run.skill)} name={run.skill.name} />
       {open ? (
-        <dl className="space-y-1 text-right text-[0.8125rem] leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
+        <dl className="space-y-1 text-right text-xs leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
           {run.answers.map((a, i) => (
             <div key={i}>
               <dt className="text-faint">{a.label}</dt>
@@ -280,7 +303,7 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
           ))}
         </dl>
       ) : (
-        <p className={clsx('text-right text-[0.8125rem] leading-5 text-muted [overflow-wrap:anywhere]', long && 'line-clamp-2')} data-testid="user-form-answers">
+        <p className={clsx('text-right text-xs leading-5 text-muted [overflow-wrap:anywhere]', long && 'line-clamp-2')} data-testid="user-form-answers">
           {run.answers.map((a, i) => (
             <span key={i} title={a.label}>
               {i > 0 && <span aria-hidden> · </span>}
@@ -359,14 +382,17 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
     ...(canEdit ? [{ label: t('chat.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: startEdit, testId: 'side-message-edit' }] : []),
   ] : []
   const branched = m.branch.count > 1
+  // someone else's file from their computer that I may not open is left out (the server leaves it out too): never a
+  // nameless "0 B" tile (QA TC-2022). A team file I may not open still says "unavailable"
+  const shownAttachments = m.attachments.filter((a) => !(a.unavailable && a.source !== 'team'))
   return (
     <div className={clsx('group flex min-w-0 flex-col items-end gap-2', pressMenu && 'relative max-md:pointer-coarse:select-none max-md:pointer-coarse:[-webkit-touch-callout:none]')} data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)} {...press.handlers}>
       {pressMenu && <PressSheet signal={press.signal} items={pressItems} />}
       {showAuthor && <MessageAuthor author={m.author} />}
-      {m.attachments.length > 0 && (
+      {shownAttachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
-          {m.attachments.map((a) => (
-            <AttachmentView key={a.id} a={a} />
+          {shownAttachments.map((a) => (
+            <AttachmentView key={a.id} a={a} chatId={chatId} />
           ))}
         </div>
       )}
@@ -425,13 +451,14 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
         )
       )}
       {m.local?.state === 'sending' && (
-        <span className="flex items-center gap-1 text-xs text-faint" role="status">
-          <Loader2 size={12} className="animate-spin" aria-hidden /> {t('chat.sending')}
+        // while Trina is updating it waits and goes by itself when the server is back (store/chats.ts deliver)
+        <span className="flex items-center gap-1 text-xs text-faint" role="status" data-testid={m.local.updating ? 'send-waiting-update' : undefined}>
+          <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden /> {m.local.updating ? t('conn.updatingUnsent') : t('chat.sending')}
         </span>
       )}
       {m.local?.state === 'failed' && (
-        <span className="flex flex-wrap items-center justify-end gap-2 text-xs text-danger" role="alert" data-testid="send-failed">
-          <AlertTriangle size={13} aria-hidden /> {t('chat.notSent')}
+        <span className={clsx('flex flex-wrap items-center justify-end gap-2 text-xs', m.local.limit ? 'text-muted' : 'text-danger')} role={m.local.limit ? 'status' : 'alert'} data-testid="send-failed" data-limit={m.local.limit || undefined}>
+          {m.local.limit ? <CirclePause size={13} aria-hidden /> : <AlertTriangle size={13} aria-hidden />} {t('chat.notSent')}
           {m.local.error && <span className="basis-full text-right">{m.local.error}</span>}
           <button type="button" className="font-medium underline" onClick={() => void resend(chatId, m.id)}>
             {t('chat.sendAgain')}
@@ -640,11 +667,23 @@ export function AssistantMessage({
   // by who reads it (lib/chatErrors.ts): "no AI" with its button for the owner and admins while no AI answers them
   // (another engine's connection, or one added since, keeps the per-engine words); where to fix it for the owner and
   // admins; what happened and who to tell for everyone else. Never the provider's HTTP status (params.status)
-  const role = useMe()?.user.role
+  // a guest reads the words everyone reads, with no button: asking or telling an admin is not theirs (the person who
+  // invited them turns their AI on; lib/guests.ts)
+  const meNow = useMe()
+  const myRole = meNow?.user.role
+  const guest = myRole === 'guest'
+  // a guest with their own sign-in (Me.guest.ai 'own') connects it themselves: "no AI" says so, with "Connect my AI"
+  const guestOwn = guest && meGuest(meNow)?.ai === 'own'
+  const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
-  const said = reason ? chatErrorText(reason, role, noAi) : null
+  // a guest is not told to ask an admin they do not know: the person who invited them
+  // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
+  const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
+  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
+  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
+    ? guestKey === 'guest.aiLimitUntil' ? t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+      : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
@@ -656,7 +695,12 @@ export function AssistantMessage({
   const press = usePhonePress(pressMenu && !streaming)
   const { copy } = useCopy()
   const answeredBy = useAnsweredBy(m)
-  const canRetry = !(m.status === 'error' && isLast) && canRegenerate
+  // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
+  // again (it would be refused until then; owner rule: never an error's look for a known state)
+  const atLimit = m.status === 'error' && m.error?.code === 'budget_exceeded'
+  // (an older limit answer may be asked again once the limit has started again)
+  const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
+  const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
   const finished = !!m.content && m.status === 'done'
   const sendHereOn = !!sendHere && shareable && finished
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
@@ -726,7 +770,13 @@ export function AssistantMessage({
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
-        {m.status === 'error' && (
+        {atLimit && (
+          <div role="status" className="mt-3 flex items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2 text-sm" data-testid="answer-limit">
+            <CirclePause size={16} className="mt-1.5 shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-1 py-1 leading-6 break-keep text-ink">{errText}</span>
+          </div>
+        )}
+        {m.status === 'error' && !atLimit && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
@@ -734,7 +784,7 @@ export function AssistantMessage({
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
             {isLast && canRegenerate && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
-                {isNoAiReason(reason) && <AiAccessButton />}
+                {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}

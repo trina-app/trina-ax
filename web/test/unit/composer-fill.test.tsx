@@ -127,3 +127,21 @@ describe('a request that needs the person\'s own text', () => {
     } finally { await m.unmount() }
   })
 })
+
+describe('the send key on a computer', () => {
+  // ↑ as on phones, a room's box and the ✦ side chat: a return-key icon (↵) was not read as "send"
+  test('shows ↑ named Send, and Enter still sends', async () => {
+    pointer(true)
+    const m = await open({ text: '안녕하세요', autoFocus: true })
+    try {
+      const send = m.get('send')
+      expect(send.getAttribute('aria-label')).toBe(translate('ko', 'chat.send'))
+      const icon = send.querySelector('svg')!.getAttribute('class')
+      expect(icon).toContain('lucide-arrow-up')
+      expect(icon).not.toContain('corner-down-left')
+      await act(async () => { box(m).dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' })) })
+      await m.settle()
+      expect(m.sent).toEqual(['안녕하세요'])
+    } finally { await m.unmount() }
+  })
+})

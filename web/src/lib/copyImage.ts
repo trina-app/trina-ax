@@ -12,6 +12,15 @@
 //   clipboard (desktop/src/main/security.ts) and is always https or this machine. An Android WebView (the phone app's,
 //   a chat app's in-app browser) puts no picture on the clipboard, so it has no button; the iPhone app's WebView and
 //   Safari take one.
+// - The desktop app: the PNG goes to its main process (DesktopBridge.copyImage), which puts it on the computer's
+//   clipboard itself, so it never depends on the page holding the focus or a click; a desktop app from before that
+//   takes the async clipboard as a browser does.
+// - The right-click menu's 이미지 복사 (components/FileMenu.tsx) outside the viewer reads the picture the same way the
+//   page shows it (`pickFromAddress`): only an address of the app's own file routes (lib/fileMenu.ts ownFileAddress).
+import type { MessageKey } from '../i18n'
+import { getDesktopBridge } from '@mycel/shared'
+import { readBounded } from './api'
+import { ownFileAddress } from './fileMenu'
 import { mobileApp } from './mobile'
 
 type ItemClass = typeof ClipboardItem & { supports?: (type: string) => boolean }
@@ -21,12 +30,20 @@ export interface CopyImageEnv {
   ClipboardItem?: ItemClass | null
   /** inside an Android WebView (the phone app's, an in-app browser's): it writes no picture to the clipboard */
   androidWebView?: boolean
+  /** the desktop app's own clipboard (its main process): true when the picture is on it */
+  desktop?: ((png: Uint8Array) => Promise<boolean>) | null
 }
 
 /** An Android WebView says so in its user agent ("; wv)"); the phone app's is one. */
 export const isAndroidWebView = (ua: string): boolean => /Android/i.test(ua) && /;\s*wv\)/.test(ua)
 
+const desktopCopy = (): CopyImageEnv['desktop'] => {
+  const b = getDesktopBridge()
+  return b?.copyImage ? (png) => b.copyImage!(png) : null
+}
+
 const pageEnv = (): CopyImageEnv => ({
+  desktop: desktopCopy(),
   clipboard: typeof navigator !== 'undefined' ? (navigator.clipboard ?? null) : null,
   ClipboardItem: typeof ClipboardItem !== 'undefined' ? ClipboardItem : null,
   androidWebView: mobileApp()?.platform === 'android' || (typeof navigator !== 'undefined' && isAndroidWebView(navigator.userAgent ?? '')),
@@ -34,6 +51,7 @@ const pageEnv = (): CopyImageEnv => ({
 
 /** Whether this page can put a picture on the clipboard (else the viewer shows no 복사). */
 export function canCopyImage(env: CopyImageEnv = pageEnv()): boolean {
+  if (env.desktop) return true
   const Item = env.ClipboardItem
   if (!Item || typeof env.clipboard?.write !== 'function' || env.androidWebView) return false
   // ClipboardItem.supports (Chromium 121, Safari 17.4, Firefox 127): asked where the browser has it
@@ -136,6 +154,16 @@ function onAbort(signal: AbortSignal | undefined): Promise<never> {
 
 /** Put the picture on the clipboard as a PNG. Call it inside the click or key press. Never rejects. */
 export async function copyImage(req: CopyRequest, env: CopyImageEnv = pageEnv(), encode: EncodePng = canvasPng): Promise<CopyResult> {
+  if (env.desktop) {
+    try {
+      const p = await Promise.race([pngOf(req, encode), onAbort(req.signal)])
+      const ok = await env.desktop(new Uint8Array(await p.blob.arrayBuffer()))
+      if (req.signal?.aborted) return { ok: false, reason: 'cancelled' }
+      return ok ? { ok: true, smaller: p.smaller } : { ok: false, reason: 'failed' }
+    } catch (err) {
+      return { ok: false, reason: err instanceof Refused ? err.reason : 'failed' }
+    }
+  }
   const Item = env.ClipboardItem
   if (!Item || !env.clipboard) return { ok: false, reason: 'failed' }
   // set before the write hears of it: a picture that could not be drawn (or a copy given up) is the reason, not the
@@ -162,5 +190,28 @@ export async function copyImage(req: CopyRequest, env: CopyImageEnv = pageEnv(),
     if (drawFailure) return { ok: false, reason: drawFailure }
     if (req.signal?.aborted) return { ok: false, reason: 'cancelled' }
     return { ok: false, reason: (e as { name?: unknown } | null)?.name === 'NotAllowedError' ? 'denied' : 'failed' }
+  }
+}
+
+/** The words of a failed copy, for its toast (the viewer, the right-click menu). */
+export const COPY_FAILED: Record<Exclude<CopyFailure, 'cancelled'>, MessageKey> = { denied: 'viewer.copyDenied', tooBig: 'viewer.copyTooBig', notLoaded: 'viewer.copyNotLoaded', failed: 'viewer.copyError' }
+
+/** The most a picture read for 이미지 복사 may be (the viewer's preview limit is lower; this only stops a runaway read). */
+export const COPY_READ_MAX = 60 * 1024 * 1024
+
+/** The picture at one of the app's own file addresses, read as the page reads it (its session, its checks) and drawn
+ * for the copy; `thumb`: the address is the thumbnail's. Any other address: nothing is read (null). */
+export function pickFromAddress(src: string, thumb: boolean, signal?: AbortSignal, origin?: string): PickPicture {
+  return async () => {
+    if (!ownFileAddress(src, origin)) return null
+    const res = await fetch(src, { credentials: 'same-origin', signal })
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {})
+      return null
+    }
+    const blob = await readBounded(res, COPY_READ_MAX)
+    if (!blob.type.startsWith('image/')) return null
+    const img = await createImageBitmap(blob)
+    return { drawn: { img, width: img.width, height: img.height }, thumb }
   }
 }

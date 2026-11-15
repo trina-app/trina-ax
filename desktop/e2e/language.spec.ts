@@ -77,7 +77,7 @@ test('the team page reports its language: menus, pane toolbar and team list foll
     expect(await allMenuItems(app)).toEqual(expect.arrayContaining(['실행 취소', '복사하기', '붙여넣기', '최소화']))
     await expect(c.locator('html')).toHaveAttribute('lang', 'ko')
     await expect(c.getByRole('button', { name: '새 탭' })).toHaveCount(1)
-    for (const locale of ['ja', 'es'] as const) {
+    for (const locale of ['ja', 'es', 'zh'] as const) {
       await page.evaluate(l => (window as any).mycelDesktop.setLocale(l), locale)
       await expect(c.locator('html')).toHaveAttribute('lang', locale)
       await expect.poll(() => menuLabels(app)).toContain(STRINGS[locale]['menu.team'])

@@ -23,7 +23,7 @@ setDefaultTimeout(60_000)
 
 let h: Harness
 beforeAll(async () => {
-  h = await startHarness({ name: 'web-echo', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'web-echo', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   noteEgressIp(h.ctx, '198.51.100.9')
 })
 afterAll(async () => { await h?.close() })

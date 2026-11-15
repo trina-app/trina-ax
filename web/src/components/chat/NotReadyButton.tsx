@@ -11,7 +11,7 @@ import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { Button } from '../ui'
 
-export default function NotReadyButton({ role, initial = 'idle' }: { role: 'owner' | 'admin' | 'member' | undefined; initial?: 'idle' | 'told' }) {
+export default function NotReadyButton({ role, initial = 'idle' }: { role: 'owner' | 'admin' | 'member' | 'guest' | undefined; initial?: 'idle' | 'told' }) {
   const t = useT()
   const navigate = useNavigate()
   const [state, setState] = useState<'idle' | 'sending' | 'told' | 'failed'>(initial)

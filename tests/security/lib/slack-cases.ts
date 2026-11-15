@@ -23,11 +23,14 @@ export const SLACK_SPECS: Record<string, Spec> = {
   cancelSlackLink: { build: c => c.post('/api/slack/link/cancel', NO_TOKEN), scope: 'nobody' },
   // "Sign in with Slack" for the caller's own account (Slack not set up here: 409 after the permission check)
   startSlackSignIn: { build: c => c.post('/api/slack/signin', {}), scope: 'self' },
+  // only this session's own waiting sign-in (tests/unit/c-slack.test.ts)
+  cancelSlackSignIn: { build: c => c.del('/api/slack/signin/flow'), scope: 'self' },
   // "Add to Slack" (the hosting service's official app): the owner's and admins' (no hosting service here: 409 after the
   // permission check)
   // "I updated them" (the bot's scopes for reading threads and channels, asked of Slack again): the owner's and admins'
   recheckSlackReadScopes: { build: c => c.post('/api/admin/slack/read-scopes/recheck', {}), scope: 'byLevel' },
   startSlackInstall: { build: c => c.post('/api/admin/slack/official/install', {}), scope: 'byLevel' },
+  cancelSlackInstall: { build: c => c.del('/api/admin/slack/install/flow'), scope: 'byLevel' },
 }
 // GET /api/integrations/slack/oauth/callback: the state's person and session binding is tested in tests/unit/c-slack.test.ts
 // (the official app's handoff: tests/unit/c-slack-official.test.ts); GET /api/integrations/slack/official/callback, the

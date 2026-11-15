@@ -29,9 +29,10 @@ async function newMember(username: string, groups: string[] = []): Promise<Clien
   return c
 }
 
-const ruleFolder = (p: string, rules: { subjectType: string; subjectId: string | null; access: string }[]) =>
-  owner.ok('POST', '/api/admin/folders', { path: p, create: true, rules })
-const restricted = (p: string) => ruleFolder(p, [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: hrGroup, access: 'write' }])
+const ruleFolder = (p: string, rules: { subjectType: string; subjectId: string | null; access: string }[], limited?: boolean) =>
+  owner.ok('POST', '/api/admin/folders', { path: p, create: true, rules, ...(limited ? { limited } : {}) })
+// restricted = Limit access, naming hr (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+const restricted = (p: string) => ruleFolder(p, [{ subjectType: 'group', subjectId: hrGroup, access: 'write' }], true)
 
 /** hr writes names.md twice (v1 kept as a version) and trashes severance.md; returns hr's version ids of names.md */
 async function fill(F: string): Promise<string[]> {

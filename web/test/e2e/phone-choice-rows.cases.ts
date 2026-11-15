@@ -88,13 +88,13 @@ export function phoneCases() {
     await noSelect(page)
     await expect(page.getByTestId('team-default-locale')).toContainText(t['teamSettings.defaultLocale'])
     await expect(page.getByTestId('team-default-locale-value')).toHaveText('English')
-    await expect(page.getByTestId('team-time-zone-value')).toHaveText('Asia/Seoul')
+    await expect(page.getByTestId('team-time-zone-value')).toHaveText('Seoul (UTC+9)')
     expect(Math.round((await page.getByTestId('team-default-locale').boundingBox())!.height)).toBeGreaterThanOrEqual(48)
     await shot(page, 'general.png')
 
     await backCloses(page, 'team-default-locale', 'English')
     const menu = await openChoices(page, 'team-default-locale', 'English')
-    await expect(menu.getByRole('menuitemradio')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
+    await expect(menu.getByRole('menuitemradio')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
     await shot(page, 'general-language-sheet.png')
     await page.getByTestId('team-default-locale-option-ja').click()
     await expect(sheet(page)).toHaveCount(0)
@@ -107,12 +107,29 @@ export function phoneCases() {
     await expect(page.getByTestId('team-default-locale-value')).toHaveText('日本語')
 
     // the time zones (about 400): the sheet opens at the current one
-    const zones = await openChoices(page, 'team-time-zone', 'Asia/Seoul')
+    const zones = await openChoices(page, 'team-time-zone', 'ソウル (UTC+9)')
     await expect(zones.getByRole('menuitemradio', { checked: true })).toBeInViewport()
     await shot(page, 'general-time-zone-sheet.png')
-    await zones.getByRole('menuitemradio', { name: 'Asia/Tokyo', exact: true }).click()
-    await expect(page.getByTestId('team-time-zone-value')).toHaveText('Asia/Tokyo')
+    // city and offset, not the IANA name; the search narrows the sheet, the saved value stays the IANA name
+    await expect(zones.getByRole('menuitemradio', { name: 'ソウル (UTC+9)', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByTestId('team-time-zone-search').fill('tokyo')
+    const narrowed = await openChoices(page, 'team-time-zone', 'ソウル (UTC+9)')
+    await expect(narrowed.getByRole('menuitemradio')).toHaveText(['ソウル (UTC+9)', '東京 (UTC+9)'])
+    await narrowed.getByRole('menuitemradio', { name: '東京 (UTC+9)', exact: true }).click()
+    await expect(page.getByTestId('team-time-zone-value')).toHaveText('東京 (UTC+9)')
     await expect(page.getByTestId('team-settings-savebar')).toBeVisible()
+  })
+
+  test('TC-1829 General: a time zone search that finds nothing says so inside the sheet, not behind it', async ({ page }) => {
+    await openGroup(page, 'general')
+    await page.getByTestId('team-time-zone-search').fill('zzz')
+    const zones = await openChoices(page, 'team-time-zone', 'Seoul (UTC+9)')
+    await expect(zones.getByRole('menuitemradio')).toHaveText(['Seoul (UTC+9)'])
+    const note = zones.getByTestId('team-time-zone-none')
+    await expect(note).toHaveText(t['teamSettings.timeZoneNone'])
+    await expect(note).toBeInViewport()
+    await shot(page, 'general-time-zone-none.png')
   })
 
   test('TC-378 AI engine: engine and model rows, the number without ⌃⌄, who picks as ✓ rows; each waits for its Save', async ({ page }) => {

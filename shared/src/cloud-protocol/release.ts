@@ -12,7 +12,7 @@ import { HttpsUrl, IsoTime, Sha256Hex } from './common.ts'
 
 const Version = z.string().regex(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/)
 const Download = z.object({ url: HttpsUrl, sha256: Sha256Hex, size: z.number().int().positive() })
-const LongI18n = z.object({ ko: z.string().max(4000), en: z.string().max(4000), id: z.string().max(4000), ja: z.string().max(4000).optional(), es: z.string().max(4000).optional() })
+const LongI18n = z.object({ ko: z.string().max(4000), en: z.string().max(4000), id: z.string().max(4000), ja: z.string().max(4000).optional(), es: z.string().max(4000).optional(), zh: z.string().max(4000).optional() })
 
 export const ReleaseChecks = z.object({
   unit: z.boolean(),

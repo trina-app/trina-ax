@@ -15,18 +15,20 @@ import clsx from 'clsx'
 import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { useLocation } from 'react-router-dom'
-import type { Budget, EngineId, EnginesResponse, Group, MemberEngineChoice, User } from '@mycel/shared/api'
+import type { Budget, EngineId, EnginesResponse, MemberEngineChoice } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
-import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
-import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
+import { Badge, Button, IconButton, Switch, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useOneAtATime } from './common'
+import { loadTeamCredentials, PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { PhoneChecks } from '../../components/phone/PhoneChecks'
 import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 import { AdminBarActions, BarAdd, useAdminBarSlot } from './barActions'
+import { BudgetForm, loadBudgets } from './BudgetForm'
+import { loadAdminEngines, preloadAdminPeople, readAdmin, useAdminGroups, useAdminRead, useAdminUsers } from '../../store/adminPeople'
 
 type EnginesData = EnginesResponse
 
@@ -45,6 +47,15 @@ export function defaultEngineChoices(engines: EnginesData['engines'], saved: Eng
   return engines.filter((e) => canBeDefault(e) || e.id === saved).map((e) => ({ id: e.id, off: !canBeDefault(e) }))
 }
 
+/** Start the reads of the AI groups now: Team settings shows them only after its own read, and would otherwise ask
+ * for them one after another. */
+export function preloadTeamAi() {
+  void readAdmin('engines', loadAdminEngines).catch(() => {})
+  void readAdmin('budgets', loadBudgets).catch(() => {})
+  void readAdmin('credentials', loadTeamCredentials).catch(() => {})
+  preloadAdminPeople()
+}
+
 /** The AI groups of Team settings; `#ai` and `#ai-limits` in the address bring their group into view. `part`: a phone's
  * group of Team settings (teamSettingsGroups.ts): the engine's groups, or the usage limits alone. */
 export default function TeamAiSettings({ part }: { part?: 'engine' | 'limits' }) {
@@ -55,7 +66,7 @@ export default function TeamAiSettings({ part }: { part?: 'engine' | 'limits' })
 
 function EngineGroups({ limits }: { limits: boolean }) {
   const { hash } = useLocation()
-  const state = useLoad(() => api.call(API.engines))
+  const state = useAdminRead('engines', loadAdminEngines)
   const tc = useTeamCredentials()
   const top = useRef<HTMLHeadingElement>(null)
   // opened at #ai (an old "Team provider settings" link): this group into view, the focus on its title
@@ -177,8 +188,8 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
 function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesData) => void }) {
   const t = useT()
   const act = useAction()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const [choice, setChoice] = useState<MemberEngineChoice>(data.memberChoice)
   const [fallback, setFallback] = useState(data.limitFallback)
   const [busy, setBusy] = useState(false)
@@ -319,9 +330,9 @@ function Budgets({ openHere }: { openHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const actOk = useActionOk()
-  const budgets = useLoad(async () => (await api.call(API.listBudgets)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const budgets = useAdminRead('budgets', loadBudgets)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const [editing, setEditing] = useState<Budget | 'new' | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   // opened from a "Usage limits" link (Usage, AI providers): bring this group into view and put the focus on its title,
@@ -412,84 +423,5 @@ function Budgets({ openHere }: { openHere?: boolean }) {
         />
       )}
     </SettingsSection>
-  )
-}
-
-function BudgetForm({ budget, users, groups, onClose, onSaved }: { budget: Budget | null; users: User[]; groups: Group[]; onClose: () => void; onSaved: () => void }) {
-  const t = useT()
-  const act = useAction()
-  const [f, setF] = useState({
-    subjectType: budget?.subjectType ?? ('team' as Budget['subjectType']),
-    subjectId: budget?.subjectId ?? null,
-    period: budget?.period ?? ('day' as Budget['period']),
-    limitTokens: budget?.limitTokens ?? 1_000_000,
-    limitUsd: budget?.limitUsd ?? 0,
-    action: budget?.action ?? ('warn' as Budget['action']),
-  })
-  const [busy, setBusy] = useState(false)
-  const valid = f.subjectType === 'team' || !!f.subjectId
-  const save = async () => {
-    setBusy(true)
-    const body = { ...f, subjectId: f.subjectType === 'team' ? null : f.subjectId }
-    const r = await act(() => (budget ? api.call(API.updateBudget, { params: { id: budget.id }, body }) : api.call(API.createBudget, { body })))
-    setBusy(false)
-    if (r) onSaved()
-  }
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={budget ? t('budgets.edit') : t('budgets.new')}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button variant="primary" busy={busy} disabled={!valid} onClick={save}>
-            {t('common.save')}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={t('budgets.for')}>
-          <select className={inputCls} value={f.subjectType} onChange={(e) => setF({ ...f, subjectType: e.target.value as Budget['subjectType'], subjectId: null })}>
-            <option value="team">{t('budgets.team')}</option>
-            <option value="group">{t('rules.group')}</option>
-            <option value="user">{t('rules.person')}</option>
-          </select>
-        </Field>
-        {f.subjectType !== 'team' && (
-          <Field label={t('rules.target')}>
-            <select className={inputCls} value={f.subjectId ?? ''} onChange={(e) => setF({ ...f, subjectId: e.target.value || null })}>
-              <option value="">—</option>
-              {(f.subjectType === 'group' ? groups : users).map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field label={t('budgets.period')}>
-          <select className={inputCls} value={f.period} onChange={(e) => setF({ ...f, period: e.target.value as Budget['period'] })}>
-            <option value="day">{t('budgets.perDay')}</option>
-            <option value="month">{t('budgets.perMonth')}</option>
-          </select>
-        </Field>
-        <Field label={t('budgets.tokens')}>
-          <input className={inputCls} type="number" min={0} value={f.limitTokens ?? 0} onChange={(e) => setF({ ...f, limitTokens: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
-        </Field>
-        <Field label={t('budgets.usd')} hint={t('budgets.usdHint')}>
-          <input className={inputCls} type="number" min={0} step="0.01" value={f.limitUsd} onChange={(e) => setF({ ...f, limitUsd: Math.max(0, Number(e.target.value) || 0) })} />
-        </Field>
-        <Field label={t('budgets.action')}>
-          <select className={inputCls} value={f.action} onChange={(e) => setF({ ...f, action: e.target.value as Budget['action'] })}>
-            <option value="warn">{t('budgets.warn')}</option>
-            <option value="block">{t('budgets.block')}</option>
-          </select>
-        </Field>
-      </div>
-    </Modal>
   )
 }

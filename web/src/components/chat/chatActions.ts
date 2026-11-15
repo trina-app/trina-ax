@@ -5,12 +5,13 @@
 // project, list folder), `trashChat` for the trash and back.
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
-import { useT } from '../../i18n'
+import { api, API, errorText } from '../../lib/api'
+import { useLocale, useT } from '../../i18n'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { openHome } from '../../lib/screenHistory'
 import { optimistic, optimisticPending, type OptimisticResult } from '../../lib/optimistic'
-import { hideChatInGroups, showPinnedChat } from '../../store/chatGroups'
+import { chatGroupsChanged, hideChatInGroups, showPinnedChat } from '../../store/chatGroups'
+import { keepFaces } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -135,6 +136,7 @@ export const undoDelete = async (chat: Chat, failText: string): Promise<void> =>
 
 export function useChatActions() {
   const t = useT()
+  const locale = useLocale()
   const { chatId } = useParams()
   const navigate = useNavigate()
   const me = useMeStrict()
@@ -161,14 +163,15 @@ export function useChatActions() {
   }
 
   /** true once the chat is in the trash (false: cancelled, or the delete failed). After the confirm it leaves the lists
-   * at once; "Chat deleted." with its Undo comes when the server has it. */
-  const remove = async (chat: Chat): Promise<boolean> => {
+   * at once; "Chat deleted." with its Undo comes when the server has it. `onShown`: a list's own copy (a project's
+   * page), told each time the chat leaves it or, refused, comes back. */
+  const remove = async (chat: Chat, onShown?: (c: Chat, trashed: boolean) => void): Promise<boolean> => {
     // the trash by the name of its row in the 트리나 panel (a rename there follows here)
     if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), confirm: t('common.delete'), danger: true }))) return false
     const was = currentChat(chat)
     // the chat on screen: Home, on a phone as 트리나 at its root, never on top of a project's stack (QA TC-255)
     if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
-    const r = await trashChat(was, true)
+    const r = await trashChat(was, true, { onShown })
     if (!r.ok) return false
     if (r.newest) {
       const undo = () => void undoDelete({ ...was, deletedAt: now() }, t('chat.restoreFailed', { trash: t('sidebar.trash') }))
@@ -205,5 +208,34 @@ export function useChatActions() {
     return r.ok && r.newest ? r.reply : null
   }
 
-  return { rename, remove, togglePin }
+  /** "Hide from my list" (a chat someone shared with me; docs/DECISIONS.md "Chats shared with people and groups"): it leaves
+   * my lists at once, for me alone; opening it again (a link, a notice, a search) brings it back, and so does the toast's
+   * Undo. The chat on screen: Home first (on screen, it would be seen, which brings it back). Refused: back in the lists
+   * with the server's words. `onShown`: a list's own copy, told it left. */
+  const hide = async (chat: Chat, onShown?: (c: Chat) => void): Promise<boolean> => {
+    const was = currentChat(chat)
+    if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
+    useChats.getState().removeChat(chat.id)
+    hideChatInGroups(chat.id)
+    onShown?.(was)
+    try {
+      await api.call(API.hideChat, { params: { id: chat.id } })
+    } catch (e) {
+      useChats.getState().upsertChat(was)
+      chatGroupsChanged()
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return false
+    }
+    const back = async () => {
+      try {
+        const c = await api.call(API.unhideChat, { params: { id: chat.id } })
+        useChats.getState().upsertChat(keepFaces(was, c))
+        chatGroupsChanged()
+      } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
+    }
+    toast({ level: 'info', text: t('chat.hidden'), action: { label: t('common.undo'), run: () => void back() } })
+    return true
+  }
+
+  return { rename, remove, togglePin, hide }
 }

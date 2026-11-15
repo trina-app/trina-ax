@@ -27,6 +27,7 @@ const FONTS: Record<Locale, string> = {
   id: '("Pretendard", "Noto Sans CJK KR")',
   es: '("Pretendard", "Noto Sans CJK KR")',
   ja: '("Pretendard", "Noto Sans CJK JP", "Hiragino Sans")',
+  zh: '("Pretendard", "Noto Sans CJK SC", "PingFang SC")',
 }
 
 function stops(list: { at: number; color: string }[]): string {

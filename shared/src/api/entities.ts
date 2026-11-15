@@ -2,7 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, TextSize, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -47,6 +47,8 @@ export const User = z.object({
   groupIds: z.array(Uuid7),
   createdAt: IsoTime,
   lastSeenAt: IsoTime.nullable(),
+  /** role guest only: their one place and AI choice */
+  guest: GuestDetail.optional(),
 })
 export type User = z.infer<typeof User>
 
@@ -84,6 +86,16 @@ export const Invite = z.object({
   /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
    * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
   leadFor: z.string().nullable().optional(),
+  /** a guest invite's one place; absent on member invites. `name`: a project's name (the invite list names it; a room's
+   * name is left out, since a group chat is its people's) */
+  guestPlace: GuestPlace.extend({ name: z.string().optional() }).optional(),
+  /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
+   * the links apart by it); absent when none was given and on member invites */
+  guestName: z.string().optional(),
+  /** a link nobody has used, turned off or let run out that no longer works anyway, and why: its maker left the room or
+   * lost the project or the right to make it (inviter_gone), the room or project is gone (place_gone), or its Team AI
+   * account was removed (ai_gone). Admin's invite list says so instead of a date. Absent while it works and from older servers */
+  stopped: z.enum(['inviter_gone', 'place_gone', 'ai_gone']).optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
@@ -93,7 +105,7 @@ export type SubjectType = z.infer<typeof SubjectType>
 /** One rule: who (subject) gets what (access) on a folder. subjectId: null for everyone, a Role for role, group id, user id. */
 export const FolderRuleInput = z.discriminatedUnion('subjectType', [
   z.object({ subjectType: z.literal('everyone'), subjectId: z.null(), access: Access }),
-  z.object({ subjectType: z.literal('role'), subjectId: Role.exclude(['owner']), access: Access }),
+  z.object({ subjectType: z.literal('role'), subjectId: TeamRole, access: Access }),
   z.object({ subjectType: z.literal('group'), subjectId: Uuid7, access: Access }),
   z.object({ subjectType: z.literal('user'), subjectId: UserId, access: Access }),
 ])
@@ -106,6 +118,9 @@ export const FolderRule = z.object({
   access: Access,
   updatedBy: UserRef.nullable(),
   updatedAt: IsoTime,
+  /** a person rule the one-time conversion to additive access wrote ("Added when folders changed"; docs/DECISIONS.md
+   * "Folder access adds up like Google Drive (P2)"). Saving it with the same access keeps the mark. Absent: not one */
+  byConversion: z.boolean().optional(),
 })
 export type FolderRule = z.infer<typeof FolderRule>
 /** folders: a folder that carries rules. path: actual on-disk names, no trailing slash, '' = team root. */
@@ -126,6 +141,9 @@ export const Folder = z.object({
   /** a hash of the folder's rules as they are now (the same rules in any order give the same hash): a save sends it
    * back as `expectedHash`, and the server answers 409 when another admin changed them first. Absent: an older server */
   rulesHash: z.string().optional(),
+  /** Limit access: nothing from the folders above reaches it, only its own rules (and the owner and admins, outside
+   * projects). Access otherwise adds up from the folders above. Absent: an older server */
+  limited: z.boolean().optional(),
 })
 export type Folder = z.infer<typeof Folder>
 
@@ -153,9 +171,9 @@ export const Project = z.object({
    * get none of it; restoring the folder, or pointing the project at a folder (PATCH folderPath, also the same path),
    * ends that. Absent from older servers: false. */
   inTrash: z.boolean().optional(),
-  /** shared project chats (docs/DECISIONS.md "Shared project chats"): new chats in this project are shared with its
-   * people. Team projects only; absent from older servers and for personal projects: off. Turning it off keeps the
-   * chats already shared. */
+  /** shared project chats (docs/DECISIONS.md "Shared project chats", "Team project chats shared by default"): new chats
+   * in this project are shared with its members unless started "Only me". Every team project since 2026-11-13; absent
+   * from older servers and for personal projects: off. */
   shareChats: z.boolean().optional(),
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
@@ -190,13 +208,32 @@ export const Project = z.object({
   /** the caller may manage it without reading it: rename, members, delete, restore (the owner or an admin for a team
    * project; its creator while they may edit it). Absent from older servers: use canEdit. */
   canManage: z.boolean().optional(),
+  /** the caller may delete it (DELETE /api/projects/:id). false: they manage it, but an older project a member made on
+   * a folder an admin made stays with that folder, so only an admin deletes it (409 project_folder_stays; QA TC-1016).
+   * Absent from older servers: use canManage. */
+  canDelete: z.boolean().optional(),
+  /** a team project in projects/<name> the caller is a member of (docs/DECISIONS.md "Leaving a project"): 'yes' they may
+   * leave it; 'last' nobody else is in it (the owner and admins who manage it without being members do not count), so
+   * they delete it or add someone first. Absent: a personal project, not a member, in the trash, an older server. */
+  leave: z.enum(['yes', 'last']).optional(),
+  /** while it is in the trash (`inTrash`, its folder not deleted for good from there): who moved it there and when
+   * (docs/DECISIONS.md "A team project in the trash: its members keep its card"). Absent otherwise, older servers. */
+  trashed: z.object({ by: UserRef.nullable(), at: IsoTime }).optional(),
+  /** while it is in the trash: the caller is one of its members (they read it again once it is back), so its card stays
+   * on their Projects list, saying only that it is in the trash. Its contents still come to nobody. Absent: not a member,
+   * not in the trash, an older server. */
+  wasMember: z.literal(true).optional(),
+  /** the caller may restore it from the trash (POST /api/projects/:id/restore, or its row in Files › Trash): the owner and
+   * admins for a team project, and its creator while they are one of its members. Absent: no, or an older server (there:
+   * the owner and admins). */
+  canRestore: z.literal(true).optional(),
 })
 export type Project = z.infer<typeof Project>
 
 /** Run state of a chat, from the turn queue. */
 export const ChatRunState = z.enum(['idle', 'queued', 'running'])
 export type ChatRunState = z.infer<typeof ChatRunState>
-/** At most this many of a shared chat's writers come with it (Chat.shared.people): the faces a project page's row shows. */
+/** At most this many of a shared chat's other writers come with it (Chat.shared.people): the faces its list rows show. */
 export const CHAT_PEOPLE_SHOWN = 3
 export const Chat = z.object({
   id: Uuid7,
@@ -222,6 +259,10 @@ export const Chat = z.object({
   /** I answered the AI here, and the answer waits for a free place among the team's running answers to go on (the AI
    * gave its place back while it waited for me). Absent = no. */
   waitingForPlace: z.literal(true).optional(),
+  /** a run of one of my own scheduled tasks (its first turn is the task's run; only for the task's owner): the task and
+   * how this run went (null while it runs). The lists fold the runs of one task into one row that opens the task
+   * (docs/DECISIONS.md "Scheduled runs fold in Recent"). Absent = not a run, or the task is gone. */
+  schedule: z.object({ id: z.string(), title: z.string(), templateId: z.string().nullable(), outcome: z.enum(['succeeded', 'problems', 'failed']).nullable() }).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
@@ -245,10 +286,17 @@ export const Chat = z.object({
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({
+    /** 'project': a shared project chat (its project's members see it); 'people': a chat outside projects its creator
+     * shared with chosen people and groups (docs/DECISIONS.md "Chats shared with people and groups"). Absent (older
+     * server): 'project'. */
+    kind: z.enum(['project', 'people']).optional(),
     /** who made it */
     by: UserRef,
     /** how many people see it now (the project's audience) */
     audience: z.number().int().nonnegative(),
+    /** a chat shared with people and groups with a group in it, to anyone but its creator and admins: how many see it is
+     * not told (it would tell a group's size), and `audience` is 0 */
+    audienceHidden: z.literal(true).optional(),
     /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
      * null when nobody's is, or when it is mine */
     answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
@@ -259,11 +307,13 @@ export const Chat = z.object({
     /** I may send files from the computer here (they go into the project's chat attachments folder, which I may write:
      * server/src/uploads/shared-chat.ts). false: the message box offers team files only. Absent (older server): allowed. */
     canUpload: z.boolean().optional(),
-    /** who wrote in it (sent a question there, its creator included), the most recent first, at most
-     * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
-     * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
+    /** the other people who wrote in it (sent a question there, its creator included when they did; never the viewer),
+     * the most recent first, at most CHAT_PEOPLE_SHOWN of them: the faces of its list rows (docs/DECISIONS.md "Faces in
+     * every chat list"). In every chat list (GET /api/chats in all its forms but the trash, GET /api/chats/groups) and in
+     * chat.updated; absent elsewhere (a single chat, an action's answer), and empty while nobody else wrote. People the
+     * viewer sees in the chat anyway. */
     people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
-    /** how many people wrote in it (with `people`) */
+    /** how many other people wrote in it (with `people`) */
     peopleCount: z.number().int().nonnegative().optional(),
   }).optional(),
 })
@@ -273,12 +323,14 @@ export type Chat = z.infer<typeof Chat>
  * messages.attachments[]: files the person attached. Uploads are stored in users/<id>/.attachments/<chatId>/;
  * team files (source 'team', POST /api/attachments/team-file) are references to a file in the team folder, not copies:
  * the server follows the file (moves, edits) and checks the person's read access again whenever it is shown or sent.
+ * In a chat shared with people and groups a file from the computer is kept with the chat (source 'chat', no team path:
+ * GET /api/chats/:id/files/:fileId, for everyone who sees the chat).
  */
 export const Attachment = z.object({
   id: Uuid7,
   name: z.string(),
   /** team-relative path: of the stored upload (users/<me>/.attachments/<chatId>/<name>), or where the referenced team
-   * file is now ('' when it is unavailable) */
+   * file is now ('' when it is unavailable, and for a chat's own file) */
   path: RelPath,
   size: z.number().int().nonnegative(),
   mime: z.string(),
@@ -286,8 +338,9 @@ export const Attachment = z.object({
   /** images: width/height for layout before the thumbnail loads */
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
-  /** 'team': a reference to a team-folder file (absent: an upload) */
-  source: z.enum(['upload', 'team']).optional(),
+  /** 'team': a reference to a team-folder file; 'chat': a file from the computer kept with a chat shared with people and
+   * groups (its people open it through the chat); absent: an upload */
+  source: z.enum(['upload', 'team', 'chat']).optional(),
   /** team references: sha256 of the content when it was attached */
   sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** team references: the content changed since it was attached (the AI gets the current version) */
@@ -296,6 +349,10 @@ export const Attachment = z.object({
   moved: z.boolean().optional(),
   /** team references: deleted, or the viewer can no longer read it; name, path and size are then blanked */
   unavailable: z.boolean().optional(),
+  /** the answer to an upload only: how many bytes the server received, when the file it kept is another size (a
+   * picture's place and camera cut out after it arrived whole: a file kept with a chat shared with people). The sender
+   * checks the file arrived whole against this, `size` is what everyone opens (QA TC-2023) */
+  receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message. */
@@ -349,6 +406,8 @@ export const Step = z.object({
     kind: z.enum(['command', 'job', 'server']),
     state: z.enum(['waiting', 'started', 'expired', 'cancelled']),
     position: z.number().int().min(1).nullable(),
+    /** project: the command waits for another command in the same project (no place in line, no Cancel; it holds no slot) */
+    why: z.literal('project').optional(),
     port: z.number().int().min(1).max(65535).optional(),
   }).optional(),
 })
@@ -401,9 +460,10 @@ export type MessageSources = z.infer<typeof MessageSources>
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
- * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds) or of
- * working time (`time_limit`, 20 active minutes or the
- * total time). Its status stays 'done': not an error, not a stop by the person; the screen offers "continue". */
+ * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds), or, for
+ * answers from before 2026-11-14, the old limit of working time (`time_limit`, 20 active minutes or 45 in total; one
+ * answer has no time limit since then, docs/DECISIONS.md "No time limit on one answer"). Its status stays 'done': not
+ * an error, not a stop by the person; the screen offers "continue". */
 export const TurnStopReason = z.enum(['tool_limit', 'time_limit'])
 export type TurnStopReason = z.infer<typeof TurnStopReason>
 export const Usage = z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative() })
@@ -610,6 +670,10 @@ export const TrashItem = z.object({
   purgeAt: IsoTime,
   /** a whole folder was deleted (restored as one); absent = file */
   type: z.enum(['file', 'folder']).optional(),
+  /** a team project's own folder, which went to the trash with its project: the project's name and id, so Files › Trash
+   * shows it as the project (docs/DECISIONS.md "A team project in the trash: its members keep its card"). Absent: any
+   * other item, an older server. */
+  project: z.object({ id: Uuid7, name: z.string() }).optional(),
 })
 export type TrashItem = z.infer<typeof TrashItem>
 
@@ -703,8 +767,8 @@ export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaT
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
 /** Tool rounds one answer may take (Claude Code `--max-turns`; Admin > Team settings `answerStepLimit`). A round is one
- * reply of the AI: tools it calls together in one reply count once. Claude Code itself has no such cap; the 20 active
- * minutes and the budgets still end a long answer. docs/DECISIONS.md "Tool rounds per answer". */
+ * reply of the AI: tools it calls together in one reply count once. Claude Code itself has no such cap; with
+ * the budgets it is what ends a long answer (one answer has no time limit). docs/DECISIONS.md "Tool rounds per answer". */
 export const DEFAULT_ANSWER_STEP_LIMIT = 150
 export const ANSWER_STEP_LIMIT_MIN = 10
 export const ANSWER_STEP_LIMIT_MAX = 500

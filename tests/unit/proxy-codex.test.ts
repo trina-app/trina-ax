@@ -653,7 +653,7 @@ describe('what is logged', () => {
       expect(env.db.query("SELECT COUNT(*) AS n FROM credential_usage_daily WHERE credential_id = ?").get(G)).toEqual({ n: 0 })
       stopped.set('cx', 'timeout')
       await hangUp(tokFor(G))
-      expect(logged.filter((l) => (l.msg as string).includes('ended by a stop')).map((l) => l.by)).toEqual(['time_limit'])
+      expect(logged.filter((l) => (l.msg as string).includes('ended by a stop')).map((l) => l.by)).toEqual(['stalled'])
     } finally { stopped.delete('cx'); respMode = 'ok' }
   })
   test('the engine hanging up while its turn runs is still a warning, of its own', async () => {

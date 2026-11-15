@@ -4,6 +4,8 @@
 // - the names (M2, M3, N3): exact, compact, look-alike and invisible characters fold together across people and groups,
 //   so a look-alike or a same name needs the id; an id must be one of its name's candidates; removal by a part of 2+
 //   characters among the members; one message for "not a member"; no group of someone else's;
+// (a team project's chats are shared by default since 2026-11-13: the person's own chat there starts "Only me",
+// `private`, docs/DECISIONS.md "Team project chats shared by default")
 // - where it runs: refused (refusal()) in a scheduled run, a room, a shared chat, a confidential chat, a chat other
 //   people wrote in, a Slack thread's chat, a limited run, and for a sub-agent; never in the room or shared allowlists,
 //   FILE_TOOLS or the remote connector; at most two cards, none after a no, one at a time;
@@ -28,7 +30,8 @@ import { compactName, foldName, groupSubject, matchName, MEMBERS_TEXT, mentioned
 import { DICTS } from '../../web/src/i18n'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
-import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
+import { ensureFolderRow } from '../../server/src/admin/folders'
+import { setFolderAccess } from '../lib/folder-access'
 import { TurnFiles } from '../../server/src/files/service'
 import { tr } from '../../server/src/chat/i18n'
 import { PROJECT_MEMBERS_RULE } from '../../server/src/chat/prompt'
@@ -49,7 +52,7 @@ let h: Harness
 const socks: Record<string, TestSocket> = {}
 let marketing = '', finance = ''
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-project-members-tool', askUserTimeoutMs: 6000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-project-members-tool', askUserTimeoutMs: 6000, stallTimeoutMs: 60_000 })
   const db = h.ctx.db
   // the contract's group ids (and a team room's groupId) are UUIDv7; the fixture's are short (as b-post-to-room)
   db.exec('PRAGMA foreign_keys = OFF')
@@ -81,7 +84,7 @@ const user = (id: string) => ({ subjectType: 'user' as const, subjectId: id })
 /** One answer in a chat of `who` (a new chat of `projectId`, or `chat`); every card answered with `answer` (null: left to
  * close by itself), `meanwhile` run while the first card waits. */
 async function turn(who: string, content: string, o: { projectId?: string; chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
-  const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: { ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.side ? { sideRoomId: o.side } : {}) } })).id
+  const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: { ...(o.projectId ? { projectId: o.projectId, private: true } : {}), ...(o.side ? { sideRoomId: o.side } : {}) } })).id
   const r = await h.api(who).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const cards: Card[] = []
   const seen = new Set<string>()
@@ -137,7 +140,7 @@ describe('names (M2, M3, N3)', () => {
   })
 
   test('a group goes by its labels in every language (the web\'s projects.whoGroup); a person who takes one shares its name (review MUST)', () => {
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(MEMBERS_TEXT.groupLabel[L]).toBe(DICTS[L]['projects.whoGroup'])
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(MEMBERS_TEXT.groupLabel[L]).toBe(DICTS[L]['projects.whoGroup'])
     const sales = groupSubject({ id: 'g-sales', name: '영업', people: 12 })
     const fake: Subject = { subjectType: 'user', subjectId: 'u-fake', name: '영업 부서' }
     const everyone = [sales, fake]
@@ -235,7 +238,7 @@ describe('where it runs', () => {
 
   test('refused up front everywhere but the person\'s own chat with them there (refusal(): what, why, next)', async () => {
     const p = await project('alice', 'Gate')
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     const exec = (o: Record<string, unknown> = {}, spec: Record<string, unknown> = {}) => ({
       spec: { userId: 'alice', chatId: chat, turnId: uuidv7(), assistantId: uuidv7(), locale: 'en', clientKind: 'web', ...spec },
       room: null, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false,
@@ -271,7 +274,7 @@ describe('where it runs', () => {
 
   test('a Slack thread\'s chat and a sub-agent, through a real answer: refused, no card, nothing changed', async () => {
     const p = await project('alice', 'Slacked')
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     h.ctx.db.query("INSERT INTO slack_threads (team_id, channel_id, thread_ts, user_id, chat_id, created_at) VALUES ('T1', 'C1', '1.1', 'alice', ?, '2026-11-10T00:00:00Z')").run(chat)
     const r = await turn('alice', call({ add: [{ name: 'Bob Lee' }] }), { chat, answer: 'change' })
     expect(r.cards).toEqual([])
@@ -399,7 +402,7 @@ describe('the attacks', () => {
     // this chat's own project: not red
     expect(c.details![0]!.alerts).toBeUndefined()
     // a chat that read rooms (rooms_seen) leads with the same line; a name the person wrote is not red
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat)
     const seen = await turn('alice', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, { chat, answer: 'skip' })
     expect(seen.cards).toHaveLength(1)
@@ -509,23 +512,15 @@ describe('the attacks', () => {
     expect(audits(r.turnId).map((a) => a.outcome)).toEqual(['changed'])
   })
 
-  test('an older folder: the save would add the floor or bring the creator back: refused, sent to the panel, nothing changed', async () => {
-    // a folder an older build made: the creator's rule only, no floor
-    fs.mkdirSync(path.join(h.team, 'projects/old-floor'), { recursive: true })
-    const row = ensureFolderRow(h.ctx.db, 'projects/old-floor')
-    h.ctx.db.transaction(() => replaceRules(h.ctx.db, row.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], 'alice'))()
-    const id = uuidv7()
-    h.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, folder_made) VALUES (?, 'Old floor', 'projects/old-floor', '', 'alice', '2026-01-01T00:00:00Z', 1)").run(id)
-    const r = await turn('alice', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, { projectId: id, answer: 'change' })
-    expect(r.cards).toEqual([])
-    expect(r.content).toContain('"everyone else: no access" rule')
-    expect(r.content).toContain(`/projects/${id}?members=1`)
-    expect(rulesAt('projects/old-floor')).toEqual([{ t: 'user', s: 'alice', a: 'write' }])
+  test('the creator\'s rule missing: the save would bring the creator back: refused, sent to the panel, nothing changed', async () => {
+    // (the other half of this test, a project folder an older build left without "everyone else: no access", cannot
+    // happen any more: the conversion and every writer keep each projects/<name> limited, docs/DECISIONS.md "Folder
+    // access adds up like Google Drive (P2)", invariant 5)
     // the creator's rule taken out by an admin (Admin › Folder permissions of an older build): carol's change would put
     // it back. She is not a member, so she names the project from a chat outside it
     const q = await project('alice', 'No creator rule', [user('erin')])
     const qr = ensureFolderRow(h.ctx.db, q.folderPath)
-    h.ctx.db.transaction(() => replaceRules(h.ctx.db, qr.id, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
+    h.ctx.db.transaction(() => setFolderAccess(h.ctx.db, qr.id, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
     const c = await turn('carol', `No creator rule 프로젝트에 Bob Lee 넣어줘\n${call({ project: 'No creator rule', add: [{ name: 'Bob Lee' }] })}`, { answer: 'change' })
     expect(c.cards).toEqual([])
     expect(c.content).toContain('the creator\'s rule is missing')
@@ -540,7 +535,7 @@ describe('the attacks', () => {
       // a read rule is added meanwhile (as an older build's Admin › Folder permissions could)
       meanwhile: () => {
         const row = ensureFolderRow(h.ctx.db, p.folderPath)
-        h.ctx.db.transaction(() => replaceRules(h.ctx.db, row.id, [...rulesAt(p.folderPath).map((x) => ({ subjectType: x.t, subjectId: x.s, access: x.a }) as never), { subjectType: 'user', subjectId: 'jun', access: 'read' }], 'carol'))()
+        h.ctx.db.transaction(() => setFolderAccess(h.ctx.db, row.id, [...rulesAt(p.folderPath).map((x) => ({ subjectType: x.t, subjectId: x.s, access: x.a }) as never), { subjectType: 'user', subjectId: 'jun', access: 'read' }], 'carol'))()
       },
     })
     expect(r.content).toContain('changed while the card waited')
@@ -595,7 +590,7 @@ describe('the audit and the busy card', () => {
     expect(r.content).toContain('no active person on this team')
     expect(audits(r.turnId).map((a) => [a.outcome, a.reason])).toEqual([['refused', 'unclear']])
     // busy: a stand-in turn with another card open
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     const asked: TurnRequest[] = []
     const exec = {
       spec: { userId: 'alice', chatId: chat, turnId: uuidv7(), assistantId: uuidv7(), locale: 'en', clientKind: 'web' },

@@ -1,19 +1,22 @@
 // "프로젝트 멤버와 공유" (shared/src/api/chats.ts shareChat; docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): my private chat in a team project that shares its chats becomes a shared chat. The flow starts from the
-// move dialog's switch (components/chat/ChatProject.tsx) or the title menu (components/chat/ChatTitleMenu.tsx). The
+// title menu (components/chat/ChatTitleMenu.tsx), the copy-link toast or the project page's "chats only you see" line
+// (the move dialog has no switch any more: QA TC-1075). The
 // server checks what the chat used, every branch: when nothing is narrower than the project's people, it is shared at
 // once; otherwise it answers "confirm" and one dialog asks, in the style of "대화방에 보내기"'s provenance line
 // (components/chat/ShareToRoom.tsx): first the sentence that the whole conversation shows and that sharing cannot be
 // undone, then how many people cannot see material it used and the places I may look myself (never who), "not all
-// known" for an older chat, and a note when personal memories may be in it. 공유하기 (the focused default) sends the key
-// back; something changed meanwhile: it asks again, said so on top. 취소, ✕ and Esc leave the chat as it is (moved, when
+// known" for an older chat, and a note when personal memories may be in it. The material others can't see is a warning
+// (warn style), and the focus starts on 취소 (QA TC-1073: sharing can't be undone); 공유하기 sends the key back;
+// something changed meanwhile: it asks again, said so on top. 취소, ✕ and Esc leave the chat as it is (moved, when
 // it was just moved, and private). Shared: a toast, and the chat everywhere gets its shared mark (store/chats.ts).
-import { AlertCircle, Info } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Info } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { create } from 'zustand'
 import type { Chat, Project, ShareChatResult } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
-import { seenOnceShared, sharesNewChats } from '../../lib/sharedChat'
+import { privateInTeamProject, seenOnceShared } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { toast } from '../../store/ui'
 import { Button, Modal } from '../ui'
@@ -21,15 +24,16 @@ import { placeName } from './ShareToRoom'
 
 type Ask = Extract<ShareChatResult, { status: 'confirm' }> & { seq: number }
 
-/** May this person offer to share this chat: a chat of one person (so theirs), not confidential, in a project whose new
- * chats are shared (a team project, its setting on, its folder not in the trash, safe operations off). The server
- * checks all of it again, and what the screens cannot know (a scheduled run's chat, a busy one). */
-export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt'>>, project: Pick<Project, 'shareChats' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
-  !chat.shared && !chat.confidential && !chat.deletedAt && sharesNewChats(project, safeOps)
+/** May this person offer to share this chat: a chat of one person (so theirs), not confidential, in a team project (its
+ * folder not in the trash, safe operations off; not gated by any project setting: docs/DECISIONS.md "Team project chats
+ * shared by default"). The server checks all of it again, and what the screens cannot know (a scheduled run's chat, a
+ * busy one). */
+export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt' | 'sideRoomId'>>, project: Pick<Project, 'folderPath' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
+  !chat.confidential && !chat.sideRoomId && privateInTeamProject(chat, project) && !safeOps
 
-/** The share of `chatId`: asks the server at once, and shows the confirm when one comes back. `ask` (the title menu):
- * the confirm comes first even when nothing applies (its item opens a question, and sharing cannot be undone); the move
- * dialog's switch, with the same sentence under it, is that choice already. `onShared`: the chat as shared (it is also
+/** The share of `chatId`: asks the server at once, and shows the confirm when one comes back. `ask` (the title menu,
+ * the app's one host): the confirm comes first even when nothing applies (its item opens a question, and sharing
+ * cannot be undone). `onShared`: the chat as shared (it is also
  * put in the chat list); `onClose`: the flow is over, shared or not. */
 export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { chatId: string; ask?: boolean; onClose: () => void; onShared?: (c: Chat) => void }) {
   const t = useT()
@@ -67,7 +71,7 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
   const p = ask.provenance
   const places = p?.places.map((x) => placeName(t, x)) ?? []
   const line = !p ? null : p.unknown ? t('chat.shareChat.unknown') : places.length ? t('chat.shareChat.provenance', { m: p.people, places: places.join(', ') }) : t('chat.shareChat.provenanceNoPlace', { m: p.people })
-  // each ask is a dialog of its own (key): it opens with the focus on 공유하기
+  // each ask is a dialog of its own (key): it opens with the focus on 취소 (sharing can't be undone)
   return (
     <Modal
       key={`share-chat-${ask.seq}`}
@@ -77,10 +81,10 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
       title={ask.audience ? t('chat.shareChat.title', { n: seenOnceShared(ask.audience) }) : t('chat.shareChat.titleNobody')}
       footer={
         <>
-          <Button variant="ghost" disabled={busy} onClick={onClose} data-testid="share-chat-cancel">
+          <Button variant="ghost" disabled={busy} onClick={onClose} data-autofocus data-testid="share-chat-cancel">
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" busy={busy} onClick={() => void run(ask.confirmKey)} data-autofocus data-testid="share-chat-confirm">
+          <Button variant="primary" busy={busy} onClick={() => void run(ask.confirmKey)} data-testid="share-chat-confirm">
             {t('chat.shareChat.share')}
           </Button>
         </>
@@ -97,8 +101,8 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
           {t('chat.shareChat.note')}
         </p>
         {line && (
-          <p className="flex items-start gap-2 text-sm leading-6 break-keep text-ink" data-testid="share-chat-provenance">
-            <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
+          <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep text-warn" data-testid="share-chat-provenance">
+            <AlertTriangle size={16} className="mt-1 shrink-0" aria-hidden />
             <span>{line}</span>
           </p>
         )}
@@ -111,4 +115,16 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
       </div>
     </Modal>
   )
+}
+
+/** "Share with members" from places that hold no dialog of their own (the copy-link toast, a project page's notice):
+ * one share flow for the app, opened by the chat's id (ShareChatHost, App.tsx). */
+const useShareChatHost = create<{ chatId: string | null; seq: number }>(() => ({ chatId: null, seq: 0 }))
+export const openShareChat = (chatId: string) => useShareChatHost.setState((s) => ({ chatId, seq: s.seq + 1 }))
+
+/** The app's one share flow for openShareChat (asks first, as the title menu's item: sharing cannot be undone). */
+export function ShareChatHost() {
+  const { chatId, seq } = useShareChatHost()
+  if (!chatId) return null
+  return <ShareChatFlow key={seq} chatId={chatId} ask onClose={() => useShareChatHost.setState({ chatId: null })} />
 }

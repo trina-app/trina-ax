@@ -119,6 +119,16 @@ describe('calls', () => {
 })
 
 describe('the long-poll feed', () => {
+  test('connected within a round trip after it starts, not after a long poll\'s whole wait (QA TC-1415)', async () => {
+    // a 20 s long poll: the first poll is answered at once, so the state does not sit at "connecting" for its wait
+    const feed = new SlackBrokerFeed({ client: client(), log, waitMs: 20_000, retryMs: 20, onEvent: async () => {}, onInstall: () => {}, onState: () => {} })
+    const t0 = Date.now()
+    feed.start()
+    await waitFor(() => feed.state === 'connected', { timeoutMs: 3000 })
+    expect(Date.now() - t0).toBeLessThan(3000)
+    feed.stop()
+  })
+
   test('events handed on, acknowledged with the next poll; a failure backs off and comes back; stop cancels the held poll', async () => {
     const got: string[] = [], states: string[] = []
     const feed = new SlackBrokerFeed({ client: client(), log, waitMs: 200, retryMs: 20, onEvent: async (e) => { got.push(e.id) }, onInstall: () => {}, onState: (s, err) => states.push(`${s}:${err ?? ''}`) })

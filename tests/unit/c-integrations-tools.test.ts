@@ -313,6 +313,42 @@ describe('calls', () => {
     } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
   })
 
+  // docs/DECISIONS.md "Always allow also in side chats, rooms and scheduled runs" (owner 2026-11-14; QA TC-1296)
+  test('a scheduled run sends with its own person\'s Always allow on a team connection, never another member\'s; a team "send without asking" connection still needs the task\'s card, also after a room read', async () => {
+    const mk = async (writePolicy: string, name: string) => (await post('carol', '/api/admin/integrations', { kind: 'mcp', name, url: `${fake.base}/mcp-open`, auth: 'none', writePolicy, access: { everyone: true, groups: [], users: [] } })).body
+    const keepRow = (id: string, url: string, user: string) => A.ctx.db.query('INSERT INTO integration_user_allow (integration_id, user_id, url, created_at) VALUES (?, ?, ?, ?)').run(id, user, url, new Date().toISOString())
+    const sent = () => fake.calls.filter((c) => c.name === 'create_task').length
+    const t = await mk('ask', 'Gate ask')
+    try {
+      keepRow(t.id, t.url, 'alice')
+      const n0 = sent()
+      // alice's own run: no card, it sends
+      expect((await turn('alice', { scheduled: true }).call('team_gateask__create_task', { title: 'mine' })).isError).toBe(false)
+      expect(sent() - n0).toBe(1)
+      // carol's run (no row of her own): refused, nothing sent
+      const other = await turn('carol', { scheduled: true }).call('team_gateask__create_task', { title: 'not hers' })
+      expect(other.summary).toBe('team_gateask__create_task -> refused (nobody to ask)')
+      expect(sent() - n0).toBe(1)
+      // the team's switch off: alice's row is ignored in her run too
+      const { updateTeamSettings } = await import('../../server/src/admin/settings')
+      updateTeamSettings(A.ctx.db, { roomAlwaysAllow: false })
+      try {
+        expect((await turn('alice', { scheduled: true }).call('team_gateask__create_task', { title: 'switch off' })).summary).toBe('team_gateask__create_task -> refused (nobody to ask)')
+        expect(sent() - n0).toBe(1)
+      } finally { updateTeamSettings(A.ctx.db, { roomAlwaysAllow: true }) }
+    } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
+    // a team connection set to send without asking: a stale row of alice's does not let a run that read a room send
+    const open = await mk('allow', 'Gate open')
+    try {
+      keepRow(open.id, open.url, 'alice')
+      const n1 = sent()
+      const seen = ask(false)
+      const r = await turn('alice', { scheduled: true, roomsSeen: true, person: seen }).call('team_gateopen__create_task', { title: 'after a room' })
+      expect(r.summary).toBe('team_gateopen__create_task -> refused (nobody to ask)')
+      expect(sent() - n1).toBe(0)
+    } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(open.id) }
+  })
+
   test('each tool says whether a call only reads: the service\'s mark, GET and HEAD (TurnTool.readOnly)', () => {
     const a = turn('alice')
     const reads = (name: string, args: unknown = {}) => { const r = a.tools.get(name)!.readOnly; return typeof r === 'function' ? r(args) : r }

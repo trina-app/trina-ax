@@ -8,6 +8,9 @@ interface State {
   loaded: boolean
   progress: WelcomeProgress | null
   load: (force?: boolean) => Promise<WelcomeProgress | null>
+  /** a read that is at most a few seconds old (or on its way) is as good as a new one: the steps page opening right
+   * after Home's own read shares it instead of asking again; older: a new read */
+  loadRecent: () => Promise<WelcomeProgress | null>
   /** one change; the server's answer replaces the copy */
   update: (u: WelcomeUpdate) => Promise<WelcomeProgress>
   /** every team's start: the general pack and the team's own group and folders, once (the server keeps that too);
@@ -20,6 +23,9 @@ interface State {
 /** bumped on sign-out: an answer that arrives after it belongs to the previous person and is dropped */
 let generation = 0
 let inflight: Promise<WelcomeProgress | null> | null = null
+/** when the last read came back */
+let readAt = 0
+const RECENT_MS = 3000
 let settingUp: Promise<WelcomeTeamResult> | null = null
 
 export const useWelcome = create<State>((set, get) => ({
@@ -30,12 +36,17 @@ export const useWelcome = create<State>((set, get) => ({
     if (inflight && !force) return inflight
     const g = generation
     const p = api.call(API.getWelcome).then(
-      (r) => { if (g === generation) set({ loaded: true, progress: r.progress }); return r.progress },
+      (r) => { if (g === generation) { set({ loaded: true, progress: r.progress }); readAt = Date.now() } return r.progress },
       // a failed read shows no entry and no bar; the steps page says so itself
       (e) => { if (g === generation) set({ loaded: true }); throw e },
     ).finally(() => { if (inflight === p) inflight = null })
     inflight = p
     return p
+  },
+  async loadRecent() {
+    if (inflight) return inflight
+    if (get().loaded && Date.now() - readAt < RECENT_MS) return get().progress
+    return get().load(true)
   },
   async update(u) {
     const g = generation
@@ -53,5 +64,5 @@ export const useWelcome = create<State>((set, get) => ({
     settingUp = p
     return p
   },
-  reset() { generation++; inflight = null; settingUp = null; set({ loaded: false, progress: null }) },
+  reset() { generation++; inflight = null; readAt = 0; settingUp = null; set({ loaded: false, progress: null }) },
 }))

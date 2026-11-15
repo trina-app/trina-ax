@@ -59,7 +59,9 @@ let pushEpoch = 0
 const pushPending = new Set()
 // chat.answer_done: an answer in my own AI chat needs me ("AI answers"); a click opens that chat (its id from the signed-in
 // fetch of the notice, never from the payload)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers' }
+// chat.shared: someone shared a chat with me by name ("Chats shared with me"); the title is who shared it and a click opens
+// the chat, both from the signed-in fetch of the notice (never the chat's title, never from the payload)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -70,7 +72,11 @@ const HOME_CODES = new Set(['owner.lead_joined'])
 // owner.reauth_locked: the owner's password check locked after too many wrong tries; a click opens the Inbox. Shown
 // even once read: whoever holds a stolen session could mark it read to keep it off the owner's other devices
 const ACCOUNT_CODES = new Set(['owner.reauth_locked'])
-const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
+// room_app.paused: an app in a room the person manages paused for the day. No switch: the server sends it only while the
+// app is still paused and the person still in its room; a click opens that room (its id from the signed-in fetch of the
+// notice, roomApp.roomId, never from the payload)
+const APP_CODES = new Set(['room_app.paused'])
+const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 // A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
 // the signed-in fetch of the notice (shared plainLabel's rule again: one plain line, no control or bidirectional
@@ -155,7 +161,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code))) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)
@@ -174,23 +180,28 @@ self.addEventListener('push', event => {
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
       // a room notice opens its room: the id comes from the signed-in fetch of the notice, never from the payload
       const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
+      // an app's paused notice opens the app's room while the person is still in it (the same signed-in fetch)
+      const appRoomId = !roomId && APP_CODES.has(payload.code) && item.link === 'room' && opaqueId(item.roomApp?.roomId) ? item.roomApp.roomId : undefined
       // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
       // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
       // can no longer open lands on the start page (the Inbox never lists these notices)
-      const chatId = !roomId && payload.code === 'chat.answer_done' && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
+      const chatId = !roomId && (payload.code === 'chat.answer_done' || payload.code === 'chat.shared') && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
       // (the person's "show message preview" is on, a message the whole room sees), else the generic line
-      const shownTitle = (roomId && roomTitle(item.room?.label)) || title
+      // no longer shared with me (gone): the generic line, no name
+      const sharer = payload.code === 'chat.shared' && item.chatShared?.gone !== true ? roomTitle(item.chatShared?.name) : ''
+      const sharedBy = sharer && typeof settings.messages?.chatSharedBy === 'string' ? settings.messages.chatSharedBy.slice(0, 200) : ''
+      const shownTitle = (roomId && roomTitle(item.room?.label)) || (sharedBy && sharer) || title
       const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
       // "Mark as read" (Chrome, Edge, Android; Safari shows no buttons): the message's place in its room, from the same
       // signed-in fetch; the label in the person's language from /api/push
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return

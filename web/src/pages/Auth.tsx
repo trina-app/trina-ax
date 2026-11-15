@@ -5,11 +5,12 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
+import { guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { useMe, useSession } from '../store/session'
+import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
+import { removedFrom, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
@@ -27,6 +28,7 @@ import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
+import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
@@ -91,6 +93,32 @@ export function LanguageSwitcher() {
   )
 }
 
+/** An invite page opens in the team's language (DECISIONS: no browser detection after first setup). When the visitor's
+ * browser speaks another of our languages, and they have not picked one here, this one line offers it, in that language:
+ * a tap shows the page in it and the pick goes with the account as its language (the same pick as the switcher below). */
+export function BrowserLanguageOffer() {
+  const locale = useLocale()
+  const pick = useSession((s) => s.pickLocale)
+  const mine = typeof navigator === 'undefined' ? null : browserLocale(navigator.languages?.length ? navigator.languages : [navigator.language])
+  // the other language's words load on demand: the line shows once they are here, in that language
+  const [loaded, setLoaded] = useState<Locale | null>(null)
+  const wanted = mine && mine !== locale && !storedLocale() ? mine : null
+  useEffect(() => {
+    if (!wanted) return
+    let live = true
+    loadLocale(wanted).then(() => { if (live) setLoaded(wanted) }, () => {})
+    return () => { live = false }
+  }, [wanted])
+  if (!mine || !wanted || loaded !== wanted) return null
+  return (
+    <p className="mb-4 text-center text-sm" lang={mine} data-testid="invite-browser-language">
+      <button type="button" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={() => pick(mine)}>
+        {translate(mine, 'invite.browserLanguage', { language: LOCALES.find((l) => l.id === mine)?.label ?? mine })}
+      </button>
+    </p>
+  )
+}
+
 /** The sign-in style screens. From 640px the form is a card in the middle of the screen; on a phone it has no frame
  * (the card's edge sat 16px from the screen's and only boxed the fields in once more) and it starts near the top, so
  * the button is in view and the keyboard does not push the page around. On a phone the page scrolls in its own box,
@@ -109,7 +137,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {PRODUCT.displayName}
         </p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)] max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none">
-          <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
+          <h1 className={clsx('text-title font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>
@@ -273,6 +301,11 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
+  // a removed guest (store/session.ts): now, or on a later visit from this browser. (A removed member's 'removed' has no
+  // team: the browser's guest memory is cleared at every sign-in, so it is never an earlier guest's; their line is below)
+  const removedTeam = reason === 'removed' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
+  // otherwise the line for why this page opened; a removed member gets "no longer a member" (TC-1974)
+  const line = signedOutLine(reason)
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
@@ -296,7 +329,7 @@ export function Login() {
     )
   }
   return (
-    <AuthFrame title={t('auth.signIn')} sub={reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
+    <AuthFrame title={removedTeam ? t('auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed">{t('auth.guestRemoved')}</span> : line ? t(line) : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
@@ -314,7 +347,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
+        {!removedTeam && <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>}
       </form>
     </AuthFrame>
   )
@@ -437,9 +470,11 @@ export interface JoinValues { name: string; username: string; password: string }
  * the eye button inside the field shows what was typed (PasswordField; the setup form has the same).
  * The same rules as before: the username rule while typing, the length before sending, the server's words after.
  */
-export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void }) {
+export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initialName }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void
+  /** the Name field's start (a guest invite: the name the inviter typed, InviteInfo.guestName) */
+  initialName?: string }) {
   const t = useT()
-  const [form, setForm] = useState({ name: '', username: '', password: '' })
+  const [form, setForm] = useState({ name: initialName?.slice(0, 100) ?? '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
@@ -514,7 +549,10 @@ function OpenInApp({ path }: { path: string }) {
  * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
  * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
  */
-function JoinChoices({ path, children }: { path: string; children: ReactNode }) {
+function JoinChoices({ path, children, lean = false }: { path: string; children: ReactNode
+  /** a guest invite: no "Already joined? Sign in" and no "Open in the app" under the form (someone from outside the team
+   * has neither an account here nor the app; a used link leads to signing in anyway) */
+  lean?: boolean }) {
   const t = useT()
   const [web, setWeb] = useState(false)
   // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
@@ -525,8 +563,8 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
     return (
       <>
         {children}
-        <HaveAccount />
-        <OpenInApp path={path} />
+        {!lean && <HaveAccount />}
+        {!lean && <OpenInApp path={path} />}
       </>
     )
   // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's own
@@ -596,7 +634,7 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
           {t('auth.continueInBrowser')}
         </button>
       </p>
-      <HaveAccount />
+      {!lean && <HaveAccount />}
     </div>
   )
 }
@@ -632,6 +670,13 @@ export function InviteWhileSignedIn() {
   const signedOut = useSession((s) => s.signedOut)
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  // a guest link is for someone from outside the team, so a member is not told it is for "someone who joins the team"
+  const [forGuest, setForGuest] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.inviteInfo, { params: { token: token ?? '' } }).then((i) => { if (live) setForGuest(i?.role === 'guest') }, () => { if (live) setForGuest(false) })
+    return () => { live = false }
+  }, [token])
   const leave = async () => {
     setBusy(true)
     await api.call(API.logout).catch(() => {})
@@ -640,7 +685,7 @@ export function InviteWhileSignedIn() {
     navigate(`/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
   }
   return (
-    <AuthFrame title={t('invite.signedInTitle')} sub={t('invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
+    <AuthFrame title={t('invite.signedInTitle')} sub={forGuest === null ? undefined : t(forGuest ? 'invite.signedInBodyGuest' : 'invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
       <div className="flex flex-col gap-2" data-testid="invite-signed-in">
         <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t('invite.signOutAccept')}</Button>
         <Button disabled={busy} onClick={() => navigate('/', { replace: true })} data-testid="invite-keep">{t('invite.keepAccount')}</Button>
@@ -648,6 +693,9 @@ export function InviteWhileSignedIn() {
     </AuthFrame>
   )
 }
+
+type DeadReason = NonNullable<InviteInfo['reason']>
+const DEAD_REASONS: readonly DeadReason[] = ['expired', 'used', 'revoked', 'inviter_gone', 'place_gone']
 
 export function AcceptInvite() {
   const t = useT()
@@ -679,9 +727,18 @@ export function AcceptInvite() {
   }, [token, attempt])
   const submit = (v: JoinValues) =>
     void run(async () => {
-      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      signedIn(r.me)
-      navigate('/', { replace: true })
+      try {
+        const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
+        signedIn(r.me)
+        // a guest opens straight into their one place (components/GuestView.tsx)
+        navigate(guestPlacePath(r.me) ?? '/', { replace: true })
+      } catch (e) {
+        // the link stopped working while the form was filled in (its maker lost the room, the project went to the
+        // trash; QA TC-2226): the page says why, as when it is opened, instead of an error under the form
+        const reason = isApiError(e, 'gone') ? e.body.params?.reason : undefined
+        if (typeof reason === 'string' && info && info !== 'missing' && (DEAD_REASONS as readonly string[]).includes(reason)) { setInfo({ ...info, valid: false, reason: reason as DeadReason }); return }
+        throw e
+      }
     })
   if (info === null)
     return (
@@ -689,15 +746,22 @@ export function AcceptInvite() {
         {loadFailed ? <LoadFailed e={loadFailed.e} onRetry={() => setAttempt((n) => n + 1)} /> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
       </AuthFrame>
     )
-  if (info === 'missing' || !info.valid)
+  if (info === 'missing' || !info.valid) {
+    // the true reason when the server says it (InviteInfo.reason: expired, used, turned off, its maker can no longer
+    // invite, the room or project is gone; QA TC-2219, TC-2297, TC-2298); only the reason, nothing about the place
+    const why = info === 'missing' ? null : inviteDeadReason(info)
     return (
       <AuthFrame title={t('invite.title')}>
-        <p className="text-sm text-muted">{t('invite.invalid')}</p>
+        <p className="text-sm text-muted" data-testid="invite-invalid" data-reason={why ?? undefined}>{t(why ? `invite.reason.${why}` : 'invite.invalid')}</p>
         <SignInInstead />
       </AuthFrame>
     )
+  }
+  // a guest invite (docs/DECISIONS.md "Guests: only what they were invited to"): where exactly they will be, in place of
+  // the role and the date; the form is the members' one. Guests take no seat: `full` never stops one
+  const guest = inviteGuest(info)
   // every seat of the plan is taken: no form that would only be refused after it was filled in (as the team link)
-  if (info.full)
+  if (info.full && !guest)
     return (
       <AuthFrame title={t('invite.title')}>
         <p className="text-sm text-muted" data-testid="invite-full">{t('invite.full')}</p>
@@ -705,11 +769,28 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
-      <JoinChoices path={`/invite/${token}`}>
-        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} ai={guest.ai} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+      {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
+      {!guest && <BrowserLanguageOffer />}
+      <JoinChoices path={`/invite/${token}`} lean={!!guest}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} initialName={guest ? info.guestName : undefined} />
       </JoinChoices>
     </AuthFrame>
+  )
+}
+
+/** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." (the general
+ * words while the server does not name the place) */
+function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none' | 'team' | 'own' | null }) {
+  const t = useT()
+  return (
+    <>
+      <p className="text-ink" data-testid="invite-guest-place">
+        {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
+      </p>
+      {/* their own sign-in: said before they join, so "connect your own" inside is no surprise */}
+      {ai === 'own' && <p className="mt-2 text-muted" data-testid="invite-guest-own-ai">{t('guest.join.ownAi')}</p>}
+    </>
   )
 }
 
@@ -787,6 +868,7 @@ export function TeamJoin() {
     )
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+      <BrowserLanguageOffer />
       <JoinChoices path={`/join#t=${link.token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>

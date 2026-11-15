@@ -27,7 +27,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await expect(page.getByText('아직 보낸 요청이 없어요')).toHaveCount(0)
   await expect(page.getByTestId('integration-request')).toHaveCount(0)
   await page.getByTestId('integration-add-more').click()
-  await expect(page.getByRole('menuitem')).toHaveText(['팀 연결', '멤버에게 연결 요청…'])
+  await expect(page.getByRole('menuitem')).toHaveText(['팀 연결', '멤버에게 연결 요청'])
   await page.getByTestId('integration-request-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '멤버에게 연결 요청' })).toBeVisible()

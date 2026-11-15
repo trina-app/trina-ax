@@ -452,3 +452,34 @@ test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its
     await m.unmount()
   }
 }, DOM_TEST_MS)
+
+test('the edit form: an edit the server refuses opens again with the words typed and the person picked (store/rooms.ts edit)', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: {} } as unknown as Me } })
+  const r = room()
+  const mine = message({ roomId: r.id, seq: 1, author: ME, body: '@Cy Park 확인', mentions: [CY.id] })
+  const patches: { body: string; mentions: string[] }[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'http://team.localhost').pathname
+    if (init?.method === 'PATCH' && path === `/api/rooms/${r.id}/messages/${mine.id}`) {
+      patches.push(JSON.parse(String(init.body)))
+      return new Response(JSON.stringify({ error: { code: 'internal', message: 'no' } }), { status: 500, headers: { 'content-type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({ error: { code: 'not_found', message: 'no' } }), { status: 404, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
+  try {
+    const box = await openEdit(m, '@Cy Park 확인')
+    Object.assign(box, { selectionStart: box.value.length, selectionEnd: box.value.length })
+    await typeText(box, ' ')
+    await pick(m, box, 'Ben')
+    await m.until(() => layerText(m) === '@Cy Park 확인 @Ben ', 'the picked name in the form', WAIT)
+    await m.click('room-edit-save')
+    await m.until(() => patches.length > 0, 'the edit', WAIT)
+    expect(patches[0]).toEqual({ body: '@Cy Park 확인 @Ben', mentions: [CY.id, BEN.id] })
+    // refused: the box is back with what was typed, Ben still a mention
+    await m.until(() => (m.find('room-edit-input') as Box | null)?.value === '@Cy Park 확인 @Ben ', 'the edit box again', WAIT)
+    await m.until(() => tokens(m).join() === 'person:@Cy Park,person:@Ben', 'the mentions again', WAIT)
+  } finally {
+    await m.unmount()
+  }
+}, DOM_TEST_MS)

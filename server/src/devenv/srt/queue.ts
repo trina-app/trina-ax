@@ -125,8 +125,8 @@ export interface TicketSpace { userId: string; chatId: string | null; projectId:
 
 /** Put a command in the queue: a row with foreground = 1. `shown` is the command with secrets hidden. The AI never
  * gets a result of a ticket as a job (ai_told_at is set). */
-export function addTicket(db: Database, o: { space: TicketSpace; turnId: string; shown: string; cwd: string }): string {
-  const id = newId()
+export function addTicket(db: Database, o: { id?: string; space: TicketSpace; turnId: string; shown: string; cwd: string }): string {
+  const id = o.id ?? newId()
   const at = new Date().toISOString()
   db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, ai_told_at, foreground) VALUES (?, ?, ?, ?, ?, 'job', ?, ?, ?, ?, 'waiting', ?, ?, 1)")
     .run(id, o.space.userId, o.space.chatId, o.space.projectId, o.turnId, 'command-' + crypto.randomBytes(3).toString('hex'), o.shown.slice(0, 500), o.space.root, o.cwd, at, at)

@@ -20,7 +20,8 @@ afterAll(async () => { await h.close() })
 /** a team project of `user` with these participants, its chats shared (or not) */
 async function project(user: string, name: string, participants: ProjectParticipant[] = [], share = true) {
   const p = await h.api(user).call(API.createProject, { body: { name, instructions: '', participants } })
-  if (share) await h.api(user).call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
+  // (every team project shares its chats since 2026-11-13; `share` false: as an older build left one)
+  if (!share) h.ctx.db.query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
   return p.id
 }
 const seen = (user: string, id: string) => h.api(user).call(API.getProject, { params: { id } })
@@ -98,8 +99,8 @@ describe('Project.alone', () => {
     }
   })
 
-  test('a project that does not share its chats says the same (the web uses it only while it shares them)', async () => {
+  test('a team project an older build left with the setting off still shares its new chats, and says alone the same', async () => {
     const id = await project('erin', 'Quiet', [], false)
-    expect(await seen('erin', id)).toMatchObject({ shareChats: false, alone: true })
+    expect(await seen('erin', id)).toMatchObject({ shareChats: true, alone: true })
   })
 })

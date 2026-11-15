@@ -18,6 +18,8 @@ Trina AX is a company AI workspace. You set up Claude Code once on a server, and
 
 ---
 
+![The app on a computer: the bar on the left with Trina, Chats, Projects, Files and Activity, the Trina list beside it, and Home](images/overview/app.webp "Trina AX on a computer")
+
 ## Recommended path for new developers
 
 :::steps

@@ -46,7 +46,7 @@ with a list of every problem instead of a half-seeded team.
 | `owner` | `{ username, name }`: the team's owner, an account of its own with a random password (`<data>/owner-password`, 0600), never a demo person |
 | `people` | `{ username, name, group, note? }`, all members: the demo's password is public and it may be open to the network, so nobody else is an owner or an admin |
 | `groups` | `{ name, description }`; each gets `groups/<name>/`, written by its members |
-| `rules` | folder rules beyond the group folders: `{ path, rules: [{ group \| user \| everyone: true, access: none \| read \| write }], why? }` (the deepest folder with a rule for a person decides) |
+| `rules` | folder rules beyond the group folders: `{ path, rules: [{ group \| user \| everyone: true, access: read \| write }], limited?, why? }` (access adds up from the folders above; `limited: true` cuts what comes from above) |
 | `uploaders`, `defaultUploader` | who uploads a sample file: the first `{ path, username }` whose path is the file or a folder above it, else `defaultUploader`, else the owner |
 | `packSkills` | `{ pack, locale, skills }`: skills of this repository's skill packs (`resources/skill-packs/`), uploaded to `skills/<pack>/<skill>/SKILL.md` |
 | `settings` | `aiSubagents`, `timeZone` (recordings need `aiSubagents: false`) |

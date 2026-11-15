@@ -30,9 +30,23 @@ export interface Page {
   description: string
   /** Markdown after the front matter */
   body: string
+  lang: Lang
 }
 
-export const readNav = (): Nav => JSON.parse(fs.readFileSync(path.join(SITE_DIR, 'nav.json'), 'utf8')) as Nav
+/** The languages of the site. English is the source and lives at the top of docs/site/; every other language has its
+ * own folder (docs/site/zh/) with a nav.json of the same shape and the same slugs, titles translated, and a page for
+ * each slug it translates. A slug with no page in that folder links to the English page. */
+export type Lang = 'en' | 'zh'
+export const LANGS: Lang[] = ['en', 'zh']
+/** the HTML lang attribute of each language */
+export const HTML_LANG: Record<Lang, string> = { en: 'en', zh: 'zh-CN' }
+/** hreflang of each language: Simplified Chinese as a script, for every region that reads it (as ax.trina.app does) */
+export const HREFLANG: Record<Lang, string> = { en: 'en', zh: 'zh-Hans' }
+/** the folder of a language under docs/site/ (and under the built site), '' for English */
+export const langDir = (lang: Lang) => (lang === 'en' ? '' : lang)
+const siteFile = (lang: Lang, rel: string) => (lang === 'en' ? `docs/site/${rel}` : `docs/site/${langDir(lang)}/${rel}`)
+
+export const readNav = (lang: Lang = 'en'): Nav => JSON.parse(fs.readFileSync(path.join(ROOT, siteFile(lang, 'nav.json')), 'utf8')) as Nav
 
 /** Every page slug in navigation order. */
 export const navSlugs = (nav = readNav()): string[] => nav.tabs.flatMap((t) => t.groups.flatMap((g) => g.pages))
@@ -49,12 +63,14 @@ export function parseFrontMatter(text: string): { data: Record<string, string>; 
   return { data, body: text.slice(m[0].length) }
 }
 
-/** The pages in navigation order. Throws when a page in nav.json has no file. */
-export function loadPages(nav = readNav()): Page[] {
-  return nav.tabs.flatMap((t) => t.groups.flatMap((g) => g.pages.map((slug) => {
-    const file = `docs/site/${slug}.md`
+/** The pages in navigation order. English: throws when a page in nav.json has no file. Another language: only the
+ * slugs that have a translated file (the rest stay English). */
+export function loadPages(nav = readNav(), lang: Lang = 'en'): Page[] {
+  return nav.tabs.flatMap((t) => t.groups.flatMap((g) => g.pages.flatMap((slug) => {
+    const file = siteFile(lang, `${slug}.md`)
+    if (lang !== 'en' && !fs.existsSync(path.join(ROOT, file))) return []
     const { data, body } = parseFrontMatter(fs.readFileSync(path.join(ROOT, file), 'utf8'))
-    return { slug, file, tab: t.title, group: g.title, title: data.title ?? '', description: data.description ?? '', body }
+    return [{ slug, file, tab: t.title, group: g.title, title: data.title ?? '', description: data.description ?? '', body, lang }]
   })))
 }
 

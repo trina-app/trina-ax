@@ -8,13 +8,14 @@
 //   bun scripts/release/hosting.ts status    what exists, and what the feed answers
 //   bun scripts/release/hosting.ts hold <stable|beta> --reason "…"    pause a bad release's roll-out (./hold.ts,
 //   bun scripts/release/hosting.ts resume <stable|beta>               docs/RELEASE-CI.md 6); held: what the heads say
+//   bun scripts/release/hosting.ts promote <stable|beta>              a good release to everyone now (ends the ramp)
 import fs from 'node:fs'
 import path from 'node:path'
 import { BUCKET, Cloudflare, HOST, listReport, WORKER } from './cloudflare'
 import { workerCode } from './worker-code'
 
 const cmd = process.argv[2] ?? 'status'
-if (cmd === 'hold' || cmd === 'resume' || cmd === 'held') {
+if (cmd === 'hold' || cmd === 'resume' || cmd === 'promote' || cmd === 'held') {
   try { await (await import('./hold')).main(process.argv.slice(2)) } catch (e) { console.error(`hold: ${(e as Error).message}`); process.exit(1) }
   process.exit(0)
 }
@@ -58,6 +59,6 @@ if (cmd === 'setup') {
 } else if (cmd === 'status') {
   await status()
 } else {
-  console.error('usage: bun scripts/release/hosting.ts setup | status | hold <channel> --reason "…" | resume <channel> | held <channel>')
+  console.error('usage: bun scripts/release/hosting.ts setup | status | hold <channel> --reason "…" | resume <channel> | promote <channel> | held <channel>')
   process.exit(2)
 }

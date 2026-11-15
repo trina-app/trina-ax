@@ -17,6 +17,7 @@ import { useWelcome } from '../../store/welcome'
 import { IconButton } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { technicalEngineState } from './plain'
+import { loadAdminEngines, loadAdminInvites, loadAdminUsers, readAdmin } from '../../store/adminPeople'
 
 /** Admin › Home's setup part for the owner: while the welcome steps are unfinished nothing but, when the setup row was
  * hidden, "시작 설정 다시 보기"; else the checklist below. Nothing until the steps' progress is read. */
@@ -83,7 +84,8 @@ export function OwnerChecklist({ compact }: { compact?: boolean } = {}) {
   useEffect(() => {
     if (hidden) return
     let live = true
-    Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
+    // engines, people and invites: Admin home reads them too (store/adminPeople.ts: one request for both)
+    Promise.allSettled([readAdmin('engines', loadAdminEngines), readAdmin('users', loadAdminUsers).then((items) => ({ items })), readAdmin('invites', loadAdminInvites).then((items) => ({ items })), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
       if (!live) return
       setSteps({
         engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && (x.status === 'ok' || x.status === 'limited' || technicalEngineState(x.status))),
@@ -126,7 +128,7 @@ export function OwnerChecklist({ compact }: { compact?: boolean } = {}) {
   return (
     <section aria-labelledby="owner-check" data-testid="owner-checklist">
       <div className="mb-2 flex items-center justify-between">
-        <h2 id="owner-check" className="text-sm font-semibold">{t('owner.check.title')}</h2>
+        <h2 id="owner-check" className="text-title-sm font-semibold">{t('owner.check.title')}</h2>
         <IconButton label={t('common.hide')} onClick={hide} data-testid="owner-checklist-hide"><X size={15} aria-hidden /></IconButton>
       </div>
       <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">

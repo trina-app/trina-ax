@@ -8,7 +8,7 @@
 // sign-in: Slack, GitHub, Asana, HubSpot, Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Descriptions are the message
 // keys integrations.catalog.<id>; logos are files in web/public/icons/connectors (this server's own, because the
 // content security policy loads no image from elsewhere).
-import { catalogAt, SERVICE_CATALOG, type CatalogServiceId } from '@mycel/shared'
+import { CATALOG_AUTH, catalogAt, SERVICE_CATALOG, type CatalogServiceId } from '@mycel/shared'
 
 /** each listed service's logo (the list itself, with names and official addresses, is shared/src/service-catalog.ts) */
 const LOGOS: Record<CatalogServiceId, string> = {
@@ -58,6 +58,12 @@ export const CONNECTORS = SERVICE_CATALOG.map((c) => ({ ...c, logo: LOGOS[c.id] 
 export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
+
+/** How a listed service connects: a sign-in at the service (OAuth) or a key. Every listed one signs in today
+ * (shared/src/service-catalog.ts CATALOG_AUTH); the words about it follow this, never "a key" for a sign-in (QA TC-2313). */
+export const connectorAuth = (_c: Connector): 'oauth' | 'key' => CATALOG_AUTH
+/** Admin › Connected apps, a listed service's page: one shared sign-in or one shared key, as the service connects */
+export const teamAboutKey = (c: Connector) => connectorAuth(c) === 'oauth' ? 'connectors.mcp.aboutForTeam.signIn' as const : 'connectors.mcp.aboutForTeam' as const
 
 /** Where the person's own connections are: Settings › Connectors (pages/Connectors.tsx; docs/DECISIONS.md "Connectors
  * in Settings"). Its pages: a built-in or listed service's (`connectorHref`), one of the person's connections or a team

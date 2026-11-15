@@ -120,9 +120,9 @@ test('the member list: each person\'s dot, mine too; no serious accessibility pr
   await expect(faceIn(of('김소라'))).toHaveAttribute('data-presence', 'away')
   await expect(faceIn(of('이민수'))).toHaveAttribute('data-presence', 'offline')
   await expect(of('이민수').getByTestId('presence-text')).toHaveText(', 오프라인')
-  // 10 px on the 32 px pictures, its ring in the dialog's colour
+  // 8 px on the list's face box (28 px pictures on a computer: components/list/List.tsx), its ring in the dialog's colour
   const dot = of('Olga').getByTestId('presence-dot')
-  expect(await dot.evaluate((e) => [e.getBoundingClientRect().width, e.getBoundingClientRect().height])).toEqual([10, 10])
+  expect(await dot.evaluate((e) => [e.getBoundingClientRect().width, e.getBoundingClientRect().height])).toEqual([8, 8])
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
   expect(r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
 })
@@ -224,7 +224,7 @@ test('screenshots at 1440: the sidebar with all three states, the DM header, the
     await page.getByTestId('room-members-button').click()
     await expect(page.getByTestId('room-member')).toHaveCount(3)
     await shot(`after-members-1440-${scheme}`)
-    if (scheme === 'light') sizes['members'] = await measure(page.getByTestId('room-members'), page.getByTestId('room-member').first().locator('span.font-medium').first())
+    if (scheme === 'light') sizes['members'] = await measure(page.getByTestId('room-members'), page.getByTestId('room-member').first().locator('[data-member-name]').first())
     await page.keyboard.press('Escape')
   }
   fs.writeFileSync(path.join(process.env.SHOTS_DIR!, 'presence-sizes-1440.json'), JSON.stringify(sizes, null, 2))
@@ -257,7 +257,7 @@ test.describe('phone screenshots', () => {
       await expect(page.getByTestId('room-member')).toHaveCount(3)
       await page.waitForTimeout(400)
       await shot(`after-members-390-${scheme}`)
-      if (scheme === 'light') sizes['members'] = await measure(page.getByTestId('room-members'), page.getByTestId('room-member').first().locator('span.font-medium').first())
+      if (scheme === 'light') sizes['members'] = await measure(page.getByTestId('room-members'), page.getByTestId('room-member').first().locator('[data-member-name]').first())
       await page.keyboard.press('Escape')
     }
     fs.writeFileSync(path.join(process.env.SHOTS_DIR!, 'presence-sizes-390.json'), JSON.stringify(sizes, null, 2))

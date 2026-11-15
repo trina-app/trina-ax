@@ -9,9 +9,11 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 - In a chat, type `/` and pick a skill, or write `/skill-name` in your message.
 - The AI can also find and load a skill by itself when it fits the request.
-- **Team skills** (팀 스킬), a row near the end of your Trina list, lists the skills you can use.
+- **Team skills**, a row near the top of your Trina list (on a phone, in the **☰** menu of the **Trina** tab), lists the skills you can use.
 
-![The Team skills page: tabs for available skills, review, suggestions and recent changes, and a list of six team skills](../images/skills/team-skills.webp "Team skills")
+![Typing / in the message box lists the team skills you can use](../images/skills/slash-menu.webp "Team skills in the message box")
+
+![The Team skills page: tabs for available skills, To review and My suggestions, and the team's skills with what each one does](../images/skills/team-skills.webp "Team skills")
 
 ## Recommended skills
 
@@ -62,7 +64,7 @@ A team project in `projects/<project>/` can have skills of its own in its `skill
 
 - Whoever can write the project's folder can add or change them; the AI asks on a card first, named for the project, and every change is recorded with the project's name.
 - A project skill only adds new names. A name the team, a group or you already use is marked **Same name: the whole team** on the page, and the AI's card offers another name instead of saving one that would never run.
-- To move a skill between the team, a group, a project and your own skills, use **Move…** in the skill's menu: it shows who gains and who loses it at each level, and the whole text before more people get it. You can also ask the AI in a project chat; it only moves a skill where fewer people get it, after a card that lists every file.
+- To move a skill between the team, a group, a project and your own skills, use **Move** in the skill's menu: it shows who gains and who loses it at each level, and the whole text before more people get it. You can also ask the AI in a project chat; it only moves a skill where fewer people get it, after a card that lists every file.
 
 ## Write a skill
 
@@ -133,7 +135,7 @@ Members use **Bring my skills** under the list on **Available skills** (on a com
 - The server checks every skill again (keys, scripts, size, names, paths on their computer) and keeps it outside the team files. No AI judges it.
 - When they can write the team folder, the sheet also links to it for files. On a phone the line offers only that folder, and nothing when they cannot write one.
 
-The owner and admins get one notice in **활동** (Activity) per send ("Mina wants to bring 2 skills to the team"), which opens **Review**, grouped by person. Only the owner and admins see and approve such a skill: it is saved as `skills/<folder name>/` with its files, the member hears it, and the skill shows "Suggested by Mina" in the list. Approving never changes the skill the invite opens or the 7-day goal names. The line can be closed for good with ✕.
+The owner and admins get one notice in **Activity** per send ("Mina wants to bring 2 skills to the team"), which opens **Review**, grouped by person. Only the owner and admins see and approve such a skill: it is saved as `skills/<folder name>/` with its files, the member hears it, and the skill shows "Suggested by Mina" in the list. Approving never changes the skill the invite opens or the 7-day goal names. The line can be closed for good with ✕.
 
 ## Starter skills
 

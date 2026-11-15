@@ -10,14 +10,15 @@
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
+import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { AdminPageHeader, BarTitleProvider, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
 import { systemGroup, systemGroups, type SystemGroupId } from './systemGroups'
@@ -29,8 +30,8 @@ import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 import { noPurchaseLinks } from '../../lib/desktop'
-import { teamAddressShown } from '../../lib/team-address'
-import { goBackOffered, releasePaused } from '../../lib/updateOutcome'
+import { addressToTell, teamAddressShown } from '../../lib/team-address'
+import { goBackOffered, releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
@@ -122,8 +123,8 @@ function OnComputer({ text, testId, className = 'mt-4' }: { text: string; testId
   const t = useT()
   return (
     <div className={className} data-testid={testId}>
-      <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
-      <p className="mt-1 text-sm text-muted">{text}</p>
+      <p className={settingName}>{t('admin.onComputer')}</p>
+      <p className={clsx('mt-0.5', settingDesc)}>{text}</p>
     </div>
   )
 }
@@ -160,6 +161,9 @@ export default function System() {
   const officeKnown = !!office.data || !!office.error
   const who = { owner: isOwner(me), features: me.server.features, office: officeKnown ? !!office.data?.v : undefined }
   const group = phone ? systemGroup(sub, who) : undefined
+  // a computer opened at /admin/system/<group> lands at /admin/system#system-<group> (systemRedirect): that part in view
+  const hash = useLocation().hash
+  const hashPart = hash.startsWith('#system-') ? (hash.slice('#system-'.length) as SystemGroupId) : undefined
   const list = phone && !group
   const [notes, setNotes] = useState<Partial<Record<SystemGroupId, RowNote>>>({})
   const setNote = useCallback<SetNote>((id, note) => {
@@ -195,7 +199,7 @@ export default function System() {
               </div>
             )}
             <div hidden={loads.allFailed || list} className="max-w-3xl" data-testid="system-page" data-group={group?.id}>
-              <SystemSections office={office} shown={phone ? (group?.id ?? null) : undefined} />
+              <SystemSections office={office} shown={phone ? (group?.id ?? null) : undefined} focus={phone ? undefined : hashPart} />
             </div>
           </BarTitleProvider>
         </FlatCardsProvider>
@@ -204,8 +208,37 @@ export default function System() {
   )
 }
 
-/** `shown`: a phone's group on screen (null: the list, none shown); undefined: a computer's one page, as it was. */
-function SystemSections({ office, shown }: { office: Office; shown: SystemGroupId | null | undefined }) {
+/** A computer's one page opened at /admin/system/<group> (a link such as the apps dialog's "Turn on connection"; it
+ * arrives as #system-<group>, systemRedirect): that part scrolled to the top. The parts above it load on their own and change height, so it is put in view again while
+ * they settle (about two seconds), unless the person scrolls first. */
+function useScrollToPart(focus: SystemGroupId | undefined) {
+  useEffect(() => {
+    if (!focus) return
+    let stop = false
+    const go = () => {
+      if (stop) return
+      // the part's card carries the id system-<group> (Card's scroll-mt keeps it clear of the sticky header)
+      document.getElementById(`system-${focus}`)?.scrollIntoView({ block: 'start' })
+    }
+    const timers = [0, 300, 800, 1600].map((ms) => setTimeout(go, ms))
+    const off = () => { stop = true }
+    window.addEventListener('wheel', off, { passive: true, once: true })
+    window.addEventListener('touchstart', off, { passive: true, once: true })
+    window.addEventListener('keydown', off, { once: true })
+    return () => {
+      stop = true
+      timers.forEach(clearTimeout)
+      window.removeEventListener('wheel', off)
+      window.removeEventListener('touchstart', off)
+      window.removeEventListener('keydown', off)
+    }
+  }, [focus])
+}
+
+/** `shown`: a phone's group on screen (null: the list, none shown); undefined: a computer's one page, as it was.
+ * `focus`: a computer's page opened at one group's address: that part is scrolled into view. */
+function SystemSections({ office, shown, focus }: { office: Office; shown: SystemGroupId | null | undefined; focus?: SystemGroupId }) {
+  useScrollToPart(focus)
   const me = useMeStrict()
   // a finished backup changes the health section's "last backup" line
   const [rev, setRev] = useState(0)
@@ -255,6 +288,7 @@ function Health({ rev }: { rev: number }) {
   useRowNote('health', problems === undefined ? null : problems ? { badge: { text: t('adminHome.toFix', { count: problems }), tone: 'warn' } } : { value: t('system.check.ok') })
   return (
     <Card
+      id="system-health"
       title={t('system.health')}
       testId="system-health"
       actions={
@@ -334,7 +368,7 @@ function Storage() {
   const bad = !!state.data && (state.data.level !== 'ok' || state.data.writesRefused)
   useRowNote('storage', used === null ? null : bad ? { badge: { text: used, tone: state.data!.level === 'full' || state.data!.writesRefused ? 'danger' : 'warn' } } : { value: used })
   return (
-    <Card title={t('storage.title')}>
+    <Card id="system-storage" title={t('storage.title')}>
       <Loadable state={state} lines={2}>
         {(s) => {
           const pct = Math.min(100, Math.max(0, s.percent))
@@ -367,6 +401,8 @@ function Storage() {
                   ))}
                 </ul>
               )}
+              {/* any kept bytes (KB under 1 MB): a small set-aside folder is still on the disk (QA TC-2284) */}
+              {!!s.breakdown?.kept && s.breakdown.kept > 0 && <p className="text-xs text-faint" data-testid="storage-kept">{t('storage.kept', { size: formatSize(s.breakdown.kept, locale) })}</p>}
               {(s.measuredAt || s.planDiskGiB !== null) && (
                 <p className="text-xs text-faint">
                   {s.measuredAt && t('storage.measured', { date: formatDateTime(s.measuredAt, locale) })}
@@ -442,6 +478,10 @@ const DETAIL_TEXT: Record<string, MessageKey> = {
 /** claim codes as the account console shows them: groups of four letters / digits */
 const claimCodeOk = (c: string) => c === '' || /^[A-Za-z0-9 -]{16,64}$/.test(c.trim())
 
+/** The address the team reaches this server at, as far as the connection status knows it. */
+const connAddress = (d: { address: string | null; publicAddress?: string | null } | null | undefined): string | null =>
+  d?.address ?? (d?.publicAddress ? `https://${d.publicAddress}` : null)
+
 function Connection({ canChange = true }: { canChange?: boolean }) {
   const t = useT()
   const locale = useLocale()
@@ -449,6 +489,26 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   const state = useLoad(() => api.call(API.connection))
   const [change, setChange] = useState<{ mode: Mode; relayUrl: string; teamName: string; claimCode: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // after a saved change that moves the team address (not a relay rename): the address to tell the team (QA TC-1232)
+  // The new address is only known once the server has restarted and registered it, so the page waits for it: `waiting`
+  // is the address before the change.
+  const [tell, setTell] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState<string | null>(null)
+  useEffect(() => {
+    if (!waiting) return
+    const stop = setTimeout(() => setWaiting(null), 5 * 60_000)
+    // a failed read (the server is restarting) is ignored: the card keeps what it shows
+    const poll = setInterval(() => { api.call(API.connection).then(state.setData, () => {}) }, 5000)
+    return () => { clearTimeout(stop); clearInterval(poll) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting])
+  useEffect(() => {
+    const d = state.data
+    const now = connAddress(d)
+    if (!waiting || !teamAddressShown(now) || teamAddressShown(now) === teamAddressShown(waiting)) return
+    setTell(addressToTell(waiting, now))
+    setWaiting(null)
+  }, [state.data, waiting])
   const modes = state.data?.availableModes ?? FALLBACK_MODES
   const teamNameOk = (n: string) => n.length >= 2 && n.length <= 40 && TEAM_NAME_RE.test(n)
   const open = () => {
@@ -473,7 +533,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   return (
     // one mode only (office mode: the office network): nothing to change
     // the hosted cloud: the team address is managed by the hosting provider (no change button)
-    <Card title={t('system.connection')} actions={changes && !phone ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
+    <Card id="system-connection" title={t('system.connection')} actions={changes && !phone ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
           <>
@@ -504,6 +564,15 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                 </Row>
               )}
             </Rows>
+            {tell && (
+              <div className="mt-3 flex min-w-0 items-center gap-2 border-l-2 border-warn pl-3 text-sm text-ink" role="status" data-testid="connection-tell-team">
+                <span className="min-w-0 flex-1 break-words">{t('system.tellTeam', { address: tell })}</span>
+                <CopyButton text={/^https?:\/\//.test(tell) ? tell : `https://${tell}`} showLabel className="shrink-0" />
+              </div>
+            )}
+            {/* the server's own address has a country or network list, and an app posts in a room: services reach its
+                /in/ addresses anyway (docs/DECISIONS.md "Apps posting in rooms", owner decision 8) */}
+            {c.appsAnywhere && <p className="mt-2 text-xs text-muted" data-testid="connection-apps-anywhere">{t('roomApps.connectionAnywhere')}</p>}
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-code-sm break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
             {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}
@@ -594,6 +663,8 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               t('common.saved'),
             )
             if (r) {
+              setTell(null)
+              setWaiting(connAddress(state.data))
               state.setData(r)
               setChange(null)
               setConfirming(false)
@@ -627,7 +698,7 @@ function ConnectedFolders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing])
   return (
-    <Card title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t('connected.desc')} />}>
+    <Card id="system-connected" title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t('connected.desc')} />}>
       <Loadable state={state}>
         {(list) => (
           <>
@@ -711,15 +782,41 @@ function Update() {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.updateStatus))
-  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
+  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, running: state.data?.running, onDone: () => void state.reload() })
   const setAsk = install.ask
+  // while an update waits for running tasks, look again every 10 seconds: the line says the wait ended (or the restart came)
+  // when it did, also for an update this page did not start (root's, or another admin's)
+  const waiting = !!state.data?.waiting
+  // a quiet read: a failed one (the server restarting) keeps the card as it is, and a hidden page does not ask
+  const setUpdateData = state.setData
+  useEffect(() => {
+    if (!waiting) return
+    let busy = false
+    let gone = false
+    const look = async () => {
+      if (busy || document.visibilityState !== 'visible') return
+      busy = true
+      try {
+        const s = await api.call(API.updateStatus)
+        if (!gone) setUpdateData(s)
+      } catch {
+        // the next look tries again
+      } finally {
+        busy = false
+      }
+    }
+    const id = setInterval(() => void look(), 10_000)
+    const visible = () => void look()
+    document.addEventListener('visibilitychange', visible)
+    return () => { gone = true; clearInterval(id); document.removeEventListener('visibilitychange', visible) }
+  }, [waiting, setUpdateData])
   // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
   const phone = useMediaQuery(PHONE)
   // a phone's list: the version, or the new one waiting
   const u0 = state.data
-  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
+  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) && !releaseCannotRead(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
   return (
-    <Card title={t('system.updates')}>
+    <Card id="system-updates" title={t('system.updates')}>
       <Loadable state={state} lines={2}>
         {(u) => (
           <>
@@ -728,6 +825,15 @@ function Update() {
                 {u.current} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
                 {u.lastCheckedAt && <span className="block text-xs text-faint">{t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
               </Row>
+              {u.waiting && (u.running ?? 0) > 0 && (
+                // an update (this server's own, or root's `mycel-ctl update`) waits for running tasks before the restart;
+                // this server's own can go on now
+                <Row label={t('system.row.status')} long action={u.waiting.skippable ? (
+                  <Button size="sm" variant="secondary" onClick={() => setAsk('anyway')} data-testid="update-waiting-anyway">{t('system.updateAnyway')}</Button>
+                ) : undefined}>
+                  <span className="font-medium" data-testid="update-waiting">{t('system.updateWaiting', { count: u.running ?? 0 })}</span>
+                </Row>
+              )}
               {u.managed ? (
                 // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
                 <Row label={t('system.row.status')} long>
@@ -738,8 +844,9 @@ function Update() {
                   label={t('system.row.status')}
                   long
                   action={
-                    // a paused release: the server refuses it, so no button (Admin › Home says the same; QA TC-361)
-                    u.needsRoot || releasePaused(u) ? undefined : (
+                    // a paused release, or one that cannot open this server's data: the server refuses it, so no
+                    // button (Admin › Home says the same; QA TC-361)
+                    u.needsRoot || releasePaused(u) || releaseCannotRead(u) ? undefined : (
                       <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
                         <Upload size={14} aria-hidden /> {t('system.installUpdate')}
                       </Button>
@@ -747,16 +854,17 @@ function Update() {
                   }
                 >
                   {releasePaused(u) ? <span className="font-medium" data-testid="update-paused">{t('adminHome.update.paused', { version: u.available.version })}</span>
+                    : releaseCannotRead(u) ? <span className="font-medium" data-testid="update-cannot-read">{t('adminHome.update.cannotRead', { version: u.available.version })}</span>
                     : <span className="font-medium">{t('system.available', { version: u.available.version })}</span>}
                   <ReleaseNotes notes={u.available.notes} />
                   {u.available.needsBackupRestoreToRollBack && <span className="mt-1 block text-xs text-warn">{t('system.oneWay')}</span>}
-                  {u.needsRoot && !releasePaused(u) && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
+                  {u.needsRoot && !releasePaused(u) && !releaseCannotRead(u) && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
                     : <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>)}
                 </Row>
               ) : (
                 <Row label={t('system.row.status')} long>
                   {u.feed === false ? (phone ? <><span className="text-muted">{t('system.noFeedShort')}</span><OnComputer className="mt-2" text={t('admin.onComputerNoFeed')} testId="update-on-computer" /></>
-                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted">{t('system.upToDate')}</span>}
+                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : undefined}>{t(u.checkFailed ? 'system.checkFailed' : 'system.upToDate')}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (
@@ -825,6 +933,7 @@ function Backups({ onChanged }: { onChanged: () => void }) {
   useRowNote('backups', latest ? { value: formatRelative(latest, locale) } : null)
   return (
     <Card
+      id="system-backups"
       title={t('system.backups')}
       desc={t('system.backupsDesc')}
       actions={
@@ -921,7 +1030,7 @@ function Export() {
   const [result, setResult] = useState<string | null>(null)
   useEffect(() => setResult(null), [what])
   return (
-    <Card title={t('system.export')} desc={t('system.exportDesc')}>
+    <Card id="system-export" title={t('system.export')} desc={t('system.exportDesc')}>
       <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
         <legend className="sr-only">{t('system.export')}</legend>
         {(['chats', 'memories', 'files'] as const).map((w) => (

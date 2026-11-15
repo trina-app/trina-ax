@@ -17,6 +17,7 @@ import { resolveLayout } from '../../server/src/system/layout'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
 import { M } from '../../server/src/system/messages'
 import { OWNER_PW, addMember, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
+import { SCHEMA_READER_LEVEL } from '../../server/src/db'
 import { WORK } from '../lib/env'
 
 const W = path.join(WORK, 'g-update-auto')
@@ -290,6 +291,17 @@ describe('through the app', () => {
       delete (u as unknown as Record<string, unknown>).feedUsable
     }
   })
+  test('two admins press Update together: one update starts, the other is told it is busy (QA TC-1230)', async () => {
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0' }) }))
+    const ops = getOps(h.ctx)!
+    try {
+      const [a, b] = await Promise.all([owner.try('POST', '/api/admin/update', { password: OWNER_PW }), owner.try('POST', '/api/admin/update', { password: OWNER_PW })])
+      expect([a.status, b.status].sort()).toEqual([202, 409])
+      expect([a, b].find((x) => x.status === 409)!.body.error.code).toBe('busy')
+      for (let i = 0; i < 200 && ops.busyWith; i++) await new Promise((x) => setTimeout(x, 50))
+      expect(ops.busyWith).toBeNull()
+    } finally { fs.rmSync(path.join(h.ctx.config.dataDir, 'update-check.json'), { force: true }) }
+  })
   test('a release in its staged roll-out: the update status says when this server\'s turn comes (turnAt)', async () => {
     const published = new Date(Date.now() - 3600_000)
     const salt = '3f9a1c7e5b2d4086a1e0c9b8f7d6e5a4'
@@ -429,6 +441,26 @@ describe('through the app', () => {
       h.ctx.config.update = { ...h.ctx.config.update, auto: false }
     }
   })
+  test('a release that cannot open this database (a dev build migrated it further): hold cannot_read, not installed by hand (409)', async () => {
+    const check = (f: Partial<ReleaseFeed>) => fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0', ...f }) }))
+    h.ctx.config.update = { ...h.ctx.config.update, auto: true }
+    try {
+      // the test database has every migration of this build: it needs SCHEMA_READER_LEVEL
+      check({ minReaderRequired: SCHEMA_READER_LEVEL - 1 })
+      expect(await owner.call('GET', '/api/admin/update')).toMatchObject({ available: { version: '99.0.0' }, hold: 'cannot_read' })
+      const r = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
+      expect(r.status).toBe(409)
+      expect(r.body.error.message).toBe('99.0.0은(는) 이 서버의 데이터를 아직 열 수 없어요. 더 새로운 버전을 기다리는 중이에요.') // the owner's language (ko)
+      expect(getOps(h.ctx)!.busyWith).toBeNull()
+      // one that reads the level (or says nothing about it): nothing holds it
+      for (const f of [{ minReaderRequired: SCHEMA_READER_LEVEL }, {}]) {
+        check(f)
+        expect((await owner.call('GET', '/api/admin/update')).hold).toBeNull()
+      }
+    } finally {
+      h.ctx.config.update = { ...h.ctx.config.update, auto: false }
+    }
+  })
   test('after-update to-dos are for admins: a member gets 403 on the list and on dismiss', async () => {
     const m = await addMember(h, owner, { username: 'mia' })
     expect((await m.client.try('GET', '/api/admin/after-update')).status).toBe(403)
@@ -449,5 +481,19 @@ describe('through the app', () => {
     expect(p.body.error).toMatchObject({ code: 'busy', message: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.' })
     ops.unlock()
     expect((await owner.try('POST', '/api/admin/backup', { scope: 'db' })).status).toBe(202)
+  })
+})
+
+describe('update page: unreachable feed and two presses (QA TC-1229, TC-1230)', () => {
+  test('a failed look at the feed is reported (checkFailed), a good one is not, and no feed says nothing', () => {
+    const dataDir = path.join(W, 'check-failed')
+    fs.mkdirSync(dataDir, { recursive: true })
+    const mgr = (feedUrl: string | null) => new UpdateManager({ appDir: null, dataDir, version: '1.0.0', channel: 'stable', feedUrl, log: silentLogger, keys: ['x'] })
+    const rec = (error: string | null) => fs.writeFileSync(path.join(dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error, feed: null }))
+    rec('fetch failed')
+    expect(mgr('http://127.0.0.1:1/feed.json').status().checkFailed).toBe(true)
+    expect(mgr(null).status().checkFailed).toBeUndefined()
+    rec(null)
+    expect(mgr('http://127.0.0.1:1/feed.json').status().checkFailed).toBeUndefined()
   })
 })

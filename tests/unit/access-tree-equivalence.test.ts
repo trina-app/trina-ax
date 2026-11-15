@@ -7,6 +7,7 @@ import type { AccessTreeWho } from '@mycel/shared/api'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { isSkills, treeContext, type TreeSource } from '../../server/src/admin/access-tree'
 import { inSkills } from '../../server/src/skills/guard'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 let seed = 11
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
@@ -43,7 +44,7 @@ test('who per class equals every person explained on their own, and the counts e
       groups: nGroups > 30 && i % 4 ? [groups[i % nGroups]!] : groups.filter(() => rand() < 0.25),
     }))
     const folders = ['', 'a', 'a/b', 'a/b/c', 'a/d', 'e', 'e/f', 'skills', 'skills/x', 'shared']
-    const rows: ConstructorParameters<typeof RuleSet>[0] = []
+    const rows: RuleRow[] = []
     for (const f of folders) {
       if (rand() < 0.45) continue
       for (let k = 0, n = 1 + Math.floor(rand() * 4); k < n; k++) {
@@ -53,7 +54,7 @@ test('who per class equals every person explained on their own, and the counts e
     }
     // more groups on one way up than a bit mask holds
     if (nGroups > 30 && rand() < 0.7) for (const g of groups) rows.push({ path: pick(['', 'a', 'a/b']), subject_type: 'group', subject_id: g, access: pick(ACCESS) })
-    const rules = new RuleSet(rows)
+    const rules = ruleWorld(rows)
     const name = (t: string, id: string) => (t === 'group' ? `G ${id}` : t === 'user' ? `U ${id}` : null)
     const src: TreeSource = {
       rules, people, groupName: (id) => name('group', id), personName: (id) => name('user', id),
@@ -81,7 +82,7 @@ test('who per class equals every person explained on their own, and the counts e
 test('skills/ as the skills guard compares it: any case or Unicode form of the first name', () => {
   for (const p of ['skills', 'skills/x', 'Skills', 'SKILLS/a/b', 'skills2', 'x/skills', 'skill', 'Skills/x', 'ｓkills']) expect(isSkills(p), p).toBe(inSkills(p))
   const people: Principal[] = [{ id: 'o', name: 'O', role: 'owner', groups: [] }, { id: 'm', name: 'M', role: 'member', groups: [] }]
-  const rules = new RuleSet([{ path: 'Skills/open', subject_type: 'everyone', subject_id: null, access: 'write' }])
+  const rules = ruleWorld([{ path: 'Skills/open', subject_type: 'everyone', subject_id: null, access: 'write' }])
   const tc = treeContext({ rules, people, groupName: () => null, personName: () => null, children: () => [], hasFolders: () => false, isFolder: () => true, marks: new Map(), personal: 2 })
   expect(tc.node(['Skills', 'open']).risks).toEqual(['skills-everyone-writes'])
 })

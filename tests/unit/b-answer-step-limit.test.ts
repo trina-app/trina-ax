@@ -14,7 +14,7 @@ const read = { tool: 'read', args: { file_path: 'users/alice/todo.md' } }
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-step-limit', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-step-limit', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-alice-steps' })
   await alice.next('hello')
 })

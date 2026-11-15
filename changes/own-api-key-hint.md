@@ -1,1 +1,0 @@
-- Settings › AI accounts: adding your own API key now advises a key of your own (not "a key just for this team in the company's console"), and a provider's refusal of the previous key goes away when you change the key.

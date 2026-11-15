@@ -1,0 +1,16 @@
+{
+ "id": 929361465,
+ "order_id": 5820982911946154,
+ "created_at": "2026-11-14T12:00:00-05:00",
+ "note": "wrong size",
+ "refund_line_items": [],
+ "transactions": [
+  {
+   "id": 1,
+   "amount": "89.99",
+   "currency": "USD",
+   "kind": "refund",
+   "status": "success"
+  }
+ ]
+}

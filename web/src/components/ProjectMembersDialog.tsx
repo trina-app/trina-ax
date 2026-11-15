@@ -8,37 +8,60 @@
 // (`otherRulesHidden`). Saving goes through the same folder rules as Admin › Folder permissions (the rules hash it read;
 // 409 when someone changed them meanwhile, and the list shows what is there now). A confirm first when someone gains it,
 // or when the save also writes a rule nobody chose here (the floor rule an older folder lacks, the creator's rule taken
-// out in Admin): the server's dry run says what, and how many lose it; when the only one it adds is the caller, the
-// "Add me" confirm instead. Taking people out alone saves at once.
-import { X } from 'lucide-react'
+// out in Admin): the server's dry run says what; when the only one it adds is the caller, the "Add me" confirm instead.
+// Taking people out asks too: "2 people lose access: Kim and Lee" (names, three and "and N more"; QA TC-1067).
+// Who is in it (docs/DECISIONS.md "Who is in a project, by face"): whoever changes the members reads the picker (each
+// group row opens to its people) and one count under it, "5 people", me included (QA TC-1065: no second list of the same
+// people). Its members open it too (the faces on the project page): for them the list of everyone in it, each once
+// (ProjectPeople.tsx PeopleList, the creator and "나" marked), and who changes the members.
+// Adding people who would start seeing answers of its shared chats that used places some of them can't open: one line
+// under the count ("3 answers here used places Sales can't open…") with "Show answers", which turns the dialog's body
+// into the list of those answers (components/WideningList.tsx; docs/DECISIONS.md "People who see a shared chat later:
+// nothing new is hidden"); ‹ goes back to the picks. On a phone an answer opens on this screen: the draft is kept first
+// (store/wideningDraft.ts) and the dialog opens again on the list when the person comes back (WideningDraftHost).
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import clsx from 'clsx'
-import { useEffect, useMemo, useState } from 'react'
-import type { Project, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant } from '@mycel/shared/api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import type { Project, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant, WideningAnswer } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { useProjects } from '../store/projects'
 import { isAdmin, useMe } from '../store/session'
 import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
-import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog } from './ui'
+import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMediaQuery } from './ui'
+import { answerHref, WideningList } from './WideningList'
+import { freshDraft, useWideningDraft, type WideningDraft } from '../store/wideningDraft'
+import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
+import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
+import { isGuestMe } from '../lib/guests'
+import { isGuestNow } from './GuestTag'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
 export const chosenOf = (a: ProjectAccess): ProjectParticipant[] => a.participants.filter((x) => !x.creator).map(({ subjectType, subjectId }) => ({ subjectType, subjectId }))
 
-/** The dry run asks first: someone gains it, or the save writes a rule nobody chose here. */
-export const asksFirst = (p: ProjectAccessPreview) => p.added > 0 || !!p.addsFloor || !!p.restoresCreator
+/** The dry run asks first: someone gains or loses it, or the save writes a rule nobody chose here. */
+export const asksFirst = (p: ProjectAccessPreview) => p.added > 0 || p.removed > 0 || !!p.addsFloor || !!p.restoresCreator
 
-/** The confirm: who gains it and what they will see, how many lose it, the rule the save adds; false when cancelled. */
-export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview): Promise<boolean> {
-  const lines = p.added ? widenLines(t, p) : []
+/** "Kim, Lee, Park and 2 more": up to three names the server sent, then how many more of `total`. */
+export function namesLine(t: ReturnType<typeof useT>, names: readonly string[], total: number): string {
+  const list = names.join(t('rooms.nameSep'))
+  return total > names.length ? t('rooms.groupNamesMore', { names: list, n: total - names.length }) : list
+}
+
+/** The confirm: who gains it and what they will see, how many lose it, the rule the save adds; false when cancelled.
+ * `names`: the people and groups being added, as picked (the widening line). */
+export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview, names = '', guestsOff = 0): Promise<boolean> {
+  const lines = p.added ? [...widenLines(t, p), ...(p.hiddenAnswers && names ? [t('chat.share.widen', { n: p.hiddenAnswers, names })] : [])] : []
   return confirmDialog({
     title: p.added ? t('projects.widenTitle') : t('projects.changeTitle'),
     body: (
       <div className="space-y-2" data-testid="project-widen-confirm">
         {p.added > 0 && <p>{t('projects.widenBody', { n: p.added })}</p>}
         {lines.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{lines.map((l) => <li key={l}>{l}</li>)}</ul>}
-        <ChangeLines t={t} p={p} />
+        <ChangeLines t={t} p={p} guestsOff={guestsOff} />
         {p.added > 0 && <p className="text-faint">{t('projects.widenNotice')}</p>}
       </div>
     ),
@@ -47,11 +70,16 @@ export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPrevi
 }
 
 /** What else a save does that the person did not choose here: how many lose it, the rule it adds or puts back. */
-function ChangeLines({ t, p }: { t: ReturnType<typeof useT>; p?: ProjectAccessPreview }) {
+function ChangeLines({ t, p, guestsOff = 0 }: { t: ReturnType<typeof useT>; p?: ProjectAccessPreview; guestsOff?: number }) {
   if (!p) return null
   return (
     <>
-      {p.removed > 0 && <p data-testid="project-narrow-line">{t('projects.narrowBody', { n: p.removed })}</p>}
+      {p.removed > 0 && (
+        <p className="break-keep" data-testid="project-narrow-line">
+          {p.removedNames?.length ? t('projects.loseAccess', { n: p.removed, names: namesLine(t, p.removedNames, p.removed) }) : t('projects.narrowBody', { n: p.removed })}
+        </p>
+      )}
+      {guestsOff > 0 && <p className="break-keep" data-testid="project-guests-off">{t('projects.guestsOff', { n: guestsOff })}</p>}
       {p.addsFloor && <p className="break-keep" data-testid="project-adds-floor">{t('projects.addsFloor')}</p>}
       {p.restoresCreator && <p className="break-keep" data-testid="project-restores-creator">{t('projects.restoresCreator')}</p>}
     </>
@@ -82,11 +110,20 @@ export const projectNow = (id: string) => api.call(API.getProject, { params: { i
 const ruleWho = (t: ReturnType<typeof useT>, r: ProjectOtherRule) =>
   r.subjectType === 'everyone' ? t('rules.everyone') : r.subjectType === 'role' ? t(`role.${r.subjectId as 'member'}`) : r.subjectType === 'group' ? t('projects.whoGroup', { name: r.name ?? '' }) : r.name ?? ''
 
-export function ProjectMembersDialog({ project, onClose, onSaved }: { project: Project; onClose: () => void; onSaved: (p: Project) => void }) {
+export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { project: Project; onClose: () => void; onSaved: (p: Project) => void
+  /** a phone's way back from an answer of the widening list: the picks and the list as they were */
+  initial?: WideningDraft }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
   const admin = isAdmin(me)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const navigate = useNavigate()
+  const location = useLocation()
+  // the widening list in place of the body (the picks stay)
+  const [listing, setListing] = useState(false)
+  const listScroll = useRef(initial?.scroll ?? 0)
+  const restore = useRef(initial)
   const [access, setAccess] = useState<ProjectAccess | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [participants, setParticipants] = useState<ProjectParticipant[]>([])
@@ -94,14 +131,37 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
   const [removing, setRemoving] = useState<RuleRef[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const shown = (a: ProjectAccess) => { setAccess(a); setParticipants(chosenOf(a)); setRemoving([]) }
+  // "Invite a guest" (components/GuestInvite.tsx): for whoever changes the members (its creator, the owner, an admin);
+  // the dialog takes this one's place
+  const [guestInvite, setGuestInvite] = useState(false)
+  // a guest added here is in another place already (409 guest_one_place): said in the dialog, with Make team member
+  const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
+  const shown = (a: ProjectAccess) => {
+    setAccess(a)
+    // back from an answer on a phone: the picks and the list, unless the members were saved meanwhile or it is too old
+    const d = restore.current
+    restore.current = undefined
+    if (d && freshDraft(d) && d.projectId === project.id && d.rulesHash === a.rulesHash) {
+      setParticipants(d.participants); setRemoving(d.removeRules); setListing(true)
+    } else { setParticipants(chosenOf(a)); setRemoving([]); listScroll.current = 0 }
+    if (d) useWideningDraft.getState().drop()
+  }
   const load = () => api.call(API.getProjectAccess, { params: { id: project.id } })
+  // whoever manages it reads its participants; a member who does not reads only who is in it
+  const manages = !!(project.canManage ?? project.membersEditable)
   useEffect(() => {
+    if (!manages) return
     let live = true
     load().then((a) => live && shown(a), (e) => live && setLoadError(errorText(e, locale, t('error.network'))))
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id])
+  }, [project.id, manages])
+  const people = useProjectPeople(project)
+  const groupPeople = useMemo(() => {
+    if (!people || !people.groups) return undefined
+    const byId = new Map(people.people.map((x) => [x.id, x]))
+    return new Map(people.groups.map((g) => [g.id, g.people.flatMap((id) => byId.get(id) ?? [])]))
+  }, [people])
 
   const removed = useMemo(() => new Set(removing.map(ruleKey)), [removing])
   const current = useMemo(() => (access ? chosenOf(access) : []), [access])
@@ -118,6 +178,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [access, project.folderPath])
   const options = useParticipantOptions(extra)
+  // guests in another room or project: greyed out in the search, no Add (a guest is in one place only)
+  const elsewhere = useGuestsElsewhere({ kind: 'project', id: project.id })
   // the creator and anyone who sees it by another setting of the folder (read): not changed in the list. A "no access"
   // setting is no member: it stays in the box below
   const fixed = useMemo(() => {
@@ -127,21 +189,44 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [access, project.folderPath, removed, t])
+  // a group's people who left the project (docs/DECISIONS.md "Leaving a project"): "Marketing · except Kim" on its row,
+  // the only place a leaver shows (owner, QA TC-1074); adding them by name takes the exception away
+  const notes = useMemo(() => new Map((access?.participants ?? []).filter((x) => x.except?.length).map((x) => [participantKey(x), t('projects.except', { names: x.except!.map((u) => u.name).join(t('rooms.nameSep')) })])), [access, t])
   const editable = !!access?.editable
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
+  // the people and groups being added, as picked ("Sales and Sam"): the widening line and the list's title
+  const adding = useMemo(() => { const keys = new Set(current.map(participantKey)); return participants.filter((x) => !keys.has(participantKey(x))) }, [participants, current])
+  const addedNames = useMemo(() => adding.map((x) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '').filter(Boolean).join(t('rooms.nameSep')), [adding, options, t])
+  const widen = editable && !!count?.hiddenAnswers && !!addedNames
+  // nothing to list any more (the picks changed): back to them (not while the names are still being read)
+  useEffect(() => { if (listing && access && !adding.length) setListing(false) }, [listing, access, adding.length])
+  const body = useRef<HTMLDivElement>(null)
+  const scroller = useCallback(() => body.current?.closest<HTMLElement>('.overflow-y-auto') ?? null, [])
+  /** a phone: the answer opens on this screen; the draft first, so Back brings the dialog and its picks back */
+  const openOnPhone = (a: WideningAnswer) => {
+    if (!access) return
+    useWideningDraft.getState().keep({ projectId: project.id, participants, removeRules: removing, rulesHash: access.rulesHash, scroll: listScroll.current, from: location.pathname + location.search, at: Date.now(), left: true })
+    // (no onClose: the screen under it goes with the navigation, and a dialog closing now would step the history back over
+    // it: lib/backCloses.ts)
+    navigate(answerHref(a))
+  }
 
   const save = async () => {
     setBusy(true)
     setError(null)
+    setOnePlace(null)
     const removeRules = removing.length ? { removeRules: removing } : {}
     try {
       const p = await api.call(API.previewProjectAccess, { body: { projectId: project.id, participants, ...removeRules } })
       // the only one the save adds is me (an owner or admin who is not a member): the "Add me" confirm
       const keys = new Set(current.map(participantKey))
       const adds = participants.filter((x) => !keys.has(participantKey(x)))
+      // guests among the people this save takes out: their account is switched off with it (said in the confirm)
+      const keptKeys = new Set(participants.map(participantKey))
+      const removedGuests = current.filter((x) => x.subjectType === 'user' && !keptKeys.has(participantKey(x)) && isGuestNow(x.subjectId)).length
       const addsOnlyMe = !!me && adds.length === 1 && adds[0]!.subjectType === 'user' && adds[0]!.subjectId === me.user.id && p.added <= 1
-      if (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p))) return
+      if (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests))) return
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash, ...removeRules } })
       shown(a)
       // the project as the server sees it now: how many see it, and whether anyone else does by a rule (Project.alone:
@@ -157,6 +242,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     } catch (e) {
       // someone changed who sees it meanwhile: show what is there now
       if (isApiError(e, 'conflict') && (e as ApiError).body.params?.reason === 'rules_changed') load().then(shown, () => {})
+      // a guest already in another room or project: the owner's words, "Make team member" for admins
+      const onePlaceRefused = onePlaceOf(e)
+      if (onePlaceRefused) { setOnePlace(onePlaceRefused); return }
       const refused = refusalKey(e, 'project')
       setError(refused ? t(refused) : errorText(e, locale, t('error.network')))
     } finally {
@@ -164,6 +252,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     }
   }
 
+  if (guestInvite) return <GuestInviteDialog place={{ kind: 'project', id: project.id, name: project.name }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
   const otherRules = access?.otherRules ?? []
   const hidden = access?.otherRulesHidden ?? 0
   const take = (r: ProjectOtherRule) => setRemoving((xs) => [...xs, { subjectType: r.subjectType, subjectId: r.subjectId }])
@@ -172,30 +261,62 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     <Modal
       open
       onClose={onClose}
-      title={t('projects.membersTitle', { name: project.name })}
+      title={listing ? (
+        <span className="flex min-w-0 items-center gap-1">
+          <IconButton label={t('tabs.back')} onClick={() => setListing(false)} className="-ml-2 shrink-0 touch-hit" data-testid="widening-list-back">
+            <ChevronLeft size={18} aria-hidden />
+          </IconButton>
+          <span className="min-w-0 break-keep" data-testid="widening-list-title">{t('share.widenList.title', { names: addedNames })}</span>
+        </span>
+      ) : t('projects.membersTitle', { name: project.name })}
       width={560}
-      footer={
+      footer={listing ? undefined :
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          {/* read only (a member who does not manage it, or members changed elsewhere): 닫기 */}
+          <Button variant="ghost" onClick={onClose}>{editable ? t('common.cancel') : t('common.close')}</Button>
           {editable && <Button variant="primary" busy={busy} disabled={!changed} onClick={() => void save()} data-testid="project-members-save">{t('common.save')}</Button>}
         </>
       }
     >
+      {listing && access ? (
+        <div ref={body}>
+          <WideningList target={{ kind: 'project', projectId: project.id }} add={participants} names={addedNames} phone={phone} onOpen={phone ? openOnPhone : undefined}
+            scroller={scroller} initialScroll={listScroll.current} onScroll={(top) => { listScroll.current = top }} />
+        </div>
+      ) : (
       <div className="space-y-4" data-testid="project-members-dialog">
         {loadError && <ErrorNote>{loadError}</ErrorNote>}
-        {!access && !loadError && <Skeleton lines={4} />}
+        {manages && !access && !loadError && <Skeleton lines={4} />}
         {access && editable && (
           <div className="space-y-2">
-            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} />
+            {!isGuestMe(me) && (
+              <ul className="-mx-2 max-sm:-mx-1" data-testid="project-guest">
+                <InviteGuestRow place="project" onOpen={() => setGuestInvite(true)} />
+              </ul>
+            )}
+            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} unavailable={elsewhere} />
+            {/* the one count of this dialog: everyone who sees it, me included (after the change while one is pending) */}
             <AccessSummary count={count} />
+            {/* the widening warning: answers the people being added would start seeing that used places they miss */}
+            {widen && (
+              <p className="text-sm leading-6 break-keep text-ink" data-testid="project-widen-answers">
+                {t('chat.share.widen', { n: count!.hiddenAnswers!, names: addedNames })}{' '}
+                <button type="button" onClick={() => setListing(true)} className="touch-hit inline-flex items-center font-medium text-accent-text hover:underline" data-testid="project-widen-show">
+                  {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />
+                </button>
+              </p>
+            )}
           </div>
         )}
         {/* changed elsewhere meanwhile (a folder moved), or a project made before outside projects/: who changes it */}
-        {access && !editable && (
+        {(access ? !editable : !manages) && (
           <p className="text-sm break-keep text-muted" data-testid="project-members-locked">
-            {!admin ? t('projects.membersByAdmins') : isProjectsFolder(project.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote')}
+            {!admin ? (project.creatorChangesMembers && project.createdBy ? t('projects.membersByCreator', { name: project.createdBy.name }) : t('projects.membersByAdmins')) : isProjectsFolder(project.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote')}
           </p>
         )}
+        {!manages && people === null && <Skeleton lines={3} />}
+        {/* a member's list could not be read: say so rather than an empty dialog */}
+        {!manages && people === false && hasPeopleList(project) && <ErrorNote>{t('error.network')}</ErrorNote>}
         {/* the other settings of its folder: those of the folder itself can go (×, undone before the save), those of
             folders inside are shown only; folders inside the caller may not read are counted */}
         {editable && (otherRules.length > 0 || hidden > 0) && (
@@ -230,8 +351,12 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
             {hidden > 0 && <p className={clsx('text-xs text-faint', otherRules.length > 0 && 'mt-1')} data-testid="project-other-rules-hidden">{t('projects.insideOwn', { n: hidden })}</p>}
           </div>
         )}
+        {/* a member who does not change them: everyone in it now, each once (whoever changes them reads the picker) */}
+        {(!manages || (access && !editable)) && people && people.people.length > 0 && <PeopleList people={people.people} />}
+        {onePlace && <OnePlaceNote guestId={onePlace.guestId} admin={admin} />}
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
+      )}
     </Modal>
   )
 }

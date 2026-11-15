@@ -120,6 +120,26 @@ export const ScheduleTemplateEdit = z.object({
 export type ScheduleTemplateEdit = z.infer<typeof ScheduleTemplateEdit>
 export const ScheduleEdit = z.discriminatedUnion('kind', [ScheduleTaskSave, ScheduleTemplateEdit])
 export type ScheduleEdit = z.infer<typeof ScheduleEdit>
+/** One entry of a task's run history (GET /api/schedules/:id/runs, newest first): a run (its turn) or an occurrence that
+ * did not run (a usage limit, the owner's account, a key it needed, a project its owner did not see). `status`: a
+ * finished run's result as lastOutcome reads it ('done' only for a clean success, 'problems', 'error', 'stopped',
+ * 'interrupted'), 'running' while it is queued or running, or why an occurrence did not run. `chatId`: the run's chat
+ * while it is there (null: it did not run, or its chat was deleted). `error`: the first line of a failed run's error
+ * message (in the owner's language, as the chat showed it), at most 200 characters; null otherwise. `needName`: for
+ * 'needs_key', the template whose own key it needed, by the name it had then. */
+export const ScheduleRun = z.object({
+  id: z.string(),
+  status: z.enum(['running', 'done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable', 'needs_key', 'project_gone']),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  chatId: z.string().nullable(),
+  error: z.string().nullable(),
+  needName: z.string().nullable().optional(),
+})
+export type ScheduleRun = z.infer<typeof ScheduleRun>
+export const ScheduleRunsPage = z.object({ items: z.array(ScheduleRun), nextCursor: z.string().nullable() })
+export type ScheduleRunsPage = z.infer<typeof ScheduleRunsPage>
+
 /** "지금 실행": the run started now and the task as it is after it. */
 export const ScheduleRunStarted = z.object({ schedule: Schedule, chatId: z.string() })
 
@@ -129,6 +149,7 @@ export const SCHEDULES = {
   listSchedules: endpoint({ method: 'GET', path: '/api/schedules', auth: 'user', owner: 'B', response: z.object({ items: z.array(Schedule), timeZone: z.string() }), summary: 'Own scheduled tasks and the team time zone they run in.' }),
   updateSchedule: endpoint({ method: 'PATCH', path: '/api/schedules/:id', auth: 'user', owner: 'B', body: z.object({ enabled: z.boolean() }), response: Schedule, summary: 'Pause or resume one of the own scheduled tasks.' }),
   runScheduleNow: endpoint({ method: 'POST', path: '/api/schedules/:id/run', auth: 'user', owner: 'B', body: z.object({}).strict(), response: ScheduleRunStarted, summary: 'Run one of the own tasks once now, with the rules of a scheduled run; its schedule and on/off stay as they are.' }),
+  listScheduleRuns: endpoint({ method: 'GET', path: '/api/schedules/:id/runs', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: ScheduleRunsPage, summary: 'Run history of one of the own tasks, newest first: each run with its result, start, end and chat, and the occurrences that did not run. Paged (limit, default 10; nextCursor).' }),
   scheduleEditCard: endpoint({ method: 'POST', path: '/api/schedules/:id/edit', auth: 'user', owner: 'B', body: ScheduleTaskEdit, response: ScheduleReviewCard, summary: 'Check an edit of an own free-text task and show its schedule card (nothing changes yet).' }),
   editSchedule: endpoint({ method: 'PUT', path: '/api/schedules/:id', auth: 'user', owner: 'B', body: ScheduleEdit, response: Schedule, summary: 'Save an edit: a free-text task with the answer to its card, a template with its time and folders.' }),
   deleteSchedule: endpoint({ method: 'DELETE', path: '/api/schedules/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete one of the own scheduled tasks.' }),

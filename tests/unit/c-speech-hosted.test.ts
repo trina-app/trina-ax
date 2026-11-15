@@ -242,7 +242,7 @@ describe("the plan's free hours (plan.json speechFreeHours, written per plan by 
     expect(job.status).toBe('failed')
     expect(job.error!.message).toContain("This month's 50 free hours of transcription are used up")
     expect(job.error!.message).not.toContain('10 free hours')
-    const words = { ko: '이번 달 무료 받아쓰기 50시간을 다 썼어요', id: '50 jam transkripsi gratis bulan ini sudah habis', ja: '今月の無料文字起こし50時間を使い切りました', es: 'Se han agotado las 50 horas gratuitas de transcripción' }
+    const words = { ko: '이번 달 무료 받아쓰기 50시간을 다 썼어요', id: '50 jam transkripsi gratis bulan ini sudah habis', ja: '今月の無料文字起こし50時間を使い切りました', es: 'Se han agotado las 50 horas gratuitas de transcripción', zh: '本月50小时的免费转写已用完' }
     try {
       for (const [locale, text] of Object.entries(words)) {
         A.ctx.db.query('UPDATE users SET locale = ? WHERE id = ?').run(locale, 'alice')

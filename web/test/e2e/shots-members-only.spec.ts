@@ -1,6 +1,6 @@
 // Screenshots of "Project contents only for members" (docs/DECISIONS.md), light, 1440 and 390 wide, for reviewing by
-// eye: the page of a team project the owner is not in, its "Add me" confirm, and Admin › Folder permissions with the
-// project's folder as "Members only". Only when MEMBERS_ONLY_SHOTS names a folder to write them to.
+// eye: the page of a team project the owner is not in, its "Add me" confirm, and Admin › Folder permissions with team
+// projects as one line. Only when MEMBERS_ONLY_SHOTS names a folder to write them to.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -37,10 +37,10 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await page.screenshot({ path: `${dir}/b-add-me-confirm-${vp.name}-light.png` })
     await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
     // (c) Admin › Folder permissions: the project's folder chosen ("멤버만", "멤버 관리"); the tree row on a computer
-    await page.goto(`/admin/folders?folder=${encodeURIComponent('projects/계약서 검토')}`)
-    await expect(page.getByTestId('folder-detail-members-only')).toBeVisible()
-    if (vp.name === '1440') await expect(page.getByTestId('folder-tree').locator('[data-path="projects/계약서 검토"]')).toBeVisible()
-    await page.waitForTimeout(300)
+    // Admin › Folder permissions: team projects are one line ("each project's members only"), never a folder row
+    await page.goto('/admin/folders')
+    await expect(page.getByTestId('folders-projects')).toBeVisible()
+    await expect(page.getByTestId('folders-row').and(page.locator('[data-path="projects/계약서 검토"]'))).toHaveCount(0)
     await page.screenshot({ path: `${dir}/c-admin-members-only-${vp.name}-light.png`, fullPage: vp.name === '1440' })
   })
 }

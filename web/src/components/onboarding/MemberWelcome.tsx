@@ -4,13 +4,12 @@
 // while it shows ("Y — Home shows one thing at a time").
 // - "Welcome to {team}, {first name}" and "{inviter} invited you · {n} people are here" (no inviter: the second half).
 // - "Get started · {done} of {total}" and Hide (for good, on every device).
-// - Rows, each with a done / not done circle: a. "You're in {rooms}" (done from the start; Open: Conversations), b. "Say
+// - Rows, each with a done / not done circle: a. "You're in {rooms}" (done from the start; Open: Chats), b. "Say
 //   hi to the team" ("👋 Hi, I'm {name}" posts that in the everyone room as them; done once they wrote any message in a
 //   room; then Open: that room), c. "Add your photo" (optional, not counted: the photo picker in place, saved at once),
 //   d. "Ask {AI} what you can do here" (one tap starts a normal chat with a fixed question, which opens; done once it
 //   ran). While no AI answers them, row d is the no-AI way out instead (components/onboarding/ConnectAi.tsx): connect
-//   their own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after), with the trial credit's line
-//   when that is why; it goes back to the question once AI answers.
+//   their own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after); it goes back to the question once AI answers.
 // - An admin also gets "팀 파일 정리하기" (not counted) while nobody applied the setup's folder plan: the 팀 파일 step in a
 //   dialog (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders").
 // - Every counted row done: "You're all set" with Close, then gone for good.
@@ -23,7 +22,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { SHARED_HOME, uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { squarePhoto } from '../../lib/avatar'
-import { trialLine } from '../../lib/aiAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { aiName } from '../../lib/tabs'
 import { useLocale, useT } from '../../i18n'
@@ -32,7 +30,7 @@ import { useChats } from '../../store/chats'
 import { useMemberWelcome } from '../../store/memberWelcome'
 import { useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, Modal, useMediaQuery } from '../ui'
+import { Button, Modal } from '../ui'
 import { useWelcome } from '../../store/welcome'
 import { ConnectAiButton } from './ConnectAi'
 import { TeamFilesStep } from './TeamFilesStep'
@@ -54,14 +52,12 @@ export function roomList(rooms: Welcome['rooms'], everyone: string, locale: stri
 /** The rows that count toward "{done} of {total}" (the photo is optional). */
 export const countedSteps = (s: Welcome['steps']) => ({ done: [s.rooms, s.hi, s.asked].filter(Boolean).length, total: 3 })
 
-const PHONE = '(max-width: 767.98px)'
 const tap = 'max-md:min-h-11'
 
 export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const t = useT()
   const ids = useId()
   const me = useMeStrict()
-  const phone = useMediaQuery(PHONE)
   const hide = useMemberWelcome((s) => s.hide)
   const name = firstName(me.user.name)
   const people = t('memberWelcome.people', { n: welcome.people })
@@ -73,8 +69,8 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink" aria-hidden><Check size={14} /></span>
           <div className="min-w-0 flex-[1_1_12rem]">
-            <h2 id={`${ids}-title`} className="font-semibold text-ink">{t('memberWelcome.allSet')}</h2>
-            <p className="text-sm text-muted text-balance">{t('memberWelcome.allSetHint', { place: t(phone ? 'tabs.chats' : 'rooms.title'), ai: aiName(t) })}</p>
+            <h2 id={`${ids}-title`} className="text-title-sm font-semibold text-ink">{t('memberWelcome.allSet')}</h2>
+            <p className="text-sm text-muted text-balance">{t('memberWelcome.allSetHint', { place: t('tabs.chats'), ai: aiName(t) })}</p>
           </div>
           <Button size="sm" className={tap} onClick={() => void hide()} data-testid="member-welcome-close">{t('common.close')}</Button>
         </div>
@@ -85,7 +81,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   return (
     <section className={clsx('mb-6 max-md:mb-0', frame)} aria-labelledby={`${ids}-title`} data-testid="member-welcome" data-state="open">
       <div className="max-md:px-3">
-        <h2 id={`${ids}-title`} className="text-lg font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">{t('memberWelcome.title', { team: welcome.team, name })}</h2>
+        <h2 id={`${ids}-title`} className="text-display font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">{t('memberWelcome.title', { team: welcome.team, name })}</h2>
         <p className="mt-0.5 text-sm text-muted" data-testid="member-welcome-line">
           {welcome.inviter ? t('memberWelcome.invited', { inviter: welcome.inviter.name, n: welcome.people }) : people}
         </p>
@@ -97,7 +93,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         </button>
       </div>
       <ul className="divide-y divide-line" data-testid="member-welcome-rows">
-        <RoomsRow welcome={welcome} phone={phone} />
+        <RoomsRow welcome={welcome} />
         <HiRow welcome={welcome} name={name} />
         <PhotoRow done={welcome.steps.photo} />
         <AskRow welcome={welcome} />
@@ -129,11 +125,11 @@ function Row({ id, done, title, hint, children, optional }: { id: string; done: 
   )
 }
 
-function RoomsRow({ welcome, phone }: { welcome: Welcome; phone: boolean }) {
+function RoomsRow({ welcome }: { welcome: Welcome }) {
   const t = useT()
   const locale = useLocale()
   return (
-    <Row id="rooms" done title={t('memberWelcome.rooms', { rooms: roomList(welcome.rooms, t('rooms.all'), locale) })} hint={t('memberWelcome.roomsHint', { place: t(phone ? 'tabs.chats' : 'rooms.title') })}>
+    <Row id="rooms" done title={t('memberWelcome.rooms', { rooms: roomList(welcome.rooms, t('rooms.all'), locale) })} hint={t('memberWelcome.roomsHint', { place: t('tabs.chats') })}>
       <Link to="/rooms" className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-rooms-open">
         {t('memberWelcome.roomsOpen')}
       </Link>
@@ -246,11 +242,10 @@ function AskRow({ welcome }: { welcome: Welcome }) {
   const name = aiName(t)
   const noAi = ai.loaded && !ai.usable
   if (noAi && !welcome.steps.asked) {
-    const trial = ai.trial && t(trialLine(ai.trial))
     if (ai.action === 'ask_owner') {
       const owner = welcome.owner ? firstName(welcome.owner.name) : null
       return (
-        <Row id="ask" done={false} title={t('memberWelcome.noAiAsk', { ai: name })} hint={trial || (owner ? t('memberWelcome.noAiAskHint', { owner }) : t('aiConnect.member'))}>
+        <Row id="ask" done={false} title={t('memberWelcome.noAiAsk', { ai: name })} hint={owner ? t('memberWelcome.noAiAskHint', { owner }) : t('aiConnect.member')}>
           {ai.requested ? (
             <span className="text-label font-medium text-muted" data-testid="member-welcome-told">{t('aiAccess.asked')}</span>
           ) : (
@@ -263,7 +258,7 @@ function AskRow({ welcome }: { welcome: Welcome }) {
       )
     }
     return (
-      <Row id="ask" done={false} title={t('memberWelcome.noAiOwn', { ai: name })} hint={trial || undefined}>
+      <Row id="ask" done={false} title={t('memberWelcome.noAiOwn', { ai: name })}>
         <ConnectAiButton personal={ai.action === 'connect_own'} panel={ai.action === 'connect_team'} data-testid="member-welcome-connect" data-action={ai.action} />
       </Row>
     )

@@ -25,7 +25,7 @@
 // real disk of that size.
 //
 // What uses the space (Admin > System) is measured 5 minutes after start and then hourly, walking the folders with a
-// pause every 1000 entries: team (the team folder without .system), history (.system/history), trash (.system/trash),
+// pause every 1000 entries: team (the team folder without .system, with room files, chat files and the files of deleted chats and rooms kept 30 days: also shown as `kept`), history (.system/history), trash (.system/trash),
 // backups (.system/backups + data/backups), models (data/models), data (the rest of the server data), app (installed
 // versions), other (what is left: the engine folders the server account cannot read, the OS).
 import fs from 'node:fs'
@@ -233,6 +233,13 @@ export function assertStorageRoom(bytes: number, pending = 0): void {
   throw new HttpError('storage_full', undefined, { params: { reason: 'storage_full', freeBytes: r.freeBytes, ...(url ? { manageUrl: url } : {}) } })
 }
 
+/** A write path that must answer before it reads anything (POST /in/<token>, an app posting in a room: a vendor retries
+ * a 503): are writes refused now? The same rule as assertStorageRoom for a write of unknown, small size. */
+export function storageRefusesWrites(): boolean {
+  const r = storageRoom(0)
+  return !!r && !r.ok
+}
+
 /** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. */
 export function assertStorageRoomForAI(bytes: number): void {
   const r = storageRoom(bytes)
@@ -242,7 +249,7 @@ export function assertStorageRoomForAI(bytes: number): void {
 
 // ---------------- the monitor (ops service) ----------------
 type Measure = StorageBreakdown
-const ZERO: Measure = { team: 0, history: 0, trash: 0, backups: 0, models: 0, data: 0, app: 0, other: 0 }
+const ZERO: Measure = { kept: 0, team: 0, history: 0, trash: 0, backups: 0, models: 0, data: 0, app: 0, other: 0 }
 
 /** Bytes on disk of a folder tree (lstat blocks × 512; links not followed), yielding every 1000 entries. */
 export async function treeBytes(dir: string, skip: (abs: string) => boolean = () => false): Promise<number> {
@@ -284,7 +291,7 @@ export interface MonitorOptions {
 const ALERT = {
   ko: (p: number) => `저장 공간을 ${p}% 쓰고 있어요. 휴지통을 비우거나 오래된 파일·버전을 정리해 주세요(관리자 > 시스템에서 항목별 사용량을 볼 수 있어요).`,
   en: (p: number) => `${p}% of the storage is used. Empty the trash or clean up old files and versions (Admin > System shows what uses the space).`,
-  id: (p: number) => `${p}% penyimpanan sudah terpakai. Kosongkan tempat sampah atau rapikan berkas dan versi lama (Admin > Sistem menunjukkan rinciannya).`, ja: (p: number) => `ストレージの${p}%を使用しています。ゴミ箱を空にするか、古いファイルやバージョンを整理してください（管理 > システムで容量の内訳を確認できます）。`, es: (p: number) => `Se usa el ${p}% del almacenamiento. Vacíe la papelera o elimine archivos y versiones antiguos (Administración > Sistema muestra qué ocupa espacio).`,
+  id: (p: number) => `${p}% penyimpanan sudah terpakai. Kosongkan tempat sampah atau rapikan berkas dan versi lama (Admin > Sistem menunjukkan rinciannya).`, ja: (p: number) => `ストレージの${p}%を使用しています。ゴミ箱を空にするか、古いファイルやバージョンを整理してください（管理 > システムで容量の内訳を確認できます）。`, es: (p: number) => `Se usa el ${p}% del almacenamiento. Vacíe la papelera o elimine archivos y versiones antiguos (Administración > Sistema muestra qué ocupa espacio).`, zh: (p: number) => `存储已用${p}%。请清空回收站或清理旧文件和旧版本（“管理 > 系统”中可以看到空间的使用情况）。`,
 }
 
 const GRACE_ALERT: Record<Locale, (date: string) => string> = {
@@ -293,6 +300,7 @@ const GRACE_ALERT: Record<Locale, (date: string) => string> = {
   id: (d) => `Penyimpanan melewati batas paket. Jika pemakaian belum di bawah batas pada ${d}, penyimpanan, unggahan, dan penulisan berkas AI ditolak setelah waktu itu. Membaca, mengunduh, dan menghapus tetap berfungsi, dan tidak ada data yang dihapus. Berkas yang dihapus tetap ada di tempat sampah dan masih dihitung, jadi kosongkan juga tempat sampah.`,
   ja: (d) => `ストレージがプランの上限を超えました。${d}までに使用量を上限より減らさないと、その後は保存、アップロード、AIによるファイル書き込みが拒否されます。読み取り、ダウンロード、削除は引き続き使え、データは削除されません。削除したファイルはゴミ箱に残って使用量に含まれるため、ゴミ箱も空にしてください。`,
   es: (d) => `El almacenamiento supera el límite del plan. Si el uso no baja del límite antes del ${d}, después de esa hora se rechazan los guardados, las cargas y las escrituras de archivos de la IA. Leer, descargar y eliminar siguen funcionando, y no se borra ningún dato. Los archivos eliminados quedan en la papelera y siguen contando, así que vacíe también la papelera.`,
+  zh: (d) => `存储已超出套餐限额。如果在${d}之前用量没有降到限额以下，从那时起保存、上传和 AI 写入文件都会被拒绝。查看、下载和删除仍可使用，不会删除任何数据。已删除的文件仍在回收站中并计入用量，所以也请清空回收站。`,
 }
 
 /** The grace period starts when writes are refused already: the hard cap, or the real disk. */
@@ -302,6 +310,7 @@ const REFUSED_ALERT: Record<Locale, string> = {
   id: 'Penyimpanan melewati batas paket: penyimpanan, unggahan, dan penulisan berkas AI ditolak. Membaca, mengunduh, dan menghapus tetap berfungsi, dan tidak ada data yang dihapus. Berkas yang dihapus tetap ada di tempat sampah dan masih dihitung, jadi kosongkan juga tempat sampah.',
   ja: 'ストレージがプランの上限を超えているため、保存、アップロード、AIによるファイル書き込みは拒否されます。読み取り、ダウンロード、削除は引き続き使え、データは削除されません。削除したファイルはゴミ箱に残って使用量に含まれるため、ゴミ箱も空にしてください。',
   es: 'El almacenamiento supera el límite del plan: se rechazan los guardados, las cargas y las escrituras de archivos de la IA. Leer, descargar y eliminar siguen funcionando, y no se borra ningún dato. Los archivos eliminados quedan en la papelera y siguen contando, así que vacíe también la papelera.',
+  zh: "存储已超出套餐限额：保存、上传和 AI 写入文件都会被拒绝。查看、下载和删除仍可使用，不会删除任何数据。已删除的文件仍在回收站中并计入用量，所以也请清空回收站。",
 }
 
 export class StorageMonitor {
@@ -318,7 +327,11 @@ export class StorageMonitor {
       const sys = path.join(t, '.system')
       const m: Measure = { ...ZERO }
       // the team's own files, and the files sent in its chat rooms (kept in .system/rooms, rooms/files.ts)
-      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms'))
+      // + the files of deleted chats and rooms, kept 30 days (chat-files-orphans, rooms-orphans): on the disk, so counted
+      // here (they would fall under "other") and told apart in `kept`
+      const kept = await treeBytes(path.join(sys, 'chat-files-orphans')) + await treeBytes(path.join(sys, 'rooms-orphans'))
+      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms')) + await treeBytes(path.join(sys, 'chat-files')) + kept
+      m.kept = kept
       m.history = await treeBytes(path.join(sys, 'history'))
       m.trash = await treeBytes(path.join(sys, 'trash'))
       m.backups = await treeBytes(path.join(sys, 'backups')) + await treeBytes(path.join(d, 'backups'))
@@ -327,6 +340,7 @@ export class StorageMonitor {
       m.app = this.o.appDir ? await treeBytes(this.o.appDir) : 0
       // the real value, not the capped view: "other" is what is left on the real disk
       const s = storageSnapshot(true)
+      // m.kept is part of m.team
       const known = m.team + m.history + m.trash + m.backups + m.models + m.data + m.app
       m.other = s ? Math.max(0, s.usedBytes - known) : 0
       this.breakdown = m
@@ -346,7 +360,7 @@ export class StorageMonitor {
     const ends = new Date(since + GRACE_MS).toISOString()
     const at = timeIn(ends, teamTimeZone(this.o.db))
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes, graceEndsAt: ends }, 'storage.grace')
-    this.o.notify(refused ? REFUSED_ALERT : { ko: GRACE_ALERT.ko(at), en: GRACE_ALERT.en(at), id: GRACE_ALERT.id(at), ja: GRACE_ALERT.ja(at), es: GRACE_ALERT.es(at) })
+    this.o.notify(refused ? REFUSED_ALERT : { ko: GRACE_ALERT.ko(at), en: GRACE_ALERT.en(at), id: GRACE_ALERT.id(at), ja: GRACE_ALERT.ja(at), es: GRACE_ALERT.es(at), zh: GRACE_ALERT.zh(at) })
     return true
   }
 
@@ -366,7 +380,7 @@ export class StorageMonitor {
     setSetting(this.o.db, ALERT_KEY, new Date(this.now()).toISOString())
     const p = Math.floor(s.percent)
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes })
-    this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p) })
+    this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p), zh: ALERT.zh(p) })
     return true
   }
 

@@ -6,6 +6,7 @@ import { currentLocale, t } from '../i18n'
 import { noPurchaseLinks } from './desktop'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
 import { xhrFetch } from './xhr'
+import { noteAnswer } from './serverUpdating'
 
 const WINDOW_KEY = 'mycel.windowId'
 
@@ -69,10 +70,29 @@ export async function storeSafeError(res: Response, store = noPurchaseLinks()): 
   headers.delete('content-length')
   return new Response(JSON.stringify(fixed), { status: res.status, statusText: res.statusText, headers })
 }
-// uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
-const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => storeSafeError(await fetch(input, inWindow(init)))) as typeof fetch
 
-export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => xhrFetch(input, inWindow(init), onSent) })
+const writeListeners = new Set<() => void>()
+/** Told when a request of this window that may change something on the server (any method but GET and HEAD) is over,
+ * answered or not: what was read before may be old now (store/adminPeople.ts). Returns the unsubscribe. */
+export function onApiWrite(fn: () => void): () => void {
+  writeListeners.add(fn)
+  return () => { writeListeners.delete(fn) }
+}
+const afterWrite = async <R,>(init: RequestInit | undefined, run: () => Promise<R>): Promise<R> => {
+  const m = (init?.method ?? 'GET').toUpperCase()
+  if (m === 'GET' || m === 'HEAD') return run()
+  try { return await run() } finally { for (const fn of writeListeners) fn() }
+}
+
+// uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
+// (an answer that says Trina is updating starts the window's wait for it: lib/serverUpdating.ts)
+const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => {
+  const res = await fetch(input, inWindow(init))
+  noteAnswer(res)
+  return storeSafeError(res)
+})) as typeof fetch
+
+export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => afterWrite(init, () => xhrFetch(input, inWindow(init), onSent)) })
 export { API, ApiError }
 
 /** Network-level failure (offline, relay dropped, DNS): worth retrying, unlike an ApiError. */
@@ -85,7 +105,16 @@ export const isApiError = (e: unknown, code?: ErrorCode): e is ApiError => e ins
  * the server's JSON. It passes by itself, so a list that could not be read tries again by itself
  * (components/LoadError.tsx). A reason the server gives (a quarantined file, the queue draining) is not this. */
 export const isConnectionError = (e: unknown) =>
-  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && e.body.params?.reason === undefined)
+  isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && (e.body.params?.reason === undefined || isTeamWaking(e) || isServerUpdating(e)))
+
+/** The relay says the team's server is starting after a pause (a free trial's server turns off when unused): not an
+ * error to fear. It is a connection error too (it passes by itself), but the words say "Resuming your team". */
+export const isTeamWaking = (e: unknown) => e instanceof ApiError && e.status === 503 && e.body.params?.reason === 'team_waking'
+
+/** Trina is updating (an update migrates the server's database, or the control plane updates a hosted team's server):
+ * a connection error too, it passes by itself, but the words say "Trina is updating" and what waits goes when it is
+ * back (lib/serverUpdating.ts). */
+export const isServerUpdating = (e: unknown) => e instanceof ApiError && e.status === 503 && e.body.params?.reason === 'updating'
 
 /**
  * Text for an error, in the UI language. Server messages are already in the user's language (tab 4), but before
@@ -134,10 +163,31 @@ export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal
   return readBounded(res, max, o)
 }
 
+/** This sign-in's media key (Me.session.mediaKey; App.tsx keeps it in step with the session), or null. */
+let mediaKey: string | null = null
+export function setMediaKey(k: string | null) {
+  mediaKey = k
+}
+
 /** URL of a file sent in a room (the member check on every read): `download` as an attachment, `thumb` an image's small
- * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). */
+ * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). A thumbnail
+ * carries this sign-in's media key, so this browser keeps it for this sign-in only (a room file never changes;
+ * server/src/auth/media-key.ts); the next person on this browser gets other addresses. Only a thumbnail: it is only
+ * ever an <img>, never an address a link opens (which would stay in the browser's history). */
 export function roomFileUrl(roomId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
-  return api.url(API.roomFile, { params: { id: roomId, fileId }, query })
+  return api.url(API.roomFile, { params: { id: roomId, fileId }, query: query.thumb && !query.download && mediaKey ? { ...query, k: mediaKey } : query })
+}
+
+/** URL of a file from the computer kept with a chat shared with people (Attachment source 'chat'; checked on every read:
+ * whoever sees the chat now): `download` as an attachment, `thumb` an image's small preview. */
+export function chatFileUrl(chatId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
+  return api.url(API.chatFile, { params: { id: chatId, fileId }, query })
+}
+
+/** A chat file's bytes for the preview panel, never more than `max` (readBounded). */
+export async function fetchChatFileBlob(chatId: string, fileId: string, max: number, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
+  const res = await api.call(API.chatFile, { params: { id: chatId, fileId }, signal })
+  return readBounded(res, max, o)
 }
 
 /** A room file's bytes for the preview panel, never more than `max` (readBounded; `truncate`: a text preview's start). */

@@ -11,6 +11,9 @@ import { whoSeesText } from './chat/WhoSees'
  * number ("3명"), on a card with the word ("멤버 3명"). Nothing from a server without the count. */
 export function whoSeesProject(t: ReturnType<typeof useT>, p: Project, own: 'projects.membersN' | 'projects.whoMembers'): string | undefined {
   if (p.audience === undefined) return undefined
+  // its folder is in the trash: nobody is its member until it comes back, and "남은 멤버 없음" would read as if everyone
+  // had left; its card, page and row say "휴지통에 있음" alone (QA TC-1012)
+  if (p.inTrash) return undefined
   // a team project in projects/ is its members' (docs/DECISIONS.md "Project contents only for members"): its own count,
   // also for the owner or an admin who is not a member ("남은 멤버 없음" when nobody active is one, "나만 봐요" when I am)
   if (isProjectsFolder(p.folderPath)) return p.audience === 0 ? t('projects.noMembers') : p.member !== false && p.audience === 1 ? t('chat.whoMe') : t(own, { n: p.audience })

@@ -12,8 +12,9 @@ import clsx from 'clsx'
 import { CircleAlert, Loader2, WifiOff } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
 import { create } from 'zustand'
-import { errorText, isConnectionError } from '../lib/api'
+import { errorText, isConnectionError, isServerUpdating, isTeamWaking } from '../lib/api'
 import { useAutoRetry } from '../lib/autoRetry'
+import { useWakeWait } from '../lib/wakeWait'
 import { useLocale, useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { Button, ErrorNote } from './ui'
@@ -105,12 +106,61 @@ export function LoadError({ error, onRetry, text, soft, what, minor, className }
   const root = useRef<HTMLDivElement>(null)
   const speaks = useSpeaks(connection, minor ? 0 : 1, root)
   const { tryNow, busy } = useAutoRetry(connection, onRetry)
+  const waking = connection && isTeamWaking(error)
+  // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
+  const wake = useWakeWait(waking ? 'waking' : connection ? 'connection' : 'other')
   if (connection && (banner || !speaks)) {
     // the banner on top, the message box's line or another place says it; this place waits for the connection, quietly
     return (
       <div ref={root} className={clsx('flex justify-center py-3', className)} data-testid="load-error" data-what={what} data-state="waiting">
         <Loader2 size={16} className="animate-spin text-faint" aria-label={t('conn.retrying')} />
       </div>
+    )
+  }
+  if (connection && isServerUpdating(error)) {
+    // Trina is updating: the same words as the page a browser gets meanwhile (server/src/system/updating-page.ts); it
+    // reads again by itself as for any connection error
+    return (
+      <CalmNotice
+        rootRef={root}
+        className={className}
+        testId="load-error"
+        what={what}
+        state="updating"
+        icon={<Loader2 size={16} className="animate-spin" />}
+        title={t('conn.updating')}
+        detail={t('conn.updatingDetail')}
+      />
+    )
+  }
+  if (waking && wake.gaveUp) {
+    return (
+      <CalmNotice
+        rootRef={root}
+        className={className}
+        testId="load-error"
+        what={what}
+        state="wake-failed"
+        icon={<CircleAlert size={16} />}
+        title={t('conn.wakeFailed')}
+        // three more minutes, and a read at once (the place keeps reading by itself meanwhile)
+        action={<Button size="sm" variant="secondary" onClick={() => { wake.restart(); tryNow() }} data-testid="load-error-retry">{t('common.retry')}</Button>}
+      />
+    )
+  }
+  if (waking) {
+    // the team's server is starting after a pause: the same words as the page the relay shows, with its spinner
+    return (
+      <CalmNotice
+        rootRef={root}
+        className={className}
+        testId="load-error"
+        what={what}
+        state="waking"
+        icon={<Loader2 size={16} className="animate-spin" />}
+        title={t('conn.waking')}
+        detail={t('conn.wakingDetail')}
+      />
     )
   }
   if (connection) {

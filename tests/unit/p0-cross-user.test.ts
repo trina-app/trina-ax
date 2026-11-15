@@ -14,7 +14,7 @@ let alice: TestSocket
 const ids: Record<string, string> = {}
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'p0-cross-user', askUserTimeoutMs: 20_000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p0-cross-user', askUserTimeoutMs: 20_000, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-x-alice' })
   await alice.next('hello')
   const a = h.api('alice')

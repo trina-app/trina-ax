@@ -60,7 +60,7 @@ export async function cachedPaths(page: Page) {
   })
 }
 
-export async function signInOfflineTeam(page: Page, url: string, locale: 'ko' | 'en' | 'id' | 'ja' | 'es') {
+export async function signInOfflineTeam(page: Page, url: string, locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh') {
   await page.request.post(`${url}/__test/reset`, { data: { teamLocale: locale, usersFollowTeam: true } })
   await page.goto(`${url}/login`)
   await page.getByTestId('login-username').fill(OWNER.username)

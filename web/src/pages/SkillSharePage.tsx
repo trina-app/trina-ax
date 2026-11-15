@@ -70,7 +70,7 @@ function SharePage({ team, owner }: { team: string; owner: boolean }) {
     <div className="flex h-full flex-col overflow-y-auto" data-testid="skill-share-page">
       <div className="mx-auto w-full max-w-[640px] space-y-5 px-4 pt-6 pb-10 sm:px-6 sm:pt-10">
         <div className="space-y-1">
-          <h1 className="text-lg font-semibold text-ink">{target ? t('skillShare.page.titleGroup', { group: target }) : t('skillShare.page.title')}</h1>
+          <h1 className="text-title font-semibold text-ink">{target ? t('skillShare.page.titleGroup', { group: target }) : t('skillShare.page.title')}</h1>
           <p className="text-sm text-balance text-muted">{target ? t('skillShare.page.descGroup', { group: target }) : t('skillShare.page.desc')}</p>
         </div>
         {body}

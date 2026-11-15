@@ -69,7 +69,7 @@ test('preferences: the room default, thread replies and quiet hours; strict; the
   expect(got).toEqual({
     scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true,
     roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
-    chatAnswers: true, phoneWhen: 'away',
+    chatAnswers: true, phoneWhen: 'away', chatShares: true,
   })
   // the message preview (default on) is saved like the rest
   expect(await prefs(nora.client, { messagePreview: false })).toMatchObject({ messagePreview: false })

@@ -202,8 +202,7 @@ const readers = (ctx: AppContext, rules: RuleSet, rel: string, except: string) =
 /** The folder rules as they will be after `from` moves to `to`: a moved folder's rules go with it (team-files
  * relocate moves the folders rows), everything else stays. */
 function rulesAfterMove(ctx: AppContext, from: string, to: string): RuleSet {
-  const rows = ctx.db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as { path: string; subject_type: never; subject_id: string | null; access: never }[]
-  return new RuleSet(rows.map((r) => ({ ...r, path: r.path === from ? to : r.path.startsWith(from + '/') ? to + r.path.slice(from.length) : r.path })))
+  return RuleSet.load(ctx.db).relocated(from, to)
 }
 
 /** Every regular file below `rel` (or `rel` itself), with its hash and bytes: no links, no hard links, nothing the asker
@@ -520,7 +519,7 @@ function into(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionI
   const files = walk(ctx, user, rules, from)
   const after = a.action === 'copy' ? rules : rulesAfterMove(ctx, from, to)
   // a copy lands without the folder rules inside the source: what they hide would reach more people
-  if (a.action === 'copy' && rules.ruleFolders().some((f) => under(f, from) && f !== from)) refuse('a folder inside it has folder permissions of its own, which a copy would not keep', 'move it instead, or the user can do it on the Files screen')
+  if (a.action === 'copy' && rules.boundaryFolders().some((f) => under(f, from) && f !== from)) refuse('a folder inside it has folder permissions of its own, which a copy would not keep', 'move it instead, or the user can do it on the Files screen')
   const manifest = files.find((f) => f.path === `${from}/SKILL.md`)
   if (!manifest) refuse('a folder goes into a skill folder only as a skill: a SKILL.md at its top', 'write a SKILL.md for it first (write, with the user\'s card), or the user can do it on the Files screen')
   const texts: { path: string; text: string }[] = []

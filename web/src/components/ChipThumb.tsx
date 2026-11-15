@@ -4,7 +4,8 @@
 // the server gave back shows its room thumbnail (`src`). A picture that cannot be drawn (a HEIC photo in Chrome, a
 // thumbnail that did not load) shows a square with a picture icon. Its name is its tip and its alt text; what the chip
 // says (uploading, attached, its size) is for screen readers, beside it in each box. A click on it opens the image viewer
-// (components/ImageViewer.tsx), in both boxes.
+// (components/ImageViewer.tsx), in both boxes. Any other file is a compact chip whose ✕ is ChipRemove, and a failure's
+// reason beside either wraps in full (FAILED_REASON; QA TC-2285: "The storage is full. Empt…" was all it said).
 import clsx from 'clsx'
 import { FileImage, Loader2, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -31,13 +32,13 @@ export function ChipThumb({ file, src, alt = '', fallback = null, className }: {
   if (broken) return <>{fallback}</>
   // (its place is kept for the moment before the file's address is made: nothing moves under the pointer)
   if (!url) return <span aria-hidden className={clsx(SQUARE, 'block bg-subtle', className)} />
-  return <img src={url} alt={alt} onError={() => setBroken(true)} className={clsx(SQUARE, 'object-cover', className)} data-testid="chip-thumb" />
+  return <img src={url} alt={alt} loading="lazy" decoding="async" onError={() => setBroken(true)} className={clsx(SQUARE, 'object-cover', className)} data-testid="chip-thumb" />
 }
 
 /** The picture's square in the row above the box: a hairline edge (a white screenshot on the white box), a spinner over
  * it while it uploads (with `percent` when it is known), a red edge when it failed (the box says why beside it), and its
- * ✕ on the top corner, a dark dot that takes a 36 px tap (44 px on phones), reaching further out to the right than over
- * the picture (a tap meant for the picture stays the picture's), and not above the box's edge. The dot stands 6 px out of the square: its row item keeps
+ * ✕ on the top corner, a dark dot in a button of 24 px (44 px on phones: WCAG target size), centred on the dot, so it
+ * reaches a little over the picture's corner. The dot stands 6 px out of the square: its row item keeps
  * that room (`pt-1.5 pr-1.5`), so it touches neither the box's edge nor the next picture, which, painted after it, keeps
  * its own clicks. `item`: a click on the picture opens it in the image viewer, with the box's other pictures by ← →
  * (both boxes alike). */
@@ -92,11 +93,36 @@ export function PictureTile({ name, file, src, busy, percent = null, failed, rem
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-ink text-canvas ring-2 ring-surface transition after:absolute after:-inset-y-2 after:-right-3 after:-left-1 hover:opacity-80 max-md:after:-inset-y-3 max-md:after:-right-4 max-md:after:-left-2"
+          className="group absolute -top-2 -right-2 flex size-6 items-center justify-center rounded-full transition max-md:-top-[18px] max-md:-right-[18px] max-md:size-11"
         >
-          <X size={12} strokeWidth={2.5} aria-hidden />
+          <span aria-hidden className="flex size-5 items-center justify-center rounded-full bg-ink text-canvas ring-2 ring-surface group-hover:opacity-80">
+            <X size={12} strokeWidth={2.5} />
+          </span>
         </button>
       </Tooltip>
     </span>
+  )
+}
+
+/** A failed attachment's reason beside its chip or square: in full, on as many lines as it needs (never cut with "…"). */
+export const FAILED_REASON = 'max-w-[220px] whitespace-normal break-words leading-snug text-danger'
+
+/** A file chip's ✕ in a message box (both boxes): a 24 px target on a computer, 44 px on a phone (WCAG target size,
+ * as PictureTile's ✕), its icon as before. The negative margins keep a computer's chip its height; a phone's chip is
+ * as tall as the target. */
+export function ChipRemove({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Tooltip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        title=""
+        onClick={onClick}
+        className="-my-1 -mr-1.5 flex size-6 shrink-0 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink max-md:-my-1.5 max-md:-mr-2 max-md:size-11"
+        data-testid="chip-remove"
+      >
+        <X size={14} aria-hidden />
+      </button>
+    </Tooltip>
   )
 }

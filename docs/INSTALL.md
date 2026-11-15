@@ -134,7 +134,7 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 
 **Your own team.** Open the `http://127.0.0.1:19100/setup?token=…` link from the log. The setup token field is
 hidden when the token is in the URL. "Create your team" has two groups:
-- **Team**: the team name and the **Team language** (English, 한국어, Bahasa Indonesia, 日本語 or Español). The
+- **Team**: the team name and the **Team language** (English, 한국어, Bahasa Indonesia, 日本語, Español or 简体中文). The
   initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
 - **Your account · Owner**: your name, username (letters, digits and `. _ @ -`, 2–64 characters) and password (at
   least 8 characters). There is one password field; **Show password** shows what you typed.
@@ -398,7 +398,7 @@ server.json (`engine`), for operators:
 |---|---|
 | `authMode` | `"managed"` (AI connections behind the model proxy). `"subscription"` and `"proxy"` are read as `"managed"`; this release's installer still writes `"subscription"` so a rollback starts. `"local-login"`: dev / office with the Mac's own login. |
 | `credentialKinds` | the kinds this server allows, default all four: `["anthropic-oauth","anthropic-api-key","chatgpt","openai-api-key"]`. The hosted cloud's enrollment may write `["anthropic-api-key","openai-api-key"]`: subscription kinds then cannot be added and existing ones show as "off on this server" (never deleted). |
-| `modelUpstreams` | tests only: `{ "anthropic", "openai", "chatgpt", "openaiAuth", "openrouter" }` addresses (https, or http to 127.0.0.1). `modelUpstream` is the older name of `anthropic`; `openrouter` is where a hosted trial credit's answers go (default `https://openrouter.ai/api/v1`). |
+| `modelUpstreams` | tests only: `{ "anthropic", "openai", "chatgpt", "openaiAuth" }` addresses (https, or http to 127.0.0.1). `modelUpstream` is the older name of `anthropic`. |
 | `anthropicGateway` | Claude Code on another company's models through an Anthropic-compatible address (OpenRouter, DeepSeek, Kimi, GLM): `{ "baseUrl", "models": { "default", "opus"?, "sonnet"?, "haiku"? }, "label"?, "prices"? }`. Only those model ids are forwarded; Claude subscription connections (and Claude API keys added for Anthropic) are off while it is set. Not with `modelUpstreams.anthropic`. [Configuration](CONFIGURATION.md#anthropic-compatible-gateway). |
 
 Rotating the key of the stored secrets: `admin.js credentials-rekey` (same `sudo -u _axserver … admin.js` form as
