@@ -36,6 +36,16 @@ describe('the notices', () => {
     expect(text(ready)).toBe('Google Sheets is ready. You can connect it now.')
     expect(text(notice({ eventType: 'service.ready', code: 'service.ready', sourceId: uuidv7() }))).toBe(en('notifications.event.service.ready'))
   })
+  test('closed without the app (QA TC-2946): an admin\'s Dismiss or the 30 days, they may ask again; opens its page; names nobody', () => {
+    const closed = (how: 'dismissed' | 'expired') => notice({ eventType: 'service.closed', code: 'service.closed', sourceId: uuidv7(), serviceRequest: { service: 'notion', closed: how } })
+    expect(text(closed('dismissed'))).toBe('An admin closed your request for Notion. You can ask again.')
+    expect(text(closed('expired'))).toBe('Your request for Notion ended after 30 days. You can ask again.')
+    expect(text(notice({ eventType: 'service.closed', code: 'service.closed', sourceId: uuidv7() }))).toBe(en('notifications.event.service.closed'))
+    expect(noticeLink(closed('dismissed'))).toEqual({ to: '/settings/connectors/notion', testId: 'notification-service-closed-link' })
+    for (const [locale, d] of Object.entries(DICTS)) for (const k of ['notifications.event.service.closed', 'notifications.event.service.dismissedNamed', 'notifications.event.service.expiredNamed'] as const) {
+      expect({ locale, k, set: !!d[k], jargon: /\b(MCP|OAuth|token)\b/i.test(d[k] ?? '') }).toEqual({ locale, k, set: true, jargon: false })
+    }
+  })
   test('where they open: the app\'s setup while a request waits, nothing once it ended; the member\'s app page', () => {
     expect(noticeLink(notice({ serviceRequest: { service: 'gmail', name: 'A', others: 0, open: true } }))).toEqual({ to: '/admin/connectors?app=gmail', testId: 'notification-service-request-link' })
     expect(noticeLink(notice({ sourceId: 'google-drive', serviceRequest: { service: 'google-drive', name: 'A', others: 0, open: true } }))).toEqual({ to: '/admin/connectors?drive=1', testId: 'notification-service-request-link' })
@@ -144,5 +154,20 @@ describe('a Google app\'s page for a member, not set up', () => {
     expect(ko('serviceRequest.ask')).toContain('관리자')
     expect(DICTS.ja['serviceRequest.ask']).toContain('管理者')
     expect(DICTS.id['serviceRequest.ask']).toContain('admin')
+  })
+})
+
+// QA TC-2945: a person's own connection other than Google Drive that needs a sign-in again names itself and opens its
+// own page (a Google app's, or the connection's); Google Drive's notice and an older server's keep the generic line.
+describe('a connection needs a sign-in again', () => {
+  const reconnect = (connection?: InboxNotification['connection']) => notice({ eventType: 'connection.reconnect', code: 'connection.reconnect', sourceId: 'c1_1', link: 'connections', ...(connection ? { connection } : {}) })
+  test('by its name, to its page', () => {
+    const id = uuidv7()
+    expect(text(reconnect({ id, name: 'Notion', googleApp: null }))).toBe('Notion needs you to sign in again.')
+    expect(noticeLink(reconnect({ id, name: 'Notion', googleApp: null }))).toEqual({ to: `/settings/connectors/mcp/${id}`, testId: 'notification-connection-link' })
+    expect(noticeLink(reconnect({ id, name: 'Gmail', googleApp: 'gmail' }))).toEqual({ to: '/settings/connectors/gmail', testId: 'notification-connection-link' })
+    expect(text(reconnect())).toBe(en('notifications.event.connection.reconnect'))
+    expect(noticeLink(reconnect())).toEqual({ to: '/settings/connectors/google-drive', testId: 'notification-connections-link' })
+    for (const [locale, d] of Object.entries(DICTS)) expect({ locale, has: d['notifications.event.connection.reconnectNamed']?.includes('{name}') }).toEqual({ locale, has: true })
   })
 })

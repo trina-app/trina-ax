@@ -15,6 +15,7 @@ import { formatDateTime } from '../../lib/format'
 import { canSignIn, lastCheckNote, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { Badge, Button, Modal, Switch } from '../ui'
 import { AppDetail, Detail, ExtLink } from './AppDetail'
 import { CardMenu, type CardMenuItem } from './AppConnectorCard'
@@ -30,8 +31,10 @@ export const LISTED_TOOLS = 12
 /** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
  * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
  * without one) shows the server's own words, which carry their own next step. */
-const REASON_KIND: Record<string, 'address' | 'key' | 'slow' | 'service'> = {
-  unreachable: 'address', private_address: 'address', blocked_port: 'address', redirect: 'address', not_mcp: 'address',
+const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'slow' | 'service'> = {
+  unreachable: 'address', private_address: 'address', blocked_port: 'address',
+  // the address answered: not as a connector, or by sending us elsewhere (QA TC-2939); its fix is still the address
+  not_mcp: 'notMcp', redirect: 'redirect',
   // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
   // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
@@ -49,7 +52,7 @@ export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'last
     : !who.manage ? (kind === 'slow' ? 'later' : 'askAdmin')
     : kind === 'slow' || kind === 'service' ? 'checkAgain'
     : who.phone ? 'onComputer'
-    : kind === 'address' ? 'editAddress'
+    : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
     : i.auth === 'oauth' && who.signIn ? 'signIn' : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
@@ -134,7 +137,10 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const note = i.personalOff ? null : lastCheckNote(i)
   const short = toolsShortfall(i)
   const off = i.tools.filter((x) => x.enabled === false).length
-  const allowed = i.writePolicy === 'allow' || !!i.alwaysAllowedByMe
+  // the team's switch for Always allow is off: a member's own Always allow at a team connection asks (tools.ts gate), and
+  // a rule to run without asking asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
+  const allowed = i.writePolicy === 'allow' || (!!i.alwaysAllowedByMe && !alwaysOff)
   // the person's own Always allow (a write card's choice), which "Ask every time" ends (QA TC-130); a team's "Run
   // without asking" is the admin's rule, changed in Edit
   const ownAllow = !!i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')
@@ -214,7 +220,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         ) : undefined}
         about={about}
         canChange={canChange} asks={allowed ? 'allow' : 'ask'}
-        abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t('connectors.page.teamAllowLine') : undefined}
+        abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t(alwaysOff ? 'connectors.page.teamAllowLineOff' : 'connectors.page.teamAllowLine') : undefined}
         developer={c?.name} signIn={signInLine} links={links}
         more={<>
           {help}

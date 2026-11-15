@@ -79,7 +79,8 @@ export type PushEventType = z.infer<typeof PushEventType>
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
  * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
  * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
- * admins (one per app), service.ready to the member once they can connect it, and account.reset_link to a person when a password reset link
+ * admins (one per app), service.ready to the member once they can connect it, service.closed to the member when the ask
+ * closed without the app (an admin's Dismiss, or the 30 days; service_request_closed_notices), and account.reset_link to a person when a password reset link
  * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
@@ -89,7 +90,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -171,7 +172,13 @@ export const InboxNotification = z.object({
   serviceRequest: z.object({
     service: RequestableService, name: z.string().nullable().optional(), others: z.number().int().nonnegative().optional(),
     open: z.boolean().optional(), added: z.literal(true).optional(),
+    /** 'service.closed' only: how the ask closed without the app (an admin's Dismiss, or the 30 days) */
+    closed: z.enum(['dismissed', 'expired']).optional(),
   }).optional(),
+  /** 'connection.reconnect' for a person's own connection other than Google Drive, while it is theirs: its id, its name (a
+   * plain line) and its Google app (gmail, …; null for one added by its address or from the list), so the Inbox names it
+   * and opens its page. Google Drive's notice and older servers omit it. */
+  connection: z.object({ id: z.string(), name: z.string(), googleApp: z.string().nullable() }).optional(),
   /** 'drive.share_reconnect' only (admins), while the share is there: its name (link 'admin_connectors' opens Google
    * Drive's page in Admin › Connectors); older servers omit it */
   driveShare: z.object({ id: z.string(), name: z.string() }).optional(),

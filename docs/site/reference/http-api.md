@@ -680,7 +680,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/integrations/service-requests` | Signed in | Ask the owner and admins to add an app the team has not set up (members only; 400 unknown_service, 409 can_connect or not_requestable, 429 after 10 a day). One open request per app; tells them in the app, never names an admin. |
 | `DELETE` | `/api/integrations/service-requests/:service` | Signed in | Take back my own open request for an app (nothing happens when there is none). It still counts toward the 10 a day. |
 | `GET` | `/api/admin/service-requests` | Admin | The open requests to add an app, by app: who asked and when (owners and admins). |
-| `POST` | `/api/admin/service-requests/:service/dismiss` | Admin | Close the open requests for an app without adding it (nobody is told; members may ask again). |
+| `POST` | `/api/admin/service-requests/:service/dismiss` | Admin | Close the open requests for an app without adding it (each member who asked gets a quiet notice that they may ask again). |
 
 ## List folders (my own folders for chats and conversations)
 

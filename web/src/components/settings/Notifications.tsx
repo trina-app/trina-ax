@@ -3,7 +3,7 @@ import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
+import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
@@ -80,6 +80,8 @@ type T = ReturnType<typeof useT>
 const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotification['serviceRequest']>, t: T) => {
   const service = requestableName(sr.service)
   if (item.code === 'service.ready') return t('notifications.event.service.readyNamed', { service })
+  // closed without the app (an admin's Dismiss, or the 30 days): they may ask again (QA TC-2946)
+  if (item.code === 'service.closed') return t(sr.closed === 'expired' ? 'notifications.event.service.expiredNamed' : 'notifications.event.service.dismissedNamed', { service })
   if (!sr.name) return t('notifications.event.service.requestSomeone', { service })
   return sr.others ? t('notifications.event.service.requestMore', { name: sr.name, n: sr.others, service }) : t('notifications.event.service.requestNamed', { name: sr.name, service })
 }
@@ -152,7 +154,9 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'room_app.leaver' && item.roomAppLeaver) return leaverNoticeText(item.roomAppLeaver, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
-  if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
+  if ((item.code === 'service.request' || item.code === 'service.ready' || item.code === 'service.closed') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
+  // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
+  if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
   if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
   const title = item.schedule?.title
   if (item.code === 'schedule.failure' && item.needsKey) return title
@@ -191,10 +195,14 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
+  // an own connection other than Google Drive: its own page (a Google app's, or the connection's)
+  if (item.code === 'connection.reconnect' && item.connection) return { to: item.connection.googleApp ? connectorHref(item.connection.googleApp) : connectionHref(item.connection.id), testId: 'notification-connection-link' }
   if (item.link === 'connections') return { to: connectorHref('google-drive'), testId: 'notification-connections-link' }
   // a member's ask: the app's setup while one waits (an owner or admin), the app's page once it is ready (the member)
   if (item.code === 'service.request' && item.serviceRequest?.open) return { to: serviceSetupLink(item.serviceRequest.service), testId: 'notification-service-request-link' }
   if (item.code === 'service.ready' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-ready-link' }
+  // closed without the app: its page, where they may ask again
+  if (item.code === 'service.closed' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-closed-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }

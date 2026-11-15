@@ -63,5 +63,5 @@ export const SERVICE_REQUESTS = {
   teamServiceRequests: endpoint({ method: 'GET', path: '/api/admin/service-requests', auth: 'admin', owner: 'C', response: z.object({ items: z.array(TeamServiceRequest) }),
     summary: 'The open requests to add an app, by app: who asked and when (owners and admins).' }),
   dismissServiceRequests: endpoint({ method: 'POST', path: '/api/admin/service-requests/:service/dismiss', auth: 'admin', owner: 'C', body: z.object({}).strict(), response: empty, status: 204,
-    summary: 'Close the open requests for an app without adding it (nobody is told; members may ask again).' }),
+    summary: 'Close the open requests for an app without adding it (each member who asked gets a quiet notice that they may ask again).' }),
 } as const

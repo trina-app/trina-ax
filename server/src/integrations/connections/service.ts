@@ -24,7 +24,7 @@ import {
   type ClientInfo, type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
-import { notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
+import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
@@ -812,10 +812,28 @@ export class Integrations {
    * more than `total` (the check stopped with pages of its list unread) */
   private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null; totalMore?: boolean } = {}) {
     const now = iso(this.now())
-    if (extra.tools !== undefined) {
-      this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
+    const was = status === 'needs_auth' ? this.db.query('SELECT status FROM integrations WHERE id=? AND version=?').get(row.id, row.version) as { status: Row['status'] } | null : null
+    const r = extra.tools !== undefined
+      ? this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
         .run(status, reason, extra.tools, extra.total ?? null, extra.totalMore ? 1 : 0, now, now, row.id, row.version)
-    } else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
+      : this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
+    if (was?.status === 'connected' && r.changes) this.tellSignInAgain(row, now)
+  }
+
+  /** A person's own connection that was working now needs a sign-in (or a new key): its owner gets one "needs you to
+   * sign in again" notice and push (notifications.connectionReconnectDesc promises it for every service, QA TC-2945),
+   * once per move from connected into needs_auth and none while the last one (inside the inbox's 30 days) is unread.
+   * Any sign-in method, a connection with no key too (one that starts to answer 401). Not a connection that never
+   * worked or was just changed (a new one, an edit: the person is at it, and its row was not connected), and not a team
+   * connection (who should hear of that is still open). */
+  private tellSignInAgain(row: Row, at: string) {
+    if (row.scope !== 'personal' || !row.owner_user_id) return
+    const head = `${row.id}_`
+    // an unread row past the inbox's window is no longer shown: it does not hold the next notice back
+    const since = new Date(Date.parse(at) - NOTIFICATION_RETENTION_MS).toISOString()
+    const unread = this.db.query("SELECT 1 FROM notification_inbox WHERE user_id=? AND event_type='connection.reconnect' AND substr(source_id,1,?)=? AND read_at IS NULL AND suppressed=0 AND created_at>=? LIMIT 1")
+      .get(row.owner_user_id, head.length, head, since)
+    if (!unread) notifyConnectionReconnect(this.ctx, row.owner_user_id, `${head}${Date.parse(at)}`, at)
   }
 
   /** a call's failure -> what the connection's status says */

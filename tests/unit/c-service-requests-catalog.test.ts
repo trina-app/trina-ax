@@ -2,8 +2,8 @@
 // by its id), not only Google Drive and the Google apps (server/src/integrations/service-requests.ts). Covered: a listed
 // id is asked for and its address or name is refused; the owner and the admins get the notice and see the open requests
 // (GET /api/admin/service-requests, admins only); a member takes their own request back (it still counts toward the day's
-// limit, and the admins' notice is read once none is left); an admin dismisses them (nobody is told, they may ask
-// again); a working team connection (one that needs its sign-in does not count) to the service's official address closes the requests of the members who may use it (each
+// limit, and the admins' notice is read once none is left); an admin dismisses them (each asker gets one quiet
+// 'service.closed' notice naming no admin, QA TC-2946; they may ask again); a working team connection (one that needs its sign-in does not count) to the service's official address closes the requests of the members who may use it (each
 // is told, 'service.ready') and leaves the others open; then asking is refused as can_connect. A member's own
 // connection to it does not stop the ask (the request is for the team's).
 import { afterEach, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
@@ -62,14 +62,30 @@ test('a member takes their own request back: the admins\' list and notice follow
   expect((await ask('alice', 'figma')).status).toBe(429)
 })
 
-test('an admin dismisses the requests for a service: nobody is told, they may ask again; members cannot dismiss', async () => {
+test('an admin dismisses the requests for a service: each asker is told once, no admin named, and may ask again; members cannot dismiss', async () => {
   await ask('alice', 'notion')
+  await ask('erin', 'notion')
+  await ask('bob', 'linear')
   expect((await send('alice', 'POST', '/api/admin/service-requests/notion/dismiss', {})).status).toBe(403)
+  expect(await notices('alice', 'service.closed')).toEqual([])
   expect((await send('carol', 'POST', '/api/admin/service-requests/notion/dismiss', {})).status).toBe(204)
-  expect(await teamList()).toEqual([])
+  expect((await teamList()).map((x: any) => x.service)).toEqual(['linear'])
   expect(await mine('alice')).toEqual([])
   expect(await notices('alice', 'service.ready')).toEqual([])
-  expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'service_request.dismiss'").get()).toEqual({ detail: JSON.stringify({ service: 'notion', requests: 1 }) })
+  // the page had said "We'll tell you when Notion is ready" (QA TC-2946): one quiet notice each, that opens its page
+  for (const who of ['alice', 'erin'] as const) {
+    const closed = await notices(who, 'service.closed')
+    expect(closed.map((x) => x.serviceRequest)).toEqual([{ service: 'notion', closed: 'dismissed' }])
+    expect(closed[0].readAt).toBeNull()
+    expect(JSON.stringify(closed)).not.toContain('Carol')
+  }
+  // not someone who asked for another service, never a push
+  expect(await notices('bob', 'service.closed')).toEqual([])
+  expect(A.ctx.db.query("SELECT COUNT(*) AS n FROM service_request_closed_notices").get()).toEqual({ n: 2 })
+  expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'service_request.dismiss'").get()).toEqual({ detail: JSON.stringify({ service: 'notion', requests: 2 }) })
+  // nothing open: a second Dismiss tells nobody again
+  expect((await send('carol', 'POST', '/api/admin/service-requests/notion/dismiss', {})).status).toBe(204)
+  expect((await notices('alice', 'service.closed')).length).toBe(1)
   expect((await ask('alice', 'notion')).body.state).toBe('sent')
 })
 
