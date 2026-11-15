@@ -63,70 +63,107 @@ export function parseDfK(out: string): DiskStat | null {
 
 /** df answers by path. df runs in the background only (a df on a dead network mount can hang for minutes): the sync
  * readers on hot paths (uploads, each chat turn's full-disk check, the storage guard) read this cache and never wait;
- * a reading older than DF_FRESH_MS starts one refresh. One-shot callers that need a real answer now (the backup, the
- * update's room check, Admin diagnostics) await primeDiskStat first. */
-const DF_FRESH_MS = 10_000
-let dfTimeoutMs = 5_000
-interface DfEntry { at: number; out: string | null; running: Promise<void> | null }
-const dfCache = new Map<string, DfEntry>()
-let dfRunner: (p: string) => Promise<string | null> = runDf
+ * an answer older than freshMs starts one refresh, and one older than maxAgeMs counts as unknown (a df that stopped
+ * answering must not keep an old number alive). One-shot callers that need a real answer now (the backup, the update's
+ * room check, Admin diagnostics) await primeDiskStat first; the server primes its two folders at start. */
+interface DfConf { timeoutMs: number; freshMs: number; maxAgeMs: number; now: () => number }
+const DF_DEFAULTS: DfConf = { timeoutMs: 5_000, freshMs: 10_000, maxAgeMs: 60_000, now: Date.now }
+let conf: DfConf = { ...DF_DEFAULTS }
 
-/** Tests: replace the df process (null = the real one), its time limit, and empty the cache. */
-export function setDfRunnerForTests(r: ((p: string) => Promise<string | null>) | null, timeoutMs = 5_000) {
-  dfRunner = r ?? runDf
-  dfTimeoutMs = timeoutMs
+/** One df run: `answer` settles with its output (null on failure or at the time limit); `exited` when the process is
+ * really gone (a df stuck in the kernel can outlive its answer). */
+export interface DfRun { answer: Promise<string | null>; exited: Promise<void> }
+type DfRunner = (p: string, timeoutMs: number) => DfRun
+
+interface DfEntry {
+  at: number
+  out: string | null
+  /** the answer phase of the current run (what primeDiskStat waits for) */
+  running: Promise<void> | null
+  /** a df process for this path is still alive: no second one starts until it exits */
+  alive: boolean
+}
+const dfCache = new Map<string, DfEntry>()
+let dfRunner: DfRunner = runDf
+const DF_CACHE_MAX = 64
+
+/** Tests: replace the df process (null = the real one; a plain function's process "exits" when it answers), the
+ * times and the clock, and empty the cache. */
+export function setDfRunnerForTests(r: ((p: string) => Promise<string | null>) | DfRunner | null, o: Partial<DfConf> & { raw?: boolean } = {}) {
+  const { raw, ...times } = o
+  dfRunner = r === null ? runDf : raw ? (r as DfRunner) : (p) => { const answer = (r as (p: string) => Promise<string | null>)(p); return { answer, exited: answer.then(() => {}, () => {}) } }
+  conf = { ...DF_DEFAULTS, ...times }
   dfCache.clear()
 }
 
-/** The df process, async. Gives up after dfTimeoutMs (killed; a process stuck in the kernel is left to finish on its
- * own, and no second one starts for that path while it runs). */
-function runDf(p: string): Promise<string | null> {
-  return new Promise((resolve) => {
+/** The df process. Killed after timeoutMs; the answer is null then (and at the latest 500 ms later, even when the
+ * process does not die); `exited` waits for the process itself. */
+function runDf(p: string, timeoutMs: number): DfRun {
+  let exit: () => void = () => {}
+  const exited = new Promise<void>((r) => { exit = r })
+  const answer = new Promise<string | null>((resolve) => {
     let done = false
     const finish = (v: string | null) => { if (!done) { done = true; clearTimeout(timer); resolve(v) } }
-    const timer = setTimeout(() => finish(null), dfTimeoutMs + 500)
+    const timer = setTimeout(() => finish(null), timeoutMs + 500)
+    timer.unref?.()
     try {
-      execFile('/bin/df', ['-k', '-P', '--', p], { encoding: 'utf8', timeout: dfTimeoutMs, killSignal: 'SIGKILL', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' } },
+      const child = execFile('/bin/df', ['-k', '-P', '--', p], { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' } },
         (err, stdout) => finish(err ? null : stdout))
-    } catch { finish(null) }
+      child.once('exit', () => exit())
+      child.once('error', () => exit())
+    } catch { finish(null); exit() }
   })
+  return { answer, exited }
 }
 
-function refreshDf(p: string): Promise<void> {
+function entryOf(p: string): DfEntry {
   let e = dfCache.get(p)
   if (!e) {
-    if (dfCache.size > 64) dfCache.clear()
-    e = { at: 0, out: null, running: null }
+    // full: drop the settled entries only; one with a df still alive stays, or its path could start a second one
+    if (dfCache.size >= DF_CACHE_MAX) for (const [k, v] of dfCache) if (!v.alive && !v.running) dfCache.delete(k)
+    e = { at: 0, out: null, running: null, alive: false }
     dfCache.set(p, e)
   }
-  const entry = e
-  if (!entry.running) {
-    const run = dfRunner(p).catch(() => null).then((out) => { entry.out = out; entry.at = Date.now() })
-    entry.running = run
-    void run.finally(() => { if (entry.running === run) entry.running = null })
-  }
-  return entry.running
+  return e
 }
 
-/** The cached df answer (possibly a little old); never waits. A missing or old one starts a refresh. */
+/** Start one df run for `p` unless one is alive; resolves when its answer is in (or right away when an older run's
+ * process is still alive and its answer was already given up on). */
+function refreshDf(p: string): Promise<void> {
+  const entry = entryOf(p)
+  if (entry.running) return entry.running
+  if (entry.alive) return Promise.resolve()
+  const run = dfRunner(p, conf.timeoutMs)
+  entry.alive = true
+  void run.exited.finally(() => { entry.alive = false })
+  const answered = run.answer.catch(() => null).then((out) => { entry.out = out; entry.at = conf.now() })
+  entry.running = answered
+  void answered.finally(() => { if (entry.running === answered) entry.running = null })
+  return answered
+}
+
+/** The cached df answer; never waits. A missing or old answer starts a refresh; one older than maxAgeMs is unknown. */
 function cachedDf(p: string): string | null {
   const e = dfCache.get(p)
-  if (!e || Date.now() - e.at >= DF_FRESH_MS) void refreshDf(p)
-  return e?.out ?? null
+  const age = e ? conf.now() - e.at : Infinity
+  if (age >= conf.freshMs) void refreshDf(p)
+  return e && age < conf.maxAgeMs ? e.out : null
 }
 
 /** Make sure diskStat(p) has a fresh df answer when statfs of `p` cannot be believed (waits for df, at most about
- * dfTimeoutMs). Never throws. */
+ * timeoutMs + 1 s). Never throws. */
 export async function primeDiskStat(p: string, d: Pick<DiskStatDeps, 'statfs' | 'platform'> = {}): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     if ((d.platform ?? process.platform) === 'win32') return
     if (plausibleStatfs((d.statfs ?? ((x: string) => fs.statfsSync(x)))(p))) return
     const key = path.resolve(p)
     const e = dfCache.get(key)
-    if (e && Date.now() - e.at < DF_FRESH_MS) return
-    // a refresh still running when the timeout passes (a df stuck in the kernel) is not waited for any longer
-    await Promise.race([refreshDf(key), new Promise((r) => setTimeout(r, dfTimeoutMs + 1000))])
-  } catch {}
+    if (e && conf.now() - e.at < conf.freshMs) return
+    // a df that has not answered by then (stuck in the kernel) is not waited for any longer
+    const limit = new Promise<void>((r) => { timer = setTimeout(r, conf.timeoutMs + 1000); timer.unref?.() })
+    await Promise.race([refreshDf(key), limit])
+  } catch {} finally { if (timer) clearTimeout(timer) }
 }
 
 /** statfs of `p` (which must exist, like fs.statfsSync). A reading that cannot be right is replaced by df's; when df

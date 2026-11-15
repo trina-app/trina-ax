@@ -6,7 +6,7 @@ import { afterAll, afterEach, describe, expect, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { diskStat, DiskSpaceUnknown, parseDfK, plausibleStatfs, primeDiskStat, setDfRunnerForTests } from '../../server/src/system/disk-stat'
+import { diskStat, DiskSpaceUnknown, parseDfK, plausibleStatfs, primeDiskStat, setDfRunnerForTests, type DfRun } from '../../server/src/system/disk-stat'
 import { diskSpace, diskSpaceOrUnknown, primeDiskSpace, resolveLayout } from '../../server/src/system/layout'
 import { configureStorageGuard, diskAlmostFull, snapshotOf, storageSnapshot } from '../../server/src/system/storage'
 import type { AppConfig } from '../../server/src/app-config'
@@ -170,7 +170,7 @@ describe('df runs in the background: a hung df never blocks', () => {
 
   test('a df that never answers: the sync reading is "unknown" at once, prime gives up, one df at a time', async () => {
     let calls = 0
-    setDfRunnerForTests(() => { calls++; return new Promise<string | null>(() => {}) }, 50)
+    setDfRunnerForTests(() => { calls++; return new Promise<string | null>(() => {}) }, { timeoutMs: 50 })
     const t0 = Date.now()
     for (let i = 0; i < 5; i++) expect(() => diskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })).toThrow(DiskSpaceUnknown)
     expect(Date.now() - t0).toBeLessThan(200)
@@ -192,6 +192,48 @@ describe('df runs in the background: a hung df never blocks', () => {
     // a good statfs reading needs no df at all
     await primeDiskStat(dir, { platform: 'darwin', statfs: () => ARM_GOOD })
     expect(calls).toBe(1)
+  })
+
+  test('an old answer: refreshed once in the background after freshMs; past maxAgeMs it is unknown', async () => {
+    let now = 1_000_000, calls = 0
+    let answer: ((v: string | null) => void) | null = null
+    setDfRunnerForTests(() => { calls++; return calls === 1 ? Promise.resolve(INTEL_DF) : new Promise<string | null>((r) => { answer = r }) }, { freshMs: 10_000, maxAgeMs: 60_000, now: () => now })
+    const read = () => Number(diskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN }).bavail)
+    await primeDiskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    expect(read()).toBe(135284000)
+    now += 9_000
+    expect(read()).toBe(135284000)
+    expect(calls).toBe(1) // still fresh: no df
+    now += 2_000
+    expect(read()).toBe(135284000) // old but usable: the cached answer, and one refresh started
+    expect(read()).toBe(135284000)
+    expect(calls).toBe(2) // not one per read
+    now += 60_000
+    expect(() => diskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })).toThrow(DiskSpaceUnknown) // too old
+    answer!(INTEL_DF.replace('135284000', '135000000'))
+    await Bun.sleep(5)
+    expect(read()).toBe(135000000)
+  })
+
+  test('a df whose answer was given up on but whose process is still alive: no second df for that path', async () => {
+    let calls = 0
+    let exit: () => void = () => {}
+    const runner = (): DfRun => { calls++; return { answer: Promise.resolve(null), exited: new Promise<void>((r) => { exit = r }) } }
+    let now = 0
+    setDfRunnerForTests(runner, { raw: true, freshMs: 10, now: () => now })
+    await primeDiskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    expect(calls).toBe(1)
+    for (let i = 0; i < 3; i++) {
+      now += 100
+      expect(() => diskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })).toThrow(DiskSpaceUnknown)
+      await primeDiskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    }
+    expect(calls).toBe(1)
+    exit()
+    await Bun.sleep(5)
+    now += 100
+    await primeDiskStat(dir, { platform: 'darwin', statfs: () => INTEL_BROKEN })
+    expect(calls).toBe(2)
   })
 })
 

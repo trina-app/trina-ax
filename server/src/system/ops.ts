@@ -113,6 +113,10 @@ export class OpsService {
     })
     // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
     // of a team over its plan's limit is kept in the settings table
+    // where statfs cannot be believed (an Intel Mac, disk-stat.ts), df runs once now in the background, so the first
+    // upload or chat turn after a start already has a free-space answer
+    void primeDiskSpace(this.layout.dataDir)
+    void primeDiskSpace(this.layout.teamRoot)
     configureStorageGuard({
       root: this.layout.teamRoot, now: o.now ? () => this.now().getTime() : undefined,
       store: { get: (k) => getSetting<string | null>(ctx.db, k) ?? null, set: (k, v) => setSetting(ctx.db, k, v) },
