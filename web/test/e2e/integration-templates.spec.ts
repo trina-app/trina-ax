@@ -322,15 +322,20 @@ test('R2 and R7: an inbox notice and a scheduled task that needed the key open t
   await page.context().clearCookies()
   await signIn(page, BOB)
   const at = new Date().toISOString()
-  await page.route('**/api/notifications?*', (r) => r.fulfill({ json: { unreadCount: 2, nextCursor: null, items: [
+  await page.route('**/api/notifications?*', (r) => r.fulfill({ json: { unreadCount: 4, nextCursor: null, items: [
     { id: 'n1', eventType: 'integration.template', code: 'integration.template', sourceId: tid, createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: null, template: { id: tid, name: 'Tasks' } },
     { id: 'n2', eventType: 'schedule.failure', code: 'schedule.failure', sourceId: 's1', createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: tid, name: 'Tasks' } },
+    // QA TC-2980: a sign-in template changed, and one no longer for me (no link)
+    { id: 'n3', eventType: 'integration.template_reconnect', code: 'integration.template_reconnect', sourceId: 'tpl-wiki.v2', createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: null, template: { id: 'tpl-wiki', name: 'Wiki', signIn: true } },
+    { id: 'n4', eventType: 'integration.template_reconnect', code: 'integration.template_reconnect', sourceId: 'tpl-board.left.c1', createdAt: at, readAt: null, chatId: null, link: null, outcome: null, template: { id: 'tpl-board', name: 'Board' }, templateLeft: true },
   ] } }))
   // a computer: the 활동 panel's rows, each opening where its notice leads
   await page.goto('/activity')
   const items = await activityRows(page)
   await expect(items.filter({ hasText: 'Tasks is ready: connect it with your own key.' })).toBeVisible()
   await expect(items.filter({ hasText: 'A scheduled task did not run: it needs your own key for Tasks.' })).toBeVisible()
+  await expect(items.filter({ hasText: 'Wiki changed its address or sign-in: sign in again with your own account.' })).toBeVisible()
+  await expect(items.filter({ hasText: 'You no longer have access to Board.' })).toBeVisible()
   await items.filter({ hasText: 'Tasks is ready' }).click()
   await expect(page).toHaveURL(/\/connectors/)
   await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()

@@ -15,6 +15,7 @@ import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKe
 import { useChats } from '../../src/store/chats'
 import { CHAT } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
+import { MOBILE_CAPABILITIES, type MobileConfig } from '../../../mobile/src/protocol'
 
 const KEY = 'hf_live_9a8B7c6D5e4F3g2H1i0J'
 const TURN = uuidv7()
@@ -609,6 +610,30 @@ describe('the card, clicked', () => {
     expect(said()).toEqual(['POST /api/integrations/google-drive/authorize', 'GET /api/integrations/google-drive/flows/d1', 'POST /api/integrations/google-drive/flows/d1/complete', CONNECT])
     expect(calls.at(-1)!.body).toEqual({ action: 'done', requestId: 'c1' })
     await m.unmount()
+  })
+
+  test('Google Drive in the phone app: the same one line as Settings, no Google sign-in; "Not now" stays (QA TC-2977)', async () => {
+    const g = globalThis as Record<string, unknown>
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.4', platform: 'android', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
+    const was = { mycelMobile: g.mycelMobile, ReactNativeWebView: g.ReactNativeWebView }
+    g.mycelMobile = { ...config }
+    g.ReactNativeWebView = { postMessage: () => {} }
+    try {
+      for (const reconnect of [false, true]) {
+        const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined, ...(reconnect ? { reconnect: true } : {}) })
+        open(r)
+        const m = await mount(<ConnectCard request={r} />)
+        expect(m.get('connect-drive-on-computer').textContent).toBe(translate('en', reconnect ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name: 'Google Drive' }))
+        expect(m.find('connect-drive')).toBeNull()
+        expect(m.get('connect-card').textContent).not.toContain(translate('en', 'drive.connect'))
+        expect(m.get('connect-card').textContent).not.toContain(translate('en', 'drive.privacy'))
+        expect(m.find('connect-skip')).not.toBeNull()
+        await m.unmount()
+      }
+      expect(said()).toEqual([])
+    } finally {
+      for (const [k, v] of Object.entries(was)) { if (v === undefined) delete g[k]; else g[k] = v }
+    }
   })
 
   test('Google Drive in the desktop app: no blank window; Google\'s page opens in the system browser once the server answered', async () => {

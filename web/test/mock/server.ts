@@ -1861,6 +1861,20 @@ export class MockServer {
         pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       }
     }
+    if (/connectdrive/i.test(prompt)) {
+      // like server/src/chat/connect-service.ts for Google Drive: the card for the person's own Drive (QA TC-2977); it
+      // stays until the turn's time for it runs out
+      const requestId = 'cd1'
+      const request: TurnRequest = {
+        kind: 'connect_service', requestId, target: 'google_drive', name: 'Google Drive', scope: 'personal',
+        why: 'You asked for a file in your Google Drive.', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      await Promise.race([new Promise((r) => this.pendingAsk.set(turnId, r)), sleep(60_000)])
+      this.openAsks.delete(turnId)
+      pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+    }
     if (/postroomcard/i.test(prompt)) {
       // like server/src/chat/post-to-room.ts: ONE card with the room and its people, the note apart (under my name), all
       // of the text (folded past 600), the lines that apply, the files [파일도 함께 보내기] attaches; after a yes the step

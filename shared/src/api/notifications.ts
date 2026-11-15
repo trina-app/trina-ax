@@ -153,9 +153,14 @@ export const InboxNotification = z.object({
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */
   firstRun: z.object({ member: z.string().nullable(), skill: z.string(), runners: z.number().int().positive(), target: z.number().int().positive() }).optional(),
-  /** 'integration.template' and 'integration.template_reconnect' only, while the template is there and still for this
-   * person: its id and name (Settings › MCP opens it with ?template=<id>); older servers omit it */
-  template: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'integration.template' and 'integration.template_reconnect' only, while the template is there: its id and name
+   * (Settings › Connectors opens it with ?template=<id>, link 'integrations' only while it is still for this person),
+   * and `signIn` for one each person signs in to with their own account (else they enter their own key); older servers
+   * omit it */
+  template: z.object({ id: z.string(), name: z.string(), signIn: z.literal(true).optional() }).optional(),
+  /** 'integration.template_reconnect' only: the template is no longer for this person, so their connection made from it
+   * went (nothing to connect again); older servers omit it */
+  templateLeft: z.literal(true).optional(),
   /** 'service.request' (the owners and the admins) and 'service.ready' (the member who asked): the app (Google Drive or a
    * Google app, shared/src/api/service-requests.ts). service.request: the newest member who asks, by display name
    * (null when none is left), how many others ask with them, and `open` while any request waits (the app opens its setup

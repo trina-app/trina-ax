@@ -24,7 +24,7 @@ import {
   type ClientInfo, type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
-import { notifyTemplateReconnect } from '../../notifications/service'
+import { notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
@@ -440,6 +440,9 @@ export class Integrations {
         const t = this.db.query('SELECT version FROM integration_templates WHERE id = ?').get(row.template_id) as { version: number } | null
         if (t) notifyTemplateReconnect(this.ctx, row.owner_user_id, row.template_id, t.version)
       }
+      // the template is no longer for them (narrowed, alone or with a new address, or they left its group): told once
+      // that they no longer have it, never asked to connect it again (QA TC-2980)
+      if (why === 'not_covered' && row.owner_user_id) notifyTemplateLeft(this.ctx, row.owner_user_id, row.template_id, row.id)
     }
     // a member's page open now still shows the connection: it reads its lists again (a quiet notice, no text; QA on dev
     // 1565b39f1: the old row's "try again" said "not found" until a reload)

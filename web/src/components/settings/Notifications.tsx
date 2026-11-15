@@ -113,6 +113,19 @@ export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): s
   return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
 }
 
+/** A team template's notice (QA TC-2980): it is ready, it changed (sign in again with your own account, or enter your
+ * own key again: as the template signs in), or it is no longer for me. With its name while the template is there. */
+export function templateText(item: Pick<InboxNotification, 'code' | 'template' | 'templateLeft'>, t: T): string {
+  const tp = item.template
+  if (item.templateLeft) return tp ? t('notifications.event.integration.template_leftNamed', { name: tp.name }) : t('notifications.event.integration.template_left')
+  if (item.code === 'integration.template_reconnect') {
+    if (!tp) return t('notifications.event.integration.template_reconnect')
+    return t(tp.signIn ? 'notifications.event.integration.template_reconnectNamedSignIn' : 'notifications.event.integration.template_reconnectNamed', { name: tp.name })
+  }
+  if (!tp) return t('notifications.event.integration.template')
+  return t(tp.signIn ? 'notifications.event.integration.templateNamedSignIn' : 'notifications.event.integration.templateNamed', { name: tp.name })
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -140,7 +153,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
   if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
-  if (item.template) return t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name })
+  if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
   const title = item.schedule?.title
   if (item.code === 'schedule.failure' && item.needsKey) return title
     ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
