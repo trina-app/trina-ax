@@ -50,8 +50,9 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   }))
   // the company's own Google app for all five Google apps (integrations/google-drive/own-app.ts); owners and admins
   kit.handle(API.googleOwnApp, () => safe(() => ownAppStatusFresh(ctx)))
-  kit.handle(API.setGoogleOwnApp, ({ auth, body }) => safe(() => {
-    const st = setOwnApp(ctx, auth.user.id, body)
+  kit.handle(API.setGoogleOwnApp, ({ auth, body }) => safe(async () => {
+    // awaited: Google is asked first, and members' asks close only once the app is saved (never on a refusal)
+    const st = await setOwnApp(ctx, auth.user.id, body)
     for (const s of ['google-drive', 'gmail', 'calendar', 'docs', 'sheets'] as const) afterServiceSetup(ctx, s)
     return st
   }))

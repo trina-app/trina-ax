@@ -54,6 +54,7 @@ export function ownAppErrorText(t: T, reason: string | undefined, addresses: Goo
     case 'client_not_google': return t('gsign.error.notGoogleFile')
     case 'client_redirect_drive': return t('gsign.error.redirectDrive', { address: addresses?.drive ?? '' })
     case 'client_redirect_apps': return t('gsign.error.redirectApps', { address: addresses?.apps ?? '' })
+    case 'client_unknown': return t('gsign.error.unknown')
     case 'server': return t('gsign.error.server')
     case 'not_service': return t('gsign.error.notService')
     case 'public_host': return t('gsign.noAddress')

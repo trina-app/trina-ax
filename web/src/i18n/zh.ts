@@ -5478,6 +5478,7 @@ export const zh: Record<MessageKey, string> = {
   "gsign.error.server": "服务器自身的配置已设置了 Google 应用，因此无法在这里更改。",
   "gsign.error.notService": "此服务器不通过托管服务登录 Google。请改为在各个 Google 应用自己的页面中设置。",
   "gsign.error.unsafe": "服务器目前无法安全地保存该文件。请让服务器管理人员检查其私有文件夹。",
+  "gsign.error.unknown": "Google 不认识这个客户端 ID。请在 Google Cloud 的“客户端”中核对，或询问负责管理公司 Google 账号的人。",
   "gsign.confirm.what": "保存后，Google Drive、Gmail、日历、文档和表格将通过公司的应用登录。",
   "gsign.confirm.people": "{n, plural, one {#人需要重新连接 Google。} other {#人需要重新连接 Google。}}",
   "gsign.confirm.nobody": "这里还没有人连接过 Google，因此无需任何人重新连接。",

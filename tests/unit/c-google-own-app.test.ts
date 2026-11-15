@@ -22,7 +22,7 @@ import { clientSettingKey, setupOf } from '../../server/src/integrations/google-
 import { setSetting } from '../../server/src/admin/settings'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
 import { OWN_APP_SETTING } from '../../server/src/integrations/google-drive/config'
-import { ownAppStatus } from '../../server/src/integrations/google-drive/own-app'
+import { ownAppStatus, probeGoogleClient, setOwnAppClientProbe } from '../../server/src/integrations/google-drive/own-app'
 import { getSetting } from '../../server/src/admin/settings'
 import { publicHostOf } from '../../server/src/system/deployment'
 import { DRIVE_BROKER_PATHS } from '../../shared/src/cloud-protocol/drive-broker'
@@ -53,7 +53,7 @@ beforeEach(async () => {
   for (const p of PEOPLE) sessionRow(A.ctx.db, p)
   start()
 })
-afterEach(async () => { await A?.close() })
+afterEach(async () => { setOwnAppClientProbe(null); await A?.close() })
 
 const fetcher = async (raw: string, init: RequestInit = {}) => {
   if (raw.startsWith(BROKER_ORIGIN)) return broker.fetch(raw, init)
@@ -368,4 +368,40 @@ test('while it is set, no card has a setup of its own: hosted, and a self-instal
   await call('carol', 'DELETE')
   for (const card of (await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps) expect(card).toMatchObject({ source: 'service', blocked: 'hosted' })
   noClient()
+})
+
+test('a client ID Google does not know is refused at save and nothing is written; a probe that cannot tell never blocks', async () => {
+  const asked: string[] = []
+  setOwnAppClientProbe(async (id, uri) => { asked.push(`${id} ${uri}`); return id === 'unknown-client' })
+  const bad = await call('carol', 'PUT', { clientId: 'unknown-client', clientSecret: 'secret' })
+  expect(bad.status).toBe(400)
+  expect(bad.body.error.params.reason).toBe('client_unknown')
+  expect(asked).toEqual([`unknown-client ${APPS_BACK}`])
+  expect(fs.existsSync(drive.clientFile)).toBe(false)
+  expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeFalsy()
+  setOwnAppClientProbe(async () => false) // known, or Google could not be asked
+  expect((await call('carol', 'PUT', { clientId: 'known-client', clientSecret: 'secret' })).status).toBe(200)
+})
+
+test('the Google probe: only a redirect to the error page saying invalid_client is "unknown"', async () => {
+  const b64 = (t: string) => Buffer.from(t, 'latin1').toString('base64url')
+  const redirect = (loc: string) => async () => new Response(null, { status: 302, headers: { location: loc } })
+  const err = (t: string) => `https://accounts.google.com/signin/oauth/error?authError=${b64(t)}&flowName=GeneralOAuthFlow`
+  expect(await probeGoogleClient('x', 'https://a/b', redirect(err('\x0a\x0einvalid_client\x12\x1fThe OAuth client was not found.')))).toBe(true)
+  expect(await probeGoogleClient('x', 'https://a/b', redirect(err('\x0a\x15redirect_uri_mismatch\x12\x10Some text')))).toBe(false)
+  expect(await probeGoogleClient('x', 'https://a/b', redirect('https://accounts.google.com/v3/signin/identifier?flowName=GeneralOAuthFlow'))).toBe(false)
+  expect(await probeGoogleClient('x', 'https://a/b', async () => new Response('invalid_client', { status: 400 }))).toBe(false)
+  expect(await probeGoogleClient('x', 'https://a/b', async () => { throw new Error('offline') })).toBe(false)
+})
+
+test('members\' asks for a Google app close once the save is written, after Google was asked; a refused save leaves them open', async () => {
+  broker.trusted = 'not-registered' // the hosting service does not serve this team: Gmail is not available before the save
+  expect(await drive.checkBroker()).toBe(false)
+  A.ctx.db.query("INSERT INTO service_requests (id, user_id, service, created_at) VALUES ('ask-1', 'alice', 'gmail', ?)").run(new Date().toISOString())
+  const open = () => (A.ctx.db.query("SELECT closed_reason FROM service_requests WHERE id = 'ask-1'").get() as { closed_reason: string | null }).closed_reason
+  setOwnAppClientProbe(async (id) => { await new Promise((r) => setTimeout(r, 20)); return id === 'unknown-client' })
+  expect((await call('carol', 'PUT', { clientId: 'unknown-client', clientSecret: 'secret' })).status).toBe(400)
+  expect(open()).toBeNull()
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(200)
+  expect(open()).toBe('added')
 })

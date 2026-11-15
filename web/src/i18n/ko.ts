@@ -5552,6 +5552,7 @@ export const ko = {
   "gsign.error.server": "서버 자체 설정에서 이미 Google 앱을 정해 두어서 여기서는 바꿀 수 없어요.",
   "gsign.error.notService": "이 서버는 호스팅 서비스를 통해 Google에 로그인하지 않아요. 대신 각 Google 앱의 페이지에서 따로 설정하세요.",
   "gsign.error.unsafe": "지금은 서버가 파일을 안전하게 보관할 수 없어요. 서버를 운영하는 분께 비공개 폴더를 확인해 달라고 하세요.",
+  "gsign.error.unknown": "Google이 이 클라이언트 ID를 알지 못해요. Google Cloud의 'Clients'에서 확인하거나, 회사 Google 계정을 관리하는 분께 물어보세요.",
   "gsign.confirm.what": "저장하면 Google Drive, Gmail, Calendar, Docs, Sheets가 회사 앱으로 로그인해요.",
   "gsign.confirm.people": "{n, plural, one {#명이 Google을 다시 연결해야 해요.} other {#명이 Google을 다시 연결해야 해요.}}",
   "gsign.confirm.nobody": "아직 여기서 Google을 연결한 사람이 없어서 다시 연결할 사람도 없어요.",
