@@ -4980,6 +4980,7 @@ export const ja: Record<MessageKey, string> = {
   "files.findWork.byAi": "チームのAIがファイル名から選びました",
   "files.findWork.byNames": "ファイル名で並べました",
   "files.findWork.bytes": "1回に1GBまで · いくつかチェックを外してください",
+  "files.findWork.cancelled": "キャンセルしました。このコンピューターのものは何も見ていません。",
   "files.findWork.morePlaces": "もっと多くの場所を探す（フルディスクアクセス）",
   "files.findWork.addRefused": "アプリがファイルを受け取れませんでした。もう一度追加を押すか、一覧が1時間以上前のものなら探し直してください。",
   "files.findWork.add": "{n, plural, one {#件} other {#件}}を追加",

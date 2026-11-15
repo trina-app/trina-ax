@@ -48,6 +48,8 @@ test('a member on My files: the app asks first; Cancel does nothing; nothing tic
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
   await answer(page, 'cancel')
   await expect(page.getByTestId('find-work')).toHaveCount(0)
+  // Not now, Esc or closing the app's window (the app answers 'cancelled' for each): the page says so (TC-3491)
+  await expect(page.getByTestId('toast').filter({ hasText: '취소했어요. 이 컴퓨터에서 아무것도 살펴보지 않았어요.' })).toBeVisible()
   expect((await app(page)).reads).toEqual([])
   expect(await (await page.request.get('/__test/file-rank')).json()).toEqual([])
   // Look: Downloads blocked by macOS, Desktop cut (big), the list with nothing ticked

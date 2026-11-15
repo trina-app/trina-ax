@@ -29,6 +29,9 @@ test('the consent window: only the person, only from the window, only when they 
     expect(out.enterLater).toBe(true)
     expect(out.closedAfterYes).toBe(true)
     expect(out.escape).toBe(false)
+    // TC-3490: Tab only between the two buttons (Not now, Find work files), also with a list that scrolls
+    expect(out.overflows).toBe(true)
+    expect(out.tabs).toEqual(['consent-yes', 'consent-no', 'consent-yes', 'consent-no', 'consent-yes', 'consent-no'])
     expect(out.forgedView).toBe('null')
     expect(out.forgedYes).toBe('open')
     expect(out.windowStillOpen).toBe(true)

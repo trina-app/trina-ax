@@ -216,8 +216,12 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       if (!live.current) return
       // the app is still busy with a question or a look (asked again too soon): said, nothing else happens
       if (r.state === 'busy') return setPhase({ s: 'error', text: t('files.findWork.busy') })
-      // the person said no in the app's own window: nothing happened, the page closes
-      if (r.state !== 'done') return onClose()
+      // the person said no in the app's own window (Not now, Esc, closing it: the app answers the same), or no app: the
+      // page closes, and says that nothing was looked at (TC-3491)
+      if (r.state !== 'done') {
+        if (r.state === 'cancelled') toast({ level: 'info', text: t('files.findWork.cancelled') })
+        return onClose()
+      }
       setRoots(r.roots)
       setStopped(r.stopped)
       const all = docsFromScan(r.files, bridge.read)

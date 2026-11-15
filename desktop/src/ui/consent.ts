@@ -87,17 +87,37 @@ function render(v: ConsentView) {
   root.replaceChildren(head, el('div', 'consent-body-scroll', ...([list, more, promises, fine] as (HTMLElement | null)[]).filter((x): x is HTMLElement => !!x)), foot)
   yes.focus()
   // a smaller app window: the words scroll, and the buttons get a line above them so it shows there is more
-  const scroller = root.querySelector('.consent-body-scroll')!
+  const scroller = root.querySelector<HTMLElement>('.consent-body-scroll')!
+  // Tab goes only between the two buttons (TC-3490): a list long enough to scroll is not a stop of its own (Chromium
+  // makes a scrolling box focusable); it scrolls with the wheel, and the arrows scroll it from a button
+  scroller.tabIndex = -1
+  buttons = [no, yes]
   const edge = () => foot.classList.toggle('is-over', scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 1)
   scroller.addEventListener('scroll', edge)
   addEventListener('resize', edge)
   requestAnimationFrame(edge)
 }
 
+/** the window's two buttons, in Tab order (Not now, then the main one) */
+let buttons: HTMLButtonElement[] = []
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     e.preventDefault()
     api.answer(false)
+    return
+  }
+  if (e.key === 'Tab' && buttons.length) {
+    // from anywhere (a button, the window's content, nothing focused): the other button, never the content area
+    e.preventDefault()
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    const next = at < 0 ? (e.shiftKey ? buttons.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length
+    buttons[next]!.focus()
+    return
+  }
+  // the arrows scroll the list from a button
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && buttons.length) {
+    const scroller = document.querySelector<HTMLElement>('.consent-body-scroll')
+    if (scroller) scroller.scrollBy({ top: e.key === 'ArrowDown' ? 40 : -40 })
   }
 })
 const view = api?.view()

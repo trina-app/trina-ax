@@ -4980,6 +4980,7 @@ export const es: Record<MessageKey, string> = {
   "files.findWork.byAi": "Elegidos por la IA de tu equipo a partir de los nombres",
   "files.findWork.byNames": "Ordenados por nombre de archivo",
   "files.findWork.bytes": "Hasta 1 GB a la vez · Desmarca algunos archivos",
+  "files.findWork.cancelled": "Cancelado. No se ha mirado nada de este equipo.",
   "files.findWork.morePlaces": "Buscar en más lugares (acceso total al disco)",
   "files.findWork.addRefused": "La app no recibió estos archivos. Pulsa Añadir otra vez, o vuelve a buscar si esta lista tiene más de una hora.",
   "files.findWork.add": "Añadir {n, plural, one {# archivo} other {# archivos}}",
