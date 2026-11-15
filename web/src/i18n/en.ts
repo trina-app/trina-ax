@@ -126,7 +126,7 @@ export const en: Record<MessageKey, string> = {
   "guest.invite.whereRoom": "They'll see only the '{place}' room, nothing else in the team.",
   "guest.invite.whereProject": "They'll see only the '{place}' project, nothing else in the team.",
   "guest.invite.pickPlace": "Where should they join?",
-  "guest.invite.searchPlaces": "Search rooms and projects",
+  "guest.invite.searchPlaces": "Search group chats and projects",
   "guest.invite.groupChats": "Group chats",
   "guest.invite.noPlaces": "There's no room or project to invite a guest into yet. Group chats you're in and team projects show here.",
   "guest.invite.noPlaceMatch": "Nothing matches.",

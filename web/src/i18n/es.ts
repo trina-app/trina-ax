@@ -123,7 +123,7 @@ export const es: Record<MessageKey, string> = {
   "guest.invite.whereRoom": "Solo verá la sala '{place}', nada más del equipo.",
   "guest.invite.whereProject": "Solo verá el proyecto '{place}', nada más del equipo.",
   "guest.invite.pickPlace": "¿Dónde entrará?",
-  "guest.invite.searchPlaces": "Buscar salas y proyectos",
+  "guest.invite.searchPlaces": "Buscar chats de grupo y proyectos",
   "guest.invite.groupChats": "Chats de grupo",
   "guest.invite.noPlaces": "Todavía no hay una sala ni un proyecto al que invitar a un invitado. Aquí aparecen los chats de grupo en los que estás y los proyectos del equipo.",
   "guest.invite.noPlaceMatch": "No hay coincidencias.",

@@ -148,7 +148,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
     }
   }
   if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
-  if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} />
+  if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
   const group = !inviting && picked.length >= 2
   const action = inviting ? t('rooms.picker.invite') : group ? t('rooms.picker.createGroup') : t('rooms.picker.start')

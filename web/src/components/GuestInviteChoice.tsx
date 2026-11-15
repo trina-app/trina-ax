@@ -167,16 +167,17 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
   )
 }
 
-/** "Invite a guest" with no place yet (the "New conversation" list's first row, components/rooms/PeoplePicker.tsx): the
- * same Guest half on its own, titled as the rooms' and projects' guest form is: one line, the one place they join (or
- * the limit), then that form. `onClose`: Cancel / Close here, and Done after the link is made. */
-export function GuestInviteFlow({ onClose }: { onClose: () => void }) {
+/** "Invite a guest" with no place yet (the "New conversation" list's first row, components/rooms/PeoplePicker.tsx; the
+ * team link's invite step): the same Guest half on its own, titled as the rooms' and projects' guest form is: one line,
+ * the one place they join (or the limit), then that form. `onCancel`: Cancel / Close / × here (back to where it was
+ * opened); `onClose`: Done after the link is made (closes everything). */
+export function GuestInviteFlow({ onClose, onCancel = onClose }: { onClose: () => void; onCancel?: () => void }) {
   const t = useT()
   const admin = isAdmin(useMe())
   const choice = useGuestChoice(true)
   if (choice.place) return <GuestChoiceForm choice={choice} onDone={onClose} />
   return (
-    <Modal open onClose={onClose} title={t('guest.invite.title')} width={480} footer={<GuestChoiceButtons choice={choice} admin={admin} onClose={onClose} />}>
+    <Modal open onClose={onCancel} title={t('guest.invite.title')} width={480} footer={<GuestChoiceButtons choice={choice} admin={admin} onClose={onCancel} />}>
       <div data-testid="guest-invite-flow">
         <GuestChoicePanel choice={choice} panels={null} admin={admin} />
       </div>

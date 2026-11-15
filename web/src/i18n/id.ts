@@ -126,7 +126,7 @@ export const id: Record<MessageKey, string> = {
   "guest.invite.whereRoom": "Mereka hanya melihat ruang '{place}', tidak ada yang lain di tim.",
   "guest.invite.whereProject": "Mereka hanya melihat proyek '{place}', tidak ada yang lain di tim.",
   "guest.invite.pickPlace": "Mereka masuk ke mana?",
-  "guest.invite.searchPlaces": "Cari ruang dan proyek",
+  "guest.invite.searchPlaces": "Cari obrolan grup dan proyek",
   "guest.invite.groupChats": "Obrolan grup",
   "guest.invite.noPlaces": "Belum ada ruang atau proyek untuk mengundang tamu. Obrolan grup yang Anda ikuti dan proyek tim muncul di sini.",
   "guest.invite.noPlaceMatch": "Tidak ada yang cocok.",

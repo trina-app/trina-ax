@@ -90,9 +90,12 @@ test('the owner: New conversation starts with Invite a guest, which picks the pl
   await expect(page.getByTestId('guest-invite-flow')).toBeVisible()
   await page.getByTestId('guest-place-room').click()
   await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
-  // Cancel goes back to the places
+  // Cancel goes back to the places, and Cancel there back to the people list
   await page.getByRole('button', { name: '취소' }).click()
   await expect(page.getByTestId('guest-invite-flow')).toBeVisible()
+  await page.getByTestId('invite-guest-close').click()
+  await expect(page.getByTestId('people-search')).toBeVisible()
+  await expect(page.getByTestId('invite-guest-row')).toBeVisible()
 })
 
 test("the owner: a group chat's ⋯ has 초대하기, the add list with Invite a guest first", async ({ page }) => {
@@ -161,4 +164,21 @@ test('Invite people has no second guest line under Team member (the Guest tab is
   await page.getByTestId('team-menu-invite').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await expect(page.getByTestId('invite-step-guest')).toHaveCount(0)
+})
+
+test("a guest: no Invite a guest in New conversation's place, and no 초대하기 in their room's ⋯", async ({ page }) => {
+  await start(page)
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: GROUP }, ai: { mode: 'none' } } })).ok()).toBeTruthy()
+  await page.goto('/login')
+  await page.getByTestId('login-username').fill('gina')
+  await page.getByTestId('login-password').fill('gina password 1')
+  await page.getByTestId('login-submit').click()
+  await page.goto(`/rooms/${GROUP}`)
+  await expect(page.getByTestId('room-header')).toBeVisible()
+  await page.getByTestId('room-menu').click()
+  await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeVisible()
+  await expect(page.getByTestId('room-menu-invite')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('team-menu-invite')).toHaveCount(0)
+  await expect(page.getByTestId('invite-guest-row')).toHaveCount(0)
 })

@@ -28476,10 +28476,12 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   stays right if a member ever opens it.
 - The team link's invite step (`InviteStep`) outside that dialog — the owner's welcome steps (where Invite people sends
   an owner while the steps are unfinished: the QA-Acme owner landed there, so the owner on qa.trina.app likely did
-  too), Home's goal card [Invite teammates], the invite after sharing a skill — gets one quiet line under the message:
+  too), Home's goal card [Invite teammates] — gets one quiet line under the message:
   "Someone from outside the team? **Invite a guest**" (`GuestInviteFlow`). Not tabs there: those screens are about
   colleagues using the team's skills, and the welcome steps stay one task per step. Invite people's own dialog has the
-  tabs, so its InviteStep has no line (`guestLine={false}`).
+  tabs, so its InviteStep has no line (`guestLine={false}`); nor has the invite right after sharing a team skill (its
+  message is about that skill; review). In New conversation, Cancel on the places goes back to the people list; Done
+  closes everything.
 - **Left as they are:** Invite people stays the owner's and admins' (the team link is theirs; a member invites a guest
   from New conversation, a group chat's ⋯ or a project's add list). Admin's team invite link card stays team members
   only (one link for many people; a guest's link is for one person and one place). - Version impact: **minor** (a new way in to an existing feature).

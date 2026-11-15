@@ -123,7 +123,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.invite.whereRoom": "他们只能看到“{place}”聊天室，看不到团队的其他内容。",
   "guest.invite.whereProject": "他们只能看到“{place}”项目，看不到团队的其他内容。",
   "guest.invite.pickPlace": "让他们加入哪里？",
-  "guest.invite.searchPlaces": "搜索聊天室和项目",
+  "guest.invite.searchPlaces": "搜索群聊和项目",
   "guest.invite.groupChats": "群聊",
   "guest.invite.noPlaces": "还没有可以邀请访客的聊天室或项目。你所在的群聊和团队项目会显示在这里。",
   "guest.invite.noPlaceMatch": "没有匹配的结果。",
