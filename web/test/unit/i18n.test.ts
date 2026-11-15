@@ -142,9 +142,9 @@ describe('translations', () => {
     expect(translate('es', 'picker.selected', { n: '1' })).toBe('Seleccionados: 1')
     expect(translate('en', 'credentials.month', { tokens: '1,204' })).toBe('Tokens this month: 1,204')
     // a bare {count} right before a plural noun: none left (limits that are never 1 and numbers written with
-    // separators, which no plural rule reads, are listed)
+    // separators, which no plural rule reads, are listed; welcome.ai.why is "{product} uses it …", a verb, not a count)
     const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
-    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong', 'budgets.tokensPerDay', 'budgets.tokensPerMonth', 'budgets.usedTokensToday', 'budgets.usedTokensMonth'])
+    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong', 'budgets.tokensPerDay', 'budgets.tokensPerMonth', 'budgets.usedTokensToday', 'budgets.usedTokensMonth', 'welcome.ai.why'])
     for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
   })
   test('steps of older answers follow the language on screen', () => {
