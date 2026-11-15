@@ -28899,6 +28899,8 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   (`dropFromTemplate` `not_covered`: the admin narrowed who it is for, alone or with a new address, or they left its
   group), the member gets "You no longer have access to <name>." It uses the reconnect notice's table and event type
   with its own source (`<template>.left.<connection>`, `templateLeft: true`), so no migration; an older app shows it
-  with the reconnect words. No link, not under 요청.
+  with the reconnect words. No link, not under 요청. On a server rollback an older server shows it as "A team template
+  changed: connect it again." (it does not know the source form); harmless: the template is not for them, so its
+  Connect is not there to use.
 - **Template notices keep the name while the template is there**, also for someone it is no longer for (they were told
   the name before); the link to its Connect stays only while it is for them.

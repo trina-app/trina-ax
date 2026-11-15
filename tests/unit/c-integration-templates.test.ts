@@ -704,7 +704,8 @@ describe('security review 2', () => {
     // no "connect it again"
     expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft)).toHaveLength(0)
     // the earlier "is ready" notice keeps the name, without its link
-    if (offer) expect((await inbox(cara)).find((n) => n.id === offer.id)).toMatchObject({ template: { id: t.id, name: 'Only Narrowed' }, link: null })
+    expect(offer).toBeDefined()
+    expect((await inbox(cara)).find((n) => n.id === offer!.id)).toMatchObject({ template: { id: t.id, name: 'Only Narrowed' }, link: null })
     // the people sweep again (a list read): no second notice
     await ada.call('GET', '/api/admin/integration-templates')
     expect(await leftOf(cara)).toHaveLength(1)
@@ -712,6 +713,42 @@ describe('security review 2', () => {
     // the template gone: the notice stays, with no name
     expect(await leftOf(cara)).toHaveLength(1)
     expect((await leftOf(cara))[0].template).toBeUndefined()
+  })
+
+  test('QA TC-2980: leaving the template\'s group (the sweep) tells the member once that they no longer have it', async () => {
+    const g = await ada.call('POST', '/api/admin/groups', { name: 'Left group', memberIds: [ids.bob, ids.cara] })
+    const t = await make(tpl({ name: 'Group Board', access: { ...nobody, groups: [g.id] } }))
+    const row = (await connect(cara, t.id, { secret: MCP_KEY })).body.id
+    await ada.call('PATCH', `/api/admin/groups/${g.id}`, { memberIds: [ids.bob] })
+    // a list read sweeps (also the backstop): her connection goes as "no longer for her"
+    await ada.call('GET', '/api/admin/integration-templates')
+    expect(getRow(h.ctx.db, row)).toBeNull()
+    const leftOf = async () => (await inbox(cara)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))
+    const left = await leftOf()
+    expect(left).toHaveLength(1)
+    expect(left[0]).toMatchObject({ template: { id: t.id, name: 'Group Board' }, link: null })
+    expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft)).toHaveLength(0)
+    await ada.call('GET', '/api/admin/integration-templates')
+    expect(await leftOf()).toHaveLength(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+    await ada.call('DELETE', `/api/admin/groups/${g.id}`)
+  })
+
+  test('QA TC-2980: narrowed while the member was connecting: "no longer have access", not "connect it again"', async () => {
+    const t = await make(tpl({ name: 'Raced', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    const svc = integrationsOf(h.ctx)
+    const create = svc.create.bind(svc)
+    svc.create = (async (...a: Parameters<typeof create>) => {
+      const made = await create(...a)
+      h.ctx.db.query("DELETE FROM integration_template_access WHERE template_id = ? AND subject_type = 'user' AND subject_id = ?").run(t.id, ids.cara)
+      return made
+    }) as typeof svc.create
+    try {
+      expect((await connect(cara, t.id, { secret: MCP_KEY })).status).toBe(409)
+    } finally { svc.create = create }
+    expect((await inbox(cara)).filter((n) => n.templateLeft && n.sourceId.startsWith(t.id))).toHaveLength(1)
+    expect((await of(cara, t.id, 'integration.template_reconnect')).filter((n) => !n.templateLeft)).toHaveLength(0)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
   })
 
   test('QA TC-2980: a sign-in template\'s notices say so (signIn), a key template\'s do not', async () => {

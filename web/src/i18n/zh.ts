@@ -708,7 +708,7 @@ export const zh: Record<MessageKey, string> = {
   "notifications.event.integration.template_reconnectNamed": "{name}更改了地址或登录方式：请重新输入你自己的密钥。",
   "notifications.event.integration.templateNamedSignIn": "{name}已准备好：用你自己的账号登录。",
   "notifications.event.integration.template_reconnectNamedSignIn": "{name}更改了地址或登录方式：请用你自己的账号重新登录。",
-  "notifications.event.integration.template_left": "你已无法再使用一个团队模板。",
+  "notifications.event.integration.template_left": "你已不能再使用某个团队模板。",
   "notifications.event.integration.template_leftNamed": "你已无法再使用{name}。",
   "notifications.event.schedule.needsKey": "一个定时任务没有运行：它需要你自己的{name}密钥。",
   "notifications.event.schedule.projectGone": "一个定时任务没有运行：你已看不到它的项目。",
