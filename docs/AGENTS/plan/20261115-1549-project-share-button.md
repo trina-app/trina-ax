@@ -2,14 +2,14 @@
 
 - Date (UTC): 2026-11-15 15:49
 - Branch: `feat/project-share-button`
-- Status: draft
+- Status: in progress
 - QA: TC-3283
 - Where: Team AX core, web only (`web/src/pages/Projects.tsx`, `web/src/components/NewProjectDialog.tsx`,
   `web/src/components/ProjectParticipants.tsx`, `web/src/components/chat/ChatProject.tsx`, `web/src/i18n/*`, tests,
   `docs/site/use/chats-and-projects.md`, `docs/DECISIONS.md`). Why: projects and sharing are core
   (docs/REPOSITORY-RULES.md); the server already has every path this needs.
 - Version impact: **minor**. A visible change of where a project is shared and a new optional field when making one.
-  No API, data or setting change.
+  No API, data or setting change (one server string: where the AI says members are changed).
 
 ## Goal
 
@@ -74,7 +74,13 @@ sees it in 3 seconds, as in Drive.
 - **Can't share → the button is hidden**, not read-only. A Share that opens a dialog where nothing can be shared is a
   dead end; the faces next to it already open the read-only list, which says who changes the members. On a personal
   project in a team where only admins share, "Only me" gets the existing line "In this team only the owner and admins
-  share projects with others." as its tooltip (focusable, so it is read out too).
+  share projects with others." as one faint line under the row (review 7: a tooltip cannot be found by touch; this
+  is what the old line said, in the one place).
+- For a manager the faces and Share open the same dialog: one dialog, two ways in (as Drive's avatars and Share). The
+  owner or an admin who is not a member also keeps "Add me" in the page's quiet block: two actions there, accepted
+  (one adds themselves, one changes who else is in it).
+- The web's "may share a personal project" test is `projectCreators === 'members'`; the server's is `!== 'admins'`. On
+  an older server without the field the button hides: the safe side.
 
 ### Phone (390 px)
 
@@ -90,7 +96,11 @@ nothing to show there (in the trash) has no row.
 - What they said moves:
   - "Members are changed by Sam (creator) or admins": already in the members dialog for whoever cannot change them.
   - the admin's note on a project made outside `projects/`: already in the dialog; its link to Admin › Folder
-    permissions moves into the dialog's note (one line, kept so the admin still has the way there).
+    permissions moves into the dialog's note (the only edit to `ProjectMembersDialog`: that one line, so #976 merges
+    cleanly).
+  - the AI's "change members" card says where to change them: "Projects › {name} › Members" becomes "Projects › {name}
+    › Share" (`server/src/chat/project-members.ts` `where`, six languages); its `?members=1` link still opens the
+    dialog.
   - "In this team only the owner and admins share…": the tooltip above.
 - The owner or an admin who is not a member had a side column with only the Members line: it has no side column now.
 - Kept: the list card's ⋯ **Members** (a shortcut on the list to the same dialog, not a second place) and the "who sees
@@ -101,15 +111,32 @@ nothing to show there (in the trash) has no row.
 - Under the name: **People (optional)**, the picker of the share dialog (me fixed as "You", search to add people and
   groups). One shared component, `ProjectPeopleField`, used by `ShareProjectDialog` and `NewProjectDialog`, so both say
   the same thing the same way.
+- The field sits **outside the name's `<form>`** (review 1): Enter in the name still makes the project, Enter in the
+  people search never does.
+- **Guests** (review 2): a guest is in one place already, so in both New project and Share every guest is greyed out
+  with where they are (`useGuestsElsewhere`, as the members dialog does; "Make team member" for admins). The server
+  accepts any active user there today; the web must not offer what the folder policy would never let them open.
+- The "same name" line compares with team projects once people are picked, else with my personal ones (review 6).
+- A refused create keeps the name and the picks and shows the server's words.
 - No one picked: as today, "Only you see it. You can add people later." and **Create** makes a personal project.
 - People picked: the count line ("3 members", the server's dry run, 400 ms after the last pick) and the share note
   ("Everyone you add can see and edit its files and instructions, and the chats started here from now on. This can't
   go back to only you."). **Create** makes a team project: `POST /api/projects {scope: 'team', participants}`, the same
   server checks as sharing later. No second confirm: as in the share dialog, the button is the yes (#976's one press).
-- Shown only to someone who may share (as above). A member whose team lets only admins share, and a guest, see the
-  name only and "Only you see it.".
+- Shown only to someone who may share (as above). A member whose team lets only admins share sees the name only and
+  "Only you see it." (Guests cannot open New project at all.)
+- Opt-in: `NewProjectDialog` takes `people`; the Projects panel row, the Projects page and Search's "New project" turn
+  it on (review 12).
 - Not in **Move to project › New project** from a chat: that flow's Undo deletes the project only while it is still
   "Only me", and a moved chat arrives private anyway; the field there would add a step to a one-field shortcut.
+
+## Plan review (2026-11-15)
+
+One independent reviewer read the plan and the code. Taken in: Enter in the search (1), guests (2), the AI's
+wording and the docs (3), the mock (5), the same-name line (6), the admins-only line instead of a tooltip (7), the
+one-line dialog edit and `projects.members.add` kept (8), the spec list (9), no guest branch (11), opt-in field (12).
+Confirmed: create-with-people runs the same server checks as sharing (4); the hide rule matches the server in every
+case (7); the phone row (10).
 
 ## Steps
 
@@ -128,16 +155,26 @@ nothing to show there (in the trash) has no row.
   test ids; the full web e2e runs.
 - #976 edits `ProjectMembersDialog` too. This PR touches only its legacy note line there, to keep the conflict small.
 - A wrong "may share" check in the web would only show or hide a button: the server refuses as before.
-- No migration, no server change.
+- No migration; one server string.
+- Known and unchanged (review 4): neither sharing nor create-with-people notifies the people added (only earlier
+  members are told); the create's audit row is `project.create` with its rules, the share's `project.share`.
 
 ## Tests
 
 - Web unit: the title row (who sees it and Share for: personal I may share, personal admins-only, team I manage, team
-  member read-only, outside admin, in trash, guest), `NewProjectDialog` (no picks → personal, picks → team with
-  participants, field hidden for admins-only and from Move to project), `ShareProjectDialog` still shares.
+  member read-only, outside admin, in trash, legacy outside `projects/`), `NewProjectDialog` (no picks → personal,
+  picks → team with participants, Enter in the search does not create, guests greyed out, picks kept after a refusal,
+  field hidden for admins-only and from Move to project), `ShareProjectDialog` still shares. Rewrite the specs on
+  `MembersRow` (`who-sees`, `project-members-only`, `files-projects-cache`) for the title row.
+- The e2e mock's team create answers as the server does (`sharedProjectOut`, the admins-only refusal), so the page
+  after Create shows faces and Share.
 - E2E: `project-share-button.spec.ts`: Share on a personal project shares it; Share on a team project opens the members
-  dialog; a member sees faces but no Share; New project with a teammate makes a team project they see; at 1440 and
-  390, light and dark, with screenshots. Update the specs that used the old line.
+  dialog; a member sees faces but no Share; `?members=1` still opens the dialog; New project with a teammate makes a
+  team project they see; at 1440 and 390, light and dark, with screenshots. Update the specs that used the old line
+  (project-participants, project-people, shared-project-chats, guest-invite, guest-admin, guest-project-page,
+  project-page, project-skills, project-trash-members, tooltip-after-tap); keep the `project-who` test id.
+- Docs: `chats-and-projects.md` (lines on Members / Add people, the guest line, the project page caption) and reshoot
+  `project.webp` with `bun run docs:reshoot` if it runs here.
 - `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run test:web`, `bun run build:web`, the full
   web e2e.
 
