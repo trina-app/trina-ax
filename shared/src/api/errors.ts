@@ -205,3 +205,14 @@ export function chatErrorReason(error: ApiErrorBody): ChatErrorReason | null {
   }
   return null
 }
+
+/** The page a browser gets while an update migrates the database (server/src/system/updating-page.ts, QA TC-2260):
+ * its title, the line under it and the seconds waited (%N%). The web app's own words for it are web/src/i18n conn.updating*. */
+export const UPDATING_PAGE_TEXT: Record<Locale, { title: string; body: string; waited: string }> = {
+  en: { title: 'Trina is updating', body: "It will be back in a few minutes. This page opens by itself when it's ready. Nothing you saved is lost.", waited: 'Waiting: %N% s' },
+  ko: { title: '트리나를 업데이트하고 있어요', body: '몇 분 안에 다시 열려요. 준비되면 이 페이지가 저절로 열려요. 저장한 내용은 그대로 있어요.', waited: '기다린 시간: %N%초' },
+  id: { title: 'Trina sedang diperbarui', body: 'Akan kembali dalam beberapa menit. Halaman ini terbuka sendiri saat sudah siap. Tidak ada yang Anda simpan yang hilang.', waited: 'Menunggu: %N% dtk' },
+  ja: { title: 'トリナを更新しています', body: '数分で戻ります。準備ができるとこのページが自動で開きます。保存した内容はそのままです。', waited: 'お待ちの時間：%N%秒' },
+  es: { title: 'Trina se está actualizando', body: 'Volverá en unos minutos. Esta página se abrirá sola cuando esté lista. No se pierde nada de lo que guardó.', waited: 'Esperando: %N% s' },
+  zh: { title: 'Trina正在更新', body: '几分钟后就会恢复。准备好后此页面会自动打开。你保存的内容都还在。', waited: '已等待：%N% 秒' },
+}

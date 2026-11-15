@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as shared from '../../shared/src/team-link'
 import * as phone from '../../mobile/src/team-link'
+import { checkTeamWith } from '../../mobile/src/team-check'
 
 const ROOT = path.join(import.meta.dir, '../..')
 const DESKTOP = { teamDomain: 'trina.app', loopbackHttp: true }
@@ -171,6 +172,24 @@ describe('where the apps show the team address', () => {
       for (const inner of ['https://[::ffff:127.0.0.1]/', 'https://[::]/', 'https://0.0.0.0/', 'https://0/'])
         expect({ inner, r: m.parseTeamInput(inner, PHONE) }).toMatchObject({ inner, r: { ok: true, loopback: true, hosted: false } })
     }
+  })
+})
+
+describe('Trina is updating (QA TC-2260)', () => {
+  test('the update\'s stand-in (x-mycel-updating) or the relay\'s team_maintenance, on a 503 only', () => {
+    for (const m of [shared, phone]) {
+      expect(m.updatingAnswer(503, '1', null)).toBe(true)
+      expect(m.updatingAnswer(503, null, 'team_maintenance')).toBe(true)
+      expect(m.updatingAnswer(503, null, 'team_offline')).toBe(false)
+      expect(m.updatingAnswer(503, null, null)).toBe(false)
+      expect(m.updatingAnswer(502, '1', null)).toBe(false)
+    }
+  })
+  test('the phone app\'s address check says "updating" with "unreachable" (its failure screen says so and keeps trying)', async () => {
+    const answer = (headers: Record<string, string>) => checkTeamWith({ fetch: async () => ({ status: 503, ok: false, headers: new Headers(headers), body: null }) }, 'https://acme.trina.app')
+    expect(await answer({ 'x-mycel-updating': '1' })).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(await answer({ 'x-relay-error': 'team_maintenance' })).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(await answer({ 'x-relay-error': 'team_offline' })).toEqual({ ok: false, reason: 'unreachable' })
   })
 })
 

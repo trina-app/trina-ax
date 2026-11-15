@@ -8,7 +8,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { Loader2 } from 'lucide-react'
-import { ApiError, errorText, isTeamWaking, setMediaKey } from './lib/api'
+import { ApiError, errorText, isServerUpdating, isTeamWaking, setMediaKey } from './lib/api'
 import { useWakeWait } from './lib/wakeWait'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
@@ -206,7 +206,7 @@ const RETRY_MS = 5000
 
 /** The offline page: it asks again by itself (every few seconds, when the network comes back, when the tab is looked at
  * again) and the screen the person was on returns when the server answers; the button asks at once. */
-function CantReach({ hint, detail, waking }: { hint: string; detail: string; waking?: boolean }) {
+function CantReach({ hint, detail, waking, updating }: { hint: string; detail: string; waking?: boolean; updating?: boolean }) {
   const t = useT()
   const load = useSession((s) => s.load)
   // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
@@ -230,7 +230,14 @@ function CantReach({ hint, detail, waking }: { hint: string; detail: string; wak
         <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
         {PRODUCT.displayName}
       </p>
-      {waking && wake.gaveUp ? (
+      {updating ? (
+        // Trina is updating (an update migrates the database): the words of the page a browser gets meanwhile
+        // (server/src/system/updating-page.ts); it opens by itself once the server answers
+        <>
+          <p className="flex items-center gap-2 font-medium" role="status" data-testid="team-updating"><Loader2 size={16} className="animate-spin text-muted" aria-hidden />{t('conn.updating')}</p>
+          <p className="max-w-md text-sm text-balance text-muted">{t('conn.updatingDetail')}</p>
+        </>
+      ) : waking && wake.gaveUp ? (
         // still "starting" after 3 minutes: the start failed. [Try again] waits 3 more minutes (the page keeps asking)
         <>
           <p className="max-w-md font-medium text-balance" role="alert" data-testid="team-wake-failed">{t('conn.wakeFailed')}</p>
@@ -281,7 +288,7 @@ function Gate() {
     const hint = t('conn.cantReachHint')
     const text = errorText(status.error, locale, hint)
     const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
-    return <CantReach hint={hint} detail={detail} waking={isTeamWaking(status.error)} />
+    return <CantReach hint={hint} detail={detail} waking={isTeamWaking(status.error)} updating={isServerUpdating(status.error)} />
   }
   if (status.kind === 'setup')
     return (

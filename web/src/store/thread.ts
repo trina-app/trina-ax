@@ -12,6 +12,8 @@ export type ViewMessage = Message & {
     clientMessageId: string
     state: 'sending' | 'failed'
     error?: string
+    /** still on its way, waiting while Trina is updating (lib/serverUpdating.ts): it goes once the server is back */
+    updating?: boolean
   }
 }
 
@@ -123,8 +125,8 @@ export function optimisticUserMessage(o: { id: string; chatId: string; parentId:
   }
 }
 
-export function markLocal(messages: ViewMessage[], localId: string, state: 'sending' | 'failed', error?: string): ViewMessage[] {
-  return messages.map((m) => (m.id === localId && m.local ? { ...m, local: { ...m.local, state, error } } : m))
+export function markLocal(messages: ViewMessage[], localId: string, state: 'sending' | 'failed', error?: string, updating?: boolean): ViewMessage[] {
+  return messages.map((m) => (m.id === localId && m.local ? { ...m, local: { clientMessageId: m.local.clientMessageId, state, ...(error ? { error } : {}), ...(updating ? { updating } : {}) } } : m))
 }
 
 /**

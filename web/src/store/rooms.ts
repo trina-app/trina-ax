@@ -13,6 +13,7 @@ import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
 import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
@@ -72,6 +73,8 @@ export interface PendingSend {
   showMessages?: string[]
   state: 'sending' | 'failed'
   error?: string
+  /** on its way, waiting while Trina is updating: it goes once the server is back */
+  updating?: boolean
   createdAt: string
   /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
    * may have reached the server. Try again is safe (the same client id). */
@@ -798,6 +801,17 @@ export const useRooms = create<RoomsState>((set, get) => {
       if (goneElsewhere.delete(p.clientMessageId)) {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
         return
+      }
+      // Trina is updating (lib/serverUpdating.ts): it stays on its way with a note and goes once the server is back,
+      // with the same client id (the update's stand-in kept nothing)
+      if (waitsForUpdate(e)) {
+        const mark = (updating: boolean) => setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'sending', updating: updating || undefined } : x)))
+        mark(true)
+        await waitForUpdate()
+        const still = get().pending[roomId]?.find((x) => x.clientMessageId === p.clientMessageId)
+        if (!still) return
+        mark(false)
+        return post(roomId, { ...still, state: 'sending', updating: undefined })
       }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back

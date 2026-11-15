@@ -39,6 +39,7 @@ import { ArrowUp, Camera, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQu
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isConnectionError } from '../../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
@@ -181,10 +182,11 @@ export default function Composer({
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // the send failed for the connection (lib/api.ts isConnectionError): the calm line under the box, the text kept in it
-  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors")
-  const [unsent, setUnsent] = useState(false)
+  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors"). 'updating': Trina is
+  // updating (lib/serverUpdating.ts): the line says so and the box sends it once by itself when the server is back
+  const [unsent, setUnsent] = useState<false | 'connection' | 'updating'>(false)
   // it says the connection is down: a notice of the same page (Home's 「팀에 준비된 것」) does not say it again
-  useSaysConnection(unsent && !error)
+  useSaysConnection(!!unsent && !error)
   // files from this computer: everywhere but a shared chat whose project folder the person may not write
   const computer = sharedUploads?.allowed !== false
   // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
@@ -356,7 +358,7 @@ export default function Composer({
         roomMenu.reset()
         writeDraft(userId, draftId, '')
       } catch (e) {
-        if (isConnectionError(e)) setUnsent(true)
+        if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
         else setError(errorText(e, locale, t('error.network')))
       } finally {
         setSending(false)
@@ -375,12 +377,23 @@ export default function Composer({
       writeDraft(userId, draftId, '')
       clearSent()
     } catch (e) {
-      if (isConnectionError(e)) setUnsent(true)
+      if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
       else setError(errorText(e, locale, t('error.network')))
     } finally {
       setSending(false)
     }
   }
+
+  // Trina was updating: once the server is back the box's text goes, once (an emptied box, or a send meanwhile, ends the
+  // wait: the line is gone then)
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    if (unsent !== 'updating') return
+    let live = true
+    void waitForUpdate().then(() => { if (live) void sendRef.current(false) })
+    return () => { live = false }
+  }, [unsent])
 
   const stop = async () => {
     setStopping(true)
@@ -774,8 +787,9 @@ export default function Composer({
         <CalmNotice
           className="mt-2"
           testId="composer-unsent"
-          icon={<WifiOff size={16} />}
-          title={t('conn.unsent')}
+          state={unsent}
+          icon={unsent === 'updating' ? <Loader2 size={16} className="animate-spin" /> : <WifiOff size={16} />}
+          title={t(unsent === 'updating' ? 'conn.updatingUnsent' : 'conn.unsent')}
           action={<Button size="sm" variant="secondary" disabled={!canSend} onClick={submit} data-testid="composer-unsent-retry">{t('common.retry')}</Button>}
         />
       )}

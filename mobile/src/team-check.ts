@@ -2,7 +2,7 @@
 // (team-link.ts relayAnswer), one relay rename hop, and a sleeping free trial team woken and waited for ("Starting your
 // team…", about a minute) instead of "cannot reach" (QA wake gap 1). No native imports: `fetch` is handed in (expo/fetch
 // in the app, a fake in tests/unit/mobile-team-check.test.ts).
-import { mayBeAsleep, relayAnswer, relayRename, wakeTeam, type WakeAnswer } from './team-link'
+import { mayBeAsleep, relayAnswer, relayRename, updatingAnswer, wakeTeam, type WakeAnswer } from './team-link'
 
 type Fetch = (url: string, init: { headers: Record<string, string>; redirect: 'manual'; signal: AbortSignal }) => Promise<{
   status: number; ok: boolean; headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null
@@ -20,7 +20,7 @@ export interface CheckIo {
 /** How a team address answered: `origin` is the new address after a relay rename. Any other redirect is not a team
  * server. 'wakeTimeout': a sleeping team was starting but did not answer within 3 minutes. 'cancelled': the person
  * cancelled that wait. */
-export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'wakeTimeout' | 'cancelled' }
+export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'wakeTimeout' | 'cancelled'; updating?: true }
 
 export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: string | null = null): Promise<TeamCheck> {
   let renamed = false
@@ -49,10 +49,11 @@ export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: str
     h = await health(io.fetch, origin)
   }
   if (h.kind === 'ok') return { ok: true, origin, renamed }
-  return { ok: false, reason: h.kind === 'redirect' ? 'notTeam' : h.kind === 'asleep' ? 'unreachable' : h.kind }
+  // (unreachable while Trina is updating: the failure screen says so, QA TC-2260)
+  return { ok: false, reason: h.kind === 'redirect' ? 'notTeam' : h.kind === 'asleep' ? 'unreachable' : h.kind, ...(h.kind === 'unreachable' && h.updating ? { updating: true as const } : {}) }
 }
 
-type Health = { kind: 'ok' | 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'asleep' } | { kind: 'redirect'; location: string | null }
+type Health = { kind: 'ok' | 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'asleep'; updating?: boolean } | { kind: 'redirect'; location: string | null }
 async function health(fetch: Fetch, origin: string): Promise<Health> {
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 8000)
   try {
@@ -64,7 +65,7 @@ async function health(fetch: Fetch, origin: string): Promise<Health> {
     if (relay === 'unknown' || relay === 'suspended') return { kind: relay }
     // a free trial's server turned off for no use: the check does not wake it, a person's page load does (wake)
     if (mayBeAsleep(response.status, kind)) return { kind: 'asleep' }
-    if (relay === 'offline' || response.status >= 500) return { kind: 'unreachable' }
+    if (relay === 'offline' || response.status >= 500) return { kind: 'unreachable', updating: updatingAnswer(response.status, response.headers.get('x-mycel-updating'), kind) }
     if (!response.ok || Number(response.headers.get('content-length') ?? 0) > 4096) return { kind: 'notTeam' }
     const reader = response.body?.getReader()
     if (!reader) return { kind: 'notTeam' }

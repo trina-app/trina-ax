@@ -19,7 +19,7 @@
 // On a phone the dialog is the app's bottom sheet (ui.tsx Modal); an answer of the widening list opens on the same
 // screen, the draft kept first (store/wideningDraft.ts), and "‹ Back to sharing" reopens this dialog on the list with
 // the picks (components/WideningDraftHost.tsx).
-import { AlertCircle, AlertTriangle, ChevronLeft, ChevronRight, FolderInput, Info } from 'lucide-react'
+import { AlertCircle, AlertTriangle, ChevronLeft, ChevronRight, FolderInput, Info, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { create } from 'zustand'
@@ -27,6 +27,7 @@ import type { Chat, ChatAudience, ProjectParticipant, PutChatAudienceResult, Wid
 import { useT, useLocale } from '../../i18n'
 import { api, API, ApiError, errorText, isConnectionError } from '../../lib/api'
 import { isOverlayEntry } from '../../lib/backCloses'
+import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
 import { isTeamProject, keepFaces, type ShareKind } from '../../lib/sharedChat'
 import { useProjects } from '../../store/projects'
 import { useChats } from '../../store/chats'
@@ -37,6 +38,7 @@ import { freshDraft, useWideningDraft, type WideningDraft } from '../../store/wi
 import { MembersField, ParticipantPicker, participantKey, sameParticipants, useParticipantOptions, type ParticipantOption } from '../ProjectParticipants'
 import { answerHref, WideningList } from '../WideningList'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
+import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
 import { placeName } from './ShareToRoom'
 import { openShareChat } from './ShareChat'
@@ -71,6 +73,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const [ask, setAsk] = useState<Ask | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Trina is updating (lib/serverUpdating.ts): the picks stay, a calm line says so, and it saves again by itself once
+  // the server is back (or Save again now)
+  const [updating, setUpdating] = useState(false)
   // the widening list in place of the body (the picks stay)
   const [listing, setListing] = useState(false)
   const listScroll = useRef(initial?.scroll ?? 0)
@@ -146,6 +151,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     if (!dirty || busy) return
     setBusy(true)
     setError(null)
+    setUpdating(false)
     const key = audienceKey(picks)
     try {
       const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: picks, ...(ask ? { confirmKey: ask.confirmKey } : {}) } })
@@ -166,12 +172,22 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       setAudience(r.audience)
       onClose()
     } catch (e) {
+      if (waitsForUpdate(e)) { setUpdating(true); return }
       // a refusal says why in the server's words; no answer (offline) or a failure: the picks stay, try again
       setError(e instanceof ApiError && !isConnectionError(e) && e.status < 500 ? errorText(e, locale, t('chat.share.saveFailed')) : t('chat.share.saveFailed'))
     } finally {
       setBusy(false)
     }
   }
+
+  const saveRef = useRef(save)
+  saveRef.current = save
+  useEffect(() => {
+    if (!updating) return
+    let live = true
+    void waitForUpdate().then(() => { if (live) void saveRef.current() })
+    return () => { live = false }
+  }, [updating])
 
   const body = useRef<HTMLDivElement>(null)
   const scroller = useCallback(() => body.current?.closest<HTMLElement>('.overflow-y-auto') ?? null, [])
@@ -223,6 +239,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       ) : (
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
+          {updating && !error && <CalmNotice className="mr-auto w-full" testId="chat-share-updating" state="updating" icon={<Loader2 size={16} className="animate-spin" />} title={t('chat.share.updating')} />}
           {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
           {/* a phone: Cancel as wide as its word, the main button the rest; a long label ("Compartir de todos modos")
               wraps inside it instead of spilling out (QA TC-2270) */}

@@ -745,8 +745,8 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
       )}
       {p.files.length > 0 && <p className="truncate text-xs text-muted">{p.files.map((f) => f.name).join(', ')}</p>}
       {p.state === 'sending' ? (
-        <p className="text-xs text-faint" role="status">
-          {t('rooms.sending')}
+        <p className="text-xs text-faint" role="status" data-testid={p.updating ? 'room-send-waiting-update' : undefined}>
+          {p.updating ? t('conn.updatingUnsent') : t('rooms.sending')}
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-xs" role="alert">
