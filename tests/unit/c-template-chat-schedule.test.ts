@@ -150,7 +150,7 @@ describe('R3: the chat connect card for a template', () => {
       expect(connectRows(h.ctx.db, 'erin', 'personal').count).toBe(MAX_PERSONAL)
       // a new connection of their own is refused at the limit
       const more = await start('erin', { name: 'Another', kind: 'mcp', url: 'https://another.example.com/mcp', auth: 'bearer' })
-      expect((await doneOf(more.messageId)).content).toContain(`already ${MAX_PERSONAL} personal connections`)
+      expect((await doneOf(more.messageId)).content).toContain(`already ${MAX_PERSONAL} working personal connections`)
       expect(cards(more.turnId)).toEqual([])
       // the template's card is not refused, and connecting it leaves the count where it was
       const run = await start('erin', { name: 'Full Desk', template: t.id })
