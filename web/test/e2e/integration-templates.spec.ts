@@ -358,6 +358,17 @@ test('a sign-in template connected but never signed in says "Sign-in needed" on 
   const made = await page.request.post('/api/admin/integration-templates', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Docs', url: 'https://mcp.docs.example/mcp', auth: 'oauth' } })
   expect(made.status()).toBe(201)
   const tpl = await made.json()
+  // Admin: the line under a sign-in template says each member signs in, not "connects their own key" (tracking TC-2980)
+  await page.goto('/admin/connectors')
+  const row = page.getByTestId('template-admin-row').filter({ hasText: 'Docs' })
+  await expect(row.getByTestId('template-admin-line')).toHaveText('Each member signs in with their own account')
+  // and its dialog's "Who it is for" note says the same
+  await row.getByTestId('template-edit').click()
+  await modal(page).getByTestId('integration-for-change').click()
+  await expect(modal(page)).toContainText('They see it in Settings › Connectors and sign in with their own account.')
+  await expect(modal(page)).not.toContainText('connect it with their own key')
+  await page.keyboard.press('Escape')
+  await expect(modal(page)).toHaveCount(0)
   await page.context().clearCookies()
   await signIn(page, BOB)
   // connecting a sign-in template makes the connection for signing in next; Bob never finishes the sign-in
