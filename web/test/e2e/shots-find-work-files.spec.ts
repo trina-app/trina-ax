@@ -4,7 +4,7 @@
 // 1440 light and dark, the dialogs at 390 too. Only when FIND_WORK_SHOTS names a folder to write them to.
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { answer, fakeApp, look, roots, type Meta } from './fake-work-files'
+import { answer, fakeApp, look, roots, setFullDisk, type Meta } from './fake-work-files'
 
 const dir = process.env.FIND_WORK_SHOTS
 test.skip(!dir, 'FIND_WORK_SHOTS is not set')
@@ -15,6 +15,13 @@ const FOUND: Meta[] = [
   { name: 'Northwind proposal.pptx', folder: 'Clients/Northwind' }, { name: 'Onboarding policy.pdf', folder: 'Team' }, { name: 'Meeting minutes 11-04.docx', root: 'desktop' },
   { name: 'notes.txt', root: 'desktop' }, { name: 'payslip_oct.pdf', root: 'downloads' }, { name: 'Tax Return 2025.pdf' },
 ]
+// part 5: the wide look's places, and the Full Disk Access screen
+const WIDE: Meta[] = [
+  { name: 'Acme Q3 plan.xlsx', root: 'cloud', place: 'OneDrive – Acme', folder: 'Plans' }, { name: 'Acme brand deck.pptx', root: 'cloud', place: 'OneDrive – Acme', cloud: true },
+  { name: 'Acme quote 견적서.pdf', root: 'messenger', place: 'KakaoTalk' }, { name: 'Roadmap 2027.docx', root: 'folder', place: 'Acme' },
+  { name: 'Acme ideas.md', root: 'home', place: '', folder: 'Notes' }, { name: 'Weekly report - Nov 10.docx', root: 'downloads' }, { name: 'payslip_oct.pdf', root: 'downloads' },
+]
+const WIDE_ROOTS = roots({ id: 'messenger', place: 'KakaoTalk', state: 'ok' }, { id: 'folder', place: 'Acme', state: 'ok' }, { id: 'cloud', place: 'OneDrive – Acme', state: 'ok' }, { id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'ok' })
 const BLOCKED = roots({ id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok', cut: true }, { id: 'downloads', state: 'blocked' })
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -83,4 +90,33 @@ for (const scheme of ['light', 'dark'] as const) {
   await expect(page.getByTestId('find-work-ai')).toBeVisible()
     await page.screenshot({ path: `${dir}/1440-${scheme}-9-setup-list.png` })
   })
+  for (const width of [1440, 390] as const) {
+    test(`full disk access · ${width} · ${scheme}`, async ({ page }) => {
+      const shot = async (name: string) => page.screenshot({ path: `${dir}/${width}-${scheme}-${name}.png` })
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.emulateMedia({ colorScheme: scheme })
+      await fakeApp(page, { wide: true, fullDisk: 'denied' })
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+      await signIn(page, BOB)
+      await page.request.post('/__test/file', { data: { path: 'users/bob/memo.md', text: 'memo' } })
+      await page.goto('/files?path=users%2Fbob')
+      await look(page, WIDE, WIDE_ROOTS)
+      await page.getByTestId('files-find-work-entry').click()
+      if (width === 390) await page.setViewportSize({ width: 390, height: 844 })
+      await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'ask')
+      await shot('10-full-disk')
+      await page.getByTestId('find-work-access-open').click()
+      await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'waiting')
+      await shot('11-full-disk-waiting')
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+      await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'restart')
+      await shot('12-full-disk-reopen')
+      await setFullDisk(page, 'granted')
+      await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+      await answer(page, 'look')
+      await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+      await expect(page.getByTestId('find-work-ai')).toBeVisible()
+      await shot('13-wide-list')
+    })
+  }
 }

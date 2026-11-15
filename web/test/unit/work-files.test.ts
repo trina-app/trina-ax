@@ -221,3 +221,49 @@ describe('part 4: recent, the company\'s, best first', () => {
     expect(sent.length).toBeLessThanOrEqual(80)
   })
 })
+
+describe('part 5: places beyond the three folders', () => {
+  const NOW5 = Date.UTC(2026, 10, 15, 12)
+  const read = async (): Promise<WorkFileRead> => ({ ok: false, reason: 'unknown' })
+  test('a place\'s files land under its name (what a file name cannot hold taken out); home under "Home"; online-only kept', async () => {
+    const { placeFolder, HOME_FOLDER } = await import('../../src/lib/workFiles')
+    const docs = docsFromScan([
+      meta('Q3.xlsx', { root: 'cloud', place: 'OneDrive – Acme', folder: 'Plans', cloud: true }),
+      meta('Ideas.md', { root: 'home', place: '', folder: 'Notes' }),
+      meta('Brief.pptx', { root: 'drive', place: 'D:', folder: 'Clients' }),
+      meta('x.pdf', { root: 'folder', place: '../..' }),
+      meta('a.pdf'),
+    ], read)
+    expect(docs.map((d) => d.key)).toEqual(['OneDrive – Acme/Plans/Q3.xlsx', `${HOME_FOLDER}/Notes/Ideas.md`, 'D/Clients/Brief.pptx', `${HOME_FOLDER}/x.pdf`, 'Documents/a.pdf'])
+    expect(docs[0]).toMatchObject({ place: { kind: 'cloud', label: 'OneDrive – Acme' }, cloud: true })
+    expect(docs[4]!.place).toBeUndefined()
+    expect(placeFolder({ root: 'messenger', place: 'Kakao/Talk:' })).toBe('KakaoTalk')
+  })
+
+  test('a place\'s name counts for the company ("OneDrive – Acme", a work folder named "Acme"); a work folder and the cloud drive rank above Downloads', async () => {
+    const { companyMatch, workScore } = await import('../../src/lib/workFiles')
+    const w = { names: ['Acme'], domains: ['acme.com'], people: [] }
+    const [cloud, inFolder, dl, msg] = docsFromScan([
+      meta('Plan.docx', { root: 'cloud', place: 'OneDrive – Acme', modified: NOW5 - 2 * 86_400_000 }),
+      meta('Plan.docx', { root: 'folder', place: 'Projects', modified: NOW5 - 2 * 86_400_000 }),
+      meta('Plan.docx', { root: 'downloads', modified: NOW5 - 2 * 86_400_000 }),
+      meta('Plan.docx', { root: 'messenger', place: 'KakaoTalk', modified: NOW5 - 2 * 86_400_000 }),
+    ], read)
+    expect(companyMatch(cloud!, w)).toEqual({ kind: 'name', word: 'Acme' })
+    expect(companyMatch(dl!, w)).toBeNull()
+    expect(workScore(inFolder!, null, NOW5)).toBeGreaterThan(workScore(dl!, null, NOW5))
+    expect(workScore(cloud!, null, NOW5)).toBeGreaterThan(workScore(dl!, null, NOW5))
+    expect(workScore(msg!, null, NOW5)).toBeGreaterThan(workScore(dl!, null, NOW5))
+  })
+
+  test('the words the app gets: the names and each domain\'s name, once, at most 20; the wide look only from an app that offers it', async () => {
+    const { lookWords, offersWide } = await import('../../src/lib/workFiles')
+    const { WORK_FILES_WIDE_VERSION } = await import('@mycel/shared')
+    expect(lookWords({ names: ['Acme', 'acme', 'Globex'], domains: ['acme.co.kr', 'mail.globex.io'], people: ['Bo Lee'] })).toEqual(['Acme', 'Globex'])
+    expect(lookWords({ names: Array.from({ length: 30 }, (_, i) => `Client ${i}`), domains: [], people: [] })).toHaveLength(20)
+    const base = { version: WORK_FILES_BRIDGE_VERSION, scan: async () => ({ state: 'cancelled' as const }), stop: () => {}, onProgress: () => () => {}, read, openSettings: () => {} }
+    expect(offersWide(base)).toBe(false)
+    expect(offersWide({ ...base, wide: WORK_FILES_WIDE_VERSION })).toBe(true)
+    expect(offersWide({ ...base, wide: WORK_FILES_WIDE_VERSION + 1 })).toBe(false)
+  })
+})

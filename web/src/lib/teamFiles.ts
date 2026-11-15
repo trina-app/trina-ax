@@ -115,6 +115,11 @@ export interface LocalDoc {
   personal: boolean
   /** what the computer's index knew of it (Find work files on this computer; absent from a folder walk) */
   hints?: { used?: number; useCount?: number; origins?: string[]; authors?: string[]; org?: string }
+  /** Find work files, part 5: a place beyond Documents, Desktop and Downloads (its kind and how the list names it:
+   * "OneDrive – Acme", "Projects", "KakaoTalk", "D:"; '' for the home folder) */
+  place?: { kind: 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'; label: string }
+  /** online only: adding it downloads it then */
+  cloud?: boolean
 }
 
 export interface WalkResult {

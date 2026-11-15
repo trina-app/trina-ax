@@ -88,8 +88,18 @@ export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'u
 /** The version of DesktopBridge.workFiles this page knows. A desktop app with another (or none) gets no entry. */
 export const WORK_FILES_BRIDGE_VERSION = 1
 
-/** The folders "Find work files on this computer" looks through, in this order (macOS asks for each in turn). */
-export type WorkRootId = 'documents' | 'desktop' | 'downloads'
+/** The folders "Find work files on this computer" looks through, in this order (macOS asks for each in turn). Part 5
+ * (a wide look, scan({ wide: true })) adds places with a name of their own (`place`): a cloud drive's folder (OneDrive,
+ * Google Drive, Dropbox, Box), a work folder in the home folder, a messenger's downloads, files opened lately anywhere in
+ * the home folder, another drive or a share (Windows). A page that never asks for a wide look never gets them. */
+export type WorkRootId = WorkFolderId | WorkPlaceKind
+/** The three folders of every look. */
+export type WorkFolderId = 'documents' | 'desktop' | 'downloads'
+export type WorkPlaceKind = 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'
+/** The version of the wide look (scan({ wide })) and of fullDisk a desktop app offers (workFiles.wide). */
+export const WORK_FILES_WIDE_VERSION = 1
+/** A Mac's Full Disk Access for the app: granted, not granted, or the app cannot tell (an older macOS, no probe). */
+export type FullDiskState = 'granted' | 'denied' | 'unknown'
 
 /** How one folder went: ok · blocked (macOS privacy keeps the app out: Don't Allow, or the app off in System Settings ›
  * Privacy & Security › Files & Folders) · missing (no such folder) · unreadable (another error) · home (it is the home
@@ -97,6 +107,9 @@ export type WorkRootId = 'documents' | 'desktop' | 'downloads'
  * pressed, or the time for all three ran out: `cut`). `cut`: a limit stopped it before the end (a big Downloads). */
 export interface WorkRootResult {
   id: WorkRootId
+  /** part 5: the place's name for a place other than the three folders ("OneDrive – Acme", "Projects", "KakaoTalk",
+   * "D:"; '' for the home folder's recent files); never a whole path */
+  place?: string
   /** how it was looked at: the computer's index (Spotlight, Windows Search), or a walk when the index was off. Absent:
    * an older app (a walk) */
   how?: 'index' | 'walk'
@@ -128,6 +141,10 @@ export interface WorkFileMeta {
   origins?: string[]
   authors?: string[]
   org?: string
+  /** part 5: the place's name (as WorkRootResult.place), for a file outside the three folders */
+  place?: string
+  /** part 5: online only (its content is in the cloud; adding it downloads it then) */
+  cloud?: boolean
 }
 
 /** scan(): cancelled (the person said no in the app's own dialog) · busy (a dialog or a look is under way) · unavailable
@@ -242,16 +259,29 @@ export interface DesktopBridge {
    */
   workFiles?: {
     version: number
-    scan(): Promise<WorkFileScan>
+    /** part 5: WORK_FILES_WIDE_VERSION when the app offers the wide look and fullDisk (absent: an older app) */
+    wide?: number
+    /** `wide` (part 5): the places beyond the three folders too, when the app can see them without asking per folder
+     * (Windows; a Mac with Full Disk Access; otherwise the app looks at the three folders as before). `words`: the
+     * company's and clients' names, at most 20 of at most 60 characters, which name the home folder's work folders
+     * ("Acme", "Globex"); the app's own dialog lists every place before anything is looked at. An older app ignores both. */
+    scan(o?: { wide?: boolean; words?: string[] }): Promise<WorkFileScan>
+    /** part 5, a Mac: whether the app has Full Disk Access (the app tries a protected place; nothing of it is read), the
+     * Settings pane to turn it on, and a restart (macOS may give it only after one). Absent on Windows and older apps. */
+    fullDisk?: {
+      state(): Promise<FullDiskState>
+      openSettings(): void
+      relaunch(): void
+    }
     /** the look stops; scan() answers with what was found so far (`stopped`) */
     stop(): void
     /** the look's progress, while it runs: the folder, entries checked, documents so far, and how far the look is in all
      * (0–1, the folders weighed by how they are looked at; absent from older apps) */
-    onProgress(cb: (p: { root: WorkRootId; checked: number; docs: number; done?: number }) => void): () => void
+    onProgress(cb: (p: { root: WorkRootId; place?: string; checked: number; docs: number; done?: number }) => void): () => void
     /** "Choose it yourself": macOS kept the app out of that folder; the person picks it in the system's folder window
      * (opened at it), which counts as their permission, and the app looks at it now. The latest look's ids stay
      * readable and the new ones are added to it. 'cancelled' when the window was closed. Optional (older apps). */
-    pickRoot?(root: WorkRootId): Promise<WorkFileScan>
+    pickRoot?(root: WorkFolderId): Promise<WorkFileScan>
     read(id: string): Promise<WorkFileRead>
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
