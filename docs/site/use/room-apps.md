@@ -59,8 +59,8 @@ in that service, named the way it names them. In short:
 - **Typeform**: the form's **Connect › Webhooks › Add a webhook**, paste and save, then turn it on (its switch starts
   off and works only after saving).
 - **Tally**: the form's **Integrations › Webhooks › Connect**, paste into **Endpoint URL**.
-- **Jotform**: the form's **Settings › Integrations**, search **WebHooks**, press **Complete Integration** first (not
-  **Add New Web Hook**: that turns Complete Integration off), then paste and press **Finish**.
+- **Jotform**: the form's **Settings › Integrations**, search **WebHooks**, paste the Webhook URL, then press
+  **Complete Integration** and **Finish** (both buttons work only once the URL is in; don't press **Add New Web Hook**).
 - **Stripe** (Admin or Developer role): **Developers › Workbench › Webhooks › Create an event destination**, tick the
   events the guide lists, choose **Webhook endpoint** and paste into **Endpoint URL**.
 - **Shopify** (store owner or staff with Settings access): **Settings › Notifications › Webhooks › Create webhook** for

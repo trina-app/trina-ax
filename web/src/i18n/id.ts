@@ -5886,7 +5886,7 @@ export const id: Record<MessageKey, string> = {
   "roomApps.tally2": "Tempel Webhook URL ke {url}.",
   "roomApps.tally3": "Tekan {connect}.",
   "roomApps.jotform1": "Di Jotform, buka formulir, ke {path} lalu cari {hooks}.",
-  "roomApps.jotform2": "Tekan {complete} dulu (jangan {add}: itu mematikan {complete}). Lalu tempel Webhook URL ke kolomnya dan tekan {finish}.",
+  "roomApps.jotform2": "Tempel Webhook URL ke kolomnya dulu: sebelum itu {complete} belum bisa ditekan. Lalu tekan {complete}, lalu {finish}. Jangan tekan {add}.",
   "roomApps.stripe1": "Di Stripe, buka {path} lalu pilih {create}.",
   "roomApps.stripe2": "Pilih event berikut, tekan {continue} lalu pilih {endpoint}:",
   "roomApps.stripe3": "Tempel Webhook URL ke {url} lalu tekan {create}.",

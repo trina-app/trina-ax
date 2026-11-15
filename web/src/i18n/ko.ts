@@ -5886,7 +5886,7 @@ export const ko = {
   "roomApps.tally2": "{url}에 Webhook URL을 붙여 넣으세요.",
   "roomApps.tally3": "{connect}를 누르세요.",
   "roomApps.jotform1": "Jotform에서 양식을 열고 {path}에서 {hooks}를 검색하세요.",
-  "roomApps.jotform2": "먼저 {complete}를 누르세요({add}는 누르지 마세요. 누르면 {complete}가 꺼져요). 그다음 칸에 Webhook URL을 붙여 넣고 {finish}를 누르세요.",
+  "roomApps.jotform2": "먼저 칸에 Webhook URL을 붙여 넣으세요. 그 전에는 {complete}를 누를 수 없어요. 그다음 {complete}, 이어서 {finish}를 누르세요. {add}는 누르지 마세요.",
   "roomApps.stripe1": "Stripe에서 {path}를 열고 {create}를 고르세요.",
   "roomApps.stripe2": "아래 이벤트를 선택하고 {continue}를 누른 뒤 {endpoint}를 고르세요:",
   "roomApps.stripe3": "{url}에 Webhook URL을 붙여 넣고 {create}를 누르세요.",

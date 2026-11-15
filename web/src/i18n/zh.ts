@@ -5814,7 +5814,7 @@ export const zh: Record<MessageKey, string> = {
   "roomApps.tally2": "把 Webhook URL 粘贴到{url}。",
   "roomApps.tally3": "按{connect}。",
   "roomApps.jotform1": "在 Jotform 中打开表单，前往{path}并搜索{hooks}。",
-  "roomApps.jotform2": "先按{complete}（不要按{add}，按了之后{complete}会无法使用）。然后把 Webhook URL 粘贴到输入框，按{finish}。",
+  "roomApps.jotform2": "先把 Webhook URL 粘贴到输入框：在此之前无法按{complete}。然后按{complete}，再按{finish}。不要按{add}。",
   "roomApps.stripe1": "在 Stripe 中打开{path}，选择{create}。",
   "roomApps.stripe2": "选择以下事件，按{continue}，然后选择{endpoint}：",
   "roomApps.stripe3": "把 Webhook URL 粘贴到{url}，然后按{create}。",

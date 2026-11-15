@@ -5842,7 +5842,7 @@ export const ja: Record<MessageKey, string> = {
   "roomApps.tally2": "{url} に Webhook URL を貼り付けます。",
   "roomApps.tally3": "{connect} を押します。",
   "roomApps.jotform1": "Jotform でフォームを開き、{path} で {hooks} を検索します。",
-  "roomApps.jotform2": "先に {complete} を押します({add} は押さないでください。押すと {complete} が使えなくなります)。続けて欄に Webhook URL を貼り付け、{finish} を押します。",
+  "roomApps.jotform2": "先に欄に Webhook URL を貼り付けます。それまでは {complete} を押せません。続けて {complete}、{finish} の順に押します。{add} は押さないでください。",
   "roomApps.stripe1": "Stripe で {path} を開き、{create} を選びます。",
   "roomApps.stripe2": "次のイベントを選び、{continue} を押して {endpoint} を選びます:",
   "roomApps.stripe3": "{url} に Webhook URL を貼り付けて {create} を押します。",
