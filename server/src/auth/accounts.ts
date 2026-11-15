@@ -18,7 +18,7 @@ import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
-import { createGuestInvite, inviteMakerOk, parseGuestAi, guestPlaceOf, placeAlive, teamCredentialOk, type GuestInviteFields } from './guest-invites'
+import { createGuestInvite, inviteMakerOk, openGuestLinks, parseGuestAi, guestPlaceOf, placeAlive, teamCredentialOk, type GuestInviteFields } from './guest-invites'
 import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
@@ -295,8 +295,9 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     id: r.id, role: r.role, groupIds: parseIds(r.group_ids), createdBy: userRef(db, r.created_by), createdAt: r.created_at ?? r.expires_at,
     expiresAt: r.expires_at, usedAt: r.used_at, usedBy: userRef(db, r.used_by),
     leadFor: r.lead_hint ? r.lead_for : null,
-    // a project's name too (the list names it; whoever reads the list may manage every project); never a room's name
-    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => (pl.kind === 'project' ? { ...pl, name: placeName(db, pl) } : pl))(guestPlaceOf(r)!) } : {}),
+    // the place's name too: Admin's list says where the link leads (guest walkthrough S8), as Admin's guest rows name a
+    // guest's room (auth/guests.ts guestDetail); the list is the owner's and admins', the create answer its maker's
+    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => ({ ...pl, name: placeName(db, pl) }))(guestPlaceOf(r)!) } : {}),
     ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
     // an open link whose maker or place is gone (a member who left the room: nothing revokes the link then, accept refuses it)
     ...((s) => (s ? { stopped: s } : {}))(!r.used_at && !r.revoked_at && Date.parse(r.expires_at) > Date.now() ? ((w) => (w === 'revoked' ? 'ai_gone' : w))(makerReason(db, r)) as Invite['stopped'] | null : null),
@@ -420,7 +421,9 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
   // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
   const full = valid && (r!.role === 'guest' ? guestsFull(ctx.db) : seatsFull(ctx.db))
-  const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
+  // a full guest link keeps who sent it: the page says "{inviter} invited you to {team}" over "can't take more guests
+  // now" (guest walkthrough M3), never a form that is refused after it was filled in
+  const inviterName = valid && (!full || r!.role === 'guest') && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
   return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(r!.lead_hint && !dead ? { lead: true } : {}), ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}), ...(gp ? { guestAi: parseGuestAi(r!.guest_ai).mode } : {}) }
@@ -489,7 +492,12 @@ class UsernameTaken extends Error {}
 export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInviteLimit {
   const role = c.get('auth')!.user.role
   const url = planManageUrl()
-  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
+  // a new link needs a free place that no open link holds (guest walkthrough M4: auth/guest-invites.ts
+  // assertGuestLinkFree), so the dialog says it is full before its form, as Create link would
+  const max = guestLimit()
+  const pending = max === null ? 0 : openGuestLinks(ctx.db, authOf(ctx).now())
+  const full = max !== null && guestsUsed(ctx.db) + pending >= max
+  return { full, limit: max, ...(full && pending ? { pending } : {}), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
     // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
     ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }
 }

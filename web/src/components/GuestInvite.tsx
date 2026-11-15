@@ -10,7 +10,7 @@
 // account".
 // A guest already in another place is greyed out in the add lists (GuestElsewhere: "In 'Quote prep'", no tick), with
 // "Make team member" for the owner and admins.
-import { UserRoundPlus } from 'lucide-react'
+import { Check, Copy, UserRoundPlus } from 'lucide-react'
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Credential, GuestAiChoice, GuestInviteLimit, Person } from '@mycel/shared/api'
@@ -27,6 +27,7 @@ import { toast } from '../store/ui'
 import { ListRow } from './list/List'
 import { LocalLinkNote } from './LocalLinkNote'
 import { absoluteUrl } from './handover/LeadInvite'
+import { namedProduct } from '../lib/tabs'
 
 export interface InvitePlace { kind: PlaceKind; id: string; name: string }
 
@@ -138,11 +139,16 @@ export function useTeamConnections(enabled: boolean): { list: Credential[] | nul
   return v
 }
 
+/** The plan's guests are all taken: how many, the plan page when given, and how many open links hold a place
+ * (`pending`: each link nobody has used yet counts, guest walkthrough M4). */
+export interface GuestCap { n: number; manageUrl?: string; pending?: number }
+
 /** The plan's guest cap was reached (409 plan_limit reason guest_limit): how many, and the plan page when given. */
-export function guestCap(e: unknown): { n: number; manageUrl?: string } | null {
+export function guestCap(e: unknown): GuestCap | null {
   if (!isApiError(e, 'plan_limit') || e.body.params?.reason !== GUEST_LIMIT || typeof e.body.params.limit !== 'number') return null
   const url = e.body.params.manageUrl
-  return { n: e.body.params.limit, ...(typeof url === 'string' && /^https?:\/\//.test(url) ? { manageUrl: url } : {}) }
+  const pending = e.body.params.pending
+  return { n: e.body.params.limit, ...(typeof url === 'string' && /^https?:\/\//.test(url) ? { manageUrl: url } : {}), ...(typeof pending === 'number' && pending > 0 ? { pending } : {}) }
 }
 
 /** Words for a refused guest change: the plan's guest cap in the owner's words, else the server's. */
@@ -172,8 +178,8 @@ export function useGuestLimit(enabled = true): GuestInviteLimit | null | undefin
 }
 
 /** The plan's guests are all there, from the cap's read: how many and the plan page, or null. */
-export function guestsFullOf(limit: GuestInviteLimit | null | undefined): { n: number; manageUrl?: string } | null {
-  return limit?.full && limit.limit !== null ? { n: limit.limit, ...(limit.manageUrl ? { manageUrl: limit.manageUrl } : {}) } : null
+export function guestsFullOf(limit: GuestInviteLimit | null | undefined): GuestCap | null {
+  return limit?.full && limit.limit !== null ? { n: limit.limit, ...(limit.manageUrl ? { manageUrl: limit.manageUrl } : {}), ...(limit.pending ? { pending: limit.pending } : {}) } : null
 }
 
 /** "See plans", a dialog's main button beside Close when the plan is full (the owner and admins only). */
@@ -187,13 +193,15 @@ export function SeePlansLink({ url }: { url: string }) {
 }
 
 /** The plan's guests are all there: said at the top in place of the form. The owner and admins: what they can do and
- * "See plans" (when the server names a plan page); a member: ask an admin. */
-export function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
+ * "See plans" (when the server names a plan page); a member: ask an admin. `pending`: links nobody has used yet hold
+ * some of the places (guest walkthrough M4), said in one line, and the owner and admins may cancel one. */
+export function GuestsFull({ n, admin, pending }: { n: number; admin: boolean; pending?: number }) {
   const t = useT()
   return (
     <div className="space-y-2" role="status" data-testid="guest-invite-full">
       <p className="text-sm leading-6 font-medium break-keep text-ink">{t('guest.full', { n })}</p>
-      <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-full-next">{t(admin ? 'guest.fullAdmin' : 'guest.fullMember')}</p>
+      {!!pending && <p className="text-sm leading-6 break-keep text-ink" data-testid="guest-invite-full-pending">{t('guest.fullPending', { n: pending })}</p>}
+      <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-full-next">{admin && pending ? t('guest.fullAdminLinks', { path: [t('admin.title'), t('admin.members')].join(' › ') }) : t(admin ? 'guest.fullAdmin' : 'guest.fullMember')}</p>
     </div>
   )
 }
@@ -201,7 +209,7 @@ export function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
 /** `onCancel`: Cancel and × before the link is made (back to the add list it was opened from); `onClose`: Done after it.
  * `onFull`: Create link was refused because the plan's guests are all there (another invite made meanwhile): the opener
  * shows the limit itself (Admin's Invite to team, whose place list would otherwise offer the same wall again). */
-export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }: { place: InvitePlace; onClose: () => void; onCancel?: () => void; onFull?: (cap: { n: number; manageUrl?: string }) => void }) {
+export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }: { place: InvitePlace; onClose: () => void; onCancel?: () => void; onFull?: (cap: GuestCap) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -223,7 +231,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
   // the plan's guests are all there: read when the dialog opens, or told by a refused Create link (409 plan_limit
   // reason guest_limit, another invite made meanwhile); the plan page only for the owner and admins (a store app's
   // answer has none: lib/api.ts storeSafeError)
-  const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
+  const [refusedFull, setRefusedFull] = useState<GuestCap | null>(null)
   const full = refusedFull ?? guestsFullOf(limit)
   const create = async () => {
     if (busy || !aiChoiceReady(ai) || full) return
@@ -235,7 +243,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
       setExpiresAt(r.invite.expiresAt)
     } catch (e) {
       const cap = guestCap(e)
-      const shown = cap && { n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) }
+      const shown = cap && { n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}), ...(cap.pending ? { pending: cap.pending } : {}) }
       if (shown && onFull) onFull(shown)
       else if (shown) setRefusedFull(shown)
       else setError(guestErrorText(e, locale, t))
@@ -244,7 +252,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
     }
   }
   const who = name.trim()
-  if (url) return <GuestLinkReady url={url} who={who} expiresAt={expiresAt ?? until} onClose={onClose} />
+  if (url) return <GuestLinkReady url={url} who={who} place={place} ownAi={ai.mode === 'own'} expiresAt={expiresAt ?? until} onClose={onClose} />
   // the plan is full: the limit at the top and nothing to fill in
   if (full)
     return (
@@ -260,7 +268,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
           </>
         }
       >
-        <GuestsFull n={full.n} admin={admin} />
+        <GuestsFull n={full.n} admin={admin} pending={full.pending} />
       </Modal>
     )
   return (
@@ -308,27 +316,59 @@ function LinkExpiry({ iso }: { iso: string }) {
   return <p className="text-xs leading-5 break-keep text-muted" data-testid="guest-invite-expiry">{t('guest.invite.expiry', { days: GUEST_LINK_HOURS / 24, date: useUntil(iso) })}</p>
 }
 
-/** The one-time link, made: the address, and "Copy link" as the dialog's main button (Done beside it). */
-function GuestLinkReady({ url, who, expiresAt, onClose }: { url: string; who: string; expiresAt: string; onClose: () => void }) {
+/** The message that goes with a guest link, ready to paste in an email or a chat (guest walkthrough S7, like the team
+ * link's and the lead link's): who sends it, the one place they will see, their own AI account when that is their AI,
+ * and the link with how long it works. In the inviter's language: they write to the guest. */
+export function guestLinkMessage(t: ReturnType<typeof useT>, o: { name: string; place: InvitePlace; url: string; until: string; ownAi: boolean }): string {
+  const product = namedProduct(t)
+  const name = o.name.trim()
+  const room = o.place.kind === 'room'
+  const hello = name
+    ? t(room ? 'guest.invite.msgRoom' : 'guest.invite.msgProject', { ...product, name, place: o.place.name })
+    : t(room ? 'guest.invite.msgRoomNoName' : 'guest.invite.msgProjectNoName', { ...product, place: o.place.name })
+  return [hello, o.ownAi && t('teamLink.msg.ownAi'), t('guest.invite.msgJoin', { date: o.until, url: o.url })].filter(Boolean).join('\n')
+}
+
+/** The one-time link, made: the message to send with it (ready to paste; the link in it), "Copy message" as the main
+ * action and "Copy link" for the address alone (as the lead link's), how long it works, and Done. */
+function GuestLinkReady({ url, who, place, ownAi, expiresAt, onClose }: { url: string; who: string; place: InvitePlace; ownAi: boolean; expiresAt: string; onClose: () => void }) {
   const t = useT()
+  const me = useMe()
   const until = useUntil(expiresAt)
   const days = Math.max(1, Math.round((Date.parse(expiresAt) - Date.now()) / 86_400_000))
-  const { copied, copy } = useCopy()
+  const message = guestLinkMessage(t, { name: me?.user.name ?? '', place, url, until, ownAi })
+  const at = message.lastIndexOf(url)
+  const msg = useCopy()
+  const link = useCopy()
   return (
     <Modal
       open
       onClose={onClose}
       title={who ? t('guest.invite.readyFor', { name: who }) : t('guest.invite.ready')}
       width={440}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} data-testid="guest-invite-done">{t('common.done')}</Button>
-          <Button variant="primary" onClick={() => void copy(url)} data-testid="guest-invite-copy">{copied ? t('common.copied') : t('members.copyLink')}</Button>
-        </>
-      }
+      footer={<Button variant="ghost" onClick={onClose} data-testid="guest-invite-done">{t('common.done')}</Button>}
     >
       <div className="space-y-3" data-testid="guest-invite-ready">
-        <code className="block rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-sm break-all select-all" data-testid="guest-invite-url">{url}</code>
+        <div>
+          <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
+          <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="guest-invite-message">
+            {at < 0 ? message : (
+              <>
+                {message.slice(0, at)}
+                <span className="font-mono break-all select-all" data-testid="guest-invite-url">{url}</span>
+                {message.slice(at + url.length)}
+              </>
+            )}
+          </blockquote>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button variant="primary" className="mr-1 max-sm:w-full" onClick={() => void msg.copy(message)} data-testid="guest-invite-copy-message">
+            {msg.copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {msg.copied ? t('common.copied') : t('teamLink.copyMessage')}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void link.copy(url)} data-testid="guest-invite-copy">
+            {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('members.copyLink')}
+          </Button>
+        </div>
         <p className="text-sm break-keep text-muted" data-testid="guest-invite-once">{t('guest.invite.onceUntil', { days, date: until })}</p>
         <LocalLinkNote url={url} />
       </div>

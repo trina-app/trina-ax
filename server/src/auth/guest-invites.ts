@@ -6,10 +6,10 @@
 //   - AI 'team' (a team connection under a limit): the owner or an admin only, and the connection must be a team one.
 // The same rule is checked again when the invite is accepted (inviteMakerOk): an inviter who left the room, lost the
 // project or was demoted cannot still let a guest in. The plan's guest cap (auth/guests.ts assertGuestFree) is checked
-// at create and inside the accept's write.
+// at create (counting the open links too: assertGuestLinkFree) and inside the accept's write.
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
-import type { CreateGuestInviteBody, GuestAiChoice, GuestPlace, Invite } from '@mycel/shared/api'
+import type { CreateGuestInviteBody, GuestAiChoice, GuestPlace, Invite, Locale } from '@mycel/shared/api'
 import type { z } from 'zod'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
@@ -17,7 +17,9 @@ import { newId } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { RuleSet, atLeast, loadPrincipal } from '../policy/access'
-import { assertGuestFree, projectFolder } from './guests'
+import { assertGuestFree, guestLimit, guestsUsed, projectFolder } from './guests'
+import { AUTH_MESSAGES } from './messages'
+import { planManageUrl } from '../system/limits'
 import { hashToken, newToken } from './passwords'
 import { authOf } from './service'
 
@@ -69,6 +71,36 @@ export interface GuestInviteFields { guest_place_kind: 'room' | 'project' | null
 export const guestPlaceOf = (r: GuestInviteFields): GuestPlace | null =>
   r.guest_place_kind && r.guest_place_id ? { kind: r.guest_place_kind, id: r.guest_place_id } : null
 
+/**
+ * Guest links nobody has used yet that still work now (not turned off, not run out, their maker may still invite into
+ * a place that is still open: the rule an accept checks). Each holds one of the plan's guest places (guest walkthrough
+ * M4, owner decision 2026-11-15): a team can't hand out more open links than free places, so a link is refused when it
+ * is made, not after its guest filled in the form. Accepting one frees its hold as the guest takes the place.
+ */
+export function openGuestLinks(db: Database, now: number): number {
+  const rows = db.query("SELECT created_by, guest_place_kind, guest_place_id, guest_ai FROM invites WHERE role = 'guest' AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?")
+    .all(new Date(now).toISOString()) as (GuestInviteFields & { created_by: string | null })[]
+  let n = 0
+  for (const r of rows) {
+    const place = guestPlaceOf(r)
+    const ai = parseGuestAi(r.guest_ai)
+    if (place && placeAlive(db, place) && !(ai.mode === 'team' && !teamCredentialOk(db, ai.credentialId)) && inviteMakerOk(db, r.created_by, place, ai)) n++
+  }
+  return n
+}
+
+/** Room for one more guest link: the active guests and the open links, plus this one, within the plan (409 plan_limit,
+ * reason guest_limit; `pending` = the open links when they are what fills it). No plan: always. */
+export function assertGuestLinkFree(db: Database, locale: Locale, now: number): void {
+  assertGuestFree(db, locale)
+  const max = guestLimit()
+  if (max === null) return
+  const pending = openGuestLinks(db, now)
+  if (guestsUsed(db) + pending + 1 <= max) return
+  const url = planManageUrl()
+  fail('plan_limit', (AUTH_MESSAGES.guestLimitLinks[locale] ?? AUTH_MESSAGES.guestLimitLinks.en).replace('{n}', String(max)), { params: { reason: 'guest_limit', limit: max, pending, changePlan: true, ...(url ? { manageUrl: url } : {}) } })
+}
+
 /** Make a guest invite (POST /api/guest-invites, and POST /api/admin/invites with role guest). */
 export function createGuestInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof CreateGuestInviteBody>, linkBase: string, toInvite: (id: string) => Invite) {
   const auth = c.get('auth')!
@@ -77,15 +109,15 @@ export function createGuestInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typ
   const place = b.place
   // one answer for a place that does not exist and one the caller may not open a guest into: 403 (no probing)
   if (!inviteMakerOk(ctx.db, auth.user.id, place, ai)) fail('forbidden')
-  assertGuestFree(ctx.db, locale)
-  const token = newToken()
   const now = authOf(ctx).now()
+  assertGuestLinkFree(ctx.db, locale, now)
+  const token = newToken()
   const id = newId()
   const createdAt = new Date(now).toISOString()
   const expiresAt = new Date(now + b.expiresInHours * 3600_000).toISOString()
   ctx.db.transaction(() => {
     if (!inviteMakerOk(ctx.db, auth.user.id, place, ai)) fail('forbidden')
-    assertGuestFree(ctx.db, locale)
+    assertGuestLinkFree(ctx.db, locale, now)
     ctx.db.query(`INSERT INTO invites (id, role, group_ids, token_hash, created_by, created_at, expires_at, guest_place_kind, guest_place_id, guest_ai, guest_name)
       VALUES (?, 'guest', '[]', ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, hashToken(token), auth.user.id, createdAt, expiresAt, place.kind, place.id, JSON.stringify(ai), b.name ?? null)
     audit(ctx.db, { actor: auth.user.id, action: 'invite.create', target: id, detail: { role: 'guest', place, ai: ai.mode, expiresAt } })

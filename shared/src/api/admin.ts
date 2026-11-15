@@ -110,11 +110,15 @@ export const CreateGuestInviteBody = z.object({
  * `limit`: the plan's guests (null: no cap). For the owner and admins also whether every seat is taken (making a guest a
  * team member needs one) and the plan page when the server knows it. */
 export const GuestInviteLimit = z.object({
+  /** no new guest link fits: the active guests and the links nobody has used yet fill the plan's guests */
   full: z.boolean(),
   limit: z.number().int().nonnegative().nullable(),
   /** the owner and admins: the active guests now (removed ones do not count), for Admin's "N of M guests"; absent from
    * an older server. Can be above `limit` after the plan was lowered: nobody is removed, only new invites wait */
   used: z.number().int().nonnegative().optional(),
+  /** while `full`: how many guest links nobody has used yet hold a place (each open link counts toward the cap, so a
+   * new link is refused when it is made; absent when none does, and from older servers) */
+  pending: z.number().int().positive().optional(),
   seatsFull: z.boolean().optional(),
   manageUrl: z.string().optional(),
   /** 'host_sign_in': this server runs its AI on its own sign-in (an Office Mac, engine.authMode local-login), where a
