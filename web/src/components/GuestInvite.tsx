@@ -199,7 +199,7 @@ export function GuestsFull({ n, admin, pending }: { n: number; admin: boolean; p
   const t = useT()
   return (
     <div className="space-y-2" role="status" data-testid="guest-invite-full">
-      <p className="text-sm leading-6 font-medium break-keep text-ink">{t('guest.full', { n })}</p>
+      <p className="text-sm leading-6 font-medium break-keep text-ink">{t(pending ? 'guest.fullLinks' : 'guest.full', { n })}</p>
       {!!pending && <p className="text-sm leading-6 break-keep text-ink" data-testid="guest-invite-full-pending">{t('guest.fullPending', { n: pending })}</p>}
       <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-full-next">{admin && pending ? t('guest.fullAdminLinks', { path: [t('admin.title'), t('admin.members')].join(' › ') }) : t(admin ? 'guest.fullAdmin' : 'guest.fullMember')}</p>
     </div>
@@ -335,7 +335,6 @@ function GuestLinkReady({ url, who, place, ownAi, expiresAt, onClose }: { url: s
   const t = useT()
   const me = useMe()
   const until = useUntil(expiresAt)
-  const days = Math.max(1, Math.round((Date.parse(expiresAt) - Date.now()) / 86_400_000))
   const message = guestLinkMessage(t, { name: me?.user.name ?? '', place, url, until, ownAi })
   const at = message.lastIndexOf(url)
   const msg = useCopy()
@@ -369,7 +368,8 @@ function GuestLinkReady({ url, who, place, ownAi, expiresAt, onClose }: { url: s
             {link.copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {link.copied ? t('common.copied') : t('members.copyLink')}
           </Button>
         </div>
-        <p className="text-sm break-keep text-muted" data-testid="guest-invite-once">{t('guest.invite.onceUntil', { days, date: until })}</p>
+        {/* the message says until when; this line only how to send it */}
+        <p className="text-sm break-keep text-muted" data-testid="guest-invite-once">{t('guest.invite.once')}</p>
         <LocalLinkNote url={url} />
       </div>
     </Modal>

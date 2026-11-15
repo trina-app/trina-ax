@@ -36,7 +36,11 @@ test('M4: open guest links count toward the cap, so the link that does not fit i
   const open = await invite(mia.client, { kind: 'room', id: room })
   expect(openGuestLinks(h.ctx.db, authOf(h.ctx).now())).toBe(1)
   // the dialog's read says full before the form, and how many links hold a place
-  expect(await mia.client.call('GET', '/api/guest-invites/limit')).toMatchObject({ full: true, limit: 2, pending: 1 })
+  expect(await owner.call('GET', '/api/guest-invites/limit')).toMatchObject({ full: true, limit: 2, pending: 1 })
+  // a member reads only that it is full (how many links wait is the owner's and admins', as the guests count is)
+  const forMember = await mia.client.call('GET', '/api/guest-invites/limit')
+  expect(forMember).toMatchObject({ full: true, limit: 2 })
+  expect(forMember.pending).toBeUndefined()
   // the next link: refused at Create link, with the links in the words and the count in params
   const err = await refusal(invite(mia.client, { kind: 'room', id: room }))
   expect(err?.status).toBe(409)
@@ -51,11 +55,11 @@ test('M4: open guest links count toward the cap, so the link that does not fit i
   const c = h.client({ ip: '10.0.0.11' })
   await c.call('POST', `/api/invites/${tokenOf(open)}/accept`, { username: 'gia', name: 'GIA', password: 'guest river lamp 77' })
   expect(openGuestLinks(h.ctx.db, authOf(h.ctx).now())).toBe(0)
-  expect((await mia.client.call('GET', '/api/guest-invites/limit')).pending).toBeUndefined()
+  expect((await owner.call('GET', '/api/guest-invites/limit')).pending).toBeUndefined()
   // a guest switched off frees their place; a cancelled link frees its hold
   await owner.call('PATCH', `/api/admin/users/${g.id}`, { status: 'disabled' })
   const again = await invite(mia.client, { kind: 'room', id: room })
-  expect(await mia.client.call('GET', '/api/guest-invites/limit')).toMatchObject({ full: true, pending: 1 })
+  expect(await owner.call('GET', '/api/guest-invites/limit')).toMatchObject({ full: true, pending: 1 })
   await owner.call('DELETE', `/api/admin/invites/${again.invite.id}`)
   expect((await mia.client.call('GET', '/api/guest-invites/limit')).full).toBe(false)
   // a link that stopped working by itself (its maker left the room) holds nothing

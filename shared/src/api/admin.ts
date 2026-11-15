@@ -116,7 +116,7 @@ export const GuestInviteLimit = z.object({
   /** the owner and admins: the active guests now (removed ones do not count), for Admin's "N of M guests"; absent from
    * an older server. Can be above `limit` after the plan was lowered: nobody is removed, only new invites wait */
   used: z.number().int().nonnegative().optional(),
-  /** while `full`: how many guest links nobody has used yet hold a place (each open link counts toward the cap, so a
+  /** the owner and admins, while `full`: how many guest links nobody has used yet hold a place (each open link counts toward the cap, so a
    * new link is refused when it is made; absent when none does, and from older servers) */
   pending: z.number().int().positive().optional(),
   seatsFull: z.boolean().optional(),

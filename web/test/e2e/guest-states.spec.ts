@@ -64,8 +64,10 @@ test.describe('computer', () => {
     await shoot(page, 'invite-dialog', open)
     await page.getByTestId('guest-invite-name').fill('Alex at Acme')
     await page.getByTestId('guest-invite-create').click()
-    await expect(page.getByTestId('guest-invite-once')).toContainText('It works once, for 7 days (until ')
-    await expect(page.getByTestId('guest-invite-once')).toContainText(day)
+    // the message says until when (guest walkthrough S7); the line under it only how to send it
+    await expect(page.getByTestId('guest-invite-message')).toContainText('It works once, until ')
+    await expect(page.getByTestId('guest-invite-message')).toContainText(day)
+    await expect(page.getByTestId('guest-invite-once')).toHaveText('It works once. Send it to them yourself, by email or chat.')
     await shoot(page, 'invite-link')
   })
 

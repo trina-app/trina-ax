@@ -497,7 +497,9 @@ export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInvi
   const max = guestLimit()
   const pending = max === null ? 0 : openGuestLinks(ctx.db, authOf(ctx).now())
   const full = max !== null && guestsUsed(ctx.db) + pending >= max
-  return { full, limit: max, ...(full && pending ? { pending } : {}), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
+  // how many links wait is the owner's and admins' (they can cancel one), like `used`
+  const staff = role === 'owner' || role === 'admin'
+  return { full, limit: max, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
     // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
     ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }
 }
