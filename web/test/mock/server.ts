@@ -5965,7 +5965,7 @@ export class MockServer {
         this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n${f.title ? `metadata:\n  title: ${f.title}\n` : ''}---\n${f.name} steps\n`)
       }
     }
-    // a guest in one place (a room of POST /__test/rooms, or a project by id or name): signs in as `${id}` / `${id} password 1`
+    // a guest in a place (a room of POST /__test/rooms, or a project by id or name; `also`: their other place): signs in as `${id}` / `${id} password 1`
     else if (p === '/__test/host-sign-in') {
       this.hostSignIn = body.on !== false
       return Response.json({ ok: true })

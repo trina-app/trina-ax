@@ -83,7 +83,7 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 
 ## Guests
 
-**Admin › Members & invites** ends with **Guests**: people from outside the team, each in one group chat or one project, who
+**Admin › Members & invites** ends with **Guests**: people from outside the team, each in a group chat and a project at most, who
 do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
 guests themselves from a group chat or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can

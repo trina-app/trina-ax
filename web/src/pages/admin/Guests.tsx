@@ -1,5 +1,5 @@
 // Admin › Members › Guests (docs/DECISIONS.md "Guests: only what they were invited to"): the people from outside the
-// team, each in one room or project, who take no seat. A row says who, where they are and their AI; its "…" changes the
+// team, each in one group chat and one project at most, who take no seat. A row says who, where they are and their AI; its "…" changes the
 // AI (PATCH /api/admin/users/:id/guest-ai), resets their password (a guest has no e-mail: Members' dialog, a temporary
 // password to hand over; the sign-in page tells a guest to ask whoever invited them), makes them a team member (POST
 // /api/admin/users/:id/convert-guest: takes a seat, 409 plan_limit reason seat_limit when none is free) or removes them

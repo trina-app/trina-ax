@@ -38,7 +38,7 @@ async function openInvitePeopleGuest(page: Page) {
   // Team member: the team link's message, as before
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await page.getByRole('tab', { name: '게스트' }).click()
-  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트 한 곳에만 들어와요.')
+  await expect(page.getByTestId('invite-guest-line')).toHaveText('팀 밖의 사람이에요. 그룹 대화나 프로젝트에 들어와요.')
   await expect(page.getByTestId('invite-step')).toHaveCount(0)
 }
 

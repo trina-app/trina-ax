@@ -79,7 +79,7 @@ on the project's page does, and the dialog says so in one line before **Create l
 
 If your team lets only owners and admins share projects, a member's own projects are not listed.
 
-![Invite people with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/invite-people.webp "Invite a guest from Invite people")
+![Invite people with Guest picked: Someone from outside the team who joins a group chat or project, then the group chats and projects to pick from](../images/guests/invite-people.webp "Invite a guest from Invite people")
 
 ### From Admin
 
@@ -89,7 +89,7 @@ place the guest joins: a group chat you are in, a team project, or one of your o
 fill in the same dialog as above: their name, their AI, **Create link** and **Copy link**. If your plan has no room for
 more guests, the dialog says so instead of listing places.
 
-![Invite people in Admin with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
+![Invite people in Admin with Guest picked: Someone from outside the team who joins a group chat or project, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 
 ## What the guest sees
 
@@ -119,9 +119,9 @@ A guest in both sees the people of both: they can message anyone in their group 
 else. Each side sees the guest; people who are only in the group chat don't see the project's name, and the other way
 round.
 
-![A new conversation with a guest and a team member picked: A guest can be in one group chat or project only, and the button is off](../images/guests/one-place.webp "A guest can't join a second place")
+![A new conversation with a guest who is already in a group chat and a team member picked: the guest can't be added to a second group chat, and the button is off](../images/guests/one-place.webp "A guest can't join a second place")
 
-If the person needs more than one place, an owner or admin can choose **Make team member** (see below).
+If the person needs more than one group chat or project, an owner or admin can choose **Make team member** (see below).
 
 If a guest leaves, is taken out, or their group chat or project is closed, they are out of that place. They can still
 sign in while they are in their other place. Out of every place, they can no longer sign in, the same as when they are
