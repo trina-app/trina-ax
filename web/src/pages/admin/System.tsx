@@ -784,6 +784,32 @@ function Update() {
   const state = useLoad(() => api.call(API.updateStatus))
   const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, running: state.data?.running, onDone: () => void state.reload() })
   const setAsk = install.ask
+  // while an update waits for running tasks, look again every 10 seconds: the line says the wait ended (or the restart came)
+  // when it did, also for an update this page did not start (root's, or another admin's)
+  const waiting = !!state.data?.waiting
+  // a quiet read: a failed one (the server restarting) keeps the card as it is, and a hidden page does not ask
+  const setUpdateData = state.setData
+  useEffect(() => {
+    if (!waiting) return
+    let busy = false
+    let gone = false
+    const look = async () => {
+      if (busy || document.visibilityState !== 'visible') return
+      busy = true
+      try {
+        const s = await api.call(API.updateStatus)
+        if (!gone) setUpdateData(s)
+      } catch {
+        // the next look tries again
+      } finally {
+        busy = false
+      }
+    }
+    const id = setInterval(() => void look(), 10_000)
+    const visible = () => void look()
+    document.addEventListener('visibilitychange', visible)
+    return () => { gone = true; clearInterval(id); document.removeEventListener('visibilitychange', visible) }
+  }, [waiting, setUpdateData])
   // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
   const phone = useMediaQuery(PHONE)
   // a phone's list: the version, or the new one waiting

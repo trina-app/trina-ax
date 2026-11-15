@@ -1,0 +1,1 @@
+- **Admin › System**: the line "An update is waiting for N running tasks to finish" (and its "Update now anyway" button) now goes away when the wait ends. The page reads the update status again every 10 seconds while it waits, and once more when an install ends in an error (before, a failed install left the line and the button there until the page was opened again).
