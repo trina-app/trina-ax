@@ -197,8 +197,10 @@ export function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
   )
 }
 
-/** `onCancel`: Cancel and × before the link is made (back to the add list it was opened from); `onClose`: Done after it. */
-export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { place: InvitePlace; onClose: () => void; onCancel?: () => void }) {
+/** `onCancel`: Cancel and × before the link is made (back to the add list it was opened from); `onClose`: Done after it.
+ * `onFull`: Create link was refused because the plan's guests are all there (another invite made meanwhile): the opener
+ * shows the limit itself (Admin's Invite to team, whose place list would otherwise offer the same wall again). */
+export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }: { place: InvitePlace; onClose: () => void; onCancel?: () => void; onFull?: (cap: { n: number; manageUrl?: string }) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -232,7 +234,9 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
       setExpiresAt(r.invite.expiresAt)
     } catch (e) {
       const cap = guestCap(e)
-      if (cap) setRefusedFull({ n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) })
+      const shown = cap && { n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) }
+      if (shown && onFull) onFull(shown)
+      else if (shown) setRefusedFull(shown)
       else setError(guestErrorText(e, locale, t))
     } finally {
       setBusy(false)

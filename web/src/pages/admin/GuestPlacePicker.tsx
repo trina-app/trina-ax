@@ -28,31 +28,35 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
   const rooms = useRooms((s) => s.rooms)
   const roomsLoaded = useRooms((s) => s.loaded)
   const managed = useProjects((s) => s.managed)
-  const [failed, setFailed] = useState(false)
+  const roomsFailed = useRooms((s) => !!s.failed)
+  const [projectsFailed, setProjectsFailed] = useState(false)
+  const failed = projectsFailed || (roomsLoaded && roomsFailed)
   const [q, setQ] = useState('')
   useEffect(() => {
-    if (!useRooms.getState().loaded) void useRooms.getState().loadRooms().catch(() => {})
-  }, [])
-  useEffect(() => {
-    setFailed(false)
-    readManagedList({ fresh: true }).catch(() => setFailed(true))
-  }, [])
+    read()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // the rooms (when not read yet) and the projects; either failing says so, with Try again
+  function read() {
+    setProjectsFailed(false)
+    const st = useRooms.getState()
+    if (!st.loaded || st.failed) void st.loadRooms()
+    readManagedList({ fresh: true }).catch(() => setProjectsFailed(true))
+  }
   const groupChats = useMemo(() => rooms.filter((r) => r.kind === 'group').map((r) => ({ id: r.id, name: roomTitle(r), count: r.memberCount })), [rooms, roomTitle])
-  const projects = useMemo(() => (managed ?? []).filter((p) => p.membersEditable && !p.inTrash).map((p) => ({ id: p.id, name: p.name, count: p.audience })), [managed])
+  // no count for a project: who sees it (Project.audience) is not who is in it, as a group chat's count is
+  const projects = useMemo(() => (managed ?? []).filter((p) => p.membersEditable && !p.inTrash).map((p) => ({ id: p.id, name: p.name })), [managed])
   const needle = q.trim().toLocaleLowerCase(locale)
   const shownRooms = groupChats.filter((r) => matches(needle, locale, r.name))
   const shownProjects = projects.filter((p) => matches(needle, locale, p.name))
-  const loading = !roomsLoaded || (managed === null && !failed)
+  const loading = !failed && (!roomsLoaded || managed === null)
   const total = groupChats.length + projects.length
   const label = 'px-3 pt-3 pb-1 text-xs font-medium text-faint'
-  const count = (n: number | undefined) => (n === undefined ? undefined : t('rooms.picker.groupCount', { n }))
   return (
     <div className="space-y-3" data-testid="guest-place-picker">
       <p className="text-sm font-medium text-ink">{t('guest.invite.pickPlace')}</p>
       {total > SEARCH_FROM && <SearchBox value={q} onChange={setQ} label={t('guest.invite.searchPlaces')} testId="guest-place-search" className="w-full" />}
-      {loading && !total ? <Skeleton lines={3} /> : failed && !total ? (
-        <ErrorNote onRetry={() => { setFailed(false); readManagedList({ fresh: true }).catch(() => setFailed(true)) }}>{t('error.network')}</ErrorNote>
-      ) : !total ? (
+      {failed && <ErrorNote onRetry={read}>{t('error.network')}</ErrorNote>}
+      {loading && !total ? <Skeleton lines={3} /> : failed && !total ? null : !total ? (
         <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-place-none">{t('guest.invite.noPlaces')}</p>
       ) : !shownRooms.length && !shownProjects.length ? (
         <p className="text-sm text-muted" data-testid="guest-place-no-match">{t('guest.invite.noPlaceMatch')}</p>
@@ -63,7 +67,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
               <p className={label}>{t('guest.invite.groupChats')}</p>
               <ul data-testid="guest-place-rooms">
                 {shownRooms.map((r) => (
-                  <ListRow key={r.id} face icon={<MessagesSquare />} name={r.name} meta={count(r.count)} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
+                  <ListRow key={r.id} face icon={<MessagesSquare />} name={r.name} meta={t('rooms.picker.groupCount', { n: r.count })} onClick={() => onPick({ kind: 'room', id: r.id, name: r.name })} testId="guest-place-room" />
                 ))}
               </ul>
             </>
@@ -73,7 +77,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
               <p className={label}>{t('projects.title')}</p>
               <ul data-testid="guest-place-projects">
                 {shownProjects.map((p) => (
-                  <ListRow key={p.id} face icon={<FolderKanban />} name={p.name} meta={count(p.count)} onClick={() => onPick({ kind: 'project', id: p.id, name: p.name })} testId="guest-place-project" />
+                  <ListRow key={p.id} face icon={<FolderKanban />} name={p.name} onClick={() => onPick({ kind: 'project', id: p.id, name: p.name })} testId="guest-place-project" />
                 ))}
               </ul>
             </>

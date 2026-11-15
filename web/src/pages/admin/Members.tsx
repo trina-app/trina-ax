@@ -763,7 +763,9 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
   const guest = kind === 'guest'
   // the guest cap, read once Guest is picked: a full plan says so instead of the places
   const limit = useGuestLimit(guest)
-  const guestsFull = guestsFullOf(limit)
+  // or told by a refused Create link (the plan filled up meanwhile): the limit then, not the places again
+  const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
+  const guestsFull = refusedFull ?? guestsFullOf(limit)
   const [role, setRole] = useState<MemberRole>('member')
   const [groupIds, setGroupIds] = useState<string[]>([])
   const [days, setDays] = useState(7)
@@ -782,12 +784,12 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
   }, [offered])
   const leadGroupId = welcome?.teamGroup?.id
   const shownGroupIds = flagged ? (leadGroupId && groups.some((g) => g.id === leadGroupId) ? [leadGroupId] : []) : groupIds
-  if (place) return <GuestInviteDialog place={place} onClose={onGuestDone} onCancel={() => setPlace(null)} />
+  if (place) return <GuestInviteDialog place={place} onClose={onGuestDone} onCancel={() => setPlace(null)} onFull={(cap) => { setRefusedFull(cap); setPlace(null) }} />
   return (
     <Modal
       open
       onClose={onClose}
-      title={t('members.invite')}
+      title={t('members.inviteToTeam')}
       footer={guest ? (
         <>
           <Button variant={guestsFull && !guestsFull.manageUrl ? 'primary' : 'ghost'} onClick={onClose} data-testid="invite-guest-close">{t(guestsFull ? 'common.close' : 'common.cancel')}</Button>

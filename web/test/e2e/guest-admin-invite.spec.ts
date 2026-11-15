@@ -85,3 +85,16 @@ test('a full plan: the limit instead of the places, with See plans', async ({ pa
   await page.getByRole('tab', { name: '팀원' }).click()
   await expect(page.getByTestId('invite-create')).toBeVisible()
 })
+
+test('the plan fills up meanwhile: a refused Create link shows the limit, not the places again', async ({ page }) => {
+  await start(page)
+  await page.route('**/api/guest-invites', (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'plan_limit', message: 'x', params: { reason: 'guest_limit', limit: 3 } } }) })
+    : route.fallback())
+  await openGuest(page)
+  await page.getByTestId('guest-place-room').click()
+  await page.getByTestId('guest-invite-create').click()
+  await expect(page.getByTestId('guest-invite-full')).toContainText('게스트는 3명까지예요')
+  await expect(page.getByTestId('guest-place-picker')).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: '게스트' })).toHaveAttribute('aria-selected', 'true')
+})

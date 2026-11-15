@@ -52,6 +52,10 @@ them yourself, by email or in a chat. The link works once, for 7 days; the dialo
 ![The link for Dana Cole, with Copy link and Done: It works once. Send it to them yourself, by email or chat.](../images/guests/invite-link.webp "The guest's link")
 :::
 
+The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used or expires.
+
+A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
+
 ### From Admin
 
 Owners and admins can invite a guest without opening the chat or project first. In **Admin › Members & invites**, choose
@@ -61,10 +65,6 @@ their AI, **Create link** and **Copy link**. If your plan has no room for more g
 listing places.
 
 ![Invite to team with Guest picked: Someone from outside the team who joins one room or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
-
-The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used or expires.
-
-A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
 
 ## What the guest sees
 

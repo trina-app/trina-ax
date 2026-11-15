@@ -28466,7 +28466,10 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   link, Copy link); its Cancel comes back to the places with Guest still picked; Done closes and reads the invite list
   again. No second form, no new endpoint.
 - The guest cap is read (`useGuestLimit(enabled)`) only once Guest is picked; a full plan shows the existing limit
-  words (`GuestsFull`) with **See plans** in place of the places.
+  words (`GuestsFull`) with **See plans** in place of the places. A Create link refused as full meanwhile hands the
+  limit back (`GuestInviteDialog` `onFull`), so the place list is not offered again.
+- The dialog's title is now **Invite to team**, the button's words (it was "Invite link"). Group chats show their member
+  count; projects show none (`Project.audience` counts who sees it, not who is in it).
 - Version impact: **minor** (a new way in to an existing feature).
 
 ## The invite message introduces the team; the invite step keeps only the message (feat/onboarding-invite-message, 2026-11-15, the owner)
