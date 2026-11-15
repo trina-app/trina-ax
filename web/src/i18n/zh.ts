@@ -191,7 +191,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.aiLimitUntil": "本月的 AI 额度已用完，将在 {date} 重置。如需更多，请询问邀请你的人。",
   "guest.aiLimitTokens": "本月的 AI 额度（{amount} token）已用完，将在 {date} 重置。如需更多，请询问邀请你的人。",
   "guest.admin.title": "访客",
-  "guest.admin.desc": "团队外的人。每位只在一个群聊或项目里，访客不占席位。",
+  "guest.admin.desc": "团队外的人。每位最多在一个群聊和一个项目里，访客不占席位。",
   "guest.admin.count": "{n} 位",
   "guest.admin.upTo": "每月最多 {amount} token",
   "guest.admin.upToUsd": "每月最多 {amount}",

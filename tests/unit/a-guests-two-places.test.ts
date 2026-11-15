@@ -193,6 +193,13 @@ test('a guests row an older build wrote (no slot set) reads as its invite place,
   db.query('UPDATE guests SET room_id = NULL, project_id = NULL WHERE user_id = ?').run(g2.id)
   expect(reads(g2.id, quote.folderPath)).toBe('write')
   expect(guestSlots(db, g2.id)).toEqual([{ kind: 'project', id: quote.id }])
+  // their second place keeps the first (security review): the project guest into a group chat, the chat guest into a project
+  const room = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [g2.id, rita.id], name: 'with gia' })
+  expect(guestSlots(db, g2.id)).toEqual([{ kind: 'room', id: room.id }, { kind: 'project', id: quote.id }])
+  expect(reads(g2.id, quote.folderPath)).toBe('write')
+  expect((await addToProject(mia.client, quote.id, g.id)).status).toBe(200)
+  expect(guestSlots(db, g.id).map((p) => p.kind)).toEqual(['room', 'project'])
+  expect(await peopleIds(g.client)).toContain(rita.id)
 })
 
 test('the "joined as a guest" notice names the place the invite opened, not a later one', async () => {

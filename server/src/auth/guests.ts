@@ -245,6 +245,11 @@ export const GUEST_ROLE_MSG: Record<Locale, string> = AUTH_MESSAGES.guestRole
 export function failOnePlace(locale: Locale): never {
   return fail('conflict', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
 }
+/** A row an older build wrote (both slots empty, read as its invite place): that place goes into its own kind's slot
+ * first, so claiming the other kind never drops it (security review must-fix). */
+function fillOlderSlots(db: Database, userId: string): void {
+  db.query("UPDATE guests SET room_id = CASE WHEN place_kind = 'room' THEN place_id END, project_id = CASE WHEN place_kind = 'project' THEN place_id END WHERE user_id = ? AND room_id IS NULL AND project_id IS NULL").run(userId)
+}
 /**
  * Put guest `userId` into the group chat `roomId` (call inside the write that adds their member row): refused (409
  * guest_one_place) while they are a member of any other live group chat, read from the member rows themselves so a
@@ -254,6 +259,7 @@ export function failOnePlace(locale: Locale): never {
 export function claimGuestRoom(db: Database, userId: string, roomId: string, locale: Locale): void {
   if (!isGuest(db, userId)) return
   if (!guestRow(db, userId)) failOnePlace(locale)
+  fillOlderSlots(db, userId)
   const other = db.query("SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND r.id <> ? AND r.kind = 'group' AND r.archived_at IS NULL LIMIT 1").get(userId, roomId)
   if (other) failOnePlace(locale)
   db.query('UPDATE guests SET room_id = ? WHERE user_id = ?').run(roomId, userId)
@@ -287,6 +293,7 @@ export function heldProject(db: Database, userId: string, rules?: RuleSet): stri
  */
 export function claimGuestProject(db: Database, userId: string, folderPath: string, locale: Locale): void {
   if (!guestRow(db, userId)) failOnePlace(locale)
+  fillOlderSlots(db, userId)
   const held = heldProject(db, userId)
   if (held) {
     const own = projectFolder(db, held)

@@ -194,7 +194,7 @@ export const en: Record<MessageKey, string> = {
   "guest.aiLimitUntil": "You've used this month's AI limit. It resets on {date}. Ask the person who invited you if you need more.",
   "guest.aiLimitTokens": "You've used this month's AI limit ({amount} tokens). It resets on {date}. Ask the person who invited you if you need more.",
   "guest.admin.title": "Guests",
-  "guest.admin.desc": "People from outside the team. Each one is in one group chat or project, and guests don't take seats.",
+  "guest.admin.desc": "People from outside the team. Each one is in a group chat and a project at most, and guests don't take seats.",
   "guest.admin.count": "{n}",
   "guest.admin.upTo": "up to {amount} tokens a month",
   "guest.admin.upToUsd": "up to {amount} a month",

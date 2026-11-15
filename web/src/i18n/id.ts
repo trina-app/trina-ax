@@ -194,7 +194,7 @@ export const id: Record<MessageKey, string> = {
   "guest.aiLimitUntil": "Batas AI bulan ini sudah habis. Batasnya diatur ulang pada {date}. Tanyakan ke orang yang mengundangmu jika perlu lebih.",
   "guest.aiLimitTokens": "Batas AI bulan ini ({amount} token) sudah habis. Batasnya diatur ulang pada {date}. Tanyakan ke orang yang mengundangmu jika perlu lebih.",
   "guest.admin.title": "Tamu",
-  "guest.admin.desc": "Orang dari luar tim. Masing-masing ada di satu obrolan grup atau proyek, dan tamu tidak memakai kursi.",
+  "guest.admin.desc": "Orang dari luar tim. Masing-masing paling banyak ada di satu obrolan grup dan satu proyek, dan tamu tidak memakai kursi.",
   "guest.admin.count": "{n}",
   "guest.admin.upTo": "hingga {amount} token per bulan",
   "guest.admin.upToUsd": "hingga {amount} per bulan",

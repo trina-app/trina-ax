@@ -191,7 +191,7 @@ export const ja: Record<MessageKey, string> = {
   "guest.aiLimitUntil": "今月のAIの上限に達しました。{date}にリセットされます。もっと必要なら、招待してくれた人に聞いてください。",
   "guest.aiLimitTokens": "今月のAIの上限（{amount}トークン）に達しました。{date}にリセットされます。もっと必要なら、招待してくれた人に聞いてください。",
   "guest.admin.title": "ゲスト",
-  "guest.admin.desc": "チーム外の人です。1人につきグループトークかプロジェクト1か所で、ゲストは席を使いません。",
+  "guest.admin.desc": "チーム外の人です。1人につきグループチャット1つとプロジェクト1つまでで、ゲストは席を使いません。",
   "guest.admin.count": "{n}人",
   "guest.admin.upTo": "月に最大{amount}トークン",
   "guest.admin.upToUsd": "月に最大{amount}",

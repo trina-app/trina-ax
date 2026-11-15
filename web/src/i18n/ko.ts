@@ -193,7 +193,7 @@ export const ko = {
   "guest.aiLimitUntil": "이번 달 AI 한도를 다 썼어요. {date}에 다시 채워져요. 더 필요하면 초대한 분께 물어봐 주세요.",
   "guest.aiLimitTokens": "이번 달 AI 한도({amount} 토큰)를 다 썼어요. {date}에 다시 채워져요. 더 필요하면 초대한 분께 물어봐 주세요.",
   "guest.admin.title": "게스트",
-  "guest.admin.desc": "팀 밖의 사람이에요. 한 사람이 그룹 대화나 프로젝트 한 곳에만 있고, 팀 인원 수에는 들어가지 않아요.",
+  "guest.admin.desc": "팀 밖의 사람이에요. 한 사람이 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있고, 팀 인원 수에는 들어가지 않아요.",
   "guest.admin.count": "{n}명",
   "guest.admin.upTo": "한 달 최대 {amount} 토큰",
   "guest.admin.upToUsd": "한 달 최대 {amount}",

@@ -191,7 +191,7 @@ export const es: Record<MessageKey, string> = {
   "guest.aiLimitUntil": "Usó el límite de IA de este mes. Se renueva el {date}. Si necesita más, pregunte a quien le invitó.",
   "guest.aiLimitTokens": "Usó el límite de IA de este mes ({amount} tokens). Se renueva el {date}. Si necesita más, pregunte a quien le invitó.",
   "guest.admin.title": "Invitados",
-  "guest.admin.desc": "Personas de fuera del equipo. Cada una está en un chat de grupo o un proyecto, y los invitados no ocupan plaza.",
+  "guest.admin.desc": "Personas de fuera del equipo. Cada una está como mucho en un chat de grupo y un proyecto, y los invitados no ocupan plaza.",
   "guest.admin.count": "{n}",
   "guest.admin.upTo": "hasta {amount} tokens al mes",
   "guest.admin.upToUsd": "hasta {amount} al mes",
