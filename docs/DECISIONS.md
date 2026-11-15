@@ -28442,3 +28442,29 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
   drops the control (the setup row is the way back from there).
 - Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
+
+## Hosted teams get the hosting service's Google sign-in without setup (fix/hosted-drive-broker-default, 2026-11-14, the owner)
+
+- **Problem.** A new hosted team (diontree, 0.5.3) showed "Google Drive isn't set up on this server yet. Set it up in
+  Admin › Connected apps." in onboarding. The team server used the hosting service's Google sign-in only when
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL` was in its environment, and nothing writes it on a hosted tenant (mycel-enroll's
+  `/etc/default/mycel` holds only the time zone, install id and windows; the control plane has no command that sets
+  environment). The control plane already serves every hosted team (it recorded the relay key at enroll and has the
+  Google client), so the only missing piece was the variable: no hosted team ever reached the broker.
+- **Rule.** On a hosted server (`deployment: "hosted"`) without a Google client of its own, the broker address
+  defaults to the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`brokerOrigin`, `hostedDefault`). An
+  empty value or `off` still turns it off; a set value still wins; a client of its own still wins. Self-installed
+  servers are unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
+- **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
+  guard as the other loops); the unit tests pass their own env to check the default.
+- **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
+  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting
+  support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+- **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
+  up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
+  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup). The step's other rows are unchanged here;
+  cutting them waits for the owner (onboarding plan, lane B).
+- **Slack's official app is not defaulted here.** Its hosted one-click path (sign-in + reading in one consent,
+  owner 11-13) is not verified end to end on a hosted team yet, so a hosted server still uses it only with
+  `MYCEL_SLACK_BROKER_URL` (or the Drive variable) set, as before. Defaulting it is a separate change after that check.
+- Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts.

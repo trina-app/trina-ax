@@ -134,15 +134,14 @@ test('도구 연결\'s exits: a refused or closed sign-in says "연결하지 않
   expect(realErrors(errors).filter((e) => !/status of 503/.test(e))).toEqual([])
 })
 
-test('no Drive on this server: its card says so; the address form (a team connection) closes with nothing changed; a saved one signs in and is one line under it; the primary appears', async ({ page }) => {
+test('no Drive on this server: no Drive row; the address form (a team connection) closes with nothing changed; a saved one signs in and is one line under it; the primary appears', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
   await toTools(page)
   await expect(page.getByTestId('welcome-tools-mcp-add')).toBeVisible()
-  // not on this server: the card says so, never a hidden row (TC sheet TC-145)
-  await expect(page.getByTestId('welcome-tools-drive')).toHaveAttribute('data-state', 'not-set-up')
-  await expect(page.getByTestId('welcome-tools-drive-off')).toHaveText('아직 설정 안 됨')
+  // not on this server: no Drive row in the setup (amends TC-145; Connectors says why)
+  await expect(page.getByTestId('welcome-tools-drive')).toHaveCount(0)
   // the dialog opens over the step; 취소 leaves it as it was
   await page.getByTestId('welcome-tools-mcp-add').click()
   const dialog = page.getByRole('dialog')

@@ -50,7 +50,10 @@ export function DriveLogo({ className }: { className?: string }) {
  * it, so a Google sign-in started by someone else can never land in this person's Drive connection). */
 export function useDriveParts(s: DriveConnectionState) {
   const t = useT()
-  const admin = isAdmin(useMe())
+  const me = useMe()
+  const admin = isAdmin(me)
+  // a hosted team's admin has nothing to set up (the hosting service signs in to Google): never sent to a setup page
+  const hosted = me?.server.deployment === 'hosted'
   const navigate = useNavigate()
   const c = s.connection
   const { d } = s
@@ -63,14 +66,14 @@ export function useDriveParts(s: DriveConnectionState) {
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
   // not set up on this server: a member waits for an admin; an owner or admin is the one to set it up (QA TC-196)
-  else if (unavailable) line = t(admin ? 'drive.setUpFirst' : 'connectors.adminNeeded')
+  else if (unavailable) line = t(hosted ? 'drive.notReadyHosted' : admin ? 'drive.setUpFirst' : 'connectors.adminNeeded')
   else if (reconnect) line = t('drive.status.needs_reconnect')
   else if (linked && c?.account) line = c.account.email ?? c.account.name ?? t('drive.status.connected')
 
   const action = !c
     ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
     : unavailable
-      ? admin
+      ? admin && !hosted
         ? <Button size="sm" variant="primary" onClick={() => navigate('/admin/connectors?drive=1')} data-testid="drive-set-up">{t('drive.goSetUp')}</Button>
         : <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
       : flow
