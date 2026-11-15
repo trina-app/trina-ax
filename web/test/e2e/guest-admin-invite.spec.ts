@@ -1,7 +1,7 @@
 // Admin › Members › "Invite to team" (pages/admin/Members.tsx InviteDialog; docs/DECISIONS.md "Guests from Admin ›
 // Invite to team"): Team member (the default, the link with a role and groups) or Guest. Guest says who that is in one
 // line and lists the one place they may join: group chats the admin is in and team projects whose members they may
-// change (pages/admin/GuestPlacePicker.tsx). A place opens the rooms' and projects' guest invite form, whose Cancel comes
+// change (components/GuestInviteChoice.tsx GuestPlacePicker). A place opens the rooms' and projects' guest invite form, whose Cancel comes
 // back here. A full plan says so in place of the places.
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'

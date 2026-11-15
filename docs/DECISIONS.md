@@ -28453,6 +28453,39 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).
 
+## Guests from Invite people (feat/invite-people-guest, owner 2026-11-15)
+
+- **Asked:** the owner opened **Invite people** (the team menu, ⌘K, the phone's 나 tab: `TeamMenu.tsx`
+  `TeamInviteDialog`) and found no guest option; #959 had added it to Admin › Invite to team only.
+- The Guest half of #959 moved out of Admin into one shared file, `components/GuestInviteChoice.tsx`
+  (`InviteKindTabs`, `useGuestChoice`, `GuestChoicePanel`, `GuestChoiceButtons`, `GuestChoiceForm`, and
+  `GuestPlacePicker`, moved from `pages/admin/`). Admin's Invite to team and Invite people both use it, so the line, the
+  places, the limit, See plans and the guest form (`GuestInviteDialog`, unchanged) are the same in both. No new
+  endpoint, no new words.
+- **New conversation** (the chats panel's +, /rooms?new=1, ⌘K's people, a DM's 초대하기) starts with the same
+  **Invite a guest** row as a group chat's add list, for everyone but a guest (meta "Outside the team · joins one group
+  chat or project"). It opens `GuestInviteFlow`: the Guest half on its own (title "Invite a guest", the line, the places
+  or the limit), then the guest form. Picking the place was simpler and clearer than making a group chat first.
+- A group chat's or a DM's header **⋯** now has **Invite people** (after the pin), the same add list as the room info's
+  (`Room.tsx invitePeople`), whose first row in a group chat is Invite a guest. Before this the add list was only behind
+  the chat's name at the top, which is why the owner could not find it in a group chat. A row's ⋯ in a list has none.
+- Invite people starts on **Team member** (the team link's message, `InviteStep`, unchanged). Guest's Cancel / Close and
+  See plans sit in the same row under the content where Team member has Done (the dialog has no footer bar).
+- The places are what the server accepts from the caller (`inviteMakerOk`): group chats they are in; projects whose
+  members they may change (`membersEditable`: the creator, the owner and admins). The picker is role-blind, so it
+  stays right if a member ever opens it.
+- The team link's invite step (`InviteStep`) outside that dialog — the owner's welcome steps (where Invite people sends
+  an owner while the steps are unfinished: the QA-Acme owner landed there, so the owner on qa.trina.app likely did
+  too), Home's goal card [Invite teammates] — gets one quiet line under the message:
+  "Someone from outside the team? **Invite a guest**" (`GuestInviteFlow`). Not tabs there: those screens are about
+  colleagues using the team's skills, and the welcome steps stay one task per step. Invite people's own dialog has the
+  tabs, so its InviteStep has no line (`guestLine={false}`); nor has the invite right after sharing a team skill (its
+  message is about that skill; review). In New conversation, Cancel on the places goes back to the people list; Done
+  closes everything.
+- **Left as they are:** Invite people stays the owner's and admins' (the team link is theirs; a member invites a guest
+  from New conversation, a group chat's ⋯ or a project's add list). Admin's team invite link card stays team members
+  only (one link for many people; a guest's link is for one person and one place). - Version impact: **minor** (a new way in to an existing feature).
+
 ## Guests from Admin › Invite to team (feat/admin-invite-guest, owner 2026-11-15)
 
 - **Asked:** admins coming from Slack start at **Admin › Members & invites › Invite to team**, which had no guest

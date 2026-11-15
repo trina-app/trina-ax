@@ -38,7 +38,7 @@ import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, TabPanel, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { PageActions } from '../../components/PageActions'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { CompactRow } from '../../components/CompactRow'
@@ -60,8 +60,7 @@ import { AdminBarActions, BarAdd, BarMore } from './barActions'
 import { confirmOriginKept } from './originKept'
 import { loadAdminInvites, readAdmin, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 import { GuestsSection } from './Guests'
-import { GuestPlacePicker } from './GuestPlacePicker'
-import { GuestInviteDialog, GuestsFull, SeePlansLink, guestsFullOf, useGuestLimit, type InvitePlace } from '../../components/GuestInvite'
+import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, useGuestChoice, type InviteKind } from '../../components/GuestInviteChoice'
 import { BudgetForm, budgetExceeded, budgetLimitText, budgetUsedText, loadBudgets, personBudgets } from './BudgetForm'
 import { inviteGuestName } from '../../lib/guests'
 import { useProjects } from '../../store/projects'
@@ -751,21 +750,17 @@ function ScheduleReviews() {
 }
 
 /** Invite to team: a team member (a link with a role, groups and how long it works) or a guest (docs/DECISIONS.md "Guests
- * from Admin › Invite to team"): the one place they join (GuestPlacePicker), then the guest invite form of the rooms and
- * projects (GuestInviteDialog), whose Cancel comes back here. A full plan says so in place of the places. */
+ * from Admin › Invite to team"): the shared Guest half (components/GuestInviteChoice.tsx, also in "Invite people"): the
+ * one place they join, then the guest invite form of the rooms and projects, whose Cancel comes back here. A full plan
+ * says so in place of the places. */
 function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void; onGuestDone: () => void }) {
   const t = useT()
   const act = useAction()
   const me = useMeStrict()
-  const [kind, setKind] = useState<'member' | 'guest'>('member')
-  const [place, setPlace] = useState<InvitePlace | null>(null)
+  const [kind, setKind] = useState<InviteKind>('member')
   const kinds = useId()
   const guest = kind === 'guest'
-  // the guest cap, read once Guest is picked: a full plan says so instead of the places
-  const limit = useGuestLimit(guest)
-  // or told by a refused Create link (the plan filled up meanwhile): the limit then, not the places again
-  const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
-  const guestsFull = refusedFull ?? guestsFullOf(limit)
+  const choice = useGuestChoice(guest)
   const [role, setRole] = useState<MemberRole>('member')
   const [groupIds, setGroupIds] = useState<string[]>([])
   const [days, setDays] = useState(7)
@@ -784,18 +779,13 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
   }, [offered])
   const leadGroupId = welcome?.teamGroup?.id
   const shownGroupIds = flagged ? (leadGroupId && groups.some((g) => g.id === leadGroupId) ? [leadGroupId] : []) : groupIds
-  if (place) return <GuestInviteDialog place={place} onClose={onGuestDone} onCancel={() => setPlace(null)} onFull={(cap) => { setRefusedFull(cap); setPlace(null) }} />
+  if (choice.place) return <GuestChoiceForm choice={choice} onDone={onGuestDone} />
   return (
     <Modal
       open
       onClose={onClose}
       title={t('members.inviteToTeam')}
-      footer={guest ? (
-        <>
-          <Button variant={guestsFull && !guestsFull.manageUrl ? 'primary' : 'ghost'} onClick={onClose} data-testid="invite-guest-close">{t(guestsFull ? 'common.close' : 'common.cancel')}</Button>
-          {guestsFull?.manageUrl && <SeePlansLink url={guestsFull.manageUrl} />}
-        </>
-      ) : (
+      footer={guest ? <GuestChoiceButtons choice={choice} admin onClose={onClose} /> : (
         <>
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
@@ -818,16 +808,8 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
         </>
       )}
     >
-      <div className="mb-4 flex" data-testid="invite-kind">
-        <Tabs segmented value={kind} onChange={setKind} label={t('members.inviteKind')} panels={kinds}
-          items={[{ id: 'member', label: t('members.inviteKindMember') }, { id: 'guest', label: t('members.inviteKindGuest') }]} />
-      </div>
-      {guest ? (
-        <TabPanel base={kinds} value="guest" className="space-y-4">
-          <p className="text-sm leading-6 break-keep text-muted" data-testid="invite-guest-line">{t('members.inviteGuestLine')}</p>
-          {limit === undefined ? <Skeleton lines={3} /> : guestsFull ? <GuestsFull n={guestsFull.n} admin /> : <GuestPlacePicker onPick={setPlace} />}
-        </TabPanel>
-      ) : (
+      <InviteKindTabs value={kind} onChange={setKind} panels={kinds} />
+      {guest ? <GuestChoicePanel choice={choice} panels={kinds} admin /> : (
       <TabPanel base={kinds} value="member" className="space-y-4">
         {offered && <LeadFlag checked={lead} onChecked={setLead} label={leadFor} onLabel={setLeadFor} />}
         <fieldset disabled={flagged} className="space-y-4 disabled:opacity-60" data-testid="invite-settings">
