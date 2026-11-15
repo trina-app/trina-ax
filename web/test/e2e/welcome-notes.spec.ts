@@ -88,12 +88,12 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
-  await expect(page.getByTestId('team-link-message')).toContainText('Acme에 함께하자고 초대했어요')
-  await expect(page.getByTestId('team-link-message')).not.toContainText('스킬을 같이 써 보자고')
-  await expect(page.getByTestId('team-link-message')).not.toContainText('회사 소개서')
+  await expect(page.getByTestId('team-link-message')).toHaveValue(/Acme에 초대할게요/)
+  await expect(page.getByTestId('team-link-message')).not.toHaveValue(/스킬부터 같이 써 봐요/)
+  await expect(page.getByTestId('team-link-message')).not.toHaveValue(/회사 소개서/)
   await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
   await expect(page.getByTestId('team-link-create')).toHaveCount(0)
-  const url = (await page.getByTestId('team-link-message').innerText()).trim().split(' ').at(-1)!
+  const url = (await page.getByTestId('team-link-message').inputValue()).trim().split('\n').at(-1)!
   expect(url).toMatch(/\/join#t=tl[0-9a-f]+$/)
   const link = (await (await page.request.get('/api/admin/team-link')).json()).link
   expect(link.skill).toBeNull()

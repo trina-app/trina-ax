@@ -1,0 +1,1 @@
+- The page "Use from other AI apps" is now called **Trina AX MCP**, in Settings and in Admin, in every language. Searching "MCP" in Settings finds it. "AI accounts" keeps its name.

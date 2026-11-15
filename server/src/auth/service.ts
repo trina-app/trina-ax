@@ -226,6 +226,7 @@ export class AuthService implements SessionService {
     // failed sign-ins from elsewhere cannot lock them out here (accounts.ts login, rate-limit.ts AccountScope)
     const info = c.get('info')
     if (info.ip && !(!info.tunnel && isLoopback(info.ip))) this.limiter.rememberNet(userId, limitIp(info.ip))
+    if (tokenMode === 'cookie') this.endReplacedSession(c.req.raw, userId)
     const s = this.createSession(userId, client, c.req.header('user-agent') ?? null, o)
     // someone an admin added directly joins with their first sign-in: the everyone room's line and the owners' notice
     firstSignIn(this.ctx, userId)
@@ -234,6 +235,19 @@ export class AuthService implements SessionService {
     if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })
     const me = this.me(userId, s.id, reachedAt(c))
     return tokenMode === 'bearer' ? { me, token: s.token } : { me }
+  }
+
+  /** A sign-in in a browser that still sends another person's session cookie: that sign-out never reached the server
+   * (web/src/lib/logout.ts shows the sign-in page anyway, and only the server's answer clears the HttpOnly cookie).
+   * The new cookie replaces it, so this browser can never use that session again: it ends like a sign-out, and its
+   * phone push row goes with it, so a shared phone stops getting the first person's notices and the next person can
+   * register it (QA TC-835; another person's live session elsewhere still keeps its token, TC-201). The same person's
+   * earlier session is left as it is (the desktop app copies one cookie to its second team address). */
+  private endReplacedSession(req: Request, userId: string): void {
+    const t = parseCookies(req.headers.get('cookie')).get(cookieFor(req.url).name)
+    if (!t || !/^[A-Za-z0-9_-]{20,200}$/.test(t)) return
+    const old = this.db.query('SELECT id, user_id FROM sessions WHERE token_hash = ?').get(hashToken(t)) as { id: string; user_id: string } | null
+    if (old && old.user_id !== userId) this.revokeSession(old.id, 'logout')
   }
 
   clearCookie(c: Context<AppEnv>): void {

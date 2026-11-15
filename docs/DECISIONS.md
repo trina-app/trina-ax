@@ -8959,7 +8959,11 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   notifications; sign out there first" (QA TC-201, fix/push-token-takeover, 2026-11-11). A phone that changes hands
   loses its row first: logout removes it with the session, a team switch with the removal key, and after a reinstall
   the iPhone app signs the kept session out (Android gets a new FCM token), so the old "another account replaces it"
-  only let a member who knew a colleague's token take over their notifications.
+  only let a member who knew a colleague's token take over their notifications. A sign-out that never reached the
+  server (offline: the page shows the sign-in page anyway and the HttpOnly cookie stays) is closed at the next sign-in
+  in that browser: a cookie-mode sign-in ends the session its request's cookie names when it is another person's, so
+  its device row goes and the next person registers the phone (QA TC-835, fix/tc835-push-dup, 2026-11-15). The same
+  person's earlier session stays (the desktop app copies one cookie to its second team address).
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
   hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
   store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
@@ -27359,6 +27363,42 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
   and skills/.
 
+## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
+
+Builds on "Guests: only what they were invited to" and "Claude 구독 연결: 브라우저에서".
+
+- **A member's invite dialog knows a guest gets no AI here** (TC-2580): `GET /api/guest-invites/limit` (any non-guest)
+  carries `guestAiUnavailable: 'host_sign_in'` on a server that is not managed, the same flag as
+  `GET /api/admin/credentials`, which only the owner and admins read. The dialog takes it from either, keeps No AI
+  picked and greys out the rest. A member reads only "On this server, guests can't use AI.", because they cannot
+  reinstall the server; the owner and admins also read the `.pkg` sentence. `POST /api/guest-invites` still accepts the
+  other choices (no change in what the server allows: the guest's AI never runs there, `credentials/guest-ai.ts`).
+- **The one sign-in slot is not held by a browser that went away** (TC-2581, `credentials/login.ts`): every sign-in
+  keeps `seenAt`, updated by its start, the code, and every read of it (the dialog's 3-second poll is the heartbeat).
+  When someone asks for the slot, a running sign-in not heard from for `LOGIN_IDLE_MS` (5 minutes: logging in at the provider on a phone,
+  with an email code, can take a while) is ended `expired` with reason `idle`. One storing its token, or checking
+  the pasted code, is never ended this way, and the dialog sends no goodbye then either. A start claims the slot
+  before it waits for the launcher, so two starts at once cannot both run. We only free it when someone asks: a phone that
+  paused the page while its person approved elsewhere keeps its sign-in when nobody is waiting. The dialog also says
+  goodbye itself: on `pagehide` (not a page kept for the back button) it sends the DELETE with `keepalive`
+  (`ApiClient` `keepalive`). Back on the page, the starter reads "This sign-in stopped because this page was away
+  for a while and someone else needed to sign in. Start again."
+- **The busy answer tells everyone the truth** (`LoginBusyParams`, now for every caller): `expiresAt` (the latest end)
+  for everyone; `mine`, `loginId` and `personal` for its own starter, who may stop it ("Stop it and start again" stops
+  it through its door and starts the new one); `starter` only for the owner and admins at the admin door, as before. A
+  member never learns whose it is. The dialog shows that line in place of the server's raw message, keeps its start
+  button off while the slot is taken, and reads `GET /api/me/credential-login-slot` (taken or not, until when; never
+  whose; open to guests with their own sign-in) every 4 seconds while it is someone else's, so the button turns on by
+  itself once it is free. A waiting reader counts as someone asking: a quiet sign-in gives way to it as to a start.
+- **An option that cannot be picked looks off** in the guest AI choices: the whole row is faded, not only its radio.
+- **A switched-off account with its right password is told the truth** (TC-2582, `auth/accounts.ts` login): 401 with
+  `params.reason 'account_off'` and "This account was turned off. Ask the person who invited you." (a guest) or "…Ask
+  the team owner or an admin." (anyone else). A wrong password and an unknown username still get the generic words
+  with no reason, so nothing says which usernames exist. The try is still counted (the limiter hold is kept), it makes
+  no session, and the audit row is the same `auth.login_failed` with `disabled: true`. The trade-off, asked for in
+  QA: someone who already has the password learns the account is off. That opens nothing.
+- Version impact: **patch**.
+
 ## Guest invites, phase 2: the screens — 게스트 초대 화면 (feat/guest-invites-p2, 2026-11-14, the owner)
 
 넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `GuestTag.tsx`, `GuestView.tsx`, `web/src/lib/guests.ts`, `web/src/pages/admin/Guests.tsx`), 이유: people, rooms and projects are core. Builds on phase 1 (the server security core, `docs/AGENTS/plan/20261114-1016-guest-invites-p1.md`, "Guests: only what they were invited to"); the server decides what a guest reaches, the screens only label guests and leave out what is not theirs.
@@ -28390,3 +28430,60 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **The limit is a notice, not an error, also before the send.** The server refuses a send at a used-up limit before the AI runs (`budget_exceeded`, with the guest's wording and the reset date), and the box showed it in red like a fault. The message box (`Composer`) and a refused user message ("Not sent.") now show it as a neutral line with the pause icon, as the answer's own limit notice already did. "Send again" stays on the message (it works once an admin raises the limit or the month turns). Left as it was: the room's ✦ side chat also shows a warn toast for it (the "Not sent." line in the chat is calm now).
 - **Docs:** the guest limits table lists Free trial 10 (the Free plan is gone, owner 2026-11-14).
 - **Checked and fine:** the full invite dialog (owner, admin, member, store app without "See plans"); an older link at the cap keeps the typed fields; a freed seat works at once; See plans opens a new tab and loses no picks; the guest's AI stops exactly at the limit and resumes in the same chat when the limit is raised or the month turns.
+
+## Admin › Members & invites lists only working links; no guests, no Guests section (fix/admin-invites-lean, owner 2026-11-15, QA TC-2540)
+
+- **Asked:** the owner saw every past link under **Invite links** ("Member · Joins no groups · Used by X", "Expired")
+  and asked why; a lean page lists what can still be acted on.
+- **Invite links** shows the team invite link only while its state is `active`, and single-use links only while unused
+  and before their end date, and not stopped by itself (`Invite.stopped`: a guest link whose room or project is gone or
+  in the trash, whose maker left it, or whose team AI account was removed; the same check the invite page and the
+  accept use, `makerReason` in `server/src/auth/accounts.ts`). `openInviteLinks`, `workingTeamLink` in
+  `pages/admin/Members.tsx`. The server already leaves revoked ones out. This replaces "Guest states, round 3"'s
+  stopped row ("No longer works: …" instead of a date): such a link is now left out, and its three
+  `members.stopped*` keys were removed. Admin's dates stay in the team's time zone. With no working link the section
+  is not drawn. Who joined is in the member list and the Activity log; an expired or full team link is still
+  explained in the header's **Team invite link** popup.
+  `GET /api/admin/invites` is unchanged (it still returns used ones; other screens and the handover card read it).
+- **Guests:** a team with no guest at all has no **Guests** section (no "No guests yet" row). The Role filter's
+  **Guests** still shows the section with its empty line, so picking it never shows a blank page. A search that finds
+  no guest in a team that has some keeps "No match". A team whose guests were all removed still has the section
+  ("Show removed (N)"), since those accounts can be switched on or deleted only there.
+- The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
+- Version impact: **patch** (fewer rows on one admin page).
+
+## The invite message introduces the team; the invite step keeps only the message (feat/onboarding-invite-message, 2026-11-15, the owner)
+
+Owner 2026-11-14: the colleague should see who invites them, what the team is and what to do; owner 2026-11-15 (Q1, Q2):
+no recommended-skill line for members, the message names the skill; the message is editable. Supersedes the
+"Ready-made message" wording of "E — 팀 초대 링크" and the link-above-the-message part of "X"'s folded invite step.
+
+- **The message** (`lib/team-link.ts` `teamLinkMessage`, keys `teamLink.msg.*`), one short line each, in the team's
+  language (`team.defaultLocale`; the screen's until that dictionary loads): a hello from the person copying it ·
+  "About us: {oneLine}" from the company profile (no line when it is empty, never a blank "About us:") · "Trina, our
+  team's AI, helps us with everyday documents." (no claim about files or tools the team may not have added) · "I set
+  up '{skill}' for us." only when the link names a skill (no "first", no "together": people who join land on Home, not
+  on the skill; without a skill there is no skill line and no suggested first task) · "You'll need your own AI
+  account." when they sign in to their own AI · the link alone on the last line. A skill the lead just made gets the
+  same message (the old `teamLink.messageMade`, "Open the link to use it the same way", is gone: members land on Home).
+  The old one-sentence `teamLink.message*` texts are gone. Home's goal card "Copy invite" copies the same message (the
+  "About us" line, in the team's language: `useMessageWords`).
+- **Editable in place**: the message is a text field that replaces the old preview (no second box); what is in it is
+  what Copy message / Send message sends; an edit that took the link out gets it back on its own last line when
+  copied or sent. Another skill or a new link starts the message again from its own words.
+- **The invite step (folded) shows the message only**: the link box with Copy link, the QR code, the facts and "Replace
+  with a new link" are all under the one quiet "Manage link" row (the message already ends with the link). A link that
+  opens on this computer only still says so outside the fold. Admin › Members is unchanged (link above the message).
+- **"Done" is the primary once something went out**: after Copy message, Send message (the share sheet's "shared"; a
+  closed sheet changes nothing) or Copy link, the step's "Done" becomes the primary and the copy button steps down, so
+  there is one primary on screen. A copy the browser refused (the copy command answered false) shows no "Copied" and
+  changes nothing.
+- **"Later" asks only on a computer, and only before anything was sent**: "Most teams start with one or two" stays on
+  a computer; on a phone (the bottom sheet), or after the message went out, "Later" skips at once.
+- **Lines that named a landing**: `teamLink.landing` → "The message names '{skill}'" (with Change among the shared
+  skills); the Admin link form's `teamLink.skillHint` → "Named in the invite message." (the skill no longer opens by
+  itself after joining: lane D, member lands on Home); its label `teamLink.skillField` "Skill to try together
+  (optional)" → "Skill (optional)".
+- Removed: the suggested-first-task line and the made-skill sentence (`teamLink.msg.tryAny`, `teamLink.messageMade`, 6
+  languages), the link box + QR from the invite step's first view.
+- Version impact: **patch**.

@@ -4,10 +4,10 @@
 // address and code, the order, a member's own connections in Settings (a Claude token pasted through the terminal
 // fallback), and the https-only note where the browser cannot seal.
 // The mock opens the sealed values with the server's real sealing code, so a value sealed wrongly fails here.
-import { expect, test } from '@playwright/test'
+import { expect, request, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const TOKEN = 'sk-ant-oat01-' + 'e2e'.repeat(15)
 const KEY = 'sk-ant-api03-' + 'k'.repeat(40) + 'WXYZ'
@@ -361,9 +361,10 @@ test('an admin sees and uses the Providers buttons: adds a key with no password,
   await expect(page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')).toBeEnabled()
 })
 
-// Only one AI sign-in runs at a time. When another is in the way, the owner or an admin is told whose it is and stops
-// it from the dialog, then starts their own.
-test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and the start goes through', async ({ page }) => {
+// Only one AI sign-in runs at a time. When the one in the way is the person's own (started elsewhere, a tab they closed),
+// the dialog says so and "Stop it and start again" ends it and starts the new one in one press (QA TC-2581). Whose it is,
+// for the owner and admins when it is someone else's, is covered in tests/unit/a-credentials-claude-login.test.ts.
+test('my own sign-in in the way: the dialog says so, and Stop it and start again goes through in one press', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const call = (method: 'patch' | 'post', url: string, data: object) => page.request[method](url, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -378,11 +379,65 @@ test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and th
   await page.getByTestId('plan-notice-ack').check()
   await page.getByTestId('credential-submit').click()
   const busy = page.getByTestId('login-busy')
-  await expect(busy).toBeVisible()
-  await expect(busy).toContainText('Olga')
+  await expect(busy).toContainText(DICTS.ko['credentials.loginBusyMine'])
+  await expect(page.getByTestId('dialog-error')).toHaveCount(0)
   await busy.getByTestId('login-busy-stop').click()
   await expect(page.getByTestId('login-busy')).toHaveCount(0)
+  await expect(page.getByTestId('claude-open')).toBeVisible()
+})
+
+// QA TC-2581: one sign-in slot for the whole server. A member blocked by someone else's reads a plain wait with the real
+// minutes (never the raw error, never whose); their own left over from a closed tab says so and is stopped and started
+// again in one press; a tab that closes while its sign-in runs stops it (the slot is free for everyone at once).
+test('the one sign-in slot: a member reads a true wait, stops their own leftover, and a closed tab frees it', async ({ page, context }) => {
+  await reset(page)
+  await signIn(page)
+  const call = (method: 'patch' | 'post', url: string, data: object) => page.request[method](url, { headers: { [CSRF_HEADER]: '1' }, data })
+  expect((await call('patch', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })).ok()).toBe(true)
+  const running = await call('post', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'Elsewhere', assignments: [], priority: 100, acknowledgedPlanNotice: true })
+  expect(running.status()).toBe(202)
+  const ownerLogin = (await running.json()) as { loginId: string }
+  await context.clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  // Claude's sign-in waits for the pasted code, so it keeps running (the test server's ChatGPT one ends by itself)
+  const openOwn = async (p = page) => {
+    await p.goto('/settings/providers')
+    await p.getByTestId('my-credential-add-claude').click()
+    await p.getByTestId('kind-anthropic-oauth').check()
+    await p.getByTestId('credential-label').fill('Bob Claude')
+    await p.getByTestId('plan-notice-ack').check()
+    await p.getByTestId('credential-submit').click()
+  }
+  await openOwn()
+  const busy = page.getByTestId('login-busy')
+  await expect(busy).toContainText(DICTS.ko['credentials.loginBusyMember'])
+  await expect(busy.getByTestId('login-busy-left')).toHaveText(/(15|16)분/)
+  await expect(busy).not.toContainText('Olga')
+  await expect(busy.getByTestId('login-busy-stop')).toHaveCount(0)
+  await expect(page.getByTestId('dialog-error')).toHaveCount(0)
+  // nothing to start while it is taken: Start is off, and turns on by itself once the slot is free (no reload)
+  await expect(page.getByTestId('credential-submit')).toBeDisabled()
+  // the owner's ends (stopped by the owner from another browser)
+  const owner = await request.newContext({ baseURL: new URL(page.url()).origin })
+  expect((await owner.post('/api/auth/login', { headers: { [CSRF_HEADER]: '1' }, data: { username: OWNER.username, password: OWNER.password, client: 'web', tokenMode: 'cookie' } })).ok()).toBe(true)
+  expect((await owner.delete(`/api/admin/credential-logins/${ownerLogin.loginId}`, { headers: { [CSRF_HEADER]: '1' } })).status()).toBe(204)
+  await owner.dispose()
+  await expect(page.getByTestId('login-busy')).toHaveCount(0, { timeout: 15_000 })
+  await expect(page.getByTestId('credential-submit')).toBeEnabled()
   await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('claude-open')).toBeVisible()
+  // a second tab of bob's: his own leftover, stopped and started again in one press
+  const tab2 = await context.newPage()
+  await openOwn(tab2)
+  await expect(tab2.getByTestId('login-busy')).toContainText(DICTS.ko['credentials.loginBusyMine'])
+  const restarted = tab2.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/me/credential-logins') && r.status() === 202)
+  await tab2.getByTestId('login-busy-stop').click()
+  const second = (await (await restarted).json()) as { loginId: string }
+  await expect(tab2.getByTestId('claude-open')).toBeVisible()
+  // closing that tab while it runs stops it (its goodbye on pagehide): the first tab can start at once
+  await tab2.close({ runBeforeUnload: true })
+  await expect.poll(async () => ((await (await page.request.get(`/api/me/credential-logins/${second.loginId}`)).json()) as { state: string }).state).toBe('cancelled')
+  await openOwn()
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })
 

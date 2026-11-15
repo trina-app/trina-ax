@@ -92,6 +92,25 @@ test("an Office Mac (the server's own sign-in): guests can't use AI, so only No 
   await expect(page.getByTestId('guest-ai-no-account')).toHaveCount(0)
 })
 
+// QA TC-2580: a member cannot read the AI accounts, so their dialog used to offer "Their own sign-in" on an Office Mac and
+// the guest then read "AI isn't on for you". The cap's read (GET /api/guest-invites/limit) now says it for everyone; a
+// member hears only the first sentence (they cannot reinstall the server).
+test("an Office Mac: a member is offered only No AI, with the first sentence only", async ({ page }) => {
+  await start(page, { username: 'bob', password: 'bob password 1' })
+  expect((await page.request.post('/__test/host-sign-in', { data: { on: true } })).ok()).toBeTruthy()
+  await openRoomAdd(page)
+  await page.getByTestId('invite-guest-row').click()
+  await expect(page.getByTestId('guest-ai-host')).toHaveText('이 서버에서는 게스트가 AI를 쓸 수 없어요.')
+  await expect(page.getByTestId('guest-ai-none')).toBeChecked()
+  await expect(page.getByTestId('guest-ai-own')).toBeDisabled()
+  // the whole choice reads as off (its words too, not only the radio)
+  await expect(page.locator('label[data-off]').filter({ has: page.getByTestId('guest-ai-own') })).toHaveCSS('opacity', '0.5')
+  await expect(page.getByTestId('guest-ai-team')).toHaveCount(0)
+  const created = page.waitForRequest((r) => r.url().endsWith('/api/guest-invites') && r.method() === 'POST')
+  await page.getByTestId('guest-invite-create').click()
+  expect((await created).postDataJSON()).toMatchObject({ ai: { mode: 'none' } })
+})
+
 test('Cancel goes back to the add list', async ({ page }) => {
   await start(page)
   await openRoomAdd(page)

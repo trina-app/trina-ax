@@ -71,7 +71,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       where: 'home',
       prompt: a.company.prompt,
       steps: [read(s.paths.companyIntro), read(brief)],
-      text: `${a.company.text}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- **${s.people[id].name}**, ${s.people[id].title}: ${a.company.people[id]}`).join('\n')}`,
+      text: `${a.company.text}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- ${a.company.personLine.replace('{name}', `**${s.people[id].name}**`).replace('{title}', s.people[id].title).replace('{text}', a.company.people[id])}`).join('\n')}`,
       // the app's own "sources" under the answer
       sources: [s.paths.companyIntro, brief],
     },

@@ -38,13 +38,14 @@ describe('a skill by its title', () => {
 
   test('the ready-made message and the link\'s lines name the skill by its title; an older answer without one, by name', () => {
     const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
-    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toBe(`김팀장님이 ${namedProduct(ko).product}에서 Acme에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toContain(`${namedProduct(ko).product}에서 Acme에 초대할게요.`)
+    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toContain("우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.")
     expect(html).toContain(esc(teamLinkMessage(en, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })))
     expect(html).toContain('data-testid="team-link-skill-name">광고 문구<')
     expect(html).not.toContain('ad-copy')
     const older = renderToStaticMarkup(<TeamLinkView data={link({ skill: { path: AD.path, name: 'ad-copy' } })} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     // without a title: the folder name as words (shared skillLabel), never the raw 'ad-copy'
-    expect(older).toContain(esc("'ad copy' skill"))
+    expect(older).toContain(esc("'ad copy' for us"))
   })
 
   test('the link form\'s skill picker lists titles', () => {
@@ -80,8 +81,10 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     expect(urlEl).toContain(`title="${URL_}"`)
     expect(urlEl).not.toContain('border')
     expect(/<button[^>]*data-testid="team-link-qr"[^>]*>/.exec(html)?.[0]).toContain(`aria-label="${en('members.qr')}"`)
-    expect(/<blockquote[^>]*data-testid="team-link-message"/.exec(html)?.[0]).toContain('border-l-2')
-    expect(/<blockquote[^>]*data-testid="team-link-message"/.exec(html)?.[0]).not.toContain('rounded')
+    // the message: editable in place on the link line's tint, no border (a frame near a phone's edge reads as tight)
+    const field = /<textarea[^>]*data-testid="team-link-message"[^>]*>/.exec(html)?.[0] ?? ''
+    expect(field).toContain('bg-subtle')
+    expect(field).not.toMatch(/\bborder\b/)
     // the facts as one aligned list (label, value; no frame): uses, expiry, the skill, groups, the role without a badge
     expect(html).toContain(`data-testid="team-link-uses">${en('teamLink.uses', { used: 0, max: 20 })}<`)
     expect(/<dl[^>]*data-testid="team-link-facts"[^>]*>/.exec(html)?.[0]).not.toContain('border')
@@ -126,10 +129,11 @@ describe('the team link on a phone: one primary action, no boxes', () => {
         // the rest is one quiet "링크 관리" row, folded; opened, still one primary and no "링크 끄기"
         expect(m.get('team-link-manage').getAttribute('class')).toContain('text-muted')
         expect(m.get('team-link-manage').textContent).toContain(ko('teamLink.manage'))
-        // the link is in view at once (one line); the facts wait in the fold
-        expect(m.find('team-link-url')).not.toBeNull()
+        // the link box and the facts wait in the fold (the message ends with the link)
+        expect(m.find('team-link-url')).toBeNull()
         expect(m.find('team-link-facts')).toBeNull()
         await m.click('team-link-manage')
+        expect(m.find('team-link-url')).not.toBeNull()
         expect(m.find('team-link-facts')).not.toBeNull()
         expect(m.find('team-link-revoke')).toBeNull()
         expect([...m.html().matchAll(/<button[^>]*>/g)].map((b) => b[0]).filter((b) => b.includes('bg-accent '))).toHaveLength(1)

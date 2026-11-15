@@ -4,10 +4,11 @@
 // "later" dialog.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { useState } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { TeamLinkResponse } from '@mycel/shared/api'
 import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
-import { joinNext, readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
+import { joinNext, readJoinToken, teamLinkMessage, withInviteLink } from '../../src/lib/team-link'
 import { namedProduct } from '../../src/lib/tabs'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
 import { forgetPatched, joinsText, linkDiffers, markPatched, TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
@@ -44,17 +45,54 @@ describe('the address', () => {
 })
 
 describe('the ready-made message', () => {
-  test('Korean: who invites, to which team, the product, the link; with a skill, the skill too', () => {
-    const t = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
-    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_ })).toBe(`김하나님이 ${named('ko')}에서 Acme 마케팅에 함께하자고 초대했어요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구' })).toBe(`김하나님이 ${named('ko')}에서 Acme 마케팅에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+  const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
+  const en = (k: MessageKey, p?: Record<string, string | number>) => translate('en', k, p)
+  test('Korean: a hello from the inviter, the team\'s line, what it is for, the skill set up for the team, the link alone on the last line', () => {
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구', about: '병원 마케팅 콘텐츠를 만드는 팀이에요' })).toBe([
+      `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
+      '우리 팀 소개: 병원 마케팅 콘텐츠를 만드는 팀이에요',
+      `우리 팀 AI ${named('ko')}가 일상 문서 작업을 도와줘요.`,
+      "우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.",
+      '아래 링크로 바로 들어오면 돼요.',
+      URL_,
+    ].join('\n'))
   })
-  test('every language names the person, the team, the product, the skill and ends with the whole link', () => {
+  test('no team description: no "우리 팀 소개" line and no blank one; no skill: no skill line (never a made-up first task)', () => {
+    const m = teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, about: '  ' })
+    expect(m).toBe([
+      `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
+      `우리 팀 AI ${named('ko')}가 일상 문서 작업을 도와줘요.`,
+      '아래 링크로 바로 들어오면 돼요.',
+      URL_,
+    ].join('\n'))
+    expect(m).not.toContain('\n\n')
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, about: null })).not.toContain('우리 팀 소개')
+  })
+  test('English, with and without a description and a skill; a description over several lines stays one line', () => {
+    expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_, skill: 'SEO strategy plan', about: 'We make SEO content\nfor clinics' })).toBe([
+      `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
+      'About us: We make SEO content for clinics',
+      `${named('en')}, our team's AI, helps us with everyday documents.`,
+      "I set up 'SEO strategy plan' for us.",
+      'Join with this link:',
+      URL_,
+    ].join('\n'))
+    expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_ }).split('\n')).toEqual([
+      `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
+      `${named('en')}, our team's AI, helps us with everyday documents.`,
+      'Join with this link:',
+      URL_,
+    ])
+    // no name known: a hello without one, never "Hi, it's ."
+    expect(teamLinkMessage(en, { name: ' ', team: 'diontree', url: URL_ }).split('\n')[0]).toBe(`Hi! I'd like you to join diontree on ${named('en')}.`)
+  })
+  test('every language names the person, the team, the product, the description, the skill, keeps to six lines and ends with the link on its own line', () => {
     for (const { id } of LOCALES) {
       const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
-      for (const skill of [null, 'ad-copy']) {
-        const m = teamLinkMessage(t, { name: 'Ana', team: 'Acme Sales', url: URL_, skill })
-        expect({ id, m: m.endsWith(URL_) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(named(id)) && (!skill || m.includes(skill)) }).toEqual({ id, m: true })
+      for (const skill of [null, 'ad-copy']) for (const about of [null, 'Desk fans for small offices']) {
+        const m = teamLinkMessage(t, { name: 'Ana', team: 'Acme Sales', url: URL_, skill, about })
+        const lines = m.split('\n')
+        expect({ id, m: lines.at(-1) === URL_ && lines.length <= 6 && lines.every((l) => l.trim()) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(named(id)) && (!skill || m.includes(skill)) && (!about || m.includes(about)) }).toEqual({ id, m: true })
       }
     }
   })
@@ -67,10 +105,11 @@ describe('the ready-made message', () => {
 
 describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
   const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
-  test('Korean: "본인 AI 계정이 필요해요" before the link sentence, with and without a skill; never without ownAi', () => {
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리', ownAi: true })).toBe(`김하나님이 ${named('ko')}에서 Acme에 함께하자고 초대했어요. '할 일 정리' 스킬을 같이 써 보자고 해요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ownAi: true })).toBe(`김하나님이 ${named('ko')}에서 Acme에 함께하자고 초대했어요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리' })).not.toContain('본인 AI')
+  test('Korean: "본인 AI 계정이 필요해요" on its own line before the link, with and without a skill; never without ownAi', () => {
+    const lines = (o: { skill?: string; ownAi?: boolean }) => teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ...o }).split('\n')
+    expect(lines({ skill: '할 일 정리', ownAi: true }).slice(-4)).toEqual(["우리 팀용으로 '할 일 정리' 스킬을 준비해 뒀어요.", '본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
+    expect(lines({ ownAi: true }).slice(-3)).toEqual(['본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
+    expect(lines({ skill: '할 일 정리' }).join('\n')).not.toContain('본인 AI')
   })
   test('every language: the clause is there only with ownAi, and the message still ends with the whole link', () => {
     for (const { id } of LOCALES) {
@@ -89,12 +128,12 @@ describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
     const render = (d: TeamLinkResponse) => renderToStaticMarkup(<TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />)
     const message = (html: string) => /data-testid="team-link-message">([^<]*)</.exec(html)?.[1] ?? ''
     let html = render(data)
-    expect(message(html)).toBe(`Olga invited you to Acme on ${named('en')} to try the &#x27;Weekly report&#x27; skill together. You can join right away with this link: ${URL_.replace(/&/g, '&amp;')}`)
+    expect(message(html)).toContain(`I set up &#x27;Weekly report&#x27; for us.\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
     expect(message(html)).not.toContain('Quote draft')
     expect(html).toContain('data-testid="team-link-landing"')
     expect(message(html)).not.toContain('own AI account')
     html = render({ ...data, link: { ...data.link!, memberAi: 'connect_own' } })
-    expect(message(html)).toContain("You&#x27;ll need your own AI account. You can join right away")
+    expect(message(html)).toContain("You&#x27;ll need your own AI account.\nJoin with this link:")
     // a team whose AI answers everyone (or an older server): no clause
     for (const memberAi of ['ready', 'ask_owner', undefined] as const) expect(message(render({ ...data, link: { ...data.link!, memberAi } }))).not.toContain('own AI account')
   })
@@ -130,10 +169,11 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('Copy link')
     expect(html).toContain('Copy message')
     // a skill without a title: its folder name as words, never the raw 'ad-copy' (also when the title only repeats it)
-    expect(html).toContain(`Olga invited you to Acme on ${named('en')} to try the &#x27;ad copy&#x27; skill together.`)
+    expect(html).toContain(`Hi, it&#x27;s Olga. I&#x27;d like you to join Acme on ${named('en')}.`)
+    expect(html).toContain('I set up &#x27;ad copy&#x27; for us.')
     expect(html).not.toContain('&#x27;ad-copy&#x27;')
     const repeated = view({ ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/quote-maker/SKILL.md', name: 'quote-maker', title: 'quote-maker' } } })
-    expect(repeated).toContain('&#x27;quote maker&#x27; skill')
+    expect(repeated).toContain('&#x27;quote maker&#x27; for us')
     expect(repeated).not.toContain('quote-maker&#x27;')
     expect(html).toContain('data-testid="team-link-uses">3 of 10<')
     expect(html).toContain('data-testid="team-link-seats">6<')
@@ -191,8 +231,12 @@ describe('folded (the invite step): the message, one copy button, the rest under
     expect(/<div[^>]*data-testid="team-link-manage-panel"[^>]*>/.exec(html)?.[0]).toContain('hidden=""')
     for (const hidden of ['team-link-facts', 'team-link-uses', 'team-link-replace', 'team-link-revoke'])
       expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
-    // the link and its Copy button show at once, above the message (one line, cut in the middle)
-    for (const shown of ['team-link-url', 'team-link-copy-link', 'team-link-qr']) expect({ shown, there: html.includes(`data-testid="${shown}"`) }).toEqual({ shown, there: true })
+    // the link box, its Copy link and the QR code wait under "링크 관리" too: the message ends with the link
+    for (const hidden of ['team-link-url', 'team-link-copy-link', 'team-link-qr']) expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
+    // the step's copy button is the primary until something was sent
+    expect(/<button[^>]*data-testid="team-link-copy-message"[^>]*>/.exec(html)?.[0]).toContain('bg-accent text-accent-ink')
+    // a link that opens on this computer only still says so outside the fold (QA TC-211)
+    expect(view({ ...LINK, link: { ...LINK.link!, url: 'http://127.0.0.1:47820/join#t=AbCdEfGhIjKlMnOpQrSt' } }, null, true)).toContain('data-testid="local-link-note"')
   })
   test('a link held back by its limit still says so, outside the fold', () => {
     const html = view({ ...LINK, link: { ...LINK.link!, limitedUntil: '2026-11-04T10:00:00.000Z' } }, null, true)
@@ -487,10 +531,12 @@ describe('on screen', () => {
     const made: unknown[] = []
     const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
     try {
-      expect(m.get('team-link-url').textContent).toBe(URL_)
+      expect(m.find('team-link-url')).toBeNull()
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('false')
       await m.click('team-link-manage')
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('true')
+      expect(m.get('team-link-url').textContent).toBe(URL_)
+      expect(m.find('team-link-qr')).not.toBeNull()
       const panel = m.get('team-link-manage-panel')
       expect(panel.hasAttribute('hidden')).toBe(false)
       expect(m.get('team-link-manage').getAttribute('aria-controls')).toBe(panel.id)
@@ -502,6 +548,26 @@ describe('on screen', () => {
       await m.click('team-link-create')
       expect(made).toEqual([{ groupIds: [], expiresInDays: 14, skillPath: 'skills/marketing/ad-copy/SKILL.md' }])
     } finally { await m.unmount() }
+  })
+
+  test('the message: the team\'s line in it, in the team\'s language, edited in place; Copy message copies what is there; empty copies nothing', async () => {
+    const copied: string[] = []
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { ...globalThis.navigator, clipboard: { writeText: async (x: string) => void copied.push(x) } } })
+    const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" about="책상 선풍기를 만드는 팀이에요" messageLocale="ko" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} />)
+    const field = () => m.get('team-link-message') as unknown as { value: string }
+    try {
+      expect(field().value.split('\n').slice(0, 2)).toEqual([`안녕하세요, Olga입니다. ${named('ko')}에서 Acme에 초대할게요.`, '우리 팀 소개: 책상 선풍기를 만드는 팀이에요'])
+      await m.type('team-link-message', `민지님, 같이 해요!\n${URL_}`)
+      expect(field().value).toBe(`민지님, 같이 해요!\n${URL_}`)
+      await m.click('team-link-copy-message')
+      expect(copied).toEqual([`민지님, 같이 해요!\n${URL_}`])
+      await m.type('team-link-message', '  ')
+      expect(m.get('team-link-copy-message').hasAttribute('disabled')).toBe(true)
+    } finally {
+      await m.unmount()
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+    }
   })
 
   test('folded, no link yet: "링크 관리" opens the settings; what is set there goes with the one press', async () => {
@@ -543,9 +609,12 @@ describe('on screen', () => {
     await m.click('team-link-create')
     await m.until(() => m.find('team-link-message'), 'the link')
     expect(JSON.parse(calls.find((c) => c.key === 'POST /api/admin/team-link')!.body!)).toEqual({ groupIds: [], expiresInDays: 14 })
-    expect(m.get('team-link-message').textContent).toContain(URL_)
-    // the link shows in one line; no "링크 끄기" in this step
+    expect((m.get('team-link-message') as unknown as { value: string }).value).toContain(URL_)
+    // the link box waits under "링크 관리" (the message holds the link); no "링크 끄기" in this step
+    expect(m.find('team-link-url')).toBeNull()
+    await m.click('team-link-manage')
     expect(m.find('team-link-url')).not.toBeNull()
+    expect(m.find('team-link-qr')).not.toBeNull()
     expect(m.find('team-link-revoke')).toBeNull()
     // later → the soft dialog; 초대하기 goes back, 나중에 skips
     await m.click('invite-step-skip')
@@ -559,6 +628,46 @@ describe('on screen', () => {
     await m.click('invite-step-done')
     expect(done).toBe(1)
     } finally { await m.unmount() }
+  })
+
+  test('InviteStep: after Copy message, "Done" is the one primary and "Later" no longer asks; on a phone "Later" skips with no dialog', async () => {
+    routes = {
+      'GET /api/admin/groups': () => json(200, { items: [] }),
+      'GET /api/admin/team-link': () => json(200, LINK),
+    }
+    const copied: string[] = []
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    const g = globalThis as Record<string, unknown>
+    const media = g.matchMedia
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { ...globalThis.navigator, clipboard: { writeText: async (x: string) => void copied.push(x) } } })
+    const primary = (id: string) => m.get(id).className.includes('bg-accent text-accent-ink')
+    let skipped = 0
+    let m = await mount(<MemoryRouter><InviteStep onDone={noop} onSkip={() => skipped++} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('team-link-message'), 'the message')
+      expect(primary('team-link-copy-message')).toBe(true)
+      expect(primary('invite-step-done')).toBe(false)
+      await m.click('team-link-copy-message')
+      await m.until(() => copied.length === 1, 'copied')
+      await m.until(() => primary('invite-step-done'), 'Done turns primary')
+      expect(primary('team-link-copy-message')).toBe(false)
+      // already sent: "Later" skips with no dialog, on a computer too
+      await m.click('invite-step-skip')
+      expect(m.find('invite-step-later')).toBeNull()
+      expect(skipped).toBe(1)
+      await m.unmount()
+      // a phone (no share sheet in this DOM): "Later" skips at once
+      g.matchMedia = (q: string) => ({ matches: q.includes('767.98'), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+      m = await mount(<MemoryRouter><InviteStep onDone={noop} onSkip={() => skipped++} /></MemoryRouter>)
+      await m.until(() => m.find('team-link-message'), 'the message on a phone')
+      await m.click('invite-step-skip')
+      expect(m.find('invite-step-later')).toBeNull()
+      expect(skipped).toBe(2)
+    } finally {
+      await m.unmount()
+      g.matchMedia = media
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+    }
   })
 })
 
@@ -673,7 +782,7 @@ describe('the team\'s group and the invite\'s skill', () => {
       try {
         await m.until(() => m.find('team-link-message'), 'the message')
         expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: QUOTES, addGroupIds: [GROUP] }])
-        expect(m.get('team-link-message').textContent).toContain("'견적서 쓰기' 스킬을 같이 써 보자고 해요")
+        expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("우리 팀용으로 '견적서 쓰기' 스킬을 준비해 뒀어요")
         expect(called('POST /api/admin/team-link')).toEqual([])
       } finally { await m.unmount() }
       // opened again: the link leads there now, nothing to change
@@ -684,6 +793,121 @@ describe('the team\'s group and the invite\'s skill', () => {
         await m.settle(30)
         expect(called('PATCH /api/admin/team-link')).toEqual([])
       } finally { await m.unmount() }
+    })
+
+    // review of #845: the message's words (team language, the profile line), an edit across a change, copy without the
+    // link, and what counts as sent
+    const panelRoutes = (profile: () => Response) => ({
+      'GET /api/onboarding/welcome': () => json(200, { progress }),
+      'GET /api/admin/groups': () => json(200, { items: groups }),
+      'GET /api/admin/team-link': () => json(200, LINK),
+      'GET /api/onboarding/profile': profile,
+    })
+    const PROFILE = { website: '', oneLine: 'We make desk fans', products: '', audience: '', tone: [], avoid: '', sources: [], updatedAt: '2026-11-15T00:00:00.000Z' }
+
+    test('the message is in the team\'s language while the screen is in another; the profile line is in it', async () => {
+      useSession.setState({ status: { kind: 'signed-in', me: { ...owner, team: { ...owner.team, defaultLocale: 'en' } } } } as never)
+      routes = panelRoutes(() => json(200, { profile: PROFILE }))
+      const m = await mount(<MemoryRouter><TeamLinkPanel skillPicker={false} folded /></MemoryRouter>)
+      try {
+        const msg = await m.until(() => (m.find('team-link-message') as unknown as { value: string } | null)?.value, 'the message')
+        expect(msg.split('\n').slice(0, 2)).toEqual([`Hi, it's Olga. I'd like you to join Acme on ${named('en')}.`, 'About us: We make desk fans'])
+        // the screen around it stays Korean
+        expect(m.get('team-link-copy-message').textContent).toContain(translate('ko', 'teamLink.copyMessage'))
+      } finally {
+        await m.unmount()
+        useSession.setState({ status: { kind: 'signed-in', me: owner } } as never)
+      }
+    })
+
+    test('a profile that cannot be read: no "About us" line, the message still shows', async () => {
+      routes = panelRoutes(() => json(500, { error: { code: 'internal', message: 'x' } }))
+      const m = await mount(<MemoryRouter><TeamLinkPanel skillPicker={false} folded /></MemoryRouter>)
+      try {
+        const msg = await m.until(() => (m.find('team-link-message') as unknown as { value: string } | null)?.value, 'the message')
+        expect(msg).not.toContain('우리 팀 소개')
+        expect(msg.startsWith('안녕하세요, Olga입니다.')).toBe(true)
+        expect(msg.endsWith(URL_)).toBe(true)
+      } finally { await m.unmount() }
+    })
+
+    test('an edit stays while the message is the same, and starts again from the new words after another skill or link', async () => {
+      let swap: (d: TeamLinkResponse) => void = noop
+      function Harness() {
+        const [d, setD] = useState<TeamLinkResponse>(LINK)
+        swap = setD
+        return <TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} />
+      }
+      const m = await mount(<Harness />)
+      const field = () => (m.get('team-link-message') as unknown as { value: string }).value
+      try {
+        await m.type('team-link-message', `Mina, join us\n${URL_}`)
+        // the same link read again (a new object, the same message): the edit stays
+        swap({ ...LINK, link: { ...LINK.link! } })
+        await m.settle(10)
+        expect(field()).toBe(`Mina, join us\n${URL_}`)
+        // another skill: the message starts again from its own words
+        swap({ ...LINK, link: { ...LINK.link!, skill: { path: QUOTES, name: 'quotes', title: 'Quotes' } } })
+        await m.until(() => field().includes("'Quotes'"), 'the new skill in the message')
+        expect(field()).not.toContain('Mina')
+        // a new link (another address): the same
+        await m.type('team-link-message', 'Mina, join us')
+        const other = URL_.replace(TOKEN, 'Zz' + TOKEN.slice(2))
+        swap({ ...LINK, link: { ...LINK.link!, url: other, skill: { path: QUOTES, name: 'quotes', title: 'Quotes' } } })
+        await m.until(() => field().endsWith(other), 'the new address')
+        expect(field()).not.toContain('Mina')
+      } finally { await m.unmount() }
+    })
+
+    test('an edit without the link: Copy message puts the link back on its own last line', async () => {
+      expect(withInviteLink('Hi', 'https://x/join#t=a')).toBe('Hi\nhttps://x/join#t=a')
+      expect(withInviteLink('Hi  \n', 'https://x/join#t=a')).toBe('Hi\nhttps://x/join#t=a')
+      expect(withInviteLink('Hi https://x/join#t=a', 'https://x/join#t=a')).toBe('Hi https://x/join#t=a')
+      const copied: string[] = []
+      const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+      Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { ...globalThis.navigator, clipboard: { writeText: async (x: string) => void copied.push(x) } } })
+      const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} />)
+      try {
+        await m.type('team-link-message', '민지님, 같이 해요!')
+        await m.click('team-link-copy-message')
+        await m.until(() => copied.length, 'copied')
+        expect(copied).toEqual([`민지님, 같이 해요!\n${URL_}`])
+      } finally {
+        await m.unmount()
+        if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+      }
+    })
+
+    test('sent means sent: a used share sheet calls onSent, a closed one and a refused copy do not', async () => {
+      const g = globalThis as Record<string, unknown>
+      const media = g.matchMedia
+      const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+      let answer: 'shared' | 'cancelled' = 'cancelled'
+      g.matchMedia = (q: string) => ({ matches: q.includes('767.98'), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+      Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: {
+        ...globalThis.navigator,
+        share: async () => { if (answer === 'cancelled') throw Object.assign(new Error('closed'), { name: 'AbortError' }) },
+        // a refused clipboard, and no copy command in this DOM: nothing was copied
+        clipboard: { writeText: async () => { throw new Error('denied') } },
+      } })
+      let sent = 0
+      const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} onSent={() => sent++} />)
+      try {
+        await m.click('team-link-share')
+        await m.settle(20)
+        expect(sent).toBe(0)
+        await m.click('team-link-copy-message')
+        await m.settle(20)
+        expect(sent).toBe(0)
+        expect(m.get('team-link-copy-message').textContent).not.toContain(translate('ko', 'common.copied'))
+        answer = 'shared'
+        await m.click('team-link-share')
+        await m.until(() => sent === 1, 'sent once')
+      } finally {
+        await m.unmount()
+        g.matchMedia = media
+        if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+      }
     })
   })
 })

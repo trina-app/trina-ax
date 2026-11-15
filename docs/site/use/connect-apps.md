@@ -29,7 +29,7 @@ in a picture.
 | Ask Trina AX from Slack | An admin once, then each person once | **Admin › Connected apps › Slack** | [Slack](slack.md) |
 | Let the AI use Notion, Linear, Atlassian, Figma, GitHub and other apps | You for yourself, an admin for the team | **Settings › Connectors** or **Admin › Connected apps** | [Notion, Linear and other apps](mcp.md) |
 | Let the AI use your company's own system (an API) or an app that needs your own sign-in app, such as NAVER WORKS | An admin | **Admin › Connected apps** › **Add one by its address** | [Your company's API](api-connections.md) |
-| Use your Trina AX files from Claude or ChatGPT | You | **Settings › Use from other AI apps** | [Team AX MCP connector](../agents/mcp-connector.md) |
+| Use your Trina AX files from Claude or ChatGPT | You | **Settings › Trina AX MCP** | [Team AX MCP connector](../agents/mcp-connector.md) |
 
 To open **Settings**, choose your photo at the bottom of the bar on the left, then **Settings** (on a phone, the **Me**
 tab). **Admin** is in the same menu for the owner and admins.

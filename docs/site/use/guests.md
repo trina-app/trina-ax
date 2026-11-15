@@ -49,9 +49,9 @@ them yourself, by email or in a chat. The link works once, for 7 days; the dialo
 ![The link for Dana Cole, with Copy link and Done: It works once. Send it to them yourself, by email or chat.](../images/guests/invite-link.webp "The guest's link")
 :::
 
-The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used.
+The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used or expires.
 
-A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working, and its row in **Admin › Members & invites** says so instead of showing a date. Someone else who can invite makes a new link.
+A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
 
 ## What the guest sees
 
