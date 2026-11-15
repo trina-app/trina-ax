@@ -4200,6 +4200,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.deleteTitle": "Hapus pesan ini?",
   "rooms.deleteBody": "Pesan dan filenya dihapus untuk semua orang di ruang ini. Ini tidak bisa dibatalkan.",
   "rooms.editLabel": "Edit pesan",
+  "rooms.editNotSaved": "Perubahan Anda belum tersimpan. {reason}",
   "rooms.editingNow": "Mengedit pesan",
   "rooms.placeholder": "Tulis pesan",
   "rooms.placeholderEmptySide": "Pesan · ✦ tanya pribadi",
