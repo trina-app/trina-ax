@@ -5,6 +5,9 @@
 // connection template notice at join; the welcome card's state, for the caller only.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { FROM_COMPUTER_DIR } from '@mycel/shared'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 import { ALL_SET_MS } from '../../server/src/onboarding/member-welcome'
 import { Plan, seatsUsed, setPlanForTests } from '../../server/src/system/limits'
@@ -256,6 +259,34 @@ describe('the card', () => {
     const room = await everyone(m.client)
     await m.client.call('POST', `/api/rooms/${room.id}/messages`, { body: 'hello', clientMessageId: cm() })
     expect((await m.client.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { photo: false }, allSet: true })
+  })
+
+  test('the optional files row: done while a file is in My files › From this computer; never counted, never holds back all set', async () => {
+    const m = await addMember(h, owner, { username: 'fern' })
+    expect((await welcome(m.client)).steps.files).toBe(false)
+    const base = path.join(h.ctx.files.fx.root, 'users', m.id, FROM_COMPUTER_DIR)
+    // folders alone, a hidden file (an upload's temp name), a symbolic link: not a file there
+    fs.mkdirSync(path.join(base, 'Documents', 'Clients'), { recursive: true })
+    fs.writeFileSync(path.join(base, 'Documents', '.part-1'), 'x')
+    fs.symlinkSync('/etc/hosts', path.join(base, 'Documents', 'hosts'))
+    expect((await welcome(m.client)).steps.files).toBe(false)
+    fs.writeFileSync(path.join(base, 'Documents', 'Clients', 'Quote.xlsx'), 'q')
+    expect((await welcome(m.client)).steps.files).toBe(true)
+    // Undo takes the files back through the file route (to the trash, outside the folder): not done again
+    await m.client.call('DELETE', `/api/files?path=${encodeURIComponent(`users/${m.id}/${FROM_COMPUTER_DIR}/Documents/Clients/Quote.xlsx`)}`)
+    expect(fs.existsSync(path.join(base, 'Documents', 'Clients', 'Quote.xlsx'))).toBe(false)
+    expect((await welcome(m.client)).steps.files).toBe(false)
+    // From this computer itself a link to a folder with files: not followed
+    const elsewhere = fs.mkdtempSync(path.join(h.ctx.files.fx.root, '..', 'elsewhere-'))
+    fs.writeFileSync(path.join(elsewhere, 'other.txt'), 'x')
+    fs.rmSync(base, { recursive: true, force: true })
+    fs.symlinkSync(elsewhere, base)
+    expect((await welcome(m.client)).steps.files).toBe(false)
+    fs.rmSync(base)
+    // all set without it
+    const room = await everyone(m.client)
+    await m.client.call('POST', `/api/rooms/${room.id}/messages`, { body: 'hello', clientMessageId: cm() })
+    expect((await m.client.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { files: false }, allSet: true })
   })
 
   test('Hide is for good; the days run out; only the caller\'s own card', async () => {
