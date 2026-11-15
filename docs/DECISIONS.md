@@ -28379,3 +28379,18 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **The limit is a notice, not an error, also before the send.** The server refuses a send at a used-up limit before the AI runs (`budget_exceeded`, with the guest's wording and the reset date), and the box showed it in red like a fault. The message box (`Composer`) and a refused user message ("Not sent.") now show it as a neutral line with the pause icon, as the answer's own limit notice already did. "Send again" stays on the message (it works once an admin raises the limit or the month turns). Left as it was: the room's ✦ side chat also shows a warn toast for it (the "Not sent." line in the chat is calm now).
 - **Docs:** the guest limits table lists Free trial 10 (the Free plan is gone, owner 2026-11-14).
 - **Checked and fine:** the full invite dialog (owner, admin, member, store app without "See plans"); an older link at the cap keeps the typed fields; a freed seat works at once; See plans opens a new tab and loses no picks; the guest's AI stops exactly at the limit and resumes in the same chat when the limit is raised or the month turns.
+
+## Admin › Members & invites lists only working links; no guests, no Guests section (fix/admin-invites-lean, owner 2026-11-15, QA TC-2540)
+
+- **Asked:** the owner saw every past link under **Invite links** ("Member · Joins no groups · Used by X", "Expired")
+  and asked why; a lean page lists what can still be acted on.
+- **Invite links** shows the team invite link only while its state is `active`, and single-use links only while unused
+  and before their end date (`openInviteLinks`, `workingTeamLink` in `pages/admin/Members.tsx`). The server already
+  leaves revoked ones out. With no working link the section is not drawn. Who joined is in the member list and the
+  Activity log; an expired or full team link is still explained in the header's **Team invite link** popup.
+  `GET /api/admin/invites` is unchanged (it still returns used ones; other screens and the handover card read it).
+- **Guests:** a team with no guest at all has no **Guests** section (no "No guests yet" row). The Role filter's
+  **Guests** still shows the section with its empty line, so picking it never shows a blank page. A search that finds
+  no guest in a team that has some keeps "No match".
+- The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
+- Version impact: **patch** (fewer rows on one admin page).

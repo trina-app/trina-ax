@@ -2116,8 +2116,6 @@ export const id: Record<MessageKey, string> = {
   'members.scheduleReviewsDesc': 'Tugas ini dibuat tanpa kartu konfirmasi dan dijeda. Tugas berjalan lagi setelah pemiliknya memeriksanya di Terjadwal. Hanya pemilik yang melihat judul dan instruksinya.',
   'members.scheduleReviewSince': 'dijeda sejak {date}',
   'members.noGroups': 'Tanpa grup',
-  'members.usedBy': 'Dipakai oleh {name}',
-  'members.expired': 'Kedaluwarsa',
   'members.expires': 'Sampai {date}',
   'members.stoppedInviter': "Tidak berlaku lagi: pembuatnya tidak bisa mengundang lagi",
   'members.stoppedPlace': "Tidak berlaku lagi: ruang obrolan atau proyeknya sudah tidak ada",

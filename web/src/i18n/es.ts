@@ -2085,8 +2085,6 @@ export const es: Record<MessageKey, string> = {
   'members.scheduleReviewsDesc': "Se crearon sin su tarjeta de confirmación y están en pausa. Vuelven a ejecutarse solo cuando su propietario las revise en Programadas. Solo el propietario ve el título y la instrucción.",
   'members.scheduleReviewSince': "en pausa desde {date}",
   'members.noGroups': "Sin grupos",
-  'members.usedBy': "Usado por {name}",
-  'members.expired': "Vencido",
   'members.expires': "Hasta {date}",
   'members.stoppedInviter': "Ya no funciona: quien lo creó ya no puede invitar",
   'members.stoppedPlace': "Ya no funciona: la sala o el proyecto ya no existe",

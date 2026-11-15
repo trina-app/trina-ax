@@ -2116,8 +2116,6 @@ export const en: Record<MessageKey, string> = {
   'members.scheduleReviewsDesc': 'These were made without their confirmation card and are paused. They run again only after their owner checks them on the Scheduled page. Only the owner sees the title and instruction.',
   'members.scheduleReviewSince': 'paused since {date}',
   'members.noGroups': 'No groups',
-  'members.usedBy': 'Used by {name}',
-  'members.expired': 'Expired',
   'members.expires': 'Until {date}',
   'members.stoppedInviter': "No longer works: the person who made it can't invite any more",
   'members.stoppedPlace': "No longer works: the chat or project is gone",

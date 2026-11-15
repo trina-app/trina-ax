@@ -2115,8 +2115,6 @@ export const ko = {
   'members.scheduleReviewsDesc': '확인 카드 없이 만들어져서 멈춰 둔 예약 작업이에요. 본인이 예약 작업에서 다시 확인해야 다시 실행돼요. 제목과 지시문은 본인만 볼 수 있어요.',
   'members.scheduleReviewSince': '{date}부터 멈춤',
   'members.noGroups': '부서 없음',
-  'members.usedBy': '{name}님이 사용함',
-  'members.expired': '만료됨',
   'members.expires': '{date}까지',
   'members.stoppedInviter': "더는 쓸 수 없어요: 만든 사람이 더 이상 초대할 수 없어요",
   'members.stoppedPlace': "더는 쓸 수 없어요: 채팅방이나 프로젝트가 없어졌어요",

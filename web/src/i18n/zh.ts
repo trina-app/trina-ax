@@ -2082,8 +2082,6 @@ export const zh: Record<MessageKey, string> = {
   "members.scheduleReviewsDesc": "这些任务创建时没有经过确认卡片，已暂停。只有在其所有者于“定时任务”页面检查后才会再次运行。只有所有者能看到标题和指令。",
   "members.scheduleReviewSince": "自{date}起暂停",
   "members.noGroups": "没有小组",
-  "members.usedBy": "已由{name}使用",
-  "members.expired": "已过期",
   "members.expires": "有效期至{date}",
   "members.stoppedInviter": "已失效：创建者不能再邀请",
   "members.stoppedPlace": "已失效：聊天室或项目已不存在",

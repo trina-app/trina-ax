@@ -2085,8 +2085,6 @@ export const ja: Record<MessageKey, string> = {
   'members.scheduleReviewsDesc': "確認カードなしで作成されたため一時停止中の定期タスクです。本人が定期タスクで再確認すると再び実行されます。タイトルと指示は本人だけが見られます。",
   'members.scheduleReviewSince': "{date}から一時停止",
   'members.noGroups': "グループなし",
-  'members.usedBy': "{name}が使用",
-  'members.expired': "期限切れ",
   'members.expires': "{date}まで",
   'members.stoppedInviter': "使えなくなりました: 作った人がもう招待できません",
   'members.stoppedPlace': "使えなくなりました: ルームまたはプロジェクトがなくなりました",
