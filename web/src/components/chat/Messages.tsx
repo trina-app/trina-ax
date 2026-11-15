@@ -118,7 +118,7 @@ const typeOf = (name: string) => {
 /** The failed answers whose words send a member to an admin (no AI, the AI not ready; the monthly limit is the error
  * code budget_exceeded): a guest reads "ask the person who invited you" instead (lib/guests.ts). */
 // (a guest with their own sign-in reads the member's "connect your own" for the no-AI ones, with its button)
-const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'trial_credit_used', 'trial_ended', 'engine_missing'])
+const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'engine_missing'])
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()

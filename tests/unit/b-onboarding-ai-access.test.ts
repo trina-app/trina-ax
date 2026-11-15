@@ -7,7 +7,6 @@ import path from 'node:path'
 import { setSetting } from '../../server/src/admin/settings'
 import { MEMBER_OWN_KEY } from '../../server/src/credentials/policy'
 import { credentialsOf } from '../../server/src/credentials/store'
-import { chargeHostedChat, HOSTED_CHAT_USAGE_SETTING, writeHostedChatKey } from '../../server/src/credentials/hosted-chat'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { addCred } from '../lib/credentials'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -93,42 +92,19 @@ describe('asking again', () => {
   })
 })
 
-describe('the hosting service\'s trial AI credit (streams B and Z)', () => {
-  test('usable while it is active; used up or over: the same buttons, and the reason first', async () => {
+describe('no hosted trial AI credit (removed 2026-11-15)', () => {
+  test('a team with no AI connection: nothing answers, no trial line, no trial-credit endpoint', async () => {
     const cc = credentialsOf(h.ctx)
-    const grant = { key: 'sk-or-v1-TRIAL-' + 'x'.repeat(40), capUsd: 5, endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), enabled: true }
     h.ctx.db.query('DELETE FROM engine_credentials').run()
-    writeHostedChatKey(cc, grant)
     try {
-      // active: it answers everyone who has no connection, so no banner, and nobody needs to ask
-      expect(await access(owner)).toEqual({ usable: true, action: 'connect_team', requested: false })
-      expect((await access(noa.client)).usable).toBe(true)
-      expect((await noa.client.try('POST', '/api/me/ai-access/request')).status).toBe(403)
-
-      // used up: nothing answers; each person gets their button, and the line says why first
-      chargeHostedChat(h.ctx.db, 5)
-      expect(await access(owner)).toEqual({ usable: false, action: 'connect_team', requested: false, trial: 'used' })
-      expect(await access(admin)).toMatchObject({ usable: false, action: 'connect_team', trial: 'used' })
-      setSetting(h.ctx.db, MEMBER_OWN_KEY, true)
-      expect(await access(noa.client)).toMatchObject({ usable: false, action: 'connect_own', trial: 'used' })
-      setSetting(h.ctx.db, MEMBER_OWN_KEY, false)
-      expect(await noa.client.call('POST', '/api/me/ai-access/request')).toEqual({ requested: true, already: false })
-      expect(await access(noa.client)).toEqual({ usable: false, action: 'ask_owner', requested: true, trial: 'used' })
-
-      // over: switched off, or past its end (a new grant with room left but off still says ended)
-      h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(HOSTED_CHAT_USAGE_SETTING)
-      writeHostedChatKey(cc, { ...grant, enabled: false })
-      expect((await access(owner)).trial).toBe('ended')
-      writeHostedChatKey(cc, { ...grant, endsAt: new Date(Date.now() - 60_000).toISOString() })
-      expect((await access(mia.client)).trial).toBe('ended')
-
-      // a connection of the team takes over: usable, no trial line
+      expect(await access(owner)).toEqual({ usable: false, action: 'connect_team', requested: false })
+      expect(await access(noa.client)).toMatchObject({ usable: false })
+      expect((await access(noa.client)).trial).toBeUndefined()
+      expect((await owner.try('GET', '/api/admin/trial-credit')).status).toBe(404)
+      // a connection of the team answers as before
       addCred(cc, 'anthropic-api-key', 'sk-ant-api03-' + 'team2'.padEnd(40, 'k'))
       expect(await access(owner)).toEqual({ usable: true, action: 'connect_team', requested: false })
-      expect((await access(noa.client)).trial).toBeUndefined()
     } finally {
-      writeHostedChatKey(cc, null)
-      h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(HOSTED_CHAT_USAGE_SETTING)
       h.ctx.db.query('DELETE FROM engine_credentials').run()
     }
   })

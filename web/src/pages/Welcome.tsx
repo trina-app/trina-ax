@@ -267,7 +267,7 @@ function WelcomeSteps() {
     return true
   }
   const mark = (id: WelcomeStep, state: WelcomeStepState) => run(async () => void (await go(await useWelcome.getState().update({ step: { id, state } }), id)))
-  /** AI answers now (connected in the dialog, in another tab, or a trial credit arrived): recorded once, so the progress
+  /** AI answers now (connected in the dialog or in another tab): recorded once, so the progress
    * keeps the step, then where the steps resume with AI (an open step, else a counted step that was put off: the one
    * the owner came back for), the end when nothing is left */
   const aiConnected = () => run(async () => {
@@ -317,7 +317,7 @@ function WelcomeSteps() {
         <Skeleton lines={5} />
       </Page>
     )
-  // AI went away after the steps started (a key removed, the trial credit used): the AI step holds back 회사 소개
+  // AI went away after the steps started (a key removed): the AI step holds back 회사 소개
   const gate = step === 'ai' || (!aiReady && step !== 'done' && needsAi(step))
   // a computer's "← 이전" (a phone's is the bar's ‹, the history's own Back)
   const back = gate || step === 'done' || !computer ? null : prevStep(step, computer)
@@ -581,8 +581,8 @@ function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (
 }
 
 /**
- * AI 연결, only while no AI answers the owner (GET /api/me/ai-access; a hosted trial credit, a managed engine or any
- * working connection skips it). One reason line, then the shared way to connect (components/onboarding/ConnectAi.tsx:
+ * AI 연결, only while no AI answers the owner (GET /api/me/ai-access; a managed engine or any working connection
+ * skips it). One reason line, then the shared way to connect (components/onboarding/ConnectAi.tsx:
  * "Claude 구독 연결" (추천), "ChatGPT 구독 연결" and "API 키로 연결" at once, and a quiet line to the AI engines page;
  * the same panel is Home's card and the same dialog opens from "AI 연결하기" anywhere). When AI answers, the steps move
  * on by themselves (WelcomeSteps). "나중에

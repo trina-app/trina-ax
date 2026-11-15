@@ -22,7 +22,7 @@
 //	mycel-ctl supervise
 //	mycel-ctl notices-set | set-server-config | relay-registration-set | relay-key-proof | idle-wait | prepare-stop |
 //	          backup-prepare | backup-upload | export | reset-link | owner-recovery-claimed | setup-token-rotate | credentials-escrow-out |
-//	          hosted-speech-key-set | hosted-chat-key-set
+//	          hosted-speech-key-set
 //	          (the hosted service's tenant commands, tenant.go)
 package main
 
@@ -89,7 +89,7 @@ tenant commands of the hosted service (ax-hostd, control-plane 3.5.3; every one 
   relay-key-proof --team-id T | idle-wait --max S [--activity] | prepare-stop --grace S | backup-prepare --kind K [--local-id ID]
   backup-upload | export | reset-link --owner|--username U (exit 3: owner_recovery_locked) | owner-recovery-claimed
   setup-token-rotate | credentials-escrow-out --recipient R | data-grow
-  hosted-speech-key-set | hosted-chat-key-set (the key on stdin only)`
+  hosted-speech-key-set (the key on stdin only)`
 
 // run is the whole program; main() (Linux) exits with its result.
 func run(args []string) int { return runEnv(newEnv(), args) }
@@ -165,8 +165,6 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdCredentialsEscrowOut(e, rest)
 	case "hosted-speech-key-set":
 		code, err = cmdHostedSpeechKeySet(e, rest)
-	case "hosted-chat-key-set":
-		code, err = cmdHostedChatKeySet(e, rest)
 	case "server-write": // internal: re-executed as the server account (tenant.go asServer)
 		code, err = cmdServerWrite(e, rest)
 	case "server-config-merge": // internal: re-executed as the server account

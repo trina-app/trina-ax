@@ -85,7 +85,6 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-import { createTrialMeter, HOSTED_CHAT_ID, HOSTED_CHAT_MAX_TOKENS, hostedChatConf, hostedChatState } from '../credentials/hosted-chat'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
@@ -621,9 +620,7 @@ export class TurnExec {
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
     // a Claude Code or Codex turn that no AI connection of this person can answer goes to the other of the two while
-    // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so), else, while the hosting service's
-    // trial credit is active (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"), runs on the app's own API engine with
-    // the trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
+    // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so)
     // a guest (credentials/guest-ai.ts): never the API engine (the team's key) and never an engine that runs on this
     // server's own sign-in (a self-hosted install without AI connections): "no AI connection", before anything starts
     if (isGuestUser(rt.db, spec.userId)) {
@@ -631,16 +628,15 @@ export class TurnExec {
       if (!managedHere) { this.error = engineError('no_credential', spec.locale); return }
     }
     const route = this.route(confs)
-    const trial = route === 'trial'
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
     // a model named for the chat's engine means nothing to the other one: its default
     const chosenModel = routed ? null : spec.model
     if (routed) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineNoConnection', spec.locale, { from: ENGINE_LABELS[spec.engine], to: ENGINE_LABELS[engine] }), status: 'ok' })
-    const problem = trial ? undefined : confs.problems[engine]
-    const claude = !trial && engine === 'claude-code' ? confs.claude : null
-    const codex = !trial && engine === 'codex' ? confs.codex : null
-    const api = trial ? hostedChatConf(rt.ctx.config) : engine === 'api' ? confs.api ?? null : null
+    const problem = confs.problems[engine]
+    const claude = engine === 'claude-code' ? confs.claude : null
+    const codex = engine === 'codex' ? confs.codex : null
+    const api = engine === 'api' ? confs.api ?? null : null
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -894,16 +890,10 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
     }
-    // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty; a
-    // trial answer is the API engine's on the trial model (turns.engine api: no images, Usage by engine), and Admin ›
-    // Usage by connection names the trial credit. The answer keeps the chat's engine: the person never chose the API
-    // engine, so the chat shows no switch to it and back (only the model says what answered)
-    const { turn, token } = core.turns.create(spec.userId, spec.chatId, trial ? 'api' : engine, api ? api.model : chosenModel, spec.turnId)
+    // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
+    const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true
-    if (trial) {
-      rt.db.query('UPDATE messages SET model = ? WHERE id = ?').run(api!.model, spec.assistantId)
-      rt.db.query('UPDATE turns SET credential_id = ? WHERE id = ?').run(HOSTED_CHAT_ID, spec.turnId)
-    } else if (routed) rt.db.query('UPDATE messages SET engine = ?, model = NULL WHERE id = ?').run(engine, spec.assistantId)
+    if (routed) rt.db.query('UPDATE messages SET engine = ?, model = NULL WHERE id = ?').run(engine, spec.assistantId)
     if (invoked) {
       // Reporting is auxiliary: keep permission checks outside this boundary and omit file/body/error details.
       try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill: invoked.skill, source: 'command' }) }
@@ -1096,20 +1086,15 @@ export class TurnExec {
       const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files, signal: turn.abort.signal }, toolSet)
       const errors: EngineEvent[] = []
       this.attemptHadOutput = false
-      // a trial answer: every completion is held against the credit and counted (credentials/hosted-chat.ts); why it
-      // stopped on the credit (used, ended) is the answer's error
-      const stopped: { reason: 'used' | 'ended' | null } = { reason: null }
-      const meter = trial ? createTrialMeter(credentialsOf(rt.ctx), (r) => { stopped.reason ??= r }) : undefined
       // a service connected on a card during the answer: its tools from the next round (toolsChanged)
       this.continueMode = 'round'
       try {
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
-          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
       } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
-      if (stopped.reason && !this.stopReason) this.error = engineError(stopped.reason === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
-      else if (err && !this.stopReason) {
+      if (err && !this.stopReason) {
         rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
         this.error = engineError(err.code, spec.locale, undefined, err.status)
       }
@@ -1126,11 +1111,7 @@ export class TurnExec {
     const { rt, spec } = this
     const r = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (r.ok) { this.lastCredential = r.credentialId; return r }
-    // no connection at all: once the hosting service's trial credit, which answered such turns, is used up or over,
-    // that is what the person hears instead of "no AI connection"
-    const t = r.reason === 'none' ? hostedChatState(rt.db, new Date()) : null
     if (this.proxyError) this.error = this.proxyError
-    else if (t === 'used' || t === 'ended') this.error = engineError(t === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
     else if (r.reason === 'none') this.error = engineError('no_credential', spec.locale)
     else if (r.retryAt) this.error = engineError('rate_limit', spec.locale, Math.max(1, Math.ceil((Date.parse(r.retryAt) - Date.now()) / 1000)))
     else this.error = engineError('credential_unusable', spec.locale)
@@ -1271,19 +1252,17 @@ export class TurnExec {
 
   /** Where this turn goes (credentials/access.ts connectionRoute, the same rule as /api/me/ai-access): its own engine,
    * the other connection engine when "다른 AI로 대신 답하기" is on and only that one has a working connection of this
-   * person, or the hosting service's trial credit (on the API engine). Only Claude Code and Codex turns on AI
+   * person. Only Claude Code and Codex turns on AI
    * connections (managed), and only to an engine set up the same way here. The API engine has its own key. */
-  private route(confs: EngineConfs): 'own' | 'trial' | CredEngine {
+  private route(confs: EngineConfs): 'own' | CredEngine {
     const { rt, spec } = this
     const engine = spec.engine
     if (engine === 'api') return 'own'
     const managed = (e: CredEngine) => e === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : confs.codex?.auth === 'managed'
     if (!managed(engine)) return 'own'
     const r = connectionRoute(rt.ctx, { id: spec.userId }, engine, { problems: confs.problems, allowed: credentialsOf(rt.ctx).allowedKinds })
-    // a guest never takes the trial credit (connectionRoute already says so; checked again where it would run)
-    if (r === 'trial' && isGuestUser(rt.db, spec.userId)) return 'own'
     // the other engine only where it runs on AI connections too (a guest never runs on this server's own sign-in)
-    return r === 'own' || r === 'trial' || managed(r) ? r : 'own'
+    return r === 'own' || managed(r) ? r : 'own'
   }
 
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",

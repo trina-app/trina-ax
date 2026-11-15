@@ -1,15 +1,14 @@
 // A guest's own AI sign-in (docs/DECISIONS.md "Guests: only what they were invited to"; credentials/policy.ts
 // personalConnectionsAllowed): a guest whose AI choice is 'own' is told to connect their own (GET /api/me/ai-access
 // connect_own, never "ask"), may start their own Claude or ChatGPT sign-in, save their own connection and is answered
-// on it, whatever the team's member-own switch says. Only their own personal connection: never a team connection or
-// the trial credit. A guest with 'none' (the default) or 'team' adds nothing of their own. Real guests: invited through
+// on it, whatever the team's member-own switch says. Only their own personal connection: never a team connection.
+// A guest with 'none' (the default) or 'team' adds nothing of their own. Real guests: invited through
 // the API and accepted on the invite page; fake providers answer the key check.
 import { afterAll, afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import type { SealingKey } from '@mycel/shared/api'
 import { ALL_CREDENTIAL_KINDS } from '../../server/src/app-config'
 import { setEnginesEnabled, setSetting } from '../../server/src/admin/settings'
 import { canUseAi } from '../../server/src/credentials/access'
-import { writeHostedChatKey } from '../../server/src/credentials/hosted-chat'
 import { credentialLogins } from '../../server/src/credentials/login'
 import { personalConnectionsAllowed } from '../../server/src/credentials/policy'
 import { MEMBER_OWN_KEY, resolveCredential } from '../../server/src/credentials/resolve'
@@ -86,14 +85,12 @@ test('own: starts their own Claude and ChatGPT sign-in, saves their own key and 
   expect(resolveCredential(h.ctx.db, { userId: g.id, engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: false })
 })
 
-test('own: never a team connection, never the trial credit; the team endpoints stay closed to them', async () => {
+test('own: never a team connection; the team endpoints stay closed to them', async () => {
   const { mia, room, team } = await setup()
   const g = await addGuest(h, mia.client, { username: 'oli', place: { kind: 'room', id: room }, ai: { mode: 'own' } })
   h.ctx.db.query('DELETE FROM engine_credentials WHERE id = ?').run(team)
-  writeHostedChatKey(credentialsOf(h.ctx), { key: 'sk-or-v1-GUEST-OWN-TRIAL-' + 'k'.repeat(40), capUsd: 1, endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), enabled: true })
   expect(canUseAi(h.ctx, { id: g.id, role: 'guest' })).toBe(false)
   expect(await g.client.call('GET', '/api/me/ai-access')).toMatchObject({ usable: false, action: 'connect_own' })
-  expect((await g.client.call('GET', '/api/me/ai-access')).trial).toBeUndefined()
   // a team connection or a team sign-in: the admin endpoints, closed to a guest
   expect((await g.client.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'team', sealed: {} })).status).toBe(403)
   expect((await g.client.try('POST', '/api/admin/credential-logins', { kind: 'chatgpt', label: 'team' })).status).toBe(403)

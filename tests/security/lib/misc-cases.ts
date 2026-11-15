@@ -220,8 +220,6 @@ export const MISC_SPECS: Record<string, Spec> = {
   // an admin (403: they connect the AI themselves)
   tellAiNotReady: { build: (c) => c.post('/api/me/ai-not-ready/tell'), scope: 'members',
     check: (r, _w, who) => { if (admin(who) && r.status !== 403) throw new Error(`${who}: telling an admin answered ${r.status}, not 403`) } },
-  // the hosting service's trial credit (owners and admins; none on a self-hosted server), never its key
-  trialCredit: { build: (c) => c.get('/api/admin/trial-credit'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the trial credit shows a key') } },
 
   // ---- rooms: the open cards of my own questions in a room I am in (the DM: alice and erin only)
   // search: each person's own rooms; the DM's message is found by its two people and by nobody else (the matrix's

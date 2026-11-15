@@ -7,8 +7,6 @@
 //   reset-link [--username U]            a one-time password reset link at publicOrigins[0]: { url, expiresAt }
 //   credentials-escrow-out --recipient R the AI connections' key, age-armored to R: { keyAge, keyVersion } | { absent }
 //   hosted-speech-key < { key | null }   the hosting service's speech-to-text key, kept encrypted: { ok, set }
-//   hosted-chat-key < { key, capUsd, endsAt, enabled } | { key: null }
-//                                        the hosting service's trial AI credit, key kept encrypted: { ok, set, usedUsd }
 //   cloud-idle                           F2 sleep facts from status.json: { fresh, connections, idleForSec, nextScheduleInSec,
 //                                        queued, sleepable } (mycel-ctl idle-wait --activity adds the launcher's running answers)
 import fs from 'node:fs'
@@ -24,11 +22,10 @@ import { lastUploadedLocalId } from './cloud-admin'
 import { seatsUsed } from './limits'
 import { sleepableBy } from './activity'
 import { ageArmorTo } from './streams'
-import { HostedChatKeyInput, HostedSpeechKeyInput } from '@mycel/shared/cloud-protocol'
+import { HostedSpeechKeyInput } from '@mycel/shared/cloud-protocol'
 import { isHosted } from './deployment'
 import { makeCredCtx } from '../credentials/store'
 import { writeHostedSpeechKey } from '../credentials/speech-key'
-import { writeHostedChatKey } from '../credentials/hosted-chat'
 import { audit } from '../admin/audit'
 import type { Logger } from '../log'
 import { tenantOnboarding } from '../onboarding/tenant-status'
@@ -140,24 +137,4 @@ export function setHostedSpeechKey(o: { db: Database; secretsDir: string; config
   const set = writeHostedSpeechKey(cc, p.data.key)
   audit(o.db, { actor: null, action: 'speech.hosted_key', target: null, detail: { key: set ? 'set' : 'removed' } })
   return { ok: true, set }
-}
-
-/**
- * hosted-chat-key: the trial AI credit the hosting service gives this team (credentials/hosted-chat.ts): an OpenRouter
- * key for the API engine (never Claude Code, docs/DECISIONS.md "Z") with its dollar cap, end time and switch, or
- * { key: null } to take it away. Hosted servers only. The
- * key comes on stdin (never in argv), is stored encrypted with the credentials vault and is in no output, error or audit
- * row: the audit says "set" or "removed" with the cap, end and switch. The answer carries what the team spent of the
- * credit so far (the server's own count, across key rotations), so the hosting service can size a new cap. The next
- * turn reads it (no restart).
- */
-export function setHostedChatKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean; usedUsd: number } {
-  if (!isHosted(o.config)) throw new CloudTenantError('hosted-chat-key is for hosted servers only (server.json deployment "hosted")')
-  const p = HostedChatKeyInput.safeParse(input)
-  if (!p.success) throw new CloudTenantError('stdin must be { key: an OpenRouter key, capUsd, endsAt, enabled } or { key: null }')
-  const cc = makeCredCtx({ db: o.db, secretsDir: o.secretsDir, config: o.config, log: o.log })
-  const grant = p.data.key === null ? null : p.data as Extract<HostedChatKeyInput, { capUsd: number }>
-  const r = writeHostedChatKey(cc, grant)
-  audit(o.db, { actor: null, action: 'ai.hosted_trial_key', target: null, detail: grant ? { key: 'set', capUsd: grant.capUsd, endsAt: grant.endsAt, enabled: grant.enabled } : { key: 'removed' } })
-  return { ok: true, ...r }
 }

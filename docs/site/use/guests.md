@@ -88,9 +88,9 @@ admin switched them on or off in the meantime. Renaming the chat or project chan
 | **Team AI** | They use one of the team's AI accounts, up to a monthly amount in US dollars that you set. | The owner and admins |
 | **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI accounts** and use that. | Anyone who invites |
 
-Guests can't use the AI credit of a free trial. A guest who uses up their monthly amount is told the day it starts
-again. If the team AI account a guest uses is deleted, the guest reads that AI can't answer them now, and their row in
-**Admin › Members & invites** says the account was removed: choose **Change AI** to pick another one.
+A guest who uses up their monthly amount is told the day it starts again. If the team AI account a guest uses is
+deleted, the guest reads that AI can't answer them now, and their row in **Admin › Members & invites** says the
+account was removed: choose **Change AI** to pick another one.
 
 :::note
 If your team runs Trina AX on an office Mac that was installed without an administrator password, guests can't use

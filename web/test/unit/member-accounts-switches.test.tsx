@@ -28,7 +28,6 @@ beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     if (key === 'GET /api/admin/credentials') return json({ items: [], ...settings, allowedKinds: [], pricesAsOf: '2026-11-01' })
-    if (key === 'GET /api/admin/trial-credit') return json({ credit: null })
     if (key === 'GET /api/admin/users') return json({ items: [] })
     if (key === 'GET /api/admin/groups') return json({ items: [] })
     if (key === 'PATCH /api/admin/credential-settings') {

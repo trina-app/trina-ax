@@ -184,7 +184,7 @@ describe('a failed answer without AI', () => {
       await m.until(() => q('claude-login-how'), 'the dialog')
     } finally { await m.unmount() }
   })
-  test('an admin hears what they can do like the owner, and "AI 연결하기" opens the dialog; a member keeps the server\'s words; the trial texts fit them too', async () => {
+  test('an admin hears what they can do like the owner, and "AI 연결하기" opens the dialog; a member keeps the server\'s words', async () => {
     signIn('admin')
     access = { usable: false, action: 'connect_team', requested: false }
     let m = await failed('credential_unusable')
@@ -200,12 +200,6 @@ describe('a failed answer without AI', () => {
     try {
       expect(m.get('answer-error').textContent).toContain(CHAT_ERROR_MESSAGES.no_credential.ko)
     } finally { await m.unmount() }
-    signIn('owner')
-    access = { usable: false, action: 'connect_team', requested: false }
-    m = await failed('trial_credit_used')
-    try {
-      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.trial_credit_used'))
-    } finally { await m.unmount() }
   })
 })
 
@@ -213,7 +207,7 @@ describe('a failed answer with AI connected', () => {
   test('the owner reads where to fix it, not the "connect AI" words, and no button (another engine is connected)', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
-    useAiAccess.setState({ loaded: true, usable: true, requested: false, trial: null })
+    useAiAccess.setState({ loaded: true, usable: true, requested: false })
     const error = { code: CHAT_ERROR_MESSAGES.no_credential.code, message: CHAT_ERROR_MESSAGES.no_credential.ko, params: { reason: 'no_credential' } }
     const m = await mount(
       <MemoryRouter>
@@ -232,15 +226,14 @@ describe('a failed answer with AI connected', () => {
 
 describe('Home\'s one card without AI', () => {
   const card = async (s: Partial<ReturnType<typeof useAiAccess.getState>>) => {
-    useAiAccess.setState({ loaded: true, usable: false, requested: false, trial: null, ...s })
+    useAiAccess.setState({ loaded: true, usable: false, requested: false, ...s })
     return mount(<MemoryRouter><NoAiCard /></MemoryRouter>)
   }
   test('the owner: the welcome step\'s heading and way to connect', async () => {
-    const m = await card({ action: 'connect_team', trial: 'used' })
+    const m = await card({ action: 'connect_team' })
     try {
       await m.until(() => m.find('welcome-ai-claude'), 'the Claude button')
       expect(m.get('no-ai-card').textContent).toContain(ko('welcome.ai.title'))
-      expect(m.get('ai-access-trial').textContent).toBe(ko('aiAccess.banner.trialUsed'))
       // the welcome step's three ways, the same here
       expect(m.find('welcome-ai-chatgpt')).not.toBeNull()
       expect(m.find('welcome-ai-keys')).not.toBeNull()

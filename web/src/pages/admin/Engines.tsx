@@ -24,7 +24,6 @@ import { isAdmin, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
 import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, useTeamCredentials, type ProviderMark } from './Credentials'
-import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
@@ -106,7 +105,6 @@ export default function Engines() {
       <Loadable state={state}>
         {(d) => (
           <>
-            {tc.trial.data?.credit && <TrialCreditBar credit={tc.trial.data.credit} timeZone={me.server.timeZone} className="mb-4" />}
             {phone ? (
               // a phone: one row per engine, each opening its own page
               <ul className="divide-y divide-line border-y border-line" data-testid="engine-list">
