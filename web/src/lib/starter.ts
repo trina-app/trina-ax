@@ -1,5 +1,6 @@
-// Who made the team skill a new member lands on (docs/DECISIONS.md "S — The lead's way becomes a team skill"): the join
-// answer's `skillBy`, for the one line above that skill's form ("지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요").
+// Who made a team skill, for the one line above its form (docs/DECISIONS.md "S — The lead's way becomes a team skill":
+// "지훈님이 만든 팀 스킬이에요 · 이 채팅은 나만 볼 수 있어요"). The join answer's `skillBy` filled it until a new member
+// stopped landing on the form (docs/DECISIONS.md "A new member lands on Home"); nothing holds a maker now.
 // Held per person in this tab (sessionStorage, so a reload keeps it; another tab or browser never sees it) with a copy in
 // memory for when storage is blocked, until the form is closed or run. Signing out forgets it. (The starter a team link
 // could carry before, the lead's files and a question for 할 일 정리, went with that skill: docs/DECISIONS.md "DS3".)
