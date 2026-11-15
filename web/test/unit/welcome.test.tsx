@@ -850,9 +850,16 @@ describe('/welcome', () => {
       await m.until(() => progress!.site === 'https://acme.example/', 'the address kept', 2000)
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.site)).toEqual([{ site: 'https://acme.example/' }])
     } finally { await m.unmount() }
-    // another page, then back through the setup row: the steps read the progress again
+    // another page, then back through the setup row in this tab: the reading under way comes back (sessionStorage)
     useWelcome.getState().reset()
     calls = []
+    m = await app()
+    try {
+      await m.until(() => m.find('profile-step-reading'), 'the reading again')
+    } finally { await m.unmount() }
+    // another tab (nothing kept in it): the steps read the progress again, the address is there
+    ;(globalThis as any).sessionStorage.clear()
+    useWelcome.getState().reset()
     m = await app()
     try {
       await m.until(() => m.find('profile-step-site'), '회사 소개 again')
