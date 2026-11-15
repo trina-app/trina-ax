@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 15:49
 - Branch: `feat/project-share-button`
-- Status: in progress
+- Status: done
 - QA: TC-3283 (project), the next row (chat)
 - Where: Team AX core, web only (`web/src/pages/Projects.tsx`, `web/src/components/NewProjectDialog.tsx`,
   `web/src/components/ProjectParticipants.tsx`, `web/src/components/chat/ChatProject.tsx`, `web/src/i18n/*`, tests,
@@ -199,4 +199,16 @@ A chat had no Share button either: sharing it was only in the title menu. Same p
 
 ## Result
 
-Filled in at the end.
+PR #997. Built as planned, plus the owner's added scope (Share on a chat). `components/HeaderShare.tsx` is the one
+header-share component for both. Rebased on dev after #976 (one-press dialog) merged: the members dialog now saves in
+one press from Share too, with no change here.
+
+- Project: the title row has who sees it and Share (phone: the row under the bar). The Members line, the personal
+  "Only me · Add people" line and the separate faces line are gone. Share is hidden for anyone who can't share.
+- New project: People (optional) from the panel, the Projects page and Search; team project on Create.
+- Chat: Share at the right of the header (phone: the icon in the top bar); the title menu's Share is gone.
+- Different from the plan: the Add me path reloads the faces too (a full e2e run found them stale); the members
+  dialog's legacy note carries the Folder permissions link.
+- Known: on a phone, a shared project chat's bar holds the crumb, the title, the people mark, Share and ✦, so a long
+  title is cut sooner. A click on Create while the people search's results are open lands after the list closes (the
+  dialog shrinks); the results close as soon as the search loses focus.
