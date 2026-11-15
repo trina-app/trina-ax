@@ -81,6 +81,12 @@ function render(v: ConsentView) {
   root.setAttribute('aria-describedby', 'consent-sub')
   root.replaceChildren(head, el('div', 'consent-body-scroll', list, promises, fine), foot)
   yes.focus()
+  // a smaller app window: the words scroll, and the buttons get a line above them so it shows there is more
+  const scroller = root.querySelector('.consent-body-scroll')!
+  const edge = () => foot.classList.toggle('is-over', scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 1)
+  scroller.addEventListener('scroll', edge)
+  addEventListener('resize', edge)
+  requestAnimationFrame(edge)
 }
 
 addEventListener('keydown', (e: KeyboardEvent) => {

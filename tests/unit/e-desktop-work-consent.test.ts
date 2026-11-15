@@ -73,7 +73,10 @@ describe('a yes counts only when the person could have meant it', () => {
     g.shown()
     c.go(CONSENT_ARM_MS - 1)
     expect(g.answer(true)).toBeNull()
-    c.go(1)
+    // that early yes started the wait again
+    c.go(CONSENT_ARM_MS - 1)
+    expect(g.answer(true)).toBeNull()
+    c.go(CONSENT_ARM_MS)
     expect(g.answer(true)).toBe(true)
     expect(g.answer(true)).toBeNull()
     expect(g.answer(false)).toBeNull()
@@ -92,6 +95,25 @@ describe('a yes counts only when the person could have meant it', () => {
     c.go(CONSENT_ARM_MS)
     g.key('Tab')
     g.key('Enter')
+    expect(g.answer(true)).toBe(true)
+  })
+  test('an early yes starts the wait again: clicking or tapping Enter on and on never gets through', () => {
+    const c = clock()
+    const g = new ConsentGate(c.now)
+    g.shown()
+    for (let i = 0; i < 20; i++) {
+      c.go(CONSENT_ARM_MS / 2)
+      expect(g.answer(true)).toBeNull()
+    }
+    c.go(CONSENT_ARM_MS)
+    expect(g.answer(true)).toBe(true)
+  })
+  test('Space presses the focused button like Enter (its keydown does not hold the yes back)', () => {
+    const c = clock()
+    const g = new ConsentGate(c.now)
+    g.shown()
+    c.go(2000)
+    g.key(' ')
     expect(g.answer(true)).toBe(true)
   })
   test('a held Enter (key repeat) counts as typing', () => {

@@ -1010,11 +1010,15 @@ body.driving .driving-bar {
   overflow-wrap: anywhere;
 }
 .consent-foot {
+  border-top: 1px solid transparent;
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
   padding: 16px 24px 20px;
+}
+.consent-foot.is-over {
+  border-top-color: var(--line);
 }
 .consent-foot button {
   height: 36px;

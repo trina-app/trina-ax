@@ -29160,7 +29160,7 @@ there may draw, fake or skip the consent).
 - **What it says comes from the look itself.** `consentView` (`desktop/src/common/work-consent.ts`) is built from the same
   roots and places `scan()` then looks through: the three folders (OneDrive named under the folder), each wide place by
   kind (messenger, work folder, cloud drive), and "Recently opened files" with where they are. Three lines under it: two
-  promises with a check ("Only names, types and dates are read, not what's inside"; "Nothing is ticked for you. Contents
+  promises with a check ("Only file details are read (name, date, size, author, where it came from), not what's inside"; "Nothing is ticked for you. Contents
   stay on this Mac until you add them") and, with its own sparkle icon so it does not read as a promise, "To help you
   pick, file names may go to your team's AI". The rest (macOS asks per folder; Full Disk Access; Mail, Messages, Photos
   and Safari never read; cloud-only files not downloaded; nothing moved or changed) is one small line. Buttons: Not now
@@ -29168,8 +29168,10 @@ there may draw, fake or skip the consent).
 - **Enter now means yes, but only when the person could mean it (changes the earlier review MUST).** Part 1 made Cancel
   the default so that a page that asks while the person types gets no yes from their next Enter. The owner wanted Enter
   to press the primary button. `ConsentGate` keeps the protection in the main process: a yes counts only 800 ms after the
-  window is shown and 800 ms after the last key typed into it (any key but Tab, Shift, Enter, Escape and the arrows; a
-  held key counts as typing), and only once. An early yes is ignored and the window stays; a no is never held back.
+  window is shown and 800 ms after the last key typed into it (any key but Tab, Shift, Enter, Space, Escape and the
+  arrows; a held key counts as typing), and only once. An early yes is ignored, starts the wait again (a stream of
+  clicks or Enters never gets through; security review) and the window stays; a no is never held back. The first line
+  says what is read as it is: name, date, size, author and where a file came from (Spotlight's fields), never contents.
 - Tests: `tests/unit/e-desktop-work-consent.test.ts` (view, gate, sender check, wiring), `desktop/e2e/work-consent.spec.ts`
   (the real window: modal child, early click and Enter after typing ignored, Enter later counts, Escape, a forged answer
   and view request from another window refused, close and forget are a no); `work-files*.spec.ts` record the view.

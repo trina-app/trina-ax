@@ -63,11 +63,11 @@ export function consentView(L: UiLocale, platform: string, roots: WorkRoot[], pl
 }
 
 /** A yes counts only this long after the window is shown and after the last key typed into it (other than Tab, Shift,
- * Enter, Escape, the arrows): a page that opens the window while the person types gets no yes from their next Enter
+ * Enter, Space, Escape, the arrows) or the last yes that came too early (clicking or tapping Enter on and on never arms it): a page that opens the window while the person types gets no yes from their next Enter
  * (they were typing into the team page and did not see it), and a click that was meant for the page under it, no yes
  * either. Escape and Not now are never held back. */
 export const CONSENT_ARM_MS = 800
-const QUIET_KEYS = new Set(['Tab', 'Shift', 'Enter', 'Return', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+const QUIET_KEYS = new Set(['Tab', 'Shift', 'Enter', 'Return', ' ', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 /** One consent's state in the main process: the answer counts once, a yes only when armed. */
 export class ConsentGate {
@@ -94,7 +94,11 @@ export class ConsentGate {
       this.answered = true
       return false
     }
-    if (!this.armed()) return null
+    if (!this.armed()) {
+      // too early: the wait starts again, so a stream of clicks or Enters never gets through
+      if (this.shownAt !== null) this.lastKeyAt = this.now()
+      return null
+    }
     this.answered = true
     return true
   }
