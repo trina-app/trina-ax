@@ -2,8 +2,9 @@
 // file (strings/<locale>.ts) and every picture or text file from ../assets/<name>.<locale>.<ext>. Steepling is a
 // fictional company; every person, number, address and file is made up (README.md).
 //
-// Four moments: ① the AI already knows the company (3 files read, people to know), ② one prompt gives a launch set
-// shot with Higgsfield (banner, square, story, captions, the photo), ③ the team reacts live in #Marketing, ④ the mail
+// Four moments: ① the AI already knows the company (2 files read, the team's skills, people to know), ② one prompt
+// uses the team's Brand guide skill and gives a launch set shot with Higgsfield (banner, square, story, captions, the
+// photo), ③ the team reacts live in #Marketing, ④ the mail
 // goes out and the agency answers.
 import type { DemoAnswer, DemoAsk, DemoReply, DemoScript, DemoStep } from '../../../web/demo/script'
 import type { Strings } from './strings/en'
@@ -24,6 +25,8 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
   const link = (text: string) => text.replaceAll('{project}', '{{project:launch}}')
   const st = s.steps
   const read = (path: string): DemoStep => ({ label: `${st.read} · ${path}`, tool: 'read' })
+  // a team skill, as the app's step line says it: "Use skill · brand-guide" (the name the AI calls it by)
+  const brandSkill = `skills/${s.brandSkill}/SKILL.md`
   const make = (what: string, path: string, ms = 900): DemoStep => ({ label: `${what} · ${path}`, tool: 'write', ms })
   const a = s.answers
 
@@ -63,21 +66,21 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
 
   const answers: DemoAnswer[] = [
     {
-      // ① three files read, then the company, Mina's job, this week, and people to know
+      // ① two files read, then the company, Mina's job, this week, the team's skills, and people to know
       id: 'company',
       where: 'home',
       prompt: a.company.prompt,
-      steps: [read(s.paths.companyIntro), read(brief), read(s.paths.brandGuide)],
+      steps: [read(s.paths.companyIntro), read(brief)],
       text: `${a.company.text}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- **${s.people[id].name}**, ${s.people[id].title}: ${a.company.people[id]}`).join('\n')}`,
       // the app's own "sources" under the answer
-      sources: [s.paths.companyIntro, brief, s.paths.brandGuide],
+      sources: [s.paths.companyIntro, brief],
     },
     {
       id: 'banner',
       where: { project: 'launch' },
       prompt: a.banner.prompt,
       steps: [
-        read(s.paths.brandGuide),
+        { label: `${st.useSkill} · ${s.brandSkill}`, tool: 'skill' },
         read(leoBanner),
         { label: `Higgsfield · ${st.higgsfieldHero}`, tool: 'higgsfield', ms: 3200 },
         { label: `Higgsfield · ${st.higgsfieldCrops}`, tool: 'higgsfield', ms: 2600 },
@@ -88,6 +91,8 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
         make(st.writeCaptions, captions, 700),
       ],
       text: `${a.banner.text}\n\n${pictures}\n\n${captionsQuote}\n\n${a.banner.after}`,
+      // the app's receipt: the team skill and the one team file it worked on (Leo's draft)
+      receipt: { skill: brandSkill, teamFiles: 1 },
       files: [
         { path: banner, asset: `campaign-banner.${locale}.jpg` },
         { path: square, asset: `campaign-square.${locale}.jpg` },
@@ -143,11 +148,10 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
     ],
     files: [
       { path: s.paths.companyIntro, asset: `company-intro.${locale}.md` },
-      { path: s.paths.brandGuide, asset: `brand-guide.${locale}.md` },
       { path: brief, asset: `launch-brief.${locale}.md` },
       { path: leoBanner, asset: `banner-leo.${locale}.png` },
       // team skills, where the product keeps them (skills/<name>/SKILL.md)
-      ...['social-posts', 'press-release', 'competitor-roundup', 'handover'].map((k) => ({ path: `skills/${k}/SKILL.md`, asset: `skill-${k}.${locale}.md` })),
+      ...[s.brandSkill, 'social-posts', 'press-release', 'competitor-roundup', 'handover'].map((k) => ({ path: `skills/${k}/SKILL.md`, asset: `skill-${k}.${locale}.md` })),
     ],
     home: { title: s.home.title, inviter: 'sara', prompt: a.company.prompt },
     answers,

@@ -21,10 +21,12 @@ export const en = {
   marketingGroup: 'Marketing',
   project: { name: 'November launch campaign', description: 'Winter Yuzu Ginger launch, Monday Nov 23' },
 
+  /** the team skill the banner answer uses: its folder name (skills/<name>/SKILL.md; the step line shows it) */
+  brandSkill: 'brand-guide',
+
   /** team file names (folders and names in the team drive) */
   paths: {
     companyIntro: 'shared/Company intro.md',
-    brandGuide: 'shared/Brand guide.md',
     brief: 'November launch brief.md',
     leoBanner: 'launch-banner-leo-v1.png',
     // the launch set (the mail attaches the banner and the square)
@@ -38,6 +40,8 @@ export const en = {
   /** the words of the steps shown above an answer */
   steps: {
     read: 'Read',
+    /** the app's own words for a team skill the AI uses (shared/src/step-labels.ts FILE_STEP_VERB.skill) */
+    useSkill: 'Use skill',
     save: 'Save',
     makeBanner: 'Make banner',
     makeSquare: 'Make Instagram square',
@@ -82,6 +86,8 @@ export const en = {
         '**Your job**: launch banners and social, on Sara\'s Marketing team.',
         '',
         '**This week**: Yuzu Ginger launches **Monday**. The launch banner is the big open item.',
+        '',
+        '**Team skills**: your team shares ready-made skills, like *Brand guide* and *3 social post options*. I use them for you.',
       ].join('\n'),
       /** "people to know", one line each (in the answer's text) */
       peopleTitle: 'People to know',
@@ -96,7 +102,7 @@ export const en = {
       text: [
         'Shot it with Higgsfield: our green pouch and an iced Yuzu Ginger by a frosted window. The square and the story come from the same shot, so the pouch matches everywhere.',
         '',
-        'Headline in Fraunces, the rest in Pretendard, yuzu yellow only on the 20% badge.',
+        'As the Brand guide says: headline in Fraunces, the rest in Pretendard, yuzu yellow only on the 20% badge.',
         '',
         'Captions:',
       ].join('\n'),
@@ -215,7 +221,7 @@ export const en = {
     popupTitle: 'That\'s Mina\'s first day 🎉',
     /** {time}: the visitor's real time */
     popupLine: 'Launch campaign shipped in {time}. Usually about 2 days.',
-    recap: ['Read 3 team files', 'Made 4 assets with Higgsfield', 'CEO approved', 'Emailed the agency'],
+    recap: ['Read 2 team files', 'Used the Brand guide team skill', 'Made 4 assets with Higgsfield', 'CEO approved', 'Emailed the agency'],
   },
 }
 

@@ -412,6 +412,7 @@ export class DemoServer extends MockServer {
     if (answer) {
       this.noteSources(assistant, answer)
       await this.playReply(chat, assistant, answer, pub)
+      this.noteReceipt(assistant, answer)
       // a stopped answer does not move the story on
       if (!this.stopped.has(assistant.turnId!)) this.engine.answered(answer.id)
       return
@@ -427,6 +428,7 @@ export class DemoServer extends MockServer {
     chat.title = picked.label ?? picked.prompt
     this.noteSources(assistant, picked)
     await this.playReply(chat, assistant, picked, pub)
+    this.noteReceipt(assistant, picked)
     if (!this.stopped.has(assistant.turnId!)) this.engine.answered(picked.id)
   }
 
@@ -436,6 +438,15 @@ export class DemoServer extends MockServer {
     if (!list.length) return
     this.sources.set(assistant.id, list)
     assistant.sourceCount = list.length
+  }
+
+  /** the team skill the answer ran, as the server's receipt (chat/store.ts receiptOf): its path and folder name; the app
+   * shows the skill's title from the skill list */
+  noteReceipt(assistant: Message, a: DemoAnswer) {
+    const r = a.receipt
+    if (!r || !this.files.has(r.skill) || this.stopped.has(assistant.turnId!)) return
+    const name = r.skill.endsWith('/SKILL.md') ? baseName(r.skill.slice(0, -'/SKILL.md'.length)) : baseName(r.skill).replace(/\.md$/, '')
+    assistant.receipt = { skill: { path: r.skill, name }, teamFiles: r.teamFiles }
   }
 
   /** steps, the text, its files, then its card and the chosen option's reply */

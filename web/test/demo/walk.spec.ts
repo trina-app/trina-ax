@@ -20,7 +20,7 @@ const step = (id: string) => script.guide.find((s) => s.id === id)!
 const answer = (id: string) => script.answers.find((a) => a.id === id)!
 // the story's language: the demo's own words, the app's own words (the everyone room's name), the story's messages
 const L = script.locale
-const appWord = (key: 'rooms.all') => (L === 'ko' ? koWords[key] : enWords[key])
+const appWord = (key: 'rooms.all' | 'steps.receipt') => (L === 'ko' ? koWords[key] : enWords[key])
 const said = (id: string) => script.events.find((e) => e.id === id)!.text!.slice(0, 12)
 /** a content line with {time} as a pattern (the real elapsed time) */
 const timed = (line: string) => new RegExp(line.split('{time}').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\d+:\\d\\d'))
@@ -124,6 +124,19 @@ for (const { branch, byGuide } of runs) {
     const pictures = page.locator('[data-testid="assistant-message"]').last().locator('img[src*="/api/files/download"]')
     await expect(pictures).toHaveCount(4)
     await expect.poll(() => pictures.first().evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(100)
+    // a team skill the answer used: the app's receipt in place of "N steps", and its "Use skill" row when opened
+    const used = answer(branch).steps?.find((x) => x.tool === 'skill')
+    if (used && answer(branch).receipt) {
+      const receipt = page.locator('[data-testid="assistant-message"]').last().getByTestId('steps-receipt')
+      await expect(receipt).toContainText(appWord('steps.receipt').split("'")[0]!)
+      // by the skill's title (its metadata title), as the skill list names it
+      const asset = script.files.find((f) => f.path === answer(branch).receipt!.skill)!.asset!
+      const title = /^\s+title:\s*(.+)$/m.exec(fs.readFileSync(path.join(path.dirname(contentFile()), 'assets', asset), 'utf8'))![1]!.trim()
+      await expect(receipt).toContainText(`'${title}'`)
+      await receipt.click()
+      await expect(page.locator('[data-testid="assistant-message"]').last().getByText(used.label, { exact: true })).toBeVisible()
+      await receipt.click()
+    }
     await shot(page, `${branch}-5-answer`)
     // ③ the app's own "Send to room": the button, the room row, Send (and its confirm, when it asks)
     // the guide line (or the ringed button itself) opens the dialog; in the dialog the ring shows the room row, then

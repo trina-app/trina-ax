@@ -37,10 +37,10 @@ and translate it; translate `assets/*.en.md` to `*.<locale>.md`; copy `source/ba
 | Chris Walker (Fieldnote) | `chris` | the agency, outside the team: his reply comes through Sara |
 
 1. **Home**: "Welcome aboard, Mina! Congratulations on your first day." (Sara invited you) → "What does our company
-   do?" ① Three file reads, then what Steepling does, Mina's job, this week (Monday's launch), and Sara, Leo and
-   Daniel as "People to know". Then Sara's DM arrives.
+   do?" ① Two file reads, then what Steepling does, Mina's job, this week (Monday's launch), the team's skills, and
+   Sara, Leo and Daniel as "People to know". Then Sara's DM arrives.
 2. **Sara's DM** with the project card.
-3. **Project**: Leo's banner, one suggestion: "Follow our brand guide and make a new background with Higgsfield". ② Two Higgsfield steps (the
+3. **Project**: Leo's banner, one suggestion: "Follow our brand guide and make a new background with Higgsfield". ② "Use skill · brand-guide" (the team's Brand guide skill; the folded steps say "Team skill 'Brand guide' · 1 team file"), two Higgsfield steps (the
    hero photo, then the square and story from the same shot), then in the answer: before (Leo's) and after, the
    square and the story, three captions. Five files are saved: web banner 1200×628, Instagram square 1080×1080 and
    story 1080×1920, captions, the Higgsfield photo. Then "Send to #Marketing".
