@@ -2272,6 +2272,7 @@ export const zh: Record<MessageKey, string> = {
   "budgets.usedUsdMonth": "本月已用 {used} / {limit}",
   "budgets.duplicate": "{who} 已有此周期的用量上限。请在列表中修改那一个。",
   "budgets.duplicateTeam": "整个团队已有此周期的用量上限。请在列表中修改那一个。",
+  "budgets.duplicatePerson": "{who} 已有此周期的用量上限。请关闭后重新打开，修改那个上限。",
   "teamSettings.nameOwnerOnly": "只有所有者可以修改团队名称。",
   "teamSettings.ownerOnlyField": "只有团队所有者可以修改此项。",
   "teamSettings.defaultLocale": "团队默认语言",

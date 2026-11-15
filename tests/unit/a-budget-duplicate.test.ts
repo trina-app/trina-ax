@@ -3,7 +3,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { checkBudgets } from '../../server/src/admin/budgets'
+import path from 'node:path'
+import { setEnginesEnabled } from '../../server/src/admin/settings'
+import { addCred, testCredCtx } from '../lib/credentials'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { addGuest, groupChat } from './guest-lib'
 
 describe('usage limits: no second limit for the same subject and period', () => {
   let h: Harness
@@ -33,7 +37,7 @@ describe('usage limits: no second limit for the same subject and period', () => 
       expect(second.status).toBe(409)
       expect(second.body.error.code).toBe('conflict')
       expect(second.body.error.params).toMatchObject({ reason: 'budget_duplicate' })
-      expect(second.body.error.message).toBe('There is already a usage limit for this with the same period. Edit that one in the list instead.')
+      expect(second.body.error.message).toBe('This already has a usage limit for that period. Change that limit instead of adding another.')
     }
     const items = (await admin.call('GET', '/api/admin/budgets')).items
     expect(items).toHaveLength(3)
@@ -54,7 +58,7 @@ describe('usage limits: no second limit for the same subject and period', () => 
     try {
       const r = await admin.try('POST', '/api/admin/budgets', { subjectType: 'user', subjectId: mem.id, period: 'month', limitUsd: 1, action: 'warn' })
       expect(r.status).toBe(409)
-      expect(r.body.error.message).toBe('같은 대상에 같은 기간의 사용 한도가 이미 있어요. 목록에서 그 한도를 바꿔 주세요.')
+      expect(r.body.error.message).toBe('같은 대상에 같은 기간의 사용 한도가 이미 있어요. 새로 추가하지 말고 그 한도를 바꿔 주세요.')
     } finally {
       h.ctx.db.query("UPDATE users SET locale = 'en' WHERE username = 'adam'").run()
     }
@@ -104,5 +108,19 @@ describe('usage limits: no second limit for the same subject and period', () => 
 
   test('a member still cannot add limits at all', async () => {
     expect((await mem.client.try('POST', '/api/admin/budgets', { subjectType: 'user', subjectId: other.id, period: 'month', limitUsd: 1, action: 'warn' })).status).toBe(403)
+  })
+
+  test("a guest's team AI replaces their month limit, whatever its action, so no second one appears", async () => {
+    const room = await groupChat(owner, [mem.id, other.id], 'Quote prep')
+    const t = testCredCtx(h.ctx.db, path.join(h.ctx.config.dataDir, 'test-secrets'))
+    setEnginesEnabled(h.ctx.db, { 'claude-code': true, codex: true })
+    const team = addCred(t.cc, 'anthropic-api-key', `sk-ant-api03-budgetdup${'k'.repeat(30)}`, { label: 'Main Claude' })
+    const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room } })
+    // an admin set a month 'warn' limit for the guest in Members, and a day one
+    expect((await post({ subjectType: 'user', subjectId: g.id, period: 'month' })).status).toBe(201)
+    expect((await post({ subjectType: 'user', subjectId: g.id, period: 'day' })).status).toBe(201)
+    await owner.call('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'team', credentialId: team, limitUsd: 15 })
+    const rows = h.ctx.db.query("SELECT period, action, limit_usd FROM budgets WHERE subject_type = 'user' AND subject_id = ? ORDER BY period").all(g.id)
+    expect(rows).toEqual([{ period: 'day', action: 'warn', limit_usd: 0 }, { period: 'month', action: 'block', limit_usd: 15 }])
   })
 })

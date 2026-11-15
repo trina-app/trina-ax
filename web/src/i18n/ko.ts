@@ -2310,6 +2310,7 @@ export const ko = {
   'budgets.usedUsdMonth': '이번 달 {limit} 중 {used} 사용',
   'budgets.duplicate': '{who}에게는 이 기간의 사용 한도가 이미 있어요. 목록에서 그 한도를 바꿔 주세요.',
   'budgets.duplicateTeam': '팀 전체에 이 기간의 사용 한도가 이미 있어요. 목록에서 그 한도를 바꿔 주세요.',
+  'budgets.duplicatePerson': '{who}에게는 이 기간의 사용 한도가 이미 있어요. 이 창을 닫고 다시 열어 그 한도를 바꿔 주세요.',
 
   'teamSettings.nameOwnerOnly': '팀 이름은 팀장만 바꿀 수 있어요.',
   'teamSettings.ownerOnlyField': '팀장만 바꿀 수 있어요.',

@@ -88,7 +88,9 @@ export function BudgetForm({ budget = null, person, budgets, users = [], groups 
   // whose limit it is, by name (null: no name to hand, so the server's own line is shown)
   const duplicateText = (): string | null => {
     if (f.subjectType === 'team') return t('budgets.duplicateTeam')
-    const who = person?.name ?? (f.subjectType === 'group' ? groups : users).find((x) => x.id === f.subjectId)?.name
+    // a person (Members): no list here; the dialog reads the limits again when it opens
+    if (person) return t('budgets.duplicatePerson', { who: person.name })
+    const who = (f.subjectType === 'group' ? groups : users).find((x) => x.id === f.subjectId)?.name
     return who ? t('budgets.duplicate', { who }) : null
   }
   const remove = async () => {

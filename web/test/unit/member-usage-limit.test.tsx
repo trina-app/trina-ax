@@ -44,7 +44,7 @@ beforeAll(() => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     if (key !== 'GET /api/admin/budgets') sent.push({ key, body })
     if (key === 'GET /api/admin/budgets') return json({ items: budgets })
-    if (key === 'POST /api/admin/budgets' && duplicate) return json({ error: { code: 'conflict', message: 'There is already a usage limit for this with the same period. Edit that one in the list instead.', params: { reason: 'budget_duplicate' } } }, 409)
+    if (key === 'POST /api/admin/budgets' && duplicate) return json({ error: { code: 'conflict', message: 'This already has a usage limit for that period. Change that limit instead of adding another.', params: { reason: 'budget_duplicate' } } }, 409)
     if (key === 'POST /api/admin/budgets') return json(budget({ id: ID.new, ...body, usedTokens: 0 }), 201)
     if (key.startsWith('PATCH /api/admin/budgets/')) return json(budget({ id: key.split('/').pop(), ...body }))
     if (key.startsWith('DELETE /api/admin/budgets/')) return new Response(null, { status: 204 })
@@ -225,7 +225,7 @@ test('a second limit for the same person and period: the server refuses it, the 
   const { m, saved } = await formFor([])
   await m.click('budget-save')
   await m.until(() => errorToasts().length === 1, 'the error line')
-  expect(errorToasts()).toEqual(['Ben already has a usage limit for this period. Edit that one in the list instead.'])
+  expect(errorToasts()).toEqual(['Ben already has a usage limit for this period. Close this and open it again to change that one.'])
   expect(saved()).toBe(0)
   expect(m.find('budget-form')).toBeTruthy()
 })
