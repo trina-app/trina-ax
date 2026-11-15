@@ -134,7 +134,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.welcome', name: 'Getting started steps (owner)', area: 'Onboarding', endpoints: ['getWelcome', 'updateWelcome', 'setupWelcomeTeam', 'welcomeBrand'], screens: ['/welcome'] },
   { id: 'onboarding.company-profile', name: 'Company profile', area: 'Onboarding', endpoints: ['getCompanyProfile', 'saveCompanyProfile', 'startProfileDraft', 'getProfileDraft'], screens: ['/admin/settings/company'] },
   { id: 'onboarding.team-files', name: 'Team files picked by the AI', area: 'Onboarding', endpoints: ['rankTeamFiles', 'teamFilesLanded'] },
-  { id: 'onboarding.find-work-files', name: 'Find work files on this computer (desktop app), the AI\'s picks for my own folder', area: 'Onboarding', endpoints: ['rankOwnFiles'] },
+  { id: 'onboarding.find-work-files', name: 'Find work files on this computer (desktop app), the AI\'s picks for my own folder', area: 'Onboarding', endpoints: ['rankOwnFiles', 'companyWords'] },
   { id: 'onboarding.organize-files', name: 'Folder plan for the files uploaded at setup', area: 'Onboarding', endpoints: ['startOrganize', 'organizeStatus', 'applyOrganize'] },
   { id: 'onboarding.goal', name: '7-day team goal', area: 'Onboarding', endpoints: ['getTeamGoal'] },
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },
