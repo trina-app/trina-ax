@@ -196,13 +196,67 @@ export function hostLineNow(o: { path: string; signedIn: boolean; answered: bool
 }
 
 /** What the team's relay answered instead of the team server (the `x-relay-error` header; relay/src/relay.ts). */
-export type RelayAnswer = 'unknown' | 'suspended' | 'offline' | null
+export type RelayAnswer = 'unknown' | 'suspended' | 'offline' | 'waking' | null
 export function relayAnswer(status: number, relayError: string | null | undefined): RelayAnswer {
   const kind = relayError ?? ''
+  // a stopped trial team's server is starting (about a minute); the relay holds the request, then answers a retryable 503
+  if (status === 503 && kind === 'team_waking') return 'waking'
   if (status === 404 && kind === 'team_unknown') return 'unknown'
   if (status === 403 && (kind === 'team_suspended' || kind === 'team_suspended_billing')) return 'suspended'
   if (status >= 500 && /^team_(offline|offline_cloud|busy|maintenance|timeout|connection_lost)$|^bad_gateway$/.test(kind)) return 'offline'
   return null
+}
+
+/**
+ * A free trial's server is turned off when nobody uses it (docs/DECISIONS.md "Hosted teams that sleep"). The apps'
+ * address check (GET /api/health, no cookie, no token) never wakes it: the relay wakes a team only for a person's
+ * request (relay/src/relay.ts mayWake), so it answers the check "offline" (team_offline_cloud), or team_waking when
+ * another visit already woke it. Either answer from a hosted team may be a sleeping one (QA wake gap 1).
+ */
+export function mayBeAsleep(status: number, relayError: string | null | undefined): boolean {
+  return status === 503 && (relayError === 'team_waking' || relayError === 'team_offline_cloud')
+}
+
+/** One answer to the wake request: the status, the relay's x-relay-error and its Retry-After (seconds), or null when
+ * the request itself failed (no network, timeout). */
+export type WakeAnswer = { status: number; relayError: string | null; retryAfter: number | null } | null
+export interface WakeSteps {
+  /** the person's own page load of the team (GET / with Sec-Fetch-Mode: navigate, as a browser opening the link):
+   * the request the relay lets wake a sleeping team, never the health check */
+  wake: () => Promise<WakeAnswer>
+  /** told once, at the first "the team is starting" answer: the app shows "Resuming your team… about a minute" */
+  onWaking: () => void
+  sleep: (ms: number) => Promise<void>
+  now: () => number
+  /** how long to wait for a starting team: a boot is about a minute; 3 minutes, then "didn't start" */
+  limitMs?: number
+  /** the person cancelled the wait (the phone's Cancel): no more asking */
+  stopped?: () => boolean
+}
+export const WAKE_LIMIT_MS = 180_000
+/**
+ * Wake a team whose address check answered `mayBeAsleep`, and wait while it starts, asking again after the relay's
+ * Retry-After (kept to 3-20 s, as the relay's own waking page). 'awake': the team answered (check it again);
+ * 'notAsleep': the first answer was not "starting" (the team is off for another reason: say "cannot reach" as before);
+ * 'timeout': it was starting but did not answer within the limit; 'cancelled': `stopped` said so.
+ */
+export async function wakeTeam(s: WakeSteps): Promise<'awake' | 'notAsleep' | 'timeout' | 'cancelled'> {
+  const start = s.now()
+  let starting = false
+  for (;;) {
+    let a: WakeAnswer = null
+    try { a = await s.wake() } catch { a = null }
+    if (s.stopped?.()) return 'cancelled'
+    const waking = !!a && relayAnswer(a.status, a.relayError) === 'waking'
+    // the team server answered (its page, a sign-in redirect): no relay or gateway error
+    if (a && a.status < 500) return 'awake'
+    if (!waking && !starting) return 'notAsleep'
+    if (waking && !starting) { starting = true; s.onWaking() }
+    const after = Math.min(20, Math.max(3, a?.retryAfter ?? 5)) * 1000
+    if (s.now() - start + after > (s.limitMs ?? WAKE_LIMIT_MS)) return 'timeout'
+    await s.sleep(after)
+    if (s.stopped?.()) return 'cancelled'
+  }
 }
 
 /**

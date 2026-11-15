@@ -281,6 +281,10 @@ export function threadOpening(roomId: string, rootId: string, open: { threadId: 
 /** Closing it: one step back when the room is that step, else to the room in place of the thread. */
 export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })
 
+/** The line of a room with no messages yet: "Send the first one" only where a message can be sent. A DM whose other
+ * person left the team is read-only (no message box, pages/Room.tsx), so it says just "No messages." (QA TC-1973). */
+export const roomEmptyKey = (room: Partial<Pick<Room, 'gone'>> | null | undefined) => (room?.gone ? 'rooms.emptyReadOnly' as const : 'rooms.empty' as const)
+
 /** "99+" past 99, like the Inbox count. */
 export const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
 /** How many older pages a linked reply (an Inbox row's or a search result's ?m=) is looked for in a thread: pages of

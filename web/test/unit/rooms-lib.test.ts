@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
+import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomEmptyKey, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -260,5 +260,13 @@ describe('how far the room is read (pages/Room.tsx tryRead, QA TC-155)', () => {
 
   test('a window around an older message (a search result): nothing', () => {
     expect(readUpTo(tl(run(1, 50), { newerCursor: 'newer' }), 0, all)).toBe(0)
+  })
+})
+
+describe('the empty room line (QA TC-1973)', () => {
+  test('a room one can write in invites the first message; a DM with a person who left the team does not', () => {
+    expect(translate('en', roomEmptyKey(room({ id: R, kind: 'dm', peers: [BEN] })))).toBe('No messages yet. Send the first one.')
+    expect(translate('en', roomEmptyKey({ ...room({ id: R, kind: 'dm', peers: [BEN] }), gone: true }))).toBe('No messages.')
+    expect(translate('en', roomEmptyKey(null))).toBe('No messages yet. Send the first one.')
   })
 })

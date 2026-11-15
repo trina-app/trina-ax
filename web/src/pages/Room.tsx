@@ -31,7 +31,7 @@ import { Link, useLocation, useNavigate, useNavigationType, useParams, type Navi
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { readUpTo, threadClosing, threadOpening } from '../lib/rooms'
+import { readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
 import { holdPlace, listPlace, restorePlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
@@ -487,7 +487,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               <LoadError error={timeline.error} onRetry={() => useRooms.getState().loadNewest(roomId)} what="room-messages" />
             </div>
           )}
-          {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
+          {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t(roomEmptyKey(room))}</p>}
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
             <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={threadId ? null : target} />

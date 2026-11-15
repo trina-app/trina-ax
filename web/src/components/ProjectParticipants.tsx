@@ -14,6 +14,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode }
 import { ChevronDown, Search, Users, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { Group, ProjectAccessPreview, ProjectParticipant, ProjectPerson, SubjectType } from '@mycel/shared/api'
+import { ApiError } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
@@ -380,22 +381,41 @@ export interface AccessCount { n: number; hiddenAnswers?: number }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
  * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
- * answers the people added would start seeing, a walk of the project's shared chats); null while asking or when it
- * failed. */
+ * answers the people added would start seeing, a walk of the project's shared chats); null while asking. When the dry
+ * run fails (past its 60 a minute, 429) the last count comes back, with no error: the widening warning that reads it
+ * stays (QA TC-1695); null only when no count came yet. */
 export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
+  const last = useRef<AccessCount | null>(null)
+  // a refused dry run asks again by itself (after the server's Retry-After), so the kept count is soon the picks' own
+  const [retry, setRetry] = useState(0)
   const key = participants.map(participantKey).sort().join(',')
   const removing = (o.removeRules ?? []).map(ruleKey).sort().join(',')
   useEffect(() => {
     if (!o.enabled) return
     let live = true
-    setN(null)
+    let again: ReturnType<typeof setTimeout> | undefined
+    if (!retry) setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }), () => {})
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => {
+        if (!live) return
+        last.current = { n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }
+        setN(last.current)
+      }, (e) => {
+        if (!live) return
+        setN(last.current)
+        // only a refusal that passes (the limit, a server busy or starting) is asked again, a few times
+        const passing = e instanceof ApiError && (e.status === 429 || e.status >= 500 || e.body.retryAfter !== undefined)
+        if (!passing || retry >= 8) return
+        const wait = e.body.retryAfter
+        again = setTimeout(() => { if (live) setRetry((x) => x + 1) }, Math.min(60, Math.max(1, wait ?? 15)) * 1000)
+      })
     }, ACCESS_COUNT_DEBOUNCE_MS)
-    return () => { live = false; clearTimeout(h) }
+    return () => { live = false; clearTimeout(h); clearTimeout(again) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, removing, o.projectId, o.enabled])
+  }, [key, removing, o.projectId, o.enabled, retry])
+  // new picks start the retries over
+  useEffect(() => { setRetry(0) }, [key, removing, o.projectId])
   return n
 }
 

@@ -9,6 +9,7 @@ import { baseName } from '../lib/paths'
 import { uploadBar } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { Button, IconButton, useMediaQuery } from './ui'
+import { StoragePlansLink } from './StoragePlansLink'
 import { UploadLabel } from './UploadLabel'
 
 export default function FileUploads({ here }: { here: string }) {
@@ -68,6 +69,7 @@ export default function FileUploads({ here }: { here: string }) {
                 <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
               </div>
             )}
+            {u.status === 'failed' && <StoragePlansLink url={u.plans} />}
             {u.status === 'failed' && u.retry && (
               <Button size="sm" onClick={u.retry} data-testid="file-upload-retry">
                 {t('common.retry')}

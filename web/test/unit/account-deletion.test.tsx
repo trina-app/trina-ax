@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDeletionRequest, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
-import { AccountDeletion, deletionDueText, deletionNoticeText } from '../../src/components/settings/AccountDeletion'
+import { AccountDeletion, deletionDueText, deletionNoticeText, deletionRowText } from '../../src/components/settings/AccountDeletion'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -60,6 +60,10 @@ describe('the page', () => {
       expect(page).toContain('팀장과 관리자에게 알림이 가요')
       expect(page).toContain('팀장만 읽을 수 있는 보관 폴더로 옮겨져요')
       expect(page).toContain('대화방에 보낸 메시지와 파일(내 이름으로 남아요)')
+      // TC-1920: a chat shared with people by name goes with the account (auth/sweeper.ts purges every chat with no
+      // shared_at); only a shared project chat stays
+      expect(page).toContain('사람이나 그룹에게 공유한 대화')
+      expect(page).toContain('프로젝트에 공유한 대화')
       expect(page).toContain('팀 활동 기록에 남는 삭제 기록(30일)')
       expect(page).toContain('최대 8주')
       expect(m.container.querySelectorAll('button').length).toBe(1)
@@ -121,6 +125,16 @@ describe('texts', () => {
     expect(en('accountDeletion.kept', { days: 90 })).toContain('(90 days)')
     expect(en('accountDeletion.rowHint', { days: 7 })).toBe('Your account is deleted 7 days after you ask. You can cancel until then.')
   })
+  test('TC-1920: chats shared with people or groups are listed as deleted; only shared project chats stay, in every language', () => {
+    expect(en('accountDeletion.goes')).toContain('your private chats, the chats you shared with people or groups, your memories')
+    expect(en('accountDeletion.stays')).toContain('files in team folders, shared project chats,')
+    const project: Record<string, string> = { ko: '프로젝트', ja: 'プロジェクト', zh: '项目', id: 'proyek', es: 'proyectos', en: 'project' }
+    const people: Record<string, string> = { ko: '그룹', ja: 'グループ', zh: '群组', id: 'grup', es: 'grupos', en: 'groups' }
+    for (const l of Object.keys(project)) {
+      expect(translate(l as never, 'accountDeletion.stays')).toContain(project[l])
+      expect(translate(l as never, 'accountDeletion.goes')).toContain(people[l])
+    }
+  })
   test('the owners\' inbox: a name and the date while it waits; taken back; done; an older server with no detail', () => {
     expect(deletionNoticeText(ko, { deletionRequest: { name: '민지', state: 'open' } })).toBe('민지님이 계정 삭제를 요청했어요.')
     expect(deletionNoticeText(en, { deletionRequest: { name: 'Minji', state: 'open', dueAt: DUE } }, 'en')).toBe('Minji asked to have their account deleted. It is deleted on Nov 21, 2026.')
@@ -131,5 +145,25 @@ describe('texts', () => {
   test('the person\'s own date notice: the date while it is open, closed after', () => {
     expect(deletionDueText(en, { deletionDue: { dueAt: DUE } }, 'en')).toContain('your account is deleted on Nov 21, 2026.')
     expect(deletionDueText(en, { deletionDue: { dueAt: null } }, 'en')).toBe('Your account deletion request is closed.')
+  })
+})
+
+// TC-1976: Settings › Profile's row says the date while a deletion is pending and offers "Keep my account" there, not
+// "Delete my account" again
+describe('the profile row', () => {
+  test('pending: the date and Keep my account; none, the owner, or not read yet: the link with the usual hint', () => {
+    const pending = deletionRowText(en, { state: 'pending', requestedAt: '2026-11-14T12:00:00.000Z', dueAt: DUE }, 'en')
+    expect(pending.keep).toBe(true)
+    expect(pending.hint).toContain('Your account will be deleted on')
+    expect(pending.hint).toContain('2026')
+    expect(en('accountDeletion.cancel')).toBe('Keep my account')
+    // a request from before automatic deletion (no date yet) says when it was asked
+    expect(deletionRowText(en, { state: 'pending', requestedAt: '2026-11-14T12:00:00.000Z', dueAt: null }, 'en')).toMatchObject({ keep: true, hint: expect.stringContaining('You asked on') })
+    const plain = en('accountDeletion.rowHint', { days: 7 })
+    for (const v of [null, { state: 'none' as const, requestedAt: null, dueAt: null }, { state: 'owner' as const, requestedAt: null, dueAt: null }]) {
+      expect(deletionRowText(en, v, 'en')).toEqual({ keep: false, hint: plain })
+    }
+    // the team's language too
+    expect(deletionRowText(ko, { state: 'pending', requestedAt: null, dueAt: DUE }, 'ko').hint).not.toBe(ko('accountDeletion.rowHint', { days: 7 }))
   })
 })

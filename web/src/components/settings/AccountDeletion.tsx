@@ -41,6 +41,37 @@ export function deletionDueText(t: T, item: Pick<InboxNotification, 'deletionDue
   return due ? t('accountDeletion.dueNotice', { date: formatDate(due, locale) }) : t('accountDeletion.dueNoticeClosed')
 }
 
+/** Settings › Profile's "Delete account" row (TC-1976): while a deletion is pending it says the date and offers "Keep
+ * my account" there, not "Delete my account" again; otherwise (no request, the owner, not read yet) the link to the page. */
+export function deletionRowText(t: T, value: AccountDeletionRequest | null, locale: L = 'en'): { hint: string; keep: boolean } {
+  if (value?.state === 'pending') {
+    return { keep: true, hint: value.dueAt ? t('accountDeletion.pending', { date: formatDate(value.dueAt, locale) }) : t('accountDeletion.pendingAsked', { date: formatDate(value.requestedAt, locale) }) }
+  }
+  return { keep: false, hint: t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS }) }
+}
+
+/** The person's own deletion request (null until read, or when it could not be read) and "Keep my account" (the page
+ * and the profile row share it). */
+export function useMyDeletionRequest() {
+  const t = useT()
+  const locale = useLocale()
+  const [value, setValue] = useState<AccountDeletionRequest | null>(null)
+  const [busy, setBusy] = useState(false)
+  const keep = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      setValue(await api.call(API.cancelAccountDeletion))
+      toast({ level: 'success', text: t('accountDeletion.cancelled') })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { value, setValue, busy, keep }
+}
+
 /** What happens, in plain lines: the same list before and after asking. */
 function WhatHappens({ value, viewerIsAdmin }: { value: AccountDeletionRequest; viewerIsAdmin: boolean }) {
   const t = useT()
@@ -114,9 +145,8 @@ export function AccountDeletion() {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
-  const [value, setValue] = useState<AccountDeletionRequest | null>(null)
+  const { value, setValue, busy, keep } = useMyDeletionRequest()
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const load = async () => {
     try {
@@ -130,18 +160,6 @@ export function AccountDeletion() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const keep = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      setValue(await api.call(API.cancelAccountDeletion))
-      toast({ level: 'success', text: t('accountDeletion.cancelled') })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     // the way back is the dialog's: Profile stays marked in its list, and a phone's back arrow goes to Profile
     <section data-testid="account-deletion">
