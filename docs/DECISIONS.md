@@ -29421,3 +29421,23 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   `schedule-notifications`.
 - Version impact: **minor** (three new optional API fields, `needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`,
   and a new push tap target; nothing removed).
+
+## Connection tool calls wait minutes, not 30 s (fix/connector-tool-timeout, 2026-11-15)
+
+A team connection to a web-scraping service (Bright Data's remote MCP server) failed every LinkedIn scrape: the
+scrape answers in 1-2 minutes and every request to a connection had 30 s (`net.ts` `TIMEOUT_MS`), `tools/call`
+included. The engines were not the limit (Claude Code `MCP_TOOL_TIMEOUT` and Codex `tool_timeout_sec` are 30 minutes,
+the turn's stall guard waits while our tool runs). Decided:
+- A `tools/call` fails only when nothing comes for 5 minutes (`MCP_CALL_IDLE_MS`) or 15 minutes after it began
+  (`MCP_CALL_TIMEOUT_MS`). The bytes of an event stream count as signs of life; each call names a `progressToken`
+  (its own request id), so a service that reports progress keeps the call alive past 5 minutes (the SDK's
+  `resetTimeoutOnProgress` with `maxTotalTimeout`). 15 minutes stays under the engines' 30 so the AI gets our reason.
+- Stop ends the call at once (the turn's signal closes the request) and sends `notifications/cancelled`; the AI is told
+  the call was stopped, not "did not answer within 30 seconds".
+- A call stopped by these limits marks the connection as an error that is only for now (`call_idle`, `call_timeout`),
+  as the 30 s did. Everything else keeps the 30 s (the session's start, OAuth, `api_request`), a check keeps 30 s
+  without bytes and 90 s in all, and a Google app's calls to the library on this machine keep their 30 s.
+- No per-connection setting (none exists, none added).
+- Tests: `tests/unit/c-integrations-slow-call.test.ts` (scaled limits: a silent call 3 times the request limit, progress
+  past the pause limit, the pause limit, the hard limit, Stop), `tests/unit/c-integrations-slow-list.test.ts`. Version
+  impact: **patch**.

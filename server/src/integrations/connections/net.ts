@@ -2,8 +2,8 @@
 // resolveTarget: public internet addresses only, never the office network, this server or the office's own exit
 // address), one DNS answer pinned for the connection, no proxy from the environment, no redirects followed, 30 s and
 // 1 MiB (counted while reading, also without Content-Length; the requests of a check end by its deadline, and an MCP
-// tools/list page may take until then while it keeps coming, NetRequest.long). Errors carry a reason code, never the
-// remote body.
+// tools/list page or tools/call may take until then while something keeps coming, NetRequest.long). Errors carry a
+// reason code, never the remote body.
 import { PRODUCT } from '@mycel/shared'
 import { ToolError } from '../../policy/errors'
 import { decode, pinnedRequest, resolveTarget, type ResolveOptions } from '../../tools/web-fetch'
@@ -20,6 +20,9 @@ export interface NetOptions extends Pick<ResolveOptions, 'lookup' | 'testAllow' 
   /** tests: mcp.ts MCP_LIST_IDLE_MS and MCP_LIST_TIMEOUT_MS */
   listIdleMs?: number
   listTimeoutMs?: number
+  /** tests: mcp.ts MCP_CALL_IDLE_MS and MCP_CALL_TIMEOUT_MS */
+  callIdleMs?: number
+  callTimeoutMs?: number
   /** offline tests only (IntegrationDeps, never HTTP or model input): recorded answers instead of the network (the
    * services' metadata as probed, oauth.ts). It answers after the scheme check and before the name lookup and the
    * address rules, which it skips: the recorded hosts are real ones a test must not look up */
@@ -40,10 +43,11 @@ export interface NetRequest {
   maxBytes?: number
   signal?: AbortSignal
   until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
-  /** a check's own deadline (mcp.ts listTools): the request ends by `deadline` (epoch ms) at the latest, failing with
-   * `reason` when that is what ends it. With `idleMs` (a tools/list page, which may keep coming for longer than the
-   * 30 s) the answer is read until the deadline, failing with 'timeout' sooner only when no bytes arrive for that long. */
-  long?: { deadline: number; reason: Reason; idleMs?: number }
+  /** a request's own deadline (mcp.ts listTools: the check's; callTool: the call's): the request ends by `deadline`
+   * (epoch ms) at the latest, failing with `reason` when that is what ends it. With `idleMs` (a tools/list page or a
+   * tools/call, which may take longer than the 30 s) the answer is read until the deadline, failing sooner only when no
+   * bytes arrive for that long, with `idleReason` ('timeout' when not set). */
+  long?: { deadline: number; reason: Reason; idleMs?: number; idleReason?: Reason }
 }
 
 function reasonOf(e: unknown): Reason {
@@ -86,6 +90,7 @@ export async function serviceRequest(url: string, r: NetRequest, o: NetOptions =
     if (r.signal?.aborted) throw new NetError('timeout')
     // ended by the check's deadline: not by the 30 s, nor by a pause in a long answer ("stopped sending")
     if (long && by === long.deadline && e instanceof Error && /did not answer in time/.test(e.message)) throw new NetError(long.reason)
+    if (long?.idleReason && e instanceof Error && /stopped sending/.test(e.message)) throw new NetError(long.idleReason)
     throw new NetError(reasonOf(e))
   }
   let body = res.body

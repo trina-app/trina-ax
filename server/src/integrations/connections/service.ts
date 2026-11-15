@@ -16,7 +16,7 @@ import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
 import { secretHider } from './hide'
-import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
+import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
@@ -959,6 +959,8 @@ export class Integrations {
     } catch (e) {
       // a Google app's answer too large (a big Gmail attachment) says nothing about the connection
       if (!signal?.aborted && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
+      // stopped here (Stop, the turn's end): not the service's timeout
+      if (signal?.aborted && !(e instanceof CallError)) throw new CallError(`the call to ${row.name} was stopped because the answer was stopped`, 'stopped')
       throw e instanceof CallError ? e : new CallError(callMessage(e, row), kindOf(e), e instanceof McpError && e.code === 'rpc')
     }
   }
@@ -1232,7 +1234,7 @@ export class Integrations {
 /** reasons a check fails for now while the service and its saved tools may still work: no answer in time, not
  * reachable, a list over the limits, the service busy or failing (HTTP 408, 429, 5xx). Not a refused key or sign-in,
  * an address that is not allowed, a redirect or a bad certificate: those stop the calls too. */
-const PASSING = /^(timeout|list_timeout|unreachable|too_large|http_status:(408|429|5\d\d))$/
+const PASSING = /^(timeout|list_timeout|call_idle|call_timeout|unreachable|too_large|http_status:(408|429|5\d\d))$/
 
 /** What a failure says about the connection (null: nothing to record, e.g. the call was stopped). */
 function statusOf(e: unknown): { status: Row['status']; reason: string } | null {
@@ -1279,7 +1281,10 @@ function callMessage(e: unknown, row: Row): string {
   }
   if (e instanceof NetError) {
     const words: Record<string, string> = {
-      timeout: 'did not answer within 30 seconds', private_address: 'points to a private, local or office address, which is not allowed', blocked_port: 'uses a port other than 443',
+      timeout: 'did not answer within 30 seconds',
+      call_idle: `sent nothing for ${MCP_CALL_IDLE_MS / 60_000} minutes, so the call was stopped (a call may run up to ${MCP_CALL_TIMEOUT_MS / 60_000} minutes while the service keeps sending)`,
+      call_timeout: `did not finish within ${MCP_CALL_TIMEOUT_MS / 60_000} minutes, so the call was stopped; a smaller request may finish in time`,
+      private_address: 'points to a private, local or office address, which is not allowed', blocked_port: 'uses a port other than 443',
       tls: 'has a certificate that could not be verified', redirect: `redirected (HTTP ${e.status}); redirects are not followed`, too_large: 'sent an answer that is too large (over 25 MB for a tool call, 1 MB otherwise)',
       key_unsafe: 'cannot be used: the server\'s key folder is unsafe', unreachable: 'could not be reached',
     }

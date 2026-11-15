@@ -134,6 +134,9 @@ export const TEXT = {
   timeout: t('서비스가 30초 안에 답하지 않았어요.', 'The service did not answer within 30 seconds.', 'Layanan tidak menjawab dalam 30 detik.', "サービスが30秒以内に応答しませんでした。", "El servicio no respondió en 30 segundos.", "服务在30秒内没有回应。"),
   // its tools/list kept coming but did not end in time (mcp.ts MCP_LIST_TIMEOUT_MS)
   list_timeout: t('서비스가 90초 안에 도구 목록을 다 보내지 않았어요.', 'The service did not send its whole tool list within 90 seconds.', 'Layanan tidak mengirim seluruh daftar alatnya dalam 90 detik.', "サービスが90秒以内にツール一覧をすべて送信しませんでした。", "El servicio no envió su lista completa de herramientas en 90 segundos.", "服务没有在90秒内发送完整的工具列表。"),
+  // a tool call stopped by its own limits (mcp.ts MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS)
+  call_idle: t('서비스의 도구가 5분 동안 아무것도 보내지 않아 호출을 멈췄어요.', 'A tool of the service sent nothing for 5 minutes, so the call was stopped.', 'Alat layanan tidak mengirim apa pun selama 5 menit, jadi panggilan dihentikan.', "サービスのツールが5分間何も送信しなかったため、呼び出しを停止しました。", "Una herramienta del servicio no envió nada durante 5 minutos, así que se detuvo la llamada.", "服务的工具 5 分钟内没有发送任何内容，因此已停止调用。"),
+  call_timeout: t('서비스의 도구가 15분 안에 끝나지 않아 호출을 멈췄어요.', 'A tool of the service did not finish within 15 minutes, so the call was stopped.', 'Alat layanan tidak selesai dalam 15 menit, jadi panggilan dihentikan.', "サービスのツールが15分以内に終わらなかったため、呼び出しを停止しました。", "Una herramienta del servicio no terminó en 15 minutos, así que se detuvo la llamada.", "服务的工具没有在 15 分钟内完成，因此已停止调用。"),
   private_address: t('사내망이나 이 서버의 주소에는 연결할 수 없어요. 인터넷의 공개 주소를 넣어 주세요.', 'Addresses on the office network or of this server cannot be used. Use a public internet address.', 'Alamat di jaringan kantor atau server ini tidak bisa dipakai. Pakai alamat publik di internet.', "社内ネットワークやこのサーバーのアドレスは使用できません。公開インターネットアドレスを使ってください。", "No se pueden usar direcciones de la red interna ni de este servidor. Use una dirección pública de internet.", "不能使用办公室网络或这台服务器上的地址。请使用公网地址。"),
   blocked_port: t('https 기본 포트(443)만 쓸 수 있어요.', 'Only the standard https port (443) can be used.', 'Hanya port https standar (443) yang bisa dipakai.', "標準のhttpsポート（443）のみ使用できます。", "Solo se puede usar el puerto https estándar (443).", "只能使用标准 https 端口（443）。"),
   tls: t('서비스의 보안 인증서를 확인하지 못했어요.', 'The service’s security certificate could not be verified.', 'Sertifikat keamanan layanan tidak dapat diverifikasi.', "サービスのセキュリティ証明書を確認できませんでした。", "No se pudo verificar el certificado de seguridad del servicio.", "无法验证服务的安全证书。"),
@@ -204,7 +207,7 @@ export const FIELD_WORDS: Record<string, T> = {
   folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta", "文件夹"),
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
-export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
+export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
