@@ -61,17 +61,17 @@ test('PATCH guest-ai: owner and admins only, with the invite\'s checks; never an
   const url = `/api/admin/users/${g.id}/guest-ai`
   // a member: 403; a connection that is not a team one: 400; someone not a guest: 409
   expect((await mia.client.try('PATCH', url, { mode: 'own' })).status).toBe(403)
-  expect((await owner.try('PATCH', url, { mode: 'team', credentialId: 'nope', limitUsd: 5 })).status).toBe(400)
+  expect((await owner.try('PATCH', url, { mode: 'team', credentialId: 'nope', limitTokens: 5000 })).status).toBe(400)
   expect((await owner.try('PATCH', `/api/admin/users/${mia.id}/guest-ai`, { mode: 'own' })).status).toBe(409)
   // own, then team with a limit (an admin may)
   expect((await owner.call('PATCH', url, { mode: 'own' })).guest.ai).toEqual({ mode: 'own' })
-  const u = await ada.client.call('PATCH', url, { mode: 'team', credentialId: team, limitUsd: 7 })
-  expect(u.guest.ai).toEqual({ mode: 'team', credentialId: team, limitUsd: 7 })
-  expect((await g.client.call('GET', '/api/me')).guest.ai).toEqual({ mode: 'team', credentialId: team, limitUsd: 7 })
+  const u = await ada.client.call('PATCH', url, { mode: 'team', credentialId: team, limitTokens: 7000 })
+  expect(u.guest.ai).toEqual({ mode: 'team', credentialId: team, limitTokens: 7000 })
+  expect((await g.client.call('GET', '/api/me')).guest.ai).toEqual({ mode: 'team', credentialId: team, limitTokens: 7000 })
   expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credential_assignments').get()).toEqual({ n: 0 })
   // a new limit replaces the old one
-  await owner.call('PATCH', url, { mode: 'team', credentialId: team, limitUsd: 3 })
-  expect(h.ctx.db.query("SELECT limit_usd FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block'").all(g.id)).toEqual([{ limit_usd: 3 }])
+  await owner.call('PATCH', url, { mode: 'team', credentialId: team, limitTokens: 3000 })
+  expect(h.ctx.db.query("SELECT limit_usd, limit_tokens FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block'").all(g.id)).toEqual([{ limit_usd: 0, limit_tokens: 3000 }])
   // and off again
   expect((await owner.call('PATCH', url, { mode: 'none' })).guest.ai).toEqual({ mode: 'none' })
   // a guest cannot change their own

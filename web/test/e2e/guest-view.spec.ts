@@ -26,7 +26,7 @@ async function signInGuest(page: Page, id = 'gina') {
   await expect(page.getByTestId('login-submit')).toHaveCount(0)
 }
 
-const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
+const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitTokens: 5_000_000 }
 
 async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind: 'project'; name: string; instructions?: string }, ai: GuestAiChoice = { mode: 'none' }) {
   await reset(page)

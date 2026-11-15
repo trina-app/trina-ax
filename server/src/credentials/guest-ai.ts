@@ -22,7 +22,8 @@ export function guestAiOf(db: Database, userId: string): GuestAiRow | null {
 
 export const isGuestUser = (db: Database, userId: string): boolean => guestAiOf(db, userId) !== null
 
-/** The guest's own usage limit is set: a 'user' budget with action 'block'. */
+/** The guest's own usage limit is set: a 'user' budget with action 'block' that limits something (tokens or US
+ * dollars above 0; a row with both cleared in Admin › AI limits limits nothing, so it is no limit). */
 export function guestHasBlockBudget(db: Database, userId: string): boolean {
-  return !!db.query("SELECT 1 FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block'").get(userId)
+  return !!db.query("SELECT 1 FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block' AND (limit_tokens > 0 OR limit_usd > 0)").get(userId)
 }

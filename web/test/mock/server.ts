@@ -395,7 +395,9 @@ export class MockServer {
   rooms: Room[] = []
   /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
    * one's one place and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
-  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean }>()
+  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean; usedTokens?: number; aiUsedUp?: boolean }>()
+  /** the team's tokens per answer (GuestInviteLimit.answerTokens): POST /__test/answer-tokens */
+  answerTokens: { tokens: number; from: 'team' | 'default' } = { tokens: 80_000, from: 'default' }
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
    * server) and whether every seat is taken (making a guest a member is then refused, 409 seat_limit) */
   guestCap: number | null = null
@@ -771,6 +773,7 @@ export class MockServer {
     this.guests.clear()
     this.guestCap = null
     this.hostSignIn = false
+    this.answerTokens = { tokens: 80_000, from: 'default' }
     this.seatsFull = false
     this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
@@ -1514,12 +1517,16 @@ export class MockServer {
   }
   /** Me.guest and User.guest: a guest's place by name and AI; for a removed guest why they are not in it (placeOut, as
    * POST /__test/guest {out} sets it; a deleted place keeps no name), and a Team AI whose account was deleted. */
-  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true } } {
+  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } } {
     const g = this.guests.get(u.id)
     if (!g) return {}
     const out = u.status !== 'active' ? g.out : undefined
     const place = this.guestPlaceNamed(g.place) ?? (out ? { ...g.place, name: out === 'gone' ? '' : String((this.projects.find((x) => x.id === g.place.id) ?? this.rooms.find((x) => x.id === g.place.id))?.name ?? '') } : null)
-    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}) } } : {}
+    // like server/src/auth/guests.ts guestDetail: Team AI's use of this month's limit and when it starts over
+    const team = !g.teamAiGone && g.ai.mode === 'team'
+    const d = new Date()
+    const aiUse = team ? { usedTokens: g.usedTokens ?? 0, usedUsd: 0, resetsAt: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString() } : null
+    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}), ...(team && g.aiUsedUp ? { aiUsedUp: true as const } : {}), ...(aiUse ? { aiUse } : {}) } } : {}
   }
   /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
   assertGuestFree() {
@@ -2232,7 +2239,7 @@ export class MockServer {
       } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
       else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
       // the monthly limit used up (server/src/admin/budgets.ts budgetBlock): when it resets, 00:00 KST on Dec 1
-      else if (fixture?.[2] === 'budget') assistant.error = { code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요. 12월 1일 0시부터 다시 쓸 수 있어요.', params: { resetsAt: '2026-11-30T15:00:00.000Z' } }
+      else if (fixture?.[2] === 'budget') assistant.error = { code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요. 12월 1일 0시부터 다시 쓸 수 있어요.', params: { resetsAt: '2026-11-30T15:00:00.000Z', own: true } }
     }
     if (/sources/i.test(prompt)) {
       // like server/src/files/sources.ts: what the answer read or saw passages of, a sub-agent's read marked; one file
@@ -2727,7 +2734,7 @@ export class MockServer {
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
       const pending = this.guestCap === null ? 0 : this.openGuestLinks()
       const full = this.guestCap !== null && used + pending >= this.guestCap
-      return { full, limit: this.guestCap, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
+      return { full, limit: this.guestCap, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme', answerTokens: this.answerTokens } : {}),
         ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {
@@ -5944,7 +5951,15 @@ export class MockServer {
       const g = this.guests.get(u.id)!
       if (body.out === 'left' || body.out === 'trashed' || body.out === 'gone') g.out = body.out
       if (body.teamAiGone === true) g.teamAiGone = true
+      // Team AI's use this month (tokens) and whether the limit is used up
+      if (typeof body.usedTokens === 'number') g.usedTokens = body.usedTokens
+      if (body.aiUsedUp === true) g.aiUsedUp = true
       return Response.json({ id: u.id })
+    }
+    // the team's tokens per answer the invite's "about N answers" uses ({tokens, from: 'team' | 'default'})
+    else if (p === '/__test/answer-tokens') {
+      this.answerTokens = { tokens: Number(body.tokens), from: body.from === 'team' ? 'team' : 'default' }
+      return Response.json({ ok: true })
     }
     // a team AI account (an API key, checked), for the guest invite's Team AI choice
     else if (p === '/__test/team-credential') {

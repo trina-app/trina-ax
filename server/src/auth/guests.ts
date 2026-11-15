@@ -12,7 +12,8 @@ import type { GuestAi, GuestAiChoice, GuestPlace, Locale } from '@mycel/shared/a
 import { fail } from '../http/errors'
 import { AUTH_MESSAGES } from './messages'
 import { currentPlan, planManageUrl } from '../system/limits'
-import { budgetBlock } from '../admin/budgets'
+import { budgetBlock, periodEnd, periodStart, spend } from '../admin/budgets'
+import { teamTimeZone } from '../admin/settings'
 import { RuleSet, atLeast, type Principal } from '../policy/access'
 
 /** The role as the API knows it, from a users row (`alias` = the table alias with its dot, e.g. 'u.'). */
@@ -203,15 +204,31 @@ export function guestsAmong(db: Database, ids: readonly string[]): string[] {
   return (db.query(`SELECT id FROM users WHERE guest = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string }[]).map((r) => r.id)
 }
 
-/** The guest's AI as screens show it: 'team' with its connection and monthly limit (the user 'block' budget), only
- * while both are there (else what resolution does: none). */
+/** The guest's own Team AI limit: their 'block' budget for the month, a token one first (a guest given Team AI before
+ * 2026-11-15 has a US dollar one: read as it is until an admin changes it). null without one. */
+function guestBudget(db: Database, userId: string): { limitTokens: number | null; limitUsd: number } | null {
+  const b = db.query(`SELECT limit_usd, limit_tokens FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block'
+    AND (limit_tokens > 0 OR limit_usd > 0) ORDER BY limit_tokens IS NULL, limit_tokens, limit_usd LIMIT 1`).get(userId) as { limit_usd: number; limit_tokens: number | null } | null
+  return b ? { limitTokens: b.limit_tokens !== null && b.limit_tokens > 0 ? b.limit_tokens : null, limitUsd: b.limit_usd } : null
+}
+
+/** The guest's AI as screens show it: 'team' with its connection and monthly limit (the user 'block' budget: tokens, or
+ * an older guest's US dollars), only while both are there (else what resolution does: none). */
 export function guestAiChoice(db: Database, userId: string): GuestAiChoice {
   const r = guestRow(db, userId)
   if (!r || r.ai === 'none') return { mode: 'none' }
   if (r.ai === 'own') return { mode: 'own' }
   const cred = (db.query('SELECT team_credential_id AS c FROM guests WHERE user_id = ?').get(userId) as { c: string | null } | null)?.c ?? null
-  const b = db.query("SELECT limit_usd FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block' ORDER BY limit_usd LIMIT 1").get(userId) as { limit_usd: number } | null
-  return cred && b && b.limit_usd > 0 ? { mode: 'team', credentialId: cred, limitUsd: b.limit_usd } : { mode: 'none' }
+  const b = guestBudget(db, userId)
+  if (!cred || !b) return { mode: 'none' }
+  return b.limitTokens !== null ? { mode: 'team', credentialId: cred, limitTokens: b.limitTokens } : { mode: 'team', credentialId: cred, limitUsd: b.limitUsd }
+}
+
+/** Team AI: this month's use of the guest's limit (as checkBudgets counts it) and when it starts over. */
+function guestAiUse(db: Database, userId: string, now = new Date()): { usedTokens: number; usedUsd: number; resetsAt: string } {
+  const tz = teamTimeZone(db)
+  const used = spend(db, 'user', userId, periodStart('month', now, tz))
+  return { usedTokens: used.tokens, usedUsd: used.usd, resetsAt: periodEnd('month', now, tz).toISOString() }
 }
 
 /** The name of a place as the team calls it (a group chat's name, '' when it has none; a project's name). */
@@ -221,7 +238,7 @@ export function placeName(db: Database, place: GuestPlace): string {
 }
 
 /** Me.guest / User.guest: the guest's one place with its name, and their AI; undefined for anyone else. */
-export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true } | undefined {
+export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } | undefined {
   const r = guestRow(db, userId)
   if (!r) return undefined
   const place: GuestPlace = { kind: r.place_kind, id: r.place_id }
@@ -235,7 +252,8 @@ export function guestDetail(db: Database, userId: string): { place: GuestPlace &
   const gone = r.ai === 'team' && ai.mode === 'none' && !teamCredentialLive(db, userId)
   // Team AI whose monthly limit is used up now: Admin's row says so (QA TC-2206)
   const usedUp = ai.mode === 'team' && !!budgetBlock(db, userId, 'en')
-  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(gone ? { teamAiGone: true as const } : {}), ...(usedUp ? { aiUsedUp: true as const } : {}) }
+  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(gone ? { teamAiGone: true as const } : {}), ...(usedUp ? { aiUsedUp: true as const } : {}),
+    ...(ai.mode === 'team' ? { aiUse: guestAiUse(db, userId) } : {}) }
 }
 /** The guest's team AI account is still there and still a team one. */
 function teamCredentialLive(db: Database, userId: string): boolean {

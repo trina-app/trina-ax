@@ -25,7 +25,7 @@ import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { useAutoGrow } from '../../lib/autoGrow'
-import { formatResetDay, formatSize } from '../../lib/format'
+import { formatNumber, formatResetDay, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -679,6 +679,9 @@ export function AssistantMessage({
   const guestOwn = guest && meGuest(meNow)?.ai === 'own'
   // a guest suggests no skills (the server refuses it: guest walkthrough M1), so the button is not offered
   const canSuggest = canSuggestHere && !guest
+  const guestAi = guest ? meNow?.guest?.ai : undefined
+  // only when their own limit stopped it (params.own); a team or group limit has another amount
+  const guestTokens = guestAi?.mode === 'team' && m.error?.params?.own === true ? guestAi.limitTokens : undefined
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
@@ -687,7 +690,10 @@ export function AssistantMessage({
   const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? guestKey === 'guest.aiLimitUntil' ? t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+    ? guestKey === 'guest.aiLimitUntil' ? (guestTokens
+      // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
+      ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+      : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))
       : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
