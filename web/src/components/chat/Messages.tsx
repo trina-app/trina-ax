@@ -618,7 +618,7 @@ export function AssistantMessage({
   shareRoomId,
   sendHere,
   canRegenerate = true,
-  canSuggest = true,
+  canSuggest: canSuggestHere = true,
   pressMenu = false,
 }: {
   m: ViewMessage
@@ -677,6 +677,8 @@ export function AssistantMessage({
   const guest = myRole === 'guest'
   // a guest with their own sign-in (Me.guest.ai 'own') connects it themselves: "no AI" says so, with "Connect my AI"
   const guestOwn = guest && meGuest(meNow)?.ai === 'own'
+  // a guest suggests no skills (the server refuses it: guest walkthrough M1), so the button is not offered
+  const canSuggest = canSuggestHere && !guest
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them

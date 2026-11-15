@@ -11,6 +11,8 @@ export function registerConnectionsAccountCleanup(ctx: AppContext): void {
     rows: [
       'google_app_flows.user_id', 'integration_oauth_flows.user_id',
       'slack_email_changes.user_id', 'slack_install_flows.user_id', 'slack_links.user_id', 'slack_requests.user_id', 'slack_signin_flows.user_id', 'slack_threads.user_id',
+      // older AI-made files found with one of their stored keys (connections/file-scan.ts): paths only
+      'stored_key_files.user_id',
     ],
     covers: ['drive_connections.user_id', 'drive_oauth_flows.user_id'],
     after: async (c, userId) => { await googleDriveOf(c).forgetAccount(userId) },

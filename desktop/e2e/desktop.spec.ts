@@ -100,6 +100,27 @@ test.describe('team address and window', () => {
     }
   })
 
+  test('the "isn\'t answering" line goes when the team it names is removed (QA of #990)', async () => {
+    const userData = newUserData()
+    const id = 'a1b2c3d4e5f60718'
+    writeFileSync(join(userData, 'teams.json'), JSON.stringify({ version: 1, lastTeamId: id, teams: [{ id, origin: 'http://gone.localhost:19159', label: '데모 팀', addedAt: new Date().toISOString(), lastOpenedAt: null, direct: null }] }))
+    const app = await launch(userData)
+    try {
+      const w = await welcome(app)
+      await expect(w.getByTestId('address-error')).toContainText('gone.localhost:19159')
+      const row = w.getByTestId('team')
+      await row.getByRole('button', { name: /메뉴$/ }).click()
+      await row.getByRole('menuitem', { name: /목록에서 지우기/ }).click()
+      await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
+      // the last team is gone: a plain "Join your team", no line about a team that is no longer there
+      await expect(w.getByTestId('team')).toHaveCount(0)
+      await expect(w.getByTestId('address-error')).toHaveText('')
+      await expect(w.locator('#address')).toBeVisible()
+    } finally {
+      await close(app)
+    }
+  })
+
   test('an unreachable team server: the team list at start (on this computer), the offline screen with retry when opened', async () => {
     const userData = newUserData()
     let app = await launch(userData)

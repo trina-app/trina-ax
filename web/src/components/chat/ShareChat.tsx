@@ -5,12 +5,13 @@
 // server checks what the chat used, every branch: when nothing is narrower than the project's people, it is shared at
 // once; otherwise it answers "confirm" and one dialog asks, in the style of "대화방에 보내기"'s provenance line
 // (components/chat/ShareToRoom.tsx): first the sentence that the whole conversation shows and that sharing cannot be
-// undone, then how many people cannot see material it used and the places I may look myself (never who), "not all
-// known" for an older chat, and a note when personal memories may be in it. The material others can't see is a warning
-// (warn style), and the focus starts on 취소 (QA TC-1073: sharing can't be undone); 공유하기 sends the key back;
+// undone, then, only when something is really at stake, the specific warning of the Share dialog (components/
+// ShareWarning.tsx: answers that may have used my memories or personal accounts, answers that used files some of the
+// project's members can't open, other places, rooms); answers nobody could check are one grey line (docs/DECISIONS.md
+// "Share in one press"). The focus starts on 취소 (QA TC-1073: sharing can't be undone); 공유하기 sends the key back;
 // something changed meanwhile: it asks again, said so on top. 취소, ✕ and Esc leave the chat as it is (moved, when
 // it was just moved, and private). Shared: a toast, and the chat everywhere gets its shared mark (store/chats.ts).
-import { AlertCircle, AlertTriangle, Info } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import type { Chat, Project, ShareChatResult } from '@mycel/shared/api'
@@ -20,7 +21,7 @@ import { privateInTeamProject, seenOnceShared } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { toast } from '../../store/ui'
 import { Button, Modal } from '../ui'
-import { placeName } from './ShareToRoom'
+import { ShareWarning } from '../ShareWarning'
 
 type Ask = Extract<ShareChatResult, { status: 'confirm' }> & { seq: number }
 
@@ -68,9 +69,6 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
   }, [])
 
   if (!ask) return null
-  const p = ask.provenance
-  const places = p?.places.map((x) => placeName(t, x)) ?? []
-  const line = !p ? null : p.unknown ? t('chat.shareChat.unknown') : places.length ? t('chat.shareChat.provenance', { m: p.people, places: places.join(', ') }) : t('chat.shareChat.provenanceNoPlace', { m: p.people })
   // each ask is a dialog of its own (key): it opens with the focus on 취소 (sharing can't be undone)
   return (
     <Modal
@@ -100,18 +98,7 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
         <p className="text-sm leading-6 break-keep text-muted" data-testid="share-chat-note">
           {t('chat.shareChat.note')}
         </p>
-        {line && (
-          <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep text-warn" data-testid="share-chat-provenance">
-            <AlertTriangle size={16} className="mt-1 shrink-0" aria-hidden />
-            <span>{line}</span>
-          </p>
-        )}
-        {ask.memories && (
-          <p className="flex items-start gap-2 text-sm leading-6 break-keep text-ink" data-testid="share-chat-memories">
-            <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
-            <span>{t('chat.shareChat.memories')}</span>
-          </p>
-        )}
+        <ShareWarning check={ask.check} names={t('share.who.project')} testId="share-chat-warning" />
       </div>
     </Modal>
   )

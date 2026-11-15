@@ -28340,6 +28340,20 @@ words and components.
 - **Left as is:** a room is "archived" only when its last member (the guest too) has gone, so a room guest never sees an archived room alone; a removed guest signing in fresh in another browser still gets "wrong username or password" (fix pending in another PR).
 - Version impact: **patch** (no API change).
 
+## Guest walkthrough A: links hold a place, what guests see, the invite page — 게스트 워크스루 A (fix/guest-walk-a, 2026-11-15)
+
+넣을 곳: Team AX core (`server/src/auth/guest-invites.ts`, `server/src/auth/accounts.ts`, `server/src/auth/account-removal.ts`, `server/src/rooms/store.ts`, `web/src/pages/Auth.tsx`, `web/src/components/GuestInvite.tsx`, `web/src/store/session.ts`), 이유: an independent guest walkthrough (owner, 11-15) found guests offered actions the server refuses, a cap that refused only after the form, and guests told the wrong thing when their account ended.
+
+- **Open guest links hold a guest place** (M4, owner decision): Create link needs `active guests + open links + 1 ≤ maxGuests`. An open link is one nobody used, revoked or let run out whose maker may still invite into a place that is still open (`openGuestLinks`, the accept's own rule), so a link that stopped by itself holds nothing. Refused: 409 `plan_limit` reason `guest_limit` with `params.pending` and words that say to cancel a link. `GuestInviteLimit.full` counts the links too, with `pending`, so the dialog says it is full before the form. Switching a guest back on and a restored project still check active guests only (no link is handed out there); a link made before the cap dropped is still refused at accept (M3 below).
+- **A full guest link keeps who sent it** (M3): `InviteInfo.inviterName` stays for a guest link while the guests are full; the page shows "{inviter} invited you to {team}" and one line ("can't take more guests now, let the person who invited you know"), no form. A refusal at accept turns the page into the same.
+- **Guests are not offered what the server refuses** (M1, M2, S1): no "Suggest as skill" (answers, side chat, My files), `Room.canRename` false for a guest (`mayRename`, one rule for the room and the PATCH), and no "Send to a chat room" for a guest with no conversation.
+- **A guest's ended sign-in says how** (S5, S6): when a guest's account is switched off or deleted, their session token hashes are noted for 7 days (24 h for others, unchanged) with 'left' (they left their place themselves: the actor is the guest) or 'removed'. The 401 then carries `params: { reason: 'account_removed', guest, team }`, only to that token's holder; a guest switched back on gets the plain 401. The web shows "You left {team}" or "You're no longer in {team}" at once, also when the app is opened later, before any password.
+- **Admin's invite list names a guest link's room** (S8): `Invite.guestPlace.name` for a group chat too. Admin's guest rows already name it; the list is the owner's and admins'. "Copy link" on a listed link was left out: links are kept only as a hash, so an old link cannot be shown again.
+- **The guest link comes with a message** (S7): who sends it, the one place, their own AI account when that is their AI, the link and its end, in the inviter's language. Copy message is the main action.
+- **The guest's invite page** (S9, S10): on a phone Continue in the browser is the main button and the app a link; the page follows the browser's language (one of ours) unless one was picked, and the new account keeps it.
+- **A guest's AI switched off while signed in** (N7): one info toast; a deleted Team AI account (the guest keeps the AI place) says nothing new.
+- Version impact: **minor** (new optional API fields `GuestInviteLimit.pending`, error `params.pending`, 401 `params.guest`/`team`; `Invite.guestPlace.name` for rooms).
+
 ## Free plan removed (owner 2026-11-14): trial with a card only
 
 - **Owner decision (2026-11-14): the hosted Free plan is gone.** Trina Cloud has only the 14-day trial, which starts
@@ -29297,6 +29311,42 @@ unchanged ("Join your team" and the box). Back stays, as a small muted link left
 row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
 
+## Find work files: the Full Disk Access screen says what you get; Restart lands back on the step (fix/work-files-copy, 2026-11-15, QA TC-3098)
+
+Owner, 2026-11-15: "don't explain the mechanics; say what the person gets: Trina finds the files worth sharing with the
+team", and the screen's How link was a 404. Then: "after granting Full Disk Access, do you have to quit and reopen?"; the
+person should never have to work that out. Amends part 5's screen. Plan: `docs/AGENTS/plan/20261115-1436-work-files-copy.md`.
+
+- **The words follow where the files go**, so each claim is true. The setup's 팀 파일 step (rank `team`, files to the
+  team's home, the team's AI picks company documents): **Find files your team should have** / "Trina AX looks through the
+  folders on this Mac and suggests files worth sharing with the team. You pick what to share; nothing is shared or moved
+  without you." My files and the welcome card (rank `own`, files to My files › From this computer, only the person sees
+  them; there is no "share to the team" step yet, part 2's "not here"): **Find your work files** / "… suggests the files
+  you work on. You pick what to add to My files, where only you see them; nothing is moved." Then one short line, "To
+  look, Trina AX needs Full Disk Access on this Mac." The picture, "Mail, Messages and Photos are never looked at · How",
+  Not now and Open Settings stay. The welcome card's hint leads with what Trina AX does ("suggests the ones that look
+  like work and you pick"). The app's own consent dialog keeps its words: it is the consent and names what is read.
+- **Restart only when it is needed, and back on the same step.** Whether macOS counts the switch without a restart is
+  answered by the app's own probe (opening TCC.db in the main process, the process that also does the look), every
+  second while Settings is open and when the window comes back: granted goes on with no word about a restart. Back and
+  still off: one button, **Restart Trina AX** (and a quiet "Open Settings again" for someone who did not switch it on).
+  The page notes the step (`lib/workFilesResume.ts`: the person, the page, `own` or `team`, 15 minutes, the main
+  process's own limit for a restart) when Settings opens and on Restart, so macOS's own **Quit & Reopen** in Settings
+  lands back as well. The restarted app starts on Home; the page opens the noted page (App.tsx, only from a plain `/`),
+  and the dialog there opens again (My files' line, the welcome card, the setup's step, the Files screen's and the
+  welcome card's 팀 파일 dialogs), whose screen goes on by itself. The note is taken once, and dropped when the screen
+  goes on or its dialog closes. Nothing is typed on this screen, so nothing else needs keeping.
+- **The guide was there, the website was not re-synced.** `docs/site/use/find-work-files.md` (and zh) is in nav.json on
+  dev; ax.trina.app/docs is built from the website repository's copy, which had not taken it yet. New unit test
+  `tests/unit/docs-in-app-links.test.ts`: every https://ax.trina.app/docs/... in the apps' code (web, desktop, server,
+  shared, mobile) leads to a page in nav.json, and a #section to one of its headings (the build's own `headingId`).
+- Not verified on a real Mac whether a restart is needed: turning Full Disk Access on needs the Mac's password in System
+  Settings. The screen does not depend on the answer.
+- Tests: `web/test/e2e/find-work-files-wide.spec.ts` (the new words, Restart, the restarted app back on the step and
+  going on with no restart line, the note taken once, a closed screen forgets it), `shots-find-work-files.spec.ts` (the
+  team's words too), `tests/unit/docs-in-app-links.test.ts`.
+- Version impact: **patch** (words and a smoother restart on an existing screen).
+
 ## Desktop first start, the sign-in line and one team screen for every switch (fix/desktop-first-run-localhost, 2026-11-15, owner)
 
 넣을 곳: the desktop app (`desktop/src/main/main.ts`, `main/app-window.ts`, `common/address.ts` `onThisComputer`,
@@ -29361,6 +29411,56 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
   additive API and bridge fields).
 
+## Share in one press — the warning shows while picking, only when something is at stake (feat/share-dialog-one-press, 2026-11-15, product owner, QA TC-3092)
+
+Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,widening,answer-share}.ts`,
+`server/src/routes/chats.ts`, `shared/src/api/chats.ts`, `web/src/components/{ShareWarning,ProjectMembersDialog,ProjectParticipants}.tsx`,
+`web/src/components/chat/{ChatShareDialog,ShareChat}.tsx`, `web/src/i18n/*`). Plan:
+`docs/AGENTS/plan/20261115-1400-share-dialog-one-press.md`. Supersedes "The check comes on Save, not while picking" in
+"Chats shared with people and groups: the Share dialog" (2026-11-14).
+
+- **One press, like Drive's warning for an outside person.** While the picks bring anyone new in, the Share dialog asks
+  `POST /api/chats/:id/audience/preview` 400 ms after every change of the list (adds, removals, groups). Share is off from
+  the first change until the answer for exactly those picks is here. The button never changes colour or words ("Share
+  anyway" is gone): pressing Share is the confirmation.
+- **Only what is at stake warns, specifically.** One check (`chat/audience-check.ts`) counts answers: that may have used
+  my personal memories (answers of the chat's private time written while I had a memory; a shared chat's turns never
+  carry them), that used files the new people can't open (each answer's own `message_sources`, the hash rule as before,
+  plus the answers whose recorded places they miss), older answers the read scope does not describe while a personal
+  connection or the in-app browser was on for me ("may have used your personal accounts"), other places the chat used
+  (named only where I may look), and team chat rooms it read without saying which ("rooms Mina may not be in" — a
+  warning, not an unknown). "Show answers ›" lists those answers (the widening list of one chat now also lists them).
+- **Unknowns are a grey line.** Answers the scope does not describe (without personal accounts) and answers that ran dev
+  environment commands: "N older answers couldn't be checked", no box, a normal button. The first share still records
+  them conservatively (`x: 1`), and `share_hidden` still refuses.
+- **The server stays the gate.** A save that brings in anyone new must carry the key of the check now
+  (`confirmMac` v2 over the list, the new people, the provenance keys, the sorted answer ids of every warning, the places,
+  rooms, the unchecked ids, the earlier uploads and every message id); no key or another state's: nothing saved, the
+  check comes back (`reason` 'unchecked' or 'changed'), shown in place with "Check this, then press Share again". A
+  failed preview is a grey line; Share then gets that answer: never a silent share. Removals alone need no key.
+- **The preview is no free probe.** Creator only (403/404 as a save), the save's refusals (chat_busy while a turn runs,
+  safe operations, unknown entries), the dry-run limit (60 a minute, as the project dry run), counts and places I may
+  look only, never who (the dialog names only what was picked), and a 60-second cache per who asks, chat state, list,
+  new people and folder rules (a save never reads it), so 60 a minute never hash big files 60 times.
+- **The project members' share of a private chat** says the same specific lines in its confirm (still one press: the
+  menu item opens it).
+- **Project Members dialog: one press when people are only added.** What they would see (how many, files, shared chats,
+  skills, "the people who see it now are told") shows in place under the count; Save waits for the dry run of the picks
+  and saves at once when its own dry run says the same. The confirm stays only where it guards something different that
+  a later save can't take back: people taken out (they lose access and their running turns stop; a guest's account is
+  switched off), a save that writes a rule nobody chose here (the floor rule, the creator's rule back), and "Add me"
+  (its members are told). A dry run that says more than the lines shown brings the confirm back.
+- **How it reads (coordinator, after the screenshots).** One finding per line in the box (a short list when there are
+  several), "Show answers ›" after them. In Korean a person takes 님 ("Bob 님이 열 수 없는 파일", "Bob 님은 열 수 없는 곳"); a group never
+  does: it reads as its people ("Sales 그룹 사람들이 열 수 없는 파일", "Sales 그룹 사람들은 열 수 없는 곳";
+  `share.who.person` / `share.who.group`, `whoNames`), and the lines' particle marks read right after either. Names the
+  server sends without saying person or group need no particle: "열 수 없는 사람: …", "공유 대상: …".
+- **My earlier files always show (security review).** When a first share copies my earlier computer uploads, their line
+  is always on screen, a line of its own, never folded into the "couldn't be checked" line. The Members dialog compares the
+  whole lines it showed with the save's dry run, not only counts.
+- Not here: Admin › Groups (someone joining a group widens silently, accepted 2026-11-14).
+- Version impact: **minor**.
+
 ## What the AI sends to a connected service never holds a stored key (fix/connection-tools-hide-keys, 2026-11-15)
 
 - **Problem (QA tracking TC-3081).** The AI could put a person's stored connection key into a call to a connected
@@ -29421,6 +29521,38 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   `schedule-notifications`.
 - Version impact: **minor** (three new optional API fields, `needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`,
   and a new push tap target; nothing removed).
+
+## Older AI-made files with a stored key: the person is told, nothing is rewritten (feat/old-files-key-scan, 2026-11-15, QA TC-3082)
+
+- **Problem.** fix/files-hide-keys (above, TC-3041) stopped the saving tools from writing a stored connection key, but
+  "files saved before this fix … are not rewritten": a file the AI made earlier, and its search text (the text cache of
+  docx, pdf, hwpx, which grep and the content search read), can still hold the key.
+- **Decision: find them once and tell the person whose key it is; never rewrite.** A file the AI made is the person's
+  (or their team's) work, a key in it may be on purpose, and a rewrite of a docx or hwpx could break it. Once, a moment
+  after a server start (after the memory clean-up of #953; `integrations/connections/file-scan.ts`, settings key
+  `files.storedKeyScan`), each file whose newest AI save (`file_events` with a `turn_id`, create or update) is by a
+  person with stored keys is read as that person (it must still be there and theirs to read) together with its text
+  cache, and checked for any form of that person's keys (`allSecretsFor`, the answer's redactor: as written, base64,
+  escaped). Files found are kept by path (`stored_key_files`, migration 354) and the person gets one Activity notice
+  (`files.stored_key`, `stored_key_file_notices`, never a push, shown whatever the switches say): "N files the AI made
+  for you have a saved key of a connected service in them. Open each one and remove the key, or delete the file.", with
+  the files listed under it as links (name and place in the Files sidebar's words). The row itself opens nothing and
+  keeps Mark as read.
+- **Who is told, and access.** The person whose key it is (whose AI turn saved the file), not the team owner: the owner
+  may not be allowed to open a member's files, and the key is the member's. The list is read when the notice is shown,
+  as that person: a file that is gone or that they may no longer open drops off (no access is widened); none left says
+  the files were moved or deleted. Uploaded files and files a person saved are not looked at. A file the AI saved in a
+  folder its person can no longer read is reported to nobody, also not to the team owner: such a list would show the
+  owner the names of files that may be private (security review of #983). One notice per person and scan version
+  (source `scan-v<FILE_SCAN_VERSION>`), so a later version of the scan can tell them again.
+- **Done, and cost.** Marked done only when every person's keys could be read; otherwise the keys that can be read are
+  looked for and it runs again at the next start (as #953). At most the newest 20,000 such files and 4 MB of text per
+  file and per text cache in one run; it lets the server's other work run after every 50 files and after every 2 MB
+  read (so after each big file), so big files never hold the start (the dev server's health check); nothing is written
+  when the server stops meanwhile; the log
+  has counts only (scanned, found, people, done), never a path or a key.
+- Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
+- Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
 
 ## Free disk space: a checked statfs, then df, and "unknown" never blocks (fix/intel-mac-free-space, 2026-11-15, QA TC-3099)
 
