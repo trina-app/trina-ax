@@ -948,6 +948,8 @@ function ProjectPage() {
       const a = await api.call(API.getProjectAccess, { params: { id: p.id } })
       const participants = [...chosenOf(a).filter((x) => !(x.subjectType === 'user' && x.subjectId === me.user.id)), { subjectType: 'user' as const, subjectId: me.user.id }]
       await api.call(API.putProjectParticipants, { params: { id: p.id }, body: { participants, expectedHash: a.rulesHash } })
+      // its faces in the title row again, me among them
+      setPeopleVersion((v) => v + 1)
       load({ manage: false, fresh: true })
     } catch (e) {
       if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') load({ fresh: true })

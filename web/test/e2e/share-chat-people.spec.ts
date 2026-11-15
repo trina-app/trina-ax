@@ -402,7 +402,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
 
     // QA 11-15 (TC-2264, TC-2271): someone taken out by name who is in a picked group keeps it through the group, the
     // dialog and the save say so; after Discard the focus is back on the menu button that opened it
-    test('taken out by name, kept through a group; Discard gives the focus back to the menu button', async ({ page }) => {
+    test('taken out by name, kept through a group; Discard gives the focus back to Share', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const w = await world(page)
@@ -421,13 +421,13 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/2264-saved-toast-${vp.name}.png` })
       // Bob still sees it
       expect(((await (await page.request.get(`/api/chats/${w.chatId}/audience`)).json()) as { count?: number }).count).toBe(2)
-      // a pick, then Discard: the focus goes back to the title menu's button, not the page
+      // a pick, then Discard: the focus goes back to the header's Share, which opened it, not the page
       await openShare(page, w.chatId)
       await pick(page, '김소라', 'sora')
       await page.getByTestId('chat-share-cancel').click()
       await page.getByRole('dialog', { name: '변경 사항을 버릴까요?' }).getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      await expect(page.getByTestId('chat-menu')).toBeFocused()
+      await expect(page.getByTestId('chat-share')).toBeFocused()
     })
 
     // QA 11-15 (TC-2023): a photo with its place, attached in a chat shared with people: the server keeps it without its
