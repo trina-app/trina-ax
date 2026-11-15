@@ -2,7 +2,8 @@
 
 - Date (UTC): 2026-11-15 14:00
 - Branch: `feat/share-dialog-one-press`
-- Status: draft
+- Status: in progress (revision 2: an independent review's must-fix and should-fix items, the coordinator decided
+  item 6, 2026-11-15)
 - QA: TC-3092
 - Where: Team AX core (`server/src/chat/{people-share,share-chat,widening,answer-share}.ts`, `server/src/routes/chats.ts`,
   `shared/src/api/chats.ts`, `web/src/components/chat/{ChatShareDialog,ShareChat}.tsx`, a new shared
@@ -74,9 +75,16 @@ which is not true of "Not everything this chat used is known".
 When the flag is set, everyone new counts as "missing", which produces "N people can't open some of what this chat used"
 plus "Not everything this chat used is known".
 
-**Decision (owner, 2026-11-15):** unknown alone puts nothing at stake that we can name, so it **does not warn**. It shows
-as one grey line, "{n} older answers couldn't be checked", with the count of answers in cases 1, 3 and `roomsUnseen`.
-The Share button stays normal.
+**Decision (owner, 2026-11-15; revision 2 after the review):** unknown alone puts nothing at stake that we can name, so
+it **does not warn**. It shows as one grey line, "{n} older answers couldn't be checked", and counts only:
+
+- answers in case 1 (the scope gap), **unless** a personal connection (a personal service, personal Google Drive) or the
+  in-app browser was on for the sharer while they ran: then they warn as "{n} older answers may have used your personal
+  accounts" (on = connected by the last of them and not removed before the first, or a browser step in them);
+- answers in case 3 (dev environment commands).
+
+`roomsUnseen` is **not** an unknown: it stays a warning, "This chat read team chat rooms {names} may not be in" (also
+when older answers from the scope gap may have read rooms). A confidential chat is refused before any check.
 
 Nothing changes on the safety side:
 
@@ -87,8 +95,8 @@ Nothing changes on the safety side:
 
 ### Server
 
-1. **One check function.** Pull the check out of `putChatAudience` into
-   `audienceCheck(ctx, rt, userId, a, wanted, locale)` → `{ newPeople, check, key }`. The preview and the PUT both call
+1. **One check function** (`chat/audience-check.ts checkAudience`), used by the preview, the save, the widening list
+   of one chat and the project members' share. The preview and the PUT both call
    it, so what is shown and what is enforced cannot drift apart. It computes these values for the new people only:
    - `memoryAnswers`: the ids of answers from the chat's **private period** that were written while the person had a
      memory. That is the same test as `memoriesInPlay`, applied per answer and only to turns from before
@@ -96,28 +104,37 @@ Nothing changes on the safety side:
    - `fileAnswers`: answers whose own `message_sources` files some new person can't open (by sha256 rules, as now),
      joined with the existing recorded-places answers (`hiddenAnswers`) into one set of distinct answer ids. The list
      shows the same set (step 3), so the count and the list match.
-   - `otherPlaces`: read-scope sources (a room, a connection, a shared Drive, the in-app browser) that a new person
-     can't open. They can't be tied to single answers, so they are named and not counted: "This chat also used Sales
-     Drive, which Mina can't open".
-   - `unchecked`: the count of unknown answers, for the grey line only.
+   - `places` / `otherPlaces`: read-scope sources (a room, a connection, a shared Drive, the in-app browser, unlisted
+     team files) that a new person can't open. They can't be tied to single answers, so they are named (only where the
+     sharer may look; `otherPlaces` is a boolean for the rest, no third kind) and not counted.
+   - `accountAnswers`, `roomsUnseen`: as decided above.
+   - `unchecked`: the scope-gap answers without personal accounts and the dev environment answers, for the grey line.
    - `earlierFiles`: unchanged, shown as a grey line.
 2. **Preview endpoint** `POST /api/chats/:id/audience/preview` `{ subjects }` → `ChatAudiencePreview`
-   `{ added, memoryAnswers: n, fileAnswers: n, places, otherPlaces, unchecked?, earlierFiles?, names, previewKey }`.
+   `{ check: { added, memoryAnswers, fileAnswers, accountAnswers, places, otherPlaces, roomsUnseen, unchecked,
+   earlierFiles? }, previewKey }`. It names only what was picked: the dialog builds the sentences from the picked
+   person's or group's name, never a group's members.
    - Only the creator may call it (403 `chat_share_creator_only` to others who see the chat, 404 to everyone else).
-     It applies the same `changeable` and `checkNewSubjects` refusals as a save.
+     It applies the same refusals as a save: `changeable`, `checkNewSubjects`, `safe_ops`, and **`chat_busy` while a turn
+     runs or waits**.
    - It saves nothing and is not audited.
    - It uses the **dry-run limit `previewLimit` (60 a minute)**, not the room-send token, exactly as the project dry run
      does. The dialog debounces for 400 ms (`ACCESS_COUNT_DEBOUNCE_MS`).
+   - A 60-second cache per who asks, chat state (entries, people, every message id), list, new people and folder-rules
+     fingerprint, so 60 a minute can't hash big files 60 times. A save never reads the cache: it always checks fresh
+     and compares keys.
    - Security review must accept this probe budget, as it did for `previewProjectAccess`. The preview reveals nothing a
      save's confirm doesn't reveal already.
 3. **Widening list for a private chat.** In `widening.ts`, for `target.kind === 'chat'`, an answer with no
    `shared_answer_reads` record uses its own `message_sources` files as its places. A first share then lists real
-   answers too. `WideningAnswersBody` gets `memories?: true`, which adds the `memoryAnswers` ids. Each item gets
-   `usedMemories?: true`, so its row can say "May have used your memories". The bench
+   answers too, and the memory and account answers are listed with them (one list, the union; MVP cut: no per-row
+   "may have used your memories" mark, the count and the list are enough). The bench
    (`b-widening-answers-bench.test.ts`) must stay within 300 ms.
 4. **The server still refuses an unpreviewed widening save.**
    - The PUT body keeps `confirmKey` (the preview's `previewKey` is the same MAC), with the version raised to 2. The
-     MAC now also covers `memoryAnswers`, `fileAnswers`, `otherPlaces` and `unchecked`.
+     MAC now covers the **sorted answer ids** of `memoryAnswers`, `fileAnswers`, `accountAnswers` and `unchecked` (not
+     counts: a "2" seen is no yes for another 2), the places, `otherPlaces`, `roomsUnseen`, the provenance keys, the
+     new people, the list, the earlier uploads and every message id.
    - **New rule:** an add that brings in new people must always carry the key of the current check, whether or not
      anything applies. The old rule asked for a key only when something applied.
    - No key, or a stale key (a new message, a rule change, someone joined a picked group, a different list of people):
@@ -143,8 +160,10 @@ dialog's widen line, with one look in all three.
 
 `ChatShareDialog`:
 
-- When the picks bring in someone new, wait 400 ms, then call preview. A newer pick drops an older answer (sequence
-  number, like `useAccessCount`). Removals and no-new-people make no call.
+- While anyone is being added, **every change of the list** (an add, a removal, a group) runs the preview again after
+  400 ms; a newer list drops the answer of an older one (sequence number). Share is disabled from the first change until
+  the answer for exactly these picks arrives, the 400 ms wait included. Only a list with nobody being added (removals
+  alone) makes no call.
 - **Loading:** after 300 ms the space where the warning goes shows a grey "Checking what they'll see…" line. Share is
   disabled until the answer comes, so nobody can share past a warning they never saw (the bench makes this ≤ 300 ms).
 - **Ready:** the warning or grey line shows, and **Share**/**Save** stays the normal primary button. One press sends
@@ -170,7 +189,7 @@ dialog's widen line, with one look in all three.
 |---|---|
 | Chat outside projects (Share…) | The full flow above |
 | My private chat in a team project (Share… → members) | Specific lines and the grey unknown line; still one press |
-| Project Members dialog (adding people or groups) | The widen line becomes `ShareWarning` (memory answers don't apply: shared project chats never use memories). Its folder-access save confirm (`confirmMembers`) is a different decision (file access) and stays; its duplicated widen line is removed because the warning is inline |
+| Project Members dialog (adding people or groups) | **One press too (coordinator, item 6):** the folder-access lines (who gains it, files, shared chats, skills, "the people who see it now are told") show inline under the count; Save waits for the dry run of the picks and saves without the modal when only people are added and the save's own dry run says the same. The modal stays only where it guards something different and irreversible: people taken out (they lose access, their turns stop, a guest's account is switched off), a rule nobody chose here (the floor rule, the creator's rule back), and "Add me" (its members are told). Written in DECISIONS.md |
 | A group picked in any of these | The preview counts its members now; the future-group note is the grey line |
 | Admin › Groups (someone joins a group) | No warning. Silent widening was accepted on 2026-11-14 (d) |
 
@@ -183,7 +202,9 @@ dialog's widen line, with one look in all three.
 - `share.grey.checking`: "Checking what they'll see…"
 - `share.grey.failed`: "Couldn't check this chat yet. You'll see what's at stake before it's shared."
 - `share.again`: "Check this, then press Share again."
-- `share.widenList.usedMemories`: "May have used your memories"
+- `share.warn.accounts`: "{n, plural, one {# older answer} other {# older answers}} may have used your personal accounts."
+- `share.warn.rooms`: "This chat read team chat rooms {names} may not be in."
+- `share.who.project`: "some of the project's members" (the project members' share has no picked names)
 - The existing `share.widenList.*`, `chat.share.earlierFiles`, `futureGroup` and `chat.shareChat.changed` stay.
 
 ## Removed
@@ -264,6 +285,12 @@ dialog's widen line, with one look in all three.
   under Bun 1.3.12.
 - **QA sheet:** TC-3092 plus one row per case above (every role at 390/1440, light and dark, six languages), each
   brought to Pass after the dev merge.
+
+- **Revision 2 additions:** web unit and e2e "add two, remove one: still one press" (Share off from the first change
+  until the matching answer); server "older answers while a personal connection or the in-app browser was on → personal
+  accounts, otherwise grey"; `roomsUnseen` stays a warning; preview `chat_busy` while a turn runs; the key binds answer
+  ids; the preview cache; the Members dialog saves in one press when only people are added and asks when its own dry
+  run says more than the lines shown.
 
 ## Result
 
