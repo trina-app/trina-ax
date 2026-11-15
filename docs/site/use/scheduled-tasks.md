@@ -18,7 +18,7 @@ Choose **New task**. There are two ways:
 ![The New task menu with Describe it in a chat and From a template](../images/scheduled/new-task.webp "New task")
 
 - **Describe it in a chat.** For example: "Every Monday at 9:00, summarize last week's notes in shared/sales." The AI creates the schedule and shows it.
-- **Start from a template.** Pick a template, fill in its folders and time, and save.
+- **From a template.** Pick a template, fill in its folders and time, and save.
 
 ## What a run can do
 
