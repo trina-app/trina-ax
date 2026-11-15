@@ -29394,3 +29394,30 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   own PR.
 - Tests: `tests/unit/c-integrations-secret-sends.test.ts` (a fake MCP connection and a fake HTTP API through net.ts
   testAllow). Version impact: **patch** (a security fix; no new feature or API change).
+
+## Connector follow-ups: the sign-in push opens its connection, API rows in the log, sign-in words on a skipped run (fix/connector-small-followups, 2026-11-15, tracking TC-3052, TC-3053, TC-3054)
+
+- **A sign-in push opens its connection** (TC-3053). The `connection.reconnect` phone push opened the Inbox
+  (`/settings/notifications`) while its Inbox row already opened the connection's page. Now the push's path
+  (notifications/push-events.ts `reconnectPushPath`, ids only, the same PATH rule as every push) is the person's own
+  connection while it is still theirs: a Google app's page (`/settings/connectors/<app>`) or the connection's
+  (`/settings/connectors/mcp/<id>`); Google Drive's notice opens Drive's page while that Drive connection is theirs; a
+  removed one opens the Inbox as before. A Web Push click (web/pwa/sw.js) opens the same page from the signed-in notice
+  (never the payload); Drive's Web Push stays on the Inbox there, because the notice does not say Drive (the Inbox row
+  links a notice without a connection to Drive's page). The push words stay generic (gateway privacy design).
+- **API connections in the Activity log** (TC-3054). The Always allow card's own write-rule record (connections/tools.ts
+  keepAlwaysAllow) now saves the connection's scope and kind as the other records do. `integration.create/update/delete` and
+  `integration_template.create/update/delete` rows whose details say `kind: http` read "Added an API connection",
+  "Created an API template", … (the app calls that kind "API", `integrations.kind.http`), keys `audit.act.<action>.http`.
+  MCP rows and older rows without a kind keep their words.
+- **A skipped run for a sign-in template asks for a sign-in** (TC-3052). `InboxNotification.needsKey.signIn` (true when
+  the template, still there, signs in): "Scheduled task "…" did not run: sign in to {name} with your own account." A key
+  template and a removed template keep the key words. The Scheduled page says it the same way: `Schedule.lastNeed.signIn`
+  and `ScheduleRun.needSignIn` (chat/schedules.ts `templateSignsIn`) pick "Needs your sign-in" on the card, "Needs you to
+  sign in to {name}" on the run, the next step "Sign in to {name} with your own account in Settings › Connectors, then
+  use Run now." and the link "Sign in to {name}".
+- Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-template-chat-schedule.test.ts`, `mobile-push.test.ts`,
+  `push-native.test.ts`; web unit `push-worker`, `activity`, `inbox-notice-rows`, `scheduled-view`; e2e `activity-log`,
+  `schedule-notifications`.
+- Version impact: **minor** (three new optional API fields, `needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`,
+  and a new push tap target; nothing removed).

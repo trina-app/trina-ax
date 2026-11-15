@@ -402,7 +402,7 @@ function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsS
                 {next && <p className="text-meta text-muted">{next}</p>}
                 {keyLink && (
                   <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(keyLink.templateId)}`} className="mt-0.5 inline-block text-meta text-accent-text hover:underline" data-testid="schedule-connect-template">
-                    {t('integrations.template.connectNamed', { name: keyLink.name })}
+                    {t(keyLink.signIn ? 'connect.signIn' : 'integrations.template.connectNamed', { name: keyLink.name })}
                   </Link>
                 )}
               </li>

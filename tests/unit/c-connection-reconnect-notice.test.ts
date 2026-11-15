@@ -8,6 +8,8 @@ import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from 
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { pushPathOf } from '../../server/src/notifications/push-events'
+import { notificationsOf } from '../../server/src/notifications/service'
 
 setDefaultTimeout(30_000)
 
@@ -66,9 +68,14 @@ test('a working connection that turns to needs sign-in tells its owner once, by 
   // nobody else hears of it, admins included
   for (const who of ['bob', 'carol', 'dana'] as const) expect(await reconnects(who)).toEqual([])
 
+  // its phone push opens the connection's own page, where "Sign in again" is (QA TC-3053), ids only
+  for (const x of n) expect(pushPathOf(A.ctx, 'connection.reconnect', x.id)).toBe(`/settings/connectors/mcp/${id}`)
+
   // once the connection is deleted its notice stays, as the generic line without its name or page
   expect((await send('alice', 'DELETE', `/api/integrations/${id}`)).status).toBe(204)
   expect((await reconnects('alice')).every((x) => x.connection === undefined)).toBe(true)
+  // and its push opens the Inbox, as before
+  expect(pushPathOf(A.ctx, 'connection.reconnect', n[0].id)).toBe('/settings/notifications')
 })
 
 test('a connection with no key that starts to answer 401 tells its owner too', async () => {
@@ -119,4 +126,30 @@ test('a team connection that needs a sign-in tells nobody (who should hear is an
   fake.listStatus = 401
   expect((await check('carol', made.body.id)).status).toBe('needs_auth')
   for (const who of ['alice', 'bob', 'carol', 'dana', 'erin'] as const) expect((await reconnects(who)).filter((x) => x.connection?.id === made.body.id || x.sourceId.startsWith(made.body.id))).toEqual([])
+})
+
+test('the push of a Google app opens that app\'s page; Google Drive\'s opens Drive\'s page while the Drive connection is the person\'s (QA TC-3053)', async () => {
+  const made = await send('erin', 'POST', '/api/integrations', { kind: 'mcp', name: 'Mail', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+  expect(made.body.status).toBe('connected')
+  fake.listStatus = 401
+  expect((await check('erin', made.body.id)).status).toBe('needs_auth')
+  // as a Google app (Gmail) is stored; its notice comes the same way
+  A.ctx.db.query("UPDATE integrations SET google_app='gmail' WHERE id=?").run(made.body.id)
+  const mail = (await reconnects('erin')).find((x) => x.connection?.id === made.body.id)
+  expect(mail.connection.googleApp).toBe('gmail')
+  expect(pushPathOf(A.ctx, 'connection.reconnect', mail.id)).toBe('/settings/connectors/gmail')
+
+  // Google Drive's notice: its source is the person's Drive connection
+  const at = new Date().toISOString()
+  A.ctx.db.query(`INSERT INTO drive_connections(id,user_id,config_key,account,scopes,secret_enc,key_version,status,expires_at,created_at,updated_at)
+    VALUES('drive-conn-1','dana','k','dana@acme.example','drive','x',1,'needs_reconnect',?,?,?)`).run(at, at, at)
+  notificationsOf(A.ctx).connectionReconnect('dana', 'drive-conn-1', at)
+  const drive = (await reconnects('dana')).find((x) => x.sourceId === 'drive-conn-1')
+  expect(pushPathOf(A.ctx, 'connection.reconnect', drive.id)).toBe('/settings/connectors/google-drive')
+  // someone else's Drive connection id, or one that is gone: the Inbox
+  notificationsOf(A.ctx).connectionReconnect('bob', 'drive-conn-1', at)
+  const foreign = (await reconnects('bob')).find((x) => x.sourceId === 'drive-conn-1')
+  expect(pushPathOf(A.ctx, 'connection.reconnect', foreign.id)).toBe('/settings/notifications')
+  A.ctx.db.query("DELETE FROM drive_connections WHERE id='drive-conn-1'").run()
+  expect(pushPathOf(A.ctx, 'connection.reconnect', drive.id)).toBe('/settings/notifications')
 })

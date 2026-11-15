@@ -213,6 +213,24 @@ describe('scheduled task page', () => {
     expect(block).toContain('data-testid="schedule-connect-template"')
   })
 
+  test('a template each member signs in to asks for a sign-in, never "your own key"; a key template keeps the key words (QA TC-3052)', () => {
+    const task = { ...daily, lastOutcome: 'needs_key' as const, lastNeed: { templateId: 'tpl', name: 'Demo Wiki', signIn: true as const } }
+    const block = history(withRuns(task, runs([run({ id: 's', status: 'needs_key', chatId: null, needName: 'Demo Wiki', needSignIn: true, endedAt: null })])))
+    expect(block).toContain(t('scheduled.runReason.needs_signInNamed', { name: 'Demo Wiki' }))
+    expect(block).toContain(t('scheduled.reason.needs_signInNamed', { name: 'Demo Wiki' }))
+    expect(block).toContain(t('connect.signIn', { name: 'Demo Wiki' }))
+    expect(block).not.toMatch(/your own key/i)
+    // a non-breaking hyphen: "sign‑in" never splits at a phone's width
+    expect(outcomeLabel(task, t)).toBe('Needs your sign\u2011in')
+    expect(outcomeReason(task, t)).toBe('Sign in to Demo Wiki with your own account in Settings › Connectors, then use Run now.')
+    // a key template: as before
+    const keyTask = { ...daily, lastOutcome: 'needs_key' as const, lastNeed: { templateId: 'tpl', name: 'Demo Wiki' } }
+    expect(outcomeLabel(keyTask, t)).toBe(t('scheduleTemplates.outcome.needs_key'))
+    expect(outcomeReason(keyTask, t)).toBe(t('scheduled.reason.needs_keyNamed', { name: 'Demo Wiki' }))
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
+      for (const k of ['scheduleTemplates.outcome.needs_signIn', 'scheduled.reason.needs_signInNamed', 'scheduled.runReason.needs_signInNamed'] as const) expect(translate(l, k, { name: 'X' })).toBeTruthy()
+  })
+
   test('without the history (an older server, a test): the one last run the task knows; none yet says so', () => {
     const block = history(decode(render({ ...daily, lastRunAt: ago(3 * 3600_000), lastChatId: 'chat-5', lastOutcome: 'error' })))
     expect(count(block, 'data-testid="schedule-run-link"')).toBe(1)
