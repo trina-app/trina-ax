@@ -45,6 +45,10 @@ interface SessionState {
   setAway: (away: boolean) => Promise<void>
   /** shown at once on this device; the account keeps it for the others */
   setTextSize: (s: TextSize) => Promise<void>
+  /** What this module keeps beside the state, as at page load: the team default last seen, a language pick still to
+   * save, a theme pick being saved, the first load. Only the web tests' file start calls it (test/unit/preload.ts runs
+   * each store's reset()): without it, a file that signed in to a Korean team left the next file's sign-out in Korean. */
+  reset: () => void
 }
 
 /** A guest turned off while signed in: the team's name, kept in this browser until the next sign-in, so the sign-in page
@@ -146,6 +150,14 @@ function keepPendingPrefs(me: Me, shown: SessionState['status']): Me {
 
 export const useSession = create<SessionState>((set, get) => ({
   status: { kind: 'loading' },
+
+  reset() {
+    pendingPick = null
+    pickedBeforeSignIn = false
+    lastTeamDefault = null
+    themePick = null
+    booting = null
+  },
 
   load() {
     if (booting && get().status.kind === 'loading') return booting
