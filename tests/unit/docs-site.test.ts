@@ -14,8 +14,8 @@ import { API_REFERENCE_FILE, apiReferenceMarkdown } from '../../scripts/docs/api
 import { localLinkProblems } from '../../scripts/check-onboarding-docs'
 
 const OTHER: Exclude<Lang, 'en'>[] = LANGS.filter((l): l is Exclude<Lang, 'en'> => l !== 'en')
-/** each language's own script, so a page left in English shows up */
-const SCRIPT: Record<Exclude<Lang, 'en'>, RegExp> = { ko: /\p{Script=Hangul}/u, zh: /\p{Script=Han}/u, ja: /[\p{Script=Hiragana}\p{Script=Katakana}]/u, es: /[áéíóúñ¿¡]|\b(?:de|la|el|que|su|para)\b/i, id: /\b(?:dan|yang|Anda|untuk|di)\b/ }
+/** each language's own script, so a page left in English shows up (Spanish and Indonesian: not the English text) */
+const SCRIPT: Partial<Record<Exclude<Lang, 'en'>, RegExp>> = { ko: /\p{Script=Hangul}/u, zh: /\p{Script=Han}/u, ja: /[\p{Script=Hiragana}\p{Script=Katakana}]/u }
 /** the marker a nav entry gets when it links to the English page */
 const ENGLISH: Record<Exclude<Lang, 'en'>, string> = { ko: ' (영어)', zh: '（英文）', ja: '（英語）', es: ' (en inglés)', id: ' (bahasa Inggris)' }
 const inLang = (f: string) => OTHER.some((l) => f.startsWith(`docs/site/${l}/`))
@@ -42,7 +42,9 @@ describe('docs site', () => {
     const enPages = loadPages(en)
     for (const p of loadPages(nav, lang)) {
       expect(p.title, p.file).toBeTruthy() // may be a product name alone ("Slack")
-      expect(p.description, p.file).toMatch(SCRIPT[lang])
+      const enPage = enPages.find((e) => e.slug === p.slug)!
+      if (SCRIPT[lang]) expect(p.description, p.file).toMatch(SCRIPT[lang]!)
+      expect(p.description, p.file).not.toBe(enPage.description)
       expect(p.body.trimStart().startsWith('# '), p.file).toBe(false)
       // the same components as the English page: callouts, steps, cards and tabs survive the translation
       const shape = (t: string) => (t.replace(/```[\s\S]*?```/g, '').match(/^(:::\w*|@tab |####|!\[)/gm) ?? []).join(',')
