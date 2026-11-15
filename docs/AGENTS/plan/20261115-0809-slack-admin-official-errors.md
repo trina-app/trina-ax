@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:09
 - Branch: `fix/slack-admin-official-errors`
-- Status: in progress
+- Status: done
 - Where: web/src/pages/admin/Slack.tsx and the six app languages. Why: the page's own problem lines (docs/REPOSITORY-RULES.md: web screens live in web/)
 - Version impact: patch, a wording and link fix of an existing screen; no API change
 
@@ -51,4 +51,7 @@ tests/unit/c-slack*.test.ts, e2e slack-in-connectors.spec.ts and the Slack shots
 
 ## Result
 
-(filled in at the end)
+Built as planned. Slack.tsx picks the fix with `slackFix(code, mode)` (two tables); the official app's refused /
+missing-permission / org-wide / unknown problems show one line with an "Add to Slack" button (`OfficialFix`, the same
+install flow through the new `useSlackInstall` hook, which the official card and "Update Slack permissions" now share).
+`ratelimited` has its own line in both modes. docs/SLACK.md says it. PR: see the branch's pull request.
