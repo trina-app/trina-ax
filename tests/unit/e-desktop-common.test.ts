@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -17,7 +17,7 @@ import { blockedUrl } from '../../desktop/src/common/browser-block'
 import { acceptFilter, answersFileChoosers, openDialogChoice } from '../../desktop/src/common/file-chooser'
 import { browserOwnerChange } from '../../desktop/src/common/browser-owner'
 import { publicRequestVerdict, responseSourceVerdict } from '../../desktop/src/common/net-policy'
-import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
+import { addTeam, compareVersions, dataDirName, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
 import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
 import { BrowserResult } from '../../shared/src/api/browser'
 import { PRODUCT } from '@mycel/shared'
@@ -126,9 +126,13 @@ describe('first run: what the team address answered, the help screens, the host 
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
     for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('return hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })')
+    expect(win).toContain('return !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })')
     // the same strip says "Trina is reading N files" while Find work files reads added files (never over the host line)
     expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')
+    // a team whose sign-in pages draw the address under the card (DesktopBridge.hostLine) gets no strip, only on the
+    // sign-in paths, until another team is opened (owner 2026-11-15)
+    expect(win).toContain('const pageLine = this.pageHostLine && isSignInPath(this.pagePath)')
+    expect(win).toMatch(/this\.stripTimer = undefined\n\s*this\.pageHostLine = false/)
     // no jump on a signed-in open: the strip waits up to 300 ms for /api/me (a sign-in page shows it at once); a new
     // team page starts the wait again, and an answer (signed in or not) ends it
     expect(win).toContain('const HOSTBAR_WAIT_MS = 300')
@@ -273,7 +277,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,80}return this\.addTeam\(offer\.origin \+ offer\.entryPath, true\)/)
     // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
     expect(win).toContain('this.linkGate.shown(id, Date.now())')
-    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/'\) \{[\s\S]{0,200}this\.linkGate\.clear\(\)/)
+    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/', o: \{ startup\?: boolean \} = \{\}\) \{[\s\S]{0,300}this\.linkGate\.clear\(\)/)
     const welcome = readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')
     expect(welcome).toContain('ui.welcome.linkShown(link.id)')
     // [연결] is off until ④ has been on screen as long as the gate wants (no click that silently does nothing)
@@ -321,6 +325,19 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
   test('④ strings name the host and never the page', () => {
     expect(t('ko', 'link.title', { host: 'acme.trina.app' })).toBe('acme.trina.app에 연결할까요?')
     expect(t('ko', 'link.body')).toBe('직접 받은 링크가 맞을 때만 연결하세요.')
+  })
+})
+
+describe('a first start on a Mac that ran a dev build (0.5.7 DMG opened on localhost:19100)', () => {
+  test('a development run keeps its own settings folder; the installed app keeps the old name', () => {
+    expect(dataDirName(PRODUCT.desktopDataDir, true)).toBe(PRODUCT.desktopDataDir)
+    expect(dataDirName(PRODUCT.desktopDataDir, false)).not.toBe(PRODUCT.desktopDataDir)
+    expect(dataDirName('Team AX', false)).toBe('Team AX (dev)')
+  })
+  test('a team on this computer falls back to the team list at start; a real team does not', () => {
+    for (const o of ['http://localhost:19100', 'http://acme.localhost:19161', 'http://LOCALHOST:19100', 'https://localhost']) expect({ o, r: onThisComputer(o) }).toEqual({ o, r: true })
+    // the Office Mac's own server (scripts/install-macos.sh, 127.0.0.1:47820) is a real team that may still be starting
+    for (const o of ['http://127.0.0.1:47820', 'http://127.0.0.1:19100', 'http://[::1]:19100', 'https://acme.trina.app', 'https://qa.trina.app', 'https://192.168.1.5:8443', 'https://mini.local:8443', 'not a url', '']) expect({ o, r: onThisComputer(o) }).toEqual({ o, r: false })
   })
 })
 

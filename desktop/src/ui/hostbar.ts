@@ -3,7 +3,8 @@
 // files the person added, the same strip says "Trina is reading N files from this computer" (no click, it goes by itself). Shown by AppWindow.layout()
 // on the sign-in pages (/login, /invite/…, /join, /setup, /reset-password/…) and on every page until the team answered
 // GET /api/me for a signed-in person (shared/src/team-link.ts hostLineNow); off the sign-in pages it waits up to 300 ms
-// for that answer, so a signed-in open never shows it.
+// for that answer, so a signed-in open never shows it. A sign-in page that draws the address and "Switch team" under its
+// card itself (DesktopBridge.hostLine, 2026-11-15) gets no strip.
 import { h, onLocaleChange, tr, ui } from './dom'
 
 const root = document.getElementById('root')!

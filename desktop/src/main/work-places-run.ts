@@ -11,8 +11,8 @@ import { lstat, open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
 import { considered, neverListed } from '@mycel/shared/file-scan'
 import type { FullDiskState } from '@mycel/shared'
-import { mdlsArgs, mergeIndexed, parseMdfind, parseMdls, macPath, RECENT_DAYS, type IndexedFile } from '../common/work-index'
-import { appDataAllowed, cloudStorageRoot, uniqueLabels, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseLnk, parseOfficeBookmarks, parseSharedFileList, parseStatFlags, windowsCloudPlaces, workFolders, type Place } from '../common/work-places'
+import { mdlsArgs, mergeIndexed, parseMdfind, parseMdls, macPath, powershellArgs, RECENT_DAYS, type IndexedFile } from '../common/work-index'
+import { appDataAllowed, cloudStorageRoot, uniqueLabels, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseLnk, parseOfficeBookmarks, parseSharedFileList, parseStatFlags, parseSyncRoots, windowsCloudPlaces, workFolders, type Place } from '../common/work-places'
 
 const run = (cmd: string, args: string[], ms: number) =>
   new Promise<string>((done, fail) => execFile(cmd, args, { timeout: ms, maxBuffer: 64 << 20, windowsHide: true }, (e, out) => {
@@ -63,14 +63,22 @@ async function folderNames(dir: string): Promise<string[]> {
   } catch { return [] }
 }
 
+/** The folders OneDrive syncs (its own and each SharePoint library), from the registry; [] when there are none or
+ * PowerShell does not answer in 4 s. */
+async function windowsSyncRoots(): Promise<string[]> {
+  const out = await run('powershell.exe', powershellArgs("Get-ChildItem 'HKCU:\\Software\\SyncEngines\\Providers\\OneDrive' -ErrorAction SilentlyContinue | ForEach-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).MountPoint }"), 4000).catch(() => '')
+  return parseSyncRoots(out)
+}
+
 /** The places beyond the three folders, those that are there: messengers' downloads first (inside Downloads or
  * Documents, so their files get the messenger's name), then the home folder's work folders, then the cloud drives. */
 export async function widePlaces(home: string, companyWords: readonly string[]): Promise<Place[]> {
   const p = process.platform
+  const syncRootsP = p === 'win32' ? windowsSyncRoots() : Promise.resolve([])
   const top = await folderNames(home)
   const cloud = p === 'darwin'
     ? macCloudPlaces(home, await folderNames(join(home, 'Library', 'CloudStorage')))
-    : p === 'win32' ? windowsCloudPlaces(home, process.env, top) : []
+    : p === 'win32' ? windowsCloudPlaces(home, process.env, top, await syncRootsP) : []
   const messengers = (await Promise.all(messengerPlaces(home, p).map(async (m) => ((await isDir(m.path)) ? m : null)))).filter((m): m is Place => !!m)
   // one row per messenger folder that is there (KakaoTalk may have two)
   const all = [...messengers, ...workFolders(home, top, companyWords, p), ...cloud]

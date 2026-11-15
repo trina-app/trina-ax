@@ -40,9 +40,9 @@ What stays on your computer:
 ## Start
 
 1. Open **Files › My files** in the desktop app, in a window wide enough for the computer layout.
-2. Click **Find work files on this computer**.
+2. Click **Find work files** in the toolbar, beside Upload folder and Upload.
 
-![My files with the quiet line Find work files on this computer under the folder's name](../images/find-work-files/my-files-line.webp "The line on My files")
+![My files with the Find work files button in the toolbar](../images/find-work-files/my-files-line.webp "The line on My files")
 
 If you joined the team lately, the welcome card on **Home** has the same thing as an optional row, **Bring work files
 from this computer** (in the desktop app only). It opens the same window and adds to the same place. The row shows done
@@ -64,7 +64,7 @@ macOS would ask you about each of those folders, one after the other. So on a Ma
 3. Go back to the app. The screen goes on by itself as soon as the app has access.
 
 If you turned it on and the screen still waits, macOS gives the access only after the app reopens. The screen says
-so: click **Reopen Trina AX**, then **Find work files on this computer** again.
+so: click **Reopen Trina AX**, then **Find work files** again.
 
 To take the access back later, turn the switch off in the same place.
 

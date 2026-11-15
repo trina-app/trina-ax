@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite'
 import type { MyUsage, MyUsageLimit } from '@mycel/shared/api'
 import { checkBudgets, periodEnd, periodStart } from './budgets'
 import { teamTimeZone } from './settings'
+import { USAGE_AGG, withCounts } from './usage-amount'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 
 type Period = MyUsage['period']
@@ -19,8 +20,8 @@ export function myPeriodStart(period: Period, now: Date, tz: string): Date {
   return zonedToUtc(monday.getUTCFullYear(), monday.getUTCMonth() + 1, monday.getUTCDate(), 0, 0, tz)
 }
 
-const AGG = "COUNT(*) AS turns, COALESCE(SUM(t.input_tokens), 0) AS inputTokens, COALESCE(SUM(t.output_tokens), 0) AS outputTokens, COALESCE(SUM(t.cost_usd), 0) AS costUsd, COALESCE(SUM(CASE WHEN t.usage_source = 'engine_unpriced' THEN 1 ELSE 0 END), 0) AS unpricedTurns"
-const priced = <T extends { unpricedTurns?: number }>(r: T): T => { if (!r.unpricedTurns) delete r.unpricedTurns; return r }
+const AGG = USAGE_AGG
+const priced = withCounts
 const pct = (used: number, limit: number) => Math.round((used / limit) * 1000) / 10
 
 export function myUsage(db: Database, userId: string, period: Period, now = new Date()): MyUsage {

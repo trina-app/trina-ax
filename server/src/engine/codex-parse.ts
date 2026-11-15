@@ -52,7 +52,9 @@ export class CodexEventParser {
       for (const id of this.openSearches) out.push({ type: 'tool_end', id, ok: false })
       this.openSearches.clear()
       const u = ev.usage ?? {}
-      out.push({ type: 'usage', inputTokens: u.input_tokens ?? 0, outputTokens: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0) })
+      // Codex reports tokens, no cost and no model: the turn is unpriced (never shown as free). Through the model proxy
+      // the proxy's own count (priced per request) replaces this one.
+      out.push({ type: 'usage', inputTokens: u.input_tokens ?? 0, outputTokens: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0), costUnknown: true })
     } else if (ev.type === 'turn.failed' || ev.type === 'error') {
       if (ev.type === 'turn.failed') { for (const id of this.openSearches) out.push({ type: 'tool_end', id, ok: false }); this.openSearches.clear() }
       const msg = String(ev.error?.message ?? ev.message ?? 'codex error')

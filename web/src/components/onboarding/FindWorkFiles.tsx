@@ -35,6 +35,7 @@ import { useMeStrict } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { startFolderUpload, stopFolderUpload } from '../FolderUploads'
+import { Tooltip } from '../Tooltip'
 import { Button, ErrorNote, Modal, ProgressBar, useMediaQuery } from '../ui'
 import { storagePlansAction } from '../StoragePlansLink'
 import { TickFold, TickRow, TickSearch } from './TickList'
@@ -517,13 +518,14 @@ export function FindWorkFilesEntry({ here }: { here: string }) {
   if (!f.available || (here !== f.own && here !== runFolder(f.own))) return null
   return (
     <>
-      {/* the line on a computer's width; a dialog already open stays when the window is made narrow */}
+      {/* a Files toolbar button beside Upload folder / Upload (icon only on a narrow page, like them); not on a phone;
+          a dialog already open stays when the window is made narrow */}
       {!f.narrow && (
-        <p className="mx-4 mb-2 text-sm sm:mx-6">
-          <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5')} onClick={f.start} data-testid="files-find-work-entry">
-            <FolderSearch size={14} className="shrink-0 text-faint" aria-hidden /> {t('files.findWork.entry')}
-          </button>
-        </p>
+        <Tooltip label={t('files.findWork.entryButton')}>
+          <Button size="sm" variant="ghost" onClick={f.start} aria-label={t('files.findWork.entryButton')} data-testid="files-find-work-entry">
+            <FolderSearch size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.findWork.entryButton')}</span>
+          </Button>
+        </Tooltip>
       )}
       {f.dialog}
     </>

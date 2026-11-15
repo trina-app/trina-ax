@@ -68,15 +68,25 @@ Each lists the one place the guest can join: the group chats you are in, and the
 (the ones you made; owners and admins: any team project). Pick one, then fill in the same dialog as above. If there is
 no such chat or project yet, the dialog says so. If your plan has no room for more guests, it says that instead.
 
+Your own projects under **My projects** are listed too, marked **Only me**. Picking one shares it the way **Add people**
+on the project's page does, and the dialog says so in one line before **Create link**:
+
+- **Create link** makes it a team project. Until the guest joins, it is still only yours and stays under **My projects**.
+- When the guest joins, it moves to **Team projects**, with you and the guest as its two members.
+- The guest can open and edit its files. They don't see your chats, the ones from before or the ones you start later.
+- Like **Add people**, this can't go back to only you.
+
+If your team lets only owners and admins share projects, a member's own projects are not listed.
+
 ![Invite people with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/invite-people.webp "Invite a guest from Invite people")
 
 ### From Admin
 
 Owners and admins can invite a guest without opening the chat or project first. In **Admin › Members & invites**, choose
 **Invite to team**, then **Guest** at the top of the dialog (**Team member** is picked to start with). Pick the one
-place the guest joins: a group chat you are in, or a team project. Then fill in the same dialog as above: their name,
-their AI, **Create link** and **Copy link**. If your plan has no room for more guests, the dialog says so instead of
-listing places.
+place the guest joins: a group chat you are in, a team project, or one of your own projects (shared as above). Then
+fill in the same dialog as above: their name, their AI, **Create link** and **Copy link**. If your plan has no room for
+more guests, the dialog says so instead of listing places.
 
 ![Invite to team with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 

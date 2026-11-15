@@ -9,7 +9,7 @@ import { anthropicGateway, type AnthropicGatewayConf, type ModelUpstreams } from
 import type { ProxyTurnEvent } from '../proxy/model-proxy'
 import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
-import { costOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
+import { costOf, estimateOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
 import { personalConnectionsAllowed } from './policy'
 import {
@@ -67,7 +67,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
   // while the answer runs) is replaced by the first request the proxy counts, never added to it
   const add = cc.db.query(`UPDATE turns SET input_tokens = (CASE WHEN usage_source = 'proxy' THEN input_tokens ELSE 0 END) + ?,
     output_tokens = (CASE WHEN usage_source = 'proxy' THEN output_tokens ELSE 0 END) + ?,
-    cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(cost_usd, 0) ELSE 0 END) + ?, usage_source = 'proxy' WHERE id = ?`)
+    cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(cost_usd, 0) ELSE 0 END) + ?,
+    est_cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(est_cost_usd, 0) ELSE 0 END) + ?, usage_source = 'proxy' WHERE id = ?`)
   const day = cc.db.query(`INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, ?, ?, ?)
     ON CONFLICT(credential_id, day) DO UPDATE SET requests = requests + 1, input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, cost_usd = cost_usd + excluded.cost_usd`)
   const used = cc.db.query('UPDATE engine_credentials SET last_used_at = ?, checked_at = COALESCE(checked_at, ?) WHERE id = ?')
@@ -161,7 +162,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
         input = n(u.input_tokens); output = n(u.output_tokens)
       }
       const now = new Date(cc.now())
-      add.run(input, output, cost, turnId)
+      // a subscription request adds 0 to the money spent, and its API list price to the estimate (est_cost_usd)
+      add.run(input, output, cost, estimateOf(row.kind, model, usage), turnId)
       day.run(credentialId, teamDay(cc.db, now), input, output, cost)
       used.run(now.toISOString(), now.toISOString(), credentialId)
       const userId = (cc.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id

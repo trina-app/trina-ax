@@ -51,6 +51,7 @@ const bridge: DesktopBridge = {
   systemActivity: { onChange: on('bridge:system-activity') },
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   teamMenu: () => ipcRenderer.send('bridge:team-menu'),
+  hostLine: (drawn) => ipcRenderer.send('bridge:host-line', drawn === true),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
   setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
