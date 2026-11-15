@@ -587,14 +587,14 @@ function CopyPrimary({ text, label, disabled, onSent, quiet = false }: { text: s
         </Button>
         {failed && <p className="text-center text-label text-warn" role="status" data-testid="team-link-share-failed">{t('teamLink.shareFailed')}</p>}
         <Button variant="ghost" className="w-full" disabled={disabled} onClick={() => { setFailed(false); void copy(text).then((ok) => { if (ok) onSent?.() }) }} data-testid="team-link-copy-message">
-          {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+          {copied && !disabled ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied && !disabled ? t('common.copied') : label}
         </Button>
       </div>
     )
   }
   return (
     <Button variant={quiet ? 'secondary' : 'primary'} className="mt-3 max-sm:w-full" disabled={disabled} onClick={() => void copy(text).then((ok) => { if (ok) onSent?.() })} data-testid="team-link-copy-message">
-      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+      {copied && !disabled ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied && !disabled ? t('common.copied') : label}
     </Button>
   )
 }
