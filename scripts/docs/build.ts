@@ -4,7 +4,7 @@
 // passes its header, rendered by its own build). The file is SiteNav JSON: `html` is the bar's markup with the
 // `<!--docs-tools-->` marker where the docs search goes, `css` and `assets` are files next to the JSON that are copied
 // to assets/site-nav/, and `themeKey` is the localStorage key the website keeps the light or dark choice under.
-// `htmlByLang` (optional) holds the bar in another language, e.g. { "zh": "…" } for the Chinese pages.
+// `htmlByLang` (optional) holds the bar in the other languages, e.g. { "zh": "…", "ko": "…" }.
 // The public copy is ax.trina.app/docs: --base /docs --site-url https://ax.trina.app (the website repository's
 // scripts/sync-docs.mjs runs that). Pages carry no inline script or style attribute, so they work under that site's
 // Content-Security-Policy (script-src 'self'; style-src 'self'; img-src 'self').
@@ -21,14 +21,16 @@
 //   :::cards cols=2 … :::                   cards; each line "- icon=name | [Title](link.md) | One sentence."
 //   :::tabs … :::                           tabs; each panel starts with an "@tab Title" line
 // Screenshots: ![alt text](../images/<page>/<name>.webp "Optional caption") on a line of its own (docs:screenshots).
-// Languages: English is docs/site/; Simplified Chinese is docs/site/zh/ (same slugs, its own nav.json with translated
-// titles) and is built under <base>/zh/ with lang="zh-CN", translated labels, its own llms.txt and search index. A page
-// with a twin in the other language links to it (hreflang and a language switch); a zh nav entry with no zh page links
-// to the English page, marked （英文）. --site-nav html may hold a <!--docs-lang--> marker for where the switch goes.
+// Languages (LANGS in site.ts): English is docs/site/; every other language is docs/site/<lang>/ (same slugs, its own
+// nav.json with translated titles) and is built under <base>/<lang>/ with its HTML lang, translated labels, its own
+// llms.txt and search index. A page names its twins in the other languages (hreflang), and every page has a language
+// menu like ax.trina.app's: each language's twin, or else that language's docs home. A nav entry a language has not
+// translated links to the English page, marked as English (（英文）, (영어), …). --site-nav html may hold a
+// <!--docs-lang--> marker for where the menu goes.
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { HREFLANG, HTML_LANG, LANGS, ROOT, langDir, loadPages, readNav, type Lang, type Nav, type NavTab, type Page } from './site'
+import { HREFLANG, HTML_LANG, LANGS, LANG_NAME, ROOT, langDir, loadPages, readNav, type Lang, type Nav, type NavTab, type Page } from './site'
 
 type MarkdownApi = { html: (md: string, opts?: Record<string, unknown>) => string }
 const markdown = (Bun as unknown as { markdown?: MarkdownApi }).markdown
@@ -86,9 +88,10 @@ function icon(name: string): string {
 export interface SiteNav { html: string; htmlByLang?: Partial<Record<Lang, string>>; css?: string[]; assets?: string[]; themeKey?: string }
 export const DOCS_TOOLS_MARKER = '<!--docs-tools-->'
 export const DOCS_LANG_MARKER = '<!--docs-lang-->'
-/** One language of the site. `root` is the site's base (/docs), `base` this language's (/docs or /docs/zh); `alt` is the
- * other language, for twins and for nav entries this language has not translated. */
-interface Ctx { nav: Nav; pages: Page[]; base: string; root: string; siteUrl: string; siteNav: SiteNav | null; lang: Lang; ui: Ui; alt: Ctx | null }
+/** One language of the site. `root` is the site's base (/docs), `base` this language's (/docs or /docs/zh); `alt` is
+ * English for the other languages (for nav entries and links they have not translated), null for English; `all` is
+ * every language, in LANGS order (for twins and the language menu). */
+interface Ctx { nav: Nav; pages: Page[]; base: string; root: string; siteUrl: string; siteNav: SiteNav | null; lang: Lang; ui: Ui; alt: Ctx | null; all: Ctx[] }
 
 // ---------------- labels ----------------
 const UI_EN = {
@@ -102,7 +105,7 @@ const UI_EN = {
   enlarge: 'Enlarge', screenshot: 'Screenshot', close: 'Close', notFound: 'Page not found', notFoundDesc: 'This page does not exist.',
   notFoundBody: (home: string) => `<p><a href="${home}">Go to the intro</a>, or search above.</p>`, english: '',
   llmsIntro: 'Every page is also plain Markdown: add `.md` to its address. All pages in one file: `llms-full.txt`.', rootUrl: 'Root URL',
-  switchTo: 'English', switchLabel: 'Read this page in English',
+  language: 'Language',
 }
 type Ui = typeof UI_EN
 const UI: Record<Lang, Ui> = {
@@ -118,7 +121,59 @@ const UI: Record<Lang, Ui> = {
     enlarge: '放大', screenshot: '截图', close: '关闭', notFound: '页面不存在', notFoundDesc: '此页面不存在。',
     notFoundBody: (home: string) => `<p><a href="${home}">前往简介</a>，或在上方搜索。</p>`, english: '（英文）',
     llmsIntro: '每个页面也有纯 Markdown 版本：在地址后加上 `.md`。所有页面合在一个文件中：`llms-full.txt`。其余页面只有英文。', rootUrl: '根地址',
-    switchTo: '中文', switchLabel: '阅读本页的中文版',
+    language: '语言',
+  },
+  ko: {
+    note: '참고', tip: '팁', warning: '주의', copyCode: '코드 복사', anchor: '이 부분 링크', pages: (t: string) => `${t}: 페이지`,
+    docs: '문서', openDocsNav: '문서 메뉴 열기', sections: '섹션', openNav: '메뉴 열기', links: '링크',
+    theme: '밝은 테마와 어두운 테마 전환', search: '검색…', searchLabel: '문서 검색', onThisPage: '이 페이지에서',
+    hideToc: '"이 페이지에서" 숨기기', prevNext: '이전과 다음', prev: '이전', next: '다음', copyPage: '페이지 복사',
+    moreCopy: '복사 옵션 더 보기', copyMd: '페이지를 Markdown으로 복사', copyMdSub: 'AI 채팅에 붙여 넣을 때', viewMd: 'Markdown으로 보기',
+    viewMdSub: '이 페이지를 일반 텍스트로', copyLlms: 'llms.txt 링크 복사', copyLlmsSub: 'AI 에이전트용 전체 페이지 목록',
+    skip: '본문으로 건너뛰기', footer: 'Trina AX는 AGPL-3.0-only 라이선스의 자유 소프트웨어예요. 아이콘: Lucide(ISC).', edit: '이 페이지 수정',
+    enlarge: '크게 보기', screenshot: '스크린샷', close: '닫기', notFound: '페이지를 찾을 수 없어요', notFoundDesc: '없는 페이지예요.',
+    notFoundBody: (home: string) => `<p><a href="${home}">소개로 가거나</a> 위에서 검색해 보세요.</p>`, english: ' (영어)',
+    llmsIntro: '모든 페이지는 일반 Markdown으로도 볼 수 있어요. 주소 끝에 `.md`를 붙이세요. 전체 페이지를 한 파일로: `llms-full.txt`. 나머지 페이지는 영어로만 있어요.', rootUrl: '루트 주소',
+    language: '언어',
+  },
+  ja: {
+    note: '注意', tip: 'ヒント', warning: '警告', copyCode: 'コードをコピー', anchor: 'このセクションへのリンク', pages: (t: string) => `${t}：ページ`,
+    docs: 'ドキュメント', openDocsNav: 'ドキュメントのメニューを開く', sections: 'セクション', openNav: 'メニューを開く', links: 'リンク',
+    theme: 'ライトとダークを切り替え', search: '検索…', searchLabel: 'ドキュメントを検索', onThisPage: 'このページの内容',
+    hideToc: '「このページの内容」を隠す', prevNext: '前へと次へ', prev: '前へ', next: '次へ', copyPage: 'ページをコピー',
+    moreCopy: 'その他のコピー方法', copyMd: 'ページを Markdown でコピー', copyMdSub: 'AI チャットに貼り付けるとき', viewMd: 'Markdown で表示',
+    viewMdSub: 'このページをプレーンテキストで', copyLlms: 'llms.txt のリンクをコピー', copyLlmsSub: 'AI エージェント向けの全ページの索引',
+    skip: '本文へスキップ', footer: 'Trina AX は AGPL-3.0-only のフリーソフトウェアです。アイコン：Lucide（ISC）。', edit: 'このページを編集',
+    enlarge: '拡大', screenshot: 'スクリーンショット', close: '閉じる', notFound: 'ページが見つかりません', notFoundDesc: 'このページは存在しません。',
+    notFoundBody: (home: string) => `<p><a href="${home}">はじめにへ移動</a>するか、上で検索してください。</p>`, english: '（英語）',
+    llmsIntro: 'どのページもプレーンな Markdown で読めます。アドレスの末尾に `.md` を付けてください。全ページをまとめたファイル：`llms-full.txt`。そのほかのページは英語のみです。', rootUrl: 'ルート URL',
+    language: '言語',
+  },
+  es: {
+    note: 'Nota', tip: 'Consejo', warning: 'Advertencia', copyCode: 'Copiar código', anchor: 'Enlace a esta sección', pages: (t: string) => `Páginas de ${t}`,
+    docs: 'Documentación', openDocsNav: 'Abrir la navegación de la documentación', sections: 'Secciones', openNav: 'Abrir la navegación', links: 'Enlaces',
+    theme: 'Cambiar entre tema claro y oscuro', search: 'Buscar…', searchLabel: 'Buscar en la documentación', onThisPage: 'En esta página',
+    hideToc: 'Ocultar En esta página', prevNext: 'Anterior y siguiente', prev: 'Anterior', next: 'Siguiente', copyPage: 'Copiar página',
+    moreCopy: 'Más opciones de copia', copyMd: 'Copiar la página como Markdown', copyMdSub: 'Para pegarla en un chat de IA', viewMd: 'Ver como Markdown',
+    viewMdSub: 'Esta página como texto sin formato', copyLlms: 'Copiar el enlace de llms.txt', copyLlmsSub: 'El índice de todas las páginas, para agentes',
+    skip: 'Saltar al contenido', footer: 'Trina AX es software libre bajo AGPL-3.0-only. Iconos: Lucide (ISC).', edit: 'Editar esta página',
+    enlarge: 'Ampliar', screenshot: 'Captura de pantalla', close: 'Cerrar', notFound: 'Página no encontrada', notFoundDesc: 'Esta página no existe.',
+    notFoundBody: (home: string) => `<p><a href="${home}">Vaya a la introducción</a> o busque arriba.</p>`, english: ' (en inglés)',
+    llmsIntro: 'Cada página también está en Markdown sin formato: añada `.md` a su dirección. Todas las páginas en un solo archivo: `llms-full.txt`. Las demás páginas solo están en inglés.', rootUrl: 'URL raíz',
+    language: 'Idioma',
+  },
+  id: {
+    note: 'Catatan', tip: 'Tips', warning: 'Peringatan', copyCode: 'Salin kode', anchor: 'Tautan ke bagian ini', pages: (t: string) => `Halaman ${t}`,
+    docs: 'Dokumentasi', openDocsNav: 'Buka navigasi dokumentasi', sections: 'Bagian', openNav: 'Buka navigasi', links: 'Tautan',
+    theme: 'Ganti tema terang dan gelap', search: 'Cari…', searchLabel: 'Cari di dokumentasi', onThisPage: 'Di halaman ini',
+    hideToc: 'Sembunyikan Di halaman ini', prevNext: 'Sebelumnya dan berikutnya', prev: 'Sebelumnya', next: 'Berikutnya', copyPage: 'Salin halaman',
+    moreCopy: 'Opsi salin lainnya', copyMd: 'Salin halaman sebagai Markdown', copyMdSub: 'Untuk ditempel ke chat AI', viewMd: 'Lihat sebagai Markdown',
+    viewMdSub: 'Halaman ini sebagai teks biasa', copyLlms: 'Salin tautan llms.txt', copyLlmsSub: 'Indeks semua halaman, untuk agen AI',
+    skip: 'Lewati ke konten', footer: 'Trina AX adalah perangkat lunak bebas dengan lisensi AGPL-3.0-only. Ikon: Lucide (ISC).', edit: 'Edit halaman ini',
+    enlarge: 'Perbesar', screenshot: 'Tangkapan layar', close: 'Tutup', notFound: 'Halaman tidak ditemukan', notFoundDesc: 'Halaman ini tidak ada.',
+    notFoundBody: (home: string) => `<p><a href="${home}">Buka pengantar</a>, atau cari di atas.</p>`, english: ' (bahasa Inggris)',
+    llmsIntro: 'Setiap halaman juga tersedia sebagai Markdown biasa: tambahkan `.md` di akhir alamatnya. Semua halaman dalam satu file: `llms-full.txt`. Halaman lainnya hanya dalam bahasa Inggris.', rootUrl: 'URL utama',
+    language: 'Bahasa',
   },
 }
 
@@ -130,12 +185,18 @@ function navLink(ctx: Ctx, slug: string): { url: string; title: string } {
   if (!alt || !ctx.alt) throw new Error(`nav entry ${slug} has no page`)
   return { url: pageUrl(ctx.alt, slug), title: `${alt.title}${ctx.ui.english}` }
 }
-/** The same page in the other language, when there is one. */
-const twin = (ctx: Ctx, page: Page | null) => (page && ctx.alt?.pages.some((p) => p.slug === page.slug) ? ctx.alt : null)
+/** The languages that have this page (this one included), in LANGS order; none for the 404 page. */
+const twins = (ctx: Ctx, page: Page | null) => (page ? ctx.all.filter((c) => c.pages.some((p) => p.slug === page.slug)) : [])
+/** The language menu, the same markup as ax.trina.app's (so that site's navbar CSS styles it inside --site-nav): each
+ * language's twin of this page, or else that language's docs home. */
 function langSwitch(ctx: Ctx, page: Page | null, cls: string): string {
-  const other = twin(ctx, page)
-  if (!other || !page) return ''
-  return `<a class="${cls}" href="${pageUrl(other, page.slug)}" hreflang="${HREFLANG[other.lang]}" lang="${HTML_LANG[other.lang]}" aria-label="${esc(other.ui.switchLabel)}">${icon('languages')}<span>${esc(other.ui.switchTo)}</span></a>`
+  const has = twins(ctx, page)
+  const items = ctx.all.map((c) => {
+    const href = page && has.includes(c) ? pageUrl(c, page.slug) : pageUrl(c, 'index')
+    return `<li><a href="${href}" hreflang="${HREFLANG[c.lang]}" lang="${HTML_LANG[c.lang]}"${c === ctx ? ' aria-current="true"' : ''} data-lang="${c.lang}">${esc(LANG_NAME[c.lang])}</a></li>`
+  }).join('')
+  const name = esc(LANG_NAME[ctx.lang])
+  return `<details class="lang-menu ${cls}" data-lang-menu><summary class="lang-link" aria-label="${esc(ctx.ui.language)}: ${name}">${icon('globe')}<span class="lang-current">${name}</span><span class="lang-code" aria-hidden="true">${ctx.lang.toUpperCase()}</span></summary><ul class="lang-list" aria-label="${esc(ctx.ui.language)}">${items}</ul></details>`
 }
 
 function readSiteNav(file: string): SiteNav | null {
@@ -162,7 +223,7 @@ function resolveLink(ctx: Ctx, page: Page, href: string, forMarkdown: boolean): 
   const target = path.posix.normalize(path.posix.join(path.posix.dirname(page.file), decodeURIComponent(raw!)))
   const hash = frag ? `#${frag}` : ''
   if (target.startsWith('docs/site/') && target.endsWith('.md')) {
-    // docs/site/<slug>.md is English, docs/site/zh/<slug>.md Chinese: find the language that has the page
+    // docs/site/<slug>.md is English, docs/site/<lang>/<slug>.md another language: this one, else English
     for (const c of [ctx, ctx.alt]) {
       const dir = c ? langDir(c.lang) : ''
       const prefix = dir ? `docs/site/${dir}/` : 'docs/site/'
@@ -336,7 +397,7 @@ function header(ctx: Ctx, page: Page | null): string {
   }).join('')
   if (ctx.siteNav) {
     // the website's own bar, with the docs search in it; on phones a second row holds the docs menu and the search.
-    // The language switch goes where the bar has the <!--docs-lang--> marker, or else after the search.
+    // The language menu goes where the bar has the <!--docs-lang--> marker, or else after the search.
     const sw = langSwitch(ctx, page, 'lang-switch')
     const siteHtml = ctx.siteNav.htmlByLang?.[ctx.lang] ?? ctx.siteNav.html
     const hasMarker = siteHtml.includes(DOCS_LANG_MARKER)
@@ -356,7 +417,7 @@ function header(ctx: Ctx, page: Page | null): string {
     <a class="brand" href="${pageUrl(ctx, 'index')}"><img src="${ctx.root}/assets/favicon.svg" alt="" width="24" height="24"><span>${esc(ctx.nav.title)}</span></a>
     ${searchBox(ctx)}
     <nav class="bar-links" aria-label="${ui.links}">
-      ${langSwitch(ctx, page, 'lang-switch quiet-link')}<a class="quiet-link" href="${ctx.nav.repo}" rel="noopener">GitHub</a>
+      ${langSwitch(ctx, page, 'lang-switch')}<a class="quiet-link" href="${ctx.nav.repo}" rel="noopener">GitHub</a>
       <a class="open-product" href="${esc(ctx.nav.product.url)}" rel="noopener">${esc(ctx.nav.product.label)}${icon('chevron-right')}</a>
       <button class="theme-button icon-button" type="button" aria-label="${ui.theme}">${icon('sun-moon')}</button>
     </nav>
@@ -402,9 +463,9 @@ function layout(ctx: Ctx, page: Page | null, content: string, toc: Toc, meta: { 
       </div>` : ''
   const canonical = ctx.siteUrl && page ? `<link rel="canonical" href="${ctx.siteUrl}${pageUrl(ctx, page.slug)}">\n` : ''
   const alt = page ? `<link rel="alternate" type="text/markdown" href="${pageMdUrl(ctx, page.slug)}">\n` : ''
-  // a page with a twin in the other language names both (and English as the default)
-  const other = twin(ctx, page)
-  const langs = other && page ? [ctx, other].sort((a, b) => LANGS.indexOf(a.lang) - LANGS.indexOf(b.lang)) : []
+  // a page with twins in other languages names them all (and English as the default)
+  const has = twins(ctx, page)
+  const langs = has.length > 1 ? has : []
   const hreflang = langs.map((c) => `<link rel="alternate" hreflang="${HREFLANG[c.lang]}" href="${c.siteUrl}${pageUrl(c, page!.slug)}">\n`).join('')
     + (langs.length ? `<link rel="alternate" hreflang="x-default" href="${langs[0]!.siteUrl}${pageUrl(langs[0]!, page!.slug)}">\n` : '')
   return `<!doctype html>
@@ -449,11 +510,10 @@ export function build(argv: string[]) {
     const nav = readNav(lang)
     const pages = loadPages(nav, lang)
     for (const p of pages) if (!p.title || !p.description) throw new Error(`${p.file}: front matter needs title and description`)
-    return { nav, pages, base: lang === 'en' ? o.base : `${o.base}/${langDir(lang)}`, root: o.base, siteUrl: o.siteUrl, siteNav, lang, ui: UI[lang], alt: null }
+    return { nav, pages, base: lang === 'en' ? o.base : `${o.base}/${langDir(lang)}`, root: o.base, siteUrl: o.siteUrl, siteNav, lang, ui: UI[lang], alt: null, all: [] }
   })
-  // two languages: each is the other's twin (English is the fallback for pages a translation does not have)
-  ctxs[0]!.alt = ctxs[1]!
-  ctxs[1]!.alt = ctxs[0]!
+  // English is the fallback for the pages and links a translation does not have
+  for (const c of ctxs) { c.all = ctxs; c.alt = c.lang === 'en' ? null : ctxs[0]! }
   fs.rmSync(o.out, { recursive: true, force: true })
   fs.mkdirSync(path.join(o.out, 'assets'), { recursive: true })
   for (const ctx of ctxs) buildLang(ctx, langDir(ctx.lang) ? path.join(o.out, langDir(ctx.lang)) : o.out)

@@ -33,15 +33,18 @@ export interface Page {
   lang: Lang
 }
 
-/** The languages of the site. English is the source and lives at the top of docs/site/; every other language has its
- * own folder (docs/site/zh/) with a nav.json of the same shape and the same slugs, titles translated, and a page for
- * each slug it translates. A slug with no page in that folder links to the English page. */
-export type Lang = 'en' | 'zh'
-export const LANGS: Lang[] = ['en', 'zh']
+/** The languages of the site, the one place they are listed (in the order of ax.trina.app's language menu). English is
+ * the source and lives at the top of docs/site/; every other language has its own folder (docs/site/ko/, docs/site/zh/,
+ * …) with a nav.json of the same shape and the same slugs, titles translated, and a page for each slug it translates.
+ * A slug with no page in that folder links to the English page. */
+export const LANGS = ['en', 'ko', 'zh', 'ja', 'es', 'id'] as const
+export type Lang = (typeof LANGS)[number]
 /** the HTML lang attribute of each language */
-export const HTML_LANG: Record<Lang, string> = { en: 'en', zh: 'zh-CN' }
+export const HTML_LANG: Record<Lang, string> = { en: 'en', ko: 'ko', zh: 'zh-CN', ja: 'ja', es: 'es', id: 'id' }
 /** hreflang of each language: Simplified Chinese as a script, for every region that reads it (as ax.trina.app does) */
-export const HREFLANG: Record<Lang, string> = { en: 'en', zh: 'zh-Hans' }
+export const HREFLANG: Record<Lang, string> = { en: 'en', ko: 'ko', zh: 'zh-Hans', ja: 'ja', es: 'es', id: 'id' }
+/** each language's name in itself, for the language menu (the same names as ax.trina.app's menu) */
+export const LANG_NAME: Record<Lang, string> = { en: 'English', ko: '한국어', zh: '简体中文', ja: '日本語', es: 'Español', id: 'Bahasa Indonesia' }
 /** the folder of a language under docs/site/ (and under the built site), '' for English */
 export const langDir = (lang: Lang) => (lang === 'en' ? '' : lang)
 const siteFile = (lang: Lang, rel: string) => (lang === 'en' ? `docs/site/${rel}` : `docs/site/${langDir(lang)}/${rel}`)

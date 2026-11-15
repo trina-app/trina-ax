@@ -3,9 +3,14 @@
   var base = document.body.dataset.base || ''
   var root = document.documentElement
   // labels the script sets, in the page's language (the build writes the rest)
-  var T = root.lang === 'zh-CN'
-    ? { copied: '已复制', copyCode: '复制代码', hideToc: '隐藏“本页内容”', showToc: '显示“本页内容”', noResults: '没有结果' }
-    : { copied: 'Copied', copyCode: 'Copy code', hideToc: 'Hide On this page', showToc: 'Show On this page', noResults: 'No results' }
+  var LABELS = {
+    'zh-CN': { copied: '已复制', copyCode: '复制代码', hideToc: '隐藏“本页内容”', showToc: '显示“本页内容”', noResults: '没有结果' },
+    ko: { copied: '복사했어요', copyCode: '코드 복사', hideToc: '"이 페이지에서" 숨기기', showToc: '"이 페이지에서" 보기', noResults: '결과가 없어요' },
+    ja: { copied: 'コピーしました', copyCode: 'コードをコピー', hideToc: '「このページの内容」を隠す', showToc: '「このページの内容」を表示', noResults: '結果がありません' },
+    es: { copied: 'Copiado', copyCode: 'Copiar código', hideToc: 'Ocultar En esta página', showToc: 'Mostrar En esta página', noResults: 'Sin resultados' },
+    id: { copied: 'Disalin', copyCode: 'Salin kode', hideToc: 'Sembunyikan Di halaman ini', showToc: 'Tampilkan Di halaman ini', noResults: 'Tidak ada hasil' },
+  }
+  var T = LABELS[root.lang] || { copied: 'Copied', copyCode: 'Copy code', hideToc: 'Hide On this page', showToc: 'Show On this page', noResults: 'No results' }
   var $ = function (s, el) { return (el || document).querySelector(s) }
   var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)) }
   function store(k, v) { try { localStorage.setItem(k, v) } catch (e) {} }
@@ -28,6 +33,15 @@
     siteMenuBtn.addEventListener('click', function () { setSiteMenu(siteMenu.dataset.open !== 'true') })
     siteMenu.addEventListener('click', function (e) { if (e.target.closest('a')) setSiteMenu(false) })
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && siteMenu.dataset.open === 'true') { setSiteMenu(false); siteMenuBtn.focus() } })
+  }
+  // the language menus (<details>): closed by a click elsewhere or Escape, as on ax.trina.app
+  var langMenus = $$('[data-lang-menu]')
+  if (langMenus.length) {
+    document.addEventListener('click', function (e) { langMenus.forEach(function (d) { if (d.open && !d.contains(e.target)) d.open = false }) })
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return
+      langMenus.forEach(function (d) { if (d.open) { d.open = false; var s = d.querySelector('summary'); if (s) s.focus() } })
+    })
   }
   // links in the header keep no focus from a mouse: Chrome focuses a link on press, and when the page stays (a Cmd or
   // middle click that opens a new tab, a press dragged off, Back to this page) the next key press, even Shift or an
