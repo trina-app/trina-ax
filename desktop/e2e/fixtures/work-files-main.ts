@@ -117,6 +117,8 @@ void (async () => {
   console.log('WORK_RESULT ' + JSON.stringify({ out, asked }))
   win.destroy()
   app.exit(0)
+  // on a busy machine Electron's exit sometimes did not end the process (the spec then waited for its time limit)
+  setTimeout(() => process.exit(0), 3000).unref()
 })().catch((error) => {
   console.error(error)
   app.exit(1)

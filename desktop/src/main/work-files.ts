@@ -338,8 +338,8 @@ export class WorkFilesController {
   private tellReading(active = false) {
     if (active) this.stripOn = true
     clearTimeout(this.readingIdle)
-    if (this.stripOn && !this.inFlight) this.readingIdle = setTimeout(() => { this.stripOn = false; this.tellReading() }, READING_IDLE_MS)
     if (!this.pending.size && !this.inFlight) this.stripOn = false
+    if (this.stripOn && !this.inFlight) this.readingIdle = setTimeout(() => { this.stripOn = false; this.tellReading() }, READING_IDLE_MS)
     this.o.reading(this.inFlight || this.stripOn ? Math.max(this.pending.size, this.inFlight, 1) : 0)
   }
 
