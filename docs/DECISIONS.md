@@ -28975,3 +28975,32 @@ the list of times, so two quick edits of one connection (name, then address) sho
 entries fold only when their whole details are the same, for every kind (admin changes, AI tools, files, sign-ins).
 Two AI reads of different files and two saves of a file with other contents are now two rows; sign-ins from one
 address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: **patch**.
+
+## Stored keys are hidden in the files the AI saves, and in the live answer's encoded forms (fix/files-hide-keys, 2026-11-15)
+
+- **Problem (QA tracking TC-3041, TC-2981).** The answer and the steps said [hidden key], but the tools that save what
+  the AI gives them wrote the person's stored connection key as given: make_file (docx, pdf, hwpx), write, edit,
+  edit_hwp (a `{{key}}` filled in), artifact; the search's text cache and the owner's export copied those files. And
+  while a turn waited on a card, a base64 form of the key cut across the answer's text pieces showed in the live answer
+  and the messages API: the stream held back only the start of the key as written.
+- **Decision: one place for every tool call.** `mcp/protocol.ts` asks the turn (`TurnToolSet.hideKeys`, chat/tools.ts)
+  for the arguments first, before any check, card or write; `integrations/connections/hide-args.ts` runs them through the
+  turn's redactor (redact.ts). The tools and fields: make_file (content, output), write (content, file_path), edit and
+  each file of edit_files (new_string), edit_hwp (replace, a cell's value, added rows, output), artifact (content,
+  title, key, an edit's new), rename_file / move_files / copy_files (new name, target folder), save_url and
+  save_room_file (save_as), generate_video (prompt, save_as), promo_video and intro_deck (their text). The AI is told
+  after the call that the key was saved as [hidden key], so it does not say the file holds the key; edit_hwp's result
+  lines already show the hidden value.
+- **What the person already has is not changed.** A field the tool only finds by is left (edit's old_string, edit_hwp's
+  find and label cells, an artifact edit's old), a replacement keeps a key form the text it replaces holds, and write
+  keeps a key form the file it overwrites holds: an AI rewrite of the person's own file with their key in it does not
+  break it. Paths a tool only reads (make_file's source and template, a promo's sources) are left: a file made from a
+  team file is a copy of that file. Files saved before this fix and uploaded files are not rewritten.
+- **The live answer.** `RedactingText` also holds back the end of the text that could be part of an encoded form of a
+  key (`formCarryLength`: the run of characters base64 and the %, JSON and HTML escapes are made of, at most the longest
+  form), so no piece lets out part of one. Prose flows on (the run is the last word); Korean and Japanese text is not
+  held. The whole answer is still checked at the end.
+- **Checked, not changed.** remember, schedule_create and post_to_room hide keys themselves; answer shares and titles
+  already did. box_shell (developer environments) runs its command as given; its shown command is already hidden.
+- Tests: `tests/unit/c-integrations-secret-files.test.ts`, `c-integrations-secret-echo.test.ts`.
+- Version impact: **patch** (a security fix; no new feature or API change).

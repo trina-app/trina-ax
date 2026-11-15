@@ -57,6 +57,7 @@ import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_TURN_TOOLS } from './guest-tools'
+import { hideKeysInArgs, KEY_HIDING_TOOLS } from '../integrations/connections/hide-args'
 
 export interface Tool {
   name: string
@@ -249,6 +250,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     callStarted: () => exec.ownCallStarted(),
+    // the person's stored connection keys in what a tool saves (a file, an artifact, a name): hidden before every
+    // other check, card and write (integrations/connections/hide-args.ts; QA TC-3041). write keeps a form the file it
+    // overwrites already holds
+    hideKeys: (name, args) => {
+      if (!KEY_HIDING_TOOLS.includes(name)) return { args, hidden: false }
+      return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
+    },
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
