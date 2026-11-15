@@ -96,9 +96,13 @@ test('the plan caps guests (409 plan_limit, reason guest_limit) at create and at
   try { await accept(h.client(), tokenOf(i2), 'gia') } catch (e) { err = e as ApiFail }
   expect(err?.status).toBe(409)
   expect(err?.body.error).toMatchObject({ code: 'plan_limit', params: { reason: 'guest_limit', limit: 1 } })
+  // the person joining cannot remove guests or change the plan: they are told to let the inviter know (QA TC-2190)
+  expect(err?.body.error.message).toBe('이 팀은 지금 게스트를 더 받을 수 없어요. 초대한 분께 말씀해 주세요.')
+  expect(err?.body.error.params.changePlan).toBeUndefined()
   // and a new link is refused the same way
   try { await invite(mia.client, { kind: 'room', id: room }); err = null } catch (e) { err = e as ApiFail }
   expect(err?.body.error.params.reason).toBe('guest_limit')
+  expect(err?.body.error.message).toContain('내보내거나')
   // the invite page says it is full instead of the form
   expect((await h.client().call('GET', `/api/invites/${tokenOf(i2)}`)).full).toBe(true)
   // a plan file without maxGuests (until the control plane writes it): 3; no plan (self-hosted): no cap

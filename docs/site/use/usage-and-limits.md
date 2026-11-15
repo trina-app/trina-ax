@@ -40,6 +40,11 @@ Personal skills are never counted by name, so no admin sees what someone keeps p
 
 There are no limits by default. Admins add them in **Admin › Team settings**, under **Usage limits**.
 
+For one person, it is quicker from **Admin › Members & invites**: open their **…** menu and choose **Usage limit…**. The
+dialog is already for that person and opens with the limit they have, with how much of it they used. Pick **Per day** or
+**Per month** to see or set each one, and **Remove limit** to take one away. People with a limit show it in one quiet line
+under their name, with **Over limit** once it is used up. On a phone, open the person and tap **Usage limit**.
+
 | Limit for | Period |
 |---|---|
 | A person | per day or per month |

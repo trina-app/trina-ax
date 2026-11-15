@@ -36,6 +36,7 @@ import { freshDraft, useWideningDraft, type WideningDraft } from '../store/widen
 import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
 import { isGuestMe } from '../lib/guests'
+import { isGuestNow } from './GuestTag'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
@@ -52,7 +53,7 @@ export function namesLine(t: ReturnType<typeof useT>, names: readonly string[], 
 
 /** The confirm: who gains it and what they will see, how many lose it, the rule the save adds; false when cancelled.
  * `names`: the people and groups being added, as picked (the widening line). */
-export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview, names = ''): Promise<boolean> {
+export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview, names = '', guestsOff = 0): Promise<boolean> {
   const lines = p.added ? [...widenLines(t, p), ...(p.hiddenAnswers && names ? [t('chat.share.widen', { n: p.hiddenAnswers, names })] : [])] : []
   return confirmDialog({
     title: p.added ? t('projects.widenTitle') : t('projects.changeTitle'),
@@ -60,7 +61,7 @@ export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPrevi
       <div className="space-y-2" data-testid="project-widen-confirm">
         {p.added > 0 && <p>{t('projects.widenBody', { n: p.added })}</p>}
         {lines.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{lines.map((l) => <li key={l}>{l}</li>)}</ul>}
-        <ChangeLines t={t} p={p} />
+        <ChangeLines t={t} p={p} guestsOff={guestsOff} />
         {p.added > 0 && <p className="text-faint">{t('projects.widenNotice')}</p>}
       </div>
     ),
@@ -69,7 +70,7 @@ export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPrevi
 }
 
 /** What else a save does that the person did not choose here: how many lose it, the rule it adds or puts back. */
-function ChangeLines({ t, p }: { t: ReturnType<typeof useT>; p?: ProjectAccessPreview }) {
+function ChangeLines({ t, p, guestsOff = 0 }: { t: ReturnType<typeof useT>; p?: ProjectAccessPreview; guestsOff?: number }) {
   if (!p) return null
   return (
     <>
@@ -78,6 +79,7 @@ function ChangeLines({ t, p }: { t: ReturnType<typeof useT>; p?: ProjectAccessPr
           {p.removedNames?.length ? t('projects.loseAccess', { n: p.removed, names: namesLine(t, p.removedNames, p.removed) }) : t('projects.narrowBody', { n: p.removed })}
         </p>
       )}
+      {guestsOff > 0 && <p className="break-keep" data-testid="project-guests-off">{t('projects.guestsOff', { n: guestsOff })}</p>}
       {p.addsFloor && <p className="break-keep" data-testid="project-adds-floor">{t('projects.addsFloor')}</p>}
       {p.restoresCreator && <p className="break-keep" data-testid="project-restores-creator">{t('projects.restoresCreator')}</p>}
     </>
@@ -220,8 +222,11 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
       // the only one the save adds is me (an owner or admin who is not a member): the "Add me" confirm
       const keys = new Set(current.map(participantKey))
       const adds = participants.filter((x) => !keys.has(participantKey(x)))
+      // guests among the people this save takes out: their account is switched off with it (said in the confirm)
+      const keptKeys = new Set(participants.map(participantKey))
+      const removedGuests = current.filter((x) => x.subjectType === 'user' && !keptKeys.has(participantKey(x)) && isGuestNow(x.subjectId)).length
       const addsOnlyMe = !!me && adds.length === 1 && adds[0]!.subjectType === 'user' && adds[0]!.subjectId === me.user.id && p.added <= 1
-      if (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames))) return
+      if (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests))) return
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash, ...removeRules } })
       shown(a)
       // the project as the server sees it now: how many see it, and whether anyone else does by a rule (Project.alone:

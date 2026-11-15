@@ -19,7 +19,12 @@ export function GuestTag({ className }: { className?: string }) {
 }
 
 type Known = { byId: Record<string, Person>; guestIds: Record<string, true> }
-const known = (s: Known, id: string) => personIsGuest(s.byId[id]) || !!s.guestIds[id]
+// the directory decides for anyone it lists (a guest made a member loses the tag at once, from a profile notice); a project's
+// people list decides for those it does not (an owner or admin outside the guest's one place)
+const known = (s: Known, id: string) => s.byId[id] ? personIsGuest(s.byId[id]) : !!s.guestIds[id]
+
+/** The same answer outside a component (a confirm's words). */
+export const isGuestNow = (userId: string): boolean => known(usePeople.getState(), userId)
 
 /** Is this person (by id) a guest, as the directory (or a project's people list) says? */
 export const useIsGuest = (userId: string | null | undefined): boolean => usePeople((s) => !!userId && known(s, userId))

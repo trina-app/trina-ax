@@ -10,7 +10,7 @@ import { afterAccessChange, captureState } from './folders'
 import { assertSeatFree } from '../system/limits'
 import { getUser, toUser } from '../auth/users'
 import { guestLimit, guestPlace, guestsUsed, inPlace, inPlaceEvenIfOff, isGuest } from '../auth/guests'
-import { MY_PROFILE_CHANGED } from '../auth/profiles'
+import { MY_PROFILE_CHANGED, profileChangedFor } from '../auth/profiles'
 import { disableAccount } from './users'
 import { newId } from '../db'
 import { placeAlive, teamCredentialOk } from '../auth/guest-invites'
@@ -44,8 +44,9 @@ export function convertGuest(c: Context<AppEnv>, ctx: AppContext, id: string): U
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   // the guest AI is over: an answer running on it stops (the next one follows the team's settings)
   stopTurnsOf(ctx, id)
-  // their windows read the account again (role guest -> member)
-  ctx.services.realtime.publish(id, MY_PROFILE_CHANGED)
+  // their windows read the account again (role guest -> member), and everyone who sees them reads the people list again
+  // (the Guest tag and "Includes 1 guest" go without a reload); afterwards they are seen by all, so all are told
+  ctx.services.realtime.publishEach(profileChangedFor(ctx.db, id))
   return toUser(ctx.db, getUser(ctx.db, id)!)
 }
 

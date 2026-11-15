@@ -293,6 +293,8 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     // a project's name too (the list names it; whoever reads the list may manage every project); never a room's name
     ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => (pl.kind === 'project' ? { ...pl, name: placeName(db, pl) } : pl))(guestPlaceOf(r)!) } : {}),
     ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
+    // an open link whose maker or place is gone (a member who left the room: nothing revokes the link then, accept refuses it)
+    ...((s) => (s ? { stopped: s } : {}))(!r.used_at && !r.revoked_at && Date.parse(r.expires_at) > Date.now() ? ((w) => (w === 'revoked' ? 'ai_gone' : w))(makerReason(db, r)) as Invite['stopped'] | null : null),
   }
 }
 const inviteById = (db: Database, id: string) => db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(id) as InviteRow
@@ -416,7 +418,7 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}) }
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}), ...(gp ? { guestAi: parseGuestAi(r!.guest_ai).mode } : {}) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -517,7 +519,7 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
     const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r.id) as InviteRow | null
     if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
-    assertGuestFree(ctx.db, locale)
+    assertGuestFree(ctx.db, locale, 1, true)
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r.id, now)
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })

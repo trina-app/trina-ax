@@ -35,10 +35,10 @@
 // alone: send waits and a quiet line under the box says what to add.
 import { composerRadius } from './composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
-import { errorText, isConnectionError } from '../../lib/api'
+import { errorText, isApiError, isConnectionError } from '../../lib/api'
 import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
@@ -181,6 +181,8 @@ export default function Composer({
   const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // the error that is the AI limit used up: a known state, shown as a calm notice, never in red (owner rule; QA TC-2491)
+  const [limitText, setLimitText] = useState<string | null>(null)
   // the send failed for the connection (lib/api.ts isConnectionError): the calm line under the box, the text kept in it
   // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors"). 'updating': Trina is
   // updating (lib/serverUpdating.ts): the line says so and the box sends it once by itself when the server is back
@@ -344,6 +346,11 @@ export default function Composer({
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
+  const showError = (e: unknown) => {
+    const text = errorText(e, locale, t('error.network'))
+    setError(text)
+    setLimitText(isApiError(e, 'budget_exceeded') ? text : null)
+  }
   const send = async (anyway: boolean) => {
     if (!canSend) return
     if (!secret.pass(anyway)) return
@@ -359,7 +366,7 @@ export default function Composer({
         writeDraft(userId, draftId, '')
       } catch (e) {
         if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
-        else setError(errorText(e, locale, t('error.network')))
+        else showError(e)
       } finally {
         setSending(false)
       }
@@ -378,7 +385,7 @@ export default function Composer({
       clearSent()
     } catch (e) {
       if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
-      else setError(errorText(e, locale, t('error.network')))
+      else showError(e)
     } finally {
       setSending(false)
     }
@@ -777,7 +784,10 @@ export default function Composer({
           {who}
         </p>
       )}
-      {error && (
+      {error && error === limitText && (
+        <CalmNotice className="mt-2" testId="composer-limit" icon={<CirclePause size={16} />} title={error} />
+      )}
+      {error && error !== limitText && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}
           {voice.settingsFor === error && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}

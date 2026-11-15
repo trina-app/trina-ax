@@ -1,6 +1,7 @@
 // Admin › Members › Guests (docs/DECISIONS.md "Guests: only what they were invited to"): the people from outside the
 // team, each in one room or project, who take no seat. A row says who, where they are and their AI; its "…" changes the
-// AI (PATCH /api/admin/users/:id/guest-ai), makes them a team member (POST
+// AI (PATCH /api/admin/users/:id/guest-ai), resets their password (a guest has no e-mail: Members' dialog, a temporary
+// password to hand over; the sign-in page tells a guest to ask whoever invited them), makes them a team member (POST
 // /api/admin/users/:id/convert-guest: takes a seat, 409 plan_limit reason seat_limit when none is free) or removes them
 // (their account is turned off: PATCH status disabled; a removed guest's "…" deletes the account for good, as for a
 // member). Guests are invited from a room's or a project's "Add people", not here. The members table above leaves them
@@ -13,7 +14,7 @@
 // (nobody is removed: only new invites wait). A removed guest's "…" switches them back on while their place is there
 // (their row says why not otherwise: left it, its project in the trash, or gone), makes them a team member (switched on
 // with it) or deletes the account. A switch-on the server refuses (409 guest_no_place) says why, with Make team member.
-import { ArrowUpCircle, Bot, RotateCcw, Trash2, UserRoundX } from 'lucide-react'
+import { ArrowUpCircle, Bot, KeyRound, RotateCcw, Trash2, UserRoundX } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -41,10 +42,10 @@ function aiWords(t: ReturnType<typeof useT>, ai: GuestAiChoice | null, connectio
   if (!ai) return null
   if (ai.mode !== 'team') return t(`guest.ai.${ai.mode}`)
   const label = connections?.find((c) => c.id === ai.credentialId)?.label
-  return [t('guest.ai.team'), label, `$${ai.limitUsd}`].filter(Boolean).join(' · ')
+  return [t('guest.ai.team'), label, t('guest.admin.upTo', { n: ai.limitUsd })].filter(Boolean).join(' · ')
 }
 
-export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, deletionRequested = [], deletionDue = {} }: {
+export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, onResetPassword, deletionRequested = [], deletionDue = {} }: {
   guests: User[]
   /** the page's search narrowed `guests`: "No match" instead of "No guests yet" */
   filtered?: boolean
@@ -54,6 +55,8 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   onChanged: () => Promise<void> | void
   /** delete a removed guest's account for good (Members' own delete, with its confirm or password) */
   onDelete: (u: User) => void
+  /** reset an active guest's password (Members' own dialog: a temporary password to hand over; a guest has no e-mail to ask by) */
+  onResetPassword: (u: User) => void
   /** ids who asked to delete their account, and when it happens (GET /api/admin/users): said in the row, like the red mark of a member */
   deletionRequested?: readonly string[]
   deletionDue?: Record<string, string>
@@ -105,6 +108,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   const items = (u: User): MemberMenuItem[] => u.status === 'active'
     ? [
         { label: t('guest.admin.changeAi'), icon: <Bot size={14} aria-hidden />, onSelect: () => setAiFor(u), testId: `guest-ai-${u.username}` },
+        { label: t('members.reset'), icon: <KeyRound size={14} aria-hidden />, onSelect: () => onResetPassword(u), testId: `guest-reset-${u.username}` },
         { label: t('guest.makeMember'), icon: <ArrowUpCircle size={14} aria-hidden />, onSelect: () => setConverting(u), testId: `guest-convert-${u.username}` },
         { label: t('guest.admin.remove'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `guest-remove-${u.username}` },
       ]
@@ -121,7 +125,9 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
     .sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || a.name.localeCompare(b.name))
   // "3 of 10 guests" (or "3 guests" with no cap): the active ones, as the plan counts them; more than the plan allows
   // (a lowered plan) in the warning colour, with what that means
-  const used = limit?.used ?? guests.filter((u) => u.status === 'active').length
+  // counted from the list on the screen, not from the cap read when the page opened: removing, switching on or
+  // converting a guest changes it at once (QA TC-2191)
+  const used = guests.filter((u) => u.status === 'active').length
   const cap = limit ? limit.limit : undefined
   const over = typeof cap === 'number' && used > cap
   return (
@@ -150,7 +156,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
             const restoreBtn = g?.out === 'trashed' && g.place?.id
               ? (suffix: string) => <Button size="sm" variant="secondary" onClick={() => void restore(g.place!.id!, g.place!.name ?? '')} data-testid={`guest-restore-${u.username}${suffix}`}>{t('guest.admin.restoreProject')}</Button>
               : null
-            const meta = [where, removed ? null : aiWords(t, g?.ai ?? null, connections, g?.aiGone), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
+            const meta = [where, !removed && g?.aiUsedUp ? t('guest.admin.aiUsedUp') : null, removed ? null : aiWords(t, g?.ai ?? null, connections, g?.aiGone), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
             return (
               <ListRow
                 key={u.id}
@@ -192,14 +198,33 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   )
 }
 
+/** A place name at most this long in a guest's row (a phone's two lines also hold the status after it). */
+const PLACE_NAME_MAX = 28
+/** a letter counts 1, a Korean / Japanese / Chinese character 2 (it is as wide as two) */
+const widthOf = (c: string) => (c.codePointAt(0)! >= 0x2e80 ? 2 : 1)
+function clipPlaceName(name: string): string {
+  const chars = Array.from(name)
+  if (chars.reduce((n, c) => n + widthOf(c), 0) <= PLACE_NAME_MAX) return name
+  let used = 0
+  const out: string[] = []
+  for (const c of chars) {
+    if (used + widthOf(c) > PLACE_NAME_MAX - 1) return out.join('').trimEnd() + '…'
+    used += widthOf(c)
+    out.push(c)
+  }
+  return name
+}
+
 /** Where a guest is ("Room · Quote prep"), or for a removed one why they are not there: left it, its project in the
  * trash, or gone (the name of a deleted place is not known any more). */
 function placeWords(t: ReturnType<typeof useT>, place: { kind: 'room' | 'project'; name?: string } | null, out: GuestPlaceOut | null): string | null {
   if (out === 'gone') return t('guest.admin.outGone')
   if (!place?.name) return null
-  if (out === 'trashed') return t('guest.admin.outTrashed', { place: place.name })
-  if (out === 'left') return t('guest.admin.outLeft', { place: place.name })
-  return t(place.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: place.name })
+  // a very long name is shortened here, so the words after it ("in the trash", "Disabled") are never the part that is cut
+  const name = clipPlaceName(place.name)
+  if (out === 'trashed') return t('guest.admin.outTrashed', { place: name })
+  if (out === 'left') return t('guest.admin.outLeft', { place: name })
+  return t(place.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name })
 }
 
 /** A removed guest who cannot be switched on (409 guest_no_place): why, in plain words, and Make team member (a member
@@ -246,6 +271,7 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
       <div className="space-y-3" data-testid="guest-ai-dialog">
         {/* the dialog's title says "AI for Alex": no second heading over the choices */}
         <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} noGuestAi={noGuestAi} legend={false} />
+        <p className="text-xs leading-5 break-keep text-muted" data-testid="guest-ai-now">{t('guest.admin.aiNow', { name: user.name })}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

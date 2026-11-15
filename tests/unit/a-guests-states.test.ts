@@ -243,6 +243,19 @@ test('a refused send at the limit says when it resets: the same date as the budg
   expect(r.body.error.params.resetsAt).toBe(b.resetsAt)
 })
 
+test("Admin's row says a Team AI guest's monthly limit is used up (QA TC-2206)", async () => {
+  const { owner, room, t } = await setup('a-guests-states-used-up')
+  const team = addCred(t.cc, 'anthropic-api-key', key('usedupteam'), { label: 'team' })
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 1 } })
+  const none = await addGuest(h, owner, { username: 'nia', place: { kind: 'room', id: room } })
+  const row = async (id: string) => ((await owner.call('GET', '/api/admin/users')).items as { id: string; guest?: { aiUsedUp?: true } }[]).find((u) => u.id === id)!.guest
+  expect((await row(g.id))?.aiUsedUp).toBeUndefined()
+  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at, cost_usd) VALUES ('g-use-up', 'c', ?, 'claude-code', 'done', ?, 1)").run(g.id, new Date().toISOString())
+  expect((await row(g.id))?.aiUsedUp).toBe(true)
+  // a guest with no Team AI is never "used up"
+  expect((await row(none.id))?.aiUsedUp).toBeUndefined()
+})
+
 test('the team AI account a Team AI guest uses is deleted: a plain state for the guest and Admin, nothing breaks', async () => {
   const { owner, room, t } = await setup('a-guests-states-ai-gone')
   const team = addCred(t.cc, 'anthropic-api-key', key('goneteam'), { label: 'team' })
