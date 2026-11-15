@@ -172,6 +172,10 @@ describe('part 4: recent, the company\'s, best first', () => {
     expect(companyMatch(doc('Acmetric notes.pdf'), words)).toBeNull()
     expect(companyMatch(doc('Northwind.pdf'), { ...words, names: [] })).toBeNull()
     expect(domainStem('acme.co.kr')).toBe('acme')
+    expect(domainStem('www.app.acme.co.kr')).toBe('acme')
+    expect(domainStem('app.acme.io')).toBe('acme')
+    expect(domainStem('corp.example.com')).toBe('example')
+    expect(domainStem('app.io')).toBe('')
     expect(domainStem('ab.io')).toBe('')
   })
 
@@ -207,6 +211,10 @@ describe('part 4: recent, the company\'s, best first', () => {
     expect(names).not.toContain('Acme old.docx')
     expect(names).not.toContain('Acme payslip.pdf')
     expect(names).not.toContain('random.pdf')
+    // a ticked file stays in view when later picks would push it past 50
+    const last = r.shown.at(-1)!
+    const withPick = workList(docs, words, new Map([['Documents/picked.pdf', 'report'], ['Documents/random.pdf', 'report']]), NOW, new Set([last.key]))
+    expect(withPick.shown.map((d) => d.key)).toContain(last.key)
     // what goes to the AI: recent, never personal, the best by the rules
     const sent = forAiRecent(docs, words, NOW)
     expect(sent.some((d) => d.name === 'Acme old.docx' || d.name === 'Acme payslip.pdf')).toBe(false)

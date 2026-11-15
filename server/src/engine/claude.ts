@@ -1,5 +1,5 @@
 // Claude Code with the locked profile (design tab 2 "엔진 잠금"; owner 2026-10-21: built-in WebSearch allowed).
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -125,15 +125,20 @@ export const MCP_TOOL_TIMEOUT_MS = 1_800_000
 export const launcherLiteral = (s: string) => s.replace(/\{(MCP_CONFIG|SYSTEM_PROMPT_FILE|TURN_DIR|CHAT_DIR|BRIDGE|TOOLS_SOCK)\}/g, '{\u200b$1}')
 
 const effortKnown = new Map<string, boolean>()
-/** Does this Claude Code take `--effort` (its own --help lists it)? Asked once per binary, within 5 s; false when it
- * cannot tell, so an engine without the flag is never handed one (an unknown flag would fail the turn). */
-export function claudeKnowsEffort(bin: string, help: (bin: string) => string = (b) => String(execFileSync(b, ['--help'], { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }))): boolean {
-  let known = effortKnown.get(bin)
-  if (known === undefined) {
-    try { known = /--effort\b/.test(help(bin)) } catch { known = false }
-    effortKnown.set(bin, known)
+const effortAsked = new Set<string>()
+/** `bin --help`, off the event loop, in a bare environment (no server variables, a temp folder), within 5 s. */
+const askHelp = (bin: string) => new Promise<string>((ok, no) => execFile(bin, ['--help'], { timeout: 5000, env: { PATH: '/usr/bin:/bin' }, cwd: os.tmpdir() }, (e, out) => (e ? no(e) : ok(String(out)))))
+/** Does this Claude Code take `--effort` (its own --help lists it)? Known after the first ask, which runs in the
+ * background: until then (and when it could not tell: asked again next time) the answer is false, so an engine without
+ * the flag is never handed one (an unknown flag would fail the turn). Only a real answer is kept. */
+export function claudeKnowsEffort(bin: string, ask: (bin: string) => Promise<string> = askHelp): boolean {
+  const known = effortKnown.get(bin)
+  if (known !== undefined) return known
+  if (!effortAsked.has(bin)) {
+    effortAsked.add(bin)
+    void ask(bin).then((help) => { effortKnown.set(bin, /--effort\b/.test(help)) }, () => { effortAsked.delete(bin) })
   }
-  return known
+  return false
 }
 
 export function buildClaudeLaunch(i: {

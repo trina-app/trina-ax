@@ -208,4 +208,22 @@ describe('the look with the index', () => {
     expect(r.files.find((f) => f.name === 'Old.pdf')!.used).toBeUndefined()
     expect(r.roots[0]!.how).toBe('walk')
   })
+
+  test('Windows Search that knows nothing of a folder with entries (Documents moved to D:\\): that folder is walked', async () => {
+    const { fs } = fakeFs({ Users: dir({ alex: dir({ Documents: dir({ 'a.pdf': file() }), Desktop: dir(), Downloads: dir({ 'b.pdf': file() }) }) }) })
+    const r = await lookRoots(ROOTS, fs, { platform: 'darwin', newId, now: () => NOW, index: async () => [idx('/Users/alex/Downloads/b.pdf')] })
+    expect(r.roots.map((x) => x.how)).toEqual(['walk', 'index', 'index'])
+    expect(r.files.map((x) => x.name).sort()).toEqual(['a.pdf', 'b.pdf'])
+  })
+})
+
+describe('PowerShell', () => {
+  test('quotes, the curly ones too, are doubled; the script goes encoded, never through a command line', async () => {
+    const { psQuote, powershellArgs } = await import('../../desktop/src/common/work-index')
+    expect(psQuote("O'Brien \u2019x\u2018")).toBe("O''Brien \u2019\u2019x\u2018\u2018")
+    const a = powershellArgs("Write-Output 'a'")
+    expect(a.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand'])
+    expect(Buffer.from(a[3]!, 'base64').toString('utf16le')).toBe("Write-Output 'a'")
+    expect(windowsSearchScript(['C:\\Users\\a\\Documents'])).toContain('ORDER BY System.DateModified DESC')
+  })
 })

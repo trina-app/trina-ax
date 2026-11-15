@@ -4,6 +4,7 @@
 // work email domains of the team's people, never a public mail provider), and the team's people's names (a document's
 // author). GET /api/onboarding/files/company. What the person may see anyway (the team's name, the people list); nothing
 // is sent anywhere by it.
+import { PRODUCT } from '@mycel/shared'
 import { getTeamSettings } from '../admin/settings'
 import type { AppContext } from '../context'
 import { readCompanyProfile } from './profile'
@@ -31,7 +32,9 @@ export function companyWords(ctx: AppContext, userId: string): CompanyWords {
   const names = new Set<string>()
   const domains = new Set<string>()
   const add = (n: string | null | undefined) => { const c = n ? companyName(n) : ''; if (c) names.add(c) }
-  add(getTeamSettings(ctx.db).teamName)
+  // the team's name, unless it is still the product's own default (it would match every file named after the app)
+  const team = getTeamSettings(ctx.db).teamName
+  if (team && team !== PRODUCT.displayName) add(team)
   try {
     const p = readCompanyProfile(ctx.files, ctx.files.principal(userId))
     add(p?.name)
@@ -39,11 +42,12 @@ export function companyWords(ctx: AppContext, userId: string): CompanyWords {
       try { domains.add(bareDomain(new URL(/^https?:\/\//i.test(p.website) ? p.website : `https://${p.website}`).hostname)) } catch { /* not an address */ }
     }
   } catch { /* no profile */ }
-  const users = ctx.db.query("SELECT name, email FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 LIMIT 500").all() as { name: string | null; email: string | null }[]
+  // the caller's own name is left out: Office writes it into everything they made, their own CV too
+  const users = ctx.db.query("SELECT id, name, email FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 LIMIT 500").all() as { id: string; name: string | null; email: string | null }[]
   for (const u of users) {
     const d = u.email?.split('@')[1]
     if (d && !PUBLIC_MAIL.test(d)) domains.add(bareDomain(d))
   }
-  const people = users.map((u) => (u.name ?? '').trim()).filter((n) => n.length >= 2).slice(0, 300)
+  const people = users.filter((u) => u.id !== userId).map((u) => (u.name ?? '').trim()).filter((n) => n.length >= 2).slice(0, 300)
   return { names: [...names].slice(0, 5), domains: [...domains].slice(0, 10), people }
 }

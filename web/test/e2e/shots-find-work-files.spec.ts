@@ -11,7 +11,7 @@ test.skip(!dir, 'FIND_WORK_SHOTS is not set')
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const FOUND: Meta[] = [
-  { name: 'Quote template 2026.xlsx', folder: 'Sales' }, { name: 'Brand guide v3.pdf', folder: 'Brand' }, { name: 'Weekly report - Nov 10.docx', root: 'downloads' },
+  { name: 'Acme quote template 2026.xlsx', folder: 'Sales' }, { name: 'Brand guide v3.pdf', folder: 'Acme/Brand' }, { name: 'Weekly report - Nov 10.docx', root: 'downloads' },
   { name: 'Northwind proposal.pptx', folder: 'Clients/Northwind' }, { name: 'Onboarding policy.pdf', folder: 'Team' }, { name: 'Meeting minutes 11-04.docx', root: 'desktop' },
   { name: 'notes.txt', root: 'desktop' }, { name: 'payslip_oct.pdf', root: 'downloads' }, { name: 'Tax Return 2025.pdf' },
 ]

@@ -4908,8 +4908,6 @@ export const es: Record<MessageKey, string> = {
   "files.findWork.match.by": "De {name}",
   "files.findWork.opened": "Abierto {when}",
   "files.findWork.changed": "Cambiado {when}",
-  "files.findWork.picking": "Eligiendo archivos de trabajo",
-  "files.findWork.pickingCount": "{n, plural, one {# archivo reciente} other {# archivos recientes}}, solo por el nombre",
   "files.findWork.chooseYourself": "Elígela tú",
   "files.findWork.emptyWork": "Nada parece claramente de trabajo",
   "files.findWork.searchHint": "Busca por nombre para encontrar cualquiera de {n, plural, one {# archivo revisado} other {los # archivos revisados}}.",

@@ -4952,8 +4952,6 @@ export const id: Record<MessageKey, string> = {
   "files.findWork.match.by": "Oleh {name}",
   "files.findWork.opened": "Dibuka {when}",
   "files.findWork.changed": "Diubah {when}",
-  "files.findWork.picking": "Memilih file kerja",
-  "files.findWork.pickingCount": "{n} file terbaru, hanya dari namanya",
   "files.findWork.chooseYourself": "Pilih sendiri",
   "files.findWork.emptyWork": "Tidak ada yang jelas tampak seperti file kerja",
   "files.findWork.searchHint": "Cari menurut nama untuk menemukan salah satu dari {n} file yang diperiksa.",

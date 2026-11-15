@@ -146,7 +146,7 @@ export class WorkFilesController {
       // Windows: Windows Search with the recent lists; a Mac walks (faster than listing through Spotlight) and asks
       // Spotlight about the newest documents
       index: async () => (process.platform === 'win32' ? (win ??= windowsIndex(roots.map((r) => r.path), downloads)) : null),
-      ...(process.platform === 'darwin' ? { enrich: (paths: string[]) => macHints(paths) } : {}),
+      ...(process.platform === 'darwin' ? { enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until) } : {}),
       newId: () => randomBytes(12).toString('base64url'),
     })
   }
@@ -165,14 +165,19 @@ export class WorkFilesController {
       const L = this.o.locale()
       const r = await dialog.showOpenDialog(win, { defaultPath: root.path, properties: ['openDirectory'], message: t(L, 'workFiles.pickMessage', { folder: t(L, ROOT_KEY[root.id]) }), buttonLabel: t(L, 'workFiles.pickButton') })
       const picked = r.canceled ? null : r.filePaths[0]
-      if (!picked || generation !== this.generation) return { state: 'cancelled' }
+      if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
+      // the folder as it really is (a link in the pick would lead elsewhere): inside the root's real path, never home
       const lib = process.platform === 'win32' ? win32 : posix
-      const rel = lib.relative(root.path, picked)
-      if (rel.startsWith('..') || lib.isAbsolute(rel) || (await opensHome(picked, FOLDER_SYSTEM, process.platform))) return { state: 'cancelled' }
-      const res = await this.look([{ ...root, path: picked }], generation)
+      const reals = await Promise.all([realpath(picked), realpath(root.path)]).catch(() => null)
+      if (!reals) return { state: 'cancelled' }
+      const [realPicked, realRoot] = reals
+      const fold = (x: string) => (process.platform === 'win32' || process.platform === 'darwin' ? lib.normalize(x).toLowerCase() : lib.normalize(x))
+      const rel = lib.relative(fold(realRoot), fold(realPicked))
+      if (rel.startsWith('..') || lib.isAbsolute(rel) || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform))) return { state: 'cancelled' }
+      const res = await this.look([{ ...root, path: realPicked }], generation)
       if (generation !== this.generation || !this.sessions.extend(origin, res.found)) return { state: 'cancelled' }
       // the files are named from the folder the person picked (under its root's name)
-      const prefix = rel ? rel.split(lib.sep).join('/') : ''
+      const prefix = rel ? lib.relative(realRoot, realPicked).split(lib.sep).join('/') : ''
       return { state: 'done', stopped: res.stopped, roots: res.roots, files: res.files.map((f) => ({ ...f, folder: [prefix, f.folder].filter(Boolean).join('/') })) }
     } finally {
       this.busy = false

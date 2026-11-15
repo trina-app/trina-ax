@@ -63,6 +63,8 @@ const NO_WORDS: CompanyWordsLike = { names: [], domains: [], people: [] }
 const RANK_USUAL_MS = 10_000
 /** "3 days ago", "last month" in the person's language */
 function relative(at: number, locale: string): string {
+  // a date ahead of now (a clock off, a file from another zone) reads as now
+  at = Math.min(at, Date.now())
   const days = Math.round((at - Date.now()) / 86_400_000)
   const f = new Intl.RelativeTimeFormat(intlTag(locale as never), { numeric: 'auto' })
   if (Math.abs(days) < 1) return f.format(Math.round((at - Date.now()) / 3_600_000), 'hour')
@@ -74,7 +76,7 @@ function relative(at: number, locale: string): string {
 let scanning: Promise<WorkFileScan> | null = null
 const scanOnce = (b: WorkFilesBridge) => (scanning ??= b.scan().finally(() => { scanning = null }))
 
-type Phase = { s: 'asking' } | { s: 'looking'; root: WorkRootId; checked: number; docs: number; done?: number } | { s: 'ranking'; n: number; at: number } | { s: 'list' } | { s: 'none' } | { s: 'error'; text: string }
+type Phase = { s: 'asking' } | { s: 'looking'; root: WorkRootId; checked: number; docs: number; done?: number } | { s: 'list' } | { s: 'none' } | { s: 'error'; text: string }
 
 export interface FindWorkFilesProps {
   bridge: WorkFilesBridge
@@ -187,7 +189,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
 
   const notes = rootNotes(roots)
   /** Looks like work (docs/DECISIONS.md part 4): recent, and the company's or the AI's pick; the best 50 */
-  const list = useMemo(() => workList(docs, words, picks), [docs, words, picks])
+  // ticked files stay in the list (the AI's late picks never push one out of sight); recomputed with the AI's answer
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const list = useMemo(() => workList(docs, words, picks, Date.now(), ticks), [docs, words, picks])
   const work = list.shown
   const personal = useMemo(() => docs.filter((d) => d.personal && isRecentDoc(d)), [docs])
   /** looked at but in neither group: found by name */
@@ -227,10 +231,10 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     </>
   )
 
-  if (phase.s === 'asking' || phase.s === 'looking' || phase.s === 'ranking') {
-    const title = phase.s === 'asking' ? t('files.findWork.asking') : phase.s === 'looking' ? t('files.findWork.looking', { folder: t(ROOT_WORD[phase.root]) }) : t('files.findWork.picking')
+  if (phase.s === 'asking' || phase.s === 'looking') {
+    const title = phase.s === 'asking' ? t('files.findWork.asking') : t('files.findWork.looking', { folder: t(ROOT_WORD[phase.root]) })
     // the folders' stages as the app measures them (the AI's pick runs while the list already shows)
-    const value = phase.s === 'looking' ? phase.done ?? 0 : phase.s === 'ranking' ? Math.min(0.95, (Date.now() - phase.at) / RANK_USUAL_MS) : 0
+    const value = phase.s === 'looking' ? (phase.done ?? 0) : 0
     return (
       <div className="space-y-4" data-testid="find-work" data-screen={phase.s}>
         <h2 className="flex items-center gap-2 text-display font-semibold text-ink" role="status" data-testid="find-work-title">
@@ -238,11 +242,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         </h2>
         {phase.s !== 'asking' && <ProgressBar value={value} label={title} testId="find-work-progress" />}
         {phase.s === 'looking' && <p className="text-sm text-muted" data-testid="find-work-count">{t('files.findWork.lookingCount', { n: phase.checked, docs: phase.docs })}</p>}
-        {phase.s === 'ranking' && <p className="text-sm text-muted" data-testid="find-work-count">{t('files.findWork.pickingCount', { n: phase.n })}</p>}
         <p className="text-sm text-muted">{phase.s === 'asking' ? t('files.findWork.askingHint', { app: PRODUCT.displayName }) : t('files.findWork.lookingHint')}</p>
         <div className="flex flex-wrap gap-3">
           {phase.s === 'looking' && <Button onClick={() => bridge.stop()} data-testid="find-work-stop">{t('files.findWork.stop')}</Button>}
-          {phase.s === 'ranking' && <Button onClick={() => rankAbort.current?.abort()} data-testid="find-work-stop">{t('files.findWork.stop')}</Button>}
         </div>
       </div>
     )
@@ -265,7 +267,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     try {
       const r = await bridge.pickRoot(id)
       if (!live.current || r.state !== 'done') return
-      const added = docsFromScan(r.files, bridge.read)
+      const all = docsFromScan(r.files, bridge.read)
+      const there = await alreadyIn(all).catch(() => new Set<string>())
+      const added = all.filter((d) => !there.has(d.key))
       setDocs((prev) => { const keys = new Set(prev.map((d) => d.key)); return [...prev, ...added.filter((d) => !keys.has(d.key))] })
       setRoots((prev) => prev.map((x) => (x.id === id ? { ...x, ...(r.roots[0] ?? {}), id } : x)))
       setPhase((x) => (x.s === 'none' ? { s: 'list' } : x))

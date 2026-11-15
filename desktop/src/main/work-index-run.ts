@@ -5,19 +5,25 @@
 // files; the downloads' Zone.Identifier stream says where each came from. Every command has a time limit; a failure is
 // "no index" (null), and the folder is walked instead. Nothing here opens a document.
 import { execFile } from 'node:child_process'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { shell } from 'electron'
-import { mdlsArgs, mergeIndexed, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, windowsSearchScript, type IndexedFile } from '../common/work-index'
+import { mdlsArgs, mergeIndexed, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, powershellArgs, windowsSearchScript, type IndexedFile } from '../common/work-index'
 
+/** A command's output; a non-zero exit with output still answers (mdls exits 1 when one of 200 paths is gone, and the
+ * other 199 count); a time-out or no output at all fails. */
 const run = (cmd: string, args: string[], ms: number) =>
-  new Promise<string>((done, fail) => execFile(cmd, args, { timeout: ms, maxBuffer: 64 << 20, windowsHide: true }, (e, out) => (e ? fail(e) : done(String(out)))))
+  new Promise<string>((done, fail) => execFile(cmd, args, { timeout: ms, maxBuffer: 64 << 20, windowsHide: true }, (e, out) => {
+    const text = String(out ?? '')
+    if (e && ((e as { killed?: boolean }).killed || !text)) fail(e)
+    else done(text)
+  }))
 
 let spotlightOn: boolean | null = null
 /** What Spotlight knows of these files (last opened, how often, where from, authors): mdls, 200 paths a call, four calls
  * at a time; [] when Spotlight is off or does not answer. Listing through mdfind took longer than walking the folders
  * (0.7 s against 0.1 s, measured 2026-11-15), so a Mac walks and asks mdls about the newest documents only. */
-export async function macHints(paths: readonly string[]): Promise<IndexedFile[]> {
+export async function macHints(paths: readonly string[], until: { deadline: number; stopped: () => boolean } = { deadline: Date.now() + 10_000, stopped: () => false }): Promise<IndexedFile[]> {
   if (spotlightOn === null) spotlightOn = await run('/usr/bin/mdutil', ['-s', '/'], 3000).then((o) => /Indexing enabled/i.test(o), () => false)
   if (!spotlightOn || !paths.length) return []
   const batches: string[][] = []
@@ -47,7 +53,7 @@ async function windowsRecent(): Promise<IndexedFile[]> {
     }
   } catch { /* no Recent folder */ }
   try {
-    const mru = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Get-ChildItem 'HKCU:\\Software\\Microsoft\\Office' -Recurse -ErrorAction SilentlyContinue | Where-Object PSChildName -eq 'File MRU' | ForEach-Object { (Get-ItemProperty $_.PSPath).PSObject.Properties | Where-Object Name -like 'Item*' | ForEach-Object { $_.Value } }"], 6000)
+    const mru = await run('powershell.exe', powershellArgs("Get-ChildItem 'HKCU:\\Software\\Microsoft\\Office' -Recurse -ErrorAction SilentlyContinue | Where-Object PSChildName -eq 'File MRU' | ForEach-Object { (Get-ItemProperty $_.PSPath).PSObject.Properties | Where-Object Name -like 'Item*' | ForEach-Object { $_.Value } }"), 6000)
     for (const f of parseOfficeMru(mru)) out.push(base(f.path, f.used))
   } catch { /* no Office */ }
   return out
@@ -58,17 +64,29 @@ async function windowsRecent(): Promise<IndexedFile[]> {
 export async function windowsIndex(roots: readonly string[], downloads: string | null): Promise<IndexedFile[] | null> {
   let indexed: IndexedFile[]
   try {
-    indexed = parseWindowsSearch(await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowsSearchScript(roots)], 10_000))
+    indexed = parseWindowsSearch(await run('powershell.exe', powershellArgs(windowsSearchScript(roots)), 10_000))
   } catch {
     return null
   }
   const all = mergeIndexed([indexed, await windowsRecent()], 'win32')
   if (downloads) {
-    const d = downloads.toLowerCase()
+    // where the downloads came from: their Zone.Identifier stream (4 KB at most), only for files under Downloads
+    // itself (not a Downloads2 beside it), a second each and 5 s in all; the hosts only
+    const d = downloads.toLowerCase().replace(/[\\/]+$/, '') + '\\'
     const here = all.filter((f) => f.path.toLowerCase().startsWith(d)).slice(0, 300)
-    await Promise.all(here.map(async (f) => {
-      try { f.origins = [...new Set([...f.origins, ...parseZoneIdentifier((await readFile(`${f.path}:Zone.Identifier`, 'utf8')).slice(0, 4096))])] } catch { /* no stream */ }
-    }))
+    const until = Date.now() + 5000
+    for (let i = 0; i < here.length && Date.now() < until; i += 16) {
+      await Promise.all(here.slice(i, i + 16).map(async (f) => {
+        try {
+          const h = await open(`${f.path}:Zone.Identifier`, 'r')
+          try {
+            const buf = Buffer.alloc(4096)
+            const { bytesRead } = await Promise.race([h.read(buf, 0, 4096, 0), new Promise<never>((_, no) => setTimeout(() => no(new Error('late')), 1000))])
+            f.origins = [...new Set([...f.origins, ...parseZoneIdentifier(buf.subarray(0, bytesRead).toString('utf8'))])]
+          } finally { await h.close().catch(() => {}) }
+        } catch { /* no stream, or it did not answer */ }
+      }))
+    }
   }
   return all
 }

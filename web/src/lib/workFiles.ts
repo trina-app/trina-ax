@@ -174,8 +174,19 @@ function holds(text: string, word: string): boolean {
   return ws.length > 0 && hasPhrase(latinWords(text), ws)
 }
 
-/** The first label of a domain, as people write it in names ("acme.co.kr" → "acme"); '' when too short to mean much. */
-export const domainStem = (d: string) => { const s = d.toLowerCase().split('.')[0] ?? ''; return s.length >= 3 ? s : '' }
+/** Second-level parts of a country's domain ("co" in acme.co.kr) and labels that are no company's name (app.acme.io). */
+const SECOND_LEVEL = new Set(['co', 'com', 'or', 'ne', 'ac', 'go', 'net', 'org', 'gov', 'edu', 'mil', 'ltd', 'plc', 'biz', 'web', 'id', 'sch', 'my'])
+const NOT_A_NAME = new Set(['www', 'app', 'apps', 'mail', 'corp', 'my', 'en', 'shop', 'portal', 'student', 'students', 'staff', 'web', 'home', 'login', 'm', 'mobile', 'intranet', 'office'])
+/** The company's name in its domain, as people write it in file names: the label before the public suffix
+ * ("www.app.acme.co.kr" → "acme", "acme.io" → "acme"); '' when too short or a common subdomain word. */
+export function domainStem(d: string): string {
+  const labels = d.toLowerCase().split('.').filter(Boolean)
+  if (labels.length < 2) return ''
+  let i = labels.length - 2
+  if (labels.length >= 3 && labels.at(-1)!.length === 2 && SECOND_LEVEL.has(labels.at(-2)!)) i = labels.length - 3
+  const s = labels[i] ?? ''
+  return s.length >= 3 && !NOT_A_NAME.has(s) ? s : ''
+}
 
 /** Why this file is the company's, or null. Names and folders, download hosts, authors and organisation only: no file
  * is read. */
@@ -225,11 +236,14 @@ export function forAiRecent(docs: readonly LocalDoc[], w: CompanyWordsLike, now 
 
 /** "Looks like work": recent, not personal-looking, and the company's or picked by the AI; best first, at most
  * WORK_SHOWN. `more`: how many more would qualify (found by name). */
-export function workList(docs: readonly LocalDoc[], w: CompanyWordsLike, picks: ReadonlyMap<string, unknown> | null, now = Date.now()): { shown: LocalDoc[]; more: number } {
+export function workList(docs: readonly LocalDoc[], w: CompanyWordsLike, picks: ReadonlyMap<string, unknown> | null, now = Date.now(), ticked: ReadonlySet<string> = new Set()): { shown: LocalDoc[]; more: number } {
   const all = docs.filter((d) => !d.personal && isRecentDoc(d, now)).flatMap((d) => {
     const m = companyMatch(d, w)
     const picked = !!picks?.has(d.key)
     return m || picked ? [{ d, s: workScore(d, m, now) * (picked ? 1.5 : 1) }] : []
   }).sort((a, b) => b.s - a.s)
-  return { shown: all.slice(0, WORK_SHOWN).map((x) => x.d), more: Math.max(0, all.length - WORK_SHOWN) }
+  // a ticked file stays in view (the AI's picks coming late never push it out of sight while it is ticked)
+  const top = all.slice(0, WORK_SHOWN)
+  const kept = all.slice(WORK_SHOWN).filter((x) => ticked.has(x.d.key))
+  return { shown: [...top, ...kept].map((x) => x.d), more: Math.max(0, all.length - WORK_SHOWN - kept.length) }
 }

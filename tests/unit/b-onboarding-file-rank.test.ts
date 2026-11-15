@@ -80,6 +80,29 @@ describe('the company\'s words (Find work files, part 4)', () => {
   })
 })
 
+describe('--effort only for an engine that knows it, asked in the background', () => {
+  test('false until the answer, then the answer; a failed ask is asked again', async () => {
+    const { claudeKnowsEffort } = await import('../../server/src/engine/claude')
+    let calls = 0
+    const yes = async () => { calls++; return 'Options:\n  --effort <level>  Effort level' }
+    expect(claudeKnowsEffort('/fake/claude-a', yes)).toBe(false)
+    await Bun.sleep(5)
+    expect(claudeKnowsEffort('/fake/claude-a', yes)).toBe(true)
+    expect(calls).toBe(1)
+    const no = async () => 'Options:\n  --model <m>'
+    claudeKnowsEffort('/fake/claude-b', no)
+    await Bun.sleep(5)
+    expect(claudeKnowsEffort('/fake/claude-b', no)).toBe(false)
+    let tries = 0
+    const fails = async () => { tries++; throw new Error('timed out') }
+    claudeKnowsEffort('/fake/claude-c', fails)
+    await Bun.sleep(5)
+    claudeKnowsEffort('/fake/claude-c', fails)
+    await Bun.sleep(5)
+    expect(tries).toBe(2)
+  })
+})
+
 describe('the smallest model for a pick from names (Find work files, part 4)', () => {
   const confs = (o: Record<string, unknown>) => ({ claude: undefined, codex: undefined, api: undefined, problems: [], codexModels: [], ...o }) as never
   test('Claude Code: haiku, through a gateway only when it names one; Codex: nano, else mini; the API engine: none', () => {
@@ -205,9 +228,13 @@ describe('the rank turn', () => {
     const r = await h.req('alice', '/api/onboarding/files/company')
     expect(r.status).toBe(200)
     const w = await r.json() as { names: string[]; domains: string[]; people: string[] }
-    expect(w.names.length).toBeGreaterThan(0)
+    // the product's own default team name is no company name (it would match every file named after the app)
+    expect(w.names).not.toContain('Trina AX')
     expect(w.domains.some((d) => /gmail|naver|outlook/.test(d))).toBe(false)
     expect(w.people.length).toBeGreaterThan(0)
+    // the caller's own name is not among them (it is in everything they wrote)
+    const me = (h.ctx.db.query("SELECT name FROM users WHERE id = 'alice'").get() as { name: string }).name
+    expect(w.people).not.toContain(me)
   })
 
   test('the own route: members and admins; the body checked like the team one', async () => {

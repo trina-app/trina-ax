@@ -4886,8 +4886,6 @@ export const zh: Record<MessageKey, string> = {
   "files.findWork.match.by": "作者：{name}",
   "files.findWork.opened": "{when}打开过",
   "files.findWork.changed": "{when}修改过",
-  "files.findWork.picking": "正在挑选工作文件",
-  "files.findWork.pickingCount": "仅按名称查看{n, plural, one {#个最近的文件} other {#个最近的文件}}",
   "files.findWork.chooseYourself": "自己选择",
   "files.findWork.emptyWork": "没有明显是工作用的文件",
   "files.findWork.searchHint": "可以按名称查找查看过的{n, plural, one {#个文件} other {#个文件}}。",

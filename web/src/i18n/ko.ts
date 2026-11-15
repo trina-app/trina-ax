@@ -4952,8 +4952,6 @@ export const ko = {
   "files.findWork.match.by": "작성: {name}",
   "files.findWork.opened": "{when} 열어 봄",
   "files.findWork.changed": "{when} 고침",
-  "files.findWork.picking": "업무 파일 고르는 중",
-  "files.findWork.pickingCount": "최근 파일 {n}개를 이름으로만 봐요",
   "files.findWork.chooseYourself": "직접 고르기",
   "files.findWork.emptyWork": "업무 파일로 확실해 보이는 게 없어요",
   "files.findWork.searchHint": "살펴본 파일 {n}개는 이름으로 찾을 수 있어요.",

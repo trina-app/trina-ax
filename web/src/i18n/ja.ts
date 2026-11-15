@@ -4908,8 +4908,6 @@ export const ja: Record<MessageKey, string> = {
   "files.findWork.match.by": "作成：{name}",
   "files.findWork.opened": "{when}に開いた",
   "files.findWork.changed": "{when}に変更",
-  "files.findWork.picking": "仕事のファイルを選んでいます",
-  "files.findWork.pickingCount": "最近のファイル{n, plural, one {#件} other {#件}}を名前だけで確認",
   "files.findWork.chooseYourself": "自分で選ぶ",
   "files.findWork.emptyWork": "仕事のファイルとはっきり言えるものはありません",
   "files.findWork.searchHint": "確認したファイル{n, plural, one {#件} other {#件}}は名前で探せます。",

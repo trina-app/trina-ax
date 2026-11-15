@@ -133,14 +133,19 @@ export function parseZoneIdentifier(text: string): string[] {
 
 // ---------------------------------------------------------------- Windows: Windows Search, Recent, Office
 
-const psQuote = (s: string) => s.replace(/'/g, "''")
+/** A PowerShell single-quoted string's quotes doubled: ASCII ' and the curly ones PowerShell also reads as quotes
+ * (U+2018–U+201B). The script also goes as -EncodedCommand (powershellArgs), never through a command line's quoting. */
+export const psQuote = (s: string) => s.replace(/['\u2018-\u201B]/g, (c) => c + c)
+
+/** powershell.exe's arguments for a script: UTF-16LE base64 (-EncodedCommand), so nothing in it is read by a shell. */
+export const powershellArgs = (script: string) => ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
 
 /** One PowerShell run: Windows Search's SystemIndex for documents changed or opened in the last `days` days under the
  * roots, as one JSON array. ADO through the Search.CollatorDSO provider; nothing is opened. */
 export function windowsSearchScript(roots: readonly string[], days: number = RECENT_DAYS, now = Date.now()): string {
   const since = new Date(now - days * 86_400_000).toISOString().slice(0, 19).replace('T', ' ')
   const scope = roots.map((r) => `SCOPE='file:${psQuote(r.replace(/\\/g, '/'))}'`).join(' OR ')
-  const sql = `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company FROM SystemIndex WHERE (${scope}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}')`
+  const sql = `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company FROM SystemIndex WHERE (${scope}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
   return [
     "$ErrorActionPreference='Stop'",
     "$c=New-Object -ComObject ADODB.Connection",
