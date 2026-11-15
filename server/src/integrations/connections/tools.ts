@@ -350,7 +350,7 @@ function keepAlwaysAllow(ctx: AppContext, row: Row, userId: string) {
     if (row.owner_user_id !== userId) return
     ctx.db.query("UPDATE integrations SET write_policy='allow', version=version+1, updated_at=? WHERE id=? AND version=?").run(now, row.id, row.version)
     if (row.google_app) audit(ctx.db, { actor: userId, action: 'google_app.write_policy', target: row.id, detail: { app: row.google_app, writePolicy: 'allow', via: 'card' } })
-    else audit(ctx.db, { actor: userId, action: 'integration.update', target: row.id, detail: { changed: ['writePolicy'], writePolicy: 'allow', via: 'card' } })
+    else audit(ctx.db, { actor: userId, action: 'integration.update', target: row.id, detail: { scope: row.scope, kind: row.kind, changed: ['writePolicy'], writePolicy: 'allow', via: 'card' } })
     return
   }
   ctx.db.query('INSERT INTO integration_user_allow (integration_id, user_id, url, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(integration_id, user_id) DO UPDATE SET url = excluded.url, created_at = excluded.created_at').run(row.id, userId, row.url, now)

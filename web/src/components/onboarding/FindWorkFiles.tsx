@@ -17,7 +17,7 @@
 import clsx from 'clsx'
 import { FolderSearch, Loader2, Undo2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse } from '@mycel/shared/api'
 import type { WorkFileScan, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
@@ -28,6 +28,7 @@ import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
 import { companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { takeResume } from '../../lib/workFilesResume'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
@@ -144,7 +145,7 @@ export function FindWorkFiles(props: FindWorkFilesProps) {
   }, [later, mode, fd])
   if (!mode) {
     if (later) return <AccessChecking />
-    return <FullDiskAccess bridge={props.bridge} onGo={(w) => { if (!w && uid) setFullDiskLater(uid, true); setMode({ wide: w }) }} phone={props.phone} />
+    return <FullDiskAccess bridge={props.bridge} onGo={(w) => { if (!w && uid) setFullDiskLater(uid, true); setMode({ wide: w }) }} from={props.rank} phone={props.phone} />
   }
   // the list's quiet "Look in more places (Full Disk Access)": the screen again, the "Not now" forgotten
   const morePlaces = fd && !mode.wide ? () => { if (uid) setFullDiskLater(uid, false); setLater(false); setMode(null); setRound((n) => n + 1) } : undefined
@@ -514,6 +515,13 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
     setRun(going && going.view.status === 'running' && made.has(going.run) ? going : null)
     setOpen(true)
   }
+  // back from "Restart <product>" on the Full Disk Access screen (lib/workFiles.ts saveResume): the same dialog again,
+  // on the page it was opened from (My files' line or the welcome card), which goes on by itself once the app has it
+  const location = useLocation()
+  useEffect(() => {
+    if (available && takeResume(me.user.id, 'own', location.pathname + location.search)) start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [available, me.user.id, location.pathname, location.search])
   const add = (docs: LocalDoc[]) => {
     const record: RunMade = { files: [], folders: [] }
     const plan: FolderPlan = { files: docs.map((d) => ({ rel: `${FROM_COMPUTER}/${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }

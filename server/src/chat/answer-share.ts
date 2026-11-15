@@ -209,7 +209,12 @@ export { confirmMac }
 
 /** The provenance core, without what is particular to a room (the linked files, kept sources): who of the audience
  * misses some of what `uses` read, the places as `userId` may be told them, and what a key binds. */
-export interface Provenance { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; roomsUnseen: boolean; keys: string[]; hidden: boolean; candidates: ReadSource[] }
+export interface Provenance { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; roomsUnseen: boolean; keys: string[]; hidden: boolean; candidates: ReadSource[]; counted: CountedSource[] }
+
+/** One place that counts (some of the audience can't open it, and it is not covered by the hash rule): who misses it,
+ * whether the scope has it (not only the answers' own lists), and the files of it the answers read that count (all of
+ * them when the scope has it). The Share dialog's per-answer counts (chat/audience-check.ts) read these. */
+export interface CountedSource { source: ReadSource; key: string; missing: string[]; fromScope: boolean; files: Set<string> }
 
 /**
  * The provenance check of "대화방에 보내기" (B above), for any audience: the room's members but me, or the people of a
@@ -301,16 +306,19 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
     const places = new Map<string, AnswerSharePlace>()
     const keys: string[] = []
     let otherPlaces = false
+    const counted: CountedSource[] = []
     for (const m of missed) {
       const k = sourceKey(m.source)
       const files = fileRows.get(k)
+      const fromScope = candidates.some((c) => sourceKey(c) === k)
       // a file-type source from the answers' own lists: left out when every file of it read is covered by the hash rule
       // (only when it came from those lists alone: the scope's unlisted part of the same place still counts)
-      if (files && !candidates.some((c) => sourceKey(c) === k)) {
-        let all = true
-        for (const f of files.files) if (!(await covered(f.sha256))) { all = false; break }
-        if (all) continue
-      }
+      const uncovered = new Set<string>()
+      if (files && !fromScope) {
+        for (const f of files.files) if (!uncovered.has(f.path) && !(await covered(f.sha256))) uncovered.add(f.path)
+        if (!uncovered.size) continue
+      } else if (files) for (const f of files.files) uncovered.add(f.path)
+      counted.push({ source: m.source, key: k, missing: [...m.missing], fromScope, files: uncovered })
       for (const id of m.missing) missing.add(id)
       keys.push(`${k}=${m.missing.join(',')}`)
       const p = placeOf(m.source)
@@ -327,7 +335,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
     // in it, so a member with old answers hidden from them anywhere, or whose history is not worked out yet, is never
     // shown it either (a confirm would carry it past them)
     if (!hidden && roomsUnseen) hidden = audience.some((id) => hiddenAnywhere(db, id))
-    return { missing, places: [...places.values()], otherPlaces, unknown, roomsUnseen, keys: keys.sort(), hidden, candidates }
+    return { missing, places: [...places.values()], otherPlaces, unknown, roomsUnseen, keys: keys.sort(), hidden, candidates, counted }
   }
 
   return { me, rules, people, reads, myFile, hashNow, placeOf, of }

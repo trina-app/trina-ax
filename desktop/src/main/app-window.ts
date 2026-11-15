@@ -204,6 +204,8 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** the "isn't answering" line (offline.localStart) and the team it names: the line goes when that team leaves the list */
+  private localStart: { team: string; line: string } | null = null
   /** addTeam is waiting for a sleeping trial team to start (WelcomeState.waking) */
   private waking = false
   /** that wait, which Cancel stops (cancelWake, or No on ④) */
@@ -468,6 +470,12 @@ export class AppWindow {
   async removeTeam(id: string): Promise<void> {
     const team = findTeam(this.teams, id)
     if (!team) return
+    // the "isn't answering" line named this team: it goes with it (QA of #990: it stayed after the last team was removed)
+    if (this.localStart?.team === id) {
+      // only while that line is still the one shown (a refused link may have replaced it)
+      if (this.linkError === this.localStart.line) this.linkError = null
+      this.localStart = null
+    }
     if (this.team?.id === id) {
       this.disposeTeam()
       this.team = undefined
@@ -566,9 +574,11 @@ export class AppWindow {
       if (this.startupLocal === this.team.id) {
         const address = hostOf(this.team.origin)
         this.startupLocal = null
+        const line = t(this.o.locale(), 'offline.localStart', { address })
+        this.localStart = { team: this.team.id, line }
         this.disposeTeam()
         this.team = undefined
-        this.linkError = t(this.o.locale(), 'offline.localStart', { address })
+        this.linkError = line
         this.showWelcome()
         return
       }

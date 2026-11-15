@@ -5,14 +5,17 @@
 //   pick, Discard closes;
 // - ✕ on a saved row strikes it out with Undo; Undo puts it back and Save is off again;
 // - a failed save keeps the picks with the error above the button; a refusal says the server's words;
-// - the server's check comes back in place: the lines, "Share anyway", which sends the key back; another pick asks
-//   again; the widening line opens the list with the chat as its target;
+// - one press (QA TC-3092): the preview after every change of the picks while someone is being added (Share off until
+//   it is here), what is at stake in place, the button never changes, Share sends the preview's key; nothing at stake:
+//   no box; answers nobody could check: one grey line; a failed preview: a grey line, and the server's check in place
+//   after the press, then Share again; the widening line opens the list with the chat as its target;
 // - someone else's shared chat: read only, who can change it; a personal project: why, and Move.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import type { ChatAudience, PutChatAudienceResult } from '@mycel/shared/api'
+import type { ChatAudience, PutChatAudienceResult, ShareCheck } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ChatShareDialog } from '../../src/components/chat/ChatShareDialog'
+import { whoNames } from '../../src/components/ShareWarning'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useSession } from '../../src/store/session'
@@ -52,10 +55,15 @@ afterAll(() => {
 })
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
 const AUD = `/api/chats/${C1}/audience`
-const routesWith = (a: ChatAudience, put?: (body: unknown) => Response) => {
+const PREVIEW = `POST ${AUD}/preview`
+const NOTHING: ShareCheck = { added: 1, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
+/** the preview's key: one per list of picks */
+const keyFor = (subjects: { subjectId: string }[]) => 'pk:' + subjects.map((x) => x.subjectId).sort().join(',')
+const routesWith = (a: ChatAudience, put?: (body: unknown) => Response, check: (body: unknown) => ShareCheck = () => NOTHING) => {
   routes = {
     'GET /api/people': () => json(200, PEOPLE),
     [`GET ${AUD}`]: () => json(200, a),
+    [PREVIEW]: (body) => json(200, { check: check(body), previewKey: keyFor((body as { subjects: { subjectId: string }[] }).subjects) }),
     [`PUT ${AUD}`]: put ?? (() => json(200, { status: 'saved', chat: chatOut, audience: a })),
     'POST /api/sharing/widening-answers': () => json(200, { total: 0, totalCapped: false, nextCursor: null, items: [] }),
   }
@@ -71,6 +79,8 @@ async function addBob(m: Mounted) {
   await m.click(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000))
   await m.until(() => m.find('participant-user-bob')?.getAttribute('data-state') === 'new', 'Bob new', 2000)
 }
+/** the preview of these picks is here: Share is on */
+const ready = (m: Mounted) => m.until(() => !m.get('chat-share-save').hasAttribute('disabled'), 'Share on', 3000)
 
 describe('the save model and every exit', () => {
   test('empty: the creator "Started this chat" without ✕, Save off; ✕ closes at once, no ask', async () => {
@@ -115,7 +125,7 @@ describe('the save model and every exit', () => {
     let closed = 0
     const m = await open(() => closed++)
     await addBob(m)
-    expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(false)
+    await ready(m)
     await m.click(closeButton(m))
     await m.until(() => m.find('dialog-confirm'), 'the discard ask', 2000)
     expect(m.get('dialog-cancel').textContent).toBe(en('chat.share.keepEditing'))
@@ -159,6 +169,7 @@ describe('the save model and every exit', () => {
     let closed = 0
     const m = await open(() => closed++)
     await addBob(m)
+    await ready(m)
     await m.click('chat-share-save')
     const err = await m.until(() => m.find('chat-share-error'), 'the error', 2000)
     expect(err.textContent).toBe(en('chat.share.saveFailed'))
@@ -173,55 +184,141 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
-  test('the check in place: lines, Share anyway with the key; another pick asks again; the widening list is the chat\'s', async () => {
-    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: true, hiddenAnswers: 3, confirmKey: 'k1', provenance: { people: 1, places: [{ kind: 'mine' }], otherPlaces: false } }
+  test('one press: what is at stake shows while picking, the button stays Share and sends the preview\'s key; the list is the chat\'s', async () => {
+    const stake: ShareCheck = { ...NOTHING, memoryAnswers: 2, fileAnswers: 3, places: [{ kind: 'mine' }] }
     let closed = 0
-    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'k1' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]) }) : json(200, confirm))
+    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'pk:bob' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]) }) : json(500, {}), () => stake)
     const m = await open(() => closed++)
     await addBob(m)
-    await m.click('chat-share-save')
-    // one warning (the answers, with the place I may open), the memories a quiet line of their own, the note shorter
-    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 2000)
-    expect(warning.textContent).toContain(en('chat.share.warnPlaces', { n: 3, names: 'Bob', places: en('shareRoom.placeMineFiles') }))
-    expect(m.get('chat-share-memories').textContent).toBe(en('chat.shareChat.memories'))
+    // in place, before any press: specific sentences, the note shorter, the button as it was
+    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 3000)
+    expect(warning.textContent).toContain(en('share.warn.memories', { n: 2 }))
+    expect(warning.textContent).toContain(en('share.warn.files', { n: 3, names: 'Bob' }))
+    expect(warning.textContent).toContain(en('share.warn.places', { places: en('shareRoom.placeMineFiles'), names: 'Bob' }))
+    expect(en('share.warn.files', { n: 3, names: 'Mina' })).toBe("3 answers used files Mina can't open.")
+    expect(en('share.warn.memories', { n: 2 })).toBe('2 answers may have used your personal memories.')
     expect(m.get('chat-share-note').textContent).toBe(en('chat.share.noteShort'))
-    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.shareAnyway'))
+    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
+    expect(m.get('chat-share-save').className).not.toMatch(/danger/)
     // the list, about this chat
-    await m.click('chat-share-widen-show')
+    await m.click('chat-share-warning-show')
     await m.until(() => m.find('widening-list'), 'the list', 2000)
     expect((sent.find((x) => x.key === 'POST /api/sharing/widening-answers')!.body as { target: unknown }).target).toEqual({ kind: 'chat', chatId: C1 })
     expect(m.get('widening-list-title').textContent).toBe(en('share.widenList.title', { names: 'Bob' }))
     await m.click('widening-list-back')
     await m.until(() => m.find('chat-share-save'), 'back to the picks', 2000)
-    // another pick: the confirm goes, Share again
-    await m.type('chat-share-picker-search', 'sora')
-    await m.click(await m.until(() => m.find('participant-add-user-sora'), 'Sora to add', 2000))
-    await m.until(() => !m.find('chat-share-warning'), 'the lines gone', 2000)
-    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
-    await m.click('participant-remove-user-sora')
-    await m.click('chat-share-save')
-    await m.until(() => m.get('chat-share-save').textContent === en('chat.share.shareAnyway'), 'asked again', 2000)
+    // one press
     await m.click('chat-share-save')
     await m.until(() => closed === 1, 'shared', 2000)
-    expect((sent.filter((x) => x.key === `PUT ${AUD}`).at(-1)!.body as { confirmKey?: string }).confirmKey).toBe('k1')
+    const puts = sent.filter((x) => x.key === `PUT ${AUD}`)
+    expect(puts.length).toBe(1)
+    expect((puts[0]!.body as { confirmKey?: string }).confirmKey).toBe('pk:bob')
     await m.unmount()
   })
 
-  test('a first share: the files I attached will be visible to them (a quiet line, asked even alone); what could not go is said after', async () => {
-    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: false, hiddenAnswers: 0, earlierFiles: 2, confirmKey: 'k2', provenance: null }
+  test('add two, remove one: asked again after every change, Share off until the answer for these picks, still one press', async () => {
     let closed = 0
-    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'k2' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]), filesNotCopied: 1 }) : json(200, confirm))
+    let release: (() => void) | null = null
+    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === keyFor((body as { subjects: { subjectId: string }[] }).subjects) ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]) }) : json(200, { status: 'confirm', check: NOTHING, confirmKey: 'x', reason: 'changed' }))
+    const preview = routes[PREVIEW]!
+    const m = await open(() => closed++)
+    await addBob(m)
+    // Share is off from the first change, during the wait too
+    expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+    await ready(m)
+    await m.type('chat-share-picker-search', 'sora')
+    await m.click(await m.until(() => m.find('participant-add-user-sora'), 'Sora to add', 2000))
+    expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+    await ready(m)
+    // a removal asks again too: the answer is held, and Share stays off until it comes
+    routes[PREVIEW] = (body) => { const r = preview(body); return new Promise<Response>((res) => { release = () => res(r) }) as unknown as Response }
+    await m.click('participant-remove-user-sora')
+    expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+    await m.until(() => release !== null, 'the preview asked', 3000)
+    expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+    release!()
+    await ready(m)
+    const previews = sent.filter((x) => x.key === PREVIEW).map((x) => keyFor((x.body as { subjects: { subjectId: string }[] }).subjects))
+    expect(previews).toEqual(['pk:bob', 'pk:bob,sora', 'pk:bob'])
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared in one press', 2000)
+    expect(sent.filter((x) => x.key === `PUT ${AUD}`).map((x) => (x.body as { confirmKey?: string }).confirmKey)).toEqual(['pk:bob'])
+    await m.unmount()
+  })
+
+  test('nothing at stake: no box, the full note, one press; only answers nobody could check: one grey line, no box', async () => {
+    let closed = 0
+    let check = NOTHING
+    routesWith(audience(), undefined, () => check)
+    let m = await open(() => closed++)
+    await addBob(m)
+    await ready(m)
+    expect(m.find('chat-share-warning')).toBeNull()
+    expect(m.find('chat-share-grey')).toBeNull()
+    expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
+    await m.unmount()
+    check = { ...NOTHING, unchecked: 4 }
+    m = await open(() => closed++)
+    await addBob(m)
+    await ready(m)
+    expect(m.find('chat-share-warning')).toBeNull()
+    expect(m.get('chat-share-grey').textContent).toBe(en('share.grey.unchecked', { n: 4 }))
+    expect(en('share.grey.unchecked', { n: 4 })).toBe("4 older answers couldn't be checked.")
+    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    await m.unmount()
+  })
+
+  test('the preview failed: a grey line, Share still on; the server answers with the check in place, then Share again', async () => {
+    let closed = 0
+    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'k-check' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]) }) : json(200, { status: 'confirm', check: { ...NOTHING, accountAnswers: 2, roomsUnseen: true }, confirmKey: 'k-check', reason: 'unchecked' } satisfies PutChatAudienceResult))
+    routes[PREVIEW] = () => json(503, { error: { code: 'unavailable', message: 'down' } })
+    const m = await open(() => closed++)
+    await addBob(m)
+    await ready(m)
+    expect(m.get('chat-share-grey').textContent).toBe(en('share.grey.failed'))
+    // never a silent share: the first press gets the check
+    await m.click('chat-share-save')
+    const warning = await m.until(() => m.find('chat-share-warning'), 'the check in place', 2000)
+    expect(warning.textContent).toContain(en('share.warn.accounts', { n: 2 }))
+    expect(warning.textContent).toContain(en('share.warn.rooms', { names: 'Bob' }))
+    expect(m.get('chat-share-changed').textContent).toBe(en('share.again'))
+    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
+    expect(closed).toBe(0)
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    expect(sent.filter((x) => x.key === `PUT ${AUD}`).map((x) => (x.body as { confirmKey?: string }).confirmKey)).toEqual([undefined, 'k-check'])
+    await m.unmount()
+  })
+
+  test('something changed since the preview: the new check in place, said so, Share again', async () => {
+    let closed = 0
+    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'k-new' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]) }) : json(200, { status: 'confirm', check: { ...NOTHING, fileAnswers: 1 }, confirmKey: 'k-new', reason: 'changed' } satisfies PutChatAudienceResult))
+    const m = await open(() => closed++)
+    await addBob(m)
+    await ready(m)
+    await m.click('chat-share-save')
+    await m.until(() => m.find('chat-share-changed'), 'changed', 2000)
+    expect(m.get('chat-share-changed').textContent).toBe(en('chat.shareChat.changed'))
+    expect(m.get('chat-share-warning').textContent).toContain(en('share.warn.files', { n: 1, names: 'Bob' }))
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    await m.unmount()
+  })
+
+  test('a first share: the files I attached will be visible to them (a grey line, no box); what could not go is said after', async () => {
+    let closed = 0
+    routesWith(audience(), () => json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]), filesNotCopied: 1 }), () => ({ ...NOTHING, earlierFiles: 2 }))
     useUi.setState({ toasts: [] })
     const m = await open(() => closed++)
     await addBob(m)
-    await m.click('chat-share-save')
-    const line = await m.until(() => m.find('chat-share-earlier-files'), 'the files line', 2000)
-    expect(line.textContent).toBe(en('chat.share.earlierFiles', { n: 2 }))
+    await ready(m)
+    expect(m.get('chat-share-files').textContent).toBe(en('chat.share.earlierFiles', { n: 2 }))
+    expect(m.find('chat-share-grey')).toBeNull()
     expect(en('chat.share.earlierFiles', { n: 2 })).toBe('2 files you attached will be visible to them.')
-    // no warning about the people, so the note is the whole one
     expect(m.find('chat-share-warning')).toBeNull()
     expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
-    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.shareAnyway'))
     await m.click('chat-share-save')
     await m.until(() => closed === 1, 'shared', 2000)
     expect(useUi.getState().toasts.map((t) => [t.level, t.text])).toContainEqual(['warn', en('chat.share.filesNotCopied', { n: 1 })])
@@ -232,14 +329,72 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
+  test('my earlier files always have a line of their own: beside the unchecked grey line and under a warning (security review)', async () => {
+    let closed = 0
+    routesWith(audience(), undefined, () => ({ ...NOTHING, earlierFiles: 3, unchecked: 2, memoryAnswers: 1 }))
+    const m = await open(() => closed++)
+    await addBob(m)
+    await ready(m)
+    expect(m.get('chat-share-warning').textContent).toContain(en('share.warn.memories', { n: 1 }))
+    expect(m.get('chat-share-grey').textContent).toBe(en('share.grey.unchecked', { n: 2 }))
+    expect(m.get('chat-share-files').textContent).toBe(en('chat.share.earlierFiles', { n: 3 }))
+    // read out too
+    expect(m.get('chat-share-live').textContent).toContain(en('chat.share.earlierFiles', { n: 3 }))
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    await m.unmount()
+  })
+
+  test('one finding per line, "Show answers" after them; names with the language\'s honorific', async () => {
+    routesWith(audience(), undefined, () => ({ ...NOTHING, memoryAnswers: 2, fileAnswers: 1, places: [{ kind: 'mine' }] }))
+    const m = await open()
+    await addBob(m)
+    await ready(m)
+    const items = [...m.get('chat-share-warning-lines').querySelectorAll('li')].map((li) => li.textContent)
+    expect(items).toEqual([en('share.warn.memories', { n: 2 }), en('share.warn.files', { n: 1, names: 'Bob' }), en('share.warn.places', { places: en('shareRoom.placeMineFiles'), names: 'Bob' })])
+    // "Show answers" comes after the lines, inside the box
+    const html = m.html()
+    expect(html.indexOf('data-testid="chat-share-warning-show"')).toBeGreaterThan(html.indexOf('data-testid="chat-share-warning-lines"'))
+    expect(m.get('chat-share-warning').querySelector('[data-testid="chat-share-warning-show"]')).toBeTruthy()
+    // Korean: a person takes 님 ("Bob 님이", "Bob 님은"); a group never does, it reads as its people ("Sales 그룹 사람들이");
+    // no 이(가) / 은(는) left on screen; the project's members read "일부 프로젝트 멤버가"
+    const ko = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('ko', key, vars)
+    const kt = ((key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => ko(key, vars)) as Parameters<typeof whoNames>[0]
+    const bob = whoNames(kt, [{ subjectType: 'user', name: 'Bob' }])
+    const sales = whoNames(kt, [{ subjectType: 'group', name: 'Sales' }])
+    const both = whoNames(kt, [{ subjectType: 'user', name: 'Bob' }, { subjectType: 'group', name: 'Sales' }])
+    expect(bob).toBe('Bob 님')
+    expect(sales).toBe('Sales 그룹 사람들')
+    expect(sales).not.toContain('님')
+    expect(ko('share.warn.files', { n: 1, names: bob })).toBe('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
+    expect(ko('share.warn.places', { places: '내 파일', names: bob })).toBe('이 채팅은 내 파일도 참고했어요. Bob 님은 열 수 없는 곳이에요.')
+    expect(ko('share.warn.files', { n: 1, names: sales })).toBe('답 1개가 Sales 그룹 사람들이 열 수 없는 파일을 참고했어요.')
+    expect(ko('share.warn.places', { places: '내 파일', names: sales })).toBe('이 채팅은 내 파일도 참고했어요. Sales 그룹 사람들은 열 수 없는 곳이에요.')
+    expect(ko('share.warn.rooms', { names: sales })).toBe('이 채팅은 Sales 그룹 사람들이 없을 수도 있는 팀 대화방을 읽었어요.')
+    expect(ko('share.warn.files', { n: 1, names: both })).toBe('답 1개가 Bob 님, Sales 그룹 사람들이 열 수 없는 파일을 참고했어요.')
+    expect(ko('share.widenList.title', { names: sales })).toBe('Sales 그룹 사람들이 보게 될 답')
+    expect(ko('chat.share.widen', { n: 2, names: both })).toContain('Bob 님, Sales 그룹 사람들이 열 수 없는 곳')
+    expect(ko('share.warn.files', { n: 1, names: ko('share.who.project') })).toBe('답 1개가 일부 프로젝트 멤버가 열 수 없는 파일을 참고했어요.')
+    // a name with its own 님 does not get a second one
+    expect(whoNames(kt, [{ subjectType: 'user', name: '김대표님' }])).toBe('김대표님')
+    // names the server sends without saying person or group: no particle to choose
+    expect(ko('share.widenList.whoMisses', { names: 'Sales, Bob' })).toBe('열 수 없는 사람: Sales, Bob')
+    expect(ko('chat.share.sharedWith', { names: 'Sales, Bob' })).toBe('공유 대상: Sales, Bob')
+    // English: names as picked
+    const enT = ((key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => en(key, vars)) as Parameters<typeof whoNames>[0]
+    expect(whoNames(enT, [{ subjectType: 'user', name: 'Bob' }, { subjectType: 'group', name: 'Sales' }])).toBe(en('share.who.person', { name: 'Bob' }) + en('rooms.nameSep') + 'Sales')
+    await m.unmount()
+  })
+
   test('a group picked: whoever joins it later sees it too', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'mia', name: 'Mia', role: 'member' }, groups: [{ id: 'g1', name: 'Sales' }], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
     routesWith(audience())
     const m = await open()
-    expect(m.find('chat-share-future-group')).toBeNull()
+    expect(m.find('chat-share-grey')).toBeNull()
     await m.type('chat-share-picker-search', 'sales')
     await m.click(await m.until(() => m.find('participant-add-group-g1'), 'Sales to add', 2000))
-    expect((await m.until(() => m.find('chat-share-future-group'), 'the line', 2000)).textContent).toBe(en('chat.share.futureGroup'))
+    await ready(m)
+    expect(m.get('chat-share-grey').textContent).toBe(en('chat.share.futureGroup'))
     await m.unmount()
   })
 })
@@ -298,15 +453,13 @@ describe('QA 11-15: kept through a group, the focus, the live line', () => {
   })
 
   test('the check\'s warning is in a polite live region (TC-2271)', async () => {
-    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: false, hiddenAnswers: 0, confirmKey: 'k3', provenance: { people: 1, places: [{ kind: 'mine' }], otherPlaces: false } }
-    routesWith(audience(), () => json(200, confirm))
+    routesWith(audience(), undefined, () => ({ ...NOTHING, places: [{ kind: 'mine' }] }))
     const m = await open()
     const live = m.get('chat-share-live')
     expect(live.getAttribute('aria-live')).toBe('polite')
     expect(live.textContent).toBe('')
     await addBob(m)
-    await m.click('chat-share-save')
-    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 2000)
+    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 3000)
     expect(m.get('chat-share-live').textContent).toBe(warning.textContent)
     await m.unmount()
   })

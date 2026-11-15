@@ -100,6 +100,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'owner.lead_joined': case 'owner.transferred': case 'owner.reauth_locked': return true
     // a member asks to add an app (shown always, Notifications.serviceRequested), and its answer to them
     case 'service.request': case 'service.ready': case 'service.closed': return true
+    // older AI-made files with one of the person's stored keys in them (shown always, connections/file-scan.ts)
+    case 'files.stored_key': return true
     // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
     case 'account.reset_link': return true
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,

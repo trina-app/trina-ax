@@ -21,7 +21,7 @@
 // copyEarlier), which everyone in it sees; later computer uploads go there directly (Chat.shared.canUpload).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ChatAudience, Locale, PutChatAudienceResult } from '@mycel/shared/api'
+import type { ChatAudience, ChatAudiencePreview, Locale, PutChatAudienceResult, ShareCheck } from '@mycel/shared/api'
 import { CHAT_AUDIENCE_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
@@ -36,8 +36,10 @@ import { SHARED_LATER, type ChatRow } from './store'
 import { isInternalChat } from './internal-chats'
 import { isPersonalFolder } from './projects'
 import { chatView, type ChatAccess } from './shared'
-import { chatUse, memoriesInPlay } from './share-chat'
-import { confirmMac, provenanceChecker } from './answer-share'
+import { chatUse } from './share-chat'
+import { confirmMac } from './answer-share'
+import { checkAudience, findingsState, rulesFingerprint, type AudienceFindings } from './audience-check'
+import { createHash } from 'node:crypto'
 import { sourceKey, sourceOf, type ReadSource } from './read-scope'
 import type { ReadGroup } from './shared-answers'
 import { placeWords } from './place-words'
@@ -140,18 +142,61 @@ function changeable(ctx: AppContext, userId: string, a: ChatAccess, locale: Loca
   if (r.side_room_id) no('conflict', 'side_chat', 'chatShareSideChat')
 }
 
+/** The people a list of entries brings in who do not see the chat now (its creator left out), as principals. */
+function gainedBy(ctx: AppContext, chat: ChatRow, add: readonly { subjectType: 'user' | 'group'; subjectId: string }[]): Principal[] {
+  const db = ctx.db
+  const now = new Set(isPeopleRow(chat) ? peopleAudience(db, chat) : [chat.user_id])
+  return resolveSubjects(db, add.map((x) => ({ type: x.subjectType, id: x.subjectId }))).filter((id) => !now.has(id) && id !== chat.user_id)
+    .map((id) => loadPrincipal(db, id)).filter((x): x is Principal => !!x)
+}
+
+/** The checks of the last minute (the preview, the widening list): the same list against the same chat, rules and
+ * people answers from here, so 60 previews a minute never hash big files 60 times. A save never reads it. */
+const CHECK_CACHE_MS = 60_000
+const checksOf = new WeakMap<AppContext, Map<string, { at: number; value: Promise<{ f: AudienceFindings; earlierFiles: number }> }>>()
+
+/** What the people `newPeople` (ids) would see that they could not before, with the answers whose records they miss
+ * (chat/widening.ts), as `viewer` (its creator) may be told it, and the earlier uploads a first share shows them. */
+async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, newPeople: readonly string[], o: { cache?: string } = {}): Promise<{ f: AudienceFindings; earlierFiles: number }> {
+  const compute = async () => {
+    const db = ctx.db
+    const gained = newPeople.map((id) => loadPrincipal(db, id)).filter((x): x is Principal => !!x)
+    const recorded = new Map<string, Set<string>>()
+    const rules = ctx.files.rules()
+    wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, { limit: 0 }, { collect: recorded })
+    const f = await checkAudience(ctx, viewer.id, chat.id, newPeople, { sharedAt: chat.people_shared_at ?? chat.shared_at ?? null, recorded })
+    // a first share also shows them the creator's earlier computer uploads (copied: chat/chat-files.ts)
+    const earlierFiles = isPeopleRow(chat) ? 0 : await chatFilesOf(ctx).earlierUploads(chat.id)
+    return { f, earlierFiles }
+  }
+  if (!o.cache) return compute()
+  const now = Date.now()
+  const cache = checksOf.get(ctx) ?? checksOf.set(ctx, new Map()).get(ctx)!
+  for (const [k, v] of cache) if (now - v.at >= CHECK_CACHE_MS) cache.delete(k)
+  const hit = cache.get(o.cache)
+  if (hit) return hit.value
+  const value = compute()
+  cache.set(o.cache, { at: now, value })
+  if (cache.size > 500) cache.delete(cache.keys().next().value!)
+  value.catch(() => cache.delete(o.cache!))
+  return value
+}
+
+/** The cache key of a check: who asks, the chat's state (its entries, its people, every message), the list, the people
+ * it brings and the folder rules. */
+const checkCacheKey = (ctx: AppContext, userId: string, chatId: string, state: ReturnType<typeof stateOf>, wanted: readonly AudienceSubject[], newPeople: readonly string[]) =>
+  createHash('sha256').update(JSON.stringify([userId, chatId, state, wanted.map(subjectKey).sort(), newPeople, rulesFingerprint(ctx)])).digest('base64url')
+
 /**
  * The widening list of one chat (chat/widening.ts wideningAnswers with the chat target; POST
  * /api/sharing/widening-answers {kind: 'chat'}): the answers of this chat that the people `add` (the Share dialog's whole
- * list) would bring in start seeing although they miss a place one used, as `viewer` (its creator) may see them. The
- * count of the save's confirm (`hiddenAnswers`) is this list's `total`, so the warning and the list agree. No folder rule
+ * list) would bring in start seeing that they could not before (recorded places they miss, their own files, my
+ * memories, my personal accounts: chat/audience-check.ts), as `viewer` (its creator) may see them. No folder rule
  * changes here: the new people are judged by the rules now.
  */
-export function chatWidening(ctx: AppContext, viewer: Principal, chat: ChatRow, add: readonly { subjectType: 'user' | 'group'; subjectId: string }[], page: { before?: number | null; limit: number }, locale: Locale): WideningResult {
+export async function chatWidening(ctx: AppContext, viewer: Principal, chat: ChatRow, add: readonly { subjectType: 'user' | 'group'; subjectId: string }[], page: { before?: number | null; limit: number }, locale: Locale): Promise<WideningResult> {
   const db = ctx.db
-  const now = new Set(isPeopleRow(chat) ? peopleAudience(db, chat) : [chat.user_id])
-  const gained = resolveSubjects(db, add.map((x) => ({ type: x.subjectType, id: x.subjectId }))).filter((id) => !now.has(id) && id !== chat.user_id)
-    .map((id) => loadPrincipal(db, id)).filter((x): x is Principal => !!x)
+  const gained = gainedBy(ctx, chat, add)
   if (!gained.length) return { total: 0, totalCapped: false, items: [], nextRowid: null }
   const subjects: WideningSubject[] = []
   for (const x of add) {
@@ -162,11 +207,81 @@ export function chatWidening(ctx: AppContext, viewer: Principal, chat: ChatRow, 
       : (db.query('SELECT name FROM groups WHERE id = ?').get(x.subjectId) as { name: string } | null)?.name
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
+  const ids = gained.map((g) => g.id).sort()
+  const wanted = add.map((x) => ({ type: x.subjectType, id: x.subjectId }))
+  const { f } = await findingsFor(ctx, viewer, chat, ids, { cache: checkCacheKey(ctx, viewer.id, chat.id, stateOf(ctx, chat), wanted, ids) })
   const rules = ctx.files.rules()
   const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale), chat: tr('scopeChatFiles', locale) }
   // places in the Files screen's words, as the read card says them
   const place = (path: string) => placeWords(db, path, locale, viewer.id)
-  return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place })
+  return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place, extra: f.perAnswer })
+}
+
+/** The dialog's counts of a check. */
+const checkOf = (added: number, f: AudienceFindings, earlierFiles: number): ShareCheck => ({
+  added, memoryAnswers: f.memoryAnswers.length, fileAnswers: f.fileAnswers.length, accountAnswers: f.accountAnswers.length,
+  places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked.length, ...(earlierFiles ? { earlierFiles } : {}),
+})
+/** The key a save of `wanted` must carry: over the list, the people it brings, every answer id each warning is about
+ * (not counts), the places, the earlier uploads and every message of every branch. */
+const keyOf = (ctx: AppContext, userId: string, chatId: string, wanted: readonly AudienceSubject[], f: AudienceFindings, earlierFiles: number, messages: readonly string[]) =>
+  confirmMac(ctx, { kind: 'chat.audience', v: 2, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(f), earlierFiles, messages })
+
+/** The list as asked, without repeats or me (the creator is always in it, never an entry); at most CHAT_AUDIENCE_MAX. */
+function wantedOf(subjects: readonly { subjectType: 'user' | 'group'; subjectId: string }[], userId: string, locale: Locale): { wanted: AudienceSubject[]; seen: Set<string> } {
+  const seen = new Set<string>()
+  const wanted: AudienceSubject[] = []
+  for (const s of subjects) {
+    const x: AudienceSubject = { type: s.subjectType, id: s.subjectId }
+    if (x.type === 'user' && x.id === userId) continue
+    if (seen.has(subjectKey(x))) continue
+    seen.add(subjectKey(x))
+    wanted.push(x)
+  }
+  if (wanted.length > CHAT_AUDIENCE_MAX) fail('validation', tr('chatShareAudienceFull', locale), { params: { reason: 'audience_full' } })
+  return { wanted, seen }
+}
+
+/** What a list would change against the chat as it is now, with the refusals of an add (safe operations, a turn running
+ * or queued, an entry the creator may not add). */
+function planOf(ctx: AppContext, rt: ChatRuntime, userId: string, me: Principal, a: ChatAccess, wanted: readonly AudienceSubject[], seen: ReadonlySet<string>, locale: Locale) {
+  const db = ctx.db
+  const r = rt.store.chatRow(a.row.id) ?? fail('not_found')
+  changeable(ctx, userId, { ...a, row: r }, locale)
+  const before = stateOf(ctx, r)
+  const existing = new Set(before.subjects)
+  const added = wanted.filter((s) => !existing.has(subjectKey(s)))
+  const removed = subjectsOf(db, r.id).filter((s) => !seen.has(subjectKey(s)))
+  if (added.length) {
+    // while 1A is on every conversation is confidential, and a shared chat never is: no new people (removals go on)
+    if (safeOpsEnabled() || confidentialChat(db, r.id)) fail('conflict', tr('chatShareSafeOps', locale), { params: { reason: 'safe_ops' } })
+    // nothing may start or run while new people come in (a turn of the private chat would run without the read card)
+    if (rt.activeTurn(r.id) || db.query("SELECT 1 FROM turns WHERE chat_id = ? AND status IN ('queued','running')").get(r.id)) fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
+    // only the newly added entries are checked: an existing row of a group the creator left since stays valid
+    checkNewSubjects(ctx, me, added, locale)
+  }
+  const after = [...existing].filter((k) => !removed.some((s) => subjectKey(s) === k)).map((k) => { const i = k.indexOf(':'); return { type: k.slice(0, i) as AudienceSubject['type'], id: k.slice(i + 1) } }).concat(added)
+  const nowPeople = new Set(before.shared ? before.people : [userId])
+  const afterPeople = new Set([userId, ...resolveSubjects(db, after)])
+  const newPeople = [...afterPeople].filter((id) => !nowPeople.has(id)).sort()
+  const lost = [...nowPeople].filter((id) => !afterPeople.has(id) && id !== userId)
+  return { r, before, added, removed, after, nowPeople, afterPeople, newPeople, lost }
+}
+
+/** POST /api/chats/:id/audience/preview: the save's check without saving (the Share dialog, while picking). The same
+ * refusals as a save; a 60-second cache per chat state, list, people and rules. `a`: the chat as chatFor found it. */
+export async function previewChatAudience(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }, locale: Locale): Promise<ChatAudiencePreview> {
+  changeable(ctx, userId, a, locale)
+  const { wanted, seen } = wantedOf(body.subjects, userId, locale)
+  const me = loadPrincipal(ctx.db, userId)
+  if (!me) return fail('forbidden')
+  const plan = planOf(ctx, rt, userId, me, a, wanted, seen, locale)
+  const empty: ShareCheck = { added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
+  if (!plan.newPeople.length) return { check: empty, previewKey: '' }
+  const { f, earlierFiles } = await findingsFor(ctx, me, plan.r, plan.newPeople, { cache: checkCacheKey(ctx, userId, plan.r.id, plan.before, wanted, plan.newPeople) })
+  // someone new would see a room it read but for old answers hidden from them: never shown, as a save says
+  if (f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
+  return { check: checkOf(plan.newPeople.length, f, earlierFiles), previewKey: keyOf(ctx, userId, plan.r.id, wanted, f, earlierFiles, plan.before.messages) }
 }
 
 /** What a save is made against, read synchronously: the chat's entries, the people who see it now and every message of
@@ -189,72 +304,33 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
   // from the room-send budget first (429): the check is no free probe of who may read what
   roomsOf(ctx).takeSendToken(userId)
   changeable(ctx, userId, a, locale)
-  // the list as asked, without repeats; the creator is always in it (never an entry)
-  const seen = new Set<string>()
-  const wanted: AudienceSubject[] = []
-  for (const s of body.subjects) {
-    const x: AudienceSubject = { type: s.subjectType, id: s.subjectId }
-    if (x.type === 'user' && x.id === userId) continue
-    if (seen.has(subjectKey(x))) continue
-    seen.add(subjectKey(x))
-    wanted.push(x)
-  }
-  if (wanted.length > CHAT_AUDIENCE_MAX) fail('validation', tr('chatShareAudienceFull', locale), { params: { reason: 'audience_full' } })
+  const { wanted, seen } = wantedOf(body.subjects, userId, locale)
   const me = loadPrincipal(db, userId)
   if (!me) return fail('forbidden')
 
   for (let round = 0; round < 3; round++) {
-    const r = rt.store.chatRow(a.row.id) ?? fail('not_found')
-    changeable(ctx, userId, { ...a, row: r }, locale)
-    const before = stateOf(ctx, r)
-    const existing = new Set(before.subjects)
-    const added = wanted.filter((s) => !existing.has(subjectKey(s)))
-    const removed = subjectsOf(db, r.id).filter((s) => !seen.has(subjectKey(s)))
+    const { r, before, added, removed, after, nowPeople, afterPeople, newPeople, lost } = planOf(ctx, rt, userId, me, a, wanted, seen, locale)
     if (!added.length && !removed.length) {
       // nothing to change; a private chat with nobody picked asks for someone first
       if (!before.shared) fail('validation', tr('chatShareNeedsPeople', locale), { params: { reason: 'needs_people' } })
       return { status: 'saved', chat: chatView(rt, userId, r), audience: chatAudienceView(ctx, rt, userId, { ...a, row: r }) }
     }
-    if (added.length) {
-      // while 1A is on every conversation is confidential, and a shared chat never is: no new people (removals go on)
-      if (safeOpsEnabled() || confidentialChat(db, r.id)) fail('conflict', tr('chatShareSafeOps', locale), { params: { reason: 'safe_ops' } })
-      // nothing may start or run while new people come in (a turn of the private chat would run without the read card)
-      if (rt.activeTurn(r.id) || db.query("SELECT 1 FROM turns WHERE chat_id = ? AND status IN ('queued','running')").get(r.id)) fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
-      // only the newly added entries are checked: an existing row of a group the creator left since stays valid
-      checkNewSubjects(ctx, me, added, locale)
-    }
-    const after = [...existing].filter((k) => !removed.some((s) => subjectKey(s) === k)).map((k) => { const i = k.indexOf(':'); return { type: k.slice(0, i) as AudienceSubject['type'], id: k.slice(i + 1) } }).concat(added)
-    const nowPeople = new Set(before.shared ? before.people : [userId])
-    const afterPeople = new Set([userId, ...resolveSubjects(db, after)])
-    const newPeople = [...afterPeople].filter((id) => !nowPeople.has(id)).sort()
-    const lost = [...nowPeople].filter((id) => !afterPeople.has(id) && id !== userId)
 
-    // the check, for the people who would start to see it (nothing to check for removals or a group nobody new is in)
+    // the check, for the people who would start to see it (nothing to check for removals or a group nobody new is in).
+    // A save that brings anyone in carries the key of what they would see now (the preview's, or a confirm's): without
+    // it, or with another state's, nothing is saved and the answer is the check (docs/DECISIONS.md "Share in one press")
     let confirm: PutChatAudienceResult | null = null
-    let checked: { use: ReturnType<typeof chatUse>; memories: boolean; people: number; unknown: boolean } | null = null
+    let checked: AudienceFindings | null = null
     if (newPeople.length) {
-      const use = chatUse(db, r.id)
-      const prov = await provenanceChecker(ctx, userId, newPeople, use.answers).of([use], new Set())
-      const memories = memoriesInPlay(db, r.id, userId)
-      // a first share also shows the creator's earlier computer uploads to them (copied: chat/chat-files.ts)
-      const earlierFiles = before.shared ? 0 : await chatFilesOf(ctx).earlierUploads(r.id)
-      const hiddenAnswers = chatWidening(ctx, me, r, wanted.map((s) => ({ subjectType: s.type, subjectId: s.id })), { limit: 0 }, locale).total
+      const { f, earlierFiles } = await findingsFor(ctx, me, r, newPeople)
       // (from here on nothing waits: the state read now is the one saved)
       const now = stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found'))
       if (!same(now, before)) continue
       // someone new would see a room it read but for old answers hidden from them: never shown, confirmed or not
-      if (prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-      const key = confirmMac(ctx, { kind: 'chat.audience', v: 1, userId, chatId: r.id, subjects: wanted.map(subjectKey).sort(), newPeople, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, hiddenAnswers, earlierFiles, messages: before.messages })
-      const people = prov.unknown ? newPeople.length : prov.missing.size
-      const applies = people > 0 || memories || hiddenAnswers > 0 || earlierFiles > 0
-      if ((applies || body.confirmKey !== undefined) && body.confirmKey !== key) {
-        confirm = {
-          status: 'confirm', added: newPeople.length, memories, hiddenAnswers, confirmKey: key, ...(earlierFiles ? { earlierFiles } : {}),
-          provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
-          ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
-        }
-      }
-      checked = { use, memories, people, unknown: prov.unknown }
+      if (f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
+      const key = keyOf(ctx, userId, r.id, wanted, f, earlierFiles, before.messages)
+      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(newPeople.length, f, earlierFiles), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
+      checked = f
     }
     if (confirm) return confirm
 
@@ -277,10 +353,13 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         const rules = ctx.files.rules()
         const places = new Map<string, ReadSource>()
         for (const s of [...use.other, ...use.files.map((f) => sourceOf(db, rules, f.path))]) places.set(sourceKey(s), s)
-        const group: ReadGroup = { c: [...afterPeople].sort(), s: [...places.values()], ...(!use.known || use.roomsUnseen || checked?.memories ? { x: 1 as const } : {}) }
+        // not all known (older answers the scope does not describe, dev environment commands, rooms it does not name, my
+        // memories or personal accounts): someone who sees it later and is not in this group misses it
+        const notAll = checked ? checked.unchecked.length > 0 || checked.accountAnswers.length > 0 || checked.roomsUnseen || checked.memoryAnswers.length > 0 : !use.known || use.roomsUnseen
+        const group: ReadGroup = { c: [...afterPeople].sort(), s: [...places.values()], ...(notAll ? { x: 1 as const } : {}) }
         const add = db.query('INSERT OR IGNORE INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)')
         for (const id of use.answers) add.run(id, r.id, JSON.stringify([group]))
-        audit(db, { actor: userId, action: 'chat.share', target: r.id, detail: { kind: 'people', audience: newPeople.length, people: checked?.people ?? 0, unknown: checked?.unknown ?? false, memories: checked?.memories ?? false, confirmed: body.confirmKey !== undefined } })
+        audit(db, { actor: userId, action: 'chat.share', target: r.id, detail: { kind: 'people', audience: newPeople.length, answers: checked ? new Set([...checked.fileAnswers, ...checked.memoryAnswers, ...checked.accountAnswers]).size : 0, unchecked: checked?.unchecked.length ?? 0, memories: (checked?.memoryAnswers.length ?? 0) > 0, confirmed: body.confirmKey !== undefined } })
       }
       const ins = db.query('INSERT OR IGNORE INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)')
       for (const s of added) ins.run(r.id, s.type, s.id, userId, at)

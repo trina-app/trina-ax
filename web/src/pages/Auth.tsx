@@ -5,12 +5,12 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
+import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { removedFrom, useMe, useSession } from '../store/session'
+import { removedFrom, removedHow, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind, desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
@@ -350,7 +350,9 @@ export function Login() {
   const reason = status.kind === 'signed-out' ? status.reason : undefined
   // a removed guest (store/session.ts): now, or on a later visit from this browser. (A removed member's 'removed' has no
   // team: the browser's guest memory is cleared at every sign-in, so it is never an earlier guest's; their line is below)
-  const removedTeam = reason === 'removed' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
+  const removedTeam = reason === 'removed' || reason === 'left' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
+  // a guest who left their place themselves is told they left, not that they are "no longer in" it (guest walkthrough S5)
+  const left = !!removedTeam && (reason === 'left' || (!reason && removedHow() === 'left'))
   // otherwise the line for why this page opened; a removed member gets "no longer a member" (TC-1974)
   const line = signedOutLine(reason)
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
@@ -376,7 +378,7 @@ export function Login() {
     )
   }
   return (
-    <AuthFrame title={removedTeam ? t('auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed">{t('auth.guestRemoved')}</span> : line ? t(line) : undefined}>
+    <AuthFrame title={removedTeam ? t(left ? 'auth.guestLeftTitle' : 'auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed" data-left={left || undefined}>{t(left ? 'auth.guestLeft' : 'auth.guestRemoved')}</span> : line ? t(line) : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
@@ -642,13 +644,21 @@ function JoinChoices({ path, children, lean = false }: { path: string; children:
   }
   // the store this button opens: the App Store, Google Play, or (a build without a Play listing) the download page
   const goLabel = t(!onAndroid ? 'auth.goAppStore' : APP_DOWNLOADS.android && store === APP_DOWNLOADS.android ? 'auth.goGooglePlay' : 'auth.goDownloadPage')
+  // a guest (`lean`) is from outside the team and usually joins once, for one room or project: the browser is the main
+  // way, the app a plain link under it (guest walkthrough S9)
+  const browserButton = (
+    <button type="button" className={lean ? PRIMARY_LINK_CLS : 'text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center'} onClick={() => setWeb(true)} data-testid="get-app-web">
+      {t('auth.continueInBrowser')}
+    </button>
+  )
   return (
-    <div data-testid="get-app">
+    <div data-testid="get-app" data-guest={lean || undefined}>
+      {lean && browserButton}
       <a
         href={store}
         rel="noreferrer noopener"
         onClick={tap}
-        className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent max-md:min-h-11 px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
+        className={lean ? 'mt-4 flex justify-center text-center text-sm text-accent-text underline max-md:min-h-11 max-md:items-center' : PRIMARY_LINK_CLS}
         data-testid="get-app-store"
       >
         {t('auth.getApp')}
@@ -676,15 +686,14 @@ function JoinChoices({ path, children, lean = false }: { path: string; children:
       )}
       <p className="mt-2 text-center text-sm text-muted" data-testid="get-app-hint">{t('auth.getAppHint')}</p>
       <OpenInApp path={path} />
-      <p className="mt-4 text-center text-sm">
-        <button type="button" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={() => setWeb(true)} data-testid="get-app-web">
-          {t('auth.continueInBrowser')}
-        </button>
-      </p>
+      {!lean && <p className="mt-4 text-center text-sm">{browserButton}</p>}
       {!lean && <HaveAccount />}
     </div>
   )
 }
+
+/** The join page's one main action on a phone (the app's store link, or for a guest Continue in the browser). */
+const PRIMARY_LINK_CLS = 'flex min-h-10 w-full items-center justify-center rounded-lg bg-accent max-md:min-h-11 px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover'
 
 /** Both join pages' title: "{inviter} invited you to {team}" when the link's or invite's maker is known (docs/DECISIONS.md
  * "A welcome for invited people"), else "Join {team}". */
@@ -747,6 +756,7 @@ const DEAD_REASONS: readonly DeadReason[] = ['expired', 'used', 'revoked', 'invi
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
+  const setLocale = useLocaleStore((s) => s.setLocale)
   const { token } = useParams()
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
@@ -759,7 +769,20 @@ export function AcceptInvite() {
     let live = true
     setLoadFailed(null)
     api.call(API.inviteInfo, { params: { token: token! } }).then(
-      (i) => live && setInfo(i),
+      (i) => {
+        if (!live) return
+        // a guest is from outside the team: the page speaks their browser's language (one of ours) unless they picked one
+        // here, not the team's (guest walkthrough S10); the switcher under the card still changes it
+        if (i.role === 'guest' && !storedLocale()) {
+          const l = browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
+          // its words first, so the page does not show in the team's language for a moment
+          if (l && l !== useLocaleStore.getState().locale) {
+            void loadLocale(l).catch(() => {}).finally(() => { if (live) { setLocale(l); setInfo(i) } })
+            return
+          }
+        }
+        setInfo(i)
+      },
       (e) => {
         if (!live) return
         // the server's own "no such invite" / "used or expired"; a 404 page without its answer (a relay or proxy in
@@ -775,7 +798,9 @@ export function AcceptInvite() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       try {
-        const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
+        // a guest's account keeps the language the page was read in (their browser's, or the one picked here)
+        const guestPage = info && info !== 'missing' && info.role === 'guest'
+        const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? (guestPage ? locale : undefined), client: clientKind(), tokenMode: 'cookie' } })
         signedIn(r.me)
         // a guest opens straight into their one place (components/GuestView.tsx)
         navigate(guestPlacePath(r.me) ?? '/', { replace: true })
@@ -784,6 +809,8 @@ export function AcceptInvite() {
         // trash; QA TC-2226): the page says why, as when it is opened, instead of an error under the form
         const reason = isApiError(e, 'gone') ? e.body.params?.reason : undefined
         if (typeof reason === 'string' && info && info !== 'missing' && (DEAD_REASONS as readonly string[]).includes(reason)) { setInfo({ ...info, valid: false, reason: reason as DeadReason }); return }
+        // the team's guests filled up while the form was filled in: the page says so, as when it is opened (M3)
+        if (isApiError(e, 'plan_limit') && e.body.params?.reason === GUEST_LIMIT && info && info !== 'missing') { setInfo({ ...info, full: true }); return }
         throw e
       }
     })
@@ -807,6 +834,14 @@ export function AcceptInvite() {
   // a guest invite (docs/DECISIONS.md "Guests: only what they were invited to"): where exactly they will be, in place of
   // the role and the date; the form is the members' one. Guests take no seat: `full` never stops one
   const guest = inviteGuest(info)
+  // the team's guests are all there (guest walkthrough M3): who invited them, and only that it can't take more guests
+  // now, with what to do; no form that would only be refused after it was filled in
+  if (info.full && guest)
+    return (
+      <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)}>
+        <p role="status" className="text-sm leading-6 break-keep text-ink" data-testid="invite-guest-full">{t('invite.guestFull')}</p>
+      </AuthFrame>
+    )
   // every seat of the plan is taken: no form that would only be refused after it was filled in (as the team link)
   if (info.full && !guest)
     return (

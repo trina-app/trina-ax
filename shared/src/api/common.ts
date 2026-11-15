@@ -67,13 +67,27 @@ export type GuestAi = z.infer<typeof GuestAi>
 /** A guest's one place (owner, 2026-11-14): one group chat (`room`) or one project, never several. */
 export const GuestPlace = z.object({ kind: z.enum(['room', 'project']), id: z.string().min(1).max(64) })
 export type GuestPlace = z.infer<typeof GuestPlace>
-/** The AI choice a guest invite carries: `team` needs a team connection and a usage limit (USD a month, a 'block'
- * budget of the guest's own); `own` = the guest's own Claude/Codex sign-in; `none` (default) = no AI. */
+/** The most a guest's monthly token limit can be (10억 tokens): far above any preset, below anything that overflows. */
+export const GUEST_TOKENS_MAX = 1_000_000_000
+/** The AI choice a guest invite carries: `team` needs a team connection and a usage limit (a 'block' budget of the
+ * guest's own, a month long); `own` = the guest's own Claude/Codex sign-in; `none` (default) = no AI. The limit is in
+ * tokens (`limitTokens`, owner 2026-11-15: tokens count with every connection, US dollars only with API keys). A guest
+ * given Team AI before then keeps their US dollar limit (`limitUsd`, read and enforced as it is) until an admin changes
+ * it: there is no safe rule from dollars to tokens (docs/DECISIONS.md "Guest Team AI: a token limit"). Exactly one of
+ * the two is there. What is sent to the server: GuestAiChoiceBody (tokens only). */
 export const GuestAiChoice = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('none') }),
   z.object({ mode: z.literal('own') }),
-  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitUsd: z.number().positive().max(100_000) }),
+  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitTokens: z.number().int().positive().max(GUEST_TOKENS_MAX).optional(), limitUsd: z.number().positive().max(100_000).optional() }),
 ])
+/** The AI choice as an invite or Admin › Change AI sends it: Team AI always with a monthly token limit. */
+export const GuestAiChoiceBody = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('none') }),
+  z.object({ mode: z.literal('own') }),
+  // strict: a body still in US dollars (limitUsd) is refused, not read as tokens with the dollars dropped
+  z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitTokens: z.number().int().positive().max(GUEST_TOKENS_MAX) }).strict(),
+])
+export type GuestAiChoiceBody = z.infer<typeof GuestAiChoiceBody>
 export type GuestAiChoice = z.infer<typeof GuestAiChoice>
 /** A guest's place with its name, as screens show it (Me.guest, User.guest). */
 export const GuestPlaceNamed = GuestPlace.extend({ name: z.string() })
@@ -89,6 +103,9 @@ export const GuestDetail = z.object({
   teamAiGone: z.literal(true).optional(),
   /** Team AI with this month's limit used up (Admin's row says so; the guest's own screens say it on a send) */
   aiUsedUp: z.literal(true).optional(),
+  /** Team AI: what this month's limit has used so far (the turns of the guest since the 1st in the team's time zone,
+   * as the limit counts them) and when it starts over. Left = the limit minus used */
+  aiUse: z.object({ usedTokens: z.number().nonnegative(), usedUsd: z.number().nonnegative(), resetsAt: z.string() }).optional(),
 })
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>

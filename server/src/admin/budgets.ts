@@ -5,7 +5,7 @@
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
-import { limitResetText } from '@mycel/shared'
+import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
@@ -112,7 +112,7 @@ export function periodEnd(period: Budget['period'], now: Date, tz: string): Date
  * A used-up "block" budget that applies to this person, as an error to answer the send with (tab 5 "사용 한도 도달":
  * the person's own limit is checked before sending, not by queueing). null when they may start a turn.
  */
-export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string } | null {
+export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string; params: { resetsAt: string; own?: true } } | null {
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)
@@ -136,7 +136,37 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   }[locale]
   // resetsAt: when the limit starts again (the start of the next period in the team's time zone), for screens that
   // word it themselves (a guest's "It resets on Dec 1": web components/chat/Messages.tsx)
-  return { budget: hit.budget, message, resetsAt: end.toISOString() }
+  // params: what a refused send carries; `own` when it is the person's own limit (a guest's notice then names its amount,
+  // never a team or group limit's)
+  return { budget: hit.budget, message, resetsAt: end.toISOString(), params: { resetsAt: end.toISOString(), ...(hit.budget.subjectType === 'user' ? { own: true as const } : {}) } }
+}
+
+/**
+ * Tokens one answer takes on average in this team (input + output, as a budget counts them): the turns of the last
+ * ANSWER_AVERAGE_DAYS days that used any. With fewer than MIN_ANSWERS_FOR_AVERAGE of them, DEFAULT_TOKENS_PER_ANSWER
+ * (shared/src/guest-tokens.ts). The mean, not the median: tokens of the limit / the mean = how many answers fit.
+ * Finished answers only: a running or failed one has not used all its tokens and would make answers look smaller.
+ */
+export function answerTokens(db: Database, now = new Date()): { tokens: number; from: 'team' | 'default' } {
+  const since = new Date(now.getTime() - ANSWER_AVERAGE_DAYS * 86_400_000).toISOString()
+  const r = db.query("SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens FROM turns WHERE started_at >= ? AND status = 'done' AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0").get(since) as { n: number; tokens: number }
+  if (r.n < MIN_ANSWERS_FOR_AVERAGE) return { tokens: DEFAULT_TOKENS_PER_ANSWER, from: 'default' }
+  return { tokens: Math.max(1, Math.round(r.tokens / r.n)), from: 'team' }
+}
+const answerTokensCache = new WeakMap<Database, { at: number; v: { tokens: number; from: 'team' | 'default' } }>()
+/** answerTokens, read again at most every 10 minutes: the invite and Change AI dialogs ask on every open, and the 90
+ * days of turns have no index by time. */
+export function answerTokensCached(db: Database, now = new Date()): { tokens: number; from: 'team' | 'default' } {
+  const hit = answerTokensCache.get(db)
+  if (hit && Math.abs(now.getTime() - hit.at) < 600_000) return hit.v
+  const v = answerTokens(db, now)
+  answerTokensCache.set(db, { at: now.getTime(), v })
+  return v
+}
+
+/** A guest's Team AI limit: their own 'block' budget for the month, in tokens (no money limit: limit_usd 0). */
+export function insertGuestBudget(db: Database, userId: string, limitTokens: number): void {
+  db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', 0, ?, 'block')").run(newId(), userId, limitTokens)
 }
 
 // ---------------- usage ----------------
