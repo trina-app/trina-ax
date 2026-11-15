@@ -94,14 +94,14 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   // one primary naming what goes in; 나중에 하기 beside it; only the skills Trina prepared, no own skills
   const primary = page.getByTestId('skills-primary')
   await expect(primary).toHaveAttribute('data-state', 'put')
-  await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
+  await expect(primary).toHaveText('스킬 3개 넣기')
   await expect(page.getByTestId('skills-later')).toBeVisible()
   await noOwnPart(page)
   // a check moves the words: 자연스러운 글 too → four items, counted
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').check()
   await expect(primary).toHaveText('팀에 넣기 · 4개')
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').uncheck()
-  await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
+  await expect(primary).toHaveText('스킬 3개 넣기')
 
   // 예시: that row's example, one per open (the picture the skill made on the invented 예시커피; no stepping to the next
   // row), Esc closes and the focus goes back to that row's 예시
@@ -228,7 +228,7 @@ test('내 스킬, a name already taken: that one stays out with why, the others 
   // after the rows showed, another team skill takes the name 카드뉴스 uses
   await post(page, '/__test/file', { path: 'skills/mine/card-news/SKILL.md', text: '---\nname: card-news\ndescription: 우리 팀 카드뉴스\n---\n# 우리 팀 카드뉴스\n' })
   const primary = page.getByTestId('skills-primary')
-  await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
+  await expect(primary).toHaveText('스킬 3개 넣기')
   await primary.click()
   const packs = page.getByTestId('skill-packs')
   await expect(page.getByTestId('skill-pack-taken')).toHaveText('1개는 넣지 못했어요 · 같은 이름의 스킬이 이미 있어요')
@@ -369,7 +369,7 @@ test('Team skills, an English team: the English examples (Example Coffee); 자�
   await page.goto('/skills')
   await page.getByTestId('skill-catalog-toggle').click()
   const fold = page.getByTestId('skill-catalog')
-  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['Company profile', 'Promo cards', 'Promo video', 'Natural writing'])
+  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['Company slide deck', 'Promo cards', 'Promo video', 'Natural writing'])
   await packRow(fold, 'humanizer').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
@@ -436,7 +436,7 @@ test.describe('a phone (390 × 844, dark)', () => {
     expect(await checks(packs)).toEqual([true, true, true, false])
     await noOwnPart(page)
     const primary = page.getByTestId('skills-primary')
-    await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
+    await expect(primary).toHaveText('스킬 3개 넣기')
     const [p, s] = [await primary.boundingBox(), await page.getByTestId('skills-step').boundingBox()]
     expect(Math.round(p!.width)).toBe(Math.round(s!.width))
     // nothing wider than the screen

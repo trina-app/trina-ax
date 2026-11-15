@@ -1,8 +1,8 @@
 ---
 name: intro-deck
-description: Company profile — reads a company intro or what was read from the website and makes a designed company profile deck (6–10 slides) with the pictures and logo in the team's brand folder and the brand colors. People page through it beside the chat and download it as PowerPoint and PDF. Use it for "make a company profile for us", "a company profile for manufacturing customers".
+description: Company slide deck — reads a company intro or what was read from the website and makes a designed company profile deck (6–10 slides) with the pictures and logo in the team's brand folder and the brand colors. People page through it beside the chat and download it as PowerPoint and PDF. Use it for "make a company profile for us", "a company profile for manufacturing customers".
 metadata:
-  title: Company profile
+  title: Company slide deck
   inputs: |
     [
       {"name": "topic", "label": "Topic", "placeholder": "Empty: the whole company"},
@@ -11,7 +11,7 @@ metadata:
     ]
 ---
 
-# Company profile
+# Company slide deck
 
 Make a company profile (6–10 slides, 16:9) that looks like a design studio made it. The `intro_deck` tool draws the slides, figures and grounds: you never write HTML, coordinates or a file, you only fill its slots. It is made in steps, not at once: the outline → one slide per call → a look at every slide as a picture and the finish.
 

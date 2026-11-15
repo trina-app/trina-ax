@@ -21,10 +21,10 @@ Four ready-made skills ship with the product, in the team's language (Korean or 
 
 | Folder | Skills | How they get in |
 |---|---|---|
-| `skills/general/` | Company profile, Promo cards, Promo video | The owner picks them in the setup step **Choose the skills your team will use**, or an owner or admin adds them later on **Available skills** |
+| `skills/general/` | Company slide deck, Promo cards, Promo video | The owner picks them in the setup step **Choose the skills your team will use**, or an owner or admin adds them later on **Available skills** |
 | `skills/work/` | Natural writing | The same |
 
-- **In the setup steps** each skill has one line and **Example**. Company profile, Promo cards and Promo video come checked when the company profile was saved (they are made from it); Natural writing starts unchecked. The button names what goes in, for example **Add Company profile·Promo cards·Promo video**.
+- **In the setup steps** each skill has one line and **Example**. Company slide deck, Promo cards and Promo video come checked when the company profile was saved (they are made from it); Natural writing starts unchecked. The button says how many go in, for example **Add 3 skills**.
 - **On Available skills**, owners and admins see one folded line under the list, **Skills prepared by Trina AX · 2 more**, with the ones the team does not have yet. Open it, tick what you want (nothing is ticked first) and press **Add to the team**. The line is hidden while you search and gone when the team has them all. A skill that ships in a later version only raises the count: there is no notice.
 - **Example** shows what the skill makes for an invented company, Example Coffee, and where the skill comes from.
 

@@ -28446,3 +28446,18 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   skills named, the goal's one first (`GOAL_TITLE_SKILLS` 3).
 - Tests: web/test/unit/setup-row.test.tsx, welcome.test.tsx, goal-card.test.tsx, setup-return.test.tsx,
   connect-ai.test.tsx; web/test/e2e/welcome-exits.spec.ts, no-ai.spec.ts.
+
+## W6 follow-up: setup copy (fix/onboarding-copy, 2026-11-15)
+
+- The AI step's sentence: "Connect an AI so {product} can read your files and do the work." The progress label of 회사
+  소개 in English, Indonesian and Spanish is one short word ("Company"; ko/ja/zh were short already). The skills
+  step's primary says how many go in, "Add 3 skills" (`welcome.skills.put` with `n`; `putN` and the names joined
+  with "·" are gone). A phone's bar button that leaves the steps reads "Close" (its label already said "Continue
+  later"), so the screen has one "Later" (the step's own "Do this later").
+- The English prepared skill `intro-deck` is titled "Company slide deck" (was "Company profile", the name of step 2;
+  resources/skill-packs/general/en/intro-deck/SKILL.md). Only new installs get the new title; name and path stay.
+  The example picture's `skillHash` (server/src/onboarding/skill-examples.ts) is recorded again without remaking the
+  picture: only the title, the description's first words and the heading changed, none of which the deck reads.
+- Not changed: "Next" on a phone already names the next open step with the same rule as a computer
+  (`Welcome.tsx nextLabel` → `lib/welcome.ts nextStep`, the device only drops 도구 연결); the walk's "Next: invite your
+  team" after the skills step on a phone was not reproduced from the code.

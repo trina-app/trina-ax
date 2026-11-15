@@ -185,10 +185,12 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     expect([...preChecked(rows, { profile: true, done: true })]).toEqual([])
   })
 
-  test('primaryLabel: every skill named up to three; from four on "팀에 넣기 · n개"; nothing: none', () => {
-    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상'])).toBe('회사 소개서·카드뉴스·홍보 영상 넣기')
-    expect(primaryLabel(t, ['카드뉴스'])).toBe('카드뉴스 넣기')
-    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상', '자연스러운 글'])).toBe(ko('welcome.skills.putN', { n: 4 }))
+  test('primaryLabel: how many go in ("스킬 3개 넣기", "Add 3 skills"), never the names joined; nothing: none', () => {
+    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상'])).toBe('스킬 3개 넣기')
+    expect(primaryLabel(t, ['카드뉴스'])).toBe('스킬 1개 넣기')
+    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상', '자연스러운 글'])).toBe('스킬 4개 넣기')
+    expect(primaryLabel((k, p) => translate('en', k, p), ['A', 'B', 'C'])).toBe('Add 3 skills')
+    expect(primaryLabel((k, p) => translate('en', k, p), ['A'])).toBe('Add 1 skill')
     expect(primaryLabel(t, [])).toBeNull()
   })
 
@@ -205,7 +207,7 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
       expect(row.querySelector('[data-testid="skill-pack-line"]')!.textContent).toBe('카드뉴스 한 줄')
       expect(row.querySelector('[data-testid="skill-pack-example"]')!.getAttribute('aria-label')).toBe(ko('skillPack.exampleNamed', { title: '카드뉴스' }))
       expect(m.get('skills-primary').getAttribute('data-state')).toBe('put')
-      expect(text(m, 'skills-primary')).toBe('회사 소개서·카드뉴스·홍보 영상 넣기')
+      expect(text(m, 'skills-primary')).toBe('스킬 3개 넣기')
       expect(m.get('skills-primary').className).toContain('bg-accent')
       expect(m.get('skills-later').className).not.toContain('bg-accent')
       // only the skills Trina prepared: no folder to pick, no hidden-folder hint, no Claude Code line
@@ -270,7 +272,7 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
       expect(body().querySelectorAll('[data-testid="skill-pack-line"]').map((l) => l.textContent)).toEqual(['회사 소개서 한 줄', '카드뉴스 한 줄', '홍보 영상 한 줄', '자연스러운 글 한 줄'])
       expect(packRows().every((r) => r.querySelector('[data-testid="skill-pack-example"]'))).toBe(true)
       noOwnPart(m)
-      expect(text(m, 'skills-primary')).toBe('회사 소개서·카드뉴스·홍보 영상 넣기')
+      expect(text(m, 'skills-primary')).toBe('스킬 3개 넣기')
       expect(m.get('skills-primary').className).toContain('w-full')
     } finally { await m.unmount() }
   })
@@ -282,7 +284,7 @@ describe('the press', () => {
     const m = await step()
     try {
       await tick(m, checkOf('humanizer')!)
-      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 4 }))
+      expect(text(m, 'skills-primary')).toBe('스킬 4개 넣기')
       await m.click('skills-primary')
       await m.until(() => events.includes('next'), 'on to the next step')
       expect(posts().map((c) => [c.key, c.body])).toEqual([
