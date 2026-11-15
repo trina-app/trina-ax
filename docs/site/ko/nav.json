@@ -1,0 +1,40 @@
+{
+  "title": "Trina AX 문서",
+  "description": "Trina AX를 쓰고, 운영하고, 그 위에 만들고, 자동화하는 방법. 회사 파일과 팀 스킬, 폴더 권한이 있는 회사 AI 작업 공간이에요.",
+  "repo": "https://github.com/trina-app/trina-ax",
+  "product": { "label": "Trina AX 열기", "url": "https://ax.trina.app" },
+  "tabs": [
+    { "title": "시작하기", "groups": [
+      { "title": "시작하기", "pages": ["index", "get-started/quickstart", "get-started/team-setup"] },
+      { "title": "기본 개념", "pages": ["get-started/key-concepts"] }
+    ] },
+    { "title": "Trina AX 쓰기", "groups": [
+      { "title": "AI와 일하기", "pages": ["use/chats-and-projects", "use/team-skills", "use/room-apps", "use/scheduled-tasks"] },
+      { "title": "앱 연결", "pages": ["use/connect-apps", "use/ai-accounts", "use/google-apps", "use/google-own-app", "use/slack", "use/mcp", "use/api-connections"] },
+      { "title": "파일과 사람", "pages": ["use/files-and-permissions", "use/find-work-files", "use/usage-and-limits", "use/admin", "use/guests"] },
+      { "title": "내 계정", "pages": ["use/settings-and-search"] }
+    ] },
+    { "title": "설치와 운영", "groups": [
+      { "title": "설치", "pages": ["operate/install", "operate/configuration"] },
+      { "title": "계속 돌아가게 하기", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
+      { "title": "보안", "pages": ["operate/security"] }
+    ] },
+    { "title": "개발자 가이드", "groups": [
+      { "title": "코드 이해하기", "pages": ["develop/architecture", "develop/repository-layout"] },
+      { "title": "코드 바꾸기", "pages": ["develop/local-development", "develop/testing", "develop/i18n-and-design", "develop/contributing"] },
+      { "title": "플러그인", "pages": ["develop/plugins"] },
+      { "title": "릴리스", "pages": ["develop/versioning", "develop/core-and-trina"] }
+    ] },
+    { "title": "AI 에이전트용", "groups": [
+      { "title": "개요", "pages": ["agents/overview"] },
+      { "title": "코딩 에이전트", "pages": ["agents/coding-agents", "agents/machine-readable-docs"] },
+      { "title": "런타임 에이전트", "pages": ["agents/runtime", "agents/mcp-connector", "agents/skills-format", "agents/plugins"] }
+    ] },
+    { "title": "레퍼런스", "groups": [
+      { "title": "레퍼런스", "pages": ["reference/http-api", "reference/cli", "reference/environment", "reference/glossary"] }
+    ] },
+    { "title": "자료", "groups": [
+      { "title": "자료", "pages": ["resources/support"] }
+    ] }
+  ]
+}

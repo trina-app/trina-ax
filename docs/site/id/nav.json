@@ -1,0 +1,40 @@
+{
+  "title": "Dokumentasi Trina AX",
+  "description": "Cara memakai, menjalankan, mengembangkan, dan mengotomatiskan Trina AX: ruang kerja AI perusahaan dengan file Anda, skill tim, dan izin folder.",
+  "repo": "https://github.com/trina-app/trina-ax",
+  "product": { "label": "Buka Trina AX", "url": "https://ax.trina.app" },
+  "tabs": [
+    { "title": "Memulai", "groups": [
+      { "title": "Memulai", "pages": ["index", "get-started/quickstart", "get-started/team-setup"] },
+      { "title": "Konsep utama", "pages": ["get-started/key-concepts"] }
+    ] },
+    { "title": "Memakai Trina AX", "groups": [
+      { "title": "Bekerja dengan AI", "pages": ["use/chats-and-projects", "use/team-skills", "use/room-apps", "use/scheduled-tasks"] },
+      { "title": "Menghubungkan aplikasi", "pages": ["use/connect-apps", "use/ai-accounts", "use/google-apps", "use/google-own-app", "use/slack", "use/mcp", "use/api-connections"] },
+      { "title": "File dan orang", "pages": ["use/files-and-permissions", "use/find-work-files", "use/usage-and-limits", "use/admin", "use/guests"] },
+      { "title": "Akun Anda", "pages": ["use/settings-and-search"] }
+    ] },
+    { "title": "Menjalankan dan mengoperasikan", "groups": [
+      { "title": "Penyiapan", "pages": ["operate/install", "operate/configuration"] },
+      { "title": "Menjaga tetap berjalan", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
+      { "title": "Keamanan", "pages": ["operate/security"] }
+    ] },
+    { "title": "Panduan pengembang", "groups": [
+      { "title": "Memahami kode", "pages": ["develop/architecture", "develop/repository-layout"] },
+      { "title": "Membuat perubahan", "pages": ["develop/local-development", "develop/testing", "develop/i18n-and-design", "develop/contributing"] },
+      { "title": "Plugin", "pages": ["develop/plugins"] },
+      { "title": "Rilis", "pages": ["develop/versioning", "develop/core-and-trina"] }
+    ] },
+    { "title": "Untuk agen AI", "groups": [
+      { "title": "Ringkasan", "pages": ["agents/overview"] },
+      { "title": "Agen coding", "pages": ["agents/coding-agents", "agents/machine-readable-docs"] },
+      { "title": "Agen runtime", "pages": ["agents/runtime", "agents/mcp-connector", "agents/skills-format", "agents/plugins"] }
+    ] },
+    { "title": "Referensi", "groups": [
+      { "title": "Referensi", "pages": ["reference/http-api", "reference/cli", "reference/environment", "reference/glossary"] }
+    ] },
+    { "title": "Sumber daya", "groups": [
+      { "title": "Sumber daya", "pages": ["resources/support"] }
+    ] }
+  ]
+}
