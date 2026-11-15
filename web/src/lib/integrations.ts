@@ -343,6 +343,7 @@ export function flowReasonKey(reason: string | null): MessageKey {
     case 'changed': return 'integrations.signIn.reason.changed'
     case 'superseded': return 'integrations.signIn.reason.superseded'
     case 'exchange': case 'invalid': return 'integrations.signIn.reason.exchange'
+    case 'limit': return 'integrations.signIn.reason.limit'
     default: return 'integrations.signIn.failed'
   }
 }

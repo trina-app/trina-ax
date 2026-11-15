@@ -18,6 +18,7 @@ const realFetch = globalThis.fetch
 const before = useLocaleStore.getState().locale
 const status = useSession.getState().status
 const calls: string[] = []
+let inviteRole: 'member' | 'guest' = 'member'
 let at = ''
 let locationBefore: PropertyDescriptor | undefined
 function Where() { at = useLocation().pathname; return null }
@@ -28,6 +29,7 @@ beforeAll(() => {
   useLocaleStore.setState({ locale: 'en' })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push(`${init?.method ?? 'GET'} ${String(input).split('?')[0]}`)
+    if (String(input).includes('/api/invites/')) return Response.json({ teamName: 'Acme', role: inviteRole, expiresAt: '2026-12-04T00:00:00.000Z', valid: true })
     return new Response(null, { status: 204 })
   }) as unknown as typeof fetch
 })
@@ -54,7 +56,8 @@ test('says who is signed in; "Sign out and accept" ends the session and stays on
   const m = await mount(page())
   try {
     await m.until(() => m.find('invite-signed-in'), 'the page')
-    expect(document.body.textContent).toContain('You are signed in as QA B')
+    await m.until(() => document.body.textContent?.includes('You are signed in as QA B') || null, 'who is signed in')
+    expect(document.body.textContent).toContain('This invite is for someone who joins the team')
     expect(m.find('home')).toBeNull()
     await m.click('invite-sign-out')
     await m.until(() => useSession.getState().status.kind === 'signed-out' || null, 'signed out')
@@ -74,4 +77,20 @@ test('"Keep using this account" goes Home and signs nobody out', async () => {
     expect(calls).not.toContain('POST /api/auth/logout')
     expect(useSession.getState().status.kind).toBe('signed-in')
   } finally { await m.unmount() }
+})
+
+test('a guest link says it is for a guest from outside the team, not for someone who joins the team (QA TC-2224)', async () => {
+  inviteRole = 'guest'
+  // the first test's sign-out puts the language back to the default (Korean on CI): this test reads English words
+  useLocaleStore.setState({ locale: 'en' })
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  // the first test's sign-out picks the stored language, which another test file may have left (CI showed Korean), and
+  // switches once that file loads: setLocale makes English the latest choice, so that late switch does not happen
+  useLocaleStore.getState().setLocale('en')
+  const m = await mount(page())
+  try {
+    await m.until(() => document.body.textContent?.includes('a guest from outside the team') || null, 'the guest sentence')
+    expect(document.body.textContent).not.toContain('someone who joins the team')
+    expect(m.find('invite-sign-out')).not.toBeNull()
+  } finally { inviteRole = 'member'; await m.unmount() }
 })

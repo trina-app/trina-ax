@@ -539,7 +539,8 @@ export class RelayServer {
     if (res.headersSent) { res.destroy(); return }
     const lang = pickLang(req.headers)
     const status = PAGE_STATUS[kind]
-    const wantsHtml = o.html ?? (!(req.url ?? '').startsWith('/api/') && /text\/html/.test(req.headers.accept ?? ''))
+    // a browser page load asks for text/html; Sec-Fetch-Dest: document covers a navigation whose Accept header was stripped
+    const wantsHtml = o.html ?? (!(req.url ?? '').startsWith('/api/') && (/text\/html/.test(req.headers.accept ?? '') || req.headers['sec-fetch-dest'] === 'document'))
     const extra: Record<string, string> = { 'cache-control': 'no-store', 'x-relay-error': kind }
     const retryAfter = status === 503 ? o.retryAfter ?? PAGE_RETRY_AFTER[kind] ?? 5 : null
     if (retryAfter !== null) extra['retry-after'] = String(retryAfter)

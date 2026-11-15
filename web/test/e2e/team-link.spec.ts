@@ -33,8 +33,8 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await audit(page, 'members, the open team link')
   await page.getByRole('button', { name: '메시지 복사' }).click()
   const message = await page.evaluate(() => navigator.clipboard.readText())
-  expect(message).toContain('에 함께하자고 초대했어요.')
-  expect(message).toContain("'광고 문구' 스킬을 같이 써 보자고 해요.")
+  expect(message).toContain('Acme에 초대할게요.')
+  expect(message).toContain("우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.")
   expect(message.endsWith(url)).toBe(true)
 
   const other = await browser.newContext({ locale: 'ko-KR' })

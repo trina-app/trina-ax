@@ -35,7 +35,7 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | Group | Sections |
 |---|---|
 | **Account** | Profile, Security & devices, Usage, Memory, Allowed for Trina (and Browser, see below) |
-| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), Use from other AI apps |
+| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), Trina AX MCP |
 | **App** | Notifications, Apps, About |
 
 A [guest](guests.md) sees only their own sections, such as Profile and Notifications. A guest who uses their own sign-in connects their Claude or ChatGPT account in **AI accounts**.

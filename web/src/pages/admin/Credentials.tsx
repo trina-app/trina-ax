@@ -126,6 +126,13 @@ export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
   return !!tc.state.data?.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind) && !x.disabled && CREDENTIAL_PROBLEMS.includes(x.state))
 }
 
+/** No team account of this provider yet, and Add account is right below on this page (Admin › AI accounts): the
+ * provider's line says so instead of the server's "add one in Admin > Connections > AI accounts" (QA TC-2838). */
+export function addAccountBelow(tc: TeamCredentials, fam: Family): boolean {
+  const d = tc.state.data
+  return !!d && tc.owner && !d.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind)) && d.allowedKinds.some((k) => FAMILY[fam].includes(k))
+}
+
 /** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
  * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
 export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family }) {
@@ -352,7 +359,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const [ack, setAck] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** a sign-in is already running (one at a time): whose, so the owner or an admin can stop it from here */
+  /** a sign-in is already running (one at a time): how long it can still take; the starter's own (`mine`, their tab may be
+   * gone) to stop it and start again; for the owner and an admin whose, to stop any */
   const [busyLogin, setBusyLogin] = useState<LoginBusyParams | null>(null)
   const [login, setLogin] = useState<CredentialLogin | null>(null)
   /** Claude: the terminal fallback is open (paste a setup-token token instead of the sign-in) */
@@ -384,6 +392,20 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       try { setLogin(await api.call(personal ? API.getMyCredentialLogin : API.getCredentialLogin, { params: { id: login.loginId } })) } catch { /* the event will do */ }
     }, 3000)
     return () => { off(); clearInterval(poll) }
+  }, [login, personal])
+
+  // the tab closes (or the page goes) while the sign-in runs: it is stopped, so the server's one sign-in slot is free
+  // for everyone at once (QA TC-2581; without it the server frees it once the 3-second reads above have stopped for 5
+  // minutes and someone asks). A page kept for the back button (persisted) may come back: its reads say it is there.
+  useEffect(() => {
+    // not while the pasted code is being checked: that sign-in was approved already and finishes by itself
+    if (!login || FINISHED.includes(login.state) || login.state === 'checking') return
+    const bye = (e: PageTransitionEvent) => {
+      if (e.persisted) return
+      void api.call(personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id: login.loginId }, keepalive: true }).catch(() => {})
+    }
+    window.addEventListener('pagehide', bye)
+    return () => window.removeEventListener('pagehide', bye)
   }, [login, personal])
 
   // the sign-in ended well: say so once (the dialog's own line only says "connected"; the order is the news)
@@ -421,8 +443,10 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       setSecret('')
       onDone()
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-      if (isApiError(e, 'busy')) { const b = LoginBusyParams.safeParse(e.body.params); setBusyLogin(b.success ? b.data : null) }
+      // another sign-in holds the slot: the busy line below says it in plain words (never the server's raw message)
+      const b = isApiError(e, 'busy') ? LoginBusyParams.safeParse(e.body.params) : null
+      if (b?.success) setBusyLogin(b.data)
+      else setError(errorText(e, locale, t('error.network')))
       // already a personal connection: offer "Move it to the team" (the sealed secret typed again is the proof)
       if (isApiError(e, 'conflict')) {
         const dup = !personal && !replace ? DuplicateCredentialParams.safeParse(e.body.params) : null
@@ -430,11 +454,39 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       }
     } finally { setBusy(false) }
   }
-  /** stop the sign-in that is in the way (any, for the owner or an admin), then the start can be pressed again */
+  // the slot is someone else's: read it again every few seconds, so Start turns on by itself once it is free (and the
+  // minutes left stay true); nothing to start meanwhile
+  const waitingOther = !!busyLogin && !busyLogin.mine
+  useEffect(() => {
+    if (!waitingOther) return
+    let live = true
+    const check = async () => {
+      try {
+        const s = await api.call(API.myCredentialLoginSlot)
+        if (!live) return
+        if (!s.busy) setBusyLogin(null)
+        else if (s.expiresAt) setBusyLogin((b) => (b ? { ...b, expiresAt: s.expiresAt } : b))
+      } catch { /* the next read will do */ }
+    }
+    const t = setInterval(() => void check(), 4000)
+    return () => { live = false; clearInterval(t) }
+  }, [waitingOther])
+  /** stop the sign-in that is in the way (the caller's own through its door; any, for the owner or an admin): one's own
+   * starts again at once (what they pressed is not lost), someone else's leaves Start to be pressed again */
+  const [stopping, setStopping] = useState(false)
   const stopBusy = async () => {
-    if (!busyLogin) return
-    try { await api.call(API.cancelCredentialLogin, { params: { id: busyLogin.loginId } }) } catch (e) { if (!isApiError(e, 'not_found')) { setError(errorText(e, locale, t('error.network'))); return } }
+    if (!busyLogin?.loginId || stopping) return
+    const id = busyLogin.loginId
+    const own = !!busyLogin.mine
+    setStopping(true)
+    try {
+      await api.call(own && busyLogin.personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id } })
+    } catch (e) {
+      if (!isApiError(e, 'not_found')) { setError(errorText(e, locale, t('error.network'))); setStopping(false); return }
+    }
+    setStopping(false)
     setBusyLogin(null); setError(null)
+    if (own) void submit()
   }
   /** Claude: the pasted code, sealed like a token, to the sign-in that waits for it */
   const sendCode = async () => {
@@ -486,7 +538,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       ) : (
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!ready || !secure} onClick={submit} data-testid="credential-submit">
+          <Button variant="primary" busy={busy} disabled={!ready || !secure || !!busyLogin} onClick={submit} data-testid="credential-submit">
             {busy ? t('credentials.checking') : kind === 'chatgpt' ? t('credentials.chatgpt.start') : kind === 'anthropic-oauth' && signIn ? t('credentials.claude.start') : move ? t('credentials.moveToTeam') : t('credentials.connect')}
           </Button>
         </>
@@ -554,12 +606,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
               </div>
             )}
             {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
-            {busyLogin && !personal && (
-              <p className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="login-busy">
-                {t('credentials.loginBusy', { name: busyLogin.starter, kind: t(busyLogin.personal ? 'credentials.loginBusyPersonal' : 'credentials.loginBusyTeam') })}
-                <Button size="sm" variant="secondary" onClick={() => void stopBusy()} data-testid="login-busy-stop">{t('credentials.loginStop')}</Button>
-              </p>
-            )}
+            {busyLogin && <LoginBusy b={busyLogin} admin={!personal} stopping={stopping} onStop={() => void stopBusy()} />}
             {move && (
               <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="credential-move">
                 <p className="font-medium">{t('credentials.moveToTeam')}</p>
@@ -598,6 +645,31 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   )
 }
 
+/** Another sign-in holds the server's one slot (409 busy, LoginBusyParams), in plain words with the real time left:
+ * the caller's own (a tab they closed): "Stop it and start again"; for the owner or an admin, whose it is and Stop; for
+ * a member, someone on the team, and at most how many minutes it can still take (it ends sooner when its tab goes). */
+function LoginBusy({ b, admin, stopping, onStop }: { b: LoginBusyParams; admin: boolean; stopping: boolean; onStop: () => void }) {
+  const t = useT()
+  const left = b.expiresAt ? Math.max(1, Math.ceil((Date.parse(b.expiresAt) - Date.now()) / 60_000)) : null
+  const wait = left !== null ? t('credentials.loginBusyLeft', { n: left }) : null
+  const text = b.mine ? t('credentials.loginBusyMine')
+    : admin && b.starter !== undefined ? t('credentials.loginBusy', { name: b.starter, kind: t(b.personal ? 'credentials.loginBusyPersonal' : 'credentials.loginBusyTeam') })
+    : t('credentials.loginBusyMember')
+  const canStop = !!b.loginId && (b.mine || (admin && b.starter !== undefined))
+  // on a phone the personal dialog is taller than the screen: the line appears under the fold, behind the button row,
+  // and the person only saw the connect button turn off (QA TC-2581 at 390). Bring it into view when it appears.
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => { box.current?.scrollIntoView?.({ block: 'nearest' }) }, [])
+  return (
+    <div ref={box} role="status" className="space-y-2 rounded-lg bg-subtle p-3 text-sm leading-6 break-keep" data-testid="login-busy">
+      <p className="text-ink">{text}{!b.mine && wait ? <> <span data-testid="login-busy-left">{wait}</span></> : null}</p>
+      {canStop && (
+        <Button size="sm" variant="secondary" busy={stopping} onClick={onStop} data-testid="login-busy-stop">{t(b.mine ? 'credentials.loginStopRestart' : 'credentials.loginStop')}</Button>
+      )}
+    </div>
+  )
+}
+
 function CommandLine({ text }: { text: string }) {
   return (
     <span className="my-1 flex items-center gap-1 rounded-md bg-subtle px-2 py-1 font-mono text-xs">
@@ -631,7 +703,7 @@ export function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: Creden
     )
   }
   if (l.state === 'done') return <p className="text-sm text-ok" data-testid="claude-done">{l.credential?.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.claude.done')}</p>
-  if (l.state === 'expired') return <p className="text-sm text-warn">{t('credentials.chatgpt.expired')}</p>
+  if (l.state === 'expired') return <p className="text-sm text-warn" data-testid="login-expired">{t(l.reason === 'idle' ? 'credentials.loginIdle' : 'credentials.chatgpt.expired')}</p>
   if (l.state === 'cancelled') return <p className="text-sm text-muted">{t('credentials.chatgpt.cancelled')}</p>
   const reason: MessageKey = l.reason === 'bad_code' ? 'credentials.claude.badCode' : l.reason === 'refused' ? 'credentials.claude.refused' : l.reason === 'duplicate' ? 'credentials.claude.duplicate'
     : l.reason === 'token_unreadable' ? 'credentials.claude.tokenUnreadable' : 'credentials.claude.failed'
@@ -655,7 +727,7 @@ function ChatgptProgress({ l, personal }: { l: CredentialLogin; personal?: boole
     </ol>
   )
   if (l.state === 'done') return <p className="text-sm text-ok" data-testid="chatgpt-done">{t('credentials.chatgpt.done', { plan: l.credential?.planType ?? '' })}</p>
-  if (l.state === 'expired') return <p className="text-sm text-warn">{t('credentials.chatgpt.expired')}</p>
+  if (l.state === 'expired') return <p className="text-sm text-warn" data-testid="login-expired">{t(l.reason === 'idle' ? 'credentials.loginIdle' : 'credentials.chatgpt.expired')}</p>
   if (l.state === 'cancelled') return <p className="text-sm text-muted">{t('credentials.chatgpt.cancelled')}</p>
   const reason = l.reason === 'other_account' ? 'credentials.chatgpt.otherAccount' : l.reason === 'same_account' ? 'credentials.chatgpt.sameAccount' : 'credentials.chatgpt.failed'
   return <p className="text-sm text-danger" data-testid="chatgpt-failed">{t(reason)}</p>

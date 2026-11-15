@@ -100,6 +100,15 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       m.linkPreviews = ((m.linkPreviews as { messageId: string }[] | undefined) ?? []).map((x) => (x.messageId === b.linkedMessageId ? { ...x, body: '', files: { count: 0 }, removed: true } : x))
       return route.fulfill(json(m))
     }
+    // an edit of my own message: its new text, marked edited
+    const edited = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)$/.exec(path)
+    if (edited && method === 'PATCH') {
+      const b = req.postDataJSON() as { body: string; mentions: string[]; mentionsAll?: boolean }
+      const m = all.find((x) => x.id === edited[1]) as Record<string, unknown> | undefined
+      if (!m) return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
+      Object.assign(m, { body: b.body, mentions: b.mentions, editedAt: new Date(T0 + 30 * 60_000).toISOString() })
+      return route.fulfill(json(m))
+    }
     const thread = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/thread(\/read)?$/.exec(path)
     const root = thread && messages.find((m) => m.id === thread[1])
     if (thread && root && method === 'GET' && !thread[2]) return route.fulfill(json({ root, items: replies(root.id), nextCursor: null }))

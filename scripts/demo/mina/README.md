@@ -17,11 +17,12 @@ no text in the pictures).
 | `story.ts` | the structure: ids, rooms, triggers, steps, file paths, timing. No words of its own |
 | `strings/en.ts` | every word: names, prompts, answers, captions, messages, toasts, email, guide lines and nudges, end card |
 | `strings/ko.ts` | the same in Korean (Slack-style office Korean, not word for word); `assets/*.ko.*` its pictures and team files, `source/banners/copy.ko.json` its banner words (headline in Noto Serif KR) |
+| `strings/id.ts`, `ja.ts`, `es.ts`, `zh.ts` | the same in Indonesian, Japanese, Spanish and Simplified Chinese, each with its `index.<locale>.ts`, `assets/*.<locale>.*` and `source/banners/copy.<locale>.json` (Japanese and Chinese banners: Noto Serif JP / SC headlines, Noto Sans JP / SC for the rest) |
 | `assets/*.en.*` | what is English: Leo's draft, the campaign banner, square and story, team files, skills |
 | `assets/higgsfield-photo.jpg`, `assets/avatar-*.jpg` | the same in every language: the Higgsfield photo, the profile photos (fictional people, 512×512) |
 | `source/` | how the pictures are made: the Higgsfield photos (`photos/`), templates, `banners/copy.en.json` (their words), `render.mjs`; the demo never reads it |
 
-**Adding a language** (ko, id, ja, es): copy `strings/en.ts` to `strings/<locale>.ts` (`export const ko: Strings = …`)
+**Adding a language** (done for ko, id, ja, es, zh): copy `strings/en.ts` to `strings/<locale>.ts` (`export const ko: Strings = …`)
 and translate it; translate `assets/*.en.md` to `*.<locale>.md`; copy `source/banners/copy.en.json` to
 `copy.<locale>.json`, translate it and run `render.mjs <locale>`; then build with `buildScript(ko, 'ko')`.
 

@@ -1,23 +1,25 @@
 // The team invite link (shared/src/api/team-links.ts): make it, copy it or the ready-made message for KakaoTalk or Slack,
 // see how many joined and until when it works, change it or turn it off. Used by Admin › Members (TeamLinkCard) and
 // by the onboarding wizard's InviteStep. Everyone who joins with it is a member; the owner/admin picks the groups.
-// Folded (the invite step): the message and "메시지 복사" only; the link, its settings and "새 링크로 바꾸기" wait under
-// one quiet "링크 관리" row, and the link cannot be turned off there (Admin › Members can). For the owner walking the
+// Folded (the invite step): the message and "메시지 복사" only (the message ends with the link); the link box with its QR
+// code, its settings and "새 링크로 바꾸기" wait under one quiet "링크 관리" row, and the link cannot be turned off there (Admin › Members can). For the owner walking the
 // welcome steps the link is made in advance (`prepare`), so the message and its one copy button show at once; a link
 // that may still let someone in is never replaced by itself (making one ends the open one).
 // The team's own group (made by the welcome steps, docs/DECISIONS.md "M — One meeting note, everyone's own tasks") is
 // the default group of a new link, so people who join see the team's folder. An open link that leads elsewhere than the
 // skill the wizard points at is changed to it (PATCH: same address).
+// The ready-made message (lib/team-link.ts teamLinkMessage) introduces the team in the team's language, with the team's
+// line from the company profile, and is edited in place before "메시지 복사" copies it; nothing is ever sent by itself.
 import clsx from 'clsx'
 import { Check, ChevronDown, Copy, Plus, QrCode as QrIcon, RefreshCw, Share } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Locale, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { noPurchaseLinks } from '../../lib/desktop'
 import { formatDateTime } from '../../lib/format'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../lib/share'
-import { teamLinkMessage } from '../../lib/team-link'
-import { useLocale, useT, type MessageKey } from '../../i18n'
+import { teamLinkMessage, withInviteLink } from '../../lib/team-link'
+import { loadLocale, localeLoaded, translate, useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
 import { toast } from '../../store/ui'
@@ -64,7 +66,7 @@ export function linkToMake(data: TeamLinkResponse): boolean {
  * open link that leads elsewhere is changed to `skillPath`, keeping its address; `prepare`: the owner walking the welcome steps, the link is made
  * as the panel opens when none could let anyone in (`linkToMake`; never for anyone else); `folded`: the invite step's
  * short view (TeamLinkView). */
-export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, made, retarget, prepare, folded, shared, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; shared?: InviteShared | null; onChange?: (r: TeamLinkResponse) => void }) {
+export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, made, retarget, prepare, folded, shared, onChange, onSent }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; shared?: InviteShared | null; onChange?: (r: TeamLinkResponse) => void; onSent?: () => void }) {
   const t = useT()
   const me = useMe()
   const admin = isAdmin(me)
@@ -84,6 +86,7 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
   const act = useAction()
   const actOk = useActionOk()
   const [busy, setBusy] = useState(false)
+  const words = useMessageWords(me?.team.defaultLocale ?? null)
   useEffect(() => {
     if (state.data) onChange?.(state.data)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,7 +170,9 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantEarly])
   // the message of the link as it was would be copied a moment too early; a link being made shows nothing to copy yet
-  if (wantPatch || patch === 'running' || wantEarly || early === 'running') return <Skeleton lines={3} />
+  // also while the message's words load (the team's profile line, the team's language): an edit made before they came
+  // would be thrown away when the message changes under it
+  if (wantPatch || patch === 'running' || wantEarly || early === 'running' || !words) return <Skeleton lines={3} />
   return (
     <Loadable state={state} lines={3}>
       {(data) => (
@@ -175,10 +180,11 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           data={data}
           inviter={me?.user.name ?? ''}
           team={me?.team.name ?? ''}
+          about={words.about}
+          messageLocale={words.locale}
           groups={groups.data ?? []}
           skills={skillPicker ? (skills.data ?? []) : null}
           fixedSkillPath={skillPath}
-          made={made}
           shared={shared}
           defaultGroupIds={teamGroup ? [teamGroup.id] : []}
           busy={busy}
@@ -186,10 +192,38 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           onCreate={(b) => void create(b)}
           onRevoke={() => void revoke()}
           onGroups={changeGroups}
+          onSent={onSent}
         />
       )}
     </Loadable>
   )
+}
+
+/** What the ready-made message is made of besides the link: the team's one line from the company profile (the welcome
+ * steps' "About the company"; everyone reads it, GET /api/onboarding/profile; none saved or a failed read: no line) and
+ * the team's language (the people invited read it; the screen's language until that dictionary is here, or when it
+ * cannot load). null while either is on its way. `on` false: nothing is read (null). Also Home's goal card's "Copy
+ * invite", so both copy the same message. */
+export function useMessageWords(teamLocale: Locale | null, on = true): { about: string | null; locale: Locale | null } | null {
+  const [about, setAbout] = useState<string | null | undefined>(undefined)
+  const [localeReady, setLocaleReady] = useState(() => !teamLocale || localeLoaded(teamLocale))
+  useEffect(() => {
+    if (!on) return
+    let live = true
+    api.call(API.getCompanyProfile).then((r) => live && setAbout(r.profile?.oneLine.trim() || null), () => live && setAbout(null))
+    return () => { live = false }
+  }, [on])
+  useEffect(() => {
+    if (!on) return
+    if (!teamLocale || localeLoaded(teamLocale)) { setLocaleReady(true); return }
+    let live = true
+    setLocaleReady(false)
+    const done = () => { if (live) setLocaleReady(true) }
+    loadLocale(teamLocale).then(done, done)
+    return () => { live = false }
+  }, [teamLocale, on])
+  if (!on || about === undefined || !localeReady) return null
+  return { about, locale: teamLocale && localeLoaded(teamLocale) ? teamLocale : null }
 }
 
 export interface TeamLinkViewProps {
@@ -198,12 +232,14 @@ export interface TeamLinkViewProps {
   inviter: string
   /** the team's name: the message says which team the link leads to */
   team: string
+  /** one line about the team (the company profile's `oneLine`): the message's "About us" line; none without it */
+  about?: string | null
+  /** the language of the message (the team's); absent or null: the screen's */
+  messageLocale?: Locale | null
   groups: Group[]
   /** the skills to pick from; null: no picker (fixedSkillPath, else the skill the link had) */
   skills: SkillInfo[] | null
   fixedSkillPath?: string | null
-  /** `fixedSkillPath` is a team skill the lead just made: the message says so ("{팀}에 '…' 스킬을 만들어 뒀어요") */
-  made?: boolean
   /** the skills shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): one line says which the link opens first, with
    * 바꾸기 among them (the message names that one only: docs/DECISIONS.md "W5") */
   shared?: InviteShared | null
@@ -216,6 +252,8 @@ export interface TeamLinkViewProps {
   onRevoke: () => void
   /** change the open link's groups (same address); resolves true when saved. Absent: no "Change groups" */
   onGroups?: (groupIds: string[]) => Promise<boolean>
+  /** the message or the link was copied, or the share sheet sent it (the invite step's "Done" becomes its primary) */
+  onSent?: () => void
 }
 
 /** Why the open link cannot be shared now (the form to make a new one follows). */
@@ -228,12 +266,20 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke, onGroups }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, team, about = null, messageLocale = null, groups, skills, fixedSkillPath, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke, onGroups, onSent }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
   const [qr, setQr] = useState(false)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  // the person's own wording of the message, for the message it was made from: a new message (another skill, a new
+  // link) starts from its own words again, so a changed address never stays behind in an old edit
+  const [edit, setEdit] = useState<{ from: string; text: string } | null>(null)
+  const messageId = useId()
+  // copied or sent from the invite step: its "다 했어요" is the primary from now on, so the copy button steps down (one
+  // primary on the screen)
+  const [sentHere, setSentHere] = useState(false)
+  const sent = onSent ? () => { setSentHere(true); onSent() } : undefined
   const link = data.link
   const left = data.seats.limit !== null ? Math.max(0, data.seats.limit - data.seats.used) : null
   const usable = link && link.state === 'active' && link.url
@@ -276,13 +322,17 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   // skill): the line under the message says which opens first, with 바꾸기
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
   // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
-  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
+  const mt = messageLocale ? (k: MessageKey, p?: Params) => translate(messageLocale, k, p) : t
+  const message = teamLinkMessage(mt, { name: inviter, team, url, about, skill: skillName, ownAi: link.memberAi === 'connect_own' })
+  const text = edit && edit.from === message ? edit.text : message
+  // an edit that took the link out gets it back on its own last line when copied or sent
+  const sendText = withInviteLink(text, url)
   // the Groups row ("Leads" / "None"): which groups everyone who joins is put in (QA TC-458: a link made with the
   // wrong group put the whole team in it, and the card did not say so)
   const groupNames = linkGroupNames(t, link.groupIds, groups)
   // not while the link's groups are known only by count (the list did not load): the checks would start empty
   const canChangeGroups = !!onGroups && (!link.groupIds.length || groups.some((g) => link.groupIds.includes(g.id)))
-  // the link (always shown, above the message): one quiet mono line cut in the middle (its token means nothing to people),
+  // the link (above the message on Admin › Members; in the invite step under "링크 관리", the message holds it): one quiet mono line cut in the middle (its token means nothing to people),
   // Copy link inside it and the QR code beside it. Then the facts as one aligned list (label, value) and the changes: in
   // place on Admin › Members, under "링크 관리" in the invite step; replace / turn off stay quiet at the end.
   const linkLine = (
@@ -290,13 +340,13 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
         <div className="flex items-center gap-1">
           <div className="flex h-9 min-w-0 flex-1 items-center gap-1 rounded-lg bg-subtle pr-0.5 pl-3 max-md:min-h-11">
             <MiddleCut text={url} />
-            <CopyQuiet text={url} label={t('teamLink.copyLink')} />
+            <CopyQuiet text={url} label={t('teamLink.copyLink')} onCopied={sent} />
           </div>
           <IconButton label={t('members.qr')} onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
             <QrIcon size={16} aria-hidden />
           </IconButton>
         </div>
-        <LocalLinkNote url={url} className="mt-1.5" />
+        {!folded && <LocalLinkNote url={url} className="mt-1.5" />}
         {qr && (
           <div className="mt-3">
             <QrCode text={url} label={t('members.qr')} />
@@ -367,17 +417,51 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}
         </p>
       )}
-      {linkLine}
+      {!folded && linkLine}
+      {/* folded: the link waits under "링크 관리", but a link that opens on this computer only says so where it is sent from */}
+      {folded && <LocalLinkNote url={url} />}
       <div>
-        <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
-        <blockquote className="mt-1.5 border-l-2 border-line pl-3 text-label leading-5 whitespace-pre-wrap break-words text-muted" data-testid="team-link-message">
-          {message}
-        </blockquote>
+        <label htmlFor={messageId} className="text-xs font-medium text-muted">{t('teamLink.messageEditLabel')}</label>
+        {/* editable in place, on the same quiet tint as the link line (no frame); what is in it is what gets copied */}
+        <MessageField id={messageId} text={text} onChange={(v) => setEdit({ from: message, text: v })} />
         {sharedHere && skillName && <LandingLine shared={sharedHere} skill={skillName} />}
-        <CopyPrimary text={message} label={t('teamLink.copyMessage')} />
+        <CopyPrimary text={sendText} disabled={!text.trim()} label={t('teamLink.copyMessage')} onSent={sent} quiet={folded && sentHere} />
       </div>
-      {folded ? <ManageFold>{details}</ManageFold> : details}
+      {folded ? <ManageFold>{linkLine}{details}</ManageFold> : details}
     </div>
+  )
+}
+
+/** The message, edited in place: as tall as its text (wrapped lines too: a phone wraps every line), measured after each
+ * change and when its width changes, so the whole message reads without scrolling. */
+function MessageField({ id, text, onChange }: { id: string; text: string; onChange: (text: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e?.contentRect.width ?? 0)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el?.style || typeof el.scrollHeight !== 'number' || !el.scrollHeight) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [text, width])
+  return (
+    <textarea
+      id={id}
+      ref={ref}
+      className="mt-1.5 block w-full resize-y rounded-lg bg-subtle px-3 py-2 text-label leading-5 text-ink outline-none transition focus:ring-1 focus:ring-accent max-md:resize-none"
+      // the least it starts with; its height follows the text above
+      rows={3}
+      value={text}
+      maxLength={2000}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid="team-link-message"
+    />
   )
 }
 
@@ -434,8 +518,8 @@ function GroupsEditor({ groups, initial, busy, newGroupLink, onCancel, onSave }:
  * ("quote-maker") reads as words (skillLabel). */
 const optionLabel = (title: string) => (/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(title) ? skillLabel({ name: title }) : title)
 
-/** "들어오면 '{스킬}'부터 열려요 · 바꾸기" (docs/DECISIONS.md "SK"): the shared skill the link opens; 바꾸기 (only with two
- * or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
+/** "메시지에 '{스킬}' 스킬이 들어가요 · 바꾸기" (docs/DECISIONS.md "SK"): the shared skill the link and its message
+ * name (people who join land on Home, not on the skill); 바꾸기 (only with two or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
 function LandingLine({ shared, skill }: { shared: InviteShared; skill: string }) {
   const t = useT()
   const id = useId()
@@ -483,41 +567,48 @@ function ManageFold({ keepOpen = false, children }: { keepOpen?: boolean; childr
  * a share sheet (lib/share.ts: the app's, or the browser's) it sends the message there instead ("메시지 보내기": KakaoTalk,
  * Slack, a text message; QA TC-271), and copying stays one quiet press under it. A sheet that cannot open says so and
  * points at that press: copying by itself after the sheet's answer would copy nothing in WebKit (the press is spent). */
-function CopyPrimary({ text, label }: { text: string; label: string }) {
+function CopyPrimary({ text, label, disabled, onSent, quiet = false }: { text: string; label: string; disabled?: boolean; onSent?: () => void; quiet?: boolean }) {
   const t = useT()
-  const { copied, copy } = useCopy()
+  const { copied: copiedAny, copy: copyText } = useCopy()
+  // "Copied" is for the words that were copied: an edit (or an emptied box) brings the label back (QA TC-2846)
+  const [copiedText, setCopiedText] = useState<string | null>(null)
+  const copied = copiedAny && copiedText === text && !disabled
+  const copy = (s: string) => { setCopiedText(s); return copyText(s) }
   const phone = useMediaQuery(SHARE_PHONE_QUERY)
   const [failed, setFailed] = useState(false)
   if (phone && canShareText()) {
     const send = async () => {
       setFailed(false)
-      setFailed((await shareText(text)) === 'failed')
+      const r = await shareText(text)
+      setFailed(r === 'failed')
+      // only a sheet that was used: a closed sheet sent nothing
+      if (r === 'shared') onSent?.()
     }
     return (
       <div className="mt-3 flex flex-col gap-1" data-testid="team-link-share-actions">
-        <Button variant="primary" className="w-full" onClick={() => void send()} data-testid="team-link-share">
+        <Button variant={quiet ? 'secondary' : 'primary'} className="w-full" disabled={disabled} onClick={() => void send()} data-testid="team-link-share">
           <Share size={14} aria-hidden /> {t('teamLink.shareMessage')}
         </Button>
         {failed && <p className="text-center text-label text-warn" role="status" data-testid="team-link-share-failed">{t('teamLink.shareFailed')}</p>}
-        <Button variant="ghost" className="w-full" onClick={() => { setFailed(false); void copy(text) }} data-testid="team-link-copy-message">
-          {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+        <Button variant="ghost" className="w-full" disabled={disabled} onClick={() => { setFailed(false); void copy(text).then((ok) => { if (ok) onSent?.() }) }} data-testid="team-link-copy-message">
+          {copied && !disabled ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied && !disabled ? t('common.copied') : label}
         </Button>
       </div>
     )
   }
   return (
-    <Button variant="primary" className="mt-3 max-sm:w-full" onClick={() => void copy(text)} data-testid="team-link-copy-message">
-      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+    <Button variant={quiet ? 'secondary' : 'primary'} className="mt-3 max-sm:w-full" disabled={disabled} onClick={() => void copy(text).then((ok) => { if (ok) onSent?.() })} data-testid="team-link-copy-message">
+      {copied && !disabled ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied && !disabled ? t('common.copied') : label}
     </Button>
   )
 }
 
 /** A quiet text button that copies (the link alone). */
-function CopyQuiet({ text, label }: { text: string; label: string }) {
+function CopyQuiet({ text, label, onCopied }: { text: string; label: string; onCopied?: () => void }) {
   const t = useT()
   const { copied, copy } = useCopy()
   return (
-    <Button size="sm" variant="ghost" onClick={() => void copy(text)} data-testid="team-link-copy-link">
+    <Button size="sm" variant="ghost" onClick={() => void copy(text).then((ok) => { if (ok) onCopied?.() })} data-testid="team-link-copy-link">
       {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
     </Button>
   )

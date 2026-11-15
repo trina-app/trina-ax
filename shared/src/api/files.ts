@@ -9,11 +9,8 @@ import { Attachment, AudienceSplit, FileEntry, FileHistoryEvent, FileVersion, So
 
 export const PathQuery = z.object({ path: RelPath })
 
-/** Files and folders that an operating system makes (Finder, Windows Explorer): never a person's document. The folder
- * upload skips them (web/src/lib/folderUpload.ts) and a team folder's document count leaves them out
- * (server/src/skills/examples.ts). Other dot files are a project's own (.gitignore). */
-const SYSTEM_NAMES = new Set(['.ds_store', '.apdisk', '.appledouble', '.fseventsd', '.spotlight-v100', '.temporaryitems', '.trashes', '__macosx', 'icon\r', 'thumbs.db', 'ehthumbs.db', 'desktop.ini', '$recycle.bin', 'system volume information'])
-export const isSystemName = (name: string) => name.startsWith('._') || SYSTEM_NAMES.has(name.toLowerCase())
+/** System names (Finder, Windows Explorer): shared/src/file-scan.ts, which the desktop app's main process loads too. */
+export { isSystemName } from '../file-scan'
 
 
 export const TreeQuery = PageQuery.extend({ path: RelPath.default('') })

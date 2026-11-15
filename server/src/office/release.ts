@@ -3,7 +3,8 @@
 // installs anything. <dir> is RELEASE_CHANNEL.officeDir.
 //
 //   <feed>/<dir>/<channel>.json        the signed manifest of the channel (stable | beta), no-cache
-//   <feed>/<dir>/<version>/<file>      the office zip, the Windows installer and its electron-updater latest.yml;
+//   <feed>/<dir>/<version>/<file>      the office zip, the Windows installer and its electron-updater latest.yml, the
+//                                      Mac dmg, its update zip and latest-mac.yml;
 //                                      never overwritten once published (publish.ts refuses a different file)
 //
 // <channel>.json is one object, {format: 1, payload: "<JSON text>", keyId, sig}: an Ed25519 signature over the exact
@@ -59,6 +60,10 @@ export const OfficeRelease = z.object({
   office: z.array(ReleaseFile.extend({ arch: z.enum(['universal', 'arm64', 'amd64']) })).min(1),
   /** the Windows desktop app the Mac offers its desks (data/downloads), with electron-updater's latest.yml */
   windows: z.object({ version: Version, installer: ReleaseFile, latestYml: ReleaseFile }).nullable().default(null),
+  /** the Mac desktop app (Developer ID signed and notarized, since 0.5.5): the dmg people download, and the zip with
+   * electron-updater's latest-mac.yml that a team server puts into data/downloads so the desks' Mac apps update from it
+   * (system/windows-app.ts, office/update.ts offerMac). Absent before 0.5.5; servers that do not know it drop it. */
+  mac: z.object({ version: Version, dmg: ReleaseFile, zip: ReleaseFile, latestYml: ReleaseFile }).nullish(),
   /** staged roll-out (system/rollout.ts, the same rule as a Linux server's): the nightly run takes the release when it
    * is this Mac's turn. Absent: every office at once. Offices that do not know it drop it (zod strips unknown keys). */
   rollout: FeedRollout,
@@ -110,12 +115,16 @@ export function verifyRelease(text: string, o: VerifyContext): OfficeRelease {
   if (r.channel !== o.channel) throw new ReleaseError(`the ${o.channel} manifest is a ${r.channel} release`)
   if (compareVersions(r.minFrom, r.version) > 0) throw new ReleaseError(`minFrom ${r.minFrom} is newer than the release ${r.version}`)
   const base = o.feed.replace(/\/+$/, '') + '/'
-  const files = [...r.office, ...(r.windows ? [r.windows.installer, r.windows.latestYml] : [])]
-  for (const f of files) {
+  for (const f of releaseFiles(r)) {
     if (!f.url.startsWith(base)) throw new ReleaseError(`${f.file} is not on the release feed (${f.url})`)
     if (decodeURIComponent(new URL(f.url).pathname.split('/').pop() ?? '') !== f.file) throw new ReleaseError(`${f.url} does not name ${f.file}`)
   }
   return r
+}
+
+/** every file a release names (the office zips, the Windows app's two, the Mac app's three) */
+export function releaseFiles(r: Pick<OfficeRelease, 'office' | 'windows' | 'mac'>): ReleaseFile[] {
+  return [...r.office, ...(r.windows ? [r.windows.installer, r.windows.latestYml] : []), ...(r.mac ? [r.mac.dmg, r.mac.zip, r.mac.latestYml] : [])]
 }
 
 /** What an installed version should do with a verified release. */

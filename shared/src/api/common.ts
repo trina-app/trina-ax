@@ -87,6 +87,8 @@ export const GuestDetail = z.object({
   /** Team AI was picked for them, but that team AI account was deleted since: `ai` reads No AI, and the guest is told
    * that AI can't answer them now (not that it is off) */
   teamAiGone: z.literal(true).optional(),
+  /** Team AI with this month's limit used up (Admin's row says so; the guest's own screens say it on a send) */
+  aiUsedUp: z.literal(true).optional(),
 })
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>

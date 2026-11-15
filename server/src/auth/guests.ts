@@ -12,6 +12,7 @@ import type { GuestAi, GuestAiChoice, GuestPlace, Locale } from '@mycel/shared/a
 import { fail } from '../http/errors'
 import { AUTH_MESSAGES } from './messages'
 import { currentPlan, planManageUrl } from '../system/limits'
+import { budgetBlock } from '../admin/budgets'
 import { RuleSet, atLeast, type Principal } from '../policy/access'
 
 /** The role as the API knows it, from a users row (`alias` = the table alias with its dot, e.g. 'u.'). */
@@ -171,10 +172,12 @@ export function guestsUsed(db: Database): number {
 /** The plan's guest limit message ({n}: the limit), from the language table (auth/messages.ts guestLimit). */
 export const GUEST_LIMIT_MSG = Object.fromEntries((Object.keys(AUTH_MESSAGES.guestLimit) as Locale[]).map((l) => [l, (n: number) => AUTH_MESSAGES.guestLimit[l].replace('{n}', String(n))])) as Record<Locale, (n: number) => string>
 /** Refuse (409 plan_limit, reason guest_limit) when one more active guest would go over the plan. Call it inside the
- * write that adds the guest. */
-export function assertGuestFree(db: Database, locale: Locale, adding = 1): void {
+ * write that adds the guest. `joining`: the person accepting a guest link, who can neither remove guests nor change the
+ * plan, is told to let the inviter know (no plan page, no "change the plan" for a store app to reword). */
+export function assertGuestFree(db: Database, locale: Locale, adding = 1, joining = false): void {
   const max = guestLimit()
   if (max === null || guestsUsed(db) + adding <= max) return
+  if (joining) fail('plan_limit', AUTH_MESSAGES.guestLimitJoin[locale] ?? AUTH_MESSAGES.guestLimitJoin.en, { params: { reason: 'guest_limit', limit: max } })
   const url = planManageUrl()
   fail('plan_limit', (GUEST_LIMIT_MSG[locale] ?? GUEST_LIMIT_MSG.en)(max), { params: { reason: 'guest_limit', limit: max, changePlan: true, ...(url ? { manageUrl: url } : {}) } })
 }
@@ -218,7 +221,7 @@ export function placeName(db: Database, place: GuestPlace): string {
 }
 
 /** Me.guest / User.guest: the guest's one place with its name, and their AI; undefined for anyone else. */
-export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true } | undefined {
+export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true } | undefined {
   const r = guestRow(db, userId)
   if (!r) return undefined
   const place: GuestPlace = { kind: r.place_kind, id: r.place_id }
@@ -230,7 +233,9 @@ export function guestDetail(db: Database, userId: string): { place: GuestPlace &
   // Team AI picked, but its team AI account was deleted since (guests.team_credential_id is set NULL with it): No AI in
   // effect, and the screens say AI can't answer now (the guest) and that the account is gone (Admin)
   const gone = r.ai === 'team' && ai.mode === 'none' && !teamCredentialLive(db, userId)
-  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(gone ? { teamAiGone: true as const } : {}) }
+  // Team AI whose monthly limit is used up now: Admin's row says so (QA TC-2206)
+  const usedUp = ai.mode === 'team' && !!budgetBlock(db, userId, 'en')
+  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(gone ? { teamAiGone: true as const } : {}), ...(usedUp ? { aiUsedUp: true as const } : {}) }
 }
 /** The guest's team AI account is still there and still a team one. */
 function teamCredentialLive(db: Database, userId: string): boolean {

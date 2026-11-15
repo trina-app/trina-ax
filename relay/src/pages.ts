@@ -60,9 +60,12 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     id: { title: 'Alamat tim ini tidak terdaftar', body: 'Silakan periksa alamatnya.' }, ja: { title: "このチームアドレスは登録されていません", body: "アドレスを確認してください。" }, es: { title: "Esta dirección de equipo no está registrada", body: "Revise la dirección." }, zh: { title: "此团队地址未注册", body: "请检查地址。" },
   },
   team_suspended: {
-    ko: { title: '이 팀 주소는 사용이 중지됐어요', body: '팀 관리자에게 문의해 주세요.' },
-    en: { title: 'This team address has been suspended', body: 'Please contact your team administrator.' },
-    id: { title: 'Alamat tim ini ditangguhkan', body: 'Silakan hubungi administrator tim Anda.' }, ja: { title: "このチームアドレスは停止されています", body: "チーム管理者にお問い合わせください。" }, es: { title: "Esta dirección de equipo está suspendida", body: "Contacte con el administrador de su equipo." }, zh: { title: "此团队地址已被停用", body: "请联系团队管理员。" },
+    ko: { title: '이 팀은 지금 잠시 멈춰 있어요', body: '팀 대표나 관리자에게 문의해 주세요. 팀 대표는 %ACCOUNT%에서 결제 정보를 확인해 주세요.' },
+    en: { title: 'This team is paused right now', body: "Please ask the team's owner or admin. The team owner can check billing at %ACCOUNT%." },
+    id: { title: 'Tim ini sedang dijeda saat ini', body: 'Silakan hubungi pemilik atau admin tim. Pemilik tim dapat memeriksa tagihan di %ACCOUNT%.' },
+    ja: { title: 'このチームは現在一時停止中です', body: 'チームのオーナーまたは管理者にお問い合わせください。チームオーナーは%ACCOUNT%で請求情報を確認できます。' },
+    es: { title: 'Este equipo está en pausa en este momento', body: 'Consulte al propietario o administrador del equipo. El propietario puede revisar la facturación en %ACCOUNT%.' },
+    zh: { title: '此团队目前已暂停', body: '请联系团队所有者或管理员。团队所有者可以在%ACCOUNT%查看账单。' },
   },
   team_busy: {
     ko: { title: '팀 서버가 바빠요', body: '잠시 뒤 다시 시도해 주세요.' },

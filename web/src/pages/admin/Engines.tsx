@@ -23,7 +23,7 @@ import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
-import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, useTeamCredentials, type ProviderMark } from './Credentials'
+import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
 import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
@@ -89,6 +89,7 @@ export default function Engines() {
             <h2 id="engine-page-title" className="sr-only">{engine.label}</h2>
             <ul>
               <EngineRow e={engine} page phone accounts={ENGINE_FAMILY[engine.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[engine.id]!} />} accountsShown owner={isAdmin(me)}
+                addBelow={!!ENGINE_FAMILY[engine.id] && addAccountBelow(tc, ENGINE_FAMILY[engine.id]!)}
                 initiallyOpen checking={checking === engine.id} onCheck={() => void check(engine.id)} onToggle={(v) => void toggle(engine.id, v)} onApiSaved={apiSaved} />
             </ul>
             {tc.state.data && ENGINE_FAMILY[engine.id] && <HowOrderWorks />}
@@ -116,6 +117,7 @@ export default function Engines() {
                   key={e.id}
                   e={e}
                   accounts={ENGINE_FAMILY[e.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[e.id]!} />}
+                  addBelow={!!ENGINE_FAMILY[e.id] && addAccountBelow(tc, ENGINE_FAMILY[e.id]!)}
                   phone={phone}
                   accountsShown={!phone || (!!ENGINE_FAMILY[e.id] && accountsNeedLook(tc, ENGINE_FAMILY[e.id]!))}
                   owner={isAdmin(me)}
@@ -168,7 +170,7 @@ function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
  * `accountsShown`: the accounts show under the closed row too. `phone`: a fix that is a command on the server says to do
  * it on a computer. `page`: the engine's own page on a phone, everything open, its name in the bar (the page's own
  * heading is for screen readers). */
-function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; accountsShown: boolean; phone: boolean; page?: boolean; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
+function EngineRow({ e, accounts, addBelow = false, accountsShown, phone, page, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; addBelow?: boolean; accountsShown: boolean; phone: boolean; page?: boolean; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(initiallyOpen || !!page)
@@ -186,6 +188,8 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
   // the API engine is not "installed": it has an address, a model and a key, or not yet. Its form is in the opened row,
   // so the row says "Not set up" and offers to open it (the server's text points "below", where nothing is yet)
   const apiNotSet = e.id === 'api' && e.status === 'not_installed'
+  // the team's AI accounts and none of this provider's yet: the server's line points at this page, so say what to do here
+  const noAccount = addBelow && e.authMode === 'managed' && e.status === 'not_logged_in'
   return (
     <li className="py-4 max-md:py-2" data-testid="engine-card" data-engine={e.id}>
       <div className="flex items-start gap-3">
@@ -219,6 +223,9 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
                 </button>
               </p>
             )
+          ) : noAccount ? (
+            // no account yet: the fix is the Add account button right below, on this very page (QA TC-2838)
+            <p className="min-w-0 text-xs break-words text-warn" data-testid="engine-detail">{t('providers.addBelow')}</p>
           ) : e.detail && !technical && !ok && (
             // a problem's line is the fix (a command to run): shown whole, never cut
             <p className="min-w-0 text-xs break-words text-warn" data-testid="engine-detail">{phone && /`[^`]+`/.test(e.detail) ? <span data-testid="engine-on-computer">{t('admin.onComputer')}</span> : <CodeText text={e.detail} />}</p>

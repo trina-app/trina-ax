@@ -13,7 +13,7 @@
 import type { Locale, RoomAppKind, RoomAppPreset } from '@mycel/shared/api'
 import { line, lines, safeLink } from './card'
 import { appText } from './text'
-import { firstLine, get, obj, sha, str } from './read'
+import { firstLine, get, num, obj, sha, str } from './read'
 import { PRESETS } from './presets'
 
 /** One event for the room. `switch`: the app's switch that must be on. `key`: the thing it is about (one thread per
@@ -252,6 +252,20 @@ function github(a: Arrival): Parsed {
 // ---------------- Google Forms (our script) ----------------
 const FORM_ANSWERS_MAX = 50
 const FORM_ANSWER_MAX = 1000
+/** A Drive file ID (what Apps Script's getResponse() gives for a file upload): 25-60 of A-Z a-z 0-9 _ -, with a digit,
+ * an upper- and a lower-case letter, so a typed word or code (no mixed case) is not taken for one. */
+const DRIVE_ID = /^(?=[^\s]*\d)(?=[^\s]*[A-Z])(?=[^\s]*[a-z])[A-Za-z0-9_-]{25,60}$/
+const filesText = (n: number, L: Locale) => (n === 1 ? appText('formsFiles1', L) : appText('formsFilesN', L, { n }))
+/** One answer's text. A file upload shows how many files, never their Drive IDs: our script sends `files: n` (TC-2803);
+ * a script copied before that sent the IDs joined with ", ", told apart by their shape. */
+export function formsAnswer(x: unknown, L: Locale): string {
+  const files = num(x, 'files')
+  if (files !== null) return Number.isInteger(files) && files > 0 && files <= 1000 ? filesText(files, L) : ''
+  const a = str(x, 'a')
+  const ids = a.split(', ')
+  if (ids.length <= 100 && ids.every((id) => DRIVE_ID.test(id))) return filesText(ids.length, L)
+  return lines(a, FORM_ANSWER_MAX).replace(/\n+/g, ' / ')
+}
 function forms(a: Arrival): Parsed {
   const body = obj(json(a))
   if (!body) return { refuse: 'format' }
@@ -260,7 +274,7 @@ function forms(a: Arrival): Parsed {
   const id = line(str(body, 'id'), 200)
   const at = line(str(body, 'at'), 60)
   if (!form || !id || !Array.isArray(body.answers) || body.answers.length > FORM_ANSWERS_MAX) return { refuse: 'format' }
-  const answers = body.answers.map((x) => ({ q: line(str(x, 'q'), 200), a: lines(str(x, 'a'), FORM_ANSWER_MAX).replace(/\n+/g, ' / ') })).filter((x) => x.q || x.a)
+  const answers = body.answers.map((x) => ({ q: line(str(x, 'q'), 200), a: formsAnswer(x, L) })).filter((x) => x.q || x.a)
   const qa = (x: { q: string; a: string }) => (x.q ? `${x.q}: ${x.a}` : x.a)
   // the respondent's email only while the app's switch is on (owner decision 12: on unless turned off)
   const emailRaw = line(str(body, 'email'), 254)

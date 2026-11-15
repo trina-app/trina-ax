@@ -606,7 +606,7 @@ export class MockServer {
    * {ai: 'none' | 'failed' | 'timeout', delayMs} answers otherwise until the next reset; GET /__test/file-rank lists
    * the entries each pick was sent (names and metadata only) */
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
-  fileRankCalls: { entries: unknown[] }[] = []
+  fileRankCalls: { entries: unknown[]; own?: boolean }[] = []
   /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
    * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
   organize: { ai: 'done' | 'none' | 'failed' | 'timeout'; project: { name: string; match: string } | null } = { ai: 'done', project: null }
@@ -2325,6 +2325,10 @@ export class MockServer {
       const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
       const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.', zh: '用户名或密码不正确。' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
+      // like the server: a switched-off account with its right password hears the truth (who can switch it back on)
+      if (u!.status !== 'active') fail('unauthorized', 401, (u!.role === 'guest'
+        ? { ko: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', en: 'This account was turned off. Ask the person who invited you.', id: 'Akun ini sudah dimatikan. Tanyakan kepada orang yang mengundang Anda.', ja: 'このアカウントはオフになっています。招待した人に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte a la persona que le invitó.', zh: '此账号已被关闭。请询问邀请你的人。' }
+        : { ko: '이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.', en: 'This account was turned off. Ask the team owner or an admin.', id: 'Akun ini sudah dimatikan. Tanyakan kepada pemilik tim atau admin.', ja: 'このアカウントはオフになっています。チームのオーナーか管理者に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte al propietario del equipo o a un administrador.', zh: '此账号已被关闭。请询问团队所有者或管理员。' })[loc], undefined, { reason: 'account_off' })
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
       u!.lastSeenAt = now()
@@ -2463,7 +2467,7 @@ export class MockServer {
       // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
       const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
       if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -2681,7 +2685,8 @@ export class MockServer {
     guestInviteLimit: (c) => {
       const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
-      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
+      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
+        ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -3918,6 +3923,18 @@ export class MockServer {
       const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
       return { ai: 'done', picks }
     },
+    // Find work files on this computer, part 4: the company's words (the team's name, a work domain, the people)
+    companyWords: () => ({ names: [this.settings.teamName], domains: ['acme.example'], people: this.users.map((u) => u.name).filter(Boolean) }),
+    // Find work files on this computer: the same pick for the caller's own folder, anyone but guests (English names too)
+    rankOwnFiles: async (c) => {
+      const entries = c.body.entries as { id: string; name: string; path: string }[]
+      this.fileRankCalls.push({ entries, own: true })
+      if (this.fileRank.delayMs) await new Promise((done) => setTimeout(done, this.fileRank.delayMs))
+      if (this.fileRank.ai !== 'done') return { ai: this.fileRank.ai, picks: [] }
+      const WORDS: [RegExp, string][] = [[/양식|template|form/i, 'form'], [/소개|intro/i, 'intro'], [/회의록|minutes/i, 'minutes'], [/보고|report/i, 'report'], [/policy|규정/i, 'policy'], [/brand|logo/i, 'brand'], [/proposal|제안/i, 'proposal']]
+      const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
+      return { ai: 'done', picks }
+    },
     // the setup's folder plan (server/src/onboarding/files-organize.ts, short): owners and admins; the plan is the shared
     // organizePlan over the name rules (the AI's folders are the kinds' folders here), a project when a test sets one
     startOrganize: (c) => {
@@ -4469,6 +4486,11 @@ export class MockServer {
     submitMyCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
     getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
+    // like the server (credentials/login.ts slot): taken or not, and until when at the latest; never whose
+    myCredentialLoginSlot: () => {
+      const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
+      return running ? { busy: true, expiresAt: running.expiresAt } : { busy: false }
+    },
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user, true); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
@@ -5249,9 +5271,15 @@ export class MockServer {
   /** a ChatGPT sign-in: the code after a moment, then the connection. A Claude sign-in: the authorize address after a
    * moment, then it waits for the pasted code (good-code#good-state connects, anything else is a wrong code). */
   startLogin(user: User, label: string, personal: boolean, reconnectId?: string, kind: CredentialLogin['kind'] = 'chatgpt'): CredentialLogin {
-    // one sign-in at a time (like the server): the owner or an admin is told whose it is and can stop it
+    // one sign-in at a time (like the server, credentials/login.ts): everyone hears when it ends at the latest; its
+    // starter gets its id to stop it; the owner or an admin (the admin door) is told whose it is and can stop it
     const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
-    if (running) fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, user.role !== 'member' && !personal ? { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : undefined)
+    if (running) {
+      const mine = running.userId === user.id
+      const staff = user.role !== 'member' && !personal
+      fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, { reason: 'login_busy', expiresAt: running.expiresAt, ...(mine ? { mine: true } : {}),
+        ...(mine || staff ? { loginId: running.loginId, personal: running.personal } : {}), ...(staff ? { starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : {}) })
+    }
     const loginId = 'login' + uuidv7().replace(/-/g, '')
     const l = { loginId, kind, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label, reconnectId }
     this.credLogins.set(loginId, l)

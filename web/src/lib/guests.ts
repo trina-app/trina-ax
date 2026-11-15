@@ -31,17 +31,17 @@ export function guestPlacePath(me: Me | null | undefined): string | null {
 }
 
 /** A guest invite's place (InviteInfo.guestPlace); null for a member invite. */
-export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null } | null {
-  return info.role === 'guest' ? { place: info.guestPlace ?? null } : null
+export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null; ai: NonNullable<InviteInfo['guestAi']> | null } | null {
+  return info.role === 'guest' ? { place: info.guestPlace ?? null, ai: info.guestAi ?? null } : null
 }
 
 /** Why a removed guest is not in their place (User.guest.placeOut): left it, its project in the trash, or gone. */
 export type GuestPlaceOut = NonNullable<NonNullable<User['guest']>['placeOut']>
 
 /** A guest's place and AI choice as Admin › Members shows them (User.guest), with why a removed one is not in their place
- * (`out`) and whether their Team AI's account was deleted (`aiGone`). */
-export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; aiGone: boolean } | null {
-  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, aiGone: u.guest?.teamAiGone === true } : null
+ * (`out`), whether their Team AI's account was deleted (`aiGone`) and whether this month's limit is used up (`aiUsedUp`). */
+export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; aiGone: boolean; aiUsedUp: boolean } | null {
+  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true } : null
 }
 
 /** Why an invite link does not work (InviteInfo.reason), or null while it works or when an older server does not say. */

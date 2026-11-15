@@ -47,7 +47,9 @@ export type CallArgs<E> =
   (HasKeys<ParamsOf<E>> extends true ? { params: ParamsOf<E> } : { params?: undefined }) &
   (QueryOf<E> extends undefined ? { query?: undefined } : { query?: QueryOf<E> }) &
   (BodyOf<E> extends undefined ? { body?: undefined } : { body: BodyOf<E> }) &
-  { signal?: AbortSignal; headers?: Record<string, string>; onUploadProgress?: (share: number) => void }
+  { signal?: AbortSignal; headers?: Record<string, string>; onUploadProgress?: (share: number) => void
+    /** the request outlives the page (fetch keepalive): a goodbye sent while the tab closes */
+    keepalive?: boolean }
 
 export class ApiClient {
   constructor(private o: ApiClientOptions) {}
@@ -68,7 +70,7 @@ export class ApiClient {
 
   /** Raw fetch with auth + CSRF headers; errors become ApiError. Streams (downloads) come back as Response. */
   async call<E extends Endpoint>(ep: E, args: CallArgs<E> = {} as CallArgs<E>): Promise<ResponseOf<E>> {
-    const a = args as { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal; headers?: Record<string, string>; onUploadProgress?: (share: number) => void }
+    const a = args as { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal; headers?: Record<string, string>; onUploadProgress?: (share: number) => void; keepalive?: boolean }
     const headers: Record<string, string> = { ...(a.headers ?? {}) }
     if (this.o.token) headers.authorization = `Bearer ${this.o.token}`
     if (ep.method !== 'GET') headers[CSRF_HEADER] = '1'
@@ -88,7 +90,7 @@ export class ApiClient {
       headers['content-type'] = 'application/octet-stream'
       body = a.body as BodyInit
     }
-    const init: RequestInit = { method: ep.method, headers, body, signal: a.signal, credentials: 'include' }
+    const init: RequestInit = { method: ep.method, headers, body, signal: a.signal, credentials: 'include', ...(a.keepalive ? { keepalive: true } : {}) }
     const f = this.o.fetch ?? fetch
     const res = a.onUploadProgress && this.o.fetchWithProgress
       ? await this.o.fetchWithProgress(this.url(ep, a), init, a.onUploadProgress)

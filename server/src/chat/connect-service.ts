@@ -25,7 +25,7 @@ import { fail } from '../http/errors'
 import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
-import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
+import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine, personalFull } from '../integrations/connections/service'
 import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
 import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
@@ -37,14 +37,15 @@ import { refusal, SCREEN } from '../policy/refusal'
 import type { TurnExec } from './turn'
 
 /** The connections connect_service checks a new one against, as this person may use them now, and how many count
- * toward the limit of `scope`. A member's connection made from an admin's template counts for neither: service.ts
- * create does not count it toward the limit, and one the template no longer covers is not "already theirs". */
+ * toward the limit of `scope` as service.ts create counts them (personalCounts): a member's connection made from an
+ * admin's template counts for neither (one the template no longer covers is not "already theirs"), and neither a
+ * Google app nor a personal connection still waiting for its first sign-in counts toward the limit. */
 export function connectRows(db: Database, userId: string, scope: 'personal' | 'team'): { rows: Row[]; count: number } {
   const rows = scope === 'personal'
     ? [...(db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(userId) as Row[]).filter((r) => !r.template_id || templateCovers(db, r.template_id, userId)),
       ...(db.query(`${selectRows(db)} WHERE scope = 'team' AND google_app IS NULL`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
     : db.query(`${selectRows(db)} WHERE scope = 'team' AND google_app IS NULL`).all() as Row[]
-  return { rows, count: rows.filter((r) => r.scope === scope && !r.template_id).length }
+  return { rows, count: rows.filter((r) => r.scope === scope && !r.template_id && !r.google_app && !(r.scope === 'personal' && r.auth === 'oauth' && !r.secret_enc)).length }
 }
 
 export const CONNECT_TOOL = 'connect_service'
@@ -286,7 +287,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
           return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
         }
         const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-        if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        // the same limits Settings applies (service.ts personalFull): a sign-in connection also has the waiting cap
+        if (scope === 'personal' ? personalFull(db, viewer.id, input.data.auth) : count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
         // one that does not work and is not this person's to fix (a team connection): an admin fixes it
         const dup = same[0]
         if (dup) {

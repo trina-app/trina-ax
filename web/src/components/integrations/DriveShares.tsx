@@ -223,7 +223,7 @@ function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }:
           {isNew && <Field label={t('driveShare.name')}><input className={inputCls} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} data-testid="drive-share-name" /></Field>}
           {!f.inProgress && <Button variant="primary" busy={f.busy} onClick={() => void f.start(share?.id)} data-testid="drive-share-google">{t('drive.openGoogle')}</Button>}
           {f.flow && f.flow.state !== 'ready' && f.inProgress && (
-            <BrowserWait text={t('drive.waitingShort')} testId="drive-share-waiting" retryTestId="drive-share-retry-flow" cancelTestId="drive-share-cancel-flow" busy={f.busy}
+            <BrowserWait google text={t('drive.waitingShort')} testId="drive-share-waiting" retryTestId="drive-share-retry-flow" cancelTestId="drive-share-cancel-flow" busy={f.busy}
               onRetry={() => void f.start(share?.id)} onCancel={() => void f.cancel()} link={googleLink({ popupBlocked: f.popupBlocked, authorizationUrl: f.url }, t('drive.openGoogle'))} />
           )}
           {f.flow?.state === 'ready' && (

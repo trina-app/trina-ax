@@ -24,11 +24,12 @@ import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
-import { isLoopback } from '../http/tunnel'
+import { fromOutside, isLoopback } from '../http/tunnel'
 import { authOf } from './service'
 import { assertSeatFree, planManageUrl, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
+import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
@@ -79,8 +80,8 @@ function checkNewPassword(pw: string, username: string | null, locale: Locale, f
 }
 
 /** how a sign-in reached the server, for the audit log: 'internet' through the office public address (http/tunnel.ts),
- * else the transport ('direct' = this Mac or the office LAN, 'relay') */
-export const viaOf = (info: { via: string; tunnel?: boolean }): string => info.tunnel ? 'internet' : info.via
+ * 'tailnet' on the office Tailscale address, else the transport ('direct' = this Mac or the office LAN, 'relay') */
+export const viaOf = (info: { via: string; tunnel?: boolean; tailnet?: boolean }): string => info.tunnel ? 'internet' : info.tailnet ? 'tailnet' : info.via
 
 /** Count an unknown/invalid token against the caller's IP and refuse while over the limit. */
 function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
@@ -114,7 +115,7 @@ export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null;
 export function setupStatusFor(c: Context<AppEnv>, ctx: AppContext): ReturnType<typeof setupStatus> {
   const s = setupStatus(ctx)
   const info = c.get('info')
-  if (info.tunnel) return { ...s, needed: false }
+  if (fromOutside(info)) return { ...s, needed: false }
   return info.via === 'relay' ? withToken(c, ctx, s) : s
 }
 
@@ -167,7 +168,8 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
   // and after setup: a 409 "already set up" told the internet whether the team exists yet.
   const info = c.get('info')
-  if (info.tunnel) fail('forbidden', msg('setupNotRemote', locale))
+  // The office Tailscale address the same: every device of the tailnet reaches it, from anywhere.
+  if (fromOutside(info)) fail('forbidden', msg('setupNotRemote', locale))
   // through the relay the token comes first: without it the answer is the same counted 403 before and after setup
   // (the token is spent at setup), so a POST with a made-up token does not tell the internet whether the team exists.
   // This server and the office network keep the 409 "already set up" first (installers and scripts read it).
@@ -194,7 +196,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const net = ip ? limitIp(ip) : null
   const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
     ? { kind: 'net', net }
-    : info.tunnel || info.via === 'relay' ? { kind: 'internet' } : { kind: 'office' }
+    : fromOutside(info) || info.via === 'relay' ? { kind: 'internet' } : { kind: 'office' }
   // A sign-in from the person's own network (`net` scope: the server Mac itself, or a network they signed in from
   // before) uses a higher per-IP limit (perNetIp) instead of perIp. Many people share one such address (everyone at
   // the Mac or on an SSH tunnel is 127.0.0.1, an office's desks share its public IP), so before, about 30 failed
@@ -217,11 +219,14 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const u = getUserByUsername(ctx.db, b.username)
   let ok = false
   try { ok = await verifyPassword(b.password, u?.password_hash) } catch (e) { hold.release(); throw e }
-  // a disabled account fails exactly like a wrong password (same 401, same words, still counted toward the limit):
-  // a different answer would tell anyone that the account exists, is disabled and that this password is right
+  // a wrong password, or no such account: the same 401 and words (nothing says which usernames exist), counted
   if (!u || !ok || u.status !== 'active') {
     if (u && !ok && u.status === 'active') countTempFailure(ctx, u, a.now(), ip)
     audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: viaOf(c.get('info')), ...(u && ok ? { disabled: true } : {}) } })
+    // a switched-off account with its RIGHT password (a removed guest, a turned-off member): the truth, or they keep
+    // retrying a password that is right (QA TC-2582). Only someone who already knows the password learns the account
+    // is off; it still opens nothing and the try still counts toward the limit (the hold is not released)
+    if (u && ok) fail('unauthorized', msg(u.role === 'guest' ? 'accountOffGuest' : 'accountOffMember', locale), { params: { reason: 'account_off' } })
     fail('unauthorized', msg('badLogin', locale))
   }
   // the right temporary password, but too late: saying so tells nothing useful to anyone else (it no longer opens the
@@ -293,6 +298,8 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     // a project's name too (the list names it; whoever reads the list may manage every project); never a room's name
     ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => (pl.kind === 'project' ? { ...pl, name: placeName(db, pl) } : pl))(guestPlaceOf(r)!) } : {}),
     ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
+    // an open link whose maker or place is gone (a member who left the room: nothing revokes the link then, accept refuses it)
+    ...((s) => (s ? { stopped: s } : {}))(!r.used_at && !r.revoked_at && Date.parse(r.expires_at) > Date.now() ? ((w) => (w === 'revoked' ? 'ai_gone' : w))(makerReason(db, r)) as Invite['stopped'] | null : null),
   }
 }
 const inviteById = (db: Database, id: string) => db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(id) as InviteRow
@@ -416,7 +423,7 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}) }
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(r!.lead_hint && !dead ? { lead: true } : {}), ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}), ...(gp ? { guestAi: parseGuestAi(r!.guest_ai).mode } : {}) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -477,11 +484,14 @@ class UsernameTaken extends Error {}
 
 /** GET /api/guest-invites/limit: the plan's guest cap now, read before the invite dialog shows its form (a guest never
  * gets here: the endpoint is off their list). The owner and admins also learn how many guests are active now (Admin ›
- * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one) and the plan page. */
+ * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one) and the plan page. Everyone
+ * learns whether a guest can have AI on this server at all (guestAiUnavailable). */
 export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInviteLimit {
   const role = c.get('auth')!.user.role
   const url = planManageUrl()
-  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}) }
+  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
+    // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
+    ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }
 }
 
 /** The plan's guests are all taken (no plan file: never). */
@@ -517,7 +527,7 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
     const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r.id) as InviteRow | null
     if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
-    assertGuestFree(ctx.db, locale)
+    assertGuestFree(ctx.db, locale, 1, true)
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r.id, now)
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })

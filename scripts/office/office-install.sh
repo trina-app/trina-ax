@@ -52,6 +52,9 @@
 # the installers it lists (same name and SHA-256) are offered. Later: <prefix>/teamax desktop add <file>.
 set -euo pipefail
 umask 022
+# when this run started: office.js install keeps its extra wait (QA TC-335) inside the updater's 10 minutes
+TEAMAX_INSTALLER_STARTED=$(date +%s)
+export TEAMAX_INSTALLER_STARTED
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 PREFIX="$HOME/TeamAX"
@@ -296,7 +299,7 @@ PUBLIC=$(sed -n 's/^TEAMAX_PUBLIC_HOST=//p' "$PREFIX/config/office.env")
 cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
-명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | desktop
+명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | tailscale-address | desktop
 설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md${OFFICE_PDF:+ (PDF: 압축을 푼 폴더의 $OFFICE_PDF)}
 EOF
 if [ -n "$PUBLIC" ]; then

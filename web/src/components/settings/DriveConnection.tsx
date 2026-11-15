@@ -144,7 +144,7 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
   const t = useT()
   return <div className="space-y-3 rounded-xl border border-line p-4">
     {flow.state === 'ready' ? <p role="status">{t('drive.confirmAccount')}</p>
-      : <WaitLine text={t('drive.waiting')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="drive-flow-wait" />}
+      : <WaitLine text={t('drive.waiting')} hint={t('connect.wait.google', { n: SIGN_IN_WAIT_MINUTES })} testId="drive-flow-wait" />}
     {flow.state === 'ready' && <>
       <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>

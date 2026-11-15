@@ -76,7 +76,8 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
           const off = (m === 'team' && noAccount) || (noGuestAi && m !== 'none')
           return (
             <div key={m}>
-              <label className={off ? 'flex cursor-not-allowed items-start gap-2.5 px-1 py-1.5' : 'flex cursor-pointer items-start gap-2.5 px-1 py-1.5'}>
+              {/* a choice that cannot be picked reads as off, not only its radio: faded words too */}
+              <label className={off ? 'flex cursor-not-allowed items-start gap-2.5 px-1 py-1.5 opacity-50' : 'flex cursor-pointer items-start gap-2.5 px-1 py-1.5'} aria-disabled={off || undefined} data-off={off || undefined}>
                 <input type="radio" name={`${id}-ai`} value={m} checked={value.mode === m} disabled={off} onChange={() => pick(m)} className="mt-0.5 size-4 shrink-0 accent-accent" data-testid={`guest-ai-${m}`} />
                 <span className="min-w-0">
                   <span className={off ? 'block text-sm text-muted' : 'block text-sm text-ink'}>{t(`guest.ai.${m}`)}</span>
@@ -102,6 +103,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
                     <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
                     <input type="number" inputMode="decimal" min={1} step={1} className={inputCls} value={Number.isFinite(value.limitUsd) ? value.limitUsd : ''}
                       onChange={(e) => onChange({ ...value, limitUsd: Number(e.target.value) })} data-testid="guest-ai-limit" />
+                    <span className="mt-1 block text-xs text-muted" data-testid="guest-ai-limit-hint">{t('guest.ai.limitHint')}</span>
                   </label>
                 </div>
               )}
@@ -109,7 +111,8 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
           )
         })}
       </div>
-      {noGuestAi && <p className="mt-1 pl-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-host">{t('guest.ai.hostSignIn')}</p>}
+      {/* a member cannot reinstall the server: only the first sentence (the .pkg way is for whoever runs it) */}
+      {noGuestAi && <p className="mt-1 pl-1 text-xs leading-5 break-keep text-muted" data-testid="guest-ai-host">{t(admin ? 'guest.ai.hostSignIn' : 'guest.ai.hostSignInMember')}</p>}
     </fieldset>
   )
 }
@@ -185,8 +188,11 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   const [name, setName] = useState('')
   const [ai, setAi] = useState<GuestAiChoice>({ mode: 'none' })
   // the team's AI accounts, read at once for the owner and admins: without one, Team AI is off before anyone picks it
-  const { list: connections, noGuestAi } = useTeamConnections(admin)
+  const { list: connections, noGuestAi: adminNoGuestAi } = useTeamConnections(admin)
   const limit = useGuestLimit()
+  // no guest AI on this server (an Office Mac): read for everyone with the cap (a member cannot read the AI accounts),
+  // so a member is never offered "Their own sign-in" for a guest who would then read "AI isn't on for you" (TC-2580)
+  const noGuestAi = adminNoGuestAi || limit?.guestAiUnavailable === 'host_sign_in'
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)

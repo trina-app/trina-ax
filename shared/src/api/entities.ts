@@ -92,6 +92,10 @@ export const Invite = z.object({
   /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
    * the links apart by it); absent when none was given and on member invites */
   guestName: z.string().optional(),
+  /** a link nobody has used, turned off or let run out that no longer works anyway, and why: its maker left the room or
+   * lost the project or the right to make it (inviter_gone), the room or project is gone (place_gone), or its Team AI
+   * account was removed (ai_gone). Admin's invite list leaves it out (only links that still work are listed). Absent while it works and from older servers */
+  stopped: z.enum(['inviter_gone', 'place_gone', 'ai_gone']).optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
@@ -608,6 +612,10 @@ export const FileEntry = z.object({
    * one holding such a folder; never sent to the owner or an admin), 'always' nobody may (a personal folder, a folder
    * holding a plugin's managed folder). Absent everywhere else and from older servers: the server still decides. */
   fixed: z.enum(['admin', 'always']).optional(),
+  /** an upload's answer only: the name already held this person's own upload of this very file (the last 24 hours), so
+   * that file was kept and nothing new was made (keepSame). Find work files' Undo takes back only files a run made
+   * (docs/DECISIONS.md "Find work files on this computer"). Absent on every other entry and from older servers. */
+  kept: z.literal(true).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 

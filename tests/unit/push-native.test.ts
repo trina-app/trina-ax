@@ -11,6 +11,7 @@ import { addMember, harness, withOwner, OWNER_PW, type Harness } from './a-lib'
 import { PushService, type PushOptions } from '../../server/src/notifications/push-service'
 import { PHONE_TAKEN } from '../../server/src/notifications/text'
 import { HttpError } from '../../server/src/http/errors'
+import { hashToken } from '../../server/src/auth/passwords'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { registerPushPath } from '../../server/src/notifications/push-events'
 import { createNativeTransport, signedGatewayRequest, validGatewayUrl, type NativeSend } from '../../server/src/notifications/push-native'
@@ -172,6 +173,95 @@ test('a phone token of a session that is over (expired, or the account switched 
   h.ctx.db.query("UPDATE users SET status='disabled' WHERE id='olga'").run()
   const noahReg = p.registerDevice(noah.id, sessionOf(noah.id), other)
   expect(h.ctx.db.query('SELECT user_id FROM push_subscriptions WHERE id=?').get(noahReg.id)).toEqual({ user_id: noah.id })
+})
+
+// QA TC-835: one phone, one push row. A client here is one browser (the phone app's WebView): it keeps one cookie.
+const sidOf = (c: { cookie: string | null }) => (h.ctx.db.query('SELECT id FROM sessions WHERE token_hash=?').get(hashToken(c.cookie!.split('=')[1]!)) as { id: string } | null)?.id ?? null
+const rows = () => h.ctx.db.query('SELECT user_id,session_id FROM push_subscriptions ORDER BY created_at').all()
+
+test('TC-835: signing out and in again on the phone, with a new token or the same one, leaves one row', async () => {
+  await setup()
+  const phone = h.client(); await phone.login('olga', OWNER_PW)
+  const first = sidOf(phone)!
+  p.registerDevice('olga', first, device())
+  // sign-out reaches the server: the row goes with the session
+  await phone.call('POST', '/api/auth/logout')
+  expect(rows()).toEqual([])
+  await phone.login('olga', OWNER_PW)
+  const second = sidOf(phone)!, token = device()
+  p.registerDevice('olga', second, token)
+  expect(rows()).toEqual([{ user_id: 'olga', session_id: second }])
+  // the same token again from yet another sign-in of the same person (the old session not signed out): still one row
+  const other = h.client(); await other.login('olga', OWNER_PW)
+  p.registerDevice('olga', sidOf(other)!, token)
+  expect(rows()).toEqual([{ user_id: 'olga', session_id: sidOf(other) }])
+  // a session that ran out: its row is never sent and goes at the next queue pass
+  h.ctx.db.query('UPDATE sessions SET expires_at=? WHERE id=?').run(new Date(now - 1000).toISOString(), sidOf(other))
+  now += 10; event('after-expiry'); await p.tick()
+  expect(rows()).toEqual([])
+})
+
+test('TC-835: the same person with a new token while the old session lasts keeps both rows until the app removes the old one with its key', async () => {
+  const sent: NativeSend[] = []
+  const sid = await setup({ nativeTransport: async i => { sent.push(i); return { statusCode: 200 } } })
+  const old = p.registerDevice('olga', sid, device())
+  // an app update that lost the WebView's cookie: a new sign-in and a new token; the server cannot tell it is one phone
+  const phone = h.client(); await phone.login('olga', OWNER_PW)
+  const fresh = device(); p.registerDevice('olga', sidOf(phone)!, fresh)
+  expect(rows()).toHaveLength(2)
+  // the app owes the earlier device a removal (mobile/src/device.ts rememberDevice, #767) and sends it at the next start
+  p.removeDevice(old.id, { key: old.removeKey })
+  now += 10; event('once'); await p.tick(); await p.tick()
+  expect(sent.map(s => s.device.token)).toEqual([fresh.token])
+})
+
+test('TC-835: another person signing in on a phone whose sign-out never reached the server takes it; nothing of the first person reaches it', async () => {
+  const sent: NativeSend[] = []
+  const sid = await setup({ nativeTransport: async i => { sent.push(i); return { statusCode: 200 } } })
+  const owner = h.client(); await owner.login('olga', OWNER_PW)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const phone = h.client(); await phone.login('olga', OWNER_PW)
+  const olgaPhone = sidOf(phone)!, token = device()
+  p.registerDevice('olga', olgaPhone, token)
+  // a notice for olga queued for the phone before it changes hands
+  now += 10; event('queued-for-olga')
+  // olga's sign-out on the phone did not reach the server (offline): the page shows the sign-in page, the cookie stays
+  await phone.login('mia', mia.password)
+  expect(h.ctx.db.query('SELECT id FROM sessions WHERE id=?').get(olgaPhone)).toBeNull()
+  expect(rows()).toEqual([])
+  const miaReg = p.registerDevice(mia.id, sidOf(phone)!, token)
+  expect(rows()).toEqual([{ user_id: mia.id, session_id: sidOf(phone) }])
+  // olga's other sessions are hers and stay
+  expect(sidOf(owner)).not.toBeNull(); expect(h.ctx.db.query('SELECT id FROM sessions WHERE id=?').get(sid)).not.toBeNull()
+  now += 10; event('for-olga'); event('for-mia', mia.id); await p.tick(); await p.tick(); await p.tick(); await p.tick()
+  expect(sent.map(s => [s.device.token, s.payload.notificationId, s.payload.tag])).toEqual([[token.token, expect.any(String), miaReg.id]])
+  expect(h.ctx.db.query('SELECT user_id FROM notification_inbox WHERE id=?').get(sent[0]!.payload.notificationId)).toEqual({ user_id: mia.id })
+})
+
+test('TC-835: a sign-in ends only another person\'s session the browser sent; its own earlier one, bearer sign-ins and other browsers stay (TC-201)', async () => {
+  await setup()
+  const owner = h.client(); await owner.login('olga', OWNER_PW)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  // the same person again in the same browser: the earlier session is left as it was
+  const phone = h.client(); await phone.login('olga', OWNER_PW)
+  const before = sidOf(phone)!
+  await phone.login('olga', OWNER_PW)
+  expect(h.ctx.db.query('SELECT id FROM sessions WHERE id=?').get(before)).not.toBeNull()
+  // a bearer sign-in (an app's token) does not replace the cookie, so it ends nothing
+  const now1 = sidOf(phone)!
+  await phone.login('mia', mia.password, 'bearer')
+  expect(h.ctx.db.query('SELECT id FROM sessions WHERE id=?').get(now1)).not.toBeNull()
+  // olga's phone row and another browser where mia signs in: TC-201 still refuses mia the token
+  const token = device(); p.registerDevice('olga', now1, token)
+  const laptop = h.client(); await laptop.login('mia', mia.password)
+  expect(() => p.registerDevice(mia.id, sidOf(laptop)!, token)).toThrow(PHONE_TAKEN.ko)
+  expect(rows()).toEqual([{ user_id: 'olga', session_id: now1 }])
+  // a cookie of no session (made up, or ended) ends nobody's session
+  const count = () => (h.ctx.db.query('SELECT COUNT(*) n FROM sessions').get() as { n: number }).n, sessions = count()
+  const stray = h.client(); stray.cookie = `mycel-dev-sid=${'x'.repeat(43)}`
+  await stray.login('mia', mia.password)
+  expect(count()).toBe(sessions + 1)
+  expect(rows()).toEqual([{ user_id: 'olga', session_id: now1 }])
 })
 
 test('the HTTP routes need the session and answer 503 while this server has no gateway', async () => {

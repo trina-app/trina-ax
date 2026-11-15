@@ -62,6 +62,26 @@ test('Providers: one row per engine with its state, what is missing, check again
   expect(realErrors(errors)).toEqual([])
 })
 
+// QA TC-2838: on Admin › AI accounts itself, a provider with no account says to add one below (its Add account button),
+// never the server's "add one in Admin > Connections > AI accounts", the page it is on
+test('no Codex account yet: its line points at Add account below, not at this page', async ({ page }) => {
+  await start(page)
+  const NONE = 'No AI connection. Add one in Admin > Connections > AI accounts.'
+  await page.route('**/api/admin/engines', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const res = await route.fetch()
+    const body = await res.json() as { engines: { id: string }[] }
+    body.engines = body.engines.map((e) => e.id === 'codex' ? { ...e, authMode: 'managed', status: 'not_logged_in', detail: NONE } : e)
+    await route.fulfill({ response: res, json: body })
+  })
+  await page.goto('/admin/providers')
+  const codex = page.locator('[data-engine="codex"]')
+  await expect(codex.getByTestId('provider-none-codex')).toBeVisible()
+  await expect(codex.getByTestId('provider-add-codex')).toBeVisible()
+  await expect(codex.getByTestId('engine-detail')).toHaveText(t['providers.addBelow'])
+  await expect(codex).not.toContainText('Admin > Connections')
+})
+
 test('a sign-in that finishes in the browser: the engine says Connected at once, without a reload, and after one', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)

@@ -159,8 +159,9 @@ function useFieldAboveBar() {
     if (!el || !phone) return
     const reveal = () => {
       const f = document.activeElement
-      // the whole field (Field's box: its hint or error under it too), not only the input
-      if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
+      // the whole field (Field's box: its hint or error under it too), not only the input; a group (the password with
+      // its note under it, outside the Field's box) as a whole
+      if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field-group]') ?? f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
     }
     // after the keyboard's own scrolling and the new --app-h have settled; a frame still waiting when the page goes is
     // dropped (it would read a document that may be gone)
@@ -443,7 +444,7 @@ export function Setup() {
             <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="setup-username" />
           </Field>
           {/* one password field, as when joining: the eye button shows what was typed (no second field to type blind) */}
-          <div>
+          <div data-field-group>
             <PasswordField label={t('auth.password')} error={errorOf('password')} reveal={reveal} eyeTestId="setup-password-show" name="password" value={form.password} onChange={set('password')} required autoComplete="new-password" aria-describedby={passwordHintId} data-testid="setup-password" />
             <CapsLockNote reveal={reveal} hint={{ id: passwordHintId, text: errorOf('password') ? '' : t('setup.passwordHint') }} />
           </div>
@@ -670,6 +671,13 @@ export function InviteWhileSignedIn() {
   const signedOut = useSession((s) => s.signedOut)
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  // a guest link is for someone from outside the team, so a member is not told it is for "someone who joins the team"
+  const [forGuest, setForGuest] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.inviteInfo, { params: { token: token ?? '' } }).then((i) => { if (live) setForGuest(i?.role === 'guest') }, () => { if (live) setForGuest(false) })
+    return () => { live = false }
+  }, [token])
   const leave = async () => {
     setBusy(true)
     await api.call(API.logout).catch(() => {})
@@ -678,7 +686,7 @@ export function InviteWhileSignedIn() {
     navigate(`/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
   }
   return (
-    <AuthFrame title={t('invite.signedInTitle')} sub={t('invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
+    <AuthFrame title={t('invite.signedInTitle')} sub={forGuest === null ? undefined : t(forGuest ? 'invite.signedInBodyGuest' : 'invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
       <div className="flex flex-col gap-2" data-testid="invite-signed-in">
         <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t('invite.signOutAccept')}</Button>
         <Button disabled={busy} onClick={() => navigate('/', { replace: true })} data-testid="invite-keep">{t('invite.keepAccount')}</Button>
@@ -762,7 +770,7 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} ai={guest.ai} /> : t(info.lead ? 'invite.subLead' : 'invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
       {!guest && <BrowserLanguageOffer />}
       <JoinChoices path={`/invite/${token}`} lean={!!guest}>
@@ -774,12 +782,16 @@ export function AcceptInvite() {
 
 /** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." (the general
  * words while the server does not name the place) */
-function GuestJoinLine({ place }: { place: GuestPlaceView | null }) {
+function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none' | 'team' | 'own' | null }) {
   const t = useT()
   return (
-    <p className="text-ink" data-testid="invite-guest-place">
-      {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
-    </p>
+    <>
+      <p className="text-ink" data-testid="invite-guest-place">
+        {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
+      </p>
+      {/* their own sign-in: said before they join, so "connect your own" inside is no surprise */}
+      {ai === 'own' && <p className="mt-2 text-muted" data-testid="invite-guest-own-ai">{t('guest.join.ownAi')}</p>}
+    </>
   )
 }
 

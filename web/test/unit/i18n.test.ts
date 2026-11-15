@@ -144,7 +144,7 @@ describe('translations', () => {
     // a bare {count} right before a plural noun: none left (limits that are never 1 and numbers written with
     // separators, which no plural rule reads, are listed)
     const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
-    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong'])
+    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong', 'budgets.tokensPerDay', 'budgets.tokensPerMonth', 'budgets.usedTokensToday', 'budgets.usedTokensMonth'])
     for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
   })
   test('steps of older answers follow the language on screen', () => {
@@ -230,7 +230,7 @@ describe('translations', () => {
       // 팀 파일's word lists, matched in file and folder names on the person's computer (not screen text)
       // the city names of the usual time zones in Korean (lib/time-zones.ts: Intl has none; a label table like the cloud console's)
       'lib/time-zones.ts': /^  ko: \{ 'Asia\/Seoul': '서울',/,
-      'lib/teamFiles.ts': /^const (brandFolder|PERSONAL_KO|PERSONAL_KO_WHOLE|KEEP_WORDS) = /,
+      'lib/teamFiles.ts': /^const (brandFolder|PERSONAL_KO|PERSONAL_WHOLE|KEEP_WORDS) = /,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {

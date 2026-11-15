@@ -1011,6 +1011,8 @@ export class TurnExec {
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
+          // a pick of work files from names (not the folder plan, which reads files): low effort, quick
+          ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })

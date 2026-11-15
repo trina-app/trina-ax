@@ -61,18 +61,23 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
     if (r && 'refused' in r) return r.refused
     setAsk(null)
     if (!r) return
-    await runner.run(
-      async () => r.value,
-      // "finished" only once the server answers with the new version; a version that did not stay (a Go back that
-      // bounced, QA TC-336) is said as such (lib/updateOutcome.ts)
-      async (job) => {
-        const out = await updateOutcome(job, { health: () => api.call(API.health), fetchJob: (id) => api.call(API.getJob, { params: { id } }) })
-        if (out.kind === 'ok') toast({ level: 'success', text: t('system.updateDone') })
-        else if (out.kind === 'not_kept') toast({ level: 'error', text: out.message ?? t('system.updateNotKept', { version: out.version, current: out.current }) })
-        else toast({ level: 'info', text: t('system.updateStillRestarting') })
-        o.onDone()
-      },
-    )
+    // the update ended, done or not: read the status again, so the waiting line and its button do not outlive the wait
+    // (a failed install used to leave them until the page was opened again)
+    try {
+      await runner.run(
+        async () => r.value,
+        // "finished" only once the server answers with the new version; a version that did not stay (a Go back that
+        // bounced, QA TC-336) is said as such (lib/updateOutcome.ts)
+        async (job) => {
+          const out = await updateOutcome(job, { health: () => api.call(API.health), fetchJob: (id) => api.call(API.getJob, { params: { id } }) })
+          if (out.kind === 'ok') toast({ level: 'success', text: t('system.updateDone') })
+          else if (out.kind === 'not_kept') toast({ level: 'error', text: out.message ?? t('system.updateNotKept', { version: out.version, current: out.current }) })
+          else toast({ level: 'info', text: t('system.updateStillRestarting') })
+        },
+      )
+    } finally {
+      o.onDone()
+    }
   }
   // with tasks running, "Install update" asks: wait for them, or update now anyway; 'anyway': an update that waits
   // already (Admin > System's waiting line) goes on now

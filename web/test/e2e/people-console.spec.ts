@@ -87,6 +87,63 @@ test('Members: title with the count, one line, Invite; search and the Role filte
   expect(realErrors(errors)).toEqual([])
 })
 
+test('Members: Invite links lists only the links that still work; no open link, no section; no guests, no Guests section', async ({ page, browser }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  // member links: one used, one past its date (the list's answer is changed below), one open
+  const used = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  const old = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  const open = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  // and one the list's answer turns into a guest link whose project went to the trash (Invite.stopped)
+  const stopped = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  const ctx = await browser.newContext()
+  const accepted = await ctx.request.post(new URL(`/api/invites/${used.token}/accept`, page.url()).toString(), { data: { username: 'kim', name: 'Kim', password: 'kim password 1' }, headers: { [CSRF_HEADER]: '1' } })
+  expect(accepted.ok()).toBeTruthy()
+  await ctx.close()
+  await page.route('**/api/admin/invites', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const r = await route.fetch()
+    const body = await r.json()
+    for (const i of body.items) if (i.id === old.invite.id) i.expiresAt = new Date(Date.now() - 3600_000).toISOString()
+    for (const i of body.items) if (i.id === stopped.invite.id) Object.assign(i, { role: 'guest', groupIds: [], guestPlace: { kind: 'project', id: stopped.invite.id, name: 'Trashed plan' }, stopped: 'place_gone' })
+    await route.fulfill({ response: r, json: body })
+  })
+  await page.goto('/admin/members')
+  const rows = page.getByTestId('invite-list').locator('li')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText(t['role.member'])
+  await expect(rows.first().getByRole('button', { name: t['members.revoke'], exact: true })).toBeVisible()
+  await expect(page.getByTestId('invite-links')).not.toContainText('Trashed plan')
+  // the team has no guests: no Guests section, not even an empty row
+  await expect(page.getByTestId('guests-section')).toHaveCount(0)
+  // the Role filter's Guests still says there are none
+  await page.getByTestId('member-role-filter').selectOption('guest')
+  await expect(page.getByTestId('guests-none')).toBeVisible()
+  await page.getByTestId('member-role-filter').selectOption('all')
+  // revoking the open one leaves no working link: the section goes
+  await rows.first().getByRole('button', { name: t['members.revoke'], exact: true }).click()
+  await expect(page.getByTestId('invite-links')).toHaveCount(0)
+  expect((await (await page.request.get('/api/admin/invites')).json()).items.map((i: { id: string }) => i.id)).not.toContain(open.invite.id)
+
+  // a team invite link past its date is not listed either (its popup says why and makes a new one)
+  await post(page, '/api/admin/team-link', {})
+  await page.reload()
+  await expect(page.getByTestId('team-link-row')).toBeVisible()
+  await page.route('**/api/admin/team-link', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const r = await route.fetch()
+    const body = await r.json()
+    body.link.state = 'expired'
+    await route.fulfill({ response: r, json: body })
+  })
+  await page.reload()
+  await expect(page.getByTestId('members-table')).toBeVisible()
+  await expect(page.getByTestId('team-link-row')).toHaveCount(0)
+  await expect(page.getByTestId('invite-links')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('Members: "Team invite link" opens a popup; make, copy, and the page lists it quietly', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

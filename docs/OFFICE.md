@@ -311,6 +311,12 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
    답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
    되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).
+   **되돌릴 수 없는 경우(QA TC-335):** 새 버전이 데이터베이스를 이전 버전이 읽지 못하는 단계(schema reader level)로 바꿨다면
+   이전 버전은 시작할 수 없습니다(종료 코드 75). 그래서 새 설치 프로그램은 그 `app.previous`를 `app.unreadable`로 옮기고,
+   업데이트는 되돌리지 않고 새 버전을 한 번 더 시작합니다. 0.4.0처럼 이 기능이 없는 이전 버전의 업데이트 에이전트는 되돌리려다
+   `app.previous`가 없어서 멈추고(새 버전은 그대로), 서버를 멈춘 채로 끝납니다. 그러면 15분 안에 새 버전의 업데이트 에이전트가
+   서버를 다시 시작합니다(`update/heal.json`). 서버 감독(`office.js run`)도 75로 끝난 서버를 다시 띄우지 않습니다: 읽을 수 있는
+   새 버전이 `app.failed`에 있으면 그 버전으로 앞으로 가고, 없으면 한 줄 안내를 남기고 멈춥니다.
    **큰 데이터베이스:** 새 버전이 데이터베이스를 바꿔야 하면(마이그레이션) 먼저 사본을 만들고(`data/backups/pre-migrate-*.db`)
    마이그레이션을 적용한 뒤에 시작합니다. 데이터베이스가 몇 GB면 몇 분에서 수십 분 걸릴 수 있습니다. 그동안 새 버전은
    `/api/health`에 503 "migrating"(진행: 남은 마이그레이션, 복사 중이면 복사한 MB)으로 답하고, 업데이트는 그 답이 오는 동안
@@ -382,6 +388,9 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 업데이트 중 데스크 주소(8443): "연결이 거부됨" | 새 버전이 큰 데이터베이스를 바꾸는 중일 수 있음(6장 5단계, 몇 분에서 최대 60분). 맥 미니에서 `teamax status`의 "this Mac" 줄이 "updating its database"면 기다리세요. 진행은 `~/TeamAX/logs/update.log` |
 | 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
 | 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
+| `tailscale-address on`: "HTTPS certificates are off" | Tailscale 관리 화면 → DNS에서 MagicDNS와 HTTPS Certificates를 켜고 다시 실행 |
+| `tailscale-address on`: "used by `tailscale serve`" | 그 포트는 이 맥의 serve·Funnel이 씀. `--port <다른 포트>` |
+| Tailscale 주소: 안 열림 | 그 기기가 같은 tailnet에 연결됐는지(Tailscale 앱), 맥 미니에서 `teamax tailscale-address status`, `teamax logs` |
 | 421 "Misdirected request" | 카드에 없는 주소·이름으로 접속함. `teamax info`의 주소를 쓰세요 |
 | 지문이 카드와 다름 | 설치하지 말고 USB로 `ca.cer`를 옮겨 설치. 누군가 네트워크에서 바꿔치기했을 수 있습니다 |
 | 채팅이 "엔진을 쓸 수 없음" | 맥 미니에서 `claude auth status`(만료 시 `claude` → `/login`), `teamax logs`(서버 로그 포함) |
@@ -389,6 +398,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 공유기를 바꿔 주소 대역이 달라짐 (예: 192.168.0.x → 192.168.1.x) | 인증서가 새 대역을 이름에 넣지 못합니다. `teamax stop` → `mv ~/TeamAX/tls ~/TeamAX/tls.old` → `teamax start` → 새 카드 인쇄 → 데스크마다 인증서 다시 설치 |
 | 포트가 이미 쓰이는 중 | 설치기의 안내대로 `--lan-port 9443` 등 다른 번호 |
 | 관리자 > 시스템 "이전 버전으로 되돌렸어요" | 새 버전이 제대로 뜨지 않아 자동으로 되돌림(데이터 그대로). `~/TeamAX/logs/update.log` 끝과 `teamax update status`를 관리자나 프로젝트 이슈 트래커에 보내 주세요. 원인을 고친 뒤 `teamax update now`로 다시 시도합니다 |
+| 업데이트 뒤 팀 서버가 안 뜸, `teamax logs`에 "database needs schema reader level 8 … this build reads level 4"가 반복 | 새 버전이 데이터베이스를 바꾼 뒤 옛 버전으로 되돌아갔습니다(QA TC-335). 옛 zip을 다시 설치해도 **소용없습니다**. 받아 둔 **가장 새 zip**(실패한 업데이트의 버전 이상)으로 같은 설치 폴더에 `bash <푼 폴더>/office-install.sh --prefix ~/TeamAX`를 실행하세요(데이터 그대로). 이 수정이 들어간 버전으로 올라갈 때는 새 설치 프로그램이 옛 앱을 `app.unreadable`로 치워서 이렇게 되지 않습니다(옛 업데이트 에이전트가 서버를 멈추면 15분 안에 새 버전이 다시 시작). 되돌아간 앱이 이미 이 수정을 가진 버전일 때만 그 감독이 스스로 새 버전으로 앞으로 가거나 이 안내를 `teamax logs`와 `teamax update status`에 남기고 멈춥니다. 다시 설치하면 `teamax update status`의 옛 실패 안내도 지워집니다 |
 | 자동 업데이트가 안 됨 | `teamax update status`: "설치 안 됨"이면 새 zip(0.2.0 이상)으로 `office-install.sh`를 한 번(6장), "꺼짐"이면 `teamax update resume`, 마지막 결과가 `failed`면 이유(인터넷·설정한 피드 주소 차단 등)가 함께 나옵니다 |
 
 명령 모음(`~/TeamAX/teamax …`): `status`, `info`(주소·지문, `~/TeamAX/ADDRESSES.txt`와 같음), `card`, `logs [n]`,
@@ -567,6 +577,56 @@ rm ~/Downloads/team.example.com.tunnel-token
 **한도**: 요청 하나는 Cloudflare 무료 요금제의 100 MB를 넘지 않습니다. 50 MB가 넘는 파일은 웹 앱이 8 MB 조각으로 올립니다
 (120 MB 시험 통과). Cloudflare는 100초 동안 답이 없는 요청을 끊지만, 긴 작업은 이미 작업(job)과 WebSocket으로 갑니다.
 
+## 10. Tailscale 주소 (같은 tailnet의 기기, 어디서나)
+
+구성: 휴대폰·노트북(같은 tailnet, 모바일 데이터도 됨) → `https://<맥 이름>.<tailnet>.ts.net:<포트>` → 맥 미니의 Tailscale
+IPv4 주소(100.x)에만 열린 TLS 포트. 인증서는 Tailscale이 받아 주는 **Let's Encrypt 인증서**라서 **기기에 아무것도 설치하지
+않고 경고 없이** 열립니다. 도메인도 Cloudflare도 필요 없습니다.
+
+### ① 준비 (한 번)
+
+- 맥 미니에 **Tailscale 앱**을 설치하고 로그인합니다(https://tailscale.com/download/mac). 멤버의 기기도 같은 tailnet에 넣습니다.
+- Tailscale 관리 화면 → **DNS**(https://login.tailscale.com/admin/dns)에서 **MagicDNS**와 **HTTPS Certificates**를 켭니다.
+
+### ② 켜기
+
+```sh
+~/TeamAX/teamax tailscale-address on
+```
+확인: `Tailscale 주소 / Tailscale address: https://<이름>.ts.net:<포트>`와 `답함 / answers`. 이 명령은 `tailscale status`에서 이
+맥의 이름을 읽고, 인증서를 먼저 받고(못 받으면 아무것도 바꾸지 않음), 설정을 쓰고, 서버를 한 번 다시 켭니다.
+- 포트: 기본은 사무실 포트 + 1(예: 8443 → 8444). 바꾸려면 `--port <포트>`. 이 맥의 `tailscale serve`·Funnel이 이미 쓰는 포트
+  (`tailscale serve status`)는 거부합니다. 그 포트의 tailnet 연결은 tailscaled가 받으므로 서버에 오지 않습니다. 443도 그 맥에서
+  serve가 쓰지 않으면 됩니다(`--port 443`: 주소에 포트가 없음).
+- 상태: `teamax tailscale-address status`(이 맥의 Tailscale 주소, 인증서 남은 날, 답하는지), `teamax status`의 `tailnet` 줄.
+- 끄기: `teamax tailscale-address off`(설정과 인증서 파일을 지우고 서버를 다시 켬; 사무실 안 주소는 그대로).
+
+### ③ 동작
+
+- 감시 프로세스가 30초마다 `tailscale status`를 보고, 12시간마다 `tailscale cert`를 다시 부릅니다. 인증서는 tailscaled가 끝나기
+  전에 스스로 갱신하고, 서버는 새 파일을 1분 안에 읽어 그 포트만 다시 엽니다(채팅은 끊기지 않음). 남은 날이 7일보다 적으면
+  `office.log`에 경고가 남습니다.
+- 로그인 때 맥 미니가 Tailscale보다 먼저 켜지면 그 포트는 Tailscale이 연결될 때까지 기다립니다. 다른 주소는 그대로 동작합니다.
+- 이 맥의 Tailscale 이름이 바뀌면(맥 이름 변경) `office.log`가 알려 줍니다. `teamax tailscale-address on`을 다시 실행하세요.
+- 초대·재설정 링크는 인터넷 주소가 없으면 Tailscale 주소로 만들어집니다.
+
+### ④ 보안 메모
+
+- **첫 설정(팀장 계정 만들기)은 Tailscale 주소로 할 수 없습니다.** 맥 미니나 사무실 데스크에서 하세요. 인터넷 주소와 같게,
+  로그인 전 `/api/health`는 `ok`와 시각만 알려 주고, 로그인 실패 제한은 인터넷 기준으로 셉니다. 활동 로그에는 `tailnet`으로 남습니다.
+- **tailnet의 모든 기기가 로그인 화면에 닿습니다.** 누가 들어올 수 있는지는 Tailscale의 기기 승인과 ACL이 정합니다. 퇴사자는
+  Trina AX에서 비활성으로 하고 tailnet에서도 빼세요. 다른 tailnet에서 공유받은 기기와, 서브넷 라우터 뒤의 기기(기본으로
+  라우터의 100.x 주소로 바뀜)도 tailnet 기기로 들어옵니다.
+- 포트는 **Tailscale 주소(100.x)에만** 열리고 사무실 네트워크에는 없습니다. 서버는 100.64.0.0/10 대역의 연결과 그 이름의 Host만
+  받습니다(다른 연결 403, 다른 Host 421). 사무실 포트는 그대로 사무실 대역만 받습니다: `TEAMAX_INCLUDE_VPN`·`TEAMAX_ALLOW_FROM`에
+  100.64.0.0/10을 넣지 마세요.
+- `tailscale serve`로 앱 포트에 연결하지 않는 이유: serve를 거친 요청은 맥 자신(127.0.0.1)에서 온 것처럼 보여서, 사무실 대역
+  검사와 첫 설정 거부가 동작하지 않습니다.
+- 인증서는 공개 인증서 투명성(CT) 기록에 남습니다. 그래서 **맥 이름과 tailnet 이름(`<이름>.<tailnet>.ts.net`)이 공개**됩니다.
+  주소를 알아도 tailnet 밖에서는 연결할 수 없습니다.
+- 데이터는 Tailscale의 WireGuard 연결 안에서 기기와 맥 미니 사이를 오가고, TLS는 맥 미니에서 끝납니다. 직접 연결이 안 되면
+  Tailscale 중계(DERP)가 패킷을 나르지만, 암호화된 채로 나르므로 중계는 내용을 읽지 못합니다.
+
 ## 부록 A. 번들 만들기 (개발 맥에서)
 
 ```sh
@@ -653,7 +713,9 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
   (폴더에 다른 파일·링크가 있어도 안 보임).
 - **서명**: `서명 확인됨`은 실제 검사가 통과했을 때만입니다(윈도우: `osslsigncode verify`, 맥: Gatekeeper
   `spctl -a -t open --context context:primary-signature`). 인증서가 붙어 있기만 하거나 ad-hoc 서명인 파일은 `서명 있음(확인 안
-  됨)`이고, 설정 → 앱은 SmartScreen·Gatekeeper 단계를 계속 보여 줍니다. 지금 빌드는 서명하지 않으므로 `서명 없음`.
+  됨)`이고, 설정 → 앱은 SmartScreen·Gatekeeper 단계를 계속 보여 줍니다. 윈도우 빌드는 아직 서명하지 않으므로 `서명 없음`.
+  맥 dmg는 0.5.5부터 Developer ID로 서명·공증되어(`docs/RELEASE-CI.md` "Mac app") 이 맥에서 `서명 확인됨`이 됩니다. 서명된 맥 앱은
+  업데이트 6단계가 `/downloads/`에 두는 업데이트 zip과 `latest-mac.yml`로 윈도우 앱처럼 스스로 업데이트합니다.
 - **맥 dmg**: `-mac-universal.dmg`(인텔·애플 실리콘 모두)를 올리세요. `-mac-arm64.dmg`를 올리면 설정 → 앱에 "Apple Silicon(M1
   이후) 맥 전용"이 붙고, 같은 버전이면 universal이 우선입니다.
 
@@ -676,8 +738,8 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
   Node, Linux Chromium(CA를 신뢰 목록에 넣고, 인증서 고정 없이: 보안 연결·서비스 워커·PWA 설치 가능)으로 확인했습니다.
   첫 데스크에서 위 4장을 따라 해 보고 나머지 9대를 진행하세요. 어떤 데스크가 인증서를 거부하면 `~/TeamAX/tls`를 옮겨 두고
   `office.env`에 `TEAMAX_CA_CONSTRAINTS=0`, `teamax restart`(새 CA, 이름 제한 없음, 데스크 재설치).
-- IPv4만 씁니다(IPv6 주소는 인증서·접속 대상에 넣지 않음). VPN(Tailscale 등) 주소도 빼며, 필요하면 `TEAMAX_INCLUDE_VPN=1`과
-  `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`).
+- IPv4만 씁니다(IPv6 주소는 인증서·접속 대상에 넣지 않음). 사무실 포트는 VPN(Tailscale 등) 주소도 빼며, 필요하면 `TEAMAX_INCLUDE_VPN=1`과
+  `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`). Tailscale로 밖에서 쓰려면 이 둘 대신 10장의 Tailscale 주소를 쓰세요(인증서 설치 없음).
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
 - AI가 사진(png·jpg·heic 등)과 글자 층이 없는 스캔 PDF 페이지를 읽으면 Claude Code처럼 이미지를 직접 봅니다(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐; 끄면 애플 Vision 글자 인식으로 대신). PDF의 글자 층과 페이지 이미지는 번들의 `mycel-ocr`(PDFKit)로, `pdftotext`(Homebrew `poppler`)가 있으면 글자 층은 그것으로 읽습니다. 스캔 PDF는 애플 Vision으로 글자를 인식해 검색 색인에 넣습니다(쪽당 약 1초, 최대 100쪽; 사진은 색인하지 않음). docx·pptx는 번들의 pandoc으로, 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
 - 영상·오디오 파일(mp4·mov·m4a·mp3 등)은 아직 사무실 맥에서 읽지 못합니다. AI가 그렇다고 알려 줍니다(Linux 서버에서는 장면과 받아쓰기로 읽음).
