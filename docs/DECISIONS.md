@@ -29906,7 +29906,7 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   (their own, one the team set up, or the server computer's own sign-in), whether they may add their own AI sign-in and
   their own connected services, where their usage is, and for the owner and admins the team's plan from the plan file.
   "Where you run" says where the server is by the way it runs (hosted: in the cloud; office: a Mac in the office; else
-  the team's own server).
+  a computer the team runs itself).
 - Screen names come from `SCREEN` (`server/src/policy/refusal.ts`) in English and in the person's language; a test
   compares them with the web app's labels, so a renamed screen fails the test instead of misleading the AI.
 - **Kept out.** Anything about other people (no admin names, as in "Refusals say why, who and what next"), connection

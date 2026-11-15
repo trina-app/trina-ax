@@ -161,7 +161,7 @@ describe('where the server runs', () => {
     expect(environmentSection('hosted')).toContain('in the cloud')
     expect(environmentSection('hosted')).not.toContain('office')
     expect(environmentSection('office')).toContain('a Mac in the team\'s office')
-    expect(environmentSection('selfhost')).toContain('the team\'s own server')
+    expect(environmentSection('selfhost')).toContain('a computer the team runs itself')
     expect(ENVIRONMENT).toBe(environmentSection('selfhost'))
     for (const k of ['hosted', 'office', 'selfhost', 'dev'] as const) expect(environmentSection(k)).toContain('NOT on the user\'s computer')
   })
@@ -224,7 +224,7 @@ describe('built from real state', () => {
     expect(s).toContain('## About this person and place')
     expect(s).toContain('Role: a member. They cannot open Admin')
     expect(s).toContain('App: Trina AX in a web browser.')
-    expect(s).toContain('the team\'s own server')
+    expect(s).toContain('a computer the team runs itself')
     expect(s).not.toContain('a computer in the office')
     const d = await h.api('dana', { client: 'mobile' }).call(API.createChat, { body: {} })
     const t = (await ask(h, dana, 'dana', d.id, fake({ echo: 'system' }), { client: 'mobile' })).done.content

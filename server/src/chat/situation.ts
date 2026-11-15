@@ -130,5 +130,5 @@ const oneLine = (x: string) => x.replace(/[\r\n<>]+/g, ' ').slice(0, 60)
 export function serverWhere(kind: RunKind): string {
   return kind === 'hosted' ? `a server the ${PRODUCT.displayName} service runs for the team in the cloud`
     : kind === 'office' ? 'a Mac in the team\'s office'
-      : 'the team\'s own server'
+      : 'a computer the team runs itself'
 }
