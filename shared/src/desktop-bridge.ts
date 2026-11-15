@@ -228,11 +228,14 @@ export interface DesktopBridge {
   }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
-  /** The app's own menu of teams under the pointer: the team menu's "다른 팀으로 전환" (the logo menu, the 나 tab). The
-   * same list as the OS menu's 팀 (⌘1–9, the open team ticked) and its "팀 목록…"; drawn by the app, so the page never
-   * learns which other teams the person has. Optional: desktop apps before this addition do not have it (the page opens
-   * the team list, openTeams). */
+  /** Older pages' "다른 팀으로 전환": desktop apps up to 0.5.7 showed a menu of teams under the pointer; since 2026-11-15
+   * the app opens its team screen here too (as openTeams). Pages call openTeams. Optional: older desktop apps. */
   teamMenu?(): void
+  /** The page draws the team address and "Switch team" under its sign-in card (true while it shows them, false when it
+   * leaves the sign-in page): the app then leaves out its own strip above the page on the sign-in paths, so the address
+   * is not shown twice. The address the page shows is the bridge's connection teamAddress, never location.host.
+   * Optional: older desktop apps keep their strip, and the page then draws no line. */
+  hostLine?(drawn: boolean): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
   setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'): void

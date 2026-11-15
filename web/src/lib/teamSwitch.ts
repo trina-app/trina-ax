@@ -1,6 +1,6 @@
 // "다른 팀으로 전환" (UX review S6, docs/DECISIONS.md "Switching teams from the logo menu and 나"): only where one app holds
-// several teams. The desktop app: its own menu of teams under the pointer, the OS menu's 팀 list (⌘1–9) and "팀 목록…"
-// (DesktopBridge.teamMenu; an older app opens its team list). The phone app: its own "다른 팀에 연결" screen over the team
+// several teams. The desktop app: its own team screen (the remembered teams, Open, Remove from list, Back; openTeams).
+// No menu under the pointer any more (owner 2026-11-15: it floated over the rail); the OS menu's 팀 keeps ⌘1–9. The phone app: its own "다른 팀에 연결" screen over the team
 // (change-team-v1), the one its signed-out footer opens. A plain browser, phone or computer, is one team per address:
 // nothing is offered there. The page never learns the person's other teams: the app draws the list.
 import { useSyncExternalStore } from 'react'
@@ -31,6 +31,6 @@ export function useTeamSwitchWay(): TeamSwitchWay | null {
 /** Opens the app's own team switch (nothing in a plain browser). */
 export function switchTeam(): void {
   const d = desktop()
-  if (d) return void (d.teamMenu ? d.teamMenu() : d.openTeams())
+  if (d) return void d.openTeams()
   if (appChangesTeam()) void changeTeamInApp().catch(() => {})
 }

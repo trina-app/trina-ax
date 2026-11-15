@@ -4,7 +4,7 @@
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
-import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
+import { isLoopbackHost, mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
@@ -158,6 +158,20 @@ export function originOf(url: string): string {
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * A remembered team on this computer (localhost, *.localhost, a loopback IP): a developer's `bun run dev` server, which
+ * is often not running. When the app opens it by itself at start and it does not answer, the first-run screen with the
+ * team list comes instead of the "cannot reach the team server" card (main/app-window.ts openLast). A team the person
+ * opens keeps that card and its [다시 시도].
+ */
+export function onThisComputer(origin: string): boolean {
+  try {
+    return isLoopbackHost(new URL(origin).hostname)
+  } catch {
+    return false
   }
 }
 

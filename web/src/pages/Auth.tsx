@@ -12,7 +12,7 @@ import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { removedFrom, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
-import { clientKind } from '../lib/desktop'
+import { clientKind, desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
@@ -26,7 +26,9 @@ import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
-import { Button, Field, IconButton, inputCls } from '../components/ui'
+import { Button, Field, IconButton, inputCls, TextAction } from '../components/ui'
+import { isSignInPath } from '@mycel/shared/team-link'
+import { teamAddressHost } from '../lib/team-address'
 import { browserTimeZone } from '../lib/time-zones'
 import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
@@ -141,10 +143,55 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>
+        <DesktopTeamLine />
         {switcher && !inApp && <LanguageSwitcher />}
         {!inApp && <SourceCodeLink className="mt-4 block text-center text-xs text-faint hover:text-muted" />}
       </main>
     </div>
+  )
+}
+
+/**
+ * Under the sign-in card, in the desktop app only: the team address the app connected to and "Switch team", which opens
+ * the app's own team screen (the remembered teams, Open, Remove from list, Back; DesktopBridge.openTeams). The app then
+ * leaves out its strip above the page (DesktopBridge.hostLine), so the address is shown once, next to the form (owner
+ * 2026-11-15). The address is the bridge's teamAddress, never location.host (over the office network the page is at the
+ * office address). A plain browser has no team list: nothing. The phone app draws its own footer under the page (host
+ * and "다른 팀에 연결"): nothing here either. A desktop app without hostLine keeps its strip: nothing here.
+ */
+function DesktopTeamLine() {
+  const t = useT()
+  const { pathname } = useLocation()
+  const bridge = desktop()
+  const shown = !!bridge?.hostLine && isSignInPath(pathname)
+  const [host, setHost] = useState<string | null>(null)
+  useEffect(() => {
+    if (!shown || !bridge) return
+    let live = true
+    const take = (c: { teamAddress: string } | null) => {
+      if (live) setHost(teamAddressHost(c?.teamAddress))
+    }
+    const off = bridge.connection.onChange(take)
+    void bridge.connection.get().then(take, () => {})
+    return () => {
+      live = false
+      off()
+    }
+  }, [shown, bridge])
+  const drawn = shown && !!host
+  useEffect(() => {
+    if (!drawn || !bridge?.hostLine) return
+    bridge.hostLine(true)
+    return () => bridge.hostLine?.(false)
+  }, [drawn, bridge])
+  if (!drawn) return null
+  return (
+    <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 text-center text-xs text-muted" data-testid="auth-team-line">
+      <span className="sr-only">{t('system.address')}: </span>
+      <span className="min-w-0 truncate font-medium text-ink" data-testid="auth-team-host">{host}</span>
+      <span aria-hidden>·</span>
+      <TextAction onClick={() => bridge!.openTeams()} data-testid="auth-switch-team">{t('teamMenu.switch')}</TextAction>
+    </p>
   )
 }
 

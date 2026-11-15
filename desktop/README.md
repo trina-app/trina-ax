@@ -88,7 +88,7 @@ Dev against the local team server: `bun run dev:server` at the repo root, then
 
 | Variable | Effect |
 |---|---|
-| `MYCEL_DESKTOP_USER_DATA` | user data folder (teams.json, partitions, allowed sites) |
+| `MYCEL_DESKTOP_USER_DATA` | user data folder (teams.json, partitions, allowed sites); without it a dev run uses `Team AX (dev)`, never the installed app's folder |
 | `MYCEL_DESKTOP_TEAM` | team address to add and open at start (unpackaged builds only) |
 | `MYCEL_DESKTOP_TEST_PUBLIC_HOSTS` | names mapped to 127.0.0.1 and treated as public sites (unpackaged builds only; e2e) |
 | `MYCEL_DESKTOP_TEST_PRIVATE_HOSTS` | office-style names (e.g. `nas.lan`) mapped to 127.0.0.1 (unpackaged builds only; e2e) |
