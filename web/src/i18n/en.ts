@@ -4821,7 +4821,7 @@ export const en: Record<MessageKey, string> = {
   "welcome.skills.bringLead": "If you use Claude Code or Codex, your own skills can go in too",
   "welcome.skills.installed": "{n, plural, one {Added # skill to the team} other {Added # skills to the team}}",
   "welcome.skills.put": "Add {names}",
-  "welcome.skills.putN": "Add {n} skills",
+  "welcome.skills.putN": "Add {n, plural, one {# skill} other {# skills}}",
   "welcome.skills.allIn": "Every skill {product} prepared is already in your team.",
   "skillShare.page.toSetup": "Back to setup",
   "skillShare.target": "Share with",

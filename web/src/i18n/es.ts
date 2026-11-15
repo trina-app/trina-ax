@@ -4777,7 +4777,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.skills.bringLead": "Si usa Claude Code o Codex, también puede añadir sus propias habilidades",
   "welcome.skills.installed": "{n, plural, one {Se añadió # habilidad al equipo} other {Se añadieron # habilidades al equipo}}",
   "welcome.skills.put": "Añadir {names}",
-  "welcome.skills.putN": "Añadir {n} habilidades",
+  "welcome.skills.putN": "Añadir {n, plural, one {# habilidad} other {# habilidades}}",
   "welcome.skills.allIn": "Todas las habilidades preparadas por {product} ya están en su equipo.",
   "skillShare.page.toSetup": "Volver a la configuración",
   "skillShare.target": "Compartir con",
