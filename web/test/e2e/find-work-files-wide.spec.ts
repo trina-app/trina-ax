@@ -130,3 +130,24 @@ test('the screen\'s ✕ and Escape close it: nothing looked at', async ({ page }
   await expect(page.getByTestId('find-work-access')).toHaveCount(0)
   expect((await app(page)).scans).toBe(0)
 })
+
+test('the 50-file list: Select all ticks the 50 shown, never a personal file; the rest are found by name', async ({ page }) => {
+  await start(page, { wide: true, fullDisk: 'granted' })
+  const many: Meta[] = [...Array.from({ length: 60 }, (_, i) => ({ name: `Acme report ${i}.docx`, root: 'cloud' as const, place: 'OneDrive – Acme' })), { name: 'Acme payslip_oct.pdf' }]
+  await look(page, many, WIDE_ROOTS)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-work').getByTestId('find-work-row')).toHaveCount(50)
+  await expect(page.getByTestId('find-work-rest')).toContainText('10 more documents')
+  await expect(page.getByTestId('find-work-select-all')).toHaveText('Select all 50')
+  await page.getByTestId('find-work-select-all').click()
+  await expect(page.getByTestId('find-work-add')).toHaveText('Add 50 files')
+  await expect(page.getByTestId('find-work-personal-toggle')).toBeVisible()
+  await page.getByTestId('find-work-personal-toggle').click()
+  await expect(page.getByTestId('find-work-personal').getByTestId('find-work-check')).not.toBeChecked()
+  // one beyond the 50 is found by name and can be ticked too
+  await page.getByTestId('find-work-search').fill('report 59')
+  await page.getByTestId('find-work-found').getByTestId('find-work-check').check()
+  await expect(page.getByTestId('find-work-add')).toHaveText('Add 51 files')
+})
