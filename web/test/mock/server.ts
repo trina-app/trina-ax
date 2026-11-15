@@ -189,6 +189,8 @@ function auditRows(): AuditEntry[] {
     { id: 'f1', source: 'file', at: at(12 * min), actor: olga, action: 'update', target: 'finance/2026/plan.md', turnId: null, detail: { size: 2048, sha256: 'c'.repeat(64), detail: null } },
     { id: 't1', source: 'tool', at: at(14 * min), actor: bob, action: 'read', target: null, turnId: null, detail: { summary: 'read hr/salaries.xlsx -> denied: no access', ok: 0 } },
     { id: 't2', source: 'tool', at: at(16 * min), actor: bob, action: 'read', target: null, turnId: null, detail: { summary: 'read marketing/plan.md', ok: 1 } },
+    // two quick edits of one team connection that changed different things (QA TC-2953: two rows, not "· 2 times")
+    ...[[18, { changed: ['url'] }], [19, { name: 'Ledger old', changed: ['name'], secret: 'replaced' }]].map(([m, d], i): AuditEntry => ({ id: `i${i}`, source: 'admin', at: at((m as number) * min), actor: olga, action: 'integration.update', target: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', turnId: null, detail: { scope: 'team', kind: 'http', auth: 'bearer', name: 'Ledger', host: 'api.ledger.example', ...(d as object) } })),
     { id: 'k1', source: 'admin', at: at(day + 5 * min), actor: olga, action: 'skills.change', target: 'skills/weekly-team-report/SKILL.md', turnId: null, detail: null },
   ]
   for (let d = 2; d <= 121; d++) rows.push({ id: `o${d}`, source: 'auth', at: at(d * day), actor: olga, action: 'auth.login', target: 'olga', turnId: null, detail: { ip: '10.0.0.2' } })
@@ -4818,6 +4820,7 @@ export class MockServer {
     createIntegrationRequest: (c) => {
       if (!this.settings.personalIntegrations) fail('conflict', 409, '지금은 직원이 개인 연결을 추가할 수 없어요.')
       const member = this.users.find((u) => u.id === c.body.userId && u.status === 'active') ?? fail('validation', 400, '이 팀에서 쓰고 있는 계정이 아니에요.', { 'body.userId': 'not an active account' })
+      if (member.role === 'guest') fail('validation', 400, '게스트에게는 연결을 요청할 수 없어요.', { 'body.userId': '게스트에게는 연결을 요청할 수 없어요.' })
       if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
       if (this.integrationRequests.some((r) => r.user.id === member.id && r.url === c.body.url && this.requestState(r) === 'waiting')) fail('conflict', 409, '이 사람에게 같은 주소로 보낸 요청이 아직 기다리고 있어요.')
       const at = Date.now()

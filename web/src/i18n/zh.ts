@@ -4450,6 +4450,7 @@ export const zh: Record<MessageKey, string> = {
   "slack.err.officialScopes": "Slack 需要重新批准此应用。请重新[添加到 Slack]并允许。",
   "slack.err.officialEnterprise": "暂不支持组织范围的安装。请重新[添加到 Slack]并选择一个工作区。",
   "slack.err.officialUnknown": "Slack 连接出了问题。请重新[添加到 Slack]来修复。",
+  "slack.err.officialUnreachable": "Trina 暂时无法连接 Slack。它会自动重试；如果一直这样，请联系支持。",
   "slack.err.bot_refused": "Slack 不再接受已保存的机器人令牌，因此无法发布回答。请在[更换令牌]中输入新令牌。",
   "slack.admin.removeOfficialBody": "应用会从你的 Slack 工作区中移除，所有人的账号关联都会被删除。",
   "slack.admin.removeRemovedBody": "Slack 会从“已连接的应用”中移除，所有人的账号关联都会被删除。之后你可以重新添加。",

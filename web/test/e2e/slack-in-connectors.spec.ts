@@ -97,6 +97,10 @@ test('an admin who is not the owner: Slack in Connected apps with its state and 
   await slack({ mode: 'official', official: true, tokens: true, enabled: true, state: 'error', lastError: 'ratelimited' })
   await page.reload()
   await expect(page.getByTestId('slack-error')).toHaveText(t['slack.err.ratelimited'])
+  // Slack out of reach: the hosted admin cannot check the server's internet; Trina keeps trying (tracking TC-3033)
+  await slack({ mode: 'official', official: true, tokens: true, enabled: true, state: 'error', lastError: 'unreachable' })
+  await page.reload()
+  await expect(page.getByTestId('slack-error')).toHaveText(t['slack.err.officialUnreachable'])
   // nothing added and no Add to Slack here: one line, no steps
   await slack({ mode: 'own', official: false, tokens: false, enabled: false, workspace: null, botName: null, state: 'off', lastError: null })
   await page.reload()

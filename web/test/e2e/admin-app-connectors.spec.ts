@@ -99,6 +99,23 @@ test('where this page may not set it up: one line instead of Set up', async ({ p
   await expect(card(page).getByTestId('drive-setup')).toHaveCount(0)
 })
 
+test('a Drive notice opens Google Drive with one menu item marked, even with the pointer resting on another (QA TC-3035)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/connectors?drive=1')
+  await expect(page).toHaveURL(/\/admin\/connectors\/google-drive$/)
+  const menu = page.getByTestId('admin-menu')
+  const open = menu.locator('[aria-current="page"]')
+  await expect(open).toHaveCount(1)
+  await expect(open).toHaveAttribute('href', '/admin/connectors')
+  // the pointer stays where the Inbox row was clicked: over Folder permissions
+  const other = menu.locator('a[href="/admin/folders"]')
+  await other.hover()
+  const bg = (l: typeof other) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(await bg(open)).not.toBe('rgba(0, 0, 0, 0)')
+  await expect.poll(() => bg(other)).toBe('rgba(0, 0, 0, 0)')
+})
+
 test('members cannot open Admin › Connectors', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })

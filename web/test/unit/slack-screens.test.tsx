@@ -236,6 +236,9 @@ describe('Admin › Connected apps › Slack: the official app (the hosting serv
     expect(slackFix('missing_scope', 'own')).toEqual({ key: 'slack.err.missing_scope', page: 'oauth' })
     expect(slackFix('socket_mode_off', 'own')).toEqual({ key: 'slack.err.socket_mode_off', page: 'socket' })
     expect(slackFix('unreachable', 'own').key).toBe('slack.err.unreachable')
+    // hosted: the admin cannot check the server's internet; Trina keeps trying, support if it lasts (tracking TC-3033)
+    expect(slackFix('unreachable', 'official')).toEqual({ key: 'slack.err.officialUnreachable' })
+    for (const lang of Object.keys(DICTS) as (keyof typeof DICTS)[]) expect(DICTS[lang]['slack.err.officialUnreachable'], lang).not.toMatch(/internet|인터넷|インターネット|互联网|网络连接|conexión a internet/i)
   })
 
   test('removed in Slack: Remove beside Add to Slack clears it, after a confirm', async () => {

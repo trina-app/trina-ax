@@ -6351,7 +6351,9 @@ on every call as before.
   API. The same field checks as a connection (`service.ts` `headerName`, `normUrl`, `obviouslyPrivate`). The body is
   strict, so a key sent with a request is refused (400), not dropped. No write rule (the member's choice, ask or refuse,
   as for any personal connection) and no access rule. One waiting request per member and address, 20 waiting per
-  member, 200 in all. Refused (409) while the team does not allow personal connections. A member's existing
+  member, 200 in all. Refused (409) while the team does not allow personal connections. Never to a guest (2026-11-15,
+  QA TC-2948): a guest cannot open Settings › Connectors, so the request would wait on nobody; refused (400 under the
+  person), and a waiting one to a guest ends as withdrawn once, at server start (no migration). A member's existing
   connections are never looked at: a refusal "already connected" would tell the admin about them.
 - **States.** waiting, connected, declined (member), withdrawn (admin), expired (7 days, `INTEGRATION_REQUEST_DAYS`;
   derived from `expires_at`, nothing rewrites the row). Ended and expired requests leave the admin's list 30 days later.
@@ -28965,3 +28967,11 @@ QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
   `c-service-requests-catalog.test.ts`, `a-auth.test.ts` (the session flag); web unit `connector-detail-tools`,
   `integration-always-allow`, `service-requests`.
 - Version impact: **patch** (wrong lines fixed and missing notices sent; one additive migration, no API removed).
+
+## Activity log: only entries with the same details fold (fix/guest-request-audit-menu, 2026-11-15, QA TC-2953)
+
+Admin › Activity log folds repeats close together into one row ("· 5 times"). That row shows one entry's details and
+the list of times, so two quick edits of one connection (name, then address) showed only the latest edit. Decided:
+entries fold only when their whole details are the same, for every kind (admin changes, AI tools, files, sign-ins).
+Two AI reads of different files and two saves of a file with other contents are now two rows; sign-ins from one
+address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: **patch**.

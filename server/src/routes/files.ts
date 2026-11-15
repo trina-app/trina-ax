@@ -26,6 +26,7 @@ import { registerGoogleAppsRoutes } from './google-apps'
 import { googleAppsOf } from '../integrations/google-apps/service'
 import { installServiceRequests } from '../integrations/service-requests'
 import { registerIntegrationRoutes } from './integrations'
+import { requestsOf } from '../integrations/connections/requests'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
@@ -55,6 +56,8 @@ export const filesRoutes: RouteModule = {
     try { googleAppsOf(ctx) } catch (e) { ctx.log.error('Google apps failed to start; they stay off', { err: e }) }
     // a member's ask to add an app: closed once it is set up somewhere else too (integrations/service-requests.ts)
     installServiceRequests(ctx)
+    // requests to connect sent to guests before they were refused end once, at start (connections/requests.ts)
+    try { requestsOf(ctx).endGuestRequests() } catch (e) { ctx.log.warn('ending connection requests to guests failed', { err: e }) }
     // the file list: its nightly check and its hooks on moves and access changes (file-list/service.ts); a broken
     // sidecar never stops the server here
     try { fileListOf(ctx) } catch (e) { ctx.log.error('file list failed to start; it stays off', { err: e }) }

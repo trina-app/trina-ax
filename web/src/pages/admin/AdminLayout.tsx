@@ -164,6 +164,11 @@ export function redirectOf(section: string, sub: string | undefined, search: str
   return null
 }
 
+/** An admin menu item. Only the page that is open has a fill; the item under the pointer only gets darker text: after a
+ * notice opens Admin, the pointer can rest on another item, and the two looked alike (QA TC-3035). */
+export const adminMenuItemClass = (current: boolean) =>
+  clsx('flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm focus-visible:-outline-offset-2', current ? 'bg-hover font-medium text-ink' : 'text-muted hover:text-ink')
+
 /** A member who opened an /admin link (a shared link, an old bookmark, a notice meant for an admin): say the page is
  * for admins, with a way Home. Before, the link opened Home without a word (QA TC-272, ADM-28). The server refuses a
  * member's admin calls either way; this is only what the person sees. */
@@ -300,9 +305,7 @@ export default function AdminLayout() {
                 to={s.id ? `/admin/${s.id}` : '/admin'}
                 // an item's own page (/admin/connectors/<id>, /admin/plugins/<id>) keeps its page marked
                 end={!s.id}
-                className={({ isActive }) =>
-                  clsx('flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
-                }
+                className={({ isActive }) => adminMenuItemClass(isActive)}
               >
                 <s.icon size={15} className="shrink-0" aria-hidden /> <span>{t(s.label)}</span>
               </NavLink>
