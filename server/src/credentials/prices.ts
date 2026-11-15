@@ -1,6 +1,6 @@
 // List prices for the cost estimate of API-key connections (docs/DECISIONS.md "AI 연결" D16, "가격표"). USD per
 // million tokens. Subscriptions (anthropic-oauth, chatgpt) have no price per request: their cost is 0, tokens still
-// count. A model missing here is priced at the most expensive row of its family, so a budget never fills late.
+// count, and the usage screens show their API list price as an estimate (estimateOf, turns.est_cost_usd). A model missing here is priced at the most expensive row of its family, so a budget never fills late.
 // Update every release: open the two official price pages, match the tables, change PRICES_AS_OF
 // (tests/unit/a-prices.test.ts warns when it is older than 90 days).
 //   https://platform.claude.com/docs/en/about-claude/pricing      https://developers.openai.com/api/docs/pricing
@@ -18,6 +18,7 @@ export const WEB_SEARCH_PER_1K = 10
 interface ClaudePrice { in: number; cw5: number; cw1h: number; cr: number; out: number }
 const cp = (i: number, cw5: number, cw1h: number, cr: number, out: number): ClaudePrice => ({ in: i, cw5, cw1h, cr, out })
 export const CLAUDE_PRICES: Record<string, ClaudePrice> = {
+  'claude-fable-5-2': cp(8, 10, 16, 0.2, 40), 'claude-mythos-5-2': cp(8, 10, 16, 0.2, 40),
   'claude-fable-5-1': cp(10, 12.5, 20, 0.25, 50), 'claude-mythos-5-1': cp(10, 12.5, 20, 0.25, 50),
   'claude-fable-5': cp(10, 12.5, 20, 1, 50), 'claude-mythos-5': cp(10, 12.5, 20, 1, 50),
   'claude-opus-5-5': cp(4, 5, 8, 0.2, 20),
@@ -131,10 +132,19 @@ export function openaiCost(model: string, u: OpenAiUsage): number {
 }
 
 /** Cost of one request of a connection: list price for API keys (the gateway's when engine.anthropicGateway is set),
- * 0 for subscriptions. */
+ * 0 for subscriptions (no per-request price: budgets and connection limits count money spent). */
 export function costOf(kind: CredentialKind, model: string, usage: ClaudeUsage | OpenAiUsage, gateway?: Pick<AnthropicGatewayConf, 'baseUrl' | 'prices'> | null): number {
   if (kind === 'anthropic-api-key' && gateway) return gatewayCost(gateway, model, usage as ClaudeUsage)
   if (kind === 'anthropic-api-key') return claudeCost(model, usage as ClaudeUsage)
   if (kind === 'openai-api-key') return openaiCost(model, usage as OpenAiUsage)
+  return 0
+}
+
+/** What one request on a subscription sign-in (anthropic-oauth, chatgpt) would cost at API list prices: shown on the
+ * usage screens as "estimated at API prices", never added to cost_usd (budgets). 0 for API keys: their costOf is the
+ * amount already. A model missing from the table is priced like costOf prices it (the family's most expensive row). */
+export function estimateOf(kind: CredentialKind, model: string, usage: ClaudeUsage | OpenAiUsage): number {
+  if (kind === 'anthropic-oauth') return claudeCost(model, usage as ClaudeUsage)
+  if (kind === 'chatgpt') return openaiCost(model, usage as OpenAiUsage)
   return 0
 }
