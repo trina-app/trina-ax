@@ -29615,7 +29615,8 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
   as it is and never has white space in it: with white space between its characters it grew from about 290 K to 497 K
   characters for a 1.4 KB token and a 1 MB answer took 8.3 s on CI's Bun 1.3.12. Instead, each stretch of encoded-form
   characters (base64 and escape characters) with a break inside is looked at: without its breaks, if it is 12 characters
-  or longer and a form could begin in it (the first four characters of a base64 form, or an escape), a copy without the
+  or longer and a form could begin in it (the first four characters of a base64 form in any way the pattern takes them,
+  `\/`, `%2F`, `-`, `_` included; or an escape), a copy without the
   breaks is searched with the encoded forms' own pattern and what it finds is mapped back to the text. Ordinary text
   costs one scan of a character class. The tools' arguments (`hide-args.ts`) and the stream's cut (`RedactingText`)
   use the same places. Measured on Bun 1.3.12, 1 MB: the CI text (1.4 KB token) about 30 ms (#981 alone about

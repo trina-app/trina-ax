@@ -102,7 +102,9 @@ export function secretForms(values: Iterable<string | null | undefined>): Secret
     all.add(textPattern(v))
     const cores: string[] = []
     for (const p of base64Patterns(v, cores)) { all.add(p); encoded.add(p) }
-    for (const c of cores) seeds.add([...c.slice(0, 4)].map((ch) => (ch === '+' ? '[+-]' : ch === '/' ? '[/_]' : ch)).join(''))
+    // each character in any form the encoded pattern takes it in (\/ in JSON, %2F, -, _ …), or a stretch whose form
+    // starts with an escaped + or / would never be searched
+    for (const c of cores) seeds.add(textPattern(c.slice(0, 4), true))
     // unsplit, textPattern finds these already (it takes each character in any form)
     for (const p of escapedPatterns(v)) encoded.add(p)
   }

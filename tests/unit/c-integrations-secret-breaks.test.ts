@@ -34,6 +34,25 @@ describe('an encoded key split by line breaks or white space is hidden (hide.ts)
     }
   })
 
+  test('a base64 form that starts with / or + written escaped (\\/ in JSON, %2F, %2B), split by a blank line', () => {
+    // 'zz??>' encodes to 'eno/Pz4…' and 'zz>>?' to 'eno+Pj8…': the / or + is among the first four characters
+    for (const key of ['zz??>key-QQQ12345', 'zz>>?key-QQQ12345']) {
+      const h = secretHider([key])
+      const form = b64(key)
+      expect(/[/+]/.test(form.slice(0, 4)), form).toBe(true)
+      for (const [mark, esc] of [['/', '\\/'], ['/', '%2F'], ['/', '%2f'], ['+', '%2B']] as const) {
+        if (!form.slice(0, 4).includes(mark)) continue
+        const written = form.split(mark).join(esc)
+        for (const at of [2, 9, 15]) {
+          const text = `k ${split(written, at, '\n\n')} k`
+          expect(h(text), text).toBe(`k ${HIDDEN} k`)
+        }
+        // inside a JSON text the blank line is "\n\n" as written too (the %-escaped forms; \/ is already JSON)
+        if (esc !== '\\/') expect(h(JSON.stringify({ t: `k ${split(written, 9, '\n\n')} k` }))).toBe(JSON.stringify({ t: `k ${HIDDEN} k` }))
+      }
+    }
+  })
+
   test('wrapped base64 (every 4 or 76 characters, \\r\\n), spaces, tabs and JSON-escaped breaks', () => {
     const long = `${KEY}${KEY}${KEY}${KEY}${KEY}`
     const hideLong = secretHider([long])
