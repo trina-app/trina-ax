@@ -29430,13 +29430,13 @@ included. The engines were not the limit (Claude Code `MCP_TOOL_TIMEOUT` and Cod
 the turn's stall guard waits while our tool runs). Decided:
 - A `tools/call` fails only when nothing comes for 5 minutes (`MCP_CALL_IDLE_MS`) or 15 minutes after it began
   (`MCP_CALL_TIMEOUT_MS`). The bytes of an event stream count as signs of life; each call names a `progressToken`
-  (its own request id), so a service that reports progress keeps the call alive past 5 minutes (the SDK's
-  `resetTimeoutOnProgress` with `maxTotalTimeout`). 15 minutes stays under the engines' 30 so the AI gets our reason.
+  (its own request id), so a service that reports progress keeps the call alive past 5 minutes (like the SDK's
+  `resetTimeoutOnProgress`/`maxTotalTimeout`; Trina does not use the SDK). 15 minutes stays under the engines' 30 so the AI gets our reason.
 - Stop ends the call at once (the turn's signal closes the request) and sends `notifications/cancelled` (so do our own
   limits, so the service can stop working and billing); the AI is told
   the call was stopped, not "did not answer within 30 seconds".
-- A call stopped by these limits marks the connection as an error that is only for now (`call_idle`, `call_timeout`),
-  as the 30 s did. Everything else keeps the 30 s (the session's start, OAuth, `api_request`), a check keeps 30 s
+- A call that sent nothing for 5 minutes marks the connection as an error that is only for now (`call_idle`), as the
+  30 s did. A call past 15 minutes marks nothing: a long job is not a broken connection (the AI is still told). Everything else keeps the 30 s (the session's start, OAuth, `api_request`), a check keeps 30 s
   without bytes and 90 s in all, and a Google app's calls to the library on this machine keep their 30 s.
 - No per-connection setting (none exists, none added).
 - Tests: `tests/unit/c-integrations-slow-call.test.ts` (scaled limits: a silent call 3 times the request limit, progress

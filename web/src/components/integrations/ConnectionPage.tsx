@@ -38,7 +38,7 @@ const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 's
   // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
   // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
-  timeout: 'slow', list_timeout: 'slow', call_idle: 'slow', call_timeout: 'slow',
+  timeout: 'slow', list_timeout: 'slow', call_idle: 'slow',
   http_status: 'service', too_large: 'service', tls: 'service',
 }
 

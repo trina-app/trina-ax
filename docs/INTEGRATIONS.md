@@ -444,8 +444,9 @@ idle minutes; a 404 for it starts a new one.
   (Bright Data, 2026-11), which the 30 s used to cut. 15 minutes stays under the engines' 30 minutes for one of our
   tool calls (Claude Code `MCP_TOOL_TIMEOUT`, Codex `tool_timeout_sec`), so the AI gets our reason; the turn's stall
   guard waits while the call runs. Stop, or one of these limits, ends the call at once and sends the service
-  `notifications/cancelled`. Such a
-  timeout marks the connection like the 30 s did, as an error that is only for now (a check keeps its saved list).
+  `notifications/cancelled`. A call that
+  sent nothing for 5 minutes marks the connection like the 30 s did, as an error that is only for now (a check keeps its
+  saved list); one past 15 minutes marks nothing (a long job, not a broken connection).
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name.

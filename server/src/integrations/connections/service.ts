@@ -1234,7 +1234,7 @@ export class Integrations {
 /** reasons a check fails for now while the service and its saved tools may still work: no answer in time, not
  * reachable, a list over the limits, the service busy or failing (HTTP 408, 429, 5xx). Not a refused key or sign-in,
  * an address that is not allowed, a redirect or a bad certificate: those stop the calls too. */
-const PASSING = /^(timeout|list_timeout|call_idle|call_timeout|unreachable|too_large|http_status:(408|429|5\d\d))$/
+const PASSING = /^(timeout|list_timeout|call_idle|unreachable|too_large|http_status:(408|429|5\d\d))$/
 
 /** What a failure says about the connection (null: nothing to record, e.g. the call was stopped). */
 function statusOf(e: unknown): { status: Row['status']; reason: string } | null {
@@ -1247,6 +1247,8 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
     if (e.code === 'rpc') return null
     return { status: 'error', reason: 'not_mcp' }
   }
+  // a long job that ran past the whole call's limit: that call's, not a broken connection (a silent one, call_idle, is)
+  if (e instanceof NetError && e.reason === 'call_timeout') return null
   if (e instanceof NetError) return { status: 'error', reason: e.status ? `${e.reason}:${e.status}` : e.reason }
   if (e instanceof StoreError) return { status: 'error', reason: 'key_unsafe' }
   return null

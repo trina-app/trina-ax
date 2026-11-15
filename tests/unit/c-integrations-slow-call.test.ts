@@ -76,7 +76,6 @@ test('the real limits: 5 minutes with nothing coming, 15 minutes in all, under t
   expect(MCP_LIST_TIMEOUT_MS).toBe(90_000)
   for (const L of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
     expect(TEXT.call_idle[L]).toContain(String(MCP_CALL_IDLE_MS / 60_000))
-    expect(TEXT.call_timeout[L]).toContain(String(MCP_CALL_TIMEOUT_MS / 60_000))
   }
 })
 
@@ -143,12 +142,10 @@ describe('a slow tool', () => {
         expect(ms).toBeLessThan(SHORT.call + 3000)
       } finally { fake.slow = null }
     })
-    expect(stored()).toEqual({ status: 'error', last_error: 'call_timeout' })
+    // a long job is not a broken connection: it stays as it was
+    expect(stored()).toEqual({ status: 'connected', last_error: null })
     // the service is told to stop its work (it may be billing for it)
     expect(await cancelOf(fake.progressTokens.at(-1))).toEqual({ requestId: fake.progressTokens.at(-1), reason: 'timed out' })
-    expect(TEXT.call_timeout.en).toBe('A tool of the service did not finish within 15 minutes, so the call was stopped.')
-    await svc().callTool(row(), 'scrape_as_markdown', {})
-    expect(stored()).toEqual({ status: 'connected', last_error: null })
   })
 
   test('Stop ends the call at once and tells the service; the connection stays as it was', async () => {
@@ -164,7 +161,7 @@ describe('a slow tool', () => {
       expect(JSON.stringify(out)).toContain('Scraper was stopped because the answer was stopped')
     } finally { fake.slow = null }
     // the service is told which request (best effort, after the stop)
-    expect(await cancelOf(fake.progressTokens.at(-1))).toEqual({ requestId: fake.progressTokens.at(-1), reason: 'stopped by the user' })
+    expect(await cancelOf(fake.progressTokens.at(-1))).toEqual({ requestId: fake.progressTokens.at(-1), reason: 'stopped' })
     expect(stored()).toEqual({ status: 'connected', last_error: null })
   })
 })

@@ -216,7 +216,7 @@ export class McpClient {
       return (await this.post({ jsonrpc: '2.0', id, method: 'tools/call', params }, { signal, maxBytes: MCP_CALL_MAX_BYTES, long })) ?? {}
     } catch (e) {
       // stopped here: the service may stop its work too (best effort, never waited for)
-      if (signal?.aborted || (e instanceof NetError && (e.reason === 'call_idle' || e.reason === 'call_timeout'))) this.post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: signal?.aborted ? 'stopped by the user' : 'timed out' } }).catch(() => {})
+      if (signal?.aborted || (e instanceof NetError && (e.reason === 'call_idle' || e.reason === 'call_timeout'))) this.post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: signal?.aborted ? 'stopped' : 'timed out' } }).catch(() => {})
       throw e
     }
   }
