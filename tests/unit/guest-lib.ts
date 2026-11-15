@@ -3,7 +3,7 @@
 import type { Client, Harness } from './a-lib'
 
 export type GuestPlace = { kind: 'room' | 'project'; id: string }
-export type GuestAi = { mode: 'none' } | { mode: 'own' } | { mode: 'team'; credentialId: string; limitUsd: number }
+export type GuestAi = { mode: 'none' } | { mode: 'own' } | { mode: 'team'; credentialId: string; limitTokens: number }
 
 /** `by` makes the invite (POST /api/guest-invites), a fresh browser accepts it; returns the guest's signed-in client. */
 export async function addGuest(h: Harness, by: Client, o: { username: string; place: GuestPlace; ai?: GuestAi; ip?: string }): Promise<{ client: Client; id: string; password: string; token: string }> {

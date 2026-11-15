@@ -104,7 +104,7 @@ test('own: never a team connection; the team endpoints stay closed to them', asy
 test('none (the default) and team: no connection of their own, no sign-in; still "ask"', async () => {
   const { owner, mia, room, team, addOwn, startLogin } = await setup()
   const none = await addGuest(h, mia.client, { username: 'nan', place: { kind: 'room', id: room } })
-  const tea = await addGuest(h, owner, { username: 'tea', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
+  const tea = await addGuest(h, owner, { username: 'tea', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })
   for (const g of [none, tea]) {
     expect((await g.client.call('GET', '/api/me/ai-access')).action).toBe('ask_owner')
     expect(await g.client.call('GET', '/api/me/credentials')).toMatchObject({ allowed: false })

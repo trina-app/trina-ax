@@ -50,10 +50,10 @@ test('AI none (the default): no connection at all; the member next to them resol
 test('AI team: only the named team connection, under their own block budget; no assignment row, members keep the team-wide one', async () => {
   const { owner, mia, room, t, team, resolve, managed } = await setup()
   const other = addCred(t.cc, 'anthropic-api-key', key('better'), { label: 'better', priority: 1 })
-  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
+  const g = await addGuest(h, owner, { username: 'tia', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })
   expect(h.ctx.db.query('SELECT ai, team_credential_id FROM guests WHERE user_id = ?').get(g.id)).toEqual({ ai: 'team', team_credential_id: team })
   // the limit: a 'user' block budget of their own
-  expect(h.ctx.db.query("SELECT period, limit_usd, action FROM budgets WHERE subject_type = 'user' AND subject_id = ?").get(g.id)).toEqual({ period: 'month', limit_usd: 5, action: 'block' })
+  expect(h.ctx.db.query("SELECT period, limit_usd, limit_tokens, action FROM budgets WHERE subject_type = 'user' AND subject_id = ?").get(g.id)).toEqual({ period: 'month', limit_usd: 0, limit_tokens: 5000, action: 'block' })
   // never an assignment: the team-wide connection stays team-wide for every member
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM engine_credential_assignments').get() as { n: number }).n).toBe(0)
   expect(resolve(g.id)).toMatchObject({ ok: true, credentialId: team })
@@ -74,11 +74,11 @@ test('AI team: only the named team connection, under their own block budget; no 
 
 test('AI team: only an owner or admin may give it, and only with a team connection', async () => {
   const { owner, mia, room, t, team } = await setup()
-  const r = await mia.client.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
+  const r = await mia.client.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })
   expect(r.status).toBe(403)
   const personal = addCred(t.cc, 'anthropic-api-key', key('olga-own'), { owner: 'olga' })
-  expect((await owner.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: personal, limitUsd: 5 } })).status).toBe(403)
-  expect((await owner.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })).status).toBe(201)
+  expect((await owner.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: personal, limitTokens: 5000 } })).status).toBe(403)
+  expect((await owner.try('POST', '/api/guest-invites', { place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })).status).toBe(201)
 })
 
 test('AI own: only their own sign-in, whatever the member-own switch; never the team-wide one; nobody else gets theirs', async () => {
@@ -95,7 +95,7 @@ test('AI own: only their own sign-in, whatever the member-own switch; never the 
 
 test('a server without AI connections (engines on the host\'s own sign-in): members use AI, a guest never, even with a team choice', async () => {
   const { owner, mia, room, team, managed, unmanaged } = await setup()
-  const g = await addGuest(h, owner, { username: 'sel', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitUsd: 5 } })
+  const g = await addGuest(h, owner, { username: 'sel', place: { kind: 'room', id: room }, ai: { mode: 'team', credentialId: team, limitTokens: 5000 } })
   expect(canUseAi(managed, { id: g.id, role: 'guest' })).toBe(true)
   expect(canUseAi(unmanaged, { id: g.id, role: 'guest' })).toBe(false)
   expect(aiAccessFor(unmanaged, { id: g.id, role: 'guest' }, true).usable).toBe(false)

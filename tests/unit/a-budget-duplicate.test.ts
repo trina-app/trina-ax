@@ -119,8 +119,8 @@ describe('usage limits: no second limit for the same subject and period', () => 
     // an admin set a month 'warn' limit for the guest in Members, and a day one
     expect((await post({ subjectType: 'user', subjectId: g.id, period: 'month' })).status).toBe(201)
     expect((await post({ subjectType: 'user', subjectId: g.id, period: 'day' })).status).toBe(201)
-    await owner.call('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'team', credentialId: team, limitUsd: 15 })
-    const rows = h.ctx.db.query("SELECT period, action, limit_usd FROM budgets WHERE subject_type = 'user' AND subject_id = ? ORDER BY period").all(g.id)
-    expect(rows).toEqual([{ period: 'day', action: 'warn', limit_usd: 0 }, { period: 'month', action: 'block', limit_usd: 15 }])
+    await owner.call('PATCH', `/api/admin/users/${g.id}/guest-ai`, { mode: 'team', credentialId: team, limitTokens: 50_000 })
+    const rows = h.ctx.db.query("SELECT period, action, limit_tokens FROM budgets WHERE subject_type = 'user' AND subject_id = ? ORDER BY period").all(g.id)
+    expect(rows).toEqual([{ period: 'day', action: 'warn', limit_tokens: 1000 }, { period: 'month', action: 'block', limit_tokens: 50_000 }])
   })
 })

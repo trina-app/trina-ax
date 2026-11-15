@@ -42,7 +42,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, putChatAudience, unhideOnOpen } from '../chat/people-share'
+import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -208,7 +208,7 @@ function messageInChat(rt: ChatRuntime, chatId: string, id: string): MessageRow 
 /** A used-up "block" budget of this person stops the turn before it is queued (tab 5 "사용 한도 도달"). */
 function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
   const b = budgetBlock(ctx.db, userId, locale)
-  if (b) fail('budget_exceeded', b.message, { params: { resetsAt: b.resetsAt } })
+  if (b) fail('budget_exceeded', b.message, { params: b.params })
 }
 
 /** One turn at a time per chat. A shared chat busy with someone else's question: 409 shared_chat_busy, naming them
@@ -658,6 +658,11 @@ export const chatsRoutes: RouteModule = {
     // Share for a chat outside projects (chat/people-share.ts): who sees it, its creator's save, a recipient's "Hide
     // from my list". Anyone who cannot see the chat gets the 404 of a missing chat first (chatFor)
     kit.handle(API.getChatAudience, ({ c, params, auth }) => chatAudienceView(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view')))
+    // the Share dialog's check while picking (QA TC-3092): the dry-run limit (60 a minute), as the project dry run
+    kit.handle(API.previewChatAudience, ({ c, params, body, auth }) => {
+      previewLimit(ctx, auth.user.id)
+      return previewChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale'))
+    })
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
     const hidden = (c: Context<AppEnv>, auth: AuthInfo, a: ChatAccess, hide: boolean): Chat => {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))
@@ -904,7 +909,7 @@ export const chatsRoutes: RouteModule = {
     // start seeing although they miss a place one used. Whoever may change its members; another viewer of it 403, anyone
     // else 404. The first page takes a room-send token (no free probe of who may read what, as the share check); next
     // pages carry a cursor signed over the target, the participants, the people who gain it and the position
-    kit.handle(API.wideningAnswers, ({ c, body, auth }) => {
+    kit.handle(API.wideningAnswers, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       // one chat's (the Share dialog, chat/people-share.ts chatWidening): its creator only; anyone else who sees it 403,
@@ -926,7 +931,7 @@ export const chatsRoutes: RouteModule = {
         }
         // every page from the room-send budget (429), as for a project
         roomsOf(ctx).takeSendToken(auth.user.id)
-        const res = chatWidening(ctx, p, a.row, body.add, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
+        const res = await chatWidening(ctx, p, a.row, body.add, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
         return { total: res.total, totalCapped: res.totalCapped, items: res.items, nextCursor: res.nextRowid === null ? null : encodeCursor({ r: String(res.nextRowid), m: confirmMac(ctx, cstate(res.nextRowid)) }) }
       }
       const r = projectFor(p, body.target.projectId, true)

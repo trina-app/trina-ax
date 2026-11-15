@@ -124,10 +124,26 @@ admin switched them on or off in the meantime. Renaming the chat or project chan
 | Choice | What it means | Who can pick it |
 |---|---|---|
 | **No AI** (the default) | They talk with people only. | Anyone who invites |
-| **Team AI** | They use one of the team's AI accounts, up to a monthly amount in US dollars that you set. | The owner and admins |
+| **Team AI** | They use one of the team's AI accounts, up to a monthly number of tokens that you set. | The owner and admins |
 | **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI providers** and use that. It is their own plan, so the team pays nothing. | Anyone who invites |
 
-A guest who uses up their monthly amount is told the day it starts again. If the team AI account a guest uses is
+### Team AI's monthly limit
+
+The limit is a number of **tokens**: how much the AI reads and writes. Pick **1M tokens**, **5M tokens** or
+**10M tokens** (5M is picked first), or **Other** to type a number. Next to it, Trina says about how many answers that
+allows, for example "5M tokens · about 62 answers". The limit starts over on the 1st of every month.
+
+The number of answers is an estimate. Trina divides the limit by the tokens an answer of your team used on average in
+the last 90 days, and rounds it down. While your team has fewer than 20 answers, it uses 80,000 tokens per answer and
+says so. Answers that read files or use tools take more tokens than short ones.
+
+A guest given Team AI before limits were in tokens keeps their limit in US dollars, for example "up to $20.00 a
+month", until you change it. **Change AI** then asks for a number of tokens.
+
+In **Admin › Members & invites**, a Team AI guest's row says the limit and what is left this month, for example "up to
+5M tokens a month · 3.2M left", or **AI limit used up**.
+
+A guest who uses up their monthly limit is told how many tokens it was and the day it starts again. If the team AI account a guest uses is
 deleted, the guest reads that AI can't answer them now, and their row in **Admin › Members & invites** says the
 account was removed: choose **Change AI** to pick another one.
 
@@ -159,13 +175,13 @@ turns orange with a short note, and new invites wait until you remove guests or 
 **Admin › Members & invites** has a **Guests** list. To see only guests, pick **Guests** in the list of roles at the top. Each row
 shows where the guest is and what AI they have.
 
-![Admin › Members & invites › Guests: Alex Rivera in the Quote prep room with No AI, Sam Park in the Launch plan project with Team AI up to $20](../images/guests/admin-guests.webp "Guests in Admin")
+![Admin › Members & invites › Guests: Alex Rivera in the Quote prep room with No AI, Sam Park in the Launch plan project with Team AI up to 5M tokens a month](../images/guests/admin-guests.webp "Guests in Admin")
 
 The **⋯** menu of a guest has:
 
 - **Change AI**: pick No AI, Team AI or their own sign-in again.
 - **Make team member**: they become a normal member and take one seat. They stay where they are, and you can add
-  them to more chats and projects. Their guest AI and monthly amount end: their AI then follows the team's settings,
+  them to more chats and projects. Their guest AI and monthly limit end: their AI then follows the team's settings,
   like any member's. A removed guest made a team member can sign in again.
 - **Remove guest**: their account is switched off and they can't sign in any more. Their messages and files stay
   with the team. Removed guests are hidden behind **Show removed**.

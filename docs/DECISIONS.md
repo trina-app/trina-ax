@@ -28277,6 +28277,53 @@ words and components.
 - Not in v1: AI chat messages and `/c/<id>` links, links to a whole room, Forward, a per-person "no previews" setting,
   Slack's one-hour repeat rule, thumbnails in a card, live updates of cards in other rooms, other websites' previews.
 
+## Guest Team AI: a token limit (feat/guest-ai-tokens, 2026-11-15, owner)
+
+The owner asked for a guest's Team AI limit in tokens, not US dollars, with roughly how many answers it allows next to
+it. A dollar limit only fills up on API-key connections (admin/budgets.ts: a subscription prices nothing per request),
+so a guest on a subscription connection was never stopped; tokens count with every connection.
+
+- **Stored and enforced**: the guest's own 'block' budget for the month (as before), now `limit_usd = 0` and
+  `limit_tokens = N` (`insertGuestBudget`). Every check that stops a guest at the limit (sends, schedules, the model
+  proxy, Slack, skills, onboarding, the file list: all `budgetBlock` → `checkBudgets`) already counted `limit_tokens`
+  against the month's input + output tokens of the guest's turns; nothing new there. `GuestDetail.aiUse` gives the
+  month's used tokens (and dollars) and the reset date (the 1st in the team's time zone); "left" is limit − used.
+- **API**: `GuestAiChoiceBody` (invite and PATCH guest-ai) takes `limitTokens` only, a whole number from 1 to 10억;
+  `limitUsd` in a body is refused (400, the team object is strict, so a body with both is refused too). `GuestAiChoice` (what screens read) has `limitTokens` or, for an older guest,
+  `limitUsd`.
+- **Existing dollar limits: kept, not converted.** There is no safe rule from dollars to tokens: the price per token
+  depends on the model, on cached reads (a tenth of the input price) and on the connection (a subscription has none),
+  so any rate would give some guests far more or far less than the admin meant. Guests with a dollar budget keep it,
+  read and enforced as it is; Admin's row says "up to $20.00 a month"; Change AI says the dollar limit, has no amount
+  picked and saves only with a token amount, which replaces it. An unused guest link made before this keeps its dollar
+  limit when it is accepted (`parseGuestAi`). No migration. The gap that stays: a dollar guest on a subscription
+  connection is still never stopped (nothing prices those requests), as before this change; an admin closes it by
+  picking tokens in Change AI.
+- **The estimate ("about N answers")**: limit ÷ the team's tokens per answer, rounded down (whole under 100, to 10
+  under 1,000, then two significant digits; under one answer says "less than 1 answer"). Tokens per answer = the mean
+  of input + output tokens over the team's finished turns of the last 90 days that used any (`answerTokens`, sent to
+  the owner and admins in `GET /api/guest-invites/limit`, read again at most every 10 minutes). Members' long
+  tool-heavy answers count too, so a guest who asks short questions gets more answers than shown. The mean, not the median: limit ÷ mean is how many average answers
+  fit, and the budget counts the long ones too. With fewer than 20 such answers it is `DEFAULT_TOKENS_PER_ANSWER` =
+  80,000 (shared/src/guest-tokens.ts), from the find-files bench (one tool call: Claude Code 80,469, Codex 57,949
+  input tokens): every step of an answer reads the conversation and tools again and those reads count. The hint says
+  which it is ("An estimate from this team's recent answers." / "An estimate from a typical answer. This team has few
+  answers so far.").
+- **Presets**: 1M, 5M (the start) and 10M tokens, plus Other (a number). The owner's examples (10만/50만/100만)
+  would be about 1, 6 and 12 answers at 80,000 per answer, too few to be useful, so the presets are ten times larger;
+  the estimate next to each makes the size plain. Amounts show in the reader's words ("500만 토큰", "5M tokens":
+  `Intl.NumberFormat` compact).
+- **Words**: "토큰" is said once with "토큰은 AI가 읽고 쓰는 양이에요." under the field; no prices. Admin's row: "up to 5M
+  tokens a month · 3.2M left" or "· AI limit used up"; the guest at the limit: "You've used this month's AI limit (5M
+  tokens). It resets on Dec 1. …" only when their own limit stopped it (`params.own` on budget_exceeded); a team or
+  group limit, and a dollar guest, read the old words. A guest budget with both limits cleared in Admin › AI limits
+  is no limit (`guestHasBlockBudget`), so Team AI is off rather than unlimited.
+- Tests: `tests/unit/a-guests-ai-tokens.test.ts` (stored, enforced at no cost, last month not counted, Change AI
+  replaces a dollar limit, dollar bodies refused, an old link, the team's mean and the default, rounding); the guest
+  unit tests now use tokens; e2e `guest-ai-tokens.spec.ts` (invite presets/Other/estimate, Admin rows, Change AI on a
+  dollar guest, the guest's notice; ko and en), `guest-invite`, `guest-admin`, `guest-states`.
+- Version impact: **minor** (an API body field changes: `limitUsd` → `limitTokens`).
+
 ## Guests: leftovers from QA — 게스트 남은 문제 (fix/guest-leftovers, 2026-11-15, QA TC-2451..TC-2457)
 
 넣을 곳: Team AX core (`web/src/components/GuestView.tsx` NotForRoomGuests, `components/rooms/SideChatPanel.tsx`, `lib/guestFiles.ts` with `components/chat/TeamFilePicker.tsx` and `components/FolderPicker.tsx`, `pages/Projects.tsx` with `store/live.ts`, `components/settings/AccountDeletion.tsx`, `components/settings/Notifications.tsx`; server `chat/project-joins.ts`, `auth/guests.ts` seenBy, `auth/status-messages.ts`, `notifications/service.ts`). Builds on "Guests: only what they were invited to".
@@ -29410,6 +29457,56 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
 - Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
   (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
   additive API and bridge fields).
+
+## Share in one press — the warning shows while picking, only when something is at stake (feat/share-dialog-one-press, 2026-11-15, product owner, QA TC-3092)
+
+Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,widening,answer-share}.ts`,
+`server/src/routes/chats.ts`, `shared/src/api/chats.ts`, `web/src/components/{ShareWarning,ProjectMembersDialog,ProjectParticipants}.tsx`,
+`web/src/components/chat/{ChatShareDialog,ShareChat}.tsx`, `web/src/i18n/*`). Plan:
+`docs/AGENTS/plan/20261115-1400-share-dialog-one-press.md`. Supersedes "The check comes on Save, not while picking" in
+"Chats shared with people and groups: the Share dialog" (2026-11-14).
+
+- **One press, like Drive's warning for an outside person.** While the picks bring anyone new in, the Share dialog asks
+  `POST /api/chats/:id/audience/preview` 400 ms after every change of the list (adds, removals, groups). Share is off from
+  the first change until the answer for exactly those picks is here. The button never changes colour or words ("Share
+  anyway" is gone): pressing Share is the confirmation.
+- **Only what is at stake warns, specifically.** One check (`chat/audience-check.ts`) counts answers: that may have used
+  my personal memories (answers of the chat's private time written while I had a memory; a shared chat's turns never
+  carry them), that used files the new people can't open (each answer's own `message_sources`, the hash rule as before,
+  plus the answers whose recorded places they miss), older answers the read scope does not describe while a personal
+  connection or the in-app browser was on for me ("may have used your personal accounts"), other places the chat used
+  (named only where I may look), and team chat rooms it read without saying which ("rooms Mina may not be in" — a
+  warning, not an unknown). "Show answers ›" lists those answers (the widening list of one chat now also lists them).
+- **Unknowns are a grey line.** Answers the scope does not describe (without personal accounts) and answers that ran dev
+  environment commands: "N older answers couldn't be checked", no box, a normal button. The first share still records
+  them conservatively (`x: 1`), and `share_hidden` still refuses.
+- **The server stays the gate.** A save that brings in anyone new must carry the key of the check now
+  (`confirmMac` v2 over the list, the new people, the provenance keys, the sorted answer ids of every warning, the places,
+  rooms, the unchecked ids, the earlier uploads and every message id); no key or another state's: nothing saved, the
+  check comes back (`reason` 'unchecked' or 'changed'), shown in place with "Check this, then press Share again". A
+  failed preview is a grey line; Share then gets that answer: never a silent share. Removals alone need no key.
+- **The preview is no free probe.** Creator only (403/404 as a save), the save's refusals (chat_busy while a turn runs,
+  safe operations, unknown entries), the dry-run limit (60 a minute, as the project dry run), counts and places I may
+  look only, never who (the dialog names only what was picked), and a 60-second cache per who asks, chat state, list,
+  new people and folder rules (a save never reads it), so 60 a minute never hash big files 60 times.
+- **The project members' share of a private chat** says the same specific lines in its confirm (still one press: the
+  menu item opens it).
+- **Project Members dialog: one press when people are only added.** What they would see (how many, files, shared chats,
+  skills, "the people who see it now are told") shows in place under the count; Save waits for the dry run of the picks
+  and saves at once when its own dry run says the same. The confirm stays only where it guards something different that
+  a later save can't take back: people taken out (they lose access and their running turns stop; a guest's account is
+  switched off), a save that writes a rule nobody chose here (the floor rule, the creator's rule back), and "Add me"
+  (its members are told). A dry run that says more than the lines shown brings the confirm back.
+- **How it reads (coordinator, after the screenshots).** One finding per line in the box (a short list when there are
+  several), "Show answers ›" after them. In Korean a person takes 님 ("Bob 님이 열 수 없는 파일", "Bob 님은 열 수 없는 곳"); a group never
+  does: it reads as its people ("Sales 그룹 사람들이 열 수 없는 파일", "Sales 그룹 사람들은 열 수 없는 곳";
+  `share.who.person` / `share.who.group`, `whoNames`), and the lines' particle marks read right after either. Names the
+  server sends without saying person or group need no particle: "열 수 없는 사람: …", "공유 대상: …".
+- **My earlier files always show (security review).** When a first share copies my earlier computer uploads, their line
+  is always on screen, a line of its own, never folded into the "couldn't be checked" line. The Members dialog compares the
+  whole lines it showed with the save's dry run, not only counts.
+- Not here: Admin › Groups (someone joining a group widens silently, accepted 2026-11-14).
+- Version impact: **minor**.
 
 ## What the AI sends to a connected service never holds a stored key (fix/connection-tools-hide-keys, 2026-11-15)
 

@@ -1,7 +1,7 @@
 // Guests on the admin side (docs/DECISIONS.md "Guests: only what they were invited to"): "convert to member" (the way
 // out when someone needs a second place) and switching off a guest who is no longer in their one place.
 import type { Context } from 'hono'
-import type { GuestAiChoice, GuestPlace, User } from '@mycel/shared/api'
+import type { GuestAiChoiceBody, GuestPlace, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
@@ -12,7 +12,7 @@ import { getUser, toUser } from '../auth/users'
 import { guestLimit, guestPlace, guestsUsed, inPlace, inPlaceEvenIfOff, isGuest } from '../auth/guests'
 import { MY_PROFILE_CHANGED, profileChangedFor } from '../auth/profiles'
 import { disableAccount } from './users'
-import { newId } from '../db'
+import { insertGuestBudget } from './budgets'
 import { placeAlive, teamCredentialOk } from '../auth/guest-invites'
 import { stopTurnsOf } from '../chat/runtime'
 
@@ -109,11 +109,11 @@ export function returnGuestsWithPlace(ctx: AppContext, places: readonly GuestPla
 
 /**
  * PATCH /api/admin/users/:id/guest-ai (the owner or an admin): a guest's AI, with the invite's checks. 'team' needs a
- * team connection (not anyone's personal one) and a monthly limit: guests.team_credential_id and the guest's own
+ * team connection (not anyone's personal one) and a monthly token limit (an older guest's US dollar limit goes with it): guests.team_credential_id and the guest's own
  * 'block' budget (the earlier 'block' budgets and the month budget of the guest are replaced); never an engine_credential_assignments row.
  * Turned to 'none' or 'own': the connection is cleared and the guest's running answers stop.
  */
-export function updateGuestAi(c: Context<AppEnv>, ctx: AppContext, id: string, ai: GuestAiChoice): User {
+export function updateGuestAi(c: Context<AppEnv>, ctx: AppContext, id: string, ai: GuestAiChoiceBody): User {
   const auth = c.get('auth')!
   ctx.db.transaction(() => {
     const u = ctx.db.query('SELECT guest, deleted_at FROM users WHERE id = ?').get(id) as { guest: number; deleted_at: string | null } | null
@@ -125,9 +125,9 @@ export function updateGuestAi(c: Context<AppEnv>, ctx: AppContext, id: string, a
       // their month limit is replaced too, whatever its action: one limit per person and period (admin/budgets.ts
       // checkNoDuplicate), so a month 'warn' limit set in Admin › Members does not stay beside the new one
       ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND (action = 'block' OR period = 'month')").run(id)
-      ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+      insertGuestBudget(ctx.db, id, ai.limitTokens)
     }
-    audit(ctx.db, { actor: auth.user.id, action: 'user.guest_ai', target: id, detail: { ai: ai.mode, ...(ai.mode === 'team' ? { credentialId: ai.credentialId, limitUsd: ai.limitUsd } : {}) } })
+    audit(ctx.db, { actor: auth.user.id, action: 'user.guest_ai', target: id, detail: { ai: ai.mode, ...(ai.mode === 'team' ? { credentialId: ai.credentialId, limitTokens: ai.limitTokens } : {}) } })
   }).immediate()
   if (ai.mode !== 'team') stopTurnsOf(ctx, id)
   ctx.services.realtime.publish(id, MY_PROFILE_CHANGED)

@@ -2,13 +2,14 @@
 // Drive-model Share dialog (components/chat/ChatShareDialog.tsx) at 1440 and 390 px wide. Every exit: Save is off with
 // no change; a pick says "new"; ✕ on a saved row strikes it out with Undo; ✕/Esc with unsaved changes asks "Discard
 // changes?" (Keep editing keeps the picks, Discard leaves); a failed save keeps the picks with the error above the
-// button; the server's check comes back in place with "Share anyway" and "Show answers ›" (the widening list, the chat as
-// its target; on a phone an answer opens on the same screen and "‹ Back to sharing" brings the dialog back with the
-// picks). The person it is shared with finds it in their list and in Activity ("Olga shared a chat with you" with its
+// button; one press (QA TC-3092): what is at stake shows in place while picking, with "Show answers ›" (the widening
+// list, the chat as its target; on a phone an answer opens on the same screen and "‹ Back to sharing" brings the dialog
+// back with the picks), the button stays Share; nothing at stake: no box; a failed preview: a grey line, then the
+// server's check in place and Share again. The person it is shared with finds it in their list and in Activity ("Olga shared a chat with you" with its
 // title), continues it, hides it from their list (opening it brings it back), and sees "This chat is no longer shared
 // with you" with Go to Home when taken out while it is open. A personal project's chat explains and offers Move, after
 // which the dialog opens again; the admin's delete-account dialog counts the person's shared chats. axe on each dialog.
-// The mock (test/mock/server.ts "chats shared with people and groups"): POST /__test/chat-share {confirm, fail}, POST
+// The mock (test/mock/server.ts "chats shared with people and groups"): POST /__test/chat-share {confirm, fail, previewFail}, POST
 // /__test/widening {items}.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -50,9 +51,12 @@ async function chatOf(page: Page, title: string, projectId?: string) {
   const answer = ((await (await page.request.get(`/api/chats/${chat.id}/messages`)).json()) as { items: { id: string; role: string }[] }).items.find((m) => m.role === 'assistant')!
   return { chatId: chat.id, answerId: answer.id }
 }
-/** who sees it, saved by the API (the creator's page) */
-const saveAudience = (page: Page, chatId: string, subjects: { subjectType: 'user' | 'group'; subjectId: string }[]) =>
-  page.request.put(`/api/chats/${chatId}/audience`, { headers: H, data: { subjects } })
+/** who sees it, saved by the API (the creator's page): the preview first, its key with the save (QA TC-3092: a save
+ * that brings anyone in carries the key of the check) */
+async function saveAudience(page: Page, chatId: string, subjects: { subjectType: 'user' | 'group'; subjectId: string }[]) {
+  const p = (await (await page.request.post(`/api/chats/${chatId}/audience/preview`, { headers: H, data: { subjects } })).json()) as { previewKey?: string }
+  return page.request.put(`/api/chats/${chatId}/audience`, { headers: H, data: { subjects, ...(p.previewKey ? { confirmKey: p.previewKey } : {}) } })
+}
 
 for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
   test.describe(`sharing a chat with people at ${vp.name}`, () => {
@@ -97,11 +101,11 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await pick(page, 'Bob', 'bob')
       // a group adds the line that whoever joins it later sees the chat too
       await pick(page, '재무팀', (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id, 'group')
-      await expect(dialog.getByTestId('chat-share-future-group')).toBeVisible()
+      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('그룹을 추가하면 나중에 그 그룹에 들어오는 사람도 이 채팅을 보게 돼요.')
       await audit(page, 'share dialog, with picks')
       const groupId = (await (await page.request.get('/api/me')).json() as { groups: { id: string }[] }).groups[0]!.id
       await dialog.getByTestId(`participant-remove-group-${groupId}`).click()
-      await expect(dialog.getByTestId('chat-share-future-group')).toHaveCount(0)
+      await expect(dialog.getByTestId('chat-share-grey')).toHaveCount(0)
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
       // ✕ with a pick not saved: asked first; Keep editing keeps it
       await page.keyboard.press('Escape')
@@ -205,26 +209,28 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
     })
 
-    test('the check in place: memories, places, the widening line and its list; Share anyway', async ({ page }) => {
+    test('one press: what is at stake shows while picking (memories, files, places, my earlier files), its list; Share once', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const w = await world(page)
-      await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { hiddenAnswers: 1, memories: true, people: 1, places: [{ kind: 'mine' }], earlierFiles: 2 }, filesNotCopied: 1 } })
+      await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { memoryAnswers: 2, fileAnswers: 1, places: [{ kind: 'mine' }], earlierFiles: 2 }, filesNotCopied: 1 } })
       await page.request.post('/__test/widening', { headers: H, data: { items: [
         { chatId: w.chatId, chatTitle: 'Q3 budget questions', messageId: w.answerId, at: '2026-11-12T03:00:00.000Z', askedBy: { id: 'olga', name: 'Olga' }, preview: 'The finance draft puts Q3 spend at 41 % over plan', places: [{ name: 'Finance › Board pack' }, { hidden: true }], missedBy: ['Bob'] },
       ] } })
       const dialog = await openShare(page, w.chatId)
       await pick(page, 'Bob', 'bob')
-      await dialog.getByTestId('chat-share-save').click()
-      // one warning: the answers Bob would see, the place I may open by name
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('Bob')
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('내 파일')
-      await expect(dialog.getByTestId('chat-share-memories')).toBeVisible()
-      // a first share: the files I attached from my computer go with it (S6, TC-1413)
-      await expect(dialog.getByTestId('chat-share-earlier-files')).toHaveText('내가 첨부한 파일 2개도 이 사람들이 볼 수 있게 돼요.')
-      await expect(dialog.getByTestId('chat-share-save')).toHaveText('그래도 공유')
-      await audit(page, 'share dialog, confirm')
-      await dialog.getByTestId('chat-share-widen-show').click()
+      // in place, before any press: specific, the button as it always is
+      const warning = dialog.getByTestId('chat-share-warning')
+      await expect(warning).toContainText('답 2개가 내 개인 메모리를 참고했을 수 있어요.')
+      await expect(warning).toContainText('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
+      await expect(warning).toContainText('내 파일')
+      // a first share: the files I attached from my computer go with it (S6, TC-1413), one grey line
+      await expect(dialog.getByTestId('chat-share-files')).toHaveText('내가 첨부한 파일 2개도 이 사람들이 볼 수 있게 돼요.')
+      await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
+      await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
+      await audit(page, 'share dialog, warning in place')
+      if (process.env.SHOTS_DIR) await shots(page, `3092-${vp.name}-warning`)
+      await dialog.getByTestId('chat-share-warning-show').click()
       await expect(page.getByTestId('widening-list')).toBeVisible()
       await expect(page.getByTestId('widening-list-title')).toContainText('Bob')
       const item = page.getByTestId(`widening-item-${w.answerId}`)
@@ -241,13 +247,47 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       } else await expect(item.getByTestId('widening-item-open')).toHaveAttribute('target', '_blank')
       await page.getByTestId('widening-list-back').click()
       await expect(page.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'new')
-      // (back from the phone's answer the check is asked again; on a computer the confirm is still there)
-      if (isPhone(page)) await page.getByTestId('chat-share-save').click()
-      await expect(page.getByTestId('chat-share-save')).toHaveText('그래도 공유')
+      await expect(page.getByTestId('chat-share-warning')).toBeVisible()
+      // one press
       await page.getByTestId('chat-share-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요' })).toBeVisible()
       // and what could not go with it, after the save
       await expect(page.getByTestId('toast').filter({ hasText: '전에 첨부한 파일 1개는 공유하지 못했어요' })).toBeVisible()
+    })
+
+    test('nothing at stake: no box, one press; add two and take one out: still one press', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const w = await world(page)
+      const dialog = await openShare(page, w.chatId)
+      await pick(page, 'Bob', 'bob')
+      await pick(page, '김소라', 'sora')
+      await dialog.getByTestId('participant-remove-user-sora').click()
+      await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
+      await expect(dialog.getByTestId('chat-share-warning')).toHaveCount(0)
+      await expect(dialog.getByTestId('chat-share-note')).toBeVisible()
+      if (process.env.SHOTS_DIR) await shots(page, `3092-${vp.name}-nothing`)
+      await dialog.getByTestId('chat-share-save').click()
+      await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요' })).toBeVisible()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+    })
+
+    test('the preview failed: a grey line; Share brings the check in place, never a silent share; Share again', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const w = await world(page)
+      await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { accountAnswers: 1, roomsUnseen: true }, previewFail: 1 } })
+      const dialog = await openShare(page, w.chatId)
+      await pick(page, 'Bob', 'bob')
+      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('아직 이 채팅을 확인하지 못했어요. 공유하기 전에 무엇이 공개되는지 보여 드릴게요.')
+      await dialog.getByTestId('chat-share-save').click()
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이전 답 1개가 내 개인 계정을 참고했을 수 있어요.')
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 팀 대화방을 읽었어요.')
+      await expect(dialog.getByTestId('chat-share-changed')).toHaveText('내용을 확인하고 공유를 한 번 더 눌러 주세요.')
+      await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
+      await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      await dialog.getByTestId('chat-share-save').click()
+      await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요' })).toBeVisible()
     })
 
     test('Bob hides it from his list (opening it brings it back); taken out while it is open, he is told and goes Home', async ({ page, browser }) => {
@@ -374,12 +414,12 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const dialog = await openShare(page, w.chatId)
       await expect(dialog.getByTestId('participant-user-bob')).toBeVisible()
       await dialog.getByTestId('participant-remove-user-bob').click()
-      await expect(dialog.getByTestId('chat-share-keeps-through')).toHaveText('Bob님은 재무팀에 있어서 계속 볼 수 있어요.')
-      await expect(dialog.getByTestId('chat-share-live')).toContainText('Bob님은 재무팀에 있어서 계속 볼 수 있어요.')
+      await expect(dialog.getByTestId('chat-share-keeps-through')).toHaveText('Bob 님은 재무팀에 있어서 계속 볼 수 있어요.')
+      await expect(dialog.getByTestId('chat-share-live')).toContainText('Bob 님은 재무팀에 있어서 계속 볼 수 있어요.')
       await audit(page, 'share dialog, kept through a group')
       if (process.env.SHOTS_DIR) await shots(page, `2264-keeps-through-${vp.name}`)
       await dialog.getByTestId('chat-share-save').click()
-      await expect(page.getByTestId('toast').filter({ hasText: 'Bob님은 재무팀에 있어서 계속 볼 수 있어요.' })).toBeVisible()
+      await expect(page.getByTestId('toast').filter({ hasText: 'Bob 님은 재무팀에 있어서 계속 볼 수 있어요.' })).toBeVisible()
       if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/2264-saved-toast-${vp.name}.png` })
       // Bob still sees it
       expect(((await (await page.request.get(`/api/chats/${w.chatId}/audience`)).json()) as { count?: number }).count).toBe(2)
@@ -426,8 +466,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
   })
 }
 
-// QA 11-15 (TC-2270): the Share dialog's buttons at 390 in every language: the main button's words stay inside it
-// ("Compartir de todos modos" spilled out), Cancel beside it
+// QA 11-15 (TC-2270) and TC-3092: the Share dialog at 390 in every language: the warning in place and the buttons'
+// words inside them, Cancel beside Share
 test.describe('the Share dialog\'s buttons at 390 in every language', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' })
   for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
@@ -435,8 +475,8 @@ test.describe('the Share dialog\'s buttons at 390 in every language', () => {
       await reset(page, { teamLocale: locale, usersFollowTeam: true })
       await signIn(page)
       const w = await chatOf(page, 'Q3 budget questions')
-      // the check comes back, so the main button reads "Share anyway" (the longest label)
-      expect((await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { memories: true } } })).ok()).toBeTruthy()
+      // something at stake: the warning shows in place while picking
+      expect((await page.request.post('/__test/chat-share', { headers: H, data: { confirm: { memoryAnswers: 2, fileAnswers: 3, places: [{ kind: 'mine' }] } } })).ok()).toBeTruthy()
       await page.goto(`/c/${w.chatId}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await page.getByTestId('chat-menu').click()
@@ -444,13 +484,20 @@ test.describe('the Share dialog\'s buttons at 390 in every language', () => {
       const dialog = page.getByRole('dialog')
       await page.getByTestId('chat-share-picker-search').fill('Bob')
       await page.getByTestId('participant-add-user-bob').click()
-      await dialog.getByTestId('chat-share-save').click()
-      await expect(dialog.getByTestId('chat-share-memories')).toBeVisible()
+      await expect(dialog.getByTestId('chat-share-warning')).toBeVisible()
+      // the warning stays inside the sheet (no sideways scroll)
+      expect(await dialog.getByTestId('chat-share-warning').evaluate((b) => b.getBoundingClientRect().right <= window.innerWidth && b.scrollWidth <= b.clientWidth + 1)).toBe(true)
       for (const id of ['chat-share-save', 'chat-share-cancel']) {
         const fits = await dialog.getByTestId(id).evaluate((b) => b.scrollWidth <= b.clientWidth + 1 && b.getBoundingClientRect().right <= window.innerWidth)
         expect({ locale, id, fits }).toEqual({ locale, id, fits: true })
       }
-      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/2270-${locale}-390-share.png` })
+      if (process.env.SHOTS_DIR) await shots(page, `3092-${locale}-390-share`)
+      // English and Korean at 1440 too (QA screenshots by hand)
+      if (process.env.SHOTS_DIR && (locale === 'en' || locale === 'ko')) {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await expect(dialog.getByTestId('chat-share-warning')).toBeVisible()
+        await shots(page, `3092-${locale}-1440-share`)
+      }
     })
   }
 })

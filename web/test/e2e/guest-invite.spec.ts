@@ -60,7 +60,7 @@ test('owner invites a guest into a group chat: name, AI with all three choices, 
   await expect(page.getByTestId('invite-list')).toContainText('Alex')
 })
 
-test('Team AI: the first team AI account is chosen as soon as the list is read, with a monthly limit', async ({ page }) => {
+test('Team AI: the first team AI account is chosen as soon as the list is read, with a monthly token limit', async ({ page }) => {
   await start(page)
   const cred = await page.request.post('/__test/team-credential', { data: { label: 'Team Claude' } })
   const { id: credentialId } = (await cred.json()) as { id: string }
@@ -72,10 +72,10 @@ test('Team AI: the first team AI account is chosen as soon as the list is read, 
   const fields = await page.getByTestId('guest-ai-team-fields').boundingBox()
   const own = await page.getByTestId('guest-ai-own').boundingBox()
   expect(fields!.y).toBeLessThan(own!.y)
-  await page.getByTestId('guest-ai-limit').fill('15')
+  await page.getByTestId('guest-ai-limit').selectOption('1000000')
   const created = page.waitForRequest((r) => r.url().endsWith('/api/guest-invites') && r.method() === 'POST')
   await page.getByTestId('guest-invite-create').click()
-  expect((await created).postDataJSON()).toMatchObject({ ai: { mode: 'team', credentialId, limitUsd: 15 } })
+  expect((await created).postDataJSON()).toMatchObject({ ai: { mode: 'team', credentialId, limitTokens: 1_000_000 } })
   await expect(page.getByTestId('guest-invite-ready')).toBeVisible()
 })
 

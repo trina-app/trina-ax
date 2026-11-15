@@ -13,6 +13,7 @@ import {
 import type { z } from 'zod'
 import type { AppContext } from '../context'
 import { newId } from '../db'
+import { answerTokensCached, insertGuestBudget } from '../admin/budgets'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
@@ -487,7 +488,8 @@ class UsernameTaken extends Error {}
 
 /** GET /api/guest-invites/limit: the plan's guest cap now, read before the invite dialog shows its form (a guest never
  * gets here: the endpoint is off their list). The owner and admins also learn how many guests are active now (Admin ›
- * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one) and the plan page. Everyone
+ * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one), the plan page and the team's
+ * tokens per answer (admin/budgets.ts answerTokens). Everyone
  * learns whether a guest can have AI on this server at all (guestAiUnavailable). */
 export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInviteLimit {
   const role = c.get('auth')!.user.role
@@ -499,7 +501,9 @@ export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInvi
   const full = max !== null && guestsUsed(ctx.db) + pending >= max
   // how many links wait is the owner's and admins' (they can cancel one), like `used`
   const staff = role === 'owner' || role === 'admin'
-  return { full, limit: max, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
+  return { full, limit: max, ...(full && pending && staff ? { pending } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}),
+    // answerTokens: the Team AI limit's "about N answers" (only the owner and admins give Team AI)
+    answerTokens: answerTokensCached(ctx.db) } : {}),
     // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
     ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }
 }
@@ -544,7 +548,12 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(id)
     ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, place!.kind, place!.id, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
-    if (ai.mode === 'team') ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+    // Team AI's monthly limit: tokens; a link made before tokens keeps its US dollars (guest-invites.ts parseGuestAi)
+    if (ai.mode === 'team') {
+      if (ai.limitTokens) insertGuestBudget(ctx.db, id, ai.limitTokens)
+      else if (ai.limitUsd && ai.limitUsd > 0) ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+      else throw new Error('a Team AI guest link without a limit')
+    }
     if (place!.kind === 'room') {
       // the group chat's size limit holds here too (Rooms.invite checks it for people added in the app)
       const n = (ctx.db.query('SELECT COUNT(*) AS n FROM room_members WHERE room_id = ?').get(place!.id) as { n: number }).n
