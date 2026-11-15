@@ -55,6 +55,11 @@
   "reason": "roleSql(): the guest-aware role"
  },
  {
+  "file": "auth/guests.ts",
+  "sql": "SELECT id, name, ${} AS role FROM users WHERE id = ? AND deleted_at IS NULL",
+  "reason": "roleSql(): the guest-aware role (inPlaceEvenIfOff: a removed guest's own access)"
+ },
+ {
   "file": "auth/team-links.ts",
   "sql": "SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"

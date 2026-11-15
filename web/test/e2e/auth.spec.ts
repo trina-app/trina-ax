@@ -213,7 +213,7 @@ test('an invite link creates an account', async ({ page, browser }) => {
   // the used link is now invalid
   await p2.context().clearCookies()
   await p2.goto(link)
-  await expect(p2.getByText('만료됐거나 이미 사용됐어요')).toBeVisible()
+  await expect(p2.getByText('이미 사용한 초대 링크예요')).toBeVisible()
   await other.close()
 })
 

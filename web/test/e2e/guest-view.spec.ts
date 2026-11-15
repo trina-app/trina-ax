@@ -179,6 +179,19 @@ test.describe('computer', () => {
     await expect(page.getByTestId('project-file')).toHaveText([/^v1\.md/])
     // nothing that leads to the 파일 screen
     await expect(page.getByTestId('project-files-in-files')).toHaveCount(0)
+    // the project page's padding: the back link, the title and the rows 24px from the column's left edge, not 16
+    const left = async (testId: string) => (await page.getByTestId(testId).first().boundingBox())!.x
+    const edge = (await page.getByTestId('project-files-page').boundingBox())!.x
+    expect(await left('project-files-back') - edge).toBeGreaterThanOrEqual(24)
+    expect(await left('project-files-title') - edge).toBeGreaterThanOrEqual(24)
+    if (process.env.SHOTS) {
+      for (const scheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: scheme })
+        await page.waitForTimeout(250)
+        await page.screenshot({ path: `${process.env.SHOTS}/guest-project-folder-1440-${scheme}.png` })
+      }
+      await page.emulateMedia({ colorScheme: 'light' })
+    }
     await page.getByTestId('project-files-back').click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files$`))
     await expect(page.getByTestId('project-file')).toHaveText([/^견적서/])
