@@ -254,7 +254,7 @@ function OrganizeRow() {
   const progress = useWelcome((s) => s.progress)
   const me = useMeStrict()
   const location = useLocation()
-  // open again after "Restart Trina AX" on the step's Find work files (the step takes the note and shows that screen)
+  // open again after "Restart <product>" on the step's Find work files (the step takes the note and shows that screen)
   const [open, setOpen] = useState(() => hasResume(me.user.id, 'team', location.pathname + location.search))
   useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
   const close = () => { setOpen(false); void useMemberWelcome.getState().load() }

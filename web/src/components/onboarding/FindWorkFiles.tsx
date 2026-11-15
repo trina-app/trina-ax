@@ -470,7 +470,7 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
     setRun(going && going.view.status === 'running' && made.has(going.run) ? going : null)
     setOpen(true)
   }
-  // back from "Restart Trina AX" on the Full Disk Access screen (lib/workFiles.ts saveResume): the same dialog again,
+  // back from "Restart <product>" on the Full Disk Access screen (lib/workFiles.ts saveResume): the same dialog again,
   // on the page it was opened from (My files' line or the welcome card), which goes on by itself once the app has it
   const location = useLocation()
   useEffect(() => {

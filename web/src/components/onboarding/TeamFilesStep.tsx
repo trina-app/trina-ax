@@ -343,7 +343,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     return () => { live = false }
   }, [team?.id, home?.id])
   const place = places.find((p) => p.id === draft.placeId) ?? places[0] ?? null
-  // back from "Restart Trina AX" on Find work files' Full Disk Access screen (lib/workFiles.ts saveResume): that screen
+  // back from "Restart <product>" on Find work files' Full Disk Access screen (lib/workFiles.ts saveResume): that screen
   // again, which goes on by itself once the app has the access
   const location = useLocation()
   useEffect(() => {
@@ -874,7 +874,7 @@ export function TeamFilesEntry({ here }: { here: string }) {
   const progress = useWelcome((s) => s.progress)
   const settled = useFolderUploadsSettled()
   const location = useLocation()
-  // open again after "Restart Trina AX" on the step's Find work files (the step takes the note and shows that screen)
+  // open again after "Restart <product>" on the step's Find work files (the step takes the note and shows that screen)
   const [open, setOpen] = useState(() => hasResume(me.user.id, 'team', location.pathname + location.search))
   // the team's home: shared/ since docs/DECISIONS.md "Team folder basics", else the team group's folder
   const folder = progress?.teamGroup ? teamHome(progress.teamGroup) : null

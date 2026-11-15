@@ -283,7 +283,7 @@ function Gate() {
     document.title = PRODUCT.displayName
   }, [])
 
-  // the desktop app restarted for Full Disk Access ("Restart Trina AX" on Find work files): it starts on Home, so the
+  // the desktop app restarted for Full Disk Access ("Restart <product>" on Find work files): it starts on Home, so the
   // page the person was on opens again, where that dialog opens by itself (lib/workFiles.ts saveResume)
   const navigate = useNavigate()
   const signedInId = status.kind === 'signed-in' && !status.me.user.mustChangePassword ? status.me.user.id : null
