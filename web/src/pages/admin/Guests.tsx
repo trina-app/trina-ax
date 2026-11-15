@@ -198,14 +198,33 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   )
 }
 
+/** A place name at most this long in a guest's row (a phone's two lines also hold the status after it). */
+const PLACE_NAME_MAX = 28
+/** a letter counts 1, a Korean / Japanese / Chinese character 2 (it is as wide as two) */
+const widthOf = (c: string) => (c.codePointAt(0)! >= 0x2e80 ? 2 : 1)
+function clipPlaceName(name: string): string {
+  const chars = Array.from(name)
+  if (chars.reduce((n, c) => n + widthOf(c), 0) <= PLACE_NAME_MAX) return name
+  let used = 0
+  const out: string[] = []
+  for (const c of chars) {
+    if (used + widthOf(c) > PLACE_NAME_MAX - 1) return out.join('').trimEnd() + '…'
+    used += widthOf(c)
+    out.push(c)
+  }
+  return name
+}
+
 /** Where a guest is ("Room · Quote prep"), or for a removed one why they are not there: left it, its project in the
  * trash, or gone (the name of a deleted place is not known any more). */
 function placeWords(t: ReturnType<typeof useT>, place: { kind: 'room' | 'project'; name?: string } | null, out: GuestPlaceOut | null): string | null {
   if (out === 'gone') return t('guest.admin.outGone')
   if (!place?.name) return null
-  if (out === 'trashed') return t('guest.admin.outTrashed', { place: place.name })
-  if (out === 'left') return t('guest.admin.outLeft', { place: place.name })
-  return t(place.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: place.name })
+  // a very long name is shortened here, so the words after it ("in the trash", "Disabled") are never the part that is cut
+  const name = clipPlaceName(place.name)
+  if (out === 'trashed') return t('guest.admin.outTrashed', { place: name })
+  if (out === 'left') return t('guest.admin.outLeft', { place: name })
+  return t(place.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name })
 }
 
 /** A removed guest who cannot be switched on (409 guest_no_place): why, in plain words, and Make team member (a member
@@ -252,6 +271,7 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
       <div className="space-y-3" data-testid="guest-ai-dialog">
         {/* the dialog's title says "AI for Alex": no second heading over the choices */}
         <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} noGuestAi={noGuestAi} legend={false} />
+        <p className="text-xs leading-5 break-keep text-muted" data-testid="guest-ai-now">{t('guest.admin.aiNow', { name: user.name })}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

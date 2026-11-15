@@ -5,7 +5,8 @@ import { api, API, isApiError } from '../lib/api'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../lib/optimistic'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
-import { loadLocale, pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { toast } from './ui'
+import { loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -206,7 +207,14 @@ export const useSession = create<SessionState>((set, get) => ({
     if (get().status.kind !== 'signed-in') return
     try {
       const me = await api.call(API.me)
-      if (get().status.kind === 'signed-in') get().signedIn(me)
+      // the account as this window has it right now (a read that came in while this one was on its way already took the
+      // change: no second toast)
+      const before = get().status
+      if (before.kind === 'signed-in') {
+        get().signedIn(me)
+        // an admin made this guest a team member while they are signed in: said once, in words (their windows already widen)
+        if (before.kind === 'signed-in' && before.me.user.role === 'guest' && me.user.role !== 'guest') toast({ level: 'info', text: tNow('guest.nowMember') })
+      }
     } catch {
       /* signed out or offline: the realtime connection reports that */
     }

@@ -20,7 +20,7 @@ import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
 import { ListRow } from '../list/List'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
-import { GuestTagFor } from '../GuestTag'
+import { GuestTagFor, isGuestNow } from '../GuestTag'
 import { isGuestMe } from '../../lib/guests'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
@@ -34,7 +34,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
   const mayRemove = group && !!meId && (room?.managerId === meId || me?.user.role === 'owner' || me?.user.role === 'admin')
   const remove = async (id: string, name: string) => {
     if (!room) return
-    const ok = await confirmDialog({ title: t('rooms.info.removeTitle', { name }), body: t('rooms.info.removeBody'), confirm: t('rooms.info.remove'), danger: true })
+    const ok = await confirmDialog({ title: t('rooms.info.removeTitle', { name }), body: t(isGuestNow(id) ? 'rooms.info.removeBodyGuest' : 'rooms.info.removeBody'), confirm: t('rooms.info.remove'), danger: true })
     if (!ok) return
     await useRooms.getState().removeMember(room.id, id).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }

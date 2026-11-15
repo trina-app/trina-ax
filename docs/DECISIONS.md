@@ -28285,6 +28285,17 @@ words and components.
 - Checked and left as is: the sign-in one person leaves open (closing the tab during "Connect my AI") holds the server's one sign-in slot for 16 minutes for everyone and a non-admin has no Stop button (not guest-specific); on an Office Mac a member's invite dialog still offers Their own sign-in (the server answers the guest's turn with the plain "AI isn't on for you" line).
 - Version impact: **minor** (new optional API fields `InviteInfo.guestAi`, `Invite.stopped`).
 
+## Guest states, QA pass S3: what a removal says, a conversion seen at once, a long name never hides the status — 게스트 상태 QA S3 (fix/guest-states-3, 2026-11-15; QA TC-2231..2256, 2492, 2493)
+
+넣을 곳: Team AX core (`web/src/components/rooms/MembersDialog.tsx`, `web/src/components/ProjectMembersDialog.tsx`, `web/src/components/GuestTag.tsx`, `web/src/store/session.ts`, `web/src/pages/admin/Guests.tsx`, `server/src/admin/guests.ts`), 이유: hands-on QA on a private QA-Acme copy in managed AI mode found four gaps against the owner's six-point state rule.
+
+- **Told beforehand (TC-2234):** taking a guest out of a group chat (the manager's Remove) or out of a project's members (the save's confirm) says that the guest's account is switched off, they cannot sign in any more and lose the place at once. Before, both said only "will no longer see" / "loses access".
+- **Converted while signed in (TC-2243, 2246):** `convertGuest` tells everyone who sees them to read the people list again (`profileChangedFor`, the notice a name change sends), and the Guest tag follows the directory first (`GuestTag.known`: a person the directory lists decides; a project's people list only decides for people the directory does not have: an owner or admin outside the guest's place). The converted person's own window shows one toast: "You're now a team member. Your AI follows the team's settings." (the role change guest to member seen through `refreshMe`, no new notification type).
+- **Admin guest row (TC-2492):** a place name longer than 28 characters is shortened with "…" inside the name only; "in the trash", "Disabled" and the AI part are never the part that is cut.
+- **Change AI (TC-2252):** the dialog says the guest sees the change right away, even in a chat that is open (it does: the box follows live).
+- **Left as is:** a room is "archived" only when its last member (the guest too) has gone, so a room guest never sees an archived room alone; a removed guest signing in fresh in another browser still gets "wrong username or password" (fix pending in another PR).
+- Version impact: **patch** (no API change).
+
 ## Free plan removed (owner 2026-11-14): trial with a card only
 
 - **Owner decision (2026-11-14): the hosted Free plan is gone.** Trina Cloud has only the 14-day trial, which starts
