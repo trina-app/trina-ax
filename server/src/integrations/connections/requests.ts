@@ -69,8 +69,9 @@ export class ConnectionRequests {
     const before = iso(this.now() - KEEP_MS)
     this.db.query("DELETE FROM integration_requests WHERE (state != 'pending' AND ended_at < ?) OR (state = 'pending' AND expires_at < ?)").run(before, before)
   }
-  /** Requests sent to a guest before they were refused (QA TC-2948) end as withdrawn: a guest can never answer one. */
-  private endGuestRequests() {
+  /** Once at start (routes/files.ts init): requests sent to a guest before they were refused (QA TC-2948) end as
+   * withdrawn, with the guest's notice read: a guest can never answer one. Nothing makes new ones (create refuses). */
+  endGuestRequests() {
     const ended = this.db.query("UPDATE integration_requests SET state = 'withdrawn', ended_at = ? WHERE state = 'pending' AND user_id IN (SELECT id FROM users WHERE guest = 1) RETURNING user_id")
       .all(iso(this.now())) as { user_id: string }[]
     for (const id of new Set(ended.map((r) => r.user_id))) settleIntegrationRequestNotice(this.ctx, id)
@@ -84,7 +85,6 @@ export class ConnectionRequests {
   // ---------------- admins ----------------
   listTeam(base: string): IntegrationRequest[] {
     this.sweep()
-    this.endGuestRequests()
     const rows = this.db.query(`SELECT ${REQUEST_COLUMNS} FROM integration_requests ORDER BY created_at DESC, id DESC`).all() as RequestRow[]
     // waiting ones first, newest first within each
     const now = this.now()

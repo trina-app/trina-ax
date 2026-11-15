@@ -13,9 +13,10 @@ QA sheet TC-2948, TC-2953; tracking TC-3035, TC-3033.
 
 1. An admin can ask a guest to connect a service (Admin › Connected apps › Ask a member to connect, and the API returns
    201). The guest gets a notice they can never open. Guests must not be listed, and the server must refuse with a
-   plain line. Requests already sent to guests end (withdrawn) when the admin's list is read.
+   plain line. Requests already sent to guests end (withdrawn) once, when the server starts.
 2. The Activity log folds two quick edits of one connection into one row ("· 2 times") with only the latest detail, so
-   the first edit can't be seen. Admin rows whose details differ are no longer folded.
+   the first edit can't be seen. Rows of any kind whose details differ are no longer folded (the folded row shows one
+   entry's details); sign-ins from one address still fold.
 3. Opening Admin from an Inbox notice can show two admin menu items highlighted: the current page and the item under
    the pointer, which look the same. Only the current page keeps a fill; the item under the pointer gets darker text.
 4. Official Slack app (hosted): "unreachable" asks the admin to check the server's internet connection, which a hosted
@@ -28,9 +29,11 @@ Out: other guest checks on connectors (TC-2949 passed; TC-2950 Slack needs a rea
 
 ## Steps
 
-1. requests.ts: member query adds `guest = 0`; a guest gets a plain refusal; listTeam ends pending requests to guests.
+1. requests.ts: member query adds `guest = 0`; a guest gets a plain refusal; once at start (routes/files.ts init),
+   pending requests to guests end as withdrawn. The admin's list stays read-only apart from its existing sweep. No
+   migration.
 2. RequestDialog.tsx: the picker leaves out guests (role 'guest').
-3. lib/activity.ts: sameEvent compares the detail of admin rows.
+3. lib/activity.ts: sameEvent compares the whole detail of every row.
 4. AdminLayout.tsx: only the current page has a fill; a menu item under the pointer only gets darker text.
 5. Slack.tsx (after PR #950): official mode's unreachable line.
 

@@ -4507,7 +4507,7 @@ export const ko = {
   "slack.err.officialScopes": "Slack에서 앱을 다시 허용해야 해요. 다시 [Slack에 추가]하고 허용해 주세요.",
   "slack.err.officialEnterprise": "조직 전체 설치는 아직 쓸 수 없어요. 다시 [Slack에 추가]하고 워크스페이스 하나를 골라 주세요.",
   "slack.err.officialUnknown": "Slack 연결에 문제가 있어요. 다시 [Slack에 추가]하면 고쳐져요.",
-  "slack.err.officialUnreachable": "지금 Slack에 연결하지 못하고 있어요. 트리나가 저절로 다시 시도해요. 계속되면 고객 지원에 문의해 주세요.",
+  "slack.err.officialUnreachable": "지금 Slack에 연결하지 못하고 있어요. 트리나가 자동으로 다시 시도해요. 계속되면 고객 지원에 문의해 주세요.",
   "slack.err.bot_refused": "Slack이 저장된 봇 토큰을 받지 않아서 답을 올릴 수 없어요. [토큰 바꾸기]에서 새 토큰을 넣어 주세요.",
   "slack.admin.removeOfficialBody": "Slack 워크스페이스에서 앱을 빼고, 모든 사람의 계정 연결을 지워요.",
   "slack.admin.removeRemovedBody": "연결한 서비스에서 Slack을 빼고, 모든 사람의 계정 연결을 지워요. 나중에 다시 추가할 수 있어요.",

@@ -184,7 +184,7 @@ member connects it with their own key or signs in, which creates their personal 
 one they add themselves, or declines it. The admin sees the state (waiting, connected, declined, withdrawn, expired
 after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. A guest is
 never asked: the picker leaves guests out, the server refuses one (400 under the person), and a request sent to a guest
-before that ends as withdrawn when the admin's list is read (QA TC-2948). Code:
+before that ends as withdrawn once, when the server starts (QA TC-2948). Code:
 `server/src/integrations/connections/requests.ts`, migrations `220_b_integration_request_notices.sql` and
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".

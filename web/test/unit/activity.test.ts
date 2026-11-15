@@ -90,6 +90,12 @@ describe('grouped by day', () => {
     ])
     expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['a', 'b', 'cd'])
   })
+  test('any kind folds only with the same details: two AI reads of different files stay two rows', () => {
+    const t = now.getTime()
+    const read = (id: string, ago: number, summary: string) => entry(id, new Date(t - ago * min), { source: 'tool', action: 'read', target: null, detail: { summary, ok: 1 } })
+    const [day] = groupActivity([read('a', 0, 'read a.md'), read('b', 1, 'read b.md'), read('c', 2, 'read b.md')])
+    expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['a', 'bc'])
+  })
   test('a new day starts a new group, and a run never crosses midnight', () => {
     const late = new Date(2026, 10, 4, 0, 5)
     const early = new Date(2026, 10, 3, 23, 58)

@@ -10,6 +10,7 @@ import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { CallError, integrationsOf } from '../../server/src/integrations/connections/service'
 import { getRow, mayUse } from '../../server/src/integrations/connections/store'
 import { say } from '../../server/src/integrations/connections/text'
+import { requestsOf } from '../../server/src/integrations/connections/requests'
 import { createLogger } from '../../server/src/log'
 import { notificationsOf } from '../../server/src/notifications/service'
 
@@ -391,7 +392,7 @@ test('a sign-in request: the member\'s connection is made to sign in at, and the
   for (const t of tokens) { expect(adminText).not.toContain(t); expect(everything()).not.toContain(t) }
 })
 
-test('a guest is never asked (QA TC-2948): refused under the person with a plain line; one sent before ends, its notice read', async () => {
+test('a guest is never asked (QA TC-2948): refused under the person with a plain line; one sent before ends at start, its notice read', async () => {
   const d = await addMember(h, olga, { username: 'dina' })
   const before = await ask(ada, { ...mcpKey(), userId: d.id, url: `${fake.base}/mcp-key?guest=1` })
   expect(before.status).toBe(201)
@@ -400,7 +401,9 @@ test('a guest is never asked (QA TC-2948): refused under the person with a plain
   expect(r.status).toBe(400)
   expect(r.body.error.fields['body.userId']).toBe(say('requestGuest', 'ko'))
   expect(h.ctx.db.query("SELECT count(*) AS n FROM integration_requests WHERE user_id = ? AND state = 'pending'").get(d.id)).toEqual({ n: 1 })
-  // the admin's list ends the one sent before: a guest can never open it
+  // reading the admin's list changes nothing; the start-up sweep ends the one sent before: a guest can never open it
+  expect(await stateOf(before.body.id)).toBe('waiting')
+  requestsOf(h.ctx).endGuestRequests()
   expect(await stateOf(before.body.id)).toBe('withdrawn')
   expect(h.ctx.db.query('SELECT read_at FROM integration_request_notices WHERE source_id = ?').get(before.body.id)).toEqual({ read_at: expect.any(String) })
 })
