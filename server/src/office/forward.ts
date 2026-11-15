@@ -58,11 +58,41 @@ export function unreadablePrevious(home: string, need = dbReaderLevel(home)): Re
 export function setAsideUnreadablePrevious(home: string): string {
   const need = dbReaderLevel(home)
   const prev = unreadablePrevious(home, need)
-  if (!prev) return ''
+  return prev ? setAsidePrevious(home, prev, `the database needs level ${need}`) : ''
+}
+
+/** Move app.previous (prev) to app.unreadable; `why` ends the log line. */
+export function setAsidePrevious(home: string, prev: ReleaseDir, why: string): string {
   const to = path.join(path.resolve(home), UNREADABLE)
   fs.rmSync(to, { recursive: true, force: true })
   fs.renameSync(prev.dir, to)
-  return `app.previous (${prev.version}) reads schema level ${prev.level} and the database needs level ${need}: moved to ${UNREADABLE}, so no update can roll back to it`
+  return `app.previous (${prev.version}) reads schema level ${prev.level} and ${why}: moved to ${UNREADABLE}, so no update can roll back to it`
+}
+
+/** What `office.js install` does about app.previous once its wait for the server is over. Pure.
+ *  - The database already needs more than app.previous reads: set it aside (a rollback can never start it).
+ *  - Under an updater, the server still says "migrating" and this build ships a higher reader level than app.previous:
+ *    set it aside too. The migrations commit together at the end (db.ts), so the database still reads the old level
+ *    now, but an updater that does not know "migrating" (0.4.0 waits 150 s) would roll back after the commit.
+ *  - Never answered and never migrating: keep it. Nothing was migrated, so a rollback is the right way back.
+ * Under an updater a set-aside also writes the heal marker, and an install whose server did not answer exits 0 (the
+ * updater goes on waiting; a rollback would find no app.previous). */
+export function previousDecision(o: {
+  up: 'up' | 'migrating' | 'still-migrating' | false
+  underUpdater: boolean
+  /** the database's reader level now */
+  need: number
+  /** bundleReaderLevel of the new app/ */
+  newLevel: number
+  prevLevel: number | null
+}): { setAside: boolean; why: string; marker: boolean; exitZero: boolean } {
+  const none = { setAside: false, why: '', marker: false, exitZero: false }
+  if (o.prevLevel === null) return none
+  let why = ''
+  if (o.need > o.prevLevel) why = `the database needs level ${o.need}`
+  else if (o.underUpdater && (o.up === 'migrating' || o.up === 'still-migrating') && o.newLevel > o.prevLevel) why = `the database is being updated to level ${o.newLevel}`
+  if (!why) return none
+  return { setAside: true, why, marker: o.underUpdater, exitZero: o.underUpdater && !o.up }
 }
 
 /** The text that names the way back for the owner (one command). */

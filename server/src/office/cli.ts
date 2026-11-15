@@ -75,7 +75,7 @@ import { certCheckDue, daysLeft, findTailscaleBin, readNode, readServePorts, ref
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 import { clearStaleFailure, noteRecovery, updateView } from './update'
-import { dbReaderLevel, exit75Decision, type Exit75Decision, extraWaitSeconds, goForward, releaseIn, setAsideUnreadablePrevious, unreadablePrevious, updateRunning, writeHealMarker } from './forward'
+import { dbReaderLevel, exit75Decision, type Exit75Decision, extraWaitSeconds, goForward, previousDecision, releaseIn, setAsidePrevious, updateRunning, writeHealMarker } from './forward'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth } from './health'
 import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
 import { PRODUCT } from '@mycel/shared'
@@ -1043,23 +1043,20 @@ export async function main(argv: string[]): Promise<number> {
       const underUpdater = process.env.TEAMAX_UPDATE_RUN === '1'
       const waitOpts = { migratingIsUp: underUpdater, updaterMs: process.env.TEAMAX_UPDATER_WAITS_MIGRATING === '1' ? 0 : undefined, say: lines }
       let up = await waitHealthy(s, 90, waitOpts)
-      // QA TC-335: this version migrated the database past what app.previous reads. A rollback to it can never start,
-      // and the updater that runs this install may be an old one that rolls back anyway (and then loops on exit 75).
-      const stuck = unreadablePrevious(home)
-      let handOver = false
-      if (stuck) {
-        if (!up && underUpdater) {
-          const extra = extraWaitSeconds(process.env.TEAMAX_INSTALLER_STARTED, Date.now())
-          if (extra > 0) { lines(`the server did not answer within 90 s; ${stuck.version} cannot read the database any more, so waiting ${extra} s more`); up = await waitHealthy(s, extra, waitOpts) }
-        }
-        lines(setAsideUnreadablePrevious(home))
-        if (underUpdater) {
-          const version = releaseIn(home, 'app')?.version ?? '?'
-          writeHealMarker(home, { at: new Date().toISOString(), version, previous: stuck.version, reason: `${stuck.version} reads schema level ${stuck.level}, the database needs ${dbReaderLevel(home)}` })
-          // exit 0: the updater keeps waiting for this version; a rollback would find no app.previous
-          handOver = !up
-        }
+      // QA TC-335: when this version migrated (or is migrating) the database past what app.previous reads, a rollback
+      // to it can never start, and the updater that runs this install may be an old one that rolls back anyway (and
+      // then loops on exit 75). previousDecision (./forward.ts) decides; app.previous goes to app.unreadable.
+      const prev = releaseIn(home, 'app.previous')
+      if (prev && !up && underUpdater && dbReaderLevel(home) > prev.level) {
+        const extra = extraWaitSeconds(process.env.TEAMAX_INSTALLER_STARTED, Date.now())
+        if (extra > 0) { lines(`the server did not answer within 90 s; ${prev.version} cannot read the database any more, so waiting ${extra} s more`); up = await waitHealthy(s, extra, waitOpts) }
       }
+      const pd = previousDecision({ up, underUpdater, need: dbReaderLevel(home), newLevel: releaseIn(home, 'app')?.level ?? 1, prevLevel: prev?.level ?? null })
+      if (prev && pd.setAside) {
+        lines(setAsidePrevious(home, prev, pd.why))
+        if (pd.marker) writeHealMarker(home, { at: new Date().toISOString(), version: releaseIn(home, 'app')?.version ?? '?', previous: prev.version, reason: `${prev.version} reads schema level ${prev.level}; ${pd.why}` })
+      }
+      const handOver = pd.exitZero
       if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       if (!up && !handOver) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       if (handOver) lines(`the server does not answer yet; there is nothing to roll back to, so the updater goes on waiting for it (see ${p.officeLog} and ${p.serverLogs})`)

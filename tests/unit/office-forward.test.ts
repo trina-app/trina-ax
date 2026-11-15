@@ -10,7 +10,7 @@ import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  exit75Decision, extraWaitSeconds, goForward, healDecision, healFile, readHealMarker, recoveryAdvice, releaseIn, setAsideUnreadablePrevious,
+  exit75Decision, extraWaitSeconds, goForward, healDecision, previousDecision, healFile, readHealMarker, recoveryAdvice, releaseIn, setAsideUnreadablePrevious,
   unreadablePrevious, UNREADABLE, writeHealMarker, type HealMarker,
 } from '../../server/src/office/forward'
 import { clearStaleFailure, NoRollback, patchUpdateState, readUpdateState, rollBack, type UpdateDeps } from '../../server/src/office/update'
@@ -169,6 +169,24 @@ describe('the new install sets aside an app.previous that cannot read the databa
     expect(calls).toEqual([])
     expect(version(h)).toBe('0.5.7')
   })
+})
+
+test('previousDecision: what office.js install does with app.previous after its wait', () => {
+  const b = { underUpdater: true, need: 4, newLevel: 8, prevLevel: 4 }
+  // TC-335: migrated to 8, no answer, under 0.4.0's updater: set aside, heal marker, exit 0 (the updater goes on waiting)
+  expect(previousDecision({ ...b, up: false, need: 8 })).toEqual({ setAside: true, why: 'the database needs level 8', marker: true, exitZero: true })
+  expect(previousDecision({ ...b, up: 'up', need: 8 })).toMatchObject({ setAside: true, marker: true, exitZero: false })
+  // still migrating when the install hands over (the migrations commit together, so the database still reads 4):
+  // 0.4.0 would roll back after the commit, so set aside now
+  expect(previousDecision({ ...b, up: 'migrating' })).toEqual({ setAside: true, why: 'the database is being updated to level 8', marker: true, exitZero: false })
+  // never answered, never migrating: nothing was migrated, a rollback is right
+  expect(previousDecision({ ...b, up: false })).toMatchObject({ setAside: false, exitZero: false })
+  // migrating, but this build raises no level over app.previous: the old build reads the result
+  expect(previousDecision({ ...b, up: 'migrating', newLevel: 4 })).toMatchObject({ setAside: false })
+  // by hand (no updater): set aside only what cannot read the database now; no marker, the exit code is the install's
+  expect(previousDecision({ ...b, underUpdater: false, up: false, need: 8 })).toEqual({ setAside: true, why: 'the database needs level 8', marker: false, exitZero: false })
+  expect(previousDecision({ ...b, underUpdater: false, up: 'migrating' })).toMatchObject({ setAside: false })
+  expect(previousDecision({ ...b, up: false, need: 8, prevLevel: null })).toMatchObject({ setAside: false })
 })
 
 test('extraWaitSeconds: inside the updater\'s 10 minutes, at most 240 s, 0 without a start time', () => {
