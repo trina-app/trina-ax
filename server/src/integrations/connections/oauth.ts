@@ -7,7 +7,9 @@
 // A service that refuses the app registered for itself (it lets only apps it approved sign in: Canva's callback list,
 // Figma's catalog, Vercel's allowlist) may take a Client ID Metadata Document instead (MCP authorization 2025-11-25,
 // draft-ietf-oauth-client-id-metadata-document): the client ID is the address of a document this server publishes
-// (clientMetadata, metadataClient). preflight opens the sign-in address once to see a clear refusal before the browser does.
+// (clientMetadata, metadataClient). A service that refuses those too but takes an app on the person's computer (Canva,
+// Intercom, Square: RFC 8252's 127.0.0.1 return address) is signed in at from the desktop app (loopbackClient).
+// preflight opens the sign-in address once to see a clear refusal before the browser does.
 import { PRODUCT } from '@mycel/shared'
 import { checkHostName } from '../../tools/web-fetch'
 import { jsonRequest, NetError, serviceRequest, type NetOptions } from './net'
@@ -268,6 +270,25 @@ export async function chooseClient(setup: { server: OAuthServer; metadataClients
   const doc = metadataClient(origin)
   if (refusedBy?.clientId === doc.clientId || (await preflight(urlFor(doc), net)) !== 'pass') throw new NetError('oauth_approved_apps_only')
   return doc
+}
+
+/** The return address of a sign-in from the desktop app (RFC 8252 section 7.3, how apps on a computer sign in): the app's
+ * one-time listener on the person's own computer (desktop/src/common/sign-in-return.ts), which sends the browser on to
+ * this server's CALLBACK_PATH. Always 127.0.0.1 and this path; only the port comes from the app. */
+export const loopbackRedirect = (port: number) => `http://127.0.0.1:${port}/callback`
+/** a port the desktop app may name: an integer the system hands out to programs (never a privileged one) */
+export const loopbackPortOk = (p: unknown): p is number => typeof p === 'number' && Number.isInteger(p) && p >= 1024 && p <= 65535
+
+/** The client of a sign-in from the desktop app, offered only after the service refused every client for the https
+ * callback (chooseClient): one registration (RFC 7591) for the 127.0.0.1 address, then the same preflight. Canva,
+ * Intercom and Square take it; Figma refuses it as well. Throws NetError: `oauth_approved_apps_only` when the service
+ * refuses this one too (its registration's 400 or 403, or the sign-in page clearly), else the registration's own
+ * reason. A plain 400 page lets it through: there is no other client to offer. */
+export async function loopbackClient(server: OAuthServer, port: number, net: NetOptions, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
+  if (!loopbackPortOk(port)) throw new NetError('oauth_approved_apps_only')
+  const c = await register(server, loopbackRedirect(port), net)
+  if ((await preflight(urlFor(c), net)) === 'refused') throw new NetError('oauth_approved_apps_only')
+  return c
 }
 
 export function authorizationUrl(s: { server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null }, state: string, challenge: string): string {
