@@ -71,6 +71,32 @@ test('a working connection that turns to needs sign-in tells its owner once, by 
   expect((await reconnects('alice')).every((x) => x.connection === undefined)).toBe(true)
 })
 
+test('a connection with no key that starts to answer 401 tells its owner too', async () => {
+  const made = await send('erin', 'POST', '/api/integrations', { kind: 'mcp', name: 'Open board', url: `${fake.base}/mcp-open`, auth: 'none' })
+  expect(made.body.status).toBe('connected')
+  fake.listStatus = 401
+  expect((await check('erin', made.body.id)).status).toBe('needs_auth')
+  const n = await reconnects('erin')
+  expect(n.map((x) => x.connection)).toEqual([{ id: made.body.id, name: 'Open board', googleApp: null }])
+})
+
+test('an unread notice past the inbox\'s 30 days does not hold the next one back', async () => {
+  const made = await send('dana', 'POST', '/api/integrations', { kind: 'mcp', name: 'Old one', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+  expect(made.body.status).toBe('connected')
+  fake.listStatus = 401
+  await check('dana', made.body.id)
+  expect((await reconnects('dana')).length).toBe(1)
+  // still unread, but 31 days old: outside the window the inbox shows
+  A.ctx.db.query("UPDATE notification_inbox SET created_at=? WHERE user_id='dana' AND event_type='connection.reconnect'").run(new Date(Date.now() - 31 * 86_400_000).toISOString())
+  fake.listStatus = null
+  expect((await check('dana', made.body.id)).status).toBe('connected')
+  fake.listStatus = 401
+  await check('dana', made.body.id)
+  const rows = A.ctx.db.query("SELECT read_at FROM notification_inbox WHERE user_id='dana' AND event_type='connection.reconnect'").all() as { read_at: string | null }[]
+  expect(rows.length).toBe(2)
+  expect((await reconnects('dana')).length).toBe(1)
+})
+
 test('not for a connection that never worked, nor for one whose key was just changed', async () => {
   // a wrong key from the start: the person is there and the page says so; no notice
   fake.listStatus = 401

@@ -1474,7 +1474,7 @@ export const ko = {
   'connectors.page.toolsAll': "도구별 설명 보기",
   'connectors.page.toolsTitle': "{name} 도구",
   "connectors.page.teamAllowLine": "AI는 읽을 때는 묻지 않아요. 팀에서 묻지 않고 실행하도록 정해서, 바깥 내용(웹 페이지, 다른 사람의 파일)을 읽은 대화에서도 묻지 않고 바꾸거나 보내요. Slack에서 한 질문은 예외예요.",
-  "connectors.page.teamAllowLineOff": "AI는 읽을 때는 묻지 않아요. 팀에서 묻지 않고 실행하도록 정해서 묻지 않고 바꾸거나 보내요. 다만 바깥 내용(웹 페이지, 다른 사람의 파일)을 읽은 대화에서는 먼저 물어봐요.",
+  "connectors.page.teamAllowLineOff": "AI는 읽을 때는 묻지 않아요. 팀에서 묻지 않고 실행하도록 정해서 바꾸거나 보내요. 다만 바깥 내용(웹 페이지, 다른 사람의 파일)을 읽은 대화에서는 먼저 물어봐요.",
   'connectors.err.address': "서비스 주소에 연결하지 못했어요.",
   "connectors.err.notMcp": "주소는 답했지만 커넥터처럼 답하지 않았어요.",
   "connectors.err.redirect": "이 주소가 다른 주소로 넘기려고 했어요.",
