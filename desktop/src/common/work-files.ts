@@ -287,12 +287,12 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
  * making a cloud provider fetch it); an online-only file on Windows (the index's attributes) gets no call at all here
  * (Found.late: the read checks it). `serial` (a network share): one call at a time, and the first that does not answer
  * ends them, so a share that hangs holds at most one of the system's file threads. */
-export async function filesFromIndex(root: WorkRoot, real: string, indexed: readonly IndexedFile[], fs: WorkFs, o: { platform: string; newId: () => string; now?: () => number; fileBytes?: number; max?: number; seen?: Set<string>; seenPaths?: Set<string>; stopped?: () => boolean; callMs?: number; serial?: boolean; deadline?: number }): Promise<{ files: WorkFileMeta[]; found: Map<string, Found>; tooBig: number; checked: number }> {
+export async function filesFromIndex(root: WorkRoot, real: string, indexed: readonly IndexedFile[], fs: WorkFs, o: { platform: string; newId: () => string; now?: () => number; fileBytes?: number; max?: number; seen?: Set<string>; seenPaths?: Set<string>; stopped?: () => boolean; callMs?: number; serial?: boolean; deadline?: number }): Promise<{ files: WorkFileMeta[]; found: Map<string, Found>; tooBig: number; checked: number; timedOut?: boolean }> {
   const p = o.platform
   const now = o.now?.() ?? Date.now()
   const fileBytes = o.fileBytes ?? WORK_FILES_LIMITS.fileBytes
   const rootKey = sameKey(real, p)
-  const out = { files: [] as WorkFileMeta[], found: new Map<string, Found>(), tooBig: 0, checked: indexed.length }
+  const out = { files: [] as WorkFileMeta[], found: new Map<string, Found>(), tooBig: 0, checked: indexed.length, timedOut: false }
   const lib = p === 'win32' ? win32 : posix
   const picked = indexed
     .map((f) => ({ f, key: sameKey(f.path, p) }))
@@ -312,7 +312,8 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
     const checks = await Promise.all(batch.map(async ({ f, parts }) => {
       const path = join(p, real, ...parts)
       // Windows' online-only file: described by the index only, never touched here
-      if (f.cloud && p === 'win32') return f.size !== null && f.size >= 0 ? { f, parts, st: { kind: 'file' as const, size: f.size, mtimeMs: f.modified ?? 0, dev: 0n, ino: 0n }, late: true } : null
+      // (its date must be known: the read compares it)
+      if (f.cloud && p === 'win32') return f.size !== null && f.size >= 0 && f.modified ? { f, parts, st: { kind: 'file' as const, size: f.size, mtimeMs: f.modified ?? 0, dev: 0n, ino: 0n }, late: true } : null
       try {
         // the folder's real path must still be where the index found it (no link on the way); the file itself a file
         const dir = parts.length > 1 ? join(p, real, ...parts.slice(0, -1)) : real
@@ -346,6 +347,7 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
         ...(c.f.org ? { org: c.f.org.slice(0, 120) } : {}), ...(c.f.cloud ? { cloud: true } : {}),
       })
     }
+    if (late) out.timedOut = true
     if (late && o.serial) break
   }
   return out
@@ -369,6 +371,11 @@ export interface LookOptions extends Omit<ScanOptions, 'onProgress'> {
   enrich?: (paths: string[], until: { deadline: number; stopped: () => boolean }) => Promise<IndexedFile[]>
   /** part 5: the paths (sameKey) of the files listed so far, across roots (a place inside another is listed once) */
   seenPaths?: Set<string>
+  /** part 5: a root that is never walked (a cloud drive's folder on Windows, whose online-only entries a walk would
+   * touch): its first entry is not read either; without the index's rows it is left out ('skipped') */
+  noWalk?: (root: WorkRoot) => boolean
+  /** part 5: the whole look ends here: roots not reached are 'skipped' (cut), a walk gets at most what is left */
+  deadline?: number
   /** part 5: a root's own walk limits (a place beyond the three folders gets a shorter walk) */
   rootLimits?: (root: WorkRoot) => Partial<Record<'walkDocs' | 'walkFiles' | 'depth' | 'rootMs' | 'totalMs', number>>
 }
@@ -393,12 +400,14 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
     out.roots.push(r)
     tell(root, i, 0, 0)
     if (out.stopped || o.stopped?.()) { out.stopped = true; r.state = 'skipped'; continue }
+    if (o.deadline !== undefined && Date.now() >= o.deadline) { r.state = 'skipped'; r.cut = true; continue }
     if (o.allowed && !(await o.allowed(root).catch(() => false))) { r.state = 'home'; continue }
+    const noWalk = !!o.noWalk?.(root)
     let real: string
     let top0 = 0
     try {
-      top0 = (await within(fs.readdir(root.path, 1), FIRST_READ_MS)).length
-      real = await within(fs.realpath(root.path), FIRST_READ_MS)
+      if (!noWalk) top0 = (await within(fs.readdir(root.path, 1), FIRST_READ_MS)).length
+      real = await within(fs.realpath(root.path), noWalk ? 5000 : FIRST_READ_MS)
     } catch (e) {
       r.state = macBlocked(e, p) ? 'blocked' : (e as { code?: string } | null)?.code === 'ENOENT' ? 'missing' : 'unreadable'
       continue
@@ -411,16 +420,21 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
     // an index that knows nothing of a folder that has entries (Windows Search does not index a Documents moved to D:\
     // by default) is no answer: that folder is walked
     const mine = indexed?.filter((f) => insideKey(sameKey(f.path, p), key, p)) ?? null
-    if (mine && (mine.length > 0 || top0 === 0)) {
+    if (noWalk && !mine?.length) {
+      // never walked: without the index's rows nothing of it is listed
+      r.state = 'skipped'
+    } else if (mine && (mine.length > 0 || top0 === 0)) {
       r.how = 'index'
-      const f = await filesFromIndex(root, real, mine, fs, { platform: p, newId: o.newId, now: o.now, fileBytes: o.limits?.fileBytes, seen, seenPaths: o.seenPaths, stopped: () => !!o.stopped?.() })
+      const f = await filesFromIndex(root, real, mine!, fs, { platform: p, newId: o.newId, now: o.now, fileBytes: o.limits?.fileBytes, seen, seenPaths: o.seenPaths, stopped: () => !!o.stopped?.(), deadline: o.deadline })
       r.checked = f.checked
       r.tooBig = f.tooBig
       for (const x of f.files) out.files.push(x)
       for (const [id, x] of f.found) out.found.set(id, x)
     } else {
       r.how = 'walk'
-      const w = await scanRoots([root], fs, { ...o, earlier: seenRoots.slice(0, -1), seen, seenPaths: o.seenPaths, limits: { ...FALLBACK_LIMITS, ...o.limits, ...o.rootLimits?.(root) }, onProgress: (x) => tell(root, i, 0.2 + 0.7 * Math.min(1, x.checked / FALLBACK_LIMITS.walkFiles), x.checked) })
+      const lim = { ...FALLBACK_LIMITS, ...o.limits, ...o.rootLimits?.(root) }
+      if (o.deadline !== undefined) lim.rootMs = Math.max(500, Math.min(lim.rootMs, o.deadline - Date.now()))
+      const w = await scanRoots([root], fs, { ...o, earlier: seenRoots.slice(0, -1), seen, seenPaths: o.seenPaths, limits: lim, onProgress: (x) => tell(root, i, 0.2 + 0.7 * Math.min(1, x.checked / FALLBACK_LIMITS.walkFiles), x.checked) })
       const wr = w.roots[0]!
       Object.assign(r, { state: wr.state, cut: wr.cut, tooBig: wr.tooBig, checked: wr.checked })
       if (o.enrich && w.files.length) {
@@ -475,6 +489,10 @@ export async function lookWide(roots: readonly WorkRoot[], fs: WorkFs, o: WideOp
   const seenPaths = o.seenPaths ?? new Set<string>()
   const recentP = (o.recent?.() ?? Promise.resolve([] as IndexedFile[])).catch(() => [] as IndexedFile[])
   const r = await lookRoots(roots, fs, { ...o, seenPaths })
+  /** network groups: at most 3 are tried, and none after one that did not answer (a hung call holds one of the system's
+   * few file threads until the share answers) */
+  let networkTries = 0
+  let networkDead = false
   if (r.stopped || o.stopped?.()) { r.stopped = true; return r }
   const left = () => (o.deadline ?? Date.now() + 10_000) - Date.now()
   const recent = await within(recentP, Math.max(500, left())).catch(() => [] as IndexedFile[])
@@ -515,6 +533,7 @@ export async function lookWide(roots: readonly WorkRoot[], fs: WorkFs, o: WideOp
     const id: WorkRootId = g.place.kind === 'drive' ? 'drive' : 'home'
     const res: WorkRootResult = { id, place: g.place.label, oneDrive: false, state: 'ok', cut: false, tooBig: 0, checked: 0, how: 'index' }
     const serial = !!o.network?.(g.place.path)
+    if (serial && (networkDead || ++networkTries > 3)) continue
     let real: string
     try {
       real = serial ? g.place.path : await within(fs.realpath(g.place.path), 2000)
@@ -522,6 +541,7 @@ export async function lookWide(roots: readonly WorkRoot[], fs: WorkFs, o: WideOp
     const f = await filesFromIndex({ id, path: g.place.path, oneDrive: false, place: g.place.label }, real, g.files.map((x) => ({ ...x, path: lib.join(real, lib.relative(lib.normalize(g.place.path), lib.normalize(x.path))) })), fs, {
       platform: p, newId: o.newId, now: o.now, fileBytes: o.limits?.fileBytes, seenPaths, stopped: () => !!o.stopped?.(), serial, callMs: serial ? 1500 : undefined, deadline: Date.now() + Math.max(500, Math.min(left(), serial ? 3000 : 5000)), max: 300,
     })
+    if (serial && f.timedOut) networkDead = true
     res.checked = f.checked
     res.tooBig = f.tooBig
     if (!f.files.length && !f.tooBig) continue
@@ -656,6 +676,8 @@ export class WorkFileSessions {
       // the file that was opened: the same one, the same size and date (a late one: the one lstat'ed just before)
       const opened = await h.stat()
       if (!sameFile(opened, f, p) || (f.late && (before.ino === 0n || opened.dev !== before.dev || opened.ino !== before.ino))) return { ok: false, reason: 'changed' }
+      // a late one: the way to it is still the same after the open (no folder swapped for a junction meanwhile)
+      if (f.late && sameKey(await this.fs.realpath(path), p) !== sameKey(path, p)) return { ok: false, reason: 'changed' }
       const bytes = await h.read(f.size)
       if (bytes.byteLength !== f.size) return { ok: false, reason: 'changed' }
       return { ok: true, bytes }

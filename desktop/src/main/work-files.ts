@@ -167,7 +167,10 @@ export class WorkFilesController {
   private async lookWide(folders: WorkRoot[], places: Place[], generation: number) {
     const home = app.getPath('home')
     const deadline = Date.now() + WIDE_MS
-    const roots: WorkRoot[] = [...places.map((x) => ({ id: x.kind, path: x.path, oneDrive: false, place: x.label })), ...folders]
+    // messengers' and work folders first (a messenger's folder inside Downloads keeps its name), then the three folders,
+    // then the cloud drives (Documents moved into OneDrive stays "Documents (OneDrive)" with its own limits)
+    const place = (x: Place): WorkRoot => ({ id: x.kind, path: x.path, oneDrive: false, place: x.label })
+    const roots: WorkRoot[] = [...places.filter((x) => x.kind !== 'cloud').map(place), ...folders, ...places.filter((x) => x.kind === 'cloud').map(place)]
     const stopped = () => this.stopped || generation !== this.generation
     const common = {
       platform: process.platform,
@@ -186,6 +189,8 @@ export class WorkFilesController {
       const fixedNow = await fixed
       return lookWide(roots, NODE_WORK_FS, {
         ...common,
+        // a cloud drive's folder is never walked on Windows (a walk would touch online-only files): the index only
+        noWalk: (root) => root.id === 'cloud',
         index: async () => all,
         recent: async () => (await all) ?? [],
         network: (path) => path.startsWith('\\\\') || !fixedNow.some((d) => path.toLowerCase().startsWith(d.toLowerCase())),
@@ -197,7 +202,8 @@ export class WorkFilesController {
       ...common,
       index: async (_real, root) => (root.place !== undefined ? (pre.get(root.path) ?? null) : null),
       enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until),
-      placeholders: (paths, root) => (root.id === 'cloud' ? macDatalessSet(paths) : Promise.resolve(new Set<string>())),
+      // every root: iCloud's Desktop & Documents with Optimize Storage keeps folders in the cloud too
+      placeholders: (paths) => macDatalessSet(paths),
       recent: () => macRecent(home, deadline),
     })
   }
@@ -208,12 +214,18 @@ export class WorkFilesController {
   }
 
   openFullDiskSettings() {
-    if (process.platform === 'darwin') void shell.openExternal(MAC_FULL_DISK_SETTINGS)
+    if (process.platform !== 'darwin') return
+    this.fullDiskSettingsAt = Date.now()
+    void shell.openExternal(MAC_FULL_DISK_SETTINGS)
   }
+  private fullDiskSettingsAt = 0
 
-  /** "Reopen Trina": macOS gives Full Disk Access to an app that was running when it was turned on only after a restart. */
-  relaunch() {
-    if (process.platform !== 'darwin' || this.busy) return
+  /** "Reopen Trina": macOS gives Full Disk Access to an app that was running when it was turned on only after a restart.
+   * Only within 15 minutes of Open Settings, while the app still has no access, and never during a look (a page cannot
+   * restart the app at will). */
+  async relaunch() {
+    if (process.platform !== 'darwin' || this.busy || !this.fullDiskSettingsAt || Date.now() - this.fullDiskSettingsAt > 15 * 60_000) return
+    if ((await this.fullDisk()) === 'granted') return
     app.relaunch()
     app.quit()
   }

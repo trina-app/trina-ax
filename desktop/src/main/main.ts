@@ -336,7 +336,7 @@ function registerIpc() {
   // part 5, a Mac: Full Disk Access (a probe that reads nothing), its Settings pane, a restart
   ipcMain.handle('bridge:work-files-full-disk', (e) => (fromApp(e) ? win!.workFiles.fullDisk() : 'unknown'))
   ipcMain.on('bridge:work-files-full-disk-settings', (e) => fromApp(e) && win!.workFiles.openFullDiskSettings())
-  ipcMain.on('bridge:work-files-relaunch', (e) => fromApp(e) && win!.workFiles.relaunch())
+  ipcMain.on('bridge:work-files-relaunch', (e) => { if (fromApp(e)) void win!.workFiles.relaunch() })
   ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
   ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
   ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())

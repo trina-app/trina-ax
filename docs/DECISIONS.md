@@ -28733,14 +28733,16 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   app data or another provider; Windows: the OneDrive variables and the home folder's Dropbox, Box, Google Drive), the
   home folder's top folders named with a work word (six app languages) or the company's or a client's name (the page
   passes at most 20 names; `scanAsk` keeps letters, digits and a few marks, no separators), messengers' download folders
-  (a data table: KakaoTalk, Telegram, WhatsApp, Teams, Slack, WeChat, LINE, Zalo; only folders a person sees, never an
+  (a data table: KakaoTalk, Telegram, WhatsApp, Teams, Slack, LINE, Zalo; not WeChat, whose folder holds its databases; only folders a person sees, never an
   app's own data), and the files opened lately anywhere in the home folder (Mac: Spotlight's last-opened across home,
   the shared file lists `*.sfl2/3/4` parsed from their bookmarks, Office for Mac's securebookmarks lists; Windows: the
   index's rows, the Recent folder's shortcuts parsed in code (MS-SHLLINK, Electron's reader as a second try) and Office's
   registry list; other fixed drives join the index's scope, a share or mapped drive is checked one call at a time and the
   first that hangs ends them). Jump Lists are left out (OLE files, not cheap). Each place is named in the app's own
   dialog before anything is looked at, and on each row ("OneDrive – Acme › Plans", "KakaoTalk downloads", "Home
-  folder › Notes", "D:"). A messenger folder inside Downloads keeps its name (places first; a later walk skips it).
+  folder › Notes", "D:"). Order: messengers' and work folders, then the three folders, then the cloud drives (a
+  messenger folder inside Downloads keeps its name; a Documents moved into OneDrive stays "Documents (OneDrive)").
+  Each place's name is unique ("Google Drive (2)"), never one of the three folders' or "Home".
 - **Older pages and apps.** A page that does not ask for the wide look gets the three folders as before (the bridge
   stays version 1; `workFiles.wide` = 1 tells a page it may ask). An older app ignores the ask.
 - **Mac: Full Disk Access is the primary path.** Without it, the wide scope means 5–8 macOS questions. The page shows
@@ -28762,9 +28764,19 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   its read (after Add) takes what it is from an lstat just before the open and the open must be that file
   (`Found.late`). Its Zone.Identifier is never opened. Every index hit is now checked by its folder's real path plus its
   own lstat, so no file is opened while looking. Such files are listed "In the cloud" (adding one downloads it then).
-- **Speed (this Mac, load 19).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
+- **Review of part 5 (one MUST-FIX, six SHOULD-FIX, all fixed).** Windows never walks a cloud drive's folder (not
+  even its first entry): without the index's rows it is left out. A Mac checks online-only entries in every root of the
+  wide look (iCloud's Desktop & Documents). One deadline (20 s) covers the whole wide look, the walks included. At most
+  three network shares are tried, none after one that hung (a hung call holds one of libuv's four file threads). The
+  Windows query asks for document extensions only, so a busy drive cannot push the three folders out of its 2,000
+  rows. Reopen works only within 15 minutes of Open Settings while the probe still says no, never during a look.
+  Windows short (8.3) names and names ending in a dot or space are never trusted; a stat that does not answer for a path
+  counts it as online only; an online-only file the index gives no date for is not listed; a late read checks the real
+  path again after the open.
+- **Speed (this Mac, load 19–20).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
   in Documents and Downloads, a messenger and two work folders, a recent list): the wide look 1.9–2.0 s warm (the
-  cloud walk with its flag checks 0.7–0.85 s of it), 5.6 s on the first, cold run. Spotlight for one place with 3,000
+  cloud walk with its flag checks 0.7–0.85 s of it), 5.6 s on the first, cold run; after the review (online-only
+  checks in every root) 1.7–2.3 s, one run 7.2 s at load 20. Spotlight for one place with 3,000
   recent files: `mdfind` 0.65–0.74 s, `mdls` of 400 0.2–0.6 s, flags 40 ms; the places are queried at once while the
   folders are walked. Home-wide Spotlight (last opened, 180 days) 0.23–0.31 s; the shared file lists (48 here) 0.27 s.
 - **Ranking:** a place's weight: a work folder 1.3, a cloud drive 1.2, home and other drives 1, a messenger 0.8 (as

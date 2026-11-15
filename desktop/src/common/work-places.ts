@@ -79,6 +79,18 @@ export function windowsCloudPlaces(home: string, env: Readonly<Record<string, st
   return out
 }
 
+/** Each place's name once: a second "Google Drive" becomes "Google Drive (2)", and none takes a name the list keeps for
+ * the three folders or the home folder (their files land in folders of that name under From this computer). */
+export function uniqueLabels(places: readonly Place[]): Place[] {
+  const used = new Set(['documents', 'desktop', 'downloads', 'home', ''])
+  return places.map((x) => {
+    let label = x.label
+    for (let n = 2; used.has(fold(label)); n++) label = `${x.label} (${n})`
+    used.add(fold(label))
+    return label === x.label ? x : { ...x, label }
+  })
+}
+
 // ---------------------------------------------------------------- work folders in the home folder
 
 /** Words people name a work folder with, in the app's six languages (folder names only, whole words). */
@@ -138,7 +150,6 @@ export const MESSENGER_FOLDERS: readonly { label: string; platform: 'darwin' | '
   { label: 'KakaoTalk', platform: 'darwin', path: ['Documents', '카카오톡 받은 파일'] },
   { label: 'Telegram', platform: 'any', path: ['Downloads', 'Telegram Desktop'] },
   { label: 'WhatsApp', platform: 'any', path: ['Downloads', 'WhatsApp'] },
-  { label: 'WeChat', platform: 'win32', path: ['Documents', 'WeChat Files'] },
   { label: 'LINE', platform: 'win32', path: ['Documents', 'LINE'] },
   { label: 'Microsoft Teams', platform: 'any', path: ['Downloads', 'Microsoft Teams'] },
   { label: 'Slack', platform: 'any', path: ['Downloads', 'Slack'] },
@@ -191,8 +202,13 @@ const NEVER_TOP = new Set(['library', 'appdata', 'applications', '.trash', 'pict
 /** A path inside the home folder (its parts below home) that is never listed: an app's data (except a cloud drive's
  * folder in Library/CloudStorage, which is its own place), a hidden or system name, a package (Photos' library, an
  * app), the trash, media folders. A recent list's entry there is dropped. */
+/** Windows: a part that is a short (8.3) name or ends in a dot or a space names another folder than it looks like
+ * (APPDAT~1 is AppData, "AppData." is AppData): never trusted. */
+const winOdd = (x: string) => /~\d/.test(x) || /[. ]$/.test(x)
+
 export function homeExcluded(parts: readonly string[], platform: string): boolean {
   if (!parts.length) return true
+  if (platform === 'win32' && parts.some(winOdd)) return true
   const top = fold(parts[0]!)
   if (top === 'library' && platform === 'darwin' && parts.length >= 3 && fold(parts[1]!) === 'cloudstorage' && cloudStorageRoot(parts[2]!)) {
     return parts.slice(3).some((x) => !x || neverListed(x.normalize('NFC')))
@@ -372,7 +388,7 @@ export function placeOf(path: string, places: readonly Place[], home: string, pl
   for (const p of sorted) {
     if (!inside(p.path)) continue
     const parts = lib.relative(lib.normalize(p.path), lib.normalize(path)).split(lib.sep)
-    if (parts.some((x) => !x || x === '..' || neverListed(x.normalize('NFC')))) return null
+    if (parts.some((x) => !x || x === '..' || (platform === 'win32' && winOdd(x)) || neverListed(x.normalize('NFC')))) return null
     return { place: p, parts }
   }
   if (inside(home)) {
@@ -385,7 +401,8 @@ export function placeOf(path: string, places: readonly Place[], home: string, pl
   const root = win32.parse(win32.normalize(path)).root
   if (!root) return null
   const parts = win32.relative(root, win32.normalize(path)).split('\\')
-  if (parts.some((x) => !x || x === '..' || neverListed(x.normalize('NFC'))) || NEVER_TOP.has(fold(parts[0] ?? ''))) return null
-  if (/^(windows|program files|program files \(x86\)|programdata|users)$/i.test(parts[0] ?? '')) return null
+  if (parts.some((x) => !x || x === '..' || winOdd(x) || neverListed(x.normalize('NFC'))) || NEVER_TOP.has(fold(parts[0] ?? ''))) return null
+  // the system's own folders at a drive's top (Windows, Windows.old, the programs, other people's folders, recovery)
+  if (/^(windows|windows\.old|program files|program files \(x86\)|programdata|users|documents and settings|recovery|perflogs|msocache|\$windows\.~bt|\$windows\.~ws|intel|amd|nvidia)$/i.test(parts[0] ?? '')) return null
   return { place: { kind: 'drive', path: root, label: root.replace(/\\$/, '') }, parts }
 }

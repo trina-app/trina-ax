@@ -431,3 +431,57 @@ describe('dates', () => {
     expect(r.files.map((f) => f.name)).toEqual(['New.md'])
   })
 })
+
+describe('review of part 5', () => {
+  test('Windows: a cloud drive\'s folder is never walked; without the index\'s rows it is left out, untouched', async () => {
+    const { fs, calls } = fakeFs({ 'C:': dir({ Users: dir({ alex: dir({ 'OneDrive - Acme': dir({ Sub: dir({ 'x.docx': file() }) }), Documents: dir(), Desktop: dir(), Downloads: dir() }) }) }) }, { win: true })
+    const cloud: WorkRoot = { id: 'cloud', path: 'C:\\Users\\alex\\OneDrive - Acme', oneDrive: false, place: 'OneDrive – Acme' }
+    const r = await lookWide([cloud], fs, { platform: 'win32', home: 'C:\\Users\\alex', newId, now: () => NOW, index: async () => null, noWalk: (x) => x.id === 'cloud' })
+    expect(r.roots[0]!.state).toBe('skipped')
+    expect(calls.filter((c) => c.startsWith('readdir') || c.startsWith('lstat'))).toEqual([])
+  })
+
+  test('the whole look\'s deadline: roots not reached are skipped (cut)', async () => {
+    const { fs } = fakeFs({ Users: dir({ alex: dir({ Documents: dir({ 'a.pdf': file() }), Desktop: dir(), Downloads: dir() }) }) })
+    const r = await lookWide(FOLDERS, fs, { platform: 'darwin', home: HOME, newId, now: () => NOW, index: async () => null, deadline: Date.now() - 1 })
+    expect(r.roots.map((x) => [x.state, x.cut])).toEqual([['skipped', true], ['skipped', true], ['skipped', true]])
+  })
+
+  test('network shares: after one does not answer, no other share is tried', async () => {
+    const { fs, calls } = fakeFs({ 'C:': dir({ Users: dir({ alex: dir({ Documents: dir() }) }) }) }, { win: true, slow: ['\\\\nas1', '\\\\nas2'] })
+    const t0 = Date.now()
+    await lookWide([], fs, {
+      platform: 'win32', home: 'C:\\Users\\alex', newId, now: () => NOW, index: async () => null, network: (p) => p.startsWith('\\\\'),
+      recent: async () => [idx('\\\\nas1\\team\\a.pdf'), idx('\\\\nas2\\team\\b.pdf')],
+    })
+    expect(calls.filter((c) => c.includes('nas2'))).toEqual([])
+    expect(Date.now() - t0).toBeLessThan(4000)
+  })
+
+  test('each place\'s name once, never one of the three folders\' or the home folder\'s', async () => {
+    const { uniqueLabels } = await import('../../desktop/src/common/work-places')
+    const p = (label: string) => ({ kind: 'cloud' as const, path: `/x/${label}`, label })
+    expect(uniqueLabels([p('Google Drive'), p('Google Drive'), p('KakaoTalk'), p('kakaotalk'), p('Home'), p('Documents')]).map((x) => x.label)).toEqual(['Google Drive', 'Google Drive (2)', 'KakaoTalk', 'kakaotalk (2)', 'Home (2)', 'Documents (2)'])
+  })
+
+  test('Windows: short names and names ending in a dot or space are never trusted', () => {
+    expect(homeExcluded(['APPDAT~1', 'Local', 'x.pdf'], 'win32')).toBe(true)
+    expect(homeExcluded(['AppData.', 'Local', 'x.pdf'], 'win32')).toBe(true)
+    expect(placeOf('C:\\Users\\alex\\APPDAT~1\\x.pdf', [], 'C:\\Users\\alex', 'win32')).toBeNull()
+    expect(placeOf('C:\\Windows.old\\Users\\a\\x.pdf', [], 'C:\\Users\\alex', 'win32')).toBeNull()
+    expect(placeOf('D:\\Clients\\Acme \\x.pdf', [], 'C:\\Users\\alex', 'win32')).toBeNull()
+  })
+
+  test('an online-only file the index gives no date for is not listed (its read could never match)', async () => {
+    const { fs } = fakeFs({ 'C:': dir({ Users: dir({ alex: dir({ OD: dir({ 'x.docx': file() }) }) }) }) }, { win: true })
+    const root: WorkRoot = { id: 'cloud', path: 'C:\\Users\\alex\\OD', oneDrive: false, place: 'OneDrive' }
+    const r = await filesFromIndex(root, root.path, [idx('C:\\Users\\alex\\OD\\x.docx', { cloud: true, size: 9000, modified: null })], fs, { platform: 'win32', newId, now: () => NOW })
+    expect(r.files).toEqual([])
+  })
+
+  test('Reopen only after Open Settings, while the app still has no access, never during a look; the index asks for documents only', () => {
+    const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
+    expect(ctl).toMatch(/async relaunch\(\) \{\s*if \(process\.platform !== 'darwin' \|\| this\.busy \|\| !this\.fullDiskSettingsAt \|\| Date\.now\(\) - this\.fullDiskSettingsAt > 15 \* 60_000\) return\s*if \(\(await this\.fullDisk\(\)\) === 'granted'\) return/)
+    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("System.FileExtension IN (''.pdf'',")
+  })
+})

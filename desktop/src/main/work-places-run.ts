@@ -12,7 +12,7 @@ import { join, posix, win32 } from 'node:path'
 import { considered, neverListed } from '@mycel/shared/file-scan'
 import type { FullDiskState } from '@mycel/shared'
 import { mdlsArgs, mergeIndexed, parseMdfind, parseMdls, macPath, RECENT_DAYS, type IndexedFile } from '../common/work-index'
-import { appDataAllowed, cloudStorageRoot, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseLnk, parseOfficeBookmarks, parseSharedFileList, parseStatFlags, windowsCloudPlaces, workFolders, type Place } from '../common/work-places'
+import { appDataAllowed, cloudStorageRoot, uniqueLabels, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseLnk, parseOfficeBookmarks, parseSharedFileList, parseStatFlags, windowsCloudPlaces, workFolders, type Place } from '../common/work-places'
 
 const run = (cmd: string, args: string[], ms: number) =>
   new Promise<string>((done, fail) => execFile(cmd, args, { timeout: ms, maxBuffer: 64 << 20, windowsHide: true }, (e, out) => {
@@ -75,7 +75,7 @@ export async function widePlaces(home: string, companyWords: readonly string[]):
   // one row per messenger folder that is there (KakaoTalk may have two)
   const all = [...messengers, ...workFolders(home, top, companyWords, p), ...cloud]
   const seen = new Set<string>()
-  return all.filter((x) => { const k = x.path.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
+  return uniqueLabels(all.filter((x) => { const k = x.path.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true }))
 }
 
 // ---------------------------------------------------------------- a Mac: Spotlight for a place, the recent lists
@@ -95,12 +95,14 @@ async function mdlsOf(paths: readonly string[], deadline: number): Promise<Index
   return out
 }
 
-/** Online-only among these paths (stat's flags; SF_DATALESS), 200 a call. Fails when stat does not answer. */
+/** Online-only among these paths (stat's flags; SF_DATALESS), 200 a call. Fails when stat does not answer; a path stat
+ * did not answer for (gone, or a name it printed differently) counts as online only (never entered, never touched). */
 export async function macDatalessSet(paths: readonly string[]): Promise<Set<string>> {
   const out = new Set<string>()
   for (let i = 0; i < paths.length; i += 200) {
-    const flags = parseStatFlags(await run('/usr/bin/stat', ['-f', '%Xf%t%N', '--', ...paths.slice(i, i + 200)], 5000))
-    for (const [path, f] of flags) if (macDataless(f)) out.add(path)
+    const batch = paths.slice(i, i + 200)
+    const flags = parseStatFlags(await run('/usr/bin/stat', ['-f', '%Xf%t%N', '--', ...batch], 5000))
+    for (const path of batch) { const f = flags.get(path); if (f === undefined || macDataless(f)) out.add(path) }
   }
   return out
 }

@@ -9,6 +9,7 @@
 // desktop/src/main/work-files.ts runs the commands.
 import { posix, win32 } from 'node:path'
 import { winPlaceholder } from './work-places'
+import { DOC_TYPES } from '@mycel/shared/file-scan'
 
 /** How far back a file counts as recent (owner, 2026-11-15: "only files used recently", about six months). */
 export const RECENT_DAYS = 180
@@ -151,10 +152,14 @@ export const powershellArgs = (script: string) => ['-NoProfile', '-NonInteractiv
  * roots, as one JSON array. ADO through the Search.CollatorDSO provider; nothing is opened. `drives` (part 5): the other
  * fixed drives' indexed places too (D:\, E:\; the script finds them, never a network or removable drive). Each row has
  * the file's attributes, so an online-only file is told apart without touching it. */
+/** The index is asked for documents only (and pictures, for brand folders): code trees, caches and media on a busy
+ * drive never push the documents out of its first 2,000 rows (review of part 5). */
+const EXTS = [...DOC_TYPES, 'png', 'jpg', 'jpeg'].map((x) => `'.${x}'`).join(',')
+
 export function windowsSearchScript(roots: readonly string[], days: number = RECENT_DAYS, now = Date.now(), o: { drives?: boolean } = {}): string {
   const since = new Date(now - days * 86_400_000).toISOString().slice(0, 19).replace('T', ' ')
   const scope = roots.map((r) => `SCOPE='file:${psQuote(r.replace(/\\/g, '/'))}'`).join(' OR ')
-  const sql = (sc: string) => `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company, System.FileAttributes FROM SystemIndex WHERE (${sc}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
+  const sql = (sc: string) => `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company, System.FileAttributes FROM SystemIndex WHERE (${sc}) AND System.FileExtension IN (${EXTS}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
   return [
     "$ErrorActionPreference='Stop'",
     "$c=New-Object -ComObject ADODB.Connection",
