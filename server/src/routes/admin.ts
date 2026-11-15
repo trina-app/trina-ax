@@ -4,15 +4,7 @@
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
 import { linkPeopleIn, narrowsWithLinks, removeLinksIn } from '../files/shares'
-/** a folder save that narrows access while files there are shared by link, sent without removeFileLinks (review of #979) */
-const FILE_LINKS_DECIDE: Record<string, string> = {
-  en: 'Some people have files here by link. Choose whether to remove those links too, then save again.',
-  ko: '링크로 이 폴더의 파일을 볼 수 있는 사람이 있어요. 그 링크도 없앨지 고른 뒤 다시 저장해 주세요.',
-  id: 'Beberapa orang punya file di sini lewat tautan. Pilih apakah tautan itu juga dihapus, lalu simpan lagi.',
-  ja: 'リンクでここのファイルを開ける人がいます。そのリンクも削除するか選んでから、もう一度保存してください。',
-  es: 'Algunas personas tienen archivos de aquí por enlace. Elija si quitar también esos enlaces y vuelva a guardar.',
-  zh: '有人可以通过链接打开这里的文件。请选择是否也移除这些链接，然后再保存。',
-}
+import { FILE_LINKS_DECIDE } from '../files/share-text'
 import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'

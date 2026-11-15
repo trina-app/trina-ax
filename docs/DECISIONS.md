@@ -29877,9 +29877,11 @@ stay as they are.
   conflict, the trash restore of that row); a plain create or upload, a copy or another trash restore at its path makes
   the row **dead** (its link answers no access, its grants and waiting requests go). Review of #979 (blocker): a file
   uploaded where a shared one had been deleted outside the app inherited its link. A file changed outside the app: the
-  size decides when it differs; otherwise the file is hashed (files up to 32 MB, dead above), once per new inode (a
-  match re-pins it, a mismatch makes the row dead), never per request. Equal size and mtime on a new inode prove
-  nothing (re-review of #979).
+  inode verified last time with the size, mtime and ctime recorded is the same file (nothing hashed); anything else is
+  checked once: a different size makes the row dead, else the hash decides (files up to 32 MB, dead above; a match
+  re-pins, a mismatch makes the row dead), never per request. An inode number alone proves nothing (Linux reuses a
+  freed one for the next file at once: CI found it), nor do an equal size and mtime on another inode (re-review of
+  #979). A move's rename takes the times again for rows on the same inode.
 - **Who it opens for** (`FileShares.open`): whoever the folder rules let read it (`RuleSet.access`, unchanged), and the
   people and groups on it (groups read live) while the owner can still edit the file. Guests never, through a link.
   `RuleSet.decide` is not changed: grants are read only by the id endpoints, which serve the current bytes

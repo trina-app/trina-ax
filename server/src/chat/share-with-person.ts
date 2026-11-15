@@ -35,7 +35,7 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
 const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').trim(); return v.length > n ? `${v.slice(0, n - 1)}…` : v }
 const foldName = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
 /** a group's name as written, also with a group word after it ("영업팀", "Sales team") */
-const GROUP_WORDS = ['팀', '부서', '그룹', ' team', ' group']
+const GROUP_WORDS = ['\uD300', '\uBD80\uC11C', '\uADF8\uB8F9', ' team', ' group']
 
 /** Why share_with_person is not offered in this turn (and refused when reached anyway), or null: it is. A scheduled
  * run never: the card is asked every time and nobody answers it there. */

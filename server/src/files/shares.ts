@@ -32,13 +32,14 @@ import { checkRegular } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { newId } from '../db'
 import { onFileEvent } from './store'
+import { FILE_SHARE_TEXT } from './share-text'
 import { registerAccountCleanup } from '../auth/account-removal'
 import { notificationsOf } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, FILE_SHARE_MAX, fileLinkUrl, plainLabel, type FileLink, type FileShareRow, type FileShares as FileSharesView, type InboxNotification, type Locale, type SharedFileView } from '@mycel/shared/api'
 
-export interface ShareRow { id: string; path: string; ino: number | null; dev: number | null; sha256: string | null; size: number | null; mtime_ms: number | null; owner_id: string | null; state: 'live' | 'trashed' | 'dead'; trash_id: string | null; created_by: string; created_at: string }
-const COLS = 'id, path, ino, dev, sha256, size, mtime_ms, owner_id, state, trash_id, created_by, created_at'
+export interface ShareRow { id: string; path: string; ino: number | null; dev: number | null; sha256: string | null; size: number | null; mtime_ms: number | null; ctime_ms: number | null; owner_id: string | null; state: 'live' | 'trashed' | 'dead'; trash_id: string | null; created_by: string; created_at: string }
+const COLS = 'id, path, ino, dev, sha256, size, mtime_ms, ctime_ms, owner_id, state, trash_id, created_by, created_at'
 type Subject = { subjectType: 'user' | 'group'; subjectId: string }
 type Via = 'dialog' | 'ai' | 'request'
 
@@ -62,16 +63,7 @@ function sha256File(abs: string): string {
 /** 16 random bytes, base64url: 22 characters, never guessed */
 export const newLinkId = () => randomBytes(16).toString('base64url')
 
-const MSG: Record<string, Record<Locale, string>> = {
-  notOwner: { en: 'Only the file\'s owner can share it.', ko: '파일 소유자만 공유할 수 있어요.', id: 'Hanya pemilik file yang bisa membagikannya.', ja: 'ファイルの所有者だけが共有できます。', es: 'Solo el propietario del archivo puede compartirlo.', zh: '只有文件的所有者可以共享它。' },
-  off: { en: 'Your team turned off sharing files one by one for members.', ko: '팀에서 멤버의 파일 공유를 꺼 두었어요.', id: 'Tim Anda menonaktifkan berbagi file untuk anggota.', ja: 'チームがメンバーのファイル共有をオフにしています。', es: 'Su equipo desactivó que los miembros compartan archivos.', zh: '你的团队已关闭成员共享文件。' },
-  folder: { en: 'Folders aren\'t shared this way. An admin changes who can open a folder in its Share dialog.', ko: '폴더는 이렇게 공유하지 않아요. 폴더는 관리자가 폴더의 공유 창에서 바꿔요.', id: 'Folder tidak dibagikan dengan cara ini. Admin mengubah akses folder di dialog Bagikan folder.', ja: 'フォルダーはこの方法では共有しません。フォルダーは管理者が共有ダイアログで変更します。', es: 'Las carpetas no se comparten así. Un administrador cambia quién abre una carpeta en su diálogo Compartir.', zh: '文件夹不能这样共享。管理员在文件夹的共享对话框中更改访问权限。' },
-  unknownSubject: { en: 'That person or group can\'t be added.', ko: '그 사람이나 그룹은 추가할 수 없어요.', id: 'Orang atau grup itu tidak bisa ditambahkan.', ja: 'その人やグループは追加できません。', es: 'No se puede añadir a esa persona o grupo.', zh: '无法添加该用户或群组。' },
-  full: { en: `A file can be shared with at most ${FILE_SHARE_MAX} people and groups.`, ko: `파일 하나는 최대 ${FILE_SHARE_MAX}명·그룹까지 공유할 수 있어요.`, id: `Satu file bisa dibagikan ke paling banyak ${FILE_SHARE_MAX} orang dan grup.`, ja: `1つのファイルを共有できるのは最大${FILE_SHARE_MAX}人・グループです。`, es: `Un archivo se puede compartir con ${FILE_SHARE_MAX} personas y grupos como máximo.`, zh: `一个文件最多可共享给 ${FILE_SHARE_MAX} 个用户和群组。` },
-  requestOff: { en: 'You can\'t ask for access to this file. Ask the person who sent the link.', ko: '이 파일은 액세스를 요청할 수 없어요. 링크를 보낸 사람에게 물어보세요.', id: 'Anda tidak bisa meminta akses ke file ini. Tanyakan kepada pengirim tautan.', ja: 'このファイルへのアクセスはリクエストできません。リンクを送った人に聞いてください。', es: 'No puede pedir acceso a este archivo. Pregunte a quien le envió el enlace.', zh: '无法请求访问此文件。请询问发送链接的人。' },
-  tooMany: { en: 'You\'ve asked for access many times. Try again later.', ko: '액세스를 너무 많이 요청했어요. 나중에 다시 해 주세요.', id: 'Anda sudah terlalu sering meminta akses. Coba lagi nanti.', ja: 'アクセスのリクエストが多すぎます。後でもう一度お試しください。', es: 'Ha pedido acceso muchas veces. Inténtelo más tarde.', zh: '你请求访问的次数太多了。请稍后再试。' },
-  ownerOnly: { en: 'Only the team owner can remove every file share.', ko: '모든 파일 공유는 팀장만 없앨 수 있어요.', id: 'Hanya pemilik tim yang bisa menghapus semua berbagi file.', ja: 'すべてのファイル共有を削除できるのはチームのオーナーだけです。', es: 'Solo el propietario del equipo puede quitar todos los archivos compartidos.', zh: '只有团队所有者可以移除所有文件共享。' },
-}
+const MSG = FILE_SHARE_TEXT
 const msg = (k: keyof typeof MSG, L: Locale) => MSG[k]![L] ?? MSG[k]!.en
 
 // ---------------- who owns a file: the event walk ----------------
@@ -261,13 +253,13 @@ function dropShare(db: Database, id: string) {
   db.query('DELETE FROM file_shares WHERE id = ?').run(id)
 }
 
-/** A deleted account's part (auth/account-removal.ts): their notices and requests, and every grant naming them. Their
- * personal files' links go with the folder's records (sharesForgotten); a team file they owned stops opening by its
- * grants (its owner can no longer edit it: ownerStillEdits). */
+/** A deleted account's part (auth/account-removal.ts): their notices and requests, every grant naming them, and the
+ * shares of the files they owned (a team file they added keeps no link of theirs; its link can be made again). */
 export function registerFileShareCleanup(ctx: AppContext): void {
   registerAccountCleanup(ctx, {
     name: 'file-shares',
-    rows: ['file_share_notices.user_id', 'file_access_requests.requester_id'],
+    // (file_shares.owner_id: the shares of their files go, and with them their grants, requests and notices' rows)
+    rows: ['file_share_notices.user_id', 'file_access_requests.requester_id', 'file_shares.owner_id'],
     after: (c, userId) => { c.db.query("DELETE FROM file_share_grants WHERE subject_type = 'user' AND subject_id = ?").run(userId) },
   })
 }
@@ -297,7 +289,10 @@ export class FileShares {
     // shared one had been deleted outside the app inherited its link). A move's own create is the moved row (sharesMoved).
     onFileEvent(ctx.db, (e) => {
       const d = (e.detail ?? {}) as Record<string, unknown>
-      if (d.folder === true || typeof d.movedFrom === 'string') return
+      // a move (a file, or a folder with files in it): the rows moved with it (sharesMoved); the rename may change the
+      // inode's ctime, so each row on the same inode takes its times again after the rename (nothing else changed)
+      if (typeof d.movedFrom === 'string') { queueMicrotask(() => this.afterRename(e.path)); return }
+      if (d.folder === true) return
       const same = e.action === 'update' || e.action === 'conflict' || (e.action === 'upload' && d.replaced === true)
         || (e.action === 'restore' && typeof d.versionId === 'string')
       const trashBack = e.action === 'restore' && typeof d.trashId === 'string'
@@ -334,13 +329,26 @@ export class FileShares {
   private repin(id: string, rel: string, sha: string | null) {
     const set = () => {
       let st: fs.Stats
-      try { st = fs.lstatSync(this.absOf(rel)) } catch { return }
+      const abs = this.absOf(rel)
+      try { st = fs.lstatSync(abs) } catch { return }
       if (!st.isFile()) return
-      this.db.query("UPDATE file_shares SET ino = ?, dev = ?, size = ?, mtime_ms = ?, sha256 = COALESCE(?, sha256) WHERE id = ? AND state = 'live'").run(st.ino, st.dev, st.size, st.mtimeMs, sha, id)
+      // the content's hash as it is now (the event's, else read here; none above 32 MB: such a file is then judged by its
+      // inode, size and times alone, and a change outside the app makes it dead)
+      let h = sha
+      if (!h) { try { h = sha256File(abs) } catch { h = null } }
+      this.db.query("UPDATE file_shares SET ino = ?, dev = ?, size = ?, mtime_ms = ?, ctime_ms = ?, sha256 = ? WHERE id = ? AND state = 'live'").run(st.ino, st.dev, st.size, st.mtimeMs, st.ctimeMs, h, id)
     }
     set()
     // a file event recorded just before its file lands (the rename is the step's last): once more after it
     queueMicrotask(set)
+  }
+  private afterRename(rel: string) {
+    const rows = this.db.query(`SELECT id, path, ino, dev FROM file_shares WHERE state = 'live' AND ${UNDER('path')}`).all(rel, rel, rel) as { id: string; path: string; ino: number | null; dev: number | null }[]
+    for (const r of rows) {
+      let st: fs.Stats
+      try { st = fs.lstatSync(this.absOf(r.path)) } catch { continue }
+      if (st.isFile() && st.ino === r.ino && st.dev === r.dev) this.db.query('UPDATE file_shares SET mtime_ms = ?, ctime_ms = ? WHERE id = ?').run(st.mtimeMs, st.ctimeMs, r.id)
+    }
   }
   private absOf(rel: string) { return [this.ctx.files.fx.root, ...segsOf(rel)].join('/') }
 
@@ -356,12 +364,15 @@ export class FileShares {
    * recorded through the app. A match by content records the new inode. */
   private same(s: ShareRow, st: fs.Stats, abs: string): boolean {
     if (s.ino === null || s.dev === null) return true
-    if (st.ino === s.ino && st.dev === s.dev) return true
-    // another inode: a different size is another file; else the hash (files up to 32 MB), at most once per row (a match
-    // re-pins the new inode, so it is not hashed again; a mismatch makes it dead: the next open answers at once)
-    const repin = () => { this.db.query('UPDATE file_shares SET ino = ?, dev = ?, size = ?, mtime_ms = ? WHERE id = ?').run(st.ino, st.dev, st.size, st.mtimeMs, s.id); return true }
+    const sameInode = st.ino === s.ino && st.dev === s.dev
+    // the inode verified last time, untouched since (size, mtime and ctime as recorded; ctime cannot be set back by
+    // hand): the same file, nothing hashed. Anything else is checked, at most once (a match re-pins what is there now,
+    // so the next open takes this path again; a mismatch makes the row dead and the next open answers at once).
+    // An inode number alone proves nothing: a filesystem reuses a freed one for the next file (Linux at once), and an
+    // equal size and time on another inode prove nothing either (review of #979)
+    if (sameInode && st.size === s.size && st.mtimeMs === s.mtime_ms && st.ctimeMs === s.ctime_ms) return true
+    const repin = () => { this.db.query('UPDATE file_shares SET ino = ?, dev = ?, size = ?, mtime_ms = ?, ctime_ms = ? WHERE id = ?').run(st.ino, st.dev, st.size, st.mtimeMs, st.ctimeMs, s.id); return true }
     const dead = () => { markDead(this.db, s.id); return false }
-    // (equal size and time on another inode prove nothing: another file can have both; review of #979)
     if (s.size !== null && st.size !== s.size) return dead()
     if (!s.sha256 || st.size > HASH_MAX) return dead()
     let h: string
@@ -384,14 +395,14 @@ export class FileShares {
     const have = this.liveAt(rel)
     if (have) {
       // a row whose file was replaced on the disk outside the app is not this file's: it starts again
-      if (have.ino !== null && have.dev !== null && (have.ino !== st.ino || have.dev !== st.dev) && !this.same(have, st, this.absOf(rel))) markDead(this.db, have.id)
-      else return have
+      // (same() makes a row whose file changed outside the app dead)
+      if (this.same(have, st, this.absOf(rel))) return have
     }
     const id = newLinkId()
     let sha: string | null = null
     try { sha = sha256File(this.absOf(rel)) } catch {}
-    this.db.query('INSERT INTO file_shares (id, path, ino, dev, sha256, size, mtime_ms, owner_id, state, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .run(id, rel, st.ino, st.dev, sha, st.size, st.mtimeMs, ownerOf(this.db, rel), 'live', by, now())
+    this.db.query('INSERT INTO file_shares (id, path, ino, dev, sha256, size, mtime_ms, ctime_ms, owner_id, state, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id, rel, st.ino, st.dev, sha, st.size, st.mtimeMs, st.ctimeMs, ownerOf(this.db, rel), 'live', by, now())
     return this.row(id)!
   }
 

@@ -3,7 +3,8 @@
 -- docs/AGENTS/plan/20261115-1407-file-share-links.md, server/src/files/shares.ts).
 --   file_shares: one row per file that has a link (/f/<id>). `id` is the link (16 random bytes, base64url); `path` the
 --     file's current path, rewritten by moves like file_versions.path; ino / dev / sha256 pin the row to the file, so a
---     different file put at the same path never inherits it (size / mtime_ms first, the hash only when they match;
+--     different file put at the same path never inherits it (an unchanged inode, size, mtime and ctime skip the hash; else
+--     the hash, files up to 32 MB;
 --     a confirmed mismatch, or a new file made at the path, makes the row 'dead': its link answers no access); owner_id from the event walk (creatorOf), NULL when no
 --     owner is known (a team file: its requests go to the owner and admins). state 'trashed' while the file is in the
 --     trash (trash_id), deleted with the trash item.
@@ -21,6 +22,7 @@ CREATE TABLE file_shares (
   sha256 TEXT,
   size INTEGER,
   mtime_ms REAL,
+  ctime_ms REAL,
   owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
   state TEXT NOT NULL DEFAULT 'live' CHECK(state IN ('live','trashed','dead')),
   trash_id TEXT,

@@ -70,7 +70,7 @@ export function namesRecipient(said: string, ref: string | undefined, r0: { name
   const ns = r0.names.map(fold).filter((n) => n.length >= 2)
   if (ns.some((n) => holds(text, n))) return true
   // (the Korean honorifics nim and ssi after a name, as escapes: no Korean text outside the language tables)
-  const r = fold((ref ?? '').replace(/\s*(님|씨)$/u, ''))
+  const r = fold((ref ?? '').replace(/\s*(\uB2D8|\uC528)$/u, ''))
   if (r.length < 2 || r.startsWith(PERSON_REF) || !holds(text, r)) return false
   return ns.some((n) => n === r || n.split(' ').includes(r) || (r0.person && HANGUL.test(r) && HANGUL.test(n) && n.endsWith(r)))
 }
