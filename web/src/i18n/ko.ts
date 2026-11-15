@@ -5687,6 +5687,8 @@ export const ko = {
   "projects.page.uploadFiles": "파일 올리기",
   "projects.members.onlyMe": "나만 봐요",
   "projects.members.add": "멤버 추가",
+  "projects.share": "공유",
+  "projects.newPeople": "사람 (선택)",
   "projects.shareAdminsOnly": "이 팀에서는 팀장과 관리자만 프로젝트를 다른 사람과 함께 쓸 수 있어요.",
   "projects.deletePersonal": "프로젝트만 지워지고 파일은 내 파일 › 프로젝트에 그대로 남아요.",
   "projects.sharedNow": "이제 '{name}' 프로젝트를 함께 써요.",

@@ -2864,7 +2864,9 @@ export class MockServer {
       }
       const p: Project = { id: uuidv7(), name: c.body.name, folderPath, instructions: c.body.instructions ?? '', createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), canEdit: true }
       this.projects.push(p)
-      return { status: 201, body: p }
+      // a team project answers as the server's projectOut does (its audience, membersEditable), so the page after Create
+      // shows its faces and Share at once
+      return { status: 201, body: team && this.projectMembers.has(folderPath) ? this.sharedProjectOut(p, c.user) : p }
     },
     getProject: (c) => {
       const p = this.projects.find((x) => x.id === c.params.id)

@@ -36,7 +36,7 @@ messages, but only to the people in their own chat or project.
 :::steps
 #### Open the add list
 In a group chat, choose **⋯** at the top, then **Add to group chat** (or click the group chat's name, then **Add to group chat**). In
-a project, choose **Manage** next to **Members** on the project's page. The first row is **Invite a guest**.
+a team project, choose **Share** at the top of the project's page. The first row is **Invite a guest**.
 
 ![The add list of a group chat: Invite a guest at the top, then a guest who is already in another project, with where they are and Make team member](../images/guests/add-people.webp "Invite a guest, in the add list")
 

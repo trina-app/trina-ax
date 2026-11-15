@@ -5643,6 +5643,8 @@ export const ja: Record<MessageKey, string> = {
   "projects.page.uploadFiles": "ファイルをアップロード",
   "projects.members.onlyMe": "自分だけ",
   "projects.members.add": "メンバーを追加",
+  "projects.share": "共有",
+  "projects.newPeople": "メンバー（任意）",
   "projects.shareAdminsOnly": "このチームでは、オーナーと管理者だけがプロジェクトを他の人と共有できます。",
   "projects.deletePersonal": "プロジェクトだけが削除され、ファイルはマイファイル › プロジェクトに残ります。",
   "projects.sharedNow": "「{name}」を共有しました。",

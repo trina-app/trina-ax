@@ -5614,6 +5614,8 @@ export const zh: Record<MessageKey, string> = {
   "projects.page.uploadFiles": "上传文件",
   "projects.members.onlyMe": "仅自己",
   "projects.members.add": "添加成员",
+  "projects.share": "共享",
+  "projects.newPeople": "成员（可选）",
   "projects.shareAdminsOnly": "在此团队中，只有所有者和管理员可以与他人共享项目。",
   "projects.deletePersonal": "只删除项目。其中的文件会保留在我的文件 › 项目中。",
   "projects.sharedNow": "“{name}”现已共享。",
