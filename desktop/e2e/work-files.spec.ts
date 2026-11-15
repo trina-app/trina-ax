@@ -66,7 +66,7 @@ test('the app asks first, looks without following links, and reads only ids of i
     expect([out.beforeAdd, out.addNoPress, out.added, out.addOtherOrigin]).toEqual(['unknown', 'refused', 'added', 'refused'])
     expect(out.notAdded).toBe('unknown')
     // VoiceOver / Voice Control on (forced): the app's own window instead of a refusal; No adds nothing, Add adds them
-    expect([out.a11yOff, out.a11yOn, out.a11yNo, out.a11yNoRead, out.a11yYes, out.a11yYesRead]).toEqual(['refused', true, 'cancelled', 'unknown', 'added', true])
+    expect([out.a11yOff, out.a11yOn, out.a11yNo, out.a11yNoRead, out.a11yAtOnce, out.a11yYes, out.a11yYesRead]).toEqual(['refused', true, 'cancelled', 'unknown', 'refused', 'added', true])
     expect(out.a11yWindow).toEqual({ kind: 'add', places: [expect.stringMatching(/^report-\d+\.txt$/)], yes: 'Add 1 file' })
     expect(out.reading[0]).toBe(3)
     expect(out.reading.at(-1)).toBe(0)

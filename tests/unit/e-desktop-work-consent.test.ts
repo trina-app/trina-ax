@@ -226,6 +226,11 @@ describe('reads only what the person added, right as they press Add (TC-3300)', 
     expect(add).toMatch(/if \(Date\.now\(\) - this\.o\.lastInput\(\) > PERSON_INPUT_MS\) \{[\s\S]*?if \(!this\.o\.assistive\(\)\) return \{ state: 'refused' \}[\s\S]*?await this\.askAdd\(origin, ids\)/)
     expect(win).toContain('assistive: () => electronApp.accessibilitySupportEnabled')
     expect(ctl).toContain('this.o.consent(win, addView(this.o.locale(), files))')
+    // never one window right after another; a minute after two Cancels in a row
+    expect(ctl).toContain('if (this.busy || Date.now() < this.quietUntil) return \'refused\'')
+    expect(ctl).toContain('this.quietUntil = Date.now() + (this.addNos >= 2 ? ADD_NO_QUIET_MS : COOLDOWN_MS)')
+    // VoiceOver reads the names with the question
+    expect(read('desktop/src/ui/consent.ts')).toContain("v.kind === 'add' ? 'consent-sub consent-places' : 'consent-sub'")
   })
   test('add: the team page\'s top frame only, ids only; the person\'s press within 2 s, then the session\'s own checks', () => {
     const line = main.split('\n').find((l) => l.includes("'bridge:work-files-add'"))!
@@ -268,6 +273,7 @@ describe('the Add window for assistive technology (VoiceOver, Voice Control)', (
     expect([v.title, v.yes, v.no]).toEqual(['Add 2 files from this computer?', 'Add 2 files', 'Cancel'])
     expect(v.places).toEqual([{ icon: 'file', name: 'Quote.xlsx' }, { icon: 'file', name: 'Plan.pdf' }])
     expect(v.more).toBeUndefined()
+    expect(v.placesLabel).toBe('Files')
     const many = addView('en', Array.from({ length: 20 }, (_, i) => ({ name: `f${i}.pdf` })))
     expect(many.places).toHaveLength(ADD_SHOWN)
     expect(many.more).toBe('and 12 more files')

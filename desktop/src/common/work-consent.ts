@@ -80,7 +80,7 @@ export function addView(L: UiLocale, files: readonly { name: string }[]): Consen
     locale: L,
     title: t(L, 'workFiles.addTitle', { n }),
     sub: t(L, 'workFiles.addSub'),
-    placesLabel: t(L, 'workFiles.addTitle', { n }),
+    placesLabel: t(L, 'workFiles.addFiles'),
     places: files.slice(0, rest > 0 ? ADD_SHOWN : files.length).map((f) => ({ icon: 'file', name: f.name })),
     ...(rest > 0 ? { more: t(L, 'workFiles.addMore', { n: String(rest) }) } : {}),
     promises: [],

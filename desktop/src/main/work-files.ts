@@ -36,6 +36,8 @@ export const MAC_FILES_SETTINGS = 'x-apple.systempreferences:com.apple.preferenc
 const COOLDOWN_MS = 3000
 /** The reading strip goes when no added file has been read for this long */
 const READING_IDLE_MS = 15_000
+/** After two Cancels in a row in the Add window, the next one waits this long */
+const ADD_NO_QUIET_MS = 60_000
 
 const kindOf = (d: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): WorkStat['kind'] =>
   d.isSymbolicLink() ? 'link' : d.isFile() ? 'file' : d.isDirectory() ? 'dir' : 'other'
@@ -342,20 +344,28 @@ export class WorkFilesController {
     const win = this.o.win()
     const files = this.sessions.toAdd(origin, ids)
     if (!win || win.isDestroyed() || !files) return 'refused'
-    if (this.busy) return 'refused'
+    // never one window right after another (a page asking in a loop after Cancel): 3 s after any answer, a minute after
+    // two Cancels in a row (security review)
+    if (this.busy || Date.now() < this.quietUntil) return 'refused'
     this.busy = true
     const generation = this.generation
+    let ask: ConsentAsk | null = null
     try {
-      const ask = this.o.consent(win, addView(this.o.locale(), files))
+      ask = this.o.consent(win, addView(this.o.locale(), files))
       this.asking = ask
       const yes = (await ask.result) === true && !win.isDestroyed()
-      if (this.asking === ask) this.asking = null
+      this.addNos = yes ? 0 : this.addNos + 1
+      this.quietUntil = Date.now() + (this.addNos >= 2 ? ADD_NO_QUIET_MS : COOLDOWN_MS)
       if (!yes || generation !== this.generation) return 'cancelled'
       return this.sessions.allow(origin, ids) ? 'added' : 'refused'
     } finally {
+      if (ask && this.asking === ask) this.asking = null
       this.busy = false
     }
   }
+
+  /** Cancels in a row in the Add window (two: the next waits a minute) */
+  private addNos = 0
 
   /** The strip "Trina is reading N files from this computer": files added and not read yet, and every read of an added
    * file while it runs (a read late or again shows it again; it never stays hidden while one runs). It hides itself

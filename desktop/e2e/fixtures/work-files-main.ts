@@ -89,9 +89,13 @@ void (async () => {
   out.a11yOff = (await ctl.add(TEAM, [dl])).state
   app.setAccessibilitySupportEnabled(true)
   out.a11yOn = app.accessibilitySupportEnabled
+  // one window at a time, never right after another (3 s after any answer, the look's included)
+  await new Promise((r) => setTimeout(r, 3100))
   answer = false
   out.a11yNo = (await ctl.add(TEAM, [dl])).state
   out.a11yNoRead = await text(TEAM, dl)
+  out.a11yAtOnce = (await ctl.add(TEAM, [dl])).state
+  await new Promise((r) => setTimeout(r, 3100))
   answer = true
   out.a11yYes = (await ctl.add(TEAM, [dl])).state
   out.a11yWindow = { kind: asked.at(-1)?.kind, places: asked.at(-1)?.places.map((p) => p.name), yes: asked.at(-1)?.yes }

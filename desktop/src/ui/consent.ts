@@ -81,8 +81,10 @@ function render(v: ConsentView) {
 
   root.setAttribute('role', 'dialog')
   root.setAttribute('aria-labelledby', 'consent-title')
-  root.setAttribute('aria-describedby', 'consent-sub')
-  root.replaceChildren(head, el('div', 'consent-body-scroll', ...[list, more, promises, fine].filter((x): x is HTMLElement => !!x)), foot)
+  // the Add window: the files' names are read with the question (focus lands on the button, past the list)
+  list.id = 'consent-places'
+  root.setAttribute('aria-describedby', v.kind === 'add' ? 'consent-sub consent-places' : 'consent-sub')
+  root.replaceChildren(head, el('div', 'consent-body-scroll', ...([list, more, promises, fine] as (HTMLElement | null)[]).filter((x): x is HTMLElement => !!x)), foot)
   yes.focus()
   // a smaller app window: the words scroll, and the buttons get a line above them so it shows there is more
   const scroller = root.querySelector('.consent-body-scroll')!

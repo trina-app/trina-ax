@@ -112,6 +112,12 @@ export interface FindWorkFilesProps {
   phone?: boolean
 }
 
+/** While the app says whether it has Full Disk Access (the same line as the screen's own check) */
+function AccessChecking() {
+  const t = useT()
+  return <p className="flex items-center gap-2 text-sm text-muted" role="status" data-testid="find-work-access" data-screen="checking"><Loader2 size={14} className="animate-spin" aria-hidden /> {t('files.findWork.access.checking')}</p>
+}
+
 /** The steps; "Look again" (every folder kept out, after the person let the app in) starts them over with a new look.
  * Part 5: a Mac app that offers the wide look shows the Full Disk Access screen first when the app has none (its
  * "Not now" is the three folders with macOS's question for each); Windows looks wide at once. */
@@ -125,14 +131,18 @@ export function FindWorkFiles(props: FindWorkFilesProps) {
   // Full Disk Access by now (asked first; nothing shows meanwhile)
   const [later, setLater] = useState(() => !!fd && !!uid && fullDiskLater(uid))
   const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : fd ? null : { wide: true }))
+  // the person was not known yet at the first render: their Not now counts as soon as they are
+  useEffect(() => { if (!mode && fd && uid && !later && fullDiskLater(uid)) setLater(true) }, [uid])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!later || mode || !fd) return
     let live = true
     fd.state().then((x) => { if (live) setMode({ wide: x === 'granted' }) }, () => { if (live) setMode({ wide: false }) })
-    return () => { live = false }
+    // an app that does not answer: the three folders after a moment
+    const slow = setTimeout(() => { if (live) setMode({ wide: false }) }, 3000)
+    return () => { live = false; clearTimeout(slow) }
   }, [later, mode, fd])
   if (!mode) {
-    if (later) return null
+    if (later) return <AccessChecking />
     return <FullDiskAccess bridge={props.bridge} onGo={(w) => { if (!w && uid) setFullDiskLater(uid, true); setMode({ wide: w }) }} phone={props.phone} />
   }
   // the list's quiet "Look in more places (Full Disk Access)": the screen again, the "Not now" forgotten
