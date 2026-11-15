@@ -221,6 +221,8 @@ test('Members: the owner changes a role in the row; others read it; the rest is 
   // arrow keys move through the items
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('member-usage-limit-bob')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('edit-member-bob')).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog')).toContainText('Bob')
