@@ -16214,9 +16214,8 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
 - **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
   (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
-  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
-  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
-  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  own), under ONE primary that names what goes in: one skill by its name ("카드뉴스 넣기"), two or more counted ("스킬 3개
+  넣기", "Add 3 skills"; names run together as "A·B·C" read as one word, QA TC-2654, 2026-11-15). Pre-checks without AI: the visual three when a profile is saved,
   never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
   then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
   it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only

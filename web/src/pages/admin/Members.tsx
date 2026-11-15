@@ -52,6 +52,7 @@ import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'
 import { absoluteUrl, LEAD_DAYS, LeadFlag, LeadMessage, useLeadOffered } from '../../components/handover/LeadInvite'
 import { useHandover } from '../../store/handover'
+import { useWelcome } from '../../store/welcome'
 import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
@@ -758,6 +759,13 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
   const [leadFor, setLeadFor] = useState('')
   const flagged = offered && lead
   const label = cleanLeadFor(leadFor)
+  // a lead link puts them in the team group (the server decides, leadInviteShape): the form shows that group ticked
+  const welcome = useWelcome((s) => s.progress)
+  useEffect(() => {
+    if (offered) void useWelcome.getState().load().catch(() => {})
+  }, [offered])
+  const leadGroupId = welcome?.teamGroup?.id
+  const shownGroupIds = flagged ? (leadGroupId && groups.some((g) => g.id === leadGroupId) ? [leadGroupId] : []) : groupIds
   return (
     <Modal
       open
@@ -794,7 +802,7 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
           </Field>
           <div>
             <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
-            <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
+            <GroupChecks groups={groups} value={shownGroupIds} onChange={setGroupIds} />
           </div>
           <Field label={t('members.validDays')}>
             <select className={inputCls} value={flagged ? LEAD_DAYS : days} onChange={(e) => setDays(Number(e.target.value))}>

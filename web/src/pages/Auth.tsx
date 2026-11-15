@@ -159,8 +159,9 @@ function useFieldAboveBar() {
     if (!el || !phone) return
     const reveal = () => {
       const f = document.activeElement
-      // the whole field (Field's box: its hint or error under it too), not only the input
-      if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
+      // the whole field (Field's box: its hint or error under it too), not only the input; a group (the password with
+      // its note under it, outside the Field's box) as a whole
+      if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field-group]') ?? f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
     }
     // after the keyboard's own scrolling and the new --app-h have settled; a frame still waiting when the page goes is
     // dropped (it would read a document that may be gone)
@@ -443,7 +444,7 @@ export function Setup() {
             <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="setup-username" />
           </Field>
           {/* one password field, as when joining: the eye button shows what was typed (no second field to type blind) */}
-          <div>
+          <div data-field-group>
             <PasswordField label={t('auth.password')} error={errorOf('password')} reveal={reveal} eyeTestId="setup-password-show" name="password" value={form.password} onChange={set('password')} required autoComplete="new-password" aria-describedby={passwordHintId} data-testid="setup-password" />
             <CapsLockNote reveal={reveal} hint={{ id: passwordHintId, text: errorOf('password') ? '' : t('setup.passwordHint') }} />
           </div>
@@ -769,7 +770,7 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} ai={guest.ai} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} ai={guest.ai} /> : t(info.lead ? 'invite.subLead' : 'invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
       {!guest && <BrowserLanguageOffer />}
       <JoinChoices path={`/invite/${token}`} lean={!!guest}>
