@@ -52,7 +52,7 @@ test('a browser: no files row, and the card counts 1 of 3', async ({ page }) => 
 })
 
 test('an older desktop app: no files row', async ({ page }) => {
-  await fakeApp(page, { version: 2 })
+  await fakeApp(page, { version: 99 })
   await reset(page)
   await welcomeCard(page)
   await home(page)

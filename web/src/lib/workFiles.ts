@@ -20,7 +20,20 @@ export const FIND_WORK_FILES_GUIDE = 'https://ax.trina.app/docs/use/find-work-fi
  * a phone: null, so no entry is shown). */
 export function workFilesBridge(bridge: DesktopBridge | null): WorkFilesBridge | null {
   const w = bridge?.workFiles
-  return w && w.version === WORK_FILES_BRIDGE_VERSION && typeof w.scan === 'function' && typeof w.read === 'function' ? w : null
+  if (!w || typeof w.scan !== 'function' || typeof w.read !== 'function') return null
+  // version 2 asks the person again in the app before any read (add); version 1 (an older app) has no such step
+  if (w.version === WORK_FILES_BRIDGE_VERSION) return typeof w.add === 'function' ? w : null
+  return w.version === 1 ? w : null
+}
+
+/** The ticked files named to the desktop app (version 2) as the person presses Add, before any is read: the app takes
+ * them only right after the person's own press and reads nothing else. 'refused' (the list is over an hour old, the
+ * press did not reach it in time) asks for Add again or a new look. An app of version 1 has no such step ('added'). */
+export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<'added' | 'refused'> {
+  if (typeof bridge.add !== 'function') return 'added'
+  const ids = docs.map((d) => d.workId)
+  if (!ids.length || ids.some((id) => !id)) return 'refused'
+  return (await bridge.add(ids as string[]).catch(() => ({ state: 'refused' as const }))).state === 'added' ? 'added' : 'refused'
 }
 
 /** The folder in My files the files go to (shared/src/folder-labels.ts: its name on disk, said in the person's words). */
@@ -61,6 +74,7 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
     const rel = joinPath(folder, name)
     return {
       key: `${pick}/${rel}`,
+      workId: f.id,
       pick,
       rel,
       name,

@@ -272,7 +272,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
   })
 
   test('an older desktop app (another bridge version) or one without workFiles (the Mac App Store build): no row', async () => {
-    for (const b of [bridge(2), { bridgeVersion: 1 }]) {
+    for (const b of [bridge(99), { bridgeVersion: 1 }]) {
       setApp(b)
       signIn()
       const m = await home()

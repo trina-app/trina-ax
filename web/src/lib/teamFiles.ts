@@ -102,6 +102,8 @@ const metaOf = (f: File): FileMeta => ({ size: f.size, modified: f.lastModified 
  * `<place>/<pick>/<rel>` (the picked folder's own name first, as the file screen's folder upload does). */
 export interface LocalDoc {
   key: string
+  /** Find work files: the desktop app's id for it (workFiles.add / read) */
+  workId?: string
   pick: string
   rel: string
   name: string

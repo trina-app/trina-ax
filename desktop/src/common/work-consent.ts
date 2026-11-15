@@ -118,3 +118,49 @@ export const CONSENT_URL = `${UI_ORIGIN}/consent.html`
 export function consentSender<W>(e: { sender: W; senderFrame: { url: string; parent: unknown } | null }, windows: { has(w: W): boolean }): boolean {
   return Boolean(windows.has(e.sender) && e.senderFrame && e.senderFrame.parent === null && isOwnUiUrl(e.senderFrame.url) && e.senderFrame.url.split(/[?#]/)[0] === CONSENT_URL)
 }
+
+// ------------------------------------------------- asked once (owner, 2026-11-15: "창 좀 그만 띄워")
+
+/** A yes in the consent window is remembered this long for that team and person; then the window comes again. */
+export const CONSENT_REMEMBER_MS = 90 * 24 * 60 * 60 * 1000
+/** Without the window (a remembered yes), a look and an add count only this soon after the person's own key or mouse
+ * press on the team page (Electron's input events, which no page script can make). */
+export const PERSON_INPUT_MS = 2000
+
+/** The places a look goes through, as words that stay the same from one look to the next. */
+export function placeKeys(roots: readonly WorkRoot[], places: readonly Place[] | null): string[] {
+  const keys = roots.map((r) => `folder:${r.id}${r.oneDrive ? ':onedrive' : ''}`)
+  if (places) keys.push(...places.map((x) => `${x.kind}:${x.label.normalize('NFC')}`), 'recent')
+  return [...new Set(keys)].sort()
+}
+
+export interface RememberedYes {
+  at: number
+  places: string[]
+}
+/** One remembered yes per team and person ("<origin> <user id>"). */
+export type ConsentMemory = Record<string, RememberedYes>
+export const memoryKey = (origin: string, person: string) => `${origin} ${person}`
+
+/** The earlier yes covers this look: not older than 90 days, and every place of it was in the window then (a new place,
+ * such as Full Disk Access turned on, asks again). */
+export function covered(yes: RememberedYes | undefined, keys: readonly string[], now: number): boolean {
+  if (!yes || !Number.isFinite(yes.at) || now - yes.at > CONSENT_REMEMBER_MS || now < yes.at || !Array.isArray(yes.places)) return false
+  const had = new Set(yes.places)
+  return keys.every((k) => had.has(k))
+}
+
+/** The memory file as read (anything else: nothing remembered); at most 50 teams, the newest kept. */
+export function parseMemory(raw: unknown, now: number): ConsentMemory {
+  const out: ConsentMemory = {}
+  if (!raw || typeof raw !== 'object') return out
+  const rows = Object.entries(raw as Record<string, unknown>)
+    .filter((e): e is [string, RememberedYes] => {
+      const v = e[1] as RememberedYes
+      return typeof e[0] === 'string' && e[0].length < 600 && !!v && typeof v.at === 'number' && Array.isArray(v.places) && v.places.every((p) => typeof p === 'string') && now - v.at <= CONSENT_REMEMBER_MS
+    })
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, 50)
+  for (const [k, v] of rows) out[k] = { at: v.at, places: v.places.slice(0, 200) }
+  return out
+}

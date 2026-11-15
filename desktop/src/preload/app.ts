@@ -64,6 +64,7 @@ const bridge: DesktopBridge = {
           scan: (o?: { wide?: boolean; words?: string[] }) => ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {}),
           stop: () => ipcRenderer.send('bridge:work-files-stop'),
           onProgress: on('bridge:work-files-progress'),
+          add: (ids: string[]) => ipcRenderer.invoke('bridge:work-files-add', Array.isArray(ids) ? ids.slice(0, 101).map(String) : []),
           read: (id: string) => ipcRenderer.invoke('bridge:work-files-read', String(id)),
           openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
           pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),

@@ -9,9 +9,9 @@ import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
-import { consentView, type ConsentView } from '../common/work-consent'
+import { consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import type { ConsentAsk } from './work-consent-window'
-import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
+import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
 import { inOneDrive, lookRoots, lookWide, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
@@ -36,6 +36,8 @@ export const MAC_FILES_SETTINGS = 'x-apple.systempreferences:com.apple.preferenc
 
 /** After the dialog (yes or no), it is not shown again for this long (a page asking in a loop). */
 const COOLDOWN_MS = 3000
+/** The reading strip goes when no added file has been read for this long */
+const READING_IDLE_MS = 15_000
 
 const kindOf = (d: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): WorkStat['kind'] =>
   d.isSymbolicLink() ? 'link' : d.isFile() ? 'file' : d.isDirectory() ? 'dir' : 'other'
@@ -117,6 +119,12 @@ export class WorkFilesController {
       progress: (p: { root: WorkRootId; place?: string; checked: number; docs: number; done: number }) => void
       /** the app's own consent window (main/work-consent-window.ts askConsent); a test gives its own */
       consent: (win: BaseWindow, view: ConsentView) => ConsentAsk
+      /** when the person last pressed a key or the mouse on the team page (Electron's input events; 0: never) */
+      lastInput: () => number
+      /** the yeses remembered per team and person (a file in the app's data) */
+      memory: { load(): ConsentMemory; save(m: ConsentMemory): void }
+      /** the strip above the team page: files added and being read (0: none, the strip goes) */
+      reading: (n: number) => void
     },
   ) {}
 
@@ -137,6 +145,8 @@ export class WorkFilesController {
     const win = this.o.win()
     if (!win || win.isDestroyed() || !workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
     if (this.busy || Date.now() < this.quietUntil) return { state: 'busy' }
+    // the person's own press just before the page asked (taken now: Full Disk Access and the places take a moment)
+    const pressed = Date.now() - this.o.lastInput() <= PERSON_INPUT_MS
     this.busy = true
     this.stopped = false
     const generation = this.generation
@@ -146,7 +156,21 @@ export class WorkFilesController {
       // Full Disk Access (checked here, never taken from the page)
       const wide = !!ask.wide && (process.platform === 'win32' || (process.platform === 'darwin' && (await this.fullDisk()) === 'granted'))
       const places = wide ? await widePlaces(app.getPath('home'), ask.words ?? []).catch(() => [] as Place[]) : []
-      const yes = await this.consent(win, roots, wide ? places : null)
+      // asked once (owner, 2026-11-15): a yes for this team and person that already covered every place of this look,
+      // within 90 days, and the person's own press on the page just now, go straight to the look; else the window
+      const keys = placeKeys(roots, wide ? places : null)
+      const key = this.personId ? memoryKey(origin, this.personId) : null
+      const memory = key ? this.o.memory.load() : {}
+      const remembered = !!key && covered(memory[key], keys, Date.now()) && pressed
+      const yes = remembered || (await this.consent(win, roots, wide ? places : null))
+      // remembered only after a yes in the window ("Not now" keeps nothing), for the person signed in when it was asked
+      if (yes && !remembered && key && generation === this.generation) {
+        try {
+          this.o.memory.save({ ...this.o.memory.load(), [key]: { at: Date.now(), places: keys } })
+        } catch {
+          /* read-only app data: asked again next time */
+        }
+      }
       this.quietUntil = Date.now() + COOLDOWN_MS
       if (!yes) return { state: 'cancelled' }
       // a stop sent while the dialog was up (the page's dialog closed and opened again, React's double start in
@@ -156,6 +180,8 @@ export class WorkFilesController {
       const r = wide ? await this.lookWide(roots, places, generation) : await this.look(roots, generation)
       if (generation !== this.generation) return { state: 'cancelled' }
       this.sessions.begin(origin, r.found)
+      this.pending.clear()
+      this.tellReading()
       return { state: 'done', stopped: r.stopped, roots: r.roots, files: r.files }
     } finally {
       this.busy = false
@@ -308,13 +334,52 @@ export class WorkFilesController {
   /** the consent window open now (forget() closes it as a no) */
   private asking: ConsentAsk | null = null
 
+  /** Add (TC-3300): the page names the files the person ticked, by id, right as they press Add. No window (owner,
+   * 2026-11-15): the add counts only within 2 s of the person's own key or mouse press on the team page (Electron's
+   * input events, which no page script can make), only for ids of this origin's latest look, each once, within the read
+   * limits. Only files added this way are read (WorkFileSessions.read refuses every other id). This proves a person is
+   * there, not which files they chose: docs/DECISIONS.md "Find work files: asked once, reads only what is added". */
+  add(origin: string, ids: string[]): WorkFileAdd {
+    if (!workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
+    if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS) return { state: 'refused' }
+    if (!this.sessions.toAdd(origin, ids) || !this.sessions.allow(origin, ids)) return { state: 'refused' }
+    for (const id of ids) this.pending.add(id)
+    this.tellReading(true)
+    return { state: 'added' }
+  }
+
+  /** The strip "Trina is reading N files from this computer": files added and not read yet, and every read of an added
+   * file while it runs (a read late or again shows it again; it never stays hidden while one runs). It hides itself
+   * after a while with no read; a new look or another person clears what is waiting. */
+  private pending = new Set<string>()
+  private inFlight = 0
+  private stripOn = false
+  private readingIdle?: NodeJS.Timeout
+  private tellReading(active = false) {
+    if (active) this.stripOn = true
+    clearTimeout(this.readingIdle)
+    if (!this.pending.size && !this.inFlight) this.stripOn = false
+    if (this.stripOn && !this.inFlight) this.readingIdle = setTimeout(() => { this.stripOn = false; this.tellReading() }, READING_IDLE_MS)
+    this.o.reading(this.inFlight || this.stripOn ? Math.max(this.pending.size, this.inFlight, 1) : 0)
+  }
+
   stop() {
     if (this.busy) this.stopped = true
   }
 
-  read(origin: string, id: string): Promise<WorkFileRead> {
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return Promise.resolve({ ok: false, reason: 'unknown' })
-    return this.sessions.read(origin, id)
+  async read(origin: string, id: string): Promise<WorkFileRead> {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return { ok: false, reason: 'unknown' }
+    // only an added file is ever read (WorkFileSessions); each such read shows the strip while it runs
+    if (!this.sessions.isAdded(origin, id)) return this.sessions.read(origin, id)
+    this.inFlight++
+    this.tellReading(true)
+    try {
+      return await this.sessions.read(origin, id)
+    } finally {
+      this.inFlight--
+      this.pending.delete(id)
+      this.tellReading(true)
+    }
   }
 
   /** macOS only: the Files & Folders settings (a fixed address; the page names nothing). */
@@ -324,12 +389,17 @@ export class WorkFilesController {
 
   /** Who is signed in to the team page now: a sign-out or another person forgets the look (and stops one running). */
   person(me: MeResult) {
+    this.personId = me.signedIn ? me.userId : null
     if (this.sessions.person(me)) this.forget()
   }
+  /** who is signed in to the team page (the remembered yes is theirs) */
+  private personId: string | null = null
 
   /** Another team, the team page gone: nothing of the look stays readable, one running gives nothing. */
   forget() {
     this.asking?.close()
+    this.pending.clear()
+    this.tellReading()
     this.generation++
     this.stopped = true
     this.sessions.forget()

@@ -27,7 +27,7 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { companyMatch, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { companyMatch, confirmAdd, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
@@ -140,6 +140,17 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [already, setAlready] = useState(0)
   const [ticks, setTicks] = useState<Set<string>>(() => new Set())
   const [capped, setCapped] = useState(false)
+  // Add: the ticked files are named to the desktop app first, which reads nothing else (TC-3300, confirmAdd)
+  const [adding, setAdding] = useState(false)
+  const [refused, setRefused] = useState(false)
+  const addTicked = async () => {
+    const picked = docs.filter((d) => ticks.has(d.key))
+    setAdding(true)
+    setRefused(false)
+    const r = await confirmAdd(bridge, picked).finally(() => setAdding(false))
+    if (r === 'added') onAdd(picked)
+    else setRefused(true)
+  }
   const [q, setQ] = useState('')
   const [openPersonal, setOpenPersonal] = useState(false)
   const [words, setWords] = useState<CompanyWordsLike>(NO_WORDS)
@@ -401,9 +412,10 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       ) : <p className="text-label text-muted" data-testid="find-work-ai">{noAi ? t('files.findWork.noAi') : picks ? t('files.findWork.byAi') : t('files.findWork.byNames')}</p>}
       {capped && <p className="text-label text-warn" role="status" data-testid="find-work-cap">{t('welcome.teamFiles.cap', { n: L.perUpload })}</p>}
       {tooMuch && <p className="text-label text-warn" role="status" data-testid="find-work-bytes">{t('files.findWork.bytes')}</p>}
+      {refused && <p className="text-label text-warn" role="status" data-testid="find-work-add-refused">{t('files.findWork.addRefused')}</p>}
       <div className={phone ? 'space-y-2' : 'flex flex-wrap items-center justify-end gap-3'}>
         <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onClose} data-testid="find-work-cancel">{t('common.cancel')}</Button>
-        <Button variant="primary" className={phone ? 'w-full' : undefined} disabled={!ticks.size || tooMuch} onClick={() => onAdd(docs.filter((d) => ticks.has(d.key)))} data-testid="find-work-add">
+        <Button variant="primary" className={phone ? 'w-full' : undefined} disabled={!ticks.size || tooMuch} busy={adding} onClick={() => void addTicked()} data-testid="find-work-add">
           {ticks.size ? t('files.findWork.add', { n: ticks.size }) : t('files.findWork.addNone')}
         </Button>
       </div>
