@@ -20,7 +20,7 @@ import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
 import { codexLoginState, launcherStatus } from '../native'
 import { connectionStatus } from './connection'
-import { diskSpace, resolveLayout, type InstallLayout } from './layout'
+import { diskSpaceOrUnknown, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { compareVersions, UpdateManager } from './update'
@@ -43,6 +43,7 @@ import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
+import { diskStat } from './disk-stat'
 
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
@@ -467,15 +468,19 @@ export class OpsService {
     }
 
     // disk (tab 7 "디스크 단계")
-    const team = diskSpace(L.teamRoot), data = diskSpace(L.dataDir)
-    const diskCheck = (id: string, label: string, d: { free: number; total: number }) => {
+    // null: the free space could not be read (system/disk-stat.ts): a warning, not an error that stops the whole report
+    // (and with it the menubar status file)
+    const unreadable = (where: string) => (err: unknown) => this.ctx.log.warn('could not read the free disk space', { where, err })
+    const team = diskSpaceOrUnknown(L.teamRoot, unreadable(L.teamRoot)), data = diskSpaceOrUnknown(L.dataDir, unreadable(L.dataDir))
+    const diskCheck = (id: string, label: string, d: { free: number; total: number } | null) => {
+      if (!d) return add(id, 'disk', label, 'warn', t(M.diskUnknown))
       const pct = d.total ? Math.round((d.free / d.total) * 100) : 0
       const ro = absoluteFloor(d.total)
       if (d.free < ro) add(id, 'disk', label, 'fail', t(M.diskReadOnly(d.free)))
       else if (pct < 15) add(id, 'disk', label, 'warn', t(M.diskLow(d.free, pct)))
       else add(id, 'disk', label, 'ok', t(M.diskOk(d.free, pct)))
     }
-    if (this.platform() === 'linux' && prod) this.linuxStorage(add, t, team, data)
+    if (this.platform() === 'linux' && prod && team && data) this.linuxStorage(add, t, team, data)
     else {
       diskCheck('disk.team', t(M.diskTeam), team)
       diskCheck('disk.data', t(M.diskData), data)
@@ -676,10 +681,11 @@ export class OpsService {
       if (sp) add('system_packages', 'update', t(SYSTEM_PACKAGES_TEXT.label), sp.status, t(sp.text))
     }
 
+    const bytesOrNull = (v: number | undefined) => (v === undefined ? null : Math.max(0, Math.floor(v)))
     return {
       version: this.ctx.version,
       host: { os: `${process.platform} ${os.release()}`, arch: process.arch, hostname: os.hostname() },
-      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(cappedSnapshot()?.freeBytes ?? team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
+      disk: { teamFolderFreeBytes: bytesOrNull(cappedSnapshot()?.freeBytes ?? team?.free), dataFreeBytes: bytesOrNull(data?.free) },
       queue: q,
       checks,
       generatedAt: this.now().toISOString(),
@@ -699,7 +705,7 @@ export class OpsService {
     team: { free: number; total: number }, data: { free: number; total: number }) {
     const one = (id: string, d: { free: number; total: number }) => {
       let real
-      try { real = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      try { real = snapshotOf(diskStat(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
       // the team disk by the view the writes are judged by (the plan's bytes on a larger disk), or Admin shows ok while
       // writes are refused
       const s = id === 'disk.team' ? planView(real) : real

@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppConfig } from '../app-config'
 import { prodBase } from '../app-config'
+import { diskStat } from './disk-stat'
 
 export interface InstallLayout {
   mode: 'dev' | 'prod'
@@ -78,6 +79,12 @@ export function resolveLayout(cfg: AppConfig, env: Record<string, string | undef
 export function diskSpace(p: string): { free: number; total: number } {
   let dir = p
   while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
-  const s = fs.statfsSync(dir)
+  const s = diskStat(dir)
   return { free: Number(s.bavail) * Number(s.bsize), total: Number(s.blocks) * Number(s.bsize) }
+}
+
+/** diskSpace, or null when the free space could not be read (system/disk-stat.ts: statfs and df both failed). A gate
+ * treats null as "unknown", never as a full disk (QA TC-3099). */
+export function diskSpaceOrUnknown(p: string, onError?: (err: unknown) => void): { free: number; total: number } | null {
+  try { return diskSpace(p) } catch (e) { onError?.(e); return null }
 }

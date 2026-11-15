@@ -29,7 +29,7 @@ import { RestorePending } from '@mycel/shared/install'
 import { SCHEMA_READER_LEVEL, checkReadable, migrate } from '../db'
 import { FOLDER_ACCESS_MODEL, FOLDER_ACCESS_MODEL_KEY } from '../policy/access'
 import type { Logger } from '../log'
-import { diskSpace, type InstallLayout } from './layout'
+import { diskSpaceOrUnknown, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
 import { backupWalk } from './regenerable'
 import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
@@ -269,7 +269,11 @@ export class BackupManager {
     // old copies of a DB a restore replaced take room no new backup needs: dropped before the space check, so a disk
     // they filled does not stop every backup (and with it the prune that follows one)
     this.pruneBeforeRestore(this.now().getTime() - retentionDays() * 86400_000)
-    const free = Math.min(diskSpace(L.dataDir).free, diskSpace(L.teamRoot).free)
+    // free space that could not be read (statfs and df both failed, QA TC-3099) does not stop the backup: it goes ahead
+    // with a warning, and a disk that is really full still fails the copy itself (and removeUnfinished cleans up)
+    const unknown = (where: string) => (err: unknown) => this.o.log.warn('could not read the free disk space; backing up anyway', { where, err })
+    const spaces = [diskSpaceOrUnknown(L.dataDir, unknown(L.dataDir)), diskSpaceOrUnknown(L.teamRoot, unknown(L.teamRoot))].filter((d) => d !== null)
+    const free = spaces.length ? Math.min(...spaces.map((d) => d.free)) : Infinity
     if (free < BACKUP_MIN_FREE_BYTES) throw new BackupError(`not enough free disk space for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`, 'disk_space')
     const newChain = o.scope === 'full' && this.planGate()
     await fsp.mkdir(L.dbBackupsDir, { recursive: true, mode: 0o700 })

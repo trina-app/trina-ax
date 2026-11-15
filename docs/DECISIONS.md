@@ -29086,3 +29086,17 @@ address box comes under the list as "Add another team" (no hint paragraph there)
 unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
 row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
+
+## Free disk space: a checked statfs, then df, and "unknown" never blocks (fix/intel-mac-free-space, 2026-11-15, QA TC-3099)
+
+On an Intel Mac the bundled Bun 1.3.12 (darwin-x64) returns `fs.statfsSync` with `bsize: 0` and the other fields
+shifted (`blocks: 4096, bfree: 1048576, bavail: 39270390` on a disk with 129 GB free), so every backup said "0 MB free,
+2 GB needed" and every office update stopped at its pre-update backup. Decided: every free-space reading goes through
+`server/src/system/disk-stat.ts` `diskStat()`. A reading is believed only when bsize (and frsize) > 0, blocks > 0,
+bfree and bavail ≤ blocks and the disk is below 1 EiB; otherwise `/bin/df -k -P -- <path>` (no shell, 5 s timeout,
+`LC_ALL=C`) gives it (Available × 1024; bfree = bavail like an APFS statfs, so "used" stays the whole container's). Both
+failing is `DiskSpaceUnknown`, which no gate treats as a full disk: the backup logs a warning and goes ahead (a really
+full disk still fails the copy), the update download's room check passes, the storage guard and `diskAlmostFull` say
+"not full", and Admin › System warns "Could not read the free space" (`disk.*` checks; `disk.*FreeBytes` null). A real
+low reading still refuses as before. The Go helpers (mycel-ctl) read statfs correctly on Intel and are unchanged.
+Version impact: **patch**.

@@ -47,6 +47,7 @@ import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
 import { dbReaderLevel, healFile, recoveryAdvice, releaseIn, unreadablePrevious, UNREADABLE } from './forward'
+import { diskStat, DiskSpaceUnknown } from '../system/disk-stat'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -727,11 +728,17 @@ export function placeSignedManifest(dir: string, s: SignedText | undefined) {
 }
 
 /** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
- * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space. */
-export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs.statfsSync(x)): { ok: boolean; freeBytes: number; needBytes: number } {
+ * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space.
+ * Free space that could not be read (system/disk-stat.ts DiskSpaceUnknown) is not "no room": ok with freeBytes NaN, and
+ * the download itself fails on a disk that is really full (QA TC-3099). */
+export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => diskStat(x)): { ok: boolean; freeBytes: number; needBytes: number } {
   let at = path.resolve(p)
   while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
-  const s = snapshotOf(statfs(at))
+  let s
+  try { s = snapshotOf(statfs(at)) } catch (e) {
+    if (e instanceof DiskSpaceUnknown) return { ok: true, freeBytes: Number.NaN, needBytes: bytes }
+    throw e
+  }
   const needBytes = bytes + reserveBytes(s.totalBytes)
   return { ok: s.freeBytes >= needBytes, freeBytes: s.freeBytes, needBytes }
 }

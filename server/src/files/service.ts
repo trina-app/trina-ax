@@ -50,6 +50,7 @@ import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
+import { diskStat } from '../system/disk-stat'
 
 void ENGINE_BUILTIN_ALLOWED
 
@@ -1409,8 +1410,8 @@ const probeFailures = new Map<string, { code: string; at: number }>()
 function diskRoom(base: string, size: number): boolean {
   try {
     fs.mkdirSync(base, { recursive: true, mode: 0o700 })
-    const st = fs.statfsSync(base)
-    return st.bavail * st.bsize >= size + media.MEDIA_DISK_RESERVE
+    const st = diskStat(base)
+    return Number(st.bavail) * Number(st.bsize) >= size + media.MEDIA_DISK_RESERVE
   } catch { return true }
 }
 const identity = (s: fs.Stats) => [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs, s.nlink].join(':')

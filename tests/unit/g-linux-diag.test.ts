@@ -14,6 +14,7 @@ import { silentLogger } from '../../server/src/log'
 import { resolveLayout } from '../../server/src/system/layout'
 import { Plan, setPlanForTests } from '../../server/src/system/limits'
 import { configureStorageGuard } from '../../server/src/system/storage'
+import { DiskSpaceUnknown } from '../../server/src/system/disk-stat'
 import { M } from '../../server/src/system/messages'
 import { engineStatusMessages, hostMessages } from '../../server/src/system/messages-linux'
 import { OpsService } from '../../server/src/system/ops'
@@ -371,6 +372,19 @@ describe('diagnostics of an installed Linux server', () => {
       setPlanForTests(undefined)
       configureStorageGuard(null)
     }
+  })
+  test('free space that cannot be read (QA TC-3099): a disk warning, and the rest of the report still comes', async () => {
+    fw({})
+    const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => { throw new DiskSpaceUnknown('could not read the free disk space of x') }) as unknown as typeof fs.statfsSync)
+    try {
+      const d = await ops().diagnostics('en')
+      for (const id of ['disk.team', 'disk.data']) {
+        const c = d.checks.find((x) => x.id === id)!
+        expect(c.status).toBe('warn')
+        expect(c.detail).toBe(M.diskUnknown.en)
+      }
+      expect(d.checks.find((x) => x.id === 'sandbox')).toBeDefined()
+    } finally { statfs.mockRestore(); configureStorageGuard(null) }
   })
   test('the public exit address (QA 0.2.12 N5): unknown, turned off, known by family or by the relay; never the address itself', async () => {
     const env = 'MYCEL_EXIT_ADDRESS_CHECK'
