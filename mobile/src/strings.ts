@@ -31,6 +31,7 @@ const en = {
   email: "Email addresses aren't used here. Paste an invite link or enter a team address.",
   cutLink: 'The link looks cut off. Copy the whole link again and paste it.',
   invalidAddress: 'Enter an HTTPS team address or invitation link.',
+  shortName: "That is not a full address. Type the full name, for example macmini.local, or paste the link your admin sent.",
   teamUnknown: "No team called '{name}' was found. Check the spelling or paste the invite link.",
   suspended: "This team's service is paused right now. Ask your team lead.",
   notTeam: 'This address is not a team server. Paste the invite link you got.',
@@ -84,6 +85,7 @@ const ko: Strings = {
   email: '이메일 주소는 쓰지 않아요. 초대 링크나 팀 주소를 넣어 주세요.',
   cutLink: '링크가 중간에 잘린 것 같아요. 받은 링크 전체를 다시 복사해 붙여 넣어 주세요.',
   invalidAddress: 'HTTPS 팀 주소나 초대 링크를 입력하세요.',
+  shortName: "전체 주소가 아니에요. macmini.local처럼 전체 이름을 입력하거나 관리자가 보낸 링크를 붙여 넣어 주세요.",
   teamUnknown: "'{name}' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.",
   suspended: '이 팀은 지금 이용이 멈춰 있어요. 팀장에게 물어보세요.',
   notTeam: '이 주소는 팀 서버가 아니에요. 받은 초대 링크를 붙여 넣어 주세요.',
@@ -136,6 +138,7 @@ const zh: Strings = {
   email: '这里不用邮箱地址。请粘贴邀请链接或输入团队地址。',
   cutLink: '链接好像不完整。请重新复制完整的链接再粘贴。',
   invalidAddress: '请输入 HTTPS 团队地址或邀请链接。',
+  shortName: "这不是完整的地址。请输入完整名称，例如 macmini.local，或粘贴管理员发给你的链接。",
   teamUnknown: '没有找到名为“{name}”的团队。请检查拼写，或粘贴邀请链接。',
   suspended: '这个团队的服务目前已暂停。请联系团队负责人。',
   notTeam: '这个地址不是团队服务器。请粘贴你收到的邀请链接。',
@@ -164,7 +167,7 @@ export function fill(s: string, params: Record<string, string>): string {
 }
 /** The first-run box's reading errors (src/team-link.ts TeamInputError) as a sentence. */
 export function inputError(t: Strings, error: string): string {
-  return error === 'empty' ? t.emptyAddress : error === 'hangul' ? t.hangul : error === 'email' ? t.email : error === 'link' ? t.cutLink : t.invalidAddress
+  return error === 'empty' ? t.emptyAddress : error === 'hangul' ? t.hangul : error === 'email' ? t.email : error === 'link' ? t.cutLink : error === 'short_name' ? t.shortName : t.invalidAddress
 }
 export function stringsFor(languageCode: string | null | undefined): Strings {
   const code = languageCode?.toLowerCase() ?? ''

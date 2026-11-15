@@ -143,6 +143,7 @@ test('edit that fails: the old text comes back with one toast, and the caller he
   expect(await done).toBe(false)
   expect(useRooms.getState().timeline!.messages[0]).toMatchObject({ body: 'helo team', mentions: [], editedAt: null })
   expect(toasts()).toHaveLength(1)
+  expect(toasts()[0]!.text).toStartWith('수정한 내용이 저장되지 않았어요.') // QA TC-3007: says the edit was not saved, then why
 })
 
 test('mark a room read: the badge goes at once; a list read from before keeps it gone; the answer settles it', async () => {

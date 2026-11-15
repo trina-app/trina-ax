@@ -1171,7 +1171,10 @@ export const useRooms = create<RoomsState>((set, get) => {
         send: () => api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions, ...(mentionsAll ? { mentionsAll: true } : {}) } }),
         confirmed: textOf,
         settle: (m) => patchMessages((s) => withUpdatedMessage(s, roomId, m)),
+        // its own toast: it says the edit was not saved, then why (QA TC-3007)
+        failText: false,
       })
+      if (!r.ok && r.newest) toast({ level: 'error', text: `${t('rooms.editNotSaved')} ${errorText(r.error, currentLocale(), t('error.network'))}` })
       return r.ok || !r.newest
     },
 

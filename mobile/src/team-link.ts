@@ -19,7 +19,7 @@ export interface TeamInputOptions {
  * link: an invite or team link that is cut off (its token is missing or broken). insecure: http to a real host.
  * credentials: user:password@ in the address. unsupported_scheme: not http(s). invalid: anything else.
  */
-export type TeamInputError = 'empty' | 'hangul' | 'email' | 'link' | 'invalid' | 'insecure' | 'credentials' | 'unsupported_scheme'
+export type TeamInputError = 'empty' | 'hangul' | 'email' | 'link' | 'invalid' | 'short_name' | 'insecure' | 'credentials' | 'unsupported_scheme'
 
 export interface TeamInputOk {
   ok: true
@@ -58,7 +58,21 @@ const URL_CHARS = /^[A-Za-z0-9\-._~:/?#@!$&*+,;=%[\]]*/
 /** the text without the punctuation at its end (a loop, not a regex: linear on any input) */
 function trimTrailing(s: string): string {
   let end = s.length
-  while (end > 0 && TRAILING.includes(s[end - 1]!)) end--
+  // a ']' that closes a '[' (an IPv6 host such as https://[::1]) is part of the address, not punctuation. '[' is never
+  // trimmed, so the count of '[' stays the same; the count of ']' is of s up to end.
+  let opens = -1
+  let closes = 0
+  while (end > 0 && TRAILING.includes(s[end - 1]!)) {
+    if (s[end - 1] === ']') {
+      if (opens < 0) {
+        opens = 0
+        for (let i = 0; i < end; i++) { if (s[i] === '[') opens++; else if (s[i] === ']') closes++ }
+      }
+      if (closes <= opens) break
+      closes--
+    }
+    end--
+  }
   return s.slice(0, end)
 }
 
@@ -157,7 +171,8 @@ export function parseTeamInput(raw: string, o: TeamInputOptions): TeamInput {
   const loopback = isLoopbackHost(hostname)
   // a name with no dot (Chinese or other letters typed in an IME, an intranet word) is no team's address: say it is not
   // an address instead of trying to connect to it (QA TC-1839). This machine and IP literals stay allowed.
-  if (!loopback && !isIpHost(hostname) && !hostname.includes('.')) return { ok: false, error: 'invalid' }
+  // An ASCII word ("macmini") gets its own line that says to type the full name (QA TC-3006).
+  if (!loopback && !isIpHost(hostname) && !hostname.includes('.')) return { ok: false, error: hostname.startsWith('xn--') ? 'invalid' : 'short_name' }
   if (u.protocol === 'http:' && !(loopback && o.loopbackHttp)) return { ok: false, error: 'insecure' }
   const hostedLabel = isIpHost(hostname) ? null : hostedName(hostname, o.teamDomain)
   // a development relay's team (acme.localhost) has a name too, for "'acme' 팀을 찾지 못했어요"; it is not hosted
