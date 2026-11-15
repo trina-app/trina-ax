@@ -262,6 +262,21 @@ describe('the link follows its file', () => {
     expect(await (await bob.raw('GET', `/api/files/shared/${l.id}/download`)).text()).toBe('one')
   })
 
+  test('a new inode with the same size and time is hashed: other bytes are another file; the same bytes keep the link', async () => {
+    const p = `users/${ids.alice}/twin.txt`
+    await put(alice, p, 'abcd-1')
+    const { link: l } = await share(alice, p, [user(ids.bob)])
+    const abs = path.join(h.ctx.files.fx.root, ...p.split('/'))
+    const st = fs.statSync(abs)
+    // the same bytes on a new inode (a copy put back): still the file
+    fs.rmSync(abs); fs.writeFileSync(abs, 'abcd-1'); fs.utimesSync(abs, st.atime, st.mtime)
+    expect((await page(bob, l.id)).status).toBe('open')
+    // other bytes of the same size with the same time: another file
+    fs.rmSync(abs); fs.writeFileSync(abs, 'wxyz-2'); fs.utimesSync(abs, st.atime, st.mtime)
+    expect((await page(bob, l.id)).status).toBe('no_access')
+    expect(h.ctx.db.query('SELECT state FROM file_shares WHERE id = ?').get(l.id)).toEqual({ state: 'dead' })
+  })
+
   test('a changed file outside the app: the size says so at once (no hash), and the row stays dead', async () => {
     const p = `users/${ids.alice}/size.txt`
     await put(alice, p, 'same size?')
@@ -298,12 +313,20 @@ describe('the link follows its file', () => {
     const pv = await admin.call('POST', '/api/admin/access/edit-preview', { path: 'shared/open-box', rules, limited: true })
     expect(pv.less).toBeGreaterThan(0)
     expect(pv.linkPeople).toBe(1)
-    // a save without it keeps the link
-    const f = await admin.call('POST', '/api/admin/folders', { path: 'shared/open-box', create: false, rules, limited: true, expectedHash: pv.hash })
+    // a narrowing save that says nothing about the links is refused (review of #979); false keeps them
+    const none = await admin.try('POST', '/api/admin/folders', { path: 'shared/open-box', create: false, rules, limited: true, expectedHash: pv.hash })
+    expect(none.status).toBe(409)
+    expect(none.body.error.params).toMatchObject({ reason: 'file_links_decide', linkPeople: 1 })
+    expect(h.ctx.db.query("SELECT limited FROM folders WHERE path = 'shared/open-box'").get() ?? { limited: 0 }).toMatchObject({ limited: 0 })
+    const f = await admin.call('POST', '/api/admin/folders', { path: 'shared/open-box', create: false, rules, limited: true, expectedHash: pv.hash, removeFileLinks: false })
     expect((await page(bob, l.id)).status).toBe('open')
+    // a save that narrows nobody needs no answer about links
+    expect((await admin.try('PUT', `/api/admin/folders/${f.id}/rules`, { rules, limited: true, expectedHash: f.rulesHash })).status).toBe(200)
+    const f2 = (await admin.call('GET', '/api/admin/folders')).items.find((x: any) => x.path === 'shared/open-box')
     const pv2 = await admin.call('POST', '/api/admin/access/edit-preview', { path: 'shared/open-box', rules: [], limited: true })
     expect(pv2.linkPeople).toBe(1)
-    await admin.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [], limited: true, expectedHash: pv2.hash, removeFileLinks: true })
+    expect((await admin.try('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [], limited: true, expectedHash: f2.rulesHash })).status).toBe(409)
+    await admin.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [], limited: true, expectedHash: f2.rulesHash, removeFileLinks: true })
     expect((await page(bob, l.id)).status).toBe('no_access')
     const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'file.unshare' AND target = 'shared/open-box' ORDER BY id DESC").get() as { detail: string }
     expect(JSON.parse(a.detail)).toMatchObject({ reason: 'folder_narrowed', files: 1 })

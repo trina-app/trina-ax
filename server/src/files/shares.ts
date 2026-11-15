@@ -209,6 +209,18 @@ export function linkPeopleIn(db: Database, rel: string): number {
       UNION SELECT m.user_id FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id JOIN group_members m ON m.group_id = g.subject_id WHERE s.state = 'live' AND g.subject_type = 'group' ${where}
     ) x JOIN users u ON u.id = x.id WHERE u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0`).get(...ids, ...ids) as { n: number }).n
 }
+/** Inside a folder save's step, after the new rules are written: does the save take `rel` away from someone who could
+ * read it before (`before`: the rules as they were) while files there are shared by link? Then the save must say what
+ * to do with those links (removeFileLinks true or false); saying nothing is refused (review of #979). */
+export function narrowsWithLinks(db: Database, before: RuleSet, rel: string): boolean {
+  if (linkPeopleIn(db, rel) === 0) return false
+  const after = RuleSet.load(db)
+  const segs = segsOf(rel)
+  return (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).some((u) => {
+    const p = loadPrincipal(db, u.id)
+    return !!p && atLeast(before.access(p, segs), 'read') && !atLeast(after.access(p, segs), 'read')
+  })
+}
 /** A folder save's "Remove those links too" (admin/access save, inside its step): every grant of a shared file at or
  * under `rel` goes, with the waiting requests, audited once (`file.unshare`, reason folder_narrowed). */
 export function removeLinksIn(db: Database, actor: string, rel: string): number {
@@ -345,12 +357,12 @@ export class FileShares {
   private same(s: ShareRow, st: fs.Stats, abs: string): boolean {
     if (s.ino === null || s.dev === null) return true
     if (st.ino === s.ino && st.dev === s.dev) return true
-    // another inode: the size first, then the time; the hash only when both say "maybe", and at most once per row (a
-    // match re-pins it, a mismatch makes it dead: the next open answers at once, nothing is hashed per request)
+    // another inode: a different size is another file; else the hash (files up to 32 MB), at most once per row (a match
+    // re-pins the new inode, so it is not hashed again; a mismatch makes it dead: the next open answers at once)
     const repin = () => { this.db.query('UPDATE file_shares SET ino = ?, dev = ?, size = ?, mtime_ms = ? WHERE id = ?').run(st.ino, st.dev, st.size, st.mtimeMs, s.id); return true }
     const dead = () => { markDead(this.db, s.id); return false }
+    // (equal size and time on another inode prove nothing: another file can have both; review of #979)
     if (s.size !== null && st.size !== s.size) return dead()
-    if (s.mtime_ms !== null && st.mtimeMs === s.mtime_ms) return repin()
     if (!s.sha256 || st.size > HASH_MAX) return dead()
     let h: string
     try { h = sha256File(abs) } catch { return dead() }

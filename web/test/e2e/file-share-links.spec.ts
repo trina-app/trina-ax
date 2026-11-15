@@ -301,7 +301,7 @@ test('folder Share dialog: narrowing a folder with files shared by link offers "
   await page.getByTestId('sharing-general-select').selectOption('restricted')
   await expect(page.getByTestId('sharing-done')).toBeVisible()
 
-  // Bob down to Viewer: the line, the box ticked; unticked, the save does not send it and Bob keeps the file
+  // Bob down to Viewer: the line, the box ticked; unticked, the save sends false (always the box's choice) and Bob keeps the file
   await level.selectOption('read')
   await expect(line).toContainText(tr('folderAccess.linkPeople', { n: 1 }))
   await expect(line).toContainText(t['folderAccess.removeLinks'])
@@ -309,7 +309,7 @@ test('folder Share dialog: narrowing a folder with files shared by link offers "
   await box.uncheck()
   await page.getByTestId('sharing-save').click()
   await expect(page.getByTestId('sharing-done')).toBeVisible()
-  expect(await sent()).toBeNull()
+  expect(await sent()).toBe(false)
   expect(await bobHasIt()).toBe(true)
   // (the "Saved." toast would cover the line in the phone's shots)
   await page.getByTestId('toast').getByRole('button', { name: t['common.close'] }).click()

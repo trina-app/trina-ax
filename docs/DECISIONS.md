@@ -29854,8 +29854,9 @@ stay as they are.
   conflict, the trash restore of that row); a plain create or upload, a copy or another trash restore at its path makes
   the row **dead** (its link answers no access, its grants and waiting requests go). Review of #979 (blocker): a file
   uploaded where a shared one had been deleted outside the app inherited its link. A file changed outside the app: the
-  size, then the mtime, decide; the hash only when both say "maybe", files up to 32 MB, once (a match re-pins, a
-  mismatch makes the row dead), never per request.
+  size decides when it differs; otherwise the file is hashed (files up to 32 MB, dead above), once per new inode (a
+  match re-pins it, a mismatch makes the row dead), never per request. Equal size and mtime on a new inode prove
+  nothing (re-review of #979).
 - **Who it opens for** (`FileShares.open`): whoever the folder rules let read it (`RuleSet.access`, unchanged), and the
   people and groups on it (groups read live) while the owner can still edit the file. Guests never, through a link.
   `RuleSet.decide` is not changed: grants are read only by the id endpoints, which serve the current bytes
@@ -29879,7 +29880,9 @@ stay as they are.
   The owner's own move keeps them; the move confirm (409 `audience_narrowed`) carries `linkPeople`, "N people have this
   file by its link." An admin narrowing a folder's rules: the folder Share dialog's preview carries `linkPeople` ("N
   people have files here by link.") with **Remove those links too**, ticked by default; the save sends
-  `removeFileLinks` and removes them in its own step (audit `file.unshare` reason `folder_narrowed`).
+  `removeFileLinks` and removes them in its own step (audit `file.unshare` reason `folder_narrowed`). A narrowing save
+  while files there are shared by link must send `removeFileLinks` (true or false): without it, 409
+  `file_links_decide` (nothing saved), so a missing field never keeps the links silently.
 - **The AI: `share_with_person(paths, people)`** (chat/share-with-person.ts). The rules of every action that reaches
   others are post_to_room's, in one helper both tools import (chat/shared-actions.ts: the person whose turn it is acts,
   their card is theirs alone, other viewers see the step's verb alone, not offered in a template or restricted run, a

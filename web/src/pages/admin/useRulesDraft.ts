@@ -171,8 +171,9 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
     setRefused(null)
     try {
       const expectedHash = base.hash ?? data?.hash
-      // (only when the line is shown and ticked: missing keeps the links, server side too)
-      const links = removeLinks ? { removeFileLinks: true } : {}
+      // the line is shown: the box's choice is always sent (the server refuses a narrowing save that says nothing about
+      // the links: review of #979)
+      const links = linkPeople > 0 ? { removeFileLinks: removeLinks } : {}
       const saved = folder
         ? await api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}), ...links } })
         : await api.call(API.createFolder, { body: { path, create: false, rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}), ...links } })
