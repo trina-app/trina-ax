@@ -29,6 +29,7 @@ import { fail } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
+import { readCompanyProfile } from './profile'
 import { retireLegacyDefaultSkills } from './retired-skills'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
@@ -172,8 +173,37 @@ export function deckStarted(ctx: Pick<AppContext, 'db'>): boolean {
 }
 
 /** The progress as the screens get it: the row and the facts read for them (`deckStarted`, `landingSkill`). */
+/**
+ * After the end, a step put off that got done elsewhere (fix/onboarding-after-setup): the company profile saved in
+ * Admin, someone (not a guest) in the team besides the owners (the team menu's invites), a team or personal connection
+ * connected in Connectors. Recorded done on a read, so the setup row stops naming it. Team files and skills have no
+ * such fact here: they are done in their step. Never throws.
+ */
+function settlePutOff(ctx: AppContext, p: WelcomeProgress): WelcomeProgress {
+  if (!p.finishedAt || p.dismissedAt) return p
+  const done: string[] = []
+  try {
+    if (p.steps.profile === 'skipped') {
+      const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null
+      if (owner && readCompanyProfile(ctx.files, ctx.files.principal(owner.id))) done.push('profile')
+    }
+    if (p.steps.invite === 'skipped' && ctx.db.query("SELECT 1 FROM users WHERE role IN ('admin', 'member') AND deleted_at IS NULL LIMIT 1").get()) done.push('invite')
+    if (p.steps.tools === 'skipped' && ctx.db.query("SELECT 1 FROM integrations WHERE status = 'connected' LIMIT 1").get()) done.push('tools')
+    if (!done.length) return p
+    const s = stored(ctx)
+    if (!s.raw) return p
+    const steps = isObj(s.raw.steps) ? { ...s.raw.steps } : {}
+    for (const d of done) steps[d] = 'done'
+    return save(ctx, { ...s.raw, steps }, new Date().toISOString())
+  } catch (err) {
+    ctx.log.warn('the put-off welcome steps were not checked', { err })
+    return p
+  }
+}
+
 export function welcomeOut(ctx: AppContext, p: WelcomeProgress | null): WelcomeProgress | null {
   if (!p) return p
+  p = settlePutOff(ctx, p)
   let landing: string | null = null
   try { landing = landingSkill(ctx) } catch { /* none */ }
   return { ...p, deckStarted: deckStarted(ctx), landingSkill: landing }

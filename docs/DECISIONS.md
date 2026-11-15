@@ -28432,9 +28432,11 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **Setup row after the end.** Supersedes "W6 follow-up: never brings back the setup row after finish" (it was a "Not
   done", not an owner rejection). While the steps are finished and counted steps were put off (`lib/welcome.ts
   putOffSteps`: answered as skipped; never the AI step, never 도구 연결 on a phone nor 내 스킬 put off for a computer),
-  the row reads "Still to do: Team files · Tools" with no count and opens the first of them as itself (the
+  the row reads "Still to do: Team files" (more than one: "Team files +1", two names were cut at 1440) with no count and opens the first of them as itself (the
   `setupReturnState` ask; `Welcome.tsx` opens a step asked back after the end only when it was put off, and ending it
-  says nothing again). ✕ hides it as before (`dismissedAt`, with its undo). Without AI it stays out (Home's no-AI card
+  says nothing again). ✕ hides it as before (`dismissedAt`, with its undo). A put-off step done elsewhere is recorded
+  done on the next read (server `welcome.ts settlePutOff`): the company profile saved in Admin, someone other than a
+  guest in the team (the team menu's invites), a connection connected in Connectors. Without AI it stays out (Home's no-AI card
   first); on a phone not on Home, as the unfinished row.
 - **Home: one thing.** The owner's "Ready in your team" (TeamPrepared) stays out while the goal card shows (HomeGoal
   `onShown`; it waits for that answer, so nothing flashes). Admins and members unchanged.

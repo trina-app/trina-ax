@@ -474,7 +474,7 @@ describe('where the steps go', () => {
     expect(at('/c/abc', true, true, { ...off, dismissedAt: 'y' })).toBe('hidden')
     expect(at('/welcome', true, true, off)).toBe('hidden')
     const words = (computer: boolean) => setupRowWords((k, prm) => translate('en', k, prm), off, true, computer).text
-    expect(words(true)).toBe('Still to do: Team files · Tools')
+    expect(words(true)).toBe('Still to do: Team files +1')
     expect(words(false)).toBe('Still to do: Team files')
     const many = { ...off, steps: { ...off.steps, profile: 'skipped', skills: 'skipped' } } as WelcomeProgress
     expect(setupRowWords((k, prm) => translate('en', k, prm), many, true, true).text).toBe('Still to do: About the company +3')
