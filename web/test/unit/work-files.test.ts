@@ -146,3 +146,70 @@ describe('My files › From this computer', () => {
     expect(folderWords('ja', 'u1').path('users/u1/From this computer/Documents', ' › ')).toMatch(/^自分の.+ › このコンピューターから › Documents$/)
   })
 })
+
+// ---------------------------------------------------------------- part 4: recent, the company's, best first
+import { companyMatch, domainStem, forAiRecent, isRecentDoc, touched, WORK_SHOWN, workList, workScore } from '../../src/lib/workFiles'
+
+describe('part 4: recent, the company\'s, best first', () => {
+  const NOW = Date.UTC(2026, 10, 15, 12)
+  const D = 86_400_000
+  const read = async (): Promise<WorkFileRead> => ({ ok: false, reason: 'unknown' })
+  const words = { names: ['Acme', '에이크미'], domains: ['acme.co.kr'], people: ['Bo Lee'] }
+  const doc = (name: string, o: Partial<WorkFileMeta> = {}) => docsFromScan([meta(name, { modified: NOW - 10 * D, ...o })], read)[0]!
+
+  test('recent: opened or changed within 180 days; "opened" when the index knows a later use', () => {
+    expect(isRecentDoc(doc('a.pdf', { modified: NOW - 179 * D }), NOW)).toBe(true)
+    expect(isRecentDoc(doc('a.pdf', { modified: NOW - 300 * D }), NOW)).toBe(false)
+    expect(isRecentDoc(doc('a.pdf', { modified: NOW - 300 * D, used: NOW - 5 * D }), NOW)).toBe(true)
+    expect(touched(doc('a.pdf', { used: NOW - 2 * D }))).toEqual({ at: NOW - 2 * D, opened: true })
+    expect(touched(doc('a.pdf'))).toEqual({ at: NOW - 10 * D, opened: false })
+  })
+
+  test('the company\'s: its name as a word (or several), Korean inside a name, the domain\'s first label, never a part of a word', () => {
+    expect(companyMatch(doc('Acme proposal.pdf'), words)).toEqual({ kind: 'name', word: 'Acme' })
+    expect(companyMatch(doc('q.pdf', { folder: 'Clients/ACME_2026' }), words)).toEqual({ kind: 'name', word: 'Acme' })
+    expect(companyMatch(doc('에이크미_견적서.xlsx'), words)).toEqual({ kind: 'name', word: '에이크미' })
+    expect(companyMatch(doc('Acmetric notes.pdf'), words)).toBeNull()
+    expect(companyMatch(doc('Northwind.pdf'), { ...words, names: [] })).toBeNull()
+    expect(domainStem('acme.co.kr')).toBe('acme')
+    expect(domainStem('ab.io')).toBe('')
+  })
+
+  test('where it came from (its own address, its Slack or SharePoint, a work app) and who wrote it', () => {
+    expect(companyMatch(doc('x.pdf', { origins: ['files.acme.co.kr'] }), words)).toEqual({ kind: 'from', host: 'files.acme.co.kr' })
+    expect(companyMatch(doc('x.pdf', { origins: ['acme.slack.com'] }), words)).toEqual({ kind: 'from', host: 'acme.slack.com' })
+    expect(companyMatch(doc('x.pdf', { origins: ['acme-my.sharepoint.com'] }), words)).toEqual({ kind: 'from', host: 'acme-my.sharepoint.com' })
+    expect(companyMatch(doc('x.pdf', { origins: ['files.slack.com'] }), words)).toEqual({ kind: 'from', host: 'files.slack.com' })
+    expect(companyMatch(doc('x.pdf', { origins: ['www.example.org'] }), words)).toBeNull()
+    expect(companyMatch(doc('x.pdf', { authors: ['bo lee'] }), words)).toEqual({ kind: 'by', who: 'Bo Lee' })
+    expect(companyMatch(doc('x.pdf', { org: 'Acme Inc.' }), words)).toEqual({ kind: 'by', who: 'Acme' })
+  })
+
+  test('the score: newer, used more, an office type, the company\'s and Documents first', () => {
+    const base = workScore(doc('a.docx'), null, NOW)
+    expect(workScore(doc('a.docx', { modified: NOW - 1 * D }), null, NOW)).toBeGreaterThan(base)
+    expect(workScore(doc('a.docx', { useCount: 6 }), null, NOW)).toBeGreaterThan(base)
+    expect(workScore(doc('a.txt'), null, NOW)).toBeLessThan(base)
+    expect(workScore(doc('a.docx'), { kind: 'from', host: 'x' }, NOW)).toBe(base * 3)
+    expect(workScore(doc('a.docx', { root: 'downloads' }), null, NOW)).toBeLessThan(workScore(doc('a.docx', { root: 'documents' }), null, NOW))
+  })
+
+  test('Looks like work: recent AND (the company\'s OR the AI\'s pick), never personal, at most 50, best first', () => {
+    const docs = [
+      doc('Acme plan.docx'), doc('Acme old.docx', { modified: NOW - 400 * D }), doc('Acme payslip.pdf'), doc('random.pdf'), doc('picked.pdf'),
+      ...Array.from({ length: 60 }, (_, i) => doc(`Acme report ${i}.pdf`, { modified: NOW - (20 + i) * D })),
+    ]
+    const r = workList(docs, words, new Map([['Documents/picked.pdf', 'report']]), NOW)
+    expect(r.shown).toHaveLength(WORK_SHOWN)
+    expect(r.more).toBe(62 - WORK_SHOWN)
+    const names = r.shown.map((d) => d.name)
+    expect(names.slice(0, 2).sort()).toEqual(['Acme plan.docx', 'picked.pdf'].sort())
+    expect(names).not.toContain('Acme old.docx')
+    expect(names).not.toContain('Acme payslip.pdf')
+    expect(names).not.toContain('random.pdf')
+    // what goes to the AI: recent, never personal, the best by the rules
+    const sent = forAiRecent(docs, words, NOW)
+    expect(sent.some((d) => d.name === 'Acme old.docx' || d.name === 'Acme payslip.pdf')).toBe(false)
+    expect(sent.length).toBeLessThanOrEqual(80)
+  })
+})

@@ -1,4 +1,5 @@
 // Claude Code with the locked profile (design tab 2 "엔진 잠금"; owner 2026-10-21: built-in WebSearch allowed).
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -123,6 +124,18 @@ export const MCP_TOOL_TIMEOUT_MS = 1_800_000
  * a skill's description in the sub-agents' instructions) keeps it as written, not the chat folder's path. */
 export const launcherLiteral = (s: string) => s.replace(/\{(MCP_CONFIG|SYSTEM_PROMPT_FILE|TURN_DIR|CHAT_DIR|BRIDGE|TOOLS_SOCK)\}/g, '{\u200b$1}')
 
+const effortKnown = new Map<string, boolean>()
+/** Does this Claude Code take `--effort` (its own --help lists it)? Asked once per binary, within 5 s; false when it
+ * cannot tell, so an engine without the flag is never handed one (an unknown flag would fail the turn). */
+export function claudeKnowsEffort(bin: string, help: (bin: string) => string = (b) => String(execFileSync(b, ['--help'], { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }))): boolean {
+  let known = effortKnown.get(bin)
+  if (known === undefined) {
+    try { known = /--effort\b/.test(help(bin)) } catch { known = false }
+    effortKnown.set(bin, known)
+  }
+  return known
+}
+
 export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
@@ -138,6 +151,9 @@ export function buildClaudeLaunch(i: {
   /** Claude Code's Agent tool for this turn (docs/DECISIONS.md "Sub-agents"): the `--agents` definitions
    * (chat/subagents.ts) and the instructions every sub-agent gets (prompt.ts buildSubagentPrompt); absent = none */
   subagents?: { agents: Record<string, unknown>; prompt: string }
+  /** a quick one-turn pick (Find work files' pick from names): `--effort low`, when this engine knows the flag
+   * (claudeKnowsEffort); measured 2026-11-15, it cut Haiku's thinking about a third */
+  effort?: 'low'
 }, conf: ClaudeConf): LaunchRequest {
   const web = i.webSearch !== false
   const sub = !!i.subagents
@@ -162,6 +178,7 @@ export function buildClaudeLaunch(i: {
     ...(sub ? ['--agents', '{TURN_DIR}/agents.json', '--append-subagent-system-prompt-file', '{TURN_DIR}/subagent.md'] : []),
     '--max-turns', String(i.maxTurns),
     ...(model ? ['--model', model] : []),
+    ...(i.effort && claudeKnowsEffort(conf.bin) ? ['--effort', i.effort] : []),
     ...(i.resume ? ['--resume', i.sessionId] : ['--session-id', i.sessionId]),
   ]
   // temp files stay in the chat folder: with only TMPDIR, Claude Code still creates /tmp/claude-<uid> and

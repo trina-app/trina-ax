@@ -33,8 +33,9 @@ export const TEAM_FILES_LIMITS = {
   prechecked: 20,
   /** at most this many ticked files per upload */
   perUpload: 100,
-  /** the page waits this long for the AI, and the server stops the turn then */
-  rankMs: 30_000,
+  /** the page waits this long for the AI, and the server stops the turn then (one turn of the engine's smallest model
+   * over names: docs/DECISIONS.md "Find work files, part 4") */
+  rankMs: 20_000,
   /** a name and a path as they go to the AI, at most */
   nameChars: 200,
   pathChars: 400,
@@ -72,7 +73,15 @@ export type TeamFilesLanded = z.infer<typeof TeamFilesLanded>
 export const TeamFilesLandedResult = z.object({ recorded: z.boolean() })
 export type TeamFilesLandedResult = z.infer<typeof TeamFilesLandedResult>
 
+/** The company's words for Find work files on this computer (docs/DECISIONS.md "Find work files, part 4"): its names
+ * (legal forms left out), its domains (the website's, the team's work email domains) and the team's people's names. The
+ * page matches file names, folders, download hosts and authors against them, on the computer. */
+export const CompanyWords = z.object({ names: z.array(z.string()), domains: z.array(z.string()), people: z.array(z.string()) })
+export type CompanyWords = z.infer<typeof CompanyWords>
+
 export const ONBOARDING_FILES = {
+  companyWords: endpoint({ method: 'GET', path: '/api/onboarding/files/company', auth: 'user', owner: 'B', response: CompanyWords,
+    summary: 'The company\'s words for Find work files on this computer: the team\'s and the profile\'s names (legal forms left out), the website\'s and the team\'s work email domains (never a public mail provider) and the team\'s people\'s names. Anyone in the team but guests.' }),
   rankTeamFiles: endpoint({ method: 'POST', path: '/api/onboarding/files/rank', auth: 'admin', owner: 'B', body: RankTeamFiles, response: RankedTeamFiles,
     summary: 'The AI\'s picks among files of a folder the caller picked (owners and admins): names, paths inside the folder, types, sizes and dates only, never content. A turn of the caller with no tool at all; answers within 30 s (timeout otherwise), its chat deleted after.' }),
   rankOwnFiles: endpoint({ method: 'POST', path: '/api/onboarding/files/rank-own', auth: 'user', owner: 'B', body: RankTeamFiles, response: RankedTeamFiles,

@@ -11,7 +11,7 @@ import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
-import { Button, IconButton } from './ui'
+import { Button, IconButton, ProgressBar } from './ui'
 import { StoragePlansLink, storagePlansUrl } from './StoragePlansLink'
 
 /** one failed path per line, at most this many; the rest are counted */
@@ -157,9 +157,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
         </IconButton>
       </div>
       {running && (
-        <div className="h-1 overflow-hidden rounded bg-subtle" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={v.name ?? t('files.folderUpload.label')}>
-          <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
-        </div>
+        <ProgressBar value={pct / 100} label={v.name ?? t('files.folderUpload.label')} />
       )}
       {running && now && (
         <p className="truncate text-faint">

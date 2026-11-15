@@ -12,7 +12,7 @@
 // (chat/internal-chats.ts): never listed, deleted once its answer is read (its turns stay: the usage is the caller's).
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
-import { PROFILE_BLOCK_MAX, TEAM_FILE_REASONS, TEAM_FILES_LIMITS, type Locale, type RankFileEntry, type RankedTeamFiles, type Role, type TeamFileReason } from '@mycel/shared/api'
+import { PROFILE_BLOCK_MAX, TEAM_FILE_REASONS, TEAM_FILES_LIMITS, type Locale, type RankFileEntry, type RankedTeamFiles, type Role, type TeamFileReason, type EngineId } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ChatRuntime } from '../chat/runtime'
 import { newId } from '../db'
@@ -24,9 +24,15 @@ import { forgetPurgedChats } from '../chat/forget'
 import { aiAccessFor } from '../credentials/access'
 import { memberOwnAllowed } from '../credentials/policy'
 import { answerJson } from './draft'
+import { CLAUDE_READER_MODEL } from '../file-list/engine-reader'
+import { cheapestCodexModel } from '../engine/codex'
+import type { EngineConfs } from '../chat/engines'
 import { profileFactLines, readCompanyProfile } from './profile'
 import { organizeSystemPrompt, type OrganizeMaterial } from './files-organize-ai'
 
+/** A member's own pick asks for at most this many ids, grouped by kind (a short answer: the turn took 11 s for 80 names
+ * with an id and a reason per pick, measured 2026-11-15; the page shows 50 at most). */
+export const OWN_PICKS_MAX = 40
 /** At most this many picks are read from an answer (the instructions ask for at most this many). */
 export const RANK_PICKS_MAX = 200
 /** How often the request looks at the answer while it waits. */
@@ -148,12 +154,12 @@ function ownRankPrompt(m: FileRankMaterial, o: { history?: { role: 'user' | 'ass
     '- When unsure, leave it out: the person can tick more themselves.',
     '',
     '## Answer',
-    'Answer with one JSON object in a ```json code block and nothing else:',
+    'Answer with one JSON object in a ```json code block and nothing else: the ids of the work files, grouped by kind (short: it is read by a program):',
     '```json',
-    '{"picks": [{"id": "", "reason": "form"}]}',
+    `{${TEAM_FILE_REASONS.map((r) => `"${r}": []`).join(', ')}}`,
     '```',
-    `- The best first, at most ${RANK_PICKS_MAX}. Fewer is fine, and none is fine ("picks": []).`,
-    `- "id" exactly as given above. "reason" is one of: ${TEAM_FILE_REASONS.join(', ')} (form: forms and templates; intro: a company or product introduction; minutes: meeting notes; brand: logos and brand material; policy: rules and policies; training: manuals, guides and training material). No other keys.`,
+    `- At most ${OWN_PICKS_MAX} ids in all. Fewer is fine, and none is fine (every list empty).`,
+    '- Each "id" exactly as given above, once. The kinds: form: forms and templates; intro: a company or product introduction; report: reports; minutes: meeting notes; brand: logos and brand material; policy: rules and policies; training: manuals, guides and training material; proposal: proposals. No other keys.',
   ]
   const history = o.history?.length ? historyBlock(o.history) : ''
   return [lines.join('\n'), history].filter(Boolean).join('\n\n')
@@ -166,6 +172,10 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
  * reads as "form"); at most RANK_PICKS_MAX. null: no JSON object with a list of picks. */
 export function parseFileRank(text: string, ids: readonly string[]): { id: string; reason: TeamFileReason }[] | null {
   const raw = answerJson(text)
+  // the short answer (a member's own pick): {"form": ["e1"], "report": [...]}, read as picks in the kinds' order
+  if (isObj(raw) && !Array.isArray(raw.picks) && TEAM_FILE_REASONS.some((r) => Array.isArray(raw[r]))) {
+    raw.picks = TEAM_FILE_REASONS.flatMap((r) => (Array.isArray(raw[r]) ? (raw[r] as unknown[]).map((id) => ({ id, reason: r })) : []))
+  }
   if (!isObj(raw) || !Array.isArray(raw.picks)) return null
   const known = new Set(ids)
   const out: { id: string; reason: TeamFileReason }[] = []
@@ -185,6 +195,22 @@ export function parseFileRank(text: string, ids: readonly string[]): { id: strin
 }
 
 // ---------------------------------------------------------------- the turn
+
+/**
+ * The smallest model of an engine for a quick one-turn pick from names (docs/DECISIONS.md "Find work files, part 4"), by
+ * the rule the file list's reader uses (file-list/engine-reader.ts pickReader): Claude Code's `haiku` alias (through a
+ * gateway only when the gateway names a haiku model), Codex's nano or mini from its catalog (cheapestCodexModel). null:
+ * the engine has none to offer (the API engine, a gateway without haiku, a Codex catalog without a small model): the
+ * turn runs on the person's model, as every other chat does. Only rank turns ask for it.
+ */
+export function smallModelFor(engine: EngineId, confs: EngineConfs): string | null {
+  if (engine === 'claude-code') {
+    const gw = confs.claude && confs.claude.authMode !== 'local-login' ? confs.claude.gatewayModels : undefined
+    return !gw || gw.haiku ? CLAUDE_READER_MODEL : null
+  }
+  if (engine === 'codex') return cheapestCodexModel(confs.codexModels)
+  return null
+}
 
 export interface RankCaller { id: string; role: Role }
 
@@ -238,7 +264,7 @@ export async function rankTeamFiles(ctx: AppContext, rt: ChatRuntime, who: RankC
   if (!entries.length) return { ai: 'done', picks: [] }
   const material: FileRankMaterial = { locale: teamDefaultLocale(ctx.db), company: companyLines(ctx, who.id), entries: entries.slice(0, TEAM_FILES_LIMITS.toAi).map((e) => ({ ...e })), ...(o.purpose === 'own' ? { purpose: 'own' as const } : {}) }
   const ul = rt.userLocale(who.id)
-  const r = await runFilesTurn(ctx, rt, who, material, locale, { ...o, ask: o.ask ?? (o.purpose === 'own' ? TEXT.askOwn[ul] : TEXT.ask[ul]), limitMs: Math.min(o.timeoutMs ?? TEAM_FILES_LIMITS.rankMs, TEAM_FILES_LIMITS.rankMs) })
+  const r = await runFilesTurn(ctx, rt, who, material, locale, { ...o, small: true, ask: o.ask ?? (o.purpose === 'own' ? TEXT.askOwn[ul] : TEXT.ask[ul]), limitMs: Math.min(o.timeoutMs ?? TEAM_FILES_LIMITS.rankMs, TEAM_FILES_LIMITS.rankMs) })
   if (r.ai !== 'done') return { ai: r.ai, picks: [] }
   const picks = parseFileRank(r.content, material.entries.map((e) => e.id))
   return picks ? { ai: 'done', picks } : { ai: 'failed', picks: [] }
@@ -260,13 +286,17 @@ export type FilesTurnResult = { ai: 'done'; content: string } | { ai: 'none' | '
  * waited for at most `o.limitMs` (then, or when `o.signal` aborts, stopped: timeout), the chat deleted after. `none`: no
  * AI answers the caller now (their connection, their budget).
  */
-export async function runFilesTurn(ctx: AppContext, rt: ChatRuntime, who: RankCaller, material: FileRankMaterial | OrganizeMaterial, locale: Locale, o: RankOptions & { ask: string; limitMs: number; title?: string }): Promise<FilesTurnResult> {
+export async function runFilesTurn(ctx: AppContext, rt: ChatRuntime, who: RankCaller, material: FileRankMaterial | OrganizeMaterial, locale: Locale, o: RankOptions & { ask: string; limitMs: number; title?: string; small?: boolean }): Promise<FilesTurnResult> {
   if (!aiAnswers(ctx, rt, who, locale)) return { ai: 'none' }
   const userLocale = rt.userLocale(who.id)
   let chatId: string
   let answerId: string
   try {
-    const { engine, model } = newChatEngine(ctx, who, {}, userLocale)
+    const picked = newChatEngine(ctx, who, {}, userLocale)
+    const { engine } = picked
+    // the pick of work files from names (o.small): the engine's smallest model, as the file list's reader picks it
+    // (file-list/engine-reader.ts): Claude Code's Haiku, Codex's nano or mini; else the person's model, as before
+    const model = (o.small ? smallModelFor(engine, rt.engines.get()) : null) ?? picked.model
     chatId = newId()
     const now = new Date().toISOString()
     ctx.db.transaction(() => {

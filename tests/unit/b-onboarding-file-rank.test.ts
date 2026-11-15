@@ -11,8 +11,9 @@ import path from 'node:path'
 import { API, TEAM_FILES_LIMITS, type RankFileEntry } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { fileRankSystemPrompt, parseFileRank, rankTeamFiles, RANK_PICKS_MAX, type FileRankScope } from '../../server/src/onboarding/file-rank'
+import { fileRankSystemPrompt, parseFileRank, rankTeamFiles, RANK_PICKS_MAX, smallModelFor, type FileRankScope } from '../../server/src/onboarding/file-rank'
 import { getChatRuntime } from '../../server/src/chat/runtime'
+import { bareDomain, companyName } from '../../server/src/onboarding/company-words'
 import { readWelcome, updateWelcome } from '../../server/src/onboarding/welcome'
 
 setDefaultTimeout(60_000)
@@ -67,6 +68,32 @@ describe('reading the answer (no server)', () => {
   })
 })
 
+describe('the company\'s words (Find work files, part 4)', () => {
+  test('legal forms out in six languages\' ways; too short is nothing; a website\'s www out', () => {
+    expect(companyName('Acme Inc.')).toBe('Acme')
+    expect(companyName('주식회사 에이크미')).toBe('에이크미')
+    expect(companyName('(주)가나')).toBe('가나')
+    expect(companyName('PT Maju Jaya Tbk')).toBe('Maju Jaya')
+    expect(companyName('株式会社アクメ')).toBe('アクメ')
+    expect(companyName('Ab Ltd')).toBe('')
+    expect(bareDomain('WWW.Acme.co.kr.')).toBe('acme.co.kr')
+  })
+})
+
+describe('the smallest model for a pick from names (Find work files, part 4)', () => {
+  const confs = (o: Record<string, unknown>) => ({ claude: undefined, codex: undefined, api: undefined, problems: [], codexModels: [], ...o }) as never
+  test('Claude Code: haiku, through a gateway only when it names one; Codex: nano, else mini; the API engine: none', () => {
+    expect(smallModelFor('claude-code', confs({ claude: { authMode: 'local-login' } }))).toBe('haiku')
+    expect(smallModelFor('claude-code', confs({ claude: { authMode: 'managed' } }))).toBe('haiku')
+    expect(smallModelFor('claude-code', confs({ claude: { authMode: 'managed', gatewayModels: { default: 'big' } } }))).toBeNull()
+    expect(smallModelFor('claude-code', confs({ claude: { authMode: 'managed', gatewayModels: { default: 'big', haiku: 'small' } } }))).toBe('haiku')
+    expect(smallModelFor('codex', confs({ codexModels: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'] }))).toBe('gpt-5-nano')
+    expect(smallModelFor('codex', confs({ codexModels: ['gpt-5', 'gpt-5-mini'] }))).toBe('gpt-5-mini')
+    expect(smallModelFor('codex', confs({ codexModels: ['gpt-5'] }))).toBeNull()
+    expect(smallModelFor('api', confs({}))).toBeNull()
+  })
+})
+
 describe('the rank turn', () => {
   let h: Harness
   beforeAll(async () => { h = await startHarness({ name: 'b-onboarding-file-rank' }) })
@@ -109,6 +136,9 @@ describe('the rank turn', () => {
   test('a JSON answer: the picks, best first, known ids only', async () => {
     const r = await rank({ ask: fake({ say: json({ picks: [{ id: 'e1', reason: 'intro' }, { id: 'e0', reason: 'form' }, { id: 'nope', reason: 'form' }] }) }) })
     expect(r).toEqual({ ai: 'done', picks: [{ id: 'e1', reason: 'intro' }, { id: 'e0', reason: 'form' }] })
+    // the turn ran on the engine's smallest model; a chat of the person keeps its own
+    const turn = h.ctx.db.query("SELECT model, engine FROM turns WHERE user_id = 'dana' ORDER BY started_at DESC LIMIT 1").get() as { model: string | null; engine: string }
+    expect(turn).toEqual({ engine: 'claude-code', model: 'haiku' })
     expect(await gone()).toBe(true)
   })
 
@@ -129,7 +159,7 @@ describe('the rank turn', () => {
     expect(Date.now() - t1).toBeLessThan(5_000)
     expect(await gone()).toBe(true)
     // the server's own limit is the most a caller can ask for
-    expect(TEAM_FILES_LIMITS.rankMs).toBe(30_000)
+    expect(TEAM_FILES_LIMITS.rankMs).toBe(20_000)
   })
 
   test('the route: owners and admins; members 403; the body checked; the fixed message answers no JSON (failed)', async () => {
@@ -156,7 +186,8 @@ describe('the rank turn', () => {
     expect(system).not.toContain('which of its files the whole team should have')
     expect(system).toContain('"folder":"Documents/Sales"')
     expect(system.match(/<\/material>/gi)).toHaveLength(1)
-    expect(system).toContain(`"reason" is one of: form, intro, report, minutes, brand, policy, training, proposal`)
+    expect(system).toContain('{"form": [], "intro": [], "report": [], "minutes": [], "brand": [], "policy": [], "training": [], "proposal": []}')
+    expect(system).toContain('At most 40 ids in all')
     expect(tools).toBe('edit,glob,grep,list,read,write')
     // the turn is the member's (their usage, their budget), and no chat of it is left in their list
     expect(h.ctx.db.query("SELECT COUNT(*) n FROM turns WHERE user_id = 'alice'").get()).not.toEqual({ n: 0 })
@@ -164,7 +195,19 @@ describe('the rank turn', () => {
     // ids and reasons stay checked against the fixed lists
     const picked = await rankTeamFiles(h.ctx, getChatRuntime(h.ctx), { id: 'alice', role: 'member' }, own, 'en', { purpose: 'own', ask: fake({ say: json({ picks: [{ id: 'e0', reason: 'forms' }, { id: 'e9', reason: 'form' }, { id: 'e1', reason: 'secret' }] }) }) })
     expect(picked).toEqual({ ai: 'done', picks: [{ id: 'e0', reason: 'form' }] })
+    // the short answer, ids grouped by kind: unknown ids and kinds left out, an id once
+    const grouped = await rankTeamFiles(h.ctx, getChatRuntime(h.ctx), { id: 'alice', role: 'member' }, own, 'en', { purpose: 'own', ask: fake({ say: json({ form: ['e0', 'e9', 'e0'], secret: ['e1'], report: ['e1'] }) }) })
+    expect(grouped).toEqual({ ai: 'done', picks: [{ id: 'e0', reason: 'form' }, { id: 'e1', reason: 'report' }] })
     expect(await gone()).toBe(true)
+  })
+
+  test('the company\'s words: for members too, the team\'s name, work domains only, people\'s names', async () => {
+    const r = await h.req('alice', '/api/onboarding/files/company')
+    expect(r.status).toBe(200)
+    const w = await r.json() as { names: string[]; domains: string[]; people: string[] }
+    expect(w.names.length).toBeGreaterThan(0)
+    expect(w.domains.some((d) => /gmail|naver|outlook/.test(d))).toBe(false)
+    expect(w.people.length).toBeGreaterThan(0)
   })
 
   test('the own route: members and admins; the body checked like the team one', async () => {

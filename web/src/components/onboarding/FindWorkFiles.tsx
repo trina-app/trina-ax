@@ -25,15 +25,15 @@ import { desktop } from '../../lib/desktop'
 import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
-import { findAlready, findDocs, forAi, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { docsFromScan, FROM_COMPUTER, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, undoRun, WorkFileReadError, workFilesBridge, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
+import { companyMatch, docsFromScan, forAiRecent, FROM_COMPUTER, isRecentDoc, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { startFolderUpload, stopFolderUpload } from '../FolderUploads'
-import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
+import { Button, ErrorNote, Modal, ProgressBar, useMediaQuery } from '../ui'
 import { storagePlansAction } from '../StoragePlansLink'
 import { TickFold, TickRow, TickSearch } from './TickList'
 
@@ -58,11 +58,23 @@ function useRootName() {
   return (r: Pick<WorkRootResult, 'id' | 'oneDrive'>) => (r.oneDrive ? t('files.findWork.root.oneDrive', { folder: t(ROOT_WORD[r.id]) }) : t(ROOT_WORD[r.id]))
 }
 
+const NO_WORDS: CompanyWordsLike = { names: [], domains: [], people: [] }
+/** How long the AI's pick usually takes (one turn of the smallest model over names): the bar's measure for that stage */
+const RANK_USUAL_MS = 10_000
+/** "3 days ago", "last month" in the person's language */
+function relative(at: number, locale: string): string {
+  const days = Math.round((at - Date.now()) / 86_400_000)
+  const f = new Intl.RelativeTimeFormat(intlTag(locale as never), { numeric: 'auto' })
+  if (Math.abs(days) < 1) return f.format(Math.round((at - Date.now()) / 3_600_000), 'hour')
+  if (Math.abs(days) < 30) return f.format(days, 'day')
+  return f.format(Math.round(days / 30), 'month')
+}
+
 /** Only one look at a time in this tab (a second mount while one runs waits for the same answer). */
 let scanning: Promise<WorkFileScan> | null = null
 const scanOnce = (b: WorkFilesBridge) => (scanning ??= b.scan().finally(() => { scanning = null }))
 
-type Phase = { s: 'asking' } | { s: 'looking'; root: WorkRootId; checked: number; docs: number } | { s: 'ranking'; n: number } | { s: 'list' } | { s: 'none' } | { s: 'error'; text: string }
+type Phase = { s: 'asking' } | { s: 'looking'; root: WorkRootId; checked: number; docs: number; done?: number } | { s: 'ranking'; n: number; at: number } | { s: 'list' } | { s: 'none' } | { s: 'error'; text: string }
 
 export interface FindWorkFilesProps {
   bridge: WorkFilesBridge
@@ -103,6 +115,17 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [capped, setCapped] = useState(false)
   const [q, setQ] = useState('')
   const [openPersonal, setOpenPersonal] = useState(false)
+  const [words, setWords] = useState<CompanyWordsLike>(NO_WORDS)
+  const [picking, setPicking] = useState<WorkRootId | null>(null)
+  /** the AI's pick under way while the list already shows: how many names it got, since when */
+  const [aiWait, setAiWait] = useState<{ n: number; at: number } | null>(null)
+  // the AI's step has no progress of its own: the bar moves with the time it usually takes
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!aiWait) return
+    const iv = setInterval(() => setTick((n) => n + 1), 250)
+    return () => clearInterval(iv)
+  }, [aiWait])
   const live = useRef(true)
   const rankAbort = useRef<AbortController | null>(null)
   // the page's dialog closed (✕, Escape, another page): a look still running stops, the AI's pick is let go (set again
@@ -114,6 +137,8 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
 
   useEffect(() => {
     const off = bridge.onProgress((p) => { if (live.current) setPhase((x) => (x.s === 'asking' || x.s === 'looking' ? { s: 'looking', ...p } : x)) })
+    // the company's words (names, domains, people), asked for while the app looks; none when they cannot be read
+    const wordsP = api.call(API.companyWords).catch((): CompanyWordsLike => NO_WORDS)
     void (async () => {
       let r: WorkFileScan
       try { r = await scanOnce(bridge) } catch { r = { state: 'unavailable' } }
@@ -130,11 +155,17 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       const found = all.filter((d) => !there.has(d.key))
       setAlready(all.length - found.length)
       setDocs(found)
+      const w = await wordsP
+      if (!live.current) return
+      setWords(w)
       if (!found.length) return setPhase({ s: rootNotes(r.roots).none ? 'none' : 'list' })
-      // the AI picks from names only, never a personal-looking one; nothing ticked whatever it says
-      const sent = forAi(found)
+      // the AI picks from names only: the best recent ones by the rules, never a personal-looking one; nothing ticked
+      const sent = forAiRecent(found, w)
       if (!sent.length) { setNoAi(true); return setPhase({ s: 'list' }) }
-      setPhase({ s: 'ranking', n: found.length })
+      // the list shows now (the company's files by the rules); the AI's picks join it when they come (one turn of the
+      // smallest model: 8–12 s measured 2026-11-15, its engine's start-up about 5 s of it)
+      setPhase({ s: 'list' })
+      setAiWait({ n: sent.length, at: Date.now() })
       const { entries, keyOf } = rankEntries(sent)
       const ctl = new AbortController()
       rankAbort.current = ctl
@@ -147,7 +178,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       if (!live.current) return
       setPicks(got && got.size ? got : null)
       setNoAi(!got)
-      setPhase({ s: 'list' })
+      setAiWait(null)
     })()
     return off
     // one look per mount
@@ -155,14 +186,11 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   }, [])
 
   const notes = rootNotes(roots)
-  const byKey = useMemo(() => new Map(docs.map((d) => [d.key, d])), [docs])
-  /** Looks like work: the AI's picks in its order, or (no AI, no pick) the name rules' order */
-  const work = useMemo(() => {
-    if (picks) return [...picks.keys()].flatMap((k) => { const d = byKey.get(k); return d && !d.personal ? [d] : [] })
-    return forAi(docs, Number.POSITIVE_INFINITY)
-  }, [picks, byKey, docs])
-  const personal = useMemo(() => docs.filter((d) => d.personal), [docs])
-  /** found but in neither group (the AI did not pick them): found by name */
+  /** Looks like work (docs/DECISIONS.md part 4): recent, and the company's or the AI's pick; the best 50 */
+  const list = useMemo(() => workList(docs, words, picks), [docs, words, picks])
+  const work = list.shown
+  const personal = useMemo(() => docs.filter((d) => d.personal && isRecentDoc(d)), [docs])
+  /** looked at but in neither group: found by name */
   const rest = docs.length - work.length - personal.length
   const found = q ? findDocs(docs, q) : null
   const pad = phone ? 'px-0' : 'px-4'
@@ -174,12 +202,17 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     setCapped(r.refused)
     setTicks(r.ticks)
   }
+  /** why it is shown, in plain words: the AI's reason, the company ("Mentions Acme", "From acme.slack.com", "By Bo"),
+   * where it is, and when it was last opened or changed ("Opened 3 days ago") */
   const meta = (d: LocalDoc) => {
     const reason = picks?.get(d.key)
+    const m = companyMatch(d, words)
     const root = ROOT_OF[d.pick]
     const where = [root ? t(ROOT_WORD[root]) : d.pick, ...(d.folder ? d.folder.split('/') : [])].join(' › ')
-    const date = new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(d.modified))
-    return [reason ? t(REASON[reason]) : null, where, formatSize(d.size, locale), date].filter(Boolean).join(' · ')
+    const when = touched(d)
+    const ago = relative(when.at, locale)
+    const matchText = !m ? null : m.kind === 'name' ? t('files.findWork.match.name', { name: m.word }) : m.kind === 'from' ? t('files.findWork.match.from', { host: m.host }) : t('files.findWork.match.by', { name: m.who })
+    return [reason ? t(REASON[reason]) : null, matchText, t(when.opened ? 'files.findWork.opened' : 'files.findWork.changed', { when: ago }), where].filter(Boolean).join(' · ')
   }
   const personalNote = (d: LocalDoc) => (d.personal && ticks.has(d.key)
     ? <span className="mt-0.5 block text-label text-warn" data-testid="find-work-personal-ticked">{audience === 'me' ? t('files.findWork.personalTickedMe') : t('welcome.teamFiles.personalTicked', { team: audience })}</span>
@@ -195,13 +228,17 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   )
 
   if (phase.s === 'asking' || phase.s === 'looking' || phase.s === 'ranking') {
-    const title = phase.s === 'asking' ? t('files.findWork.asking') : phase.s === 'looking' ? t('files.findWork.looking', { folder: t(ROOT_WORD[phase.root]) }) : t('files.findWork.ranking', { n: phase.n })
+    const title = phase.s === 'asking' ? t('files.findWork.asking') : phase.s === 'looking' ? t('files.findWork.looking', { folder: t(ROOT_WORD[phase.root]) }) : t('files.findWork.picking')
+    // the folders' stages as the app measures them (the AI's pick runs while the list already shows)
+    const value = phase.s === 'looking' ? phase.done ?? 0 : phase.s === 'ranking' ? Math.min(0.95, (Date.now() - phase.at) / RANK_USUAL_MS) : 0
     return (
       <div className="space-y-4" data-testid="find-work" data-screen={phase.s}>
         <h2 className="flex items-center gap-2 text-display font-semibold text-ink" role="status" data-testid="find-work-title">
           <Loader2 size={16} className="shrink-0 animate-spin text-accent-text" aria-hidden /> {title}
         </h2>
+        {phase.s !== 'asking' && <ProgressBar value={value} label={title} testId="find-work-progress" />}
         {phase.s === 'looking' && <p className="text-sm text-muted" data-testid="find-work-count">{t('files.findWork.lookingCount', { n: phase.checked, docs: phase.docs })}</p>}
+        {phase.s === 'ranking' && <p className="text-sm text-muted" data-testid="find-work-count">{t('files.findWork.pickingCount', { n: phase.n })}</p>}
         <p className="text-sm text-muted">{phase.s === 'asking' ? t('files.findWork.askingHint', { app: PRODUCT.displayName }) : t('files.findWork.lookingHint')}</p>
         <div className="flex flex-wrap gap-3">
           {phase.s === 'looking' && <Button onClick={() => bridge.stop()} data-testid="find-work-stop">{t('files.findWork.stop')}</Button>}
@@ -219,9 +256,30 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     )
   }
 
-  const allow = (
+  /** "Choose it yourself": the system's folder window opens at the folder macOS kept the app out of; the pick is the
+   * person's permission (no trip to System Settings, where a refused app may not even be listed). Its files join the
+   * list. An app without it (older) offers Settings. */
+  const choose = async (id: WorkRootId) => {
+    if (!bridge.pickRoot || picking) return
+    setPicking(id)
+    try {
+      const r = await bridge.pickRoot(id)
+      if (!live.current || r.state !== 'done') return
+      const added = docsFromScan(r.files, bridge.read)
+      setDocs((prev) => { const keys = new Set(prev.map((d) => d.key)); return [...prev, ...added.filter((d) => !keys.has(d.key))] })
+      setRoots((prev) => prev.map((x) => (x.id === id ? { ...x, ...(r.roots[0] ?? {}), id } : x)))
+      setPhase((x) => (x.s === 'none' ? { s: 'list' } : x))
+    } catch { /* the window closed or the app could not look: the line stays */ } finally {
+      if (live.current) setPicking(null)
+    }
+  }
+  const allow = (id: WorkRootId | null) => (
     <>
-      <button type="button" className={quietLink} onClick={() => bridge.openSettings()} data-testid="find-work-settings">{t('files.findWork.allowInSettings')}</button>
+      {bridge.pickRoot && id ? (
+        <button type="button" className={quietLink} disabled={!!picking} onClick={() => void choose(id)} data-testid="find-work-choose" data-root={id}>{t('files.findWork.chooseYourself')}</button>
+      ) : (
+        <button type="button" className={quietLink} onClick={() => bridge.openSettings()} data-testid="find-work-settings">{t('files.findWork.allowInSettings')}</button>
+      )}
       {' · '}
       <a className={quietLink} href={FIND_WORK_FILES_GUIDE} target="_blank" rel="noreferrer" data-testid="find-work-guide">{t('files.findWork.how')}</a>
     </>
@@ -230,9 +288,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const allBlocked = phase.s === 'none' && notes.blocked.length > 0
   const lines = (
     <div className="space-y-1.5" data-testid="find-work-notes">
-      {allBlocked ? <p className="text-sm text-ink" data-testid="find-work-blocked-all">{allow}</p> : notes.blocked.map((r) => (
+      {notes.blocked.map((r) => (
         <p key={r.id} className="text-sm text-ink" role="status" data-testid="find-work-blocked" data-root={r.id}>
-          {t('files.findWork.blocked', { app: PRODUCT.displayName, folder: rootName(r) })}{' · '}{allow}
+          {t('files.findWork.blocked', { app: PRODUCT.displayName, folder: rootName(r) })}{' · '}{allow(r.id)}
         </p>
       ))}
       {notes.cut.map((r) => <p key={r.id} className="text-label text-muted" data-testid="find-work-cut" data-root={r.id}>{t('files.findWork.cut', { folder: rootName(r) })}</p>)}
@@ -257,12 +315,13 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     )
   }
 
-  const title = work.length ? t('files.findWork.title', { n: work.length }) : t('files.findWork.titleNone', { n: docs.length })
+  const title = work.length ? t('files.findWork.title', { n: work.length }) : t('files.findWork.emptyWork')
   return (
     <div className="space-y-4" data-testid="find-work" data-screen="list">
       <div className="space-y-1">
         <h2 className="text-display font-semibold text-ink" data-testid="find-work-title">{title}</h2>
         <p className="text-sm text-balance text-muted">{audience === 'me' ? t('files.findWork.descMe', { place: placeName }) : t('files.findWork.descTeam', { place: placeName })}</p>
+        {!work.length && <p className="text-sm text-muted" data-testid="find-work-search-hint">{t('files.findWork.searchHint', { n: docs.length })}</p>}
       </div>
       {lines}
       <TickSearch value={q} onChange={setQ} placeholder={t('welcome.teamFiles.search')} pad="px-0" testId="find-work-search" />
@@ -295,7 +354,15 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
           </>
         )}
       </div>
-      <p className="text-label text-muted" data-testid="find-work-ai">{noAi ? t('files.findWork.noAi') : picks ? t('files.findWork.byAi') : t('files.findWork.byNames')}</p>
+      {aiWait ? (
+        <div className="space-y-1.5" data-testid="find-work-ai-wait">
+          <p className="flex items-center gap-2 text-label text-muted" role="status">
+            {t('files.findWork.aiPicking', { n: aiWait.n })}
+            <button type="button" className={quietLink} onClick={() => rankAbort.current?.abort()} data-testid="find-work-ai-stop">{t('files.findWork.stop')}</button>
+          </p>
+          <ProgressBar value={Math.min(0.95, (Date.now() - aiWait.at) / RANK_USUAL_MS)} label={t('files.findWork.aiPicking', { n: aiWait.n })} />
+        </div>
+      ) : <p className="text-label text-muted" data-testid="find-work-ai">{noAi ? t('files.findWork.noAi') : picks ? t('files.findWork.byAi') : t('files.findWork.byNames')}</p>}
       {capped && <p className="text-label text-warn" role="status" data-testid="find-work-cap">{t('welcome.teamFiles.cap', { n: L.perUpload })}</p>}
       {tooMuch && <p className="text-label text-warn" role="status" data-testid="find-work-bytes">{t('files.findWork.bytes')}</p>}
       <div className={phone ? 'space-y-2' : 'flex flex-wrap items-center justify-end gap-3'}>

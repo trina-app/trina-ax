@@ -3918,6 +3918,8 @@ export class MockServer {
       const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
       return { ai: 'done', picks }
     },
+    // Find work files on this computer, part 4: the company's words (the team's name, a work domain, the people)
+    companyWords: () => ({ names: [this.settings.teamName], domains: ['acme.example'], people: this.users.map((u) => u.name).filter(Boolean) }),
     // Find work files on this computer: the same pick for the caller's own folder, anyone but guests (English names too)
     rankOwnFiles: async (c) => {
       const entries = c.body.entries as { id: string; name: string; path: string }[]

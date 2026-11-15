@@ -43,6 +43,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await shot('2-asking')
       await answer(page, 'look')
       await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
       await shot('3-list')
       await page.getByTestId('find-work-personal-toggle').click()
       await page.getByTestId('find-work-personal').getByTestId('find-work-check').first().check()
@@ -79,6 +80,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByTestId('welcome-team-files-computer').click()
     await answer(page, 'look')
     await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
     await page.screenshot({ path: `${dir}/1440-${scheme}-9-setup-list.png` })
   })
 }

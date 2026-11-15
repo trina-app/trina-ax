@@ -8,13 +8,14 @@ export type Meta = { name: string; root?: 'documents' | 'desktop' | 'downloads';
 export type Root = { id: 'documents' | 'desktop' | 'downloads'; state: string; cut?: boolean; tooBig?: number; oneDrive?: boolean }
 
 /** Installed before the app's scripts: a desktop bridge whose workFiles answers like the app's main process. */
-export async function fakeApp(page: Page, o: { version?: number; refuse?: string[] } = {}) {
+export async function fakeApp(page: Page, o: { version?: number; refuse?: string[]; pick?: boolean } = {}) {
   await page.addInitScript((opts) => {
-    type D = { answer: 'look' | 'cancel' | null; scans: number; reads: string[]; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string> }
+    type D = { picks: number; pickFiles: unknown[]; answer: 'look' | 'cancel' | null; scans: number; reads: string[]; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string> }
     const w = window as unknown as { mycelDesktop: unknown; __app: D; __look: (files: unknown[], roots: unknown[]) => void }
-    const d: D = { answer: null, scans: 0, reads: [], files: [], roots: [], settings: 0, latest: new Set() }
+    const d: D = { picks: 0, pickFiles: [], answer: null, scans: 0, reads: [], files: [], roots: [], settings: 0, latest: new Set() }
     w.__app = d
     w.__look = (files, roots) => { d.files = files as D['files']; d.roots = roots }
+    ;(w as unknown as { __pick: (f: unknown[]) => void }).__pick = (f) => { d.pickFiles = f }
     const noop = () => {}
     const progress: ((p: unknown) => void)[] = []
     w.mycelDesktop = {
@@ -49,6 +50,13 @@ export async function fakeApp(page: Page, o: { version?: number; refuse?: string
           return { ok: true, bytes: new TextEncoder().encode(`content of ${f.name}`.padEnd(f.size, '.')) }
         },
         openSettings: () => { d.settings++ },
+        // "Choose it yourself": the system's folder window, picked (the test sets what it holds)
+        ...(opts.pick ? { pickRoot: async (id: string) => {
+          d.picks++
+          for (const f of d.pickFiles as { id: string }[]) d.latest.add(f.id)
+          d.files = [...d.files, ...(d.pickFiles as D['files'])]
+          return { state: 'done', stopped: false, roots: [{ id, state: 'ok', oneDrive: false, cut: false, tooBig: 0, checked: 1, how: 'index' }], files: d.pickFiles }
+        } } : {}),
       },
     }
   }, o)
@@ -58,4 +66,5 @@ export const roots = (...rs: Root[]) => rs.map((r) => ({ cut: false, tooBig: 0, 
 export const OK3 = roots({ id: 'documents', state: 'ok' }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'ok' })
 export const look = (page: Page, f: Meta[], r = OK3) => page.evaluate(([a, b]) => (window as unknown as { __look: (f: unknown[], r: unknown[]) => void }).__look(a as unknown[], b as unknown[]), [files(f), r] as const)
 export const answer = (page: Page, a: 'look' | 'cancel') => page.evaluate((x) => { (window as unknown as { __app: { answer: string } }).__app.answer = x }, a)
-export const app = (page: Page) => page.evaluate(() => { const d = (window as unknown as { __app: { scans: number; reads: string[]; settings: number } }).__app; return { scans: d.scans, reads: [...d.reads], settings: d.settings } })
+export const app = (page: Page) => page.evaluate(() => { const d = (window as unknown as { __app: { scans: number; reads: string[]; settings: number; picks: number } }).__app; return { scans: d.scans, reads: [...d.reads], settings: d.settings, picks: d.picks } })
+export const pickHolds = (page: Page, f: Meta[], first = 100) => page.evaluate((x) => (window as unknown as { __pick: (f: unknown[]) => void }).__pick(x), files(f).map((x, i) => ({ ...x, id: `p${first + i}` })))

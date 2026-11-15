@@ -395,7 +395,7 @@ describe('the wiring', () => {
   test('the look waits for the app\'s own dialog (Cancel is its default); the Mac App Store build and Linux have none', () => {
     expect(ctl).toContain('dialog.showMessageBox(win')
     expect(ctl).toMatch(/defaultId: 1,\s*cancelId: 1,/)
-    expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await scanRoots('))
+    expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await this.look(roots'))
     expect(ctl).toContain("if (p.platform === 'darwin' && p.mas !== true) return WORK_FILES_BRIDGE_VERSION")
     expect(ctl).not.toContain("'linux'")
   })

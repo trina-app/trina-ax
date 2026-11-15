@@ -97,6 +97,9 @@ export type WorkRootId = 'documents' | 'desktop' | 'downloads'
  * pressed, or the time for all three ran out: `cut`). `cut`: a limit stopped it before the end (a big Downloads). */
 export interface WorkRootResult {
   id: WorkRootId
+  /** how it was looked at: the computer's index (Spotlight, Windows Search), or a walk when the index was off. Absent:
+   * an older app (a walk) */
+  how?: 'index' | 'walk'
   /** Windows: the folder is in OneDrive ("Documents (OneDrive)") */
   oneDrive: boolean
   state: 'ok' | 'blocked' | 'missing' | 'unreadable' | 'home' | 'same' | 'skipped'
@@ -117,6 +120,14 @@ export interface WorkFileMeta {
   ext: string
   size: number
   modified: number
+  /** what the computer's index knows (absent when the folders were walked: the index was off, or an older app):
+   * `used` last opened (ms), `useCount` how often, `origins` the hosts it was downloaded from, `authors` and `org` from
+   * the document's own properties as the index read them. Nothing of it needs the file opened. */
+  used?: number
+  useCount?: number
+  origins?: string[]
+  authors?: string[]
+  org?: string
 }
 
 /** scan(): cancelled (the person said no in the app's own dialog) · busy (a dialog or a look is under way) · unavailable
@@ -234,8 +245,13 @@ export interface DesktopBridge {
     scan(): Promise<WorkFileScan>
     /** the look stops; scan() answers with what was found so far (`stopped`) */
     stop(): void
-    /** the look's progress, while it runs */
-    onProgress(cb: (p: { root: WorkRootId; checked: number; docs: number }) => void): () => void
+    /** the look's progress, while it runs: the folder, entries checked, documents so far, and how far the look is in all
+     * (0–1, the folders weighed by how they are looked at; absent from older apps) */
+    onProgress(cb: (p: { root: WorkRootId; checked: number; docs: number; done?: number }) => void): () => void
+    /** "Choose it yourself": macOS kept the app out of that folder; the person picks it in the system's folder window
+     * (opened at it), which counts as their permission, and the app looks at it now. The latest look's ids stay
+     * readable and the new ones are added to it. 'cancelled' when the window was closed. Optional (older apps). */
+    pickRoot?(root: WorkRootId): Promise<WorkFileScan>
     read(id: string): Promise<WorkFileRead>
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
