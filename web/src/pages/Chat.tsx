@@ -21,7 +21,6 @@
 import clsx from 'clsx'
 import { composerInset } from '../components/chat/composerBox'
 import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
-import { isGuestMe } from '../lib/guests'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -134,7 +133,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
-  const guestHere = isGuestMe(useMeStrict())
+  const guestHere = isGuestMe(me)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
