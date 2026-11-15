@@ -57,7 +57,7 @@ import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_TURN_TOOLS } from './guest-tools'
-import { hideKeysInArgs, KEY_HIDING_TOOLS } from '../integrations/connections/hide-args'
+import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS } from '../integrations/connections/hide-args'
 
 export interface Tool {
   name: string
@@ -217,6 +217,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
+  // every tool a provider added (they act at outside services): their arguments have stored keys hidden (hideKeys)
+  const outside = new Set<string>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
   for (const p of confidential || exec.restricted || exec.shared || guest ? [] : providers) {
     let built: ReturnType<typeof p.build>
@@ -224,6 +226,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
       if (!add(wrapRegistered(exec, t))) continue
+      outside.add(t.name)
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
@@ -254,6 +257,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // other check, card and write (integrations/connections/hide-args.ts; QA TC-3041). write keeps a form the file it
     // overwrites already holds
     hideKeys: (name, args) => {
+      // a call to a connected service (an MCP tool, Gmail, Drive, Notion, api_request, Slack): every value, so the
+      // card shows exactly what is sent and the service never gets the key (QA TC-3081)
+      if (outside.has(name)) return hideAllArgs(args, exec.redactor())
       if (!KEY_HIDING_TOOLS.includes(name)) return { args, hidden: false }
       return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
     },
