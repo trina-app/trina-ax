@@ -97,9 +97,9 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
-/** A phone's names of the pages that the 나 list has for the person too (AI accounts, Connected apps, AI apps): the
- * team's are "Team …" there, so the two lists never show the same name for different things. Computers keep the
- * Admin list's names (its title says whose they are). */
+/** A phone's names of the pages that the 나 list has for the person too (Connected apps, AI apps): the team's are
+ * "Team …" there, so the two lists never show the same name for different things. Providers has its own name already
+ * (the person's page is "AI accounts"). Computers keep the Admin list's names (its title says whose they are). */
 const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
 const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 

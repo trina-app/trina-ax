@@ -117,7 +117,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(folderRow('finance').getByTestId('folders-row-who')).toContainText(translate('ko', 'folders.whoEveryone', { team: 'Acme', role: DICTS.ko['folderAccess.canView'] }))
 
   // engines: what is missing, in plain words
-  await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 계정', exact: true }).click()
+  await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 제공사', exact: true }).click()
   await expect(page.getByTestId('engine-card').first()).toContainText('연결됨')
   await expect(page.locator('[data-engine="codex"]').getByTestId('engine-detail')).toContainText('codex login --device-auth')
 
