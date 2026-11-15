@@ -23751,6 +23751,9 @@ compared after lower-casing) and closes open point (2) of "Projects made on 0.4.
     sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
   - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
     the only one.
+- **Amended 2026-11-15** ("Onboarding's Tools step: Drive, Notion and the full list" below): no Drive row while Drive
+  is not ready (reverses TC-145), Notion is the only listed service, and "다른 도구 연결하기" opens Settings › Connectors
+  instead of the address form.
 
 ## The Linux launcher tests the live engine firewall before every turn (fix/firewall-live-check, 2026-11-12, QA TC-310)
 
@@ -28513,3 +28516,60 @@ W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is
 - **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
   drops the control (the setup row is the way back from there).
 - Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
+
+## Hosted teams get the hosting service's Google sign-in without setup (fix/hosted-drive-broker-default, 2026-11-14, the owner)
+
+- **Problem.** A new hosted team (diontree, 0.5.3) showed "Google Drive isn't set up on this server yet. Set it up in
+  Admin › Connected apps." in onboarding. The team server used the hosting service's Google sign-in only when
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL` was in its environment, and nothing writes it on a hosted tenant (mycel-enroll's
+  `/etc/default/mycel` holds only the time zone, install id and windows; the control plane has no command that sets
+  environment). The control plane already serves every hosted team (it recorded the relay key at enroll and has the
+  Google client), so the only missing piece was the variable: no hosted team ever reached the broker.
+- **Rule.** On a hosted server (`deployment: "hosted"`) without a Google client of its own, the broker address
+  defaults to the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`brokerOrigin`, `hostedDefault`). An
+  empty value or `off` still turns it off; a set value still wins; a client of its own still wins. Self-installed
+  servers are unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
+- **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
+  guard as the other loops); the unit tests pass their own env to check the default.
+- **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
+  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact Trina
+  support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+  Its Discover card, and the Google apps' cards (Gmail, Calendar, Docs, Sheets) in the same state, say "Not ready yet"
+  for everyone, never **Set up** to Admin (`DiscoverItem.noSetUp`, `drive.notReadyShort`).
+- **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
+  up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
+  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup; that ID is the one the entry names, today's
+  sheet keeps the rule in TC-136's notes). The rest of the step: the next entry.
+- **Slack's official app is not defaulted here.** Its hosted one-click path (sign-in + reading in one consent,
+  owner 11-13) is not verified end to end on a hosted team yet, so a hosted server still uses it only with
+  `MYCEL_SLACK_BROKER_URL` (or the Drive variable) set, as before. Defaulting it is a separate change after that check.
+- Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts.
+
+## Onboarding's Tools step: Drive, Notion and the full list (fix/hosted-drive-broker-default, 2026-11-15, the owner, Q3)
+
+- **Owner, 2026-11-15 (Q3 of the onboarding re-check):** the step is Google Drive (when ready) + Notion + "Connect
+  another tool", which opens Connectors' full list with a way back. On 11-08 the owner chose Drive + one "connect
+  another" line (W6 core); QA TC-136 (11-12) grew it to seven rows. This **amends "Onboarding's Tools step on
+  Connectors' cards"** again.
+- **Rows.** Google Drive only where this server has it (hosted: once the hosting service said yes; self-installed: a
+  Google client), never a "not set up" or "contact Trina support" row (that line is on Connectors only). While Drive is
+  not ready the step reads it again every 15 s and when the window comes back, so a late "ready" shows the row. Notion, the
+  same one-click card as before (`WELCOME_SERVICES`). Then the quiet "Connect another tool" line. **Removed:** the
+  Linear, Atlassian, Canva and Figma cards, the not-ready Drive card, and the address form opened in place (an MCP
+  address is not a thing an office worker has; Connectors' Discover list has every listed service, and "Add custom
+  connector" for an owner).
+- **The way back.** "Connect another tool" opens `/settings/connectors`. Settings is a dialog over the page it was
+  opened from (App.tsx `useSettingsOverlay`), so the step stays mounted under it, and the dialog's close, Esc and the
+  browser's Back all come back to the step as it was; no extra "Back to getting started" control is needed there (it
+  would be a second back on the same screen). A phone never shows this step (W6), so there is no phone path.
+- **Leaving Settings for Admin.** The list opens with the step's way back in its history state
+  (`setupReturnState('tools')`, from "W6 follow-up: every way out of the welcome steps has a way back", PR #837), and
+  the "Set up" links of not-set-up Google cards carry it on, so Admin › Connectors shows "Back to getting started",
+  which opens the Tools step again. Opened any other way, the list's links carry nothing.
+- **Anything connected there counts.** When Settings closes (and on `integrations_changed`) the step reads again every
+  connection the owner can use (their own and the team's, `GET /api/integrations`), the Google apps
+  (`GET /api/integrations/google-apps`), their Slack link (`GET /api/slack/me`) and Drive; any one connected makes the
+  primary "Next".
+- **Slack** is not in the step: its hosted one-click path is not verified end to end yet (entry above).
+- Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/unit/drive-not-set-up.test.tsx,
+  web/test/e2e/welcome-tools.spec.ts (close/Esc/Back, Linear, a Google app or Slack, "Set up" → Admin → back).
