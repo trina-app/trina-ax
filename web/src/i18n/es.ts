@@ -2072,7 +2072,7 @@ export const es: Record<MessageKey, string> = {
   "adminHome.members": "{count, plural, one {# miembro} other {# miembros}}",
   "adminHome.invites": "{count, plural, one {# invitación abierta} other {# invitaciones abiertas}}",
   "adminHome.guests": "{n, plural, one {# invitado} other {# invitados}}",
-  "adminHome.guestsOf": "{n} de {m, plural, one {# invitado} other {# invitados}}",
+  "adminHome.guestsOf": "{n} de {m}",
   "adminHome.default": "Predeterminado: {engine}",
   "adminHome.connections": "{count, plural, one {# conexión del equipo} other {# conexiones del equipo}}",
   "adminHome.services": "{count, plural, one {# conexión} other {# conexiones}}",

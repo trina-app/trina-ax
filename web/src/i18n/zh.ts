@@ -2069,7 +2069,7 @@ export const zh: Record<MessageKey, string> = {
   "adminHome.members": "{count, plural, one {#位成员} other {#位成员}}",
   "adminHome.invites": "{count, plural, one {#个待接受的邀请} other {#个待接受的邀请}}",
   "adminHome.guests": "{n, plural, one {# 位访客} other {# 位访客}}",
-  "adminHome.guestsOf": "访客 {n}/{m, plural, one {# 位} other {# 位}}",
+  "adminHome.guestsOf": "{n}/{m} 位",
   "adminHome.default": "默认：{engine}",
   "adminHome.connections": "{count, plural, one {#个团队连接} other {#个团队连接}}",
   "adminHome.services": "{count, plural, one {#个连接} other {#个连接}}",
