@@ -5,8 +5,8 @@
 // one folder after the other. read() gives one listed file's bytes, by id, from the latest look (WorkFileSessions).
 // Not offered in the Mac App Store build (its sandbox reads only what the person picks) nor on Linux.
 import { randomBytes } from 'node:crypto'
-import { constants, type Dirent } from 'node:fs'
-import { lstat, open, readdir, realpath } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
 import { WORK_FILES_BRIDGE_VERSION, type WorkFileRead, type WorkFileScan, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
@@ -25,7 +25,7 @@ export function workFilesVersion(p: { platform: string; mas?: boolean }): number
 /** System Settings › Privacy & Security › Files & Folders (macOS 13 and later take the same address). */
 export const MAC_FILES_SETTINGS = 'x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'
 
-/** After the person said no, the dialog is not shown again for this long (a page asking in a loop). */
+/** After the dialog (yes or no), it is not shown again for this long (a page asking in a loop). */
 const COOLDOWN_MS = 3000
 
 const kindOf = (d: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): WorkStat['kind'] =>
@@ -34,7 +34,17 @@ const kindOf = (d: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink()
 /** node:fs as the look and the reads see it: lstat and readdir never follow a link; open adds O_NOFOLLOW where the
  * system has it (Windows has none: the read checks the file's identity after opening instead). */
 export const NODE_WORK_FS: WorkFs = {
-  readdir: async (path) => (await readdir(path, { withFileTypes: true })).map((d: Dirent) => ({ name: d.name, kind: kindOf(d) })),
+  // opendir, read entry by entry: a folder of millions stops at `max`
+  readdir: async (path, max) => {
+    const out: { name: string; kind: WorkStat['kind'] }[] = []
+    const d = await opendir(path)
+    try {
+      for (let e = await d.read(); e && out.length < max; e = await d.read()) out.push({ name: e.name, kind: kindOf(e) })
+    } finally {
+      await d.close().catch(() => {})
+    }
+    return out
+  },
   lstat: async (path) => {
     const s = await lstat(path, { bigint: true })
     return { kind: kindOf(s), size: Number(s.size), mtimeMs: Number(s.mtimeMs), dev: s.dev, ino: s.ino }
@@ -103,10 +113,9 @@ export class WorkFilesController {
     const generation = this.generation
     try {
       const roots = this.roots()
-      if (!(await this.consent(win, roots))) {
-        this.quietUntil = Date.now() + COOLDOWN_MS
-        return { state: 'cancelled' }
-      }
+      const yes = await this.consent(win, roots)
+      this.quietUntil = Date.now() + COOLDOWN_MS
+      if (!yes) return { state: 'cancelled' }
       if (generation !== this.generation) return { state: 'cancelled' }
       const r = await scanRoots(roots, NODE_WORK_FS, {
         platform: process.platform,
@@ -124,7 +133,8 @@ export class WorkFilesController {
     }
   }
 
-  /** The app's own question (no web page draws it). Enter answers yes, Escape and closing it no. */
+  /** The app's own question (no web page draws it). Cancel is the default: Enter, Escape and closing it answer no, so a
+   * page that asks while the person types gets no yes from their next Enter (as the allow-all dialog). */
   private async consent(win: BaseWindow, roots: WorkRoot[]): Promise<boolean> {
     const L = this.o.locale()
     const names = roots.map((r) => (r.oneDrive ? t(L, 'workFiles.oneDrive', { folder: t(L, ROOT_KEY[r.id]) }) : t(L, ROOT_KEY[r.id])))
@@ -133,7 +143,7 @@ export class WorkFilesController {
       message: t(L, 'workFiles.title'),
       detail: `${names.map((n) => `· ${n}`).join('\n')}\n\n${t(L, process.platform === 'darwin' ? 'workFiles.detailMac' : 'workFiles.detail')}`,
       buttons: [t(L, 'workFiles.look'), t(L, 'workFiles.cancel')],
-      defaultId: 0,
+      defaultId: 1,
       cancelId: 1,
       noLink: true,
     })

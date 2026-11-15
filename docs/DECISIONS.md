@@ -28379,12 +28379,16 @@ part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/sr
   process shows `dialog.showMessageBox` (no web page draws or answers it): what is looked at (the three folders, "(OneDrive)"
   on Windows when Known Folder Move put one there), that names, types and dates are read, that the file names may go to the
   team's AI, that contents stay on the computer until the person adds them, that nothing is moved or changed, and on a Mac
-  that macOS asks next for each folder. Enter is yes; Escape and closing are no. After a no the dialog is not shown again
-  for 3 s (`busy`), and only one dialog or look runs at a time. A page script on the team origin can ask, but nothing is
-  read without the person's click in the app's window.
+  that macOS asks next for each folder. Cancel is the default button: Enter, Escape and closing answer no, so a page that
+  asks while the person is typing gets no yes from their next Enter (as the allow-all dialog; review). After the dialog
+  (yes or no) it is not shown again for 3 s (`busy`), and only one dialog or look runs at a time. A page script on the team
+  origin can ask, but nothing is read without the person's click in the app's window.
 - **The look runs in the main process** (`scanRoots`), so macOS's privacy question names the app, and one folder after the
   other (Documents, then Desktop, then Downloads: the first read of each raises its question, which the read waits for).
-  It reads entries with `readdir(withFileTypes)` and `lstat` only: a symbolic link or junction is never entered or listed.
+  It reads entries with `opendir` (entry by entry, so a folder of millions stops at the entry limit) and `lstat` only: a
+  symbolic link or junction is never entered or listed. Each call gets the time left for the folder (at least 1 s), so a
+  network folder or an offline share that never answers ends that folder's look (`cut`) instead of the whole look; a
+  folder's first read may wait 2 minutes for macOS's question, then it is `unreadable`.
   Windows marks every reparse point as a link in a listing (OneDrive's online-only files too), so there `lstat` decides
   (libuv's lstat reports only real links and junctions as links). The same rules as the page's own walk
   (`shared/src/file-scan.ts`, now shared: `isSystemName` moved there and `@mycel/shared/api` re-exports it): never dot
@@ -28392,18 +28396,26 @@ part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/sr
   only in a brand or logo folder, never a screenshot. Each folder: 5,000 documents, 50,000 entries, 6 folders down, 15 s
   of walking; all three: 30 s. The time macOS's question takes is not counted. Over 50 MB: counted, not listed. A file
   reached twice (a folder inside another, a hard link) is listed once; a root that is the same folder as one before is
-  `same`; the home folder or one holding it (`opensHome`, the folder window's rule) is never looked at (`home`). EPERM on
+  `same`, and a root that holds one looked at before skips it; the home folder or one holding it (`opensHome`, the folder
+  window's rule) is never looked at (`home`; a Windows network path `\\server\share` counts as that too). EPERM on
   a Mac is `blocked` (Don't Allow, or the app off in Files & Folders), with no way to ask again from the app.
 - **What the page gets:** per folder its state, `cut`, the count over 50 MB and the entries looked at; per file an opaque
   id (12 random bytes), the folder (`documents|desktop|downloads`), the folders inside it, the name, type, size and date.
   Never a path of the computer (pinned in the e2e).
 - **Reads by id only** (`WorkFileSessions`). The latest look of each team origin is kept for the person signed in: an id of
   an older look, of another origin, made up or a path is `unknown`. For an hour (`expired` after), at most 100 files and
-  1 GB per look (`limit`; the same file read again counts once). A read finds the file again under the real path of its
-  folder, checks that its real path is that same path (a folder on the way swapped for a link is refused), lstats it,
-  opens it with O_NOFOLLOW (Windows has none: the identity check after opening covers it), and checks the open file's
-  identity, size and date against the look (`changed`). A sign-out, another person, another team or the window closing
-  forget the look; a look still running then gives nothing.
+  1 GB per look (`limit`; the same file read again counts once, and reads in all stop at 300). The count is taken before
+  a read starts and given back when it fails, and reads run one at a time, so reads sent at once can neither pass the
+  limits nor hold more than one file (50 MB) in memory (review MUST: they could). A read finds the file again under the
+  real path of its folder, checks that its real path is that same path (a folder on the way swapped for a link is
+  refused), lstats it, opens it with O_NOFOLLOW, and checks the open file's identity, size and date against the look
+  (`changed`). Windows has no O_NOFOLLOW, so there the identity (device and file number) is what tells a link's target
+  apart: a drive that gives no identity (0: FAT, some network drives) is refused on Windows; on macOS such a drive is
+  checked by size and date. A sign-out, another person, another team or the window closing forget the look; a look still
+  running then gives nothing. Sessions are kept per origin: after the app switches between the office address and the
+  team address, the page looks again.
+- **Contents leave only when the person adds files.** The app hands out bytes for any listed id; that the page reads a
+  file only when the person presses Add (never to show or rank the list) is part 2's rule, checked in its review.
 - **Older apps and store builds (review MUST: bridge version).** `bridge:info` carries `workFiles`, the version
   (`WORK_FILES_BRIDGE_VERSION`, 1) or 0. The preload exposes `workFiles` only then; the page offers the entry only when the
   version matches, so desktop apps before this, the Mac App Store build (its sandbox reads only what the person picks:
@@ -28418,8 +28430,10 @@ part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/sr
   signature: an unsigned build may be asked again after an update (Developer ID signing is its own branch).
 - Tests: `tests/unit/e-desktop-work-files.test.ts` (made-up file system: what is listed, the order of the folders, links
   and junctions, OneDrive's online-only files, EPERM, every folder denied, home and the same folder, each limit and the
-  time, a file reached twice, Stop; reads: foreign ids, another origin, a new look, an hour, 100 files and 1 GB, a folder
-  or file swapped for a link, another size or date, ELOOP at open, another person; the wiring);
+  time, a folder that never answers, a root holding an earlier one, a file reached twice, Stop; reads: foreign ids,
+  another origin, a new look, an hour, 100 files and 1 GB, reads sent at once (the limits hold, one at a time), a failed
+  read gives its place back, no identity on Windows, a folder or file swapped for a link, another size or date, ELOOP at
+  open, another person; the wiring, Cancel as the dialog's default);
   `desktop/e2e/work-files.spec.ts` (real Electron in a made-up home, `FOLDER_TEST_HOME` guard as folder-window: the dialog
   first, cancel and the 3 s quiet, the home folder as Desktop never looked at, a big Downloads cut at 5,000, links not
   listed, no path in the answer, foreign ids and another origin refused, a folder and a file swapped for links refused, the

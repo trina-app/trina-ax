@@ -59,14 +59,14 @@ function fakeFs(tree: Record<string, Node>, o: { platform?: string; denied?: Set
   const err = (code: string) => Object.assign(new Error(code), { code })
   const statOf = (n: Node): WorkStat => n.kind === 'file' ? { kind: 'file', size: n.size, mtimeMs: n.mtimeMs, dev: 1n, ino: n.ino } : { kind: n.kind === 'dir' ? 'dir' : 'link', size: 0, mtimeMs: 0, dev: 1n, ino: 1n }
   const fs: WorkFs = {
-    async readdir(p) {
+    async readdir(p, max) {
       p = p.replace(/\\/g, '/')
       calls.push(`readdir ${p}`)
       if ([...(o.denied ?? [])].some((d) => p === d || p.startsWith(d + '/'))) throw err('EPERM')
       const n = at(p, true)
       if (!n) throw err('ENOENT')
       if (n.kind !== 'dir') throw err('ENOTDIR')
-      return Object.entries(n.children).map(([name, c]): WorkDirent => ({ name, kind: c.kind === 'link' ? 'link' : c.kind }))
+      return Object.entries(n.children).slice(0, max).map(([name, c]): WorkDirent => ({ name, kind: c.kind === 'link' ? 'link' : c.kind }))
     },
     async lstat(p) {
       calls.push(`lstat ${p}`)
@@ -153,7 +153,7 @@ describe('the look through Documents, Desktop and Downloads', () => {
   test('Windows lists every reparse point as a link: lstat tells a OneDrive online-only file from a real link or junction', async () => {
     // Windows paths through the posix fake: what matters is which entries are asked about and listed
     const f = fakeFs(home({ Documents: dir({ 'cloud.docx': file(), 'junction': link('/Users/alex'), sub: dir({ 'b.pdf': file() }) }), Desktop: dir(), Downloads: dir() }))
-    const fs: WorkFs = { ...f.fs, readdir: async (p) => (await f.fs.readdir(p)).map((d) => (d.name === 'cloud.docx' ? { ...d, kind: 'link' } : d)) }
+    const fs: WorkFs = { ...f.fs, readdir: async (p, max) => (await f.fs.readdir(p, max)).map((d) => (d.name === 'cloud.docx' ? { ...d, kind: 'link' } : d)) }
     const r = await scanRoots(ROOTS, fs, opts({ platform: 'win32' }))
     expect(r.files.map((x) => x.name).sort()).toEqual(['b.pdf', 'cloud.docx'])
   })
@@ -201,7 +201,7 @@ describe('the look through Documents, Desktop and Downloads', () => {
     // time: a big Downloads is cut, and the time of all three ends the rest
     let clock = 0
     const big = fakeFs(home({ Documents: dir({ a: dir({ 'x.pdf': file() }), b: dir({ 'y.pdf': file() }) }), Desktop: dir({ c: dir({ 'z.pdf': file() }) }), Downloads: dir({ d: dir({ 'w.pdf': file() }) }) }))
-    const timed = await scanRoots(ROOTS, { ...big.fs, readdir: async (p) => { const out = await big.fs.readdir(p); clock += 8000; return out } }, opts({ now: () => clock }))
+    const timed = await scanRoots(ROOTS, { ...big.fs, readdir: async (p, max) => { const out = await big.fs.readdir(p, max); clock += 8000; return out } }, opts({ now: () => clock }))
     // Documents: 16 s of walking (cut at 15 s); Desktop: 8 s; Downloads: the 6 s left of the 30 s (cut). The time macOS's
     // question takes (each folder's first read) is not counted
     expect(timed.roots.map((x) => x.cut)).toEqual([true, false, true])
@@ -213,9 +213,25 @@ describe('the look through Documents, Desktop and Downloads', () => {
     const r = await scanRoots(ROOTS, f.fs, opts())
     expect(r.files.map((x) => x.name)).toEqual(['a.pdf', 'c.pdf'])
     let stop = false
-    const s = await scanRoots(ROOTS, { ...f.fs, readdir: async (p) => { const out = await f.fs.readdir(p); if (p.endsWith('Documents')) stop = true; return out } }, opts({ stopped: () => stop }))
+    const s = await scanRoots(ROOTS, { ...f.fs, readdir: async (p, max) => { const out = await f.fs.readdir(p, max); if (p.endsWith('Documents')) stop = true; return out } }, opts({ stopped: () => stop }))
     expect(s.stopped).toBe(true)
     expect(s.roots.map((x) => x.state)).toEqual(['ok', 'skipped', 'skipped'])
+  })
+
+  test('a folder that never answers (an offline share) ends that folder\'s look in time; a root holding an earlier one skips it', async () => {
+    const f = fakeFs(home({ Documents: dir({ 'a.pdf': file(), stuck: dir({ 'x.pdf': file() }) }), Desktop: dir({ Documents: dir({ 'dup.pdf': file() }), 'b.pdf': file() }), Downloads: dir({ 'c.pdf': file() }) }))
+    const fs: WorkFs = { ...f.fs, readdir: (p, max) => (p.endsWith('/stuck') ? new Promise(() => {}) : f.fs.readdir(p, max)) }
+    const roots: WorkRoot[] = [ROOTS[0]!, { id: 'desktop', path: '/Users/alex/Desktop', oneDrive: false }, ROOTS[2]!]
+    // Documents here is /Users/alex/Desktop/Documents for the second test: a root that holds one looked at before
+    let clock = 0
+    const r = await scanRoots(roots, fs, opts({ now: () => clock, limits: { rootMs: 50 } }))
+    expect(r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+    expect(r.files.map((x) => x.name)).toContain('c.pdf')
+    const nested = fakeFs(home({ Desktop: dir({ Documents: dir({ 'dup.pdf': file() }), 'b.pdf': file() }), Downloads: dir() }))
+    const n2 = await scanRoots([{ id: 'documents', path: '/Users/alex/Desktop/Documents', oneDrive: false }, ROOTS[1]!, ROOTS[2]!], nested.fs, opts())
+    expect(n2.files.map((x) => `${x.root}:${x.name}`).sort()).toEqual(['desktop:b.pdf', 'documents:dup.pdf'])
+    // Desktop's walk does not go into the Documents it holds again
+    expect(nested.calls.filter((c) => c === 'readdir /Users/alex/Desktop/Documents')).toHaveLength(1)
   })
 
   test('OneDrive on Windows', () => {
@@ -266,6 +282,38 @@ describe('reading a listed file afterwards', () => {
     expect((await bytes.sessions.read(TEAM, bytes.id('a.pdf'))).ok).toBe(true)
     expect((await bytes.sessions.read(TEAM, bytes.id('b.pdf'))).ok).toBe(true)
     expect(await bytes.sessions.read(TEAM, bytes.id('c.pdf'))).toEqual({ ok: false, reason: 'limit' })
+  })
+
+  test('reads sent all at once cannot pass the limits, and run one at a time (at most one file in memory)', async () => {
+    const { f, sessions, r } = await looked({ 'd.pdf': file(40), 'e.pdf': file(50) }, { readFiles: 2 })
+    let inFlight = 0
+    let most = 0
+    const open = f.fs.open
+    f.fs.open = async (p) => { inFlight++; most = Math.max(most, inFlight); await new Promise((x) => setTimeout(x, 5)); try { return await open(p) } finally { inFlight-- } }
+    const all = await Promise.all(r.files.map((x) => sessions.read(TEAM, x.id)))
+    expect(all.filter((x) => x.ok).length).toBe(2)
+    expect(all.filter((x) => !x.ok && x.reason === 'limit').length).toBe(r.files.length - 2)
+    expect(most).toBe(1)
+    // the same file over and over: limited too
+    const again = await looked({}, { readFiles: 2 })
+    const reads = await Promise.all(Array.from({ length: 10 }, () => again.sessions.read(TEAM, again.id('a.pdf'))))
+    expect(reads.filter((x) => x.ok).length).toBe(6)
+  })
+
+  test('a failed read gives its place back; on Windows a file system with no identity is refused', async () => {
+    const { f, sessions, id } = await looked({}, { readFiles: 1 })
+    const docs = f.at('/Users/alex/Documents', true) as { children: Record<string, Node> }
+    const b = docs.children['b.pdf'] as { size: number }
+    b.size = 99
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'changed' })
+    expect((await sessions.read(TEAM, id('c.pdf'))).ok).toBe(true)
+    const w = fakeFs(home({ Documents: dir({ 'a.pdf': { kind: 'file', size: 5, mtimeMs: 1000, ino: 0n } }), Desktop: dir(), Downloads: dir() }))
+    const scanned = await scanRoots(ROOTS, w.fs, opts())
+    for (const [platform, ok] of [['win32', false], ['darwin', true]] as const) {
+      const s2 = new WorkFileSessions(w.fs, platform)
+      s2.begin(TEAM, scanned.found)
+      expect((await s2.read(TEAM, scanned.files[0]!.id)).ok, platform).toBe(ok)
+    }
   })
 
   test('a folder on the way swapped for a link (to home, out of the root) is refused; so is a file swapped for a link', async () => {
@@ -324,8 +372,9 @@ describe('the wiring', () => {
     expect(preload).toContain("ipcRenderer.invoke('bridge:work-files-scan')")
     expect(preload).not.toMatch(/work-files-scan',\s*\w/)
   })
-  test('the look waits for the app\'s own dialog; the Mac App Store build and Linux have none', () => {
+  test('the look waits for the app\'s own dialog (Cancel is its default); the Mac App Store build and Linux have none', () => {
     expect(ctl).toContain('dialog.showMessageBox(win')
+    expect(ctl).toMatch(/defaultId: 1,\s*cancelId: 1,/)
     expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await scanRoots('))
     expect(ctl).toContain("if (p.platform === 'darwin' && p.mas !== true) return WORK_FILES_BRIDGE_VERSION")
     expect(ctl).not.toContain("'linux'")

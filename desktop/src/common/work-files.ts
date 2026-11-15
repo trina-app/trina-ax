@@ -39,7 +39,8 @@ export interface WorkHandle {
   close(): Promise<void>
 }
 export interface WorkFs {
-  readdir(path: string): Promise<WorkDirent[]>
+  /** at most `max` entries (a folder of millions is never read whole) */
+  readdir(path: string, max: number): Promise<WorkDirent[]>
   lstat(path: string): Promise<WorkStat>
   realpath(path: string): Promise<string>
   /** open read only, never through a link at the last part */
@@ -67,6 +68,20 @@ const sameKey = (p: string, platform: string) => {
   return platform === 'darwin' ? k.toLowerCase() : k
 }
 const insideKey = (path: string, folder: string, platform: string) => path === folder || path.startsWith(folder.endsWith(sep(platform)) ? folder : folder + sep(platform))
+
+/** A file system call that does not answer in time (a network folder, an offline share): ETIMEDOUT. The call itself goes
+ * on in the background; the look does not wait for it. */
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('the file system did not answer in time'), { code: 'ETIMEDOUT' })), Math.max(0, ms))
+  })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
+/** A folder's first read may wait for macOS's question to the person: this long at most, then the folder is unreadable. */
+export const FIRST_READ_MS = 120_000
+/** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
+const CALL_MIN_MS = 1000
 
 /** One file of a look, as the session keeps it: where it was found and what it was then. */
 interface Found {
@@ -128,18 +143,21 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     let top: WorkDirent[]
     let real: string
     try {
-      top = await fs.readdir(root.path)
-      real = await fs.realpath(root.path)
+      top = await within(fs.readdir(root.path, lim.walkFiles), FIRST_READ_MS)
+      real = await within(fs.realpath(root.path), FIRST_READ_MS)
     } catch (e) {
       r.state = macBlocked(e, p) ? 'blocked' : (e as { code?: string } | null)?.code === 'ENOENT' ? 'missing' : 'unreadable'
       continue
     }
-    // the same folder twice (Desktop inside Documents, or a root that is a link to another): looked at once
+    // the same folder twice (Desktop inside Documents, or a root that is a link to another): looked at once; a root that
+    // holds one looked at before skips that folder in its walk (below)
     const key = sameKey(real, p)
     if (seenRoots.some((k) => insideKey(key, k, p))) { r.state = 'same'; continue }
+    const earlier = [...seenRoots]
     seenRoots.push(key)
     const start = now()
     const left = () => Math.min(lim.rootMs, lim.totalMs - spent) - (now() - start)
+    const inTime = <T,>(q: Promise<T>) => within(q, Math.max(CALL_MIN_MS, left()))
     let docs = 0
     let reported = 0
     const report = (force = false) => {
@@ -153,7 +171,13 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       const dir = queue.shift()!
       let entries = dir.entries
       if (!entries) {
-        try { entries = await fs.readdir(join(p, real, ...dir.parts)) } catch { continue }
+        try {
+          entries = await inTime(fs.readdir(join(p, real, ...dir.parts), Math.max(1, lim.walkFiles - r.checked)))
+        } catch (e) {
+          // a folder that does not answer in time ends this root's look (cut); any other error skips that folder
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+          continue
+        }
       }
       // documents of this folder, their lstat a few at a time
       const files: { name: string; parts: string[] }[] = []
@@ -167,10 +191,13 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         let kind = e.kind
         // Windows lists every reparse point as a link, OneDrive's online-only files too: lstat tells a real link
         if (kind === 'link' && p === 'win32') {
-          try { kind = (await fs.lstat(join(p, real, ...dir.parts, e.name))).kind } catch { continue }
+          try { kind = (await inTime(fs.lstat(join(p, real, ...dir.parts, e.name)))).kind } catch { continue }
         }
         if (kind === 'dir') {
           if (dir.parts.length + 1 > lim.depth) { r.cut = true; continue }
+          // a root looked at before, inside this one (Documents kept inside Desktop): not twice
+          const sub = sameKey(join(p, real, ...dir.parts, e.name), p)
+          if (earlier.includes(sub)) continue
           queue.push({ parts: [...dir.parts, e.name] })
           continue
         }
@@ -181,7 +208,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       }
       for (let i = 0; i < files.length; i += 16) {
         const batch = files.slice(i, i + 16)
-        const stats = await Promise.all(batch.map((f) => fs.lstat(join(p, real, ...f.parts)).catch(() => null)))
+        const stats = await Promise.all(batch.map((f) => inTime(fs.lstat(join(p, real, ...f.parts))).catch(() => null)))
         batch.forEach((f, j) => {
           const st = stats[j]
           if (!st || st.kind !== 'file') return
@@ -208,14 +235,20 @@ interface Session {
   origin: string
   at: number
   found: Map<string, Found>
+  /** the files counted against the limits: taken before a read starts (so reads sent at once cannot pass them) and
+   * given back when that read fails */
   read: Set<string>
   bytes: number
+  /** reads in all, a file read again included */
+  reads: number
 }
 
 /** The latest look of each team origin, for the person signed in (a sign-out or another person forgets them all). */
 export class WorkFileSessions {
   private readonly sessions = new Map<string, Session>()
   private owner: string | null = null
+  /** reads run one at a time: at most one file (50 MB) is in memory on its way to the page */
+  private queue: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly fs: WorkFs,
@@ -230,11 +263,17 @@ export class WorkFileSessions {
 
   /** A new look for this origin: it replaces the one before (its ids read nothing any more). */
   begin(origin: string, found: Map<string, Found>) {
-    this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0 })
+    this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0, reads: 0 })
   }
 
-  /** The bytes of one file of this origin's latest look, by its id. */
-  async read(origin: string, id: string): Promise<WorkFileRead> {
+  /** The bytes of one file of this origin's latest look, by its id. Reads run one after the other. */
+  read(origin: string, id: string): Promise<WorkFileRead> {
+    const next = this.queue.then(() => this.readNow(origin, id))
+    this.queue = next.catch(() => {})
+    return next
+  }
+
+  private async readNow(origin: string, id: string): Promise<WorkFileRead> {
     const s = this.sessions.get(origin)
     if (!s) return { ok: false, reason: 'unknown' }
     if (this.now() - s.at > this.lim.sessionMs) {
@@ -244,7 +283,27 @@ export class WorkFileSessions {
     const f = s.found.get(id)
     if (!f) return { ok: false, reason: 'unknown' }
     const again = s.read.has(id)
+    // a file read again counts once, but reads in all are limited too (a page reading one file over and over)
+    if (s.reads >= this.lim.readFiles * 3) return { ok: false, reason: 'limit' }
     if (!again && (s.read.size >= this.lim.readFiles || s.bytes + f.size > this.lim.readBytes)) return { ok: false, reason: 'limit' }
+    // taken now, before any wait; given back if this read gives nothing
+    s.reads++
+    if (!again) {
+      s.read.add(id)
+      s.bytes += f.size
+    }
+    const r = await this.readFile(f).catch((): WorkFileRead => ({ ok: false, reason: 'unreadable' }))
+    // a session that changed while this read (a new look, a sign-out) gives nothing
+    if (this.sessions.get(origin) !== s) return { ok: false, reason: 'unknown' }
+    if (!r.ok && !again) {
+      s.read.delete(id)
+      s.bytes -= f.size
+    }
+    return r
+  }
+
+  /** The file found again where the look found it, the same one, its bytes. */
+  private async readFile(f: Found): Promise<WorkFileRead> {
     const p = this.platform
     const path = join(p, f.root, ...f.parts)
     // found again where it was: no part of the way is a link now (the real path is the same path), still a file
@@ -252,7 +311,7 @@ export class WorkFileSessions {
       const real = await this.fs.realpath(path)
       if (sameKey(real, p) !== sameKey(path, p) || !insideKey(sameKey(real, p), sameKey(f.root, p), p)) return { ok: false, reason: 'changed' }
       const st = await this.fs.lstat(path)
-      if (!sameFile(st, f)) return { ok: false, reason: 'changed' }
+      if (!sameFile(st, f, p)) return { ok: false, reason: 'changed' }
     } catch {
       return { ok: false, reason: 'unreadable' }
     }
@@ -265,15 +324,9 @@ export class WorkFileSessions {
     }
     try {
       // the file that was opened: the same one, the same size and date
-      if (!sameFile(await h.stat(), f)) return { ok: false, reason: 'changed' }
+      if (!sameFile(await h.stat(), f, p)) return { ok: false, reason: 'changed' }
       const bytes = await h.read(f.size)
       if (bytes.byteLength !== f.size) return { ok: false, reason: 'changed' }
-      // a session that changed while this read (a new look, a sign-out) gives nothing
-      if (this.sessions.get(origin) !== s) return { ok: false, reason: 'unknown' }
-      if (!again) {
-        s.read.add(id)
-        s.bytes += f.size
-      }
       return { ok: true, bytes }
     } catch {
       return { ok: false, reason: 'unreadable' }
@@ -296,8 +349,12 @@ export class WorkFileSessions {
   }
 }
 
-/** The same file as at the look: a file, the same identity (where the system tells one), size and date. */
-function sameFile(st: WorkStat, f: Found): boolean {
+/** The same file as at the look: a file, the same identity, size and date. A file system that gives no identity (0: some
+ * network and FAT drives) is taken on size and date on macOS and Linux, where the open never follows a link
+ * (O_NOFOLLOW); on Windows, which has no O_NOFOLLOW, the identity is what tells a link's target apart, so without one the
+ * read is refused. */
+function sameFile(st: WorkStat, f: Found, platform: string): boolean {
   if (st.kind !== 'file' || st.size !== f.size || Math.round(st.mtimeMs) !== Math.round(f.mtimeMs)) return false
-  return f.ino === 0n || st.ino === 0n || (st.dev === f.dev && st.ino === f.ino)
+  if (f.ino === 0n || st.ino === 0n) return platform !== 'win32'
+  return st.dev === f.dev && st.ino === f.ino
 }
