@@ -65,6 +65,9 @@ test('the app asks first, looks without following links, and reads only ids of i
     // after the add only what was added is read; the strip counted the reads down to 0
     expect([out.beforeAdd, out.addNoPress, out.added, out.addOtherOrigin]).toEqual(['unknown', 'refused', 'added', 'refused'])
     expect(out.notAdded).toBe('unknown')
+    // VoiceOver / Voice Control on (forced): the app's own window instead of a refusal; No adds nothing, Add adds them
+    expect([out.a11yOff, out.a11yOn, out.a11yNo, out.a11yNoRead, out.a11yYes, out.a11yYesRead]).toEqual(['refused', true, 'cancelled', 'unknown', 'added', true])
+    expect(out.a11yWindow).toEqual({ kind: 'add', places: [expect.stringMatching(/^report-\d+\.txt$/)], yes: 'Add 1 file' })
     expect(out.reading[0]).toBe(3)
     expect(out.reading.at(-1)).toBe(0)
     // asked once: remembered for this team and person, the next look goes without the window

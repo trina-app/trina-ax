@@ -63,7 +63,8 @@ so: click **Reopen Trina AX**, then **Find work files on this computer** again.
 To take the access back later, turn the switch off in the same place.
 
 **Not now** skips this: the app looks only through Documents, Desktop and Downloads, and macOS asks you about each of
-them (see below).
+them (see below). The app remembers **Not now** for 30 days: until then it goes straight to those three folders, and
+**Look in more places (Full Disk Access)** above the list brings this screen back.
 
 ## The app asks first
 
@@ -79,7 +80,8 @@ The app asks this once for your team. The next time, the list comes straight awa
 when it would look in a place it did not list before (for example after you turn on Full Disk Access).
 
 When you press **Add**, the app reads only the files you ticked. While it does, a strip above the page says
-**Trina AX is reading 3 files from this computer**; it goes away by itself.
+**Trina AX is reading 3 files from this computer**; it goes away by itself. With VoiceOver or Voice Control on, the app first lists the files in its own small window and asks
+**Add 3 files**, so you can confirm without a mouse.
 
 On Windows that is the only question: the app looks right away. When OneDrive keeps your Documents or Desktop, the
 list says "Documents (OneDrive)".

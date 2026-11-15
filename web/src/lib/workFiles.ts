@@ -27,13 +27,46 @@ export function workFilesBridge(bridge: DesktopBridge | null): WorkFilesBridge |
 }
 
 /** The ticked files named to the desktop app (version 2) as the person presses Add, before any is read: the app takes
- * them only right after the person's own press and reads nothing else. 'refused' (the list is over an hour old, the
+ * them only right after the person's own press (with VoiceOver or Voice Control on, after its own window) and reads
+ * nothing else. 'refused' (the list is over an hour old, the
  * press did not reach it in time) asks for Add again or a new look. An app of version 1 has no such step ('added'). */
-export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<'added' | 'refused'> {
+export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<'added' | 'refused' | 'cancelled'> {
   if (typeof bridge.add !== 'function') return 'added'
   const ids = docs.map((d) => d.workId)
   if (!ids.length || ids.some((id) => !id)) return 'refused'
-  return (await bridge.add(ids as string[]).catch(() => ({ state: 'refused' as const }))).state === 'added' ? 'added' : 'refused'
+  const r = (await bridge.add(ids as string[]).catch(() => ({ state: 'refused' as const }))).state
+  // 'cancelled': VoiceOver or Voice Control on, the app asked in its own window and the person said no (nothing to say)
+  return r === 'added' || r === 'cancelled' ? r : 'refused'
+}
+
+/** "Not now" on the Full Disk Access screen is kept this long for this team (this page's storage) and person: the next
+ * looks go straight to the three folders, with a quiet "Look in more places" in the list's header. */
+export const FULL_DISK_LATER_MS = 30 * 24 * 60 * 60 * 1000
+const fullDiskLaterKey = (userId: string) => `mycel.findWork.fullDiskLater:${userId}`
+type KeyStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+const keyStore = (): KeyStore | null => {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+/** "Not now" was said within 30 days (a time in the future, or anything else stored, counts as not said). */
+export function fullDiskLater(userId: string, now = Date.now(), s: KeyStore | null = keyStore()): boolean {
+  try {
+    const at = Number(s?.getItem(fullDiskLaterKey(userId)) ?? NaN)
+    return Number.isFinite(at) && at <= now && now - at < FULL_DISK_LATER_MS
+  } catch {
+    return false
+  }
+}
+export function setFullDiskLater(userId: string, on: boolean, now = Date.now(), s: KeyStore | null = keyStore()) {
+  try {
+    if (on) s?.setItem(fullDiskLaterKey(userId), String(now))
+    else s?.removeItem(fullDiskLaterKey(userId))
+  } catch {
+    /* a private window: the screen comes again next time */
+  }
 }
 
 /** The folder in My files the files go to (shared/src/folder-labels.ts: its name on disk, said in the person's words). */

@@ -9,7 +9,7 @@ import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
-import { consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
+import { addView, consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import type { ConsentAsk } from './work-consent-window'
 import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
@@ -108,6 +108,9 @@ export class WorkFilesController {
       lastInput: () => number
       /** the yeses remembered per team and person (a file in the app's data) */
       memory: { load(): ConsentMemory; save(m: ConsentMemory): void }
+      /** assistive technology is on (Electron's app.accessibilitySupportEnabled: VoiceOver, Voice Control, a screen
+       * reader): an add without a key or mouse press is asked in the app's own window instead of refused */
+      assistive: () => boolean
       /** the strip above the team page: files added and being read (0: none, the strip goes) */
       reading: (n: number) => void
     },
@@ -319,13 +322,39 @@ export class WorkFilesController {
    * input events, which no page script can make), only for ids of this origin's latest look, each once, within the read
    * limits. Only files added this way are read (WorkFileSessions.read refuses every other id). This proves a person is
    * there, not which files they chose: docs/DECISIONS.md "Find work files: asked once, reads only what is added". */
-  add(origin: string, ids: string[]): WorkFileAdd {
+  async add(origin: string, ids: string[]): Promise<WorkFileAdd> {
     if (!workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
-    if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS) return { state: 'refused' }
-    if (!this.sessions.toAdd(origin, ids) || !this.sessions.allow(origin, ids)) return { state: 'refused' }
+    if (!this.sessions.toAdd(origin, ids)) return { state: 'refused' }
+    if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS) {
+      // VoiceOver, Voice Control and other assistive technology "press" with no key or mouse event: only then, the
+      // app's own window lists the files and asks (everyone else keeps the way without a window)
+      if (!this.o.assistive()) return { state: 'refused' }
+      const asked = await this.askAdd(origin, ids)
+      if (asked !== 'added') return { state: asked }
+    } else if (!this.sessions.allow(origin, ids)) return { state: 'refused' }
     for (const id of ids) this.pending.add(id)
     this.tellReading(true)
     return { state: 'added' }
+  }
+
+  /** The Add window (assistive technology only): one at a time, the consent window's rules (shown, then a yes counts). */
+  private async askAdd(origin: string, ids: string[]): Promise<'added' | 'cancelled' | 'refused'> {
+    const win = this.o.win()
+    const files = this.sessions.toAdd(origin, ids)
+    if (!win || win.isDestroyed() || !files) return 'refused'
+    if (this.busy) return 'refused'
+    this.busy = true
+    const generation = this.generation
+    try {
+      const ask = this.o.consent(win, addView(this.o.locale(), files))
+      this.asking = ask
+      const yes = (await ask.result) === true && !win.isDestroyed()
+      if (this.asking === ask) this.asking = null
+      if (!yes || generation !== this.generation) return 'cancelled'
+      return this.sessions.allow(origin, ids) ? 'added' : 'refused'
+    } finally {
+      this.busy = false
+    }
   }
 
   /** The strip "Trina is reading N files from this computer": files added and not read yet, and every read of an added

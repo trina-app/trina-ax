@@ -8,7 +8,7 @@ import { isOwnUiUrl, UI_ORIGIN } from './trust'
 import type { WorkRoot } from './work-files'
 import type { Place } from './work-places'
 
-export type ConsentIcon = 'documents' | 'desktop' | 'downloads' | 'folder' | 'cloud' | 'messenger' | 'recent'
+export type ConsentIcon = 'documents' | 'desktop' | 'downloads' | 'folder' | 'cloud' | 'messenger' | 'recent' | 'file'
 export interface ConsentPlace {
   icon: ConsentIcon
   name: string
@@ -16,11 +16,15 @@ export interface ConsentPlace {
   note?: string
 }
 export interface ConsentView {
+  /** look: before the look (the places); add: the files a VoiceOver or Voice Control user asked to add (addView) */
+  kind?: 'look' | 'add'
   locale: UiLocale
   title: string
   sub: string
   placesLabel: string
   places: ConsentPlace[]
+  /** under the list: how many more are not shown ("and 12 more files") */
+  more?: string
   /** check: what the app promises; ai: what may leave the computer (said as plainly as the promises) */
   promises: { icon: 'check' | 'ai'; text: string }[]
   fine: string
@@ -59,6 +63,30 @@ export function consentView(L: UiLocale, platform: string, roots: WorkRoot[], pl
     fine: t(L, fine),
     yes: t(L, 'workFiles.find'),
     no: t(L, 'workFiles.notNow'),
+  }
+}
+
+/** At most this many names in the Add window; the rest are counted ("and 12 more files"). */
+export const ADD_SHOWN = 8
+
+/** The Add window, only for a person using VoiceOver, Voice Control or other assistive technology (their "press" makes
+ * no key or mouse event, so WorkFilesController.add asks here instead): the files by the names the look found, before
+ * any of them is read. */
+export function addView(L: UiLocale, files: readonly { name: string }[]): ConsentView {
+  const n = String(files.length)
+  const rest = files.length - ADD_SHOWN
+  return {
+    kind: 'add',
+    locale: L,
+    title: t(L, 'workFiles.addTitle', { n }),
+    sub: t(L, 'workFiles.addSub'),
+    placesLabel: t(L, 'workFiles.addTitle', { n }),
+    places: files.slice(0, rest > 0 ? ADD_SHOWN : files.length).map((f) => ({ icon: 'file', name: f.name })),
+    ...(rest > 0 ? { more: t(L, 'workFiles.addMore', { n: String(rest) }) } : {}),
+    promises: [],
+    fine: '',
+    yes: t(L, 'workFiles.addYes', { n }),
+    no: t(L, 'workFiles.addNo'),
   }
 }
 

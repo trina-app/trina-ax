@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CONSENT_ARM_MS, CONSENT_REMEMBER_MS, CONSENT_URL, ConsentGate, consentSender, consentView, covered, memoryKey, parseMemory, PERSON_INPUT_MS, placeKeys } from '../../desktop/src/common/work-consent'
+import { ADD_SHOWN, addView, CONSENT_ARM_MS, CONSENT_REMEMBER_MS, CONSENT_URL, ConsentGate, consentSender, consentView, covered, memoryKey, parseMemory, PERSON_INPUT_MS, placeKeys } from '../../desktop/src/common/work-consent'
 import { UI_LOCALES } from '../../desktop/src/common/i18n'
 import type { WorkRoot } from '../../desktop/src/common/work-files'
 import type { Place } from '../../desktop/src/common/work-places'
@@ -221,12 +221,18 @@ describe('reads only what the person added, right as they press Add (TC-3300)', 
   const win = read('desktop/src/main/app-window.ts')
   const main = read('desktop/src/main/main.ts')
   const preload = read('desktop/src/preload/app.ts')
+  test('VoiceOver / Voice Control: no press and assistive technology on, only then the app\'s own Add window', () => {
+    const add = ctl.slice(ctl.indexOf('  async add(origin: string, ids: string[])'), ctl.indexOf('  /** The Add window (assistive technology only)'))
+    expect(add).toMatch(/if \(Date\.now\(\) - this\.o\.lastInput\(\) > PERSON_INPUT_MS\) \{[\s\S]*?if \(!this\.o\.assistive\(\)\) return \{ state: 'refused' \}[\s\S]*?await this\.askAdd\(origin, ids\)/)
+    expect(win).toContain('assistive: () => electronApp.accessibilitySupportEnabled')
+    expect(ctl).toContain('this.o.consent(win, addView(this.o.locale(), files))')
+  })
   test('add: the team page\'s top frame only, ids only; the person\'s press within 2 s, then the session\'s own checks', () => {
     const line = main.split('\n').find((l) => l.includes("'bridge:work-files-add'"))!
     expect(line).toContain('fromApp(e) && e.senderFrame')
     expect(line).toContain('win!.workFiles.add(e.senderFrame.origin,')
     expect(preload).toContain("add: (ids: string[]) => ipcRenderer.invoke('bridge:work-files-add'")
-    const add = ctl.slice(ctl.indexOf('  add(origin: string, ids: string[])'), ctl.indexOf('  /** the files added and not read yet'))
+    const add = ctl.slice(ctl.indexOf('  async add(origin: string, ids: string[])'), ctl.indexOf('  /** The Add window (assistive technology only)'))
     expect(add.indexOf('Date.now() - this.o.lastInput() > PERSON_INPUT_MS')).toBeGreaterThan(-1)
     expect(add.indexOf('Date.now() - this.o.lastInput() > PERSON_INPUT_MS')).toBeLessThan(add.indexOf('this.sessions.allow(origin, ids)'))
     expect(add).toContain('this.sessions.toAdd(origin, ids)')
@@ -252,5 +258,23 @@ describe('reads only what the person added, right as they press Add (TC-3300)', 
   test('the reading strip is the app\'s own (the host strip\'s view), never the page\'s', () => {
     expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')
     expect(read('desktop/src/ui/hostbar.ts')).toContain("tr('workFiles.reading', { n: String(reading) })")
+  })
+})
+
+describe('the Add window for assistive technology (VoiceOver, Voice Control)', () => {
+  test('the files by name, at most 8 and a count of the rest; every language filled', () => {
+    const v = addView('en', [{ name: 'Quote.xlsx' }, { name: 'Plan.pdf' }])
+    expect(v.kind).toBe('add')
+    expect([v.title, v.yes, v.no]).toEqual(['Add 2 files from this computer?', 'Add 2 files', 'Cancel'])
+    expect(v.places).toEqual([{ icon: 'file', name: 'Quote.xlsx' }, { icon: 'file', name: 'Plan.pdf' }])
+    expect(v.more).toBeUndefined()
+    const many = addView('en', Array.from({ length: 20 }, (_, i) => ({ name: `f${i}.pdf` })))
+    expect(many.places).toHaveLength(ADD_SHOWN)
+    expect(many.more).toBe('and 12 more files')
+    expect(addView('en', [{ name: 'a' }]).yes).toBe('Add 1 file')
+    for (const { id } of UI_LOCALES) {
+      const x = addView(id, Array.from({ length: 10 }, () => ({ name: 'x' })))
+      for (const str of [x.title, x.sub, x.yes, x.no, x.more ?? '']) expect(str, id).not.toMatch(/\{\w+[,}]/)
+    }
   })
 })

@@ -29220,3 +29220,28 @@ was built first and dropped before it shipped: the owner, "창 좀 그만 띄워
   files read, the strip counted down, the second look without the window), `web/test/unit/work-files.test.ts`
   (`confirmAdd`, versions), `web/test/e2e/find-work-files.spec.ts` (the fake app enforces it; ticked then unticked is
   never named). Version impact: **minor** (bridge version 2).
+
+## Find work files: Not now kept 30 days; VoiceOver and Voice Control get the Add window (feat/work-files-later-a11y, 2026-11-15, product owner)
+
+Two follow-ups to "asked once, reads only what is added":
+
+- **"Not now" on the Full Disk Access screen is kept 30 days** for this team (the page's own storage, per origin) and this
+  person (`mycel.findWork.fullDiskLater:<user id>`, `web/src/lib/workFiles.ts fullDiskLater`). The next looks go straight
+  to the three folders (the app is asked first whether it has Full Disk Access by now: then the wide look, no screen),
+  with a quiet link in the list's header, "Look in more places (Full Disk Access)", which forgets the Not now and shows
+  the screen again. A private window or blocked storage remembers nothing (the screen comes as before).
+- **Assistive technology is not locked out.** A VoiceOver or Voice Control "press" makes no key or mouse event, so the
+  2 s rule refused their Add. Now, when an add comes with no press and Electron's `app.accessibilitySupportEnabled` is on
+  (macOS turns it on for VoiceOver, Voice Control and other assistive apps; a screen reader on Windows), and only then,
+  the main process asks in the consent window's style: "Add N files from this computer?" with the files by name (8
+  shown, "and N more files"), Cancel / Add N files, the same 800 ms gate and one answer (`addView`,
+  `WorkFilesController.askAdd`). Cancel adds nothing (the page says nothing: the person chose it). Everyone else keeps
+  the way with no window. A page cannot turn assistive technology on, so it cannot get a yes this way without the
+  person's answer in the app's own window; with assistive technology on, a hostile page can at most make that window
+  appear.
+- Tests: `desktop/e2e/work-files.spec.ts` (real Electron, `app.setAccessibilitySupportEnabled(true)` forced: refused with
+  it off; with it on the window lists the file, No adds nothing and reads nothing, Add adds it and it reads),
+  `tests/unit/e-desktop-work-consent.test.ts` (`addView`, the fallback only after the press check and only with
+  `assistive()`), `web/test/unit/work-files.test.ts` (30 days, per person, forgotten by the link, nonsense stored),
+  `web/test/e2e/find-work-files-wide.spec.ts` (Not now, then the next open goes straight to the three folders; the
+  link brings the screen back; granted by then: wide). Version impact: **patch**.

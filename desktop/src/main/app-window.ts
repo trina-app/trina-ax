@@ -137,6 +137,7 @@ export class AppWindow {
     progress: (p) => this.send(this.app, 'bridge:work-files-progress', p),
     consent: (parent, view) => askConsent({ parent, preload: join(this.o.distDir, 'preload-consent.cjs'), view }),
     lastInput: () => this.appInputAt,
+    assistive: () => electronApp.accessibilitySupportEnabled,
     memory: consentMemoryFile(join(electronApp.getPath('userData'), 'work-files-consent.json')),
     reading: (n) => {
       if (n === this.reading) return
