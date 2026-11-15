@@ -27410,10 +27410,12 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
 Builds on the entry below (its leftover). In Search (⌘K) a guest's folder and file results open the project's own files
 screen (`lib/guests.ts guestFolderHref`, now with `select`), a file picked there (`?select=<full path>`: the row's fill,
 scrolled to); a result no screen of theirs lists (their own folder) is left out, and the "search in Files" row is not
-shown to a guest. "Open in Files" in a guest's preview picks the file the same way.
+shown to a guest. "Open in Files" in a guest's preview picks the file the same way. The palette shows a guest only
+what they can reach: 전체, 대화, 파일, 프로젝트 with a project and 기록 with AI; no 스킬, 예약 or 서비스 tabs or
+sections.
 
 **Every guest lands in their place** (coordinator, QA TC-3359): opening the app on Home (the tab's first entry or a
-sign-in, `lib/welcome.ts isLanding`) takes a guest to their group chat, else their project (`GuestLanding`), with
+sign-in, `lib/welcome.ts isLanding`) takes a guest to their group chat, else their project (`GuestLanding`; a guest in both since #1004 lands in the group chat, `guestPlacePath`), with
 Team AI or their own AI too, as Slack opens a single-channel guest in that channel. This replaces "the Home redirect is
 the invite's AI choice" for landings; a guest with AI still opens Trina (Home) from its tab, and one without AI never
 sees Home, as before. Version impact: **patch**.

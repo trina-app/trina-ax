@@ -53,9 +53,9 @@ import { aiName } from '../lib/tabs'
 import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
-import { useGuestFolderHref } from './GuestView'
+import { useGuestAiOff, useGuestFolderHref } from './GuestView'
 import { openTeamFile } from '../lib/sidePanel'
-import { isGuestMe } from '../lib/guests'
+import { isGuestMe, meGuest } from '../lib/guests'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap, useMediaQuery } from './ui'
 import { contentQueryReady } from './FileContentSearch'
@@ -332,6 +332,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const admin = isAdmin(useMe())
   const guest = isGuestMe(useMe())
   const guestFolder = useGuestFolderHref()
+  const guestHasProject = !!meGuest(useMe())?.project
+  const guestAiOff = useGuestAiOff()
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
   const myRooms = useRooms((s) => s.rooms)
@@ -630,9 +632,9 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), titleFirst(foundNow ?? [], words).slice(0, tab === 'all' ? 5 : 30).map(historyRow))
     if (tab === 'all' && hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
-    if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
-    if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
-    if (tab === 'all' || tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.filter((i) => has(query, i.name, i.url)).slice(0, few).map((i) => mcpRow(i)))
+    if (!guest && (tab === 'all' || tab === 'skills')) push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
+    if (!guest && (tab === 'all' || tab === 'scheduled')) push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
+    if (!guest && (tab === 'all' || tab === 'mcp')) push('mcp', typeLabel('mcp'), allMcp.filter((i) => has(query, i.name, i.url)).slice(0, few).map((i) => mcpRow(i)))
     // the team's files by name, then the files sent in my rooms: 4 in all on 전체
     if (tab === 'all' || tab === 'files')
       push('files', typeLabel('files'), [
@@ -643,7 +645,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder])
+  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
@@ -707,7 +709,9 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (!row || row.scrollWidth <= row.clientWidth) return
     row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
-  const types = SEARCH_TYPES
+  // a guest: only what they can reach (no team skills, scheduled tasks or services; 프로젝트 only with a project, 기록
+  // only with AI): docs/DECISIONS.md "Search results and Open in Files for guests"
+  const types = guest ? SEARCH_TYPES.filter((x) => x === 'all' || x === 'rooms' || x === 'files' || (x === 'projects' && guestHasProject) || (x === 'chats' && !guestAiOff)) : SEARCH_TYPES
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
   const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')

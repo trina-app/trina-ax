@@ -35,7 +35,9 @@ export const placePath = (place: GuestPlaceView): string | null => (place.id ? (
 /** Where the signed-in guest opens (Me.guest.places): their group chat, else their project; null for anyone else or
  * before the server names it. A guest opens straight into it (Slack's single-channel guests). */
 export function guestPlacePath(me: Me | null | undefined): string | null {
-  const first = meGuest(me)?.places[0]
+  // the group chat first, then the project (QA TC-3359), whatever order the server sent them in
+  const g = meGuest(me)
+  const first = g?.room ?? g?.project ?? g?.places[0]
   return first ? placePath(first) : null
 }
 

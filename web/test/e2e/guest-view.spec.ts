@@ -39,6 +39,22 @@ async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind:
 test.describe('computer', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
+  test('a guest in a group chat and a project lands in the group chat, on sign-in and on opening the app; the project stays a click away', async ({ page }) => {
+    await reset(page)
+    expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
+    expect((await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })).ok()).toBeTruthy()
+    // the project is the place the invite named first: the group chat still wins
+    expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', name: '견적 준비' }, also: { kind: 'room', id: GROUP }, ai: TEAM_AI } })).ok()).toBeTruthy()
+    await signInGuest(page)
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await page.goto('/')
+    await expect(page).toHaveURL(new RegExp(`/rooms/${GROUP}$`))
+    await expect(page.getByTestId('rail-projects')).toBeVisible()
+    await page.getByTestId('rail-ai').click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+  })
+
   test("⌘K: a guest's project folders and files open the project's files screen, the file picked; nothing goes to Files", async ({ page }) => {
     await reset(page)
     expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
@@ -56,6 +72,9 @@ test.describe('computer', () => {
     }).toPass()
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await openPalette()
+    // only what a guest can reach: no team skills, scheduled tasks or services
+    for (const x of ['skills', 'scheduled', 'mcp']) await expect(palette.getByTestId(`search-tab-${x}`)).toHaveCount(0)
+    for (const x of ['all', 'rooms', 'chats', 'projects', 'files']) await expect(palette.getByTestId(`search-tab-${x}`)).toBeVisible()
     await palette.getByRole('combobox').fill('drafts')
     await palette.getByRole('option').filter({ hasText: /^drafts/ }).click()
     await expect(page).toHaveURL(`${projectUrl}/files?dir=drafts`)
