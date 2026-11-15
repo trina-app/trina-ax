@@ -173,6 +173,8 @@ describe('operator API: a cloud team from start to end', () => {
     // a navigation without an Accept header is still a browser; an API call and an app request keep the JSON
     const nav = await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: { 'sec-fetch-dest': 'document' } })
     expect(nav.headers.get('content-type')).toContain('text/html')
+    for (const h of [{ 'sec-fetch-dest': 'empty' }, { 'sec-fetch-dest': 'iframe' }]) expect((await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: h })).headers.get('content-type')).toContain('application/json')
+    expect((await fetch(teamUrl(PORT, 'acme-co', '/api/x'), { headers: { 'sec-fetch-dest': 'document', accept: 'text/html' } })).headers.get('content-type')).toContain('application/json')
     const json = await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: { accept: 'application/json' } })
     expect([json.status, json.headers.get('content-type')]).toEqual([403, 'application/json; charset=utf-8'])
     expect(((await json.json()) as { error: { reason: string } }).error.reason).toBe('team_suspended')
