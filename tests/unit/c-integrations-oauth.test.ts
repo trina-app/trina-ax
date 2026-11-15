@@ -142,6 +142,51 @@ test('Cancel in the app (or a wait that ran out): the flow is cancelled there, a
   expect(await olga.call('GET', `/api/integrations/flows/${again.flowId}`)).toMatchObject({ state: 'completed' })
 })
 
+test('a window allowed after its 10 minutes says the sign-in expired, to its own person only; never "sign in to the team account" (QA TC-2936)', async () => {
+  const c = await create()
+  const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  const cb = fake.authorize(f.authorizationUrl)
+  const tokenCalls = () => fake.seen.filter((x) => x.path === '/as/token').length
+  const before = tokenCalls()
+  fake.now += 10 * 60_000 + 1
+  // someone else's browser, or none: the generic page, nothing about this sign-in
+  const other = await bob.raw('GET', callback(cb))
+  expect(other.status).toBe(400)
+  expect(await other.text()).not.toContain('로그인 시간이 지났어요')
+  const res = await olga.raw('GET', callback(cb))
+  expect(res.status).toBe(400)
+  const page = await res.text()
+  expect(page).toContain('로그인 시간이 지났어요') // the person's language
+  expect(page).toContain('앱에서 다시 연결해 주세요')
+  expect(page).not.toContain('팀 계정에 로그인')
+  expect(page).not.toContain('href="/login"')
+  expect((await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).state).toBe('expired')
+  expect(getRow(h.ctx.db, c.id)!.secret_enc).toBeNull()
+  expect(tokenCalls()).toBe(before)
+})
+
+test('personal connections off: an own connection is marked, kept, and not signed in again; a team one still is (QA TC-2930)', async () => {
+  const mine = await connect()
+  const team = await create({ scope: 'team' })
+  const setOff = (off: boolean) => h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(off ? 'false' : 'true')
+  setOff(true)
+  try {
+    const items = (await olga.call('GET', '/api/integrations')).items
+    const own = items.find((i: any) => i.id === mine.id)
+    expect(own).toMatchObject({ status: 'connected', hasSecret: true, personalOff: true })
+    expect(items.find((i: any) => i.id === team.id).personalOff).toBeUndefined()
+    const r = await olga.try('POST', `/api/integrations/${mine.id}/authorize`, {})
+    expect(r.status).toBe(403)
+    expect(JSON.stringify(r.body)).toContain('다시 로그인할 수 없어요')
+    expect(h.ctx.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE integration_id = ? AND state = ?').get(mine.id, 'pending')).toEqual({ n: 0 })
+    // the team's connection: its admin still signs it in
+    const t = await olga.call('POST', `/api/integrations/${team.id}/authorize`, {})
+    expect(t.authorizationUrl).toContain('/as/authorize')
+  } finally { setOff(false) }
+  expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === mine.id).personalOff).toBeUndefined()
+  expect((await olga.call('POST', `/api/integrations/${mine.id}/authorize`, {})).authorizationUrl).toContain('/as/authorize')
+})
+
 test('a team connection records whose sign-in it is (팀장 넘기기 reads only that); a personal one does not; a moved address or a removal clears it', async () => {
   const signer = (id: string) => (h.ctx.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").get(id) as { user_id: string } | null)?.user_id
   const mine = await connect()

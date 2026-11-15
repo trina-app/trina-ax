@@ -5343,7 +5343,9 @@ export class MockServer {
     const canManage = x.scope === 'personal' ? x.ownerId === u.id : u.role !== 'member'
     const { ownerId: _o, checks: _c, disabledTools: _d, ...rest } = x
     // like store.ts view: the own app is for whoever manages the connection (a template's app is the admin's)
-    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage, oauthClient: canManage && !x.templateId ? x.oauthClient ?? null : null }
+    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage, oauthClient: canManage && !x.templateId ? x.oauthClient ?? null : null,
+      // like store.ts offByTeam: a member's own one (not from a template) while the team has them off
+      ...(x.scope === 'personal' && !x.templateId && !this.settings.personalIntegrations ? { personalOff: true as const } : {}) }
   }
   /** like service.ts appFrom / nextApp: an own app is for sign-in; an API's sign-in needs one with both addresses; the
    * secret is write-only (kept while the client ID stays). `changed`: another ID, secret, address or scope. */

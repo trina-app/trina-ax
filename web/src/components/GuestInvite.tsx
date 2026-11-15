@@ -150,12 +150,15 @@ export function guestErrorText(e: unknown, locale: ReturnType<typeof useLocale>,
   return errorText(e, locale, t('error.network'))
 }
 
-/** The plan's guest cap now (GET /api/guest-invites/limit), read once when a dialog opens; undefined while it loads,
- * null when it could not be read (the dialog goes on: the server still refuses with 409 guest_limit). A store app never
- * shows a plan page. */
-export function useGuestLimit(): GuestInviteLimit | null | undefined {
+/** The plan's guest cap now (GET /api/guest-invites/limit), read once when a dialog opens (`enabled`: once it is first
+ * true, Admin's Invite to team when Guest is picked); undefined while it loads, null when it could not be read (the
+ * dialog goes on: the server still refuses with 409 guest_limit). A store app never shows a plan page. */
+export function useGuestLimit(enabled = true): GuestInviteLimit | null | undefined {
   const [v, setV] = useState<GuestInviteLimit | null | undefined>(undefined)
+  const [asked, setAsked] = useState(enabled)
+  if (enabled && !asked) setAsked(true)
   useEffect(() => {
+    if (!asked) return
     let live = true
     api.call(API.guestInviteLimit).then((r) => {
       if (!live) return
@@ -163,13 +166,28 @@ export function useGuestLimit(): GuestInviteLimit | null | undefined {
       setV({ ...rest, ...(manageUrl && /^https?:\/\//.test(manageUrl) && !noPurchaseLinks() ? { manageUrl } : {}) })
     }, () => live && setV(null))
     return () => { live = false }
-  }, [])
+  }, [asked])
   return v
+}
+
+/** The plan's guests are all there, from the cap's read: how many and the plan page, or null. */
+export function guestsFullOf(limit: GuestInviteLimit | null | undefined): { n: number; manageUrl?: string } | null {
+  return limit?.full && limit.limit !== null ? { n: limit.limit, ...(limit.manageUrl ? { manageUrl: limit.manageUrl } : {}) } : null
+}
+
+/** "See plans", a dialog's main button beside Close when the plan is full (the owner and admins only). */
+export function SeePlansLink({ url }: { url: string }) {
+  const t = useT()
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-lg bg-accent px-3.5 text-sm font-medium text-accent-ink hover:bg-accent-hover max-md:min-h-11" data-testid="guest-invite-plans">
+      {t('guest.seePlans')}
+    </a>
+  )
 }
 
 /** The plan's guests are all there: said at the top in place of the form. The owner and admins: what they can do and
  * "See plans" (when the server names a plan page); a member: ask an admin. */
-function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
+export function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
   const t = useT()
   return (
     <div className="space-y-2" role="status" data-testid="guest-invite-full">
@@ -179,8 +197,10 @@ function GuestsFull({ n, admin }: { n: number; admin: boolean }) {
   )
 }
 
-/** `onCancel`: Cancel and × before the link is made (back to the add list it was opened from); `onClose`: Done after it. */
-export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { place: InvitePlace; onClose: () => void; onCancel?: () => void }) {
+/** `onCancel`: Cancel and × before the link is made (back to the add list it was opened from); `onClose`: Done after it.
+ * `onFull`: Create link was refused because the plan's guests are all there (another invite made meanwhile): the opener
+ * shows the limit itself (Admin's Invite to team, whose place list would otherwise offer the same wall again). */
+export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }: { place: InvitePlace; onClose: () => void; onCancel?: () => void; onFull?: (cap: { n: number; manageUrl?: string }) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -203,7 +223,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
   // reason guest_limit, another invite made meanwhile); the plan page only for the owner and admins (a store app's
   // answer has none: lib/api.ts storeSafeError)
   const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
-  const full = refusedFull ?? (limit?.full && limit.limit !== null ? { n: limit.limit, ...(limit.manageUrl ? { manageUrl: limit.manageUrl } : {}) } : null)
+  const full = refusedFull ?? guestsFullOf(limit)
   const create = async () => {
     if (busy || !aiChoiceReady(ai) || full) return
     setBusy(true)
@@ -214,7 +234,9 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
       setExpiresAt(r.invite.expiresAt)
     } catch (e) {
       const cap = guestCap(e)
-      if (cap) setRefusedFull({ n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) })
+      const shown = cap && { n: cap.n, ...(cap.manageUrl && !noPurchaseLinks() ? { manageUrl: cap.manageUrl } : {}) }
+      if (shown && onFull) onFull(shown)
+      else if (shown) setRefusedFull(shown)
       else setError(guestErrorText(e, locale, t))
     } finally {
       setBusy(false)
@@ -233,11 +255,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose }: { plac
         footer={
           <>
             <Button variant={admin && full.manageUrl ? 'ghost' : 'primary'} onClick={onCancel} data-testid="guest-invite-full-close">{t('common.close')}</Button>
-            {admin && full.manageUrl && (
-              <a href={full.manageUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-lg bg-accent px-3.5 text-sm font-medium text-accent-ink hover:bg-accent-hover max-md:min-h-11" data-testid="guest-invite-plans">
-                {t('guest.seePlans')}
-              </a>
-            )}
+            {admin && full.manageUrl && <SeePlansLink url={full.manageUrl} />}
           </>
         }
       >

@@ -182,6 +182,13 @@ export function pruneMemberAllows(db: Database): void {
 
 const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
 
+/** A member's own connection the team's switch for members' own connections ("Members can add their own connections")
+ * turns off now: not one made from an admin's template, not a Google app (those keep working, store.ts mayUse). It stays
+ * saved but is not used in chats, and it is not signed in again while the switch is off (QA TC-2930). */
+export function offByTeam(db: Database, row: Pick<Row, 'scope' | 'template_id' | 'google_app'>): boolean {
+  return row.scope === 'personal' && !row.template_id && !row.google_app && !personalOn(db)
+}
+
 /** May this (active) person use the connection in their chats now? Personal: only its owner, only while the team
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
@@ -310,6 +317,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
     templateId: row.template_id ?? null,
+    // kept, but not used in chats while the team has members' own connections off: the row and page say so
+    ...(offByTeam(db, row) ? { personalOff: true } : {}),
     // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
     oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
     // the viewer's own Always allow on a team connection, while its address is the one they chose it for (tools.ts gate)

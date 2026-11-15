@@ -19,7 +19,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   // the old address opens Providers, at Claude Code: each provider row lists its own accounts (none yet)
   await page.goto('/admin/credentials')
   await expect(page).toHaveURL(/\/admin\/providers\?engine=claude-code$/)
-  await expect(page.getByRole('heading', { level: 2, name: 'AI 계정', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'AI 제공사', exact: true })).toBeVisible()
   await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
   await expect(page.getByTestId('provider-none-claude')).toBeVisible()
   await expect(page.getByTestId('provider-none-codex')).toBeVisible()

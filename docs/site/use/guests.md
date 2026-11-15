@@ -24,6 +24,9 @@ Next to a guest's name you see a **Guest** tag, and a chat or project with guest
 - **To a group chat:** anyone in that chat.
 - **To a project:** the person who made the project, or an owner or admin.
 
+Owners and admins can also start from **Admin › Members & invites › Invite to team**: see
+[From Admin](#from-admin) below.
+
 Guests are never in **Team rooms** (the room for everyone and the rooms of each group). A guest can send direct
 messages, but only to the people in their own chat or project.
 
@@ -52,6 +55,16 @@ them yourself, by email or in a chat. The link works once, for 7 days; the dialo
 The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used or expires.
 
 A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
+
+### From Admin
+
+Owners and admins can invite a guest without opening the chat or project first. In **Admin › Members & invites**, choose
+**Invite to team**, then **Guest** at the top of the dialog (**Team member** is picked to start with). Pick the one
+place the guest joins: a group chat you are in, or a team project. Then fill in the same dialog as above: their name,
+their AI, **Create link** and **Copy link**. If your plan has no room for more guests, the dialog says so instead of
+listing places.
+
+![Invite to team with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 
 ## What the guest sees
 

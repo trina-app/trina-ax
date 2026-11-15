@@ -32,7 +32,7 @@ import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
 import { MCP_TOOL_TIMEOUT_MS } from '../engine/claude'
 import { maskStoredTitles, placeholderTitle } from './title'
-import { redactorFor } from '../integrations/connections/redact'
+import { hideKeysInStoredMemories, redactorFor } from '../integrations/connections/redact'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
@@ -333,6 +333,16 @@ export class ChatRuntime {
       const masked = maskStoredTitles(ctx.db)
       if (masked) this.log.info('chat titles that looked like secrets were masked', { n: masked })
     } catch (e) { this.log.warn('masking chat titles failed', { err: e }) }
+    // memories the AI saved with a stored connection key in them, before remember hid it (redact.ts): once, a moment
+    // after start (the connections service reads the keys)
+    const memoryScan = setTimeout(() => {
+      try {
+        const hidden = hideKeysInStoredMemories(ctx)
+        if (hidden) this.log.info('stored keys in memories were hidden', { n: hidden })
+      } catch (e) { this.log.warn('hiding stored keys in memories failed', { err: e }) }
+    }, 5_000)
+    ;(memoryScan as { unref?: () => void }).unref?.()
+    ctx.onClose(() => clearTimeout(memoryScan))
     // engine folders a launcher did not take before the last stop (chat/forget.ts)
     const retry = setTimeout(() => { void retryPendingForgets(ctx) }, 30_000)
     ;(retry as { unref?: () => void }).unref?.()

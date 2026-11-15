@@ -323,6 +323,12 @@ const SHOTS: Shot[] = [
     }, guestLink)
     await blur(p)
   }, crop: DIALOG },
+  // Admin › Members & invites › Invite to team › Guest: the one place they join
+  { file: 'guests/admin-invite', path: '/admin/members', set: 'mock', mock: {}, guests: true, prepare: async (p) => {
+    await p.locator('[data-testid="invite-new"]').first().click(); await p.waitForTimeout(500)
+    await p.locator('[data-testid="invite-kind"] [role="tab"]').nth(1).click(); await p.waitForTimeout(800)
+    await blur(p)
+  }, crop: DIALOG },
   { file: 'guests/invite-page', path: '/', pathFn: () => guestLink, signedOut: true, set: 'mock', mock: {}, guests: true, crop: 'form >> xpath=..', pad: 24 },
   { file: 'guests/guest-room', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, as: ALEX_SIGN_IN, before: quoteMessages },
   { file: 'guests/guest-tag', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, before: quoteMessages, clip: { x: 328, y: 0, width: 952, height: 350 } },

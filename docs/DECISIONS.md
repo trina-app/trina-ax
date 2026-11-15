@@ -28451,6 +28451,27 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).
 
+## Guests from Admin › Invite to team (feat/admin-invite-guest, owner 2026-11-15)
+
+- **Asked:** admins coming from Slack start at **Admin › Members & invites › Invite to team**, which had no guest
+  option, so they could not find guest invites (they live in a room's or project's add list).
+- The dialog starts with a two-choice switch (the shared segmented `Tabs`): **Team member** (picked first, today's form
+  unchanged) or **Guest**. Guest shows one plain line and the one place the guest joins
+  (`pages/admin/GuestPlacePicker.tsx`, shared `ListRow` rows and the admin `SearchBox` once there are more than six
+  places): group chats the caller is in, then team projects whose members they may change (`Project.membersEditable`
+  on the manage=1 list, not in the trash). That is what `POST /api/guest-invites` accepts from the owner or an admin
+  (`inviteMakerOk`: a group chat only for its members, any live project for staff), narrowed to the places whose own
+  add list offers "Invite a guest": no personal projects, no projects from before `projects/<name>`.
+- Picking a place opens the existing guest form (`GuestInviteDialog`, unchanged: name, AI, 7 days / one use, Create
+  link, Copy link); its Cancel comes back to the places with Guest still picked; Done closes and reads the invite list
+  again. No second form, no new endpoint.
+- The guest cap is read (`useGuestLimit(enabled)`) only once Guest is picked; a full plan shows the existing limit
+  words (`GuestsFull`) with **See plans** in place of the places. A Create link refused as full meanwhile hands the
+  limit back (`GuestInviteDialog` `onFull`), so the place list is not offered again.
+- The dialog's title is now **Invite to team**, the button's words (it was "Invite link"). Group chats show their member
+  count; projects show none (`Project.audience` counts who sees it, not who is in it).
+- Version impact: **minor** (a new way in to an existing feature).
+
 ## The invite message introduces the team; the invite step keeps only the message (feat/onboarding-invite-message, 2026-11-15, the owner)
 
 Owner 2026-11-14: the colleague should see who invites them, what the team is and what to do; owner 2026-11-15 (Q1, Q2):
@@ -28722,3 +28743,127 @@ Disk Access) are part 5.
   names, Korean, hosts and authors, the score, the list's rule and its 50, what goes to the AI),
   `web/test/e2e/find-work-files.spec.ts` (the list before the AI, 50 shown and the rest by search, Choose it yourself).
 - Version impact: **minor** (a new API route; what the list shows changes).
+
+## Admin: "AI accounts" is called "Providers" (fix/admin-providers-rename, 2026-11-15, QA TC-192 / tracking TC-742)
+
+- **Reverses** "Plain words for members" (2026-11-11) for the admin page only, decided 2026-11-15 (admin side, the
+  scope recommended in closed draft #693): Admin › AI accounts is called **Providers** (ko **AI 제공사**, id Penyedia
+  AI, ja AIプロバイダー, es Proveedores de IA, zh AI 提供商), as the QA report asked. Korean: "AI 제공사" is the word
+  the Korean strings already use for Anthropic and OpenAI ("AI 제공사(Anthropic·OpenAI)"). Every pointer follows: the
+  sidebar, the page title, the phone's admin list and ‹ label (was "Team AI accounts": the names differ now, so no
+  "Team" is needed), Members' no-AI hints, the welcome line, the file list problem, handover, the server's messages that
+  name the page (`system/messages*.ts`, `chat/i18n.ts`, `credentials/i18n.ts`; the Linux ones still said "AI engines"),
+  the guides and docs/site. The "queue is long" message points to Team settings, where "Answers at the same time" is.
+- Kept: the members' own Settings page (`settings.providers`) is still **AI accounts** (ko AI 계정): members see only
+  their own accounts, not providers. The stored chat-error words in `shared/src/api/errors.ts` keep their old text
+  (they match saved answers).
+- The two server lines shown under an engine on this page itself (`admin/engines.ts` managedNone /
+  managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
+- Version impact: **patch** (wording only; no API or data change).
+
+## Find work files, part 5: wider places, Full Disk Access first on a Mac (feat/find-work-files-wide, 2026-11-15)
+
+Owner, 2026-11-15: "Documents, Desktop and Downloads aren't where real company files are", then "doesn't this mean we
+need Full Disk Access?". Still conservative: recent (≤180 days), work-like, the company's or the AI's pick, at most 50.
+
+- **Places beyond the three folders** (`desktop/src/common/work-places.ts`, a wide look: `scan({ wide: true, words })`):
+  cloud drives' folders (Mac: `~/Library/CloudStorage/{OneDrive-*, GoogleDrive-*, Dropbox*, Box*}` only, never iCloud's
+  app data or another provider; Windows: the OneDrive variables and the home folder's Dropbox, Box, Google Drive), the
+  home folder's top folders named with a work word (six app languages) or the company's or a client's name (the page
+  passes at most 20 names; `scanAsk` keeps letters, digits and a few marks, no separators), messengers' download folders
+  (a data table: KakaoTalk, Telegram, WhatsApp, Teams, Slack, LINE, Zalo; not WeChat, whose folder holds its databases; only folders a person sees, never an
+  app's own data), and the files opened lately anywhere in the home folder (Mac: Spotlight's last-opened across home,
+  the shared file lists `*.sfl2/3/4` parsed from their bookmarks, Office for Mac's securebookmarks lists; Windows: the
+  index's rows, the Recent folder's shortcuts parsed in code (MS-SHLLINK, Electron's reader as a second try) and Office's
+  registry list; other fixed drives join the index's scope, a share or mapped drive is checked one call at a time and the
+  first that hangs ends them). Jump Lists are left out (OLE files, not cheap). Each place is named in the app's own
+  dialog before anything is looked at, and on each row ("OneDrive – Acme › Plans", "KakaoTalk downloads", "Home
+  folder › Notes", "D:"). Order: messengers' and work folders, then the three folders, then the cloud drives (a
+  messenger folder inside Downloads keeps its name; a Documents moved into OneDrive stays "Documents (OneDrive)").
+  Each place's name is unique ("Google Drive (2)"), never one of the three folders' or "Home".
+- **Older pages and apps.** A page that does not ask for the wide look gets the three folders as before (the bridge
+  stays version 1; `workFiles.wide` = 1 tells a page it may ask). An older app ignores the ask.
+- **Mac: Full Disk Access is the primary path.** Without it, the wide scope means 5–8 macOS questions. The page shows
+  one screen (why in one line, a drawn picture of the switch, Open Settings → `Privacy_AllFiles`, Not now, How). The app
+  answers whether it has it by opening and closing the privacy database (`TCC.db`; nothing is read; macOS asks nothing).
+  While Settings is open the screen asks every second and goes on by itself; back in the window without it, it says
+  macOS may need a reopen and offers **Reopen** (`app.relaunch`). **Not now** = the three folders with macOS's question
+  for each, and Choose it yourself, as in part 4. The wide look runs only when the main process itself finds the access
+  (never on the page's word). Windows has no screen: it looks wide at once.
+- **Never looked at, even with Full Disk Access.** `homeExcluded`: Library and AppData (Mail, Messages, Safari, every
+  app's container and group container), Pictures (Photos' library), Music, Movies, the trash, Applications, hidden names,
+  packages; a recent list's entry pointing there is dropped. The only app data read is `APP_DATA_ALLOWED` (the shared
+  file lists, Office's three securebookmarks lists, Windows' Recent shortcuts), checked by `appDataAllowed` before each
+  read; a unit test pins the list and the two readers.
+- **Online-only files are never read by the look.** Mac: `SF_DATALESS` from `stat -f %Xf` (one call per folder in a
+  walk, 200 paths per call for Spotlight's hits: 40 ms for 2,000); an online-only folder is never entered (that would
+  make the provider fetch it); a check that does not answer lists nothing of that folder. Windows: the index's
+  `System.FileAttributes` (RECALL_ON_DATA_ACCESS, RECALL_ON_OPEN, OFFLINE): such a file gets no file system call at all;
+  its read (after Add) takes what it is from an lstat just before the open and the open must be that file
+  (`Found.late`). Its Zone.Identifier is never opened. Every index hit is now checked by its folder's real path plus its
+  own lstat, so no file is opened while looking. Such files are listed "In the cloud" (adding one downloads it then).
+- **Review of part 5 (one MUST-FIX, six SHOULD-FIX, all fixed).** Windows never walks a cloud drive's folder (not
+  even its first entry): without the index's rows it is left out. A Mac checks online-only entries in every root of the
+  wide look (iCloud's Desktop & Documents). One deadline (20 s) covers the whole wide look, the walks included. At most
+  three network shares are tried, none after one that hung (a hung call holds one of libuv's four file threads). The
+  Windows query asks for document extensions only, so a busy drive cannot push the three folders out of its 2,000
+  rows. Reopen works only within 15 minutes of Open Settings while the probe still says no, never during a look.
+  Windows short (8.3) names and names ending in a dot or space are never trusted; a stat that does not answer for a path
+  counts it as online only; an online-only file the index gives no date for is not listed; a late read checks the real
+  path again after the open. Re-review (three SHOULD-FIX, fixed): Windows never walks a Documents or Desktop moved
+  into OneDrive either; a Mac looks at its cloud drives (Spotlight, asked at the start) before walking the three folders,
+  so a big Documents cannot use up their time (Windows keeps the cloud drives last, after the three folders); outside a
+  cloud drive only folders get the online-only check, and a folder without folders asks nothing; the step that asks
+  Spotlight about walked files keeps the look's deadline.
+- **Speed (this Mac, load 19–45).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
+  in Documents and Downloads, a messenger and two work folders, a recent list): the wide look 1.9–2.0 s warm (the
+  cloud walk with its flag checks 0.7–0.85 s of it), 5.6 s on the first, cold run; after the review (online-only
+  checks in every root) 1.7–2.3 s, one run 7.2 s at load 20; after the re-review 2.7 s at load 30–45, two runs 5.1 and
+  8.4 s while that load spiked. Spotlight for one place with 3,000
+  recent files: `mdfind` 0.65–0.74 s, `mdls` of 400 0.2–0.6 s, flags 40 ms; the places are queried at once while the
+  folders are walked. Home-wide Spotlight (last opened, 180 days) 0.23–0.31 s; the shared file lists (48 here) 0.27 s.
+- **Ranking:** a place's weight: a work folder 1.3, a cloud drive 1.2, home and other drives 1, a messenger 0.8 (as
+  part 4's Documents 1.2, Downloads 0.7); a place's name counts for the company match ("OneDrive – Acme").
+- Not verified on Windows here (parsers unit-tested on made-up bytes). Office for Mac's list format is from forensic
+  write-ups; no Office was installed on the Mac this was built on.
+
+## Stored keys are hidden in saved memories and scheduled tasks the AI writes (fix/memory-hides-keys, 2026-11-15)
+
+- **Problem (QA tracking TC-2981).** A member asked the AI to remember a connection key. The step read "Remembered: My
+  key is [hidden key]", but the remember tool saved the text as the AI wrote it: Settings › Memory and the owner's
+  export (memories.csv) had the key. "No stored key in the answer" covered what the turn shows, not what it saves for
+  later.
+- **Decision.** Text the AI writes to keep goes through the same redactor (`integrations/connections/redact.ts`) before
+  any card shows it and before it is saved: `remember` (the memory text) and `schedule_create` (the task's title and
+  prompt; a run uses the stored connection, never a key written in its prompt). Once at server start
+  (`hideKeysInStoredMemories`, settings key `memory.storedKeyScan`), memories the AI saved earlier (`created_turn_id`
+  set) get `[hidden key]` in place of their person's stored keys, also when the person edited such a memory later
+  (hiding there is the safe direction). When a stored key cannot be read at that start, the memories are cleaned of
+  the keys that can be read and the clean-up is not marked done, so it runs again at the next start.
+- **Checked, not changed.** File-list lines (a nightly team reader, not a person's turn; a line shows only to people who
+  can open the file itself), skill suggestions (sent by the person from an answer that is already hidden, or from their
+  own file, and edited by them first), "often asked" lines (already masked), room posts, answer shares and chat titles
+  (already hidden). The person's own typed messages, memories they add themselves in Settings › Memory (no
+  `created_turn_id`) and a task they edit there stay as typed. An AI-made memory the person edited later is still
+  cleaned by the start-up pass.
+- Tests: `tests/unit/c-integrations-secret-echo.test.ts`.
+- Version impact: **patch** (a security fix; no new feature or API change).
+
+## Members' own connections off: said truly in chat, on the row and page, and in the hint (fix/personal-connections-off-truth, 2026-11-15, QA TC-2930, TC-2931, TC-2936)
+
+- **What "off" covers is unchanged** (store.ts `mayUse`/`usable`): a member's own MCP or API connection is kept but not
+  used in chats; one made from an admin's template, the Google apps (Gmail, Calendar, Docs, Sheets) and Google Drive,
+  and team connections keep working. Nothing is widened.
+- **One test for "off by the team"**: `store.ts offByTeam` (personal, not from a template, not a Google app, switch off).
+  connect_service uses it before "already connected": the AI is told the connection is not used now and who can turn
+  members' own connections back on, never "its tools are yours" (they are not offered). A connection's view carries
+  `personalOff: true` for it; the row in Your connectors says **Off** (lib/integrations.ts `connectionRowStatus`), its
+  page says Off with one line, and has no Sign in again.
+- **Signing in again is refused while off** (`authorize`, 403, one plain line) rather than finished and left unused: the
+  smaller change, and a sign-in that would not be used is not started. A key changed while off (`update`) and a sign-in
+  started before the switch went off and finished after are left as they were (both stay unused).
+- **The switch's hint says what keeps working** (connections from a team template and the Google apps), in six languages.
+- **An MCP sign-in window allowed after its 10 minutes** says the sign-in expired and to connect again from the app
+  (callback reason `expired`), only to a browser signed in as the person who started it, as "cancelled" is; anyone else
+  gets the generic page as before. The page keeps the request's language like the other return pages.
+- Version impact: **patch** (wording, an optional field, a refusal of a sign-in that was already unused).

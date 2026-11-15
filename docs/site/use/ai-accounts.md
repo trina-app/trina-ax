@@ -7,10 +7,10 @@ Trina AX answers with an AI account your team connects: a Claude or ChatGPT acco
 included in Trina AX. Anthropic, OpenAI or the other AI company bills the account or key you connect, under that
 company's terms.
 
-The owner or an admin connects the team's accounts in **Admin › AI accounts**. When the team allows it, each person can
+The owner or an admin connects the team's accounts in **Admin › Providers**. When the team allows it, each person can
 also add their own in **Settings › AI accounts**: their own questions use it first.
 
-![Admin › AI accounts: Claude Code and Codex, each with Add account, and the API engine, not set up yet](../images/connect/ai-accounts.webp "Admin › AI accounts")
+![Admin › Providers: Claude Code and Codex, each with Add account, and the API engine, not set up yet](../images/connect/ai-accounts.webp "Admin › Providers")
 
 ## Which one to pick
 
@@ -45,7 +45,7 @@ once. While you are there, set a monthly spend limit for your organization under
 [API key guide](https://docs.claude.com/en/api/admin-api/apikeys/get-api-key) for details.
 
 #### Open Add account
-In Trina AX, open **Admin › AI accounts**. In the **Claude Code** row, choose **Add account**, then **Claude API key**.
+In Trina AX, open **Admin › Providers**. In the **Claude Code** row, choose **Add account**, then **Claude API key**.
 The dialog links to the Claude Console too: **Make a key in the Anthropic console**.
 
 #### Paste and connect
@@ -66,7 +66,7 @@ and people**. Choose **Connect**. Trina AX checks the key with Anthropic and the
 
 :::steps
 #### Open Add account
-In **Admin › AI accounts** (or **Settings › AI accounts** for your own), choose **Add account** under Claude, then
+In **Admin › Providers** (or **Settings › AI accounts** for your own), choose **Add account** under Claude, then
 **Claude subscription (Pro, Max, Team)**. Fill in **Name**, choose who uses it, read the notice and tick **I have read
 the notice above**.
 
@@ -104,7 +104,7 @@ secret key**. Pick the project it belongs to, then copy the key: OpenAI shows it
 project under **Limits**.
 
 #### Paste it in Trina AX
-In **Admin › AI accounts**, choose **Add account** in the **Codex** row, then **OpenAI API key (Codex)**. Fill in
+In **Admin › Providers**, choose **Add account** in the **Codex** row, then **OpenAI API key (Codex)**. Fill in
 **Name**, paste the key into **API key**, choose who uses it and choose **Connect**.
 :::
 
@@ -119,7 +119,7 @@ In **Admin › AI accounts**, choose **Add account** in the **Codex** row, then 
 
 :::steps
 #### Start the sign-in
-In **Admin › AI accounts**, choose **Add account** in the **Codex** row, then **ChatGPT plan (Codex)**. Fill in
+In **Admin › Providers**, choose **Add account** in the **Codex** row, then **ChatGPT plan (Codex)**. Fill in
 **Name**, choose who uses it, tick **I have read the notice above**, and choose **Start sign-in**.
 
 ![Add account with ChatGPT plan chosen: Name, Used by, the notice with its checkbox and Start sign-in](../images/connect/ai-chatgpt.webp "ChatGPT plan")
@@ -157,7 +157,7 @@ tools and costs can differ from Claude Code and Codex.
 
 :::steps
 #### Open the API row
-In **Admin › AI accounts**, choose **Set it up** under **API**.
+In **Admin › Providers**, choose **Set it up** under **API**.
 
 #### Fill in the form
 Pick the **Provider**, check the **Model**, give it a **Display name**, paste the **API key** and type **Your password
@@ -192,5 +192,5 @@ Voice input turns speech into text through OpenRouter. On your own server, an ad
 | An account shows **Refused** or **Needs reconnecting** | The key was revoked or the sign-in ended. Open the account's **⋯** menu and choose **Replace token or key** or **Reconnect**. |
 | An account shows **Monthly limit used up** | The limit set in its **⋯** › **Monthly limit** was reached. Raise it or wait for next month. |
 
-More about the order accounts are used in, limits and engines: [Admin](admin.md#ai-accounts) and
+More about the order accounts are used in, limits and engines: [Admin](admin.md#providers) and
 [Usage and limits](usage-and-limits.md).
