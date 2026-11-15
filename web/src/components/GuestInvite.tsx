@@ -102,6 +102,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, noGuestAi 
                     <span className="mb-1 block text-xs font-medium text-muted">{t('guest.ai.limit')}</span>
                     <input type="number" inputMode="decimal" min={1} step={1} className={inputCls} value={Number.isFinite(value.limitUsd) ? value.limitUsd : ''}
                       onChange={(e) => onChange({ ...value, limitUsd: Number(e.target.value) })} data-testid="guest-ai-limit" />
+                    <span className="mt-1 block text-xs text-muted" data-testid="guest-ai-limit-hint">{t('guest.ai.limitHint')}</span>
                   </label>
                 </div>
               )}

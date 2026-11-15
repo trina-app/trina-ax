@@ -103,7 +103,7 @@ Guests don't take seats. Each plan allows a number of guests at a time:
 
 | Plan | Guests |
 |---|---|
-| Free | 3 |
+| Free trial | 10 |
 | Starter | 10 |
 | Team | 30 |
 | Business | 100 |

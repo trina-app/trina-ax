@@ -41,7 +41,7 @@ function aiWords(t: ReturnType<typeof useT>, ai: GuestAiChoice | null, connectio
   if (!ai) return null
   if (ai.mode !== 'team') return t(`guest.ai.${ai.mode}`)
   const label = connections?.find((c) => c.id === ai.credentialId)?.label
-  return [t('guest.ai.team'), label, `$${ai.limitUsd}`].filter(Boolean).join(' · ')
+  return [t('guest.ai.team'), label, t('guest.admin.upTo', { n: ai.limitUsd })].filter(Boolean).join(' · ')
 }
 
 export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, deletionRequested = [], deletionDue = {} }: {
@@ -121,7 +121,9 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
     .sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || a.name.localeCompare(b.name))
   // "3 of 10 guests" (or "3 guests" with no cap): the active ones, as the plan counts them; more than the plan allows
   // (a lowered plan) in the warning colour, with what that means
-  const used = limit?.used ?? guests.filter((u) => u.status === 'active').length
+  // counted from the list on the screen, not from the cap read when the page opened: removing, switching on or
+  // converting a guest changes it at once (QA TC-2191)
+  const used = guests.filter((u) => u.status === 'active').length
   const cap = limit ? limit.limit : undefined
   const over = typeof cap === 'number' && used > cap
   return (
@@ -150,7 +152,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
             const restoreBtn = g?.out === 'trashed' && g.place?.id
               ? (suffix: string) => <Button size="sm" variant="secondary" onClick={() => void restore(g.place!.id!, g.place!.name ?? '')} data-testid={`guest-restore-${u.username}${suffix}`}>{t('guest.admin.restoreProject')}</Button>
               : null
-            const meta = [where, removed ? null : aiWords(t, g?.ai ?? null, connections, g?.aiGone), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
+            const meta = [where, !removed && g?.aiUsedUp ? t('guest.admin.aiUsedUp') : null, removed ? null : aiWords(t, g?.ai ?? null, connections, g?.aiGone), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
             return (
               <ListRow
                 key={u.id}

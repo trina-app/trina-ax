@@ -457,8 +457,8 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
         </span>
       )}
       {m.local?.state === 'failed' && (
-        <span className="flex flex-wrap items-center justify-end gap-2 text-xs text-danger" role="alert" data-testid="send-failed">
-          <AlertTriangle size={13} aria-hidden /> {t('chat.notSent')}
+        <span className={clsx('flex flex-wrap items-center justify-end gap-2 text-xs', m.local.limit ? 'text-muted' : 'text-danger')} role={m.local.limit ? 'status' : 'alert'} data-testid="send-failed" data-limit={m.local.limit || undefined}>
+          {m.local.limit ? <CirclePause size={13} aria-hidden /> : <AlertTriangle size={13} aria-hidden />} {t('chat.notSent')}
           {m.local.error && <span className="basis-full text-right">{m.local.error}</span>}
           <button type="button" className="font-medium underline" onClick={() => void resend(chatId, m.id)}>
             {t('chat.sendAgain')}
