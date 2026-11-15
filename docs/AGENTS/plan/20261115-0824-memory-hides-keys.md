@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:24
 - Branch: `fix/memory-hides-keys`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (remember tool), server/src/tools/schedules.ts. Why: the AI's saved text is server work
   (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no new feature or API change
@@ -47,4 +47,5 @@ Plain-words check: no new UI text; the hidden mark is the existing "[hidden key]
 
 ## Result
 
-(at the end)
+Built as planned: remember and schedule_create hide stored keys before the card and the save; a one-time start-up
+pass hides them in memories the AI saved earlier. PR #953.
