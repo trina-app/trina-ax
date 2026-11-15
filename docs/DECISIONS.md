@@ -29059,3 +29059,17 @@ setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Ho
   reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
   (1440 and 390, light and dark).
 - Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).
+
+## Desktop team list: a workspace switcher (fix/team-picker-lean, 2026-11-15, QA TC-3090)
+
+The owner found the desktop's team list heavy, and its "Open now" pill looked like a button that did nothing (it was
+the open team's status tag; only the team's name opened it). Decided, after Slack's workspace switcher: with saved
+teams the screen leads with "Your teams", one row per team (an initial tile, the name, the address without "https://"
+as 13px meta), the web app's list row look (List.tsx ListRow: 15px name, 13px `--faint` meta, 8px rounded hover fill,
+the row's inset outside the text column). The whole row opens the team; the open team's row ends in a quiet check and
+"Current" and a click on it goes back to it. "Remove from list" moved from a red-outlined button into the row's "···"
+menu (faint until the row is hovered or focused, full on a touch screen); its question puts Cancel first and focuses it. The
+address box comes under the list as "Add another team" (no hint paragraph there); with no saved team the screen is
+unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
+row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
+one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.

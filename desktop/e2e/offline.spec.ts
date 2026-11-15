@@ -122,7 +122,7 @@ for (const locale of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       await shell.getByRole('button', { name: strings['offline.teams'], exact: true }).click()
       await expect(shell.getByTestId('team-list')).toBeVisible()
       // Reopen the stopped team from the native list: the registered worker still supplies the document.
-      await shell.locator('[data-testid="team"] button.open').click()
+      await shell.getByTestId('team-open').click()
       await expect.poll(() => page.isClosed()).toBe(true)
       page = await teamPage(app, server.url)
       await expect(page.locator('meta[name="mycel-offline"]')).toHaveAttribute('content', 'navigation-v1')
