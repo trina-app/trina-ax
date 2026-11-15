@@ -222,7 +222,7 @@ test('a new chat: a guest can be in a 1:1 chat, not a new group', async ({ page 
   await page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick').uncheck()
   // with someone else ticked first, Gina is greyed out
   await page.getByTestId('people-row').filter({ hasText: 'Olga' }).getByTestId('picker-tick').check()
-  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 방에 있어요")
+  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 그룹 대화에 있어요")
 })
 
 test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
@@ -250,7 +250,7 @@ test("a project's members dialog: a guest of a room shows greyed out in the sear
   await page.getByTestId('project-members-manage').click()
   await page.getByTestId('project-participants-search').fill('Gina')
   const row = page.getByTestId('participant-elsewhere-user-gina')
-  await expect(row).toContainText("'견적 준비' 방에 있어요")
+  await expect(row).toContainText("'견적 준비' 그룹 대화에 있어요")
   await expect(row.getByText('추가', { exact: true })).toHaveCount(0)
   await expect(row.getByTestId('guest-elsewhere-convert')).toHaveCount(0)
 })

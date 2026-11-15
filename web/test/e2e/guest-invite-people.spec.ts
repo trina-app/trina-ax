@@ -135,7 +135,7 @@ test('a member with no group chat and no project of theirs: a plain line instead
   await signIn(page, BOB)
   await page.goto('/rooms?new=1')
   await page.getByTestId('invite-guest-row').click()
-  await expect(page.getByTestId('guest-place-none')).toContainText('게스트를 초대할 방이나 프로젝트가 아직 없어요')
+  await expect(page.getByTestId('guest-place-none')).toContainText('게스트를 초대할 그룹 대화나 프로젝트가 아직 없어요')
 })
 
 test("the owner's welcome steps: Invite people lands on the invite step, whose line opens Invite a guest", async ({ page }) => {

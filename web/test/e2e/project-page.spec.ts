@@ -274,7 +274,7 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   // Restore goes (it would only say the same again); Delete for good stays
   await expect(page.getByTestId('project-restore')).toHaveCount(0)
   await page.getByTestId('project-delete-for-good').click()
-  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 완전히 삭제할까요?")
+  await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon' 프로젝트를 완전히 삭제할까요?")
   await expect(page.getByRole('dialog')).toContainText('파일도 함께 지워지고 되돌릴 수 없어요.')
   await page.getByTestId('dialog-confirm').click()
   await expect(page).toHaveURL(/\/projects$/)
