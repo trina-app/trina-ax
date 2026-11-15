@@ -74,6 +74,32 @@ void (async () => {
     await sleep(500)
     out.closedAfterYes = w.isDestroyed()
   }
+  // 1b. Tab goes only between the two buttons, even when the list is long enough to scroll (TC-3490)
+  {
+    const many = Array.from({ length: 40 }, (_, i) => ({ kind: 'folder' as const, path: `/m/p${i}`, label: `Project ${i}` }))
+    const ask = askConsent({ parent, preload, view: consentView('en', 'darwin', roots, many) })
+    const w = await consentWindow()
+    const focused = () => w.webContents.executeJavaScript('document.activeElement?.dataset?.testid ?? document.activeElement?.className ?? null')
+    out.overflows = await w.webContents.executeJavaScript('(() => { const s = document.querySelector(".consent-body-scroll"); return s.scrollHeight > s.clientHeight })()')
+    const tabs: unknown[] = [await focused()]
+    for (let i = 0; i < 3; i++) {
+      key(w, 'Tab')
+      await sleep(100)
+      tabs.push(await focused())
+    }
+    w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab', modifiers: ['shift'] })
+    w.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab', modifiers: ['shift'] })
+    await sleep(100)
+    tabs.push(await focused())
+    // a click on the content, then Tab: a button again
+    await w.webContents.executeJavaScript('document.querySelector(".consent-body-scroll").focus(); document.activeElement === document.body || document.querySelector(".consent-places").click(); 1')
+    key(w, 'Tab')
+    await sleep(100)
+    tabs.push(await focused())
+    out.tabs = tabs
+    ask.close()
+    await ask.result
+  }
   // 2. Escape: no, at once
   {
     const ask = askConsent({ parent, preload, view: consentView('en', 'darwin', roots, null) })
