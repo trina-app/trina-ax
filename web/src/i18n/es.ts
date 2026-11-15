@@ -4678,7 +4678,7 @@ export const es: Record<MessageKey, string> = {
   "credentials.loginStop": "Detenerlo",
   "credentials.loginIdle": "Este inicio de sesión se detuvo porque esta página estuvo inactiva un rato y otra persona necesitaba conectarse. Vuelva a empezar.",
   "credentials.loginStopRestart": "Detener y empezar de nuevo",
-  "credentials.loginBusyLeft": "Termina en {n} min como máximo. Vuelva a intentarlo entonces.",
+  "credentials.loginBusyLeft": "Termina en {n} min como máximo, a menudo mucho antes. Vuelva a intentarlo en un par de minutos.",
   "credentials.loginBusyMember": "Alguien de su equipo está conectando una IA ahora. Solo puede haber una a la vez.",
   "credentials.loginBusyMine": "Su inicio de sesión de IA anterior sigue en curso, quizá en una pestaña que cerró. Solo puede haber uno a la vez.",
   "audit.act.drive.share_created": "Compartió un Google Drive con el equipo",

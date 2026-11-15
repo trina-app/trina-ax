@@ -388,10 +388,11 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   }, [login, personal])
 
   // the tab closes (or the page goes) while the sign-in runs: it is stopped, so the server's one sign-in slot is free
-  // for everyone at once (QA TC-2581; without it the server frees it once the 3-second reads above have stopped for 2
+  // for everyone at once (QA TC-2581; without it the server frees it once the 3-second reads above have stopped for 5
   // minutes and someone asks). A page kept for the back button (persisted) may come back: its reads say it is there.
   useEffect(() => {
-    if (!login || FINISHED.includes(login.state)) return
+    // not while the pasted code is being checked: that sign-in was approved already and finishes by itself
+    if (!login || FINISHED.includes(login.state) || login.state === 'checking') return
     const bye = (e: PageTransitionEvent) => {
       if (e.persisted) return
       void api.call(personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id: login.loginId }, keepalive: true }).catch(() => {})

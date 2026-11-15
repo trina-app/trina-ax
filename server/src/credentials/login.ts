@@ -13,7 +13,7 @@
 // One sign-in at a time per team (either kind); 16 minutes; a server restart forgets running sign-ins.
 // The slot is not held by a browser that went away (QA TC-2581: a closed tab kept everyone waiting 16 minutes): the
 // dialog reads the sign-in every 3 seconds (GET .../credential-logins/:id) and that read is its heartbeat. A sign-in
-// whose starter has not been heard from for LOGIN_IDLE_MS is ended ('expired', reason 'idle') when someone asks for the
+// whose starter has not been heard from for LOGIN_IDLE_MS (5 minutes) is ended ('expired', reason 'idle') when someone asks for the
 // slot, so a phone that only paused the page while its person approved elsewhere keeps its sign-in when nobody waits.
 // A closed tab also says goodbye itself (a keepalive DELETE on pagehide). A busy answer says how long it can still take.
 import crypto from 'node:crypto'
@@ -36,7 +36,7 @@ import { recordSignIn } from '../auth/team-sign-ins'
 
 export const LOGIN_TIMEOUT_MS = 16 * 60_000
 /** no read from the starter's dialog for this long: their browser is gone, and the slot goes to whoever asks for it */
-export const LOGIN_IDLE_MS = 2 * 60_000
+export const LOGIN_IDLE_MS = 5 * 60_000
 /** forget finished sign-ins after this (GET of an old one = 404) */
 const KEEP_FINISHED_MS = 30 * 60_000
 /** the code the Claude page shows after approval: <authorization code>#<state> (the launcher checks the same) */
@@ -101,6 +101,8 @@ export function serverLoginDeps(ctx: AppContext, bin: (kind: CredentialLoginKind
 
 class Logins {
   readonly all = new Map<string, Login>()
+  /** a start is waiting for the launcher: no other start may pass the one-at-a-time check meanwhile */
+  private claiming = false
   constructor(private cc: CredCtx, private deps: LoginDeps) {}
 
   private timeout() { return this.deps.timeoutMs ?? LOGIN_TIMEOUT_MS }
@@ -110,7 +112,8 @@ class Logins {
   private endIdle() {
     const now = this.cc.now()
     for (const l of this.all.values()) {
-      if (l.endedAt !== null || l.storing || now - l.seenAt <= this.idle()) continue
+      // 'checking': the pasted code is being exchanged (up to 90 s), an approved sign-in that is about to be stored
+      if (l.endedAt !== null || l.storing || l.state === 'checking' || now - l.seenAt <= this.idle()) continue
       l.cancel(); this.end(l, 'expired', 'idle')
     }
   }
@@ -163,6 +166,8 @@ class Logins {
       if (!r || r.kind !== kind || (i.personal && r.owner_user_id !== i.userId) || (!i.personal && r.owner_user_id !== null)) fail('not_found')
     }
     this.endIdle()
+    // another start is between its check and its entry (waiting for the launcher): the slot is taken already
+    if (this.claiming) fail('busy', ct('loginBusy', i.locale), { params: { reason: 'login_busy', expiresAt: new Date(cc.now() + this.timeout()).toISOString() } satisfies LoginBusyParams })
     const running = [...this.all.values()].find((l) => l.endedAt === null)
     if (running) {
       // how long it can still take, for everyone (the truth: it ends by expiresAt at the latest, sooner if its browser
@@ -174,7 +179,10 @@ class Logins {
         ...(mine || i.showBusy ? { loginId: running.loginId, personal: running.personal } : {}), ...(starter !== null ? { starter } : {}) }
       fail('busy', ct(mine ? 'loginBusyMine' : 'loginBusy', i.locale), { params })
     }
-    const where = await this.deps.launcher(kind)
+    // the slot is claimed before the wait, so two starts at once cannot both pass the check above
+    this.claiming = true
+    let where: Awaited<ReturnType<LoginDeps['launcher']>>
+    try { where = await this.deps.launcher(kind) } finally { this.claiming = false }
     if (!where) return fail('engine_unavailable', ct(kind === 'chatgpt' ? 'loginUnavailable' : 'claudeLoginUnavailable', i.locale))
     const loginId = crypto.randomBytes(18).toString('base64url')
     const l: Login = {

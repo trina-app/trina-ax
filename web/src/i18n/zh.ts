@@ -4661,7 +4661,7 @@ export const zh: Record<MessageKey, string> = {
   "credentials.loginStop": "停止",
   "credentials.loginIdle": "由于此页面离开了一段时间且其他人需要登录，此登录已停止。请重新开始。",
   "credentials.loginStopRestart": "停止并重新开始",
-  "credentials.loginBusyLeft": "最迟 {n} 分钟内结束。届时请再试。",
+  "credentials.loginBusyLeft": "最迟 {n} 分钟内结束，通常会快得多。请过几分钟再试。",
   "credentials.loginBusyMember": "团队中有人正在连接 AI。一次只能进行一个。",
   "credentials.loginBusyMine": "你之前开始的 AI 登录仍在进行中，可能是在已关闭的标签页里。一次只能进行一个。",
   "audit.act.drive.share_created": "与团队共享了 Google Drive",

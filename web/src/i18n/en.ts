@@ -4722,7 +4722,7 @@ export const en: Record<MessageKey, string> = {
   "credentials.loginStop": "Stop it",
   "credentials.loginIdle": "This sign-in stopped because this page was away for a while and someone else needed to sign in. Start again.",
   "credentials.loginStopRestart": "Stop it and start again",
-  "credentials.loginBusyLeft": "It ends within {n} min at the latest. Try again then.",
+  "credentials.loginBusyLeft": "It ends within {n} min at the latest, often much sooner. Try again in a couple of minutes.",
   "credentials.loginBusyMember": "Someone on your team is connecting an AI right now. Only one can run at a time.",
   "credentials.loginBusyMine": "Your earlier AI sign-in is still running, maybe in a tab you closed. Only one can run at a time.",
   "audit.act.drive.share_created": "Shared a Google Drive with the team",

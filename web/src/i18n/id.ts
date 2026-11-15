@@ -4722,7 +4722,7 @@ export const id: Record<MessageKey, string> = {
   "credentials.loginStop": "Hentikan",
   "credentials.loginIdle": "Proses masuk ini berhenti karena halaman ini lama tidak aktif dan orang lain perlu masuk. Mulai lagi.",
   "credentials.loginStopRestart": "Hentikan dan mulai lagi",
-  "credentials.loginBusyLeft": "Paling lambat selesai dalam {n} menit. Coba lagi setelah itu.",
+  "credentials.loginBusyLeft": "Paling lambat selesai dalam {n} menit, sering jauh lebih cepat. Coba lagi beberapa menit lagi.",
   "credentials.loginBusyMember": "Seseorang di tim Anda sedang menghubungkan AI. Hanya satu yang bisa berjalan sekaligus.",
   "credentials.loginBusyMine": "Proses masuk AI Anda sebelumnya masih berjalan, mungkin di tab yang sudah Anda tutup. Hanya satu yang bisa berjalan sekaligus.",
   "audit.act.drive.share_created": "Membagikan Google Drive dengan tim",

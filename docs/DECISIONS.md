@@ -27371,8 +27371,10 @@ Builds on "Guests: only what they were invited to" and "Claude 구독 연결: �
   other choices (no change in what the server allows: the guest's AI never runs there, `credentials/guest-ai.ts`).
 - **The one sign-in slot is not held by a browser that went away** (TC-2581, `credentials/login.ts`): every sign-in
   keeps `seenAt`, updated by its start, the code, and every read of it (the dialog's 3-second poll is the heartbeat).
-  When someone asks for the slot, a running sign-in not heard from for `LOGIN_IDLE_MS` (2 minutes) is ended `expired`
-  with reason `idle`. One storing its token is never ended this way. We only free it when someone asks: a phone that
+  When someone asks for the slot, a running sign-in not heard from for `LOGIN_IDLE_MS` (5 minutes: logging in at the provider on a phone,
+  with an email code, can take a while) is ended `expired` with reason `idle`. One storing its token, or checking
+  the pasted code, is never ended this way, and the dialog sends no goodbye then either. A start claims the slot
+  before it waits for the launcher, so two starts at once cannot both run. We only free it when someone asks: a phone that
   paused the page while its person approved elsewhere keeps its sign-in when nobody is waiting. The dialog also says
   goodbye itself: on `pagehide` (not a page kept for the back button) it sends the DELETE with `keepalive`
   (`ApiClient` `keepalive`). Back on the page, the starter reads "This sign-in stopped because this page was away
@@ -27380,7 +27382,11 @@ Builds on "Guests: only what they were invited to" and "Claude 구독 연결: �
 - **The busy answer tells everyone the truth** (`LoginBusyParams`, now for every caller): `expiresAt` (the latest end)
   for everyone; `mine`, `loginId` and `personal` for its own starter, who may stop it ("Stop it and start again" stops
   it through its door and starts the new one); `starter` only for the owner and admins at the admin door, as before. A
-  member never learns whose it is. The dialog shows that line in place of the server's raw message.
+  member never learns whose it is. The dialog shows that line in place of the server's raw message, keeps its start
+  button off while the slot is taken, and reads `GET /api/me/credential-login-slot` (taken or not, until when; never
+  whose; open to guests with their own sign-in) every 4 seconds while it is someone else's, so the button turns on by
+  itself once it is free. A waiting reader counts as someone asking: a quiet sign-in gives way to it as to a start.
+- **An option that cannot be picked looks off** in the guest AI choices: the whole row is faded, not only its radio.
 - **A switched-off account with its right password is told the truth** (TC-2582, `auth/accounts.ts` login): 401 with
   `params.reason 'account_off'` and "This account was turned off. Ask the person who invited you." (a guest) or "…Ask
   the team owner or an admin." (anyone else). A wrong password and an unknown username still get the generic words

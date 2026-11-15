@@ -2326,9 +2326,9 @@ export class MockServer {
       const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.', zh: '用户名或密码不正确。' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       // like the server: a switched-off account with its right password hears the truth (who can switch it back on)
-      if (u!.status !== 'active') fail('unauthorized', 401, u!.role === 'guest'
-        ? { ko: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', en: 'This account was turned off. Ask the person who invited you.' }[loc === 'ko' ? 'ko' : 'en']
-        : { ko: '이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.', en: 'This account was turned off. Ask the team owner or an admin.' }[loc === 'ko' ? 'ko' : 'en'], undefined, { reason: 'account_off' })
+      if (u!.status !== 'active') fail('unauthorized', 401, (u!.role === 'guest'
+        ? { ko: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', en: 'This account was turned off. Ask the person who invited you.', id: 'Akun ini sudah dimatikan. Tanyakan kepada orang yang mengundang Anda.', ja: 'このアカウントはオフになっています。招待した人に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte a la persona que le invitó.', zh: '此账号已被关闭。请询问邀请你的人。' }
+        : { ko: '이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.', en: 'This account was turned off. Ask the team owner or an admin.', id: 'Akun ini sudah dimatikan. Tanyakan kepada pemilik tim atau admin.', ja: 'このアカウントはオフになっています。チームのオーナーか管理者に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte al propietario del equipo o a un administrador.', zh: '此账号已被关闭。请询问团队所有者或管理员。' })[loc], undefined, { reason: 'account_off' })
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
       u!.lastSeenAt = now()

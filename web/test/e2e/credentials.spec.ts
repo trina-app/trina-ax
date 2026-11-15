@@ -361,9 +361,10 @@ test('an admin sees and uses the Providers buttons: adds a key with no password,
   await expect(page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')).toBeEnabled()
 })
 
-// Only one AI sign-in runs at a time. When another is in the way, the owner or an admin is told whose it is and stops
-// it from the dialog, then starts their own.
-test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and the start goes through', async ({ page }) => {
+// Only one AI sign-in runs at a time. When the one in the way is the person's own (started elsewhere, a tab they closed),
+// the dialog says so and "Stop it and start again" ends it and starts the new one in one press (QA TC-2581). Whose it is,
+// for the owner and admins when it is someone else's, is covered in tests/unit/a-credentials-claude-login.test.ts.
+test('my own sign-in in the way: the dialog says so, and Stop it and start again goes through in one press', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const call = (method: 'patch' | 'post', url: string, data: object) => page.request[method](url, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -378,11 +379,10 @@ test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and th
   await page.getByTestId('plan-notice-ack').check()
   await page.getByTestId('credential-submit').click()
   const busy = page.getByTestId('login-busy')
-  await expect(busy).toBeVisible()
-  await expect(busy).toContainText('Olga')
+  await expect(busy).toContainText(DICTS.ko['credentials.loginBusyMine'])
+  await expect(page.getByTestId('dialog-error')).toHaveCount(0)
   await busy.getByTestId('login-busy-stop').click()
   await expect(page.getByTestId('login-busy')).toHaveCount(0)
-  await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })
 
@@ -427,12 +427,13 @@ test('the one sign-in slot: a member reads a true wait, stops their own leftover
   const tab2 = await context.newPage()
   await openOwn(tab2)
   await expect(tab2.getByTestId('login-busy')).toContainText(DICTS.ko['credentials.loginBusyMine'])
+  const restarted = tab2.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/me/credential-logins') && r.status() === 202)
   await tab2.getByTestId('login-busy-stop').click()
+  const second = (await (await restarted).json()) as { loginId: string }
   await expect(tab2.getByTestId('claude-open')).toBeVisible()
-  // closing that tab while it runs stops it: the first tab can start at once
-  const bye = page.waitForRequest((r) => r.method() === 'DELETE' && /\/api\/me\/credential-logins\//.test(r.url()))
+  // closing that tab while it runs stops it (its goodbye on pagehide): the first tab can start at once
   await tab2.close({ runBeforeUnload: true })
-  await bye
+  await expect.poll(async () => ((await (await page.request.get(`/api/me/credential-logins/${second.loginId}`)).json()) as { state: string }).state).toBe('cancelled')
   await openOwn()
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })

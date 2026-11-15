@@ -174,17 +174,17 @@ describe('the one sign-in slot is not held by a browser that went away (QA TC-25
     expect(await final(alice, r.loginId)).toMatchObject({ state: 'cancelled' })
     setLogin({})
   })
-  test('a starter whose dialog stopped reading for 2 minutes loses the slot to the next one who asks; one still reading keeps it', async () => {
+  test('a starter whose dialog stopped reading for 5 minutes loses the slot to the next one who asks; one still reading keeps it', async () => {
     setLogin({ FAKE_LOGIN_ACCOUNT: 'acc-idle', FAKE_LOGIN_WAIT_MS: '20000' })
     const r = await h.api('alice').call(API.startMyCredentialLogin, { body: { label: 'Alice idle', acknowledgedPlanNotice: true } })
     await alice.next('credential.login', (f) => f.data.loginId === r.loginId && f.data.state === 'code', 20_000)
     const l = logins().all.get(r.loginId)!
-    // quiet for a minute and a half, then its 3-second read: still there, the slot stays taken
-    l.seenAt -= 90_000
+    // quiet for four minutes, then its 3-second read: still there, the slot stays taken
+    l.seenAt -= 4 * 60_000
     await h.api('alice').call(API.getMyCredentialLogin, { params: { id: r.loginId } })
     expect((await startOver('bob', 'Bob too early')).status).toBe(409)
-    // no read for over 2 minutes (the tab is gone): the next start ends it and gets the slot
-    l.seenAt -= 2 * 60_000 + 1000
+    // no read for over 5 minutes (the tab is gone): the next start ends it and gets the slot
+    l.seenAt -= 5 * 60_000 + 1000
     const got = await startOver('bob', 'Bob gets it')
     expect(got.status).toBe(202)
     const bobs = (await got.json()) as CredentialLogin
@@ -196,13 +196,28 @@ describe('the one sign-in slot is not held by a browser that went away (QA TC-25
     expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
     setLogin({})
   })
-  test('a token being stored is never ended for being quiet', async () => {
+  test('two starts at the same moment: only one gets the slot (it is claimed before the launcher answers)', async () => {
+    setLogin({ FAKE_LOGIN_ACCOUNT: 'acc-race', FAKE_LOGIN_WAIT_MS: '20000' })
+    const both = await Promise.allSettled([startOver('alice', 'Alice race'), startOver('bob', 'Bob race')])
+    const statuses = both.map((x) => (x.status === 'fulfilled' ? x.value.status : 0)).sort()
+    expect(statuses).toEqual([202, 409])
+    const won = both.find((x) => x.status === 'fulfilled' && x.value.status === 202) as PromiseFulfilledResult<Response>
+    const l = (await won.value.json()) as CredentialLogin
+    const who = [...logins().all.values()].find((x) => x.loginId === l.loginId)!.userId
+    expect((await h.req(who, `/api/me/credential-logins/${l.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    expect(await final(who === 'alice' ? alice : bob, l.loginId)).toMatchObject({ state: 'cancelled' })
+    setLogin({})
+  })
+  test('a token being stored, or a pasted code being checked, is never ended for being quiet', async () => {
     setLogin({ FAKE_LOGIN_ACCOUNT: 'acc-store', FAKE_LOGIN_WAIT_MS: '20000' })
     const r = await h.api('alice').call(API.startMyCredentialLogin, { body: { label: 'Alice storing', acknowledgedPlanNotice: true } })
     await alice.next('credential.login', (f) => f.data.loginId === r.loginId && f.data.state === 'code', 20_000)
     const l = logins().all.get(r.loginId)!
     l.storing = true; l.seenAt -= 10 * 60_000
     try { expect((await startOver('bob', 'Bob waits')).status).toBe(409) } finally { l.storing = false }
+    const was = l.state
+    l.state = 'checking'
+    try { expect((await startOver('bob', 'Bob waits again')).status).toBe(409) } finally { l.state = was }
     expect((await h.req('alice', `/api/me/credential-logins/${r.loginId}`, { method: 'DELETE' })).status).toBe(204)
     expect(await final(alice, r.loginId)).toMatchObject({ state: 'cancelled' })
     setLogin({})

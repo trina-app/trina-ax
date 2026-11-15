@@ -4678,7 +4678,7 @@ export const ja: Record<MessageKey, string> = {
   "credentials.loginStop": "中止する",
   "credentials.loginIdle": "このページがしばらく離れている間に別の人が接続する必要があったため、このサインインは止まりました。もう一度始めてください。",
   "credentials.loginStopRestart": "中止してやり直す",
-  "credentials.loginBusyLeft": "遅くとも{n}分以内に終わります。そのあとでもう一度お試しください。",
+  "credentials.loginBusyLeft": "遅くとも{n}分以内、たいていはもっと早く終わります。数分後にもう一度お試しください。",
   "credentials.loginBusyMember": "チームの誰かが今AIを接続しています。同時に実行できるのは1つだけです。",
   "credentials.loginBusyMine": "前に始めたAIサインインがまだ進行中です。閉じたタブで始めたものかもしれません。同時に実行できるのは1つだけです。",
   "audit.act.drive.share_created": "Google Driveをチームと共有",
