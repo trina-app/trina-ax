@@ -6031,16 +6031,18 @@ export class MockServer {
   // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
   // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
   // (sharedChats with no project, so turns, authors and the 404 of everyone else work as there), with who it is shared
-  // with here. Test-only: POST /__test/chat-share {confirm?: {hiddenAnswers?, memories?, people?, places?} | null (adds
-  // that bring in new people answer "confirm" with these until the next reset; the key is "ok:<the picks>"), fail?: n
-  // (the next n saves answer 500)}. A saved add leaves a "chat.shared" notice for each person who starts to see it.
+  // with here. Test-only: POST /__test/chat-share {confirm?: {memoryAnswers?, fileAnswers?, accountAnswers?, places?,
+  // roomsUnseen?, unchecked?, earlierFiles?} | null (what the preview and a save's check say for adds that bring in new
+  // people until the next reset; a save of new people needs the key "ok:<the picks>", the preview's), fail?: n (the
+  // next n saves answer 500), previewFail?: n (the next n previews answer 503)}. A saved add leaves a "chat.shared" notice for each person who starts to see it.
   peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
   /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
   peopleHidden = new Set<string>()
   /** who was one of a chat's people (chat_audience_past): their link says "no longer shared with you" (QA TC-2009) */
   peoplePast = new Map<string, Set<string>>()
-  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[]; earlierFiles?: number } | null = null
+  peopleConfirm: { memoryAnswers?: number; fileAnswers?: number; accountAnswers?: number; places?: AnswerSharePlace[]; roomsUnseen?: boolean; unchecked?: number; earlierFiles?: number } | null = null
   peopleFail = 0
+  peoplePreviewFail = 0
   /** POST /__test/chat-share {filesNotCopied}: the next first share says this many earlier files could not go with it */
   peopleNotCopied = 0
   readonly peopleSharedInstalled = this.installPeopleShared()
@@ -6116,7 +6118,8 @@ export class MockServer {
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
       if (p !== '/__test/chat-share') return baseControl(p, req)
-      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number; filesNotCopied?: number }
+      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number; filesNotCopied?: number; previewFail?: number }
+      if (body.previewFail !== undefined) this.peoplePreviewFail = body.previewFail
       if (body.confirm !== undefined) this.peopleConfirm = body.confirm
       if (body.filesNotCopied !== undefined) this.peopleNotCopied = body.filesNotCopied
       if (body.fail !== undefined) this.peopleFail = body.fail
@@ -6199,7 +6202,8 @@ export class MockServer {
         }
       })
     }
-    h.putChatAudience = (c) => {
+    // the save and its dry run (the Share dialog's preview, QA TC-3092): one body, `dry` returns the check and its key
+    const putOrPreview = (c: Ctx & { body: { subjects: unknown[]; confirmKey?: string } }, dry: boolean): unknown => {
       const chat = sees(c.params.id!, c.user)
       const no = (status: number, reason: string, message: string): never => fail(status === 400 ? 'validation' : 'conflict', status, message, undefined, { reason })
       const s = this.sharedChats.get(chat.id)
@@ -6217,6 +6221,7 @@ export class MockServer {
       const before = ps?.subjects ?? []
       const added = wanted.filter((x) => !before.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
       const removed = before.filter((x) => !wanted.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
+      if (dry && !added.length && !removed.length) return { check: { added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }, previewKey: '' }
       if (!added.length && !removed.length) {
         if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 그룹을 한 명 이상 골라 주세요.')
         return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
@@ -6227,7 +6232,8 @@ export class MockServer {
         const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active') : this.groups.some((g) => g.id === x.subjectId && (c.user.role !== 'member' || g.memberIds.includes(c.user.id)))
         if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 그룹이 있어요. 다시 골라 주세요.')
       }
-      if (this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
+      if (dry && this.peoplePreviewFail > 0) { this.peoplePreviewFail--; fail('unavailable', 503, 'preview failed on purpose') }
+      if (!dry && this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
       const was = new Set(ps ? this.peopleAudience(chat.id) : [c.user.id])
       const resolve = (subjects: typeof wanted) => {
         const out = new Set([c.user.id])
@@ -6247,11 +6253,11 @@ export class MockServer {
         groups: afterGroups.filter((g) => g.memberIds.includes(x.subjectId) && (c.user.role !== 'member' || g.memberIds.includes(c.user.id))).map((g) => g.name),
       })).filter((k) => k.groups.length)
       const k = `ok:${key(wanted)}`
-      const ask = this.peopleConfirm
-      if (gained.length && ask && c.body.confirmKey !== k) {
-        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}), confirmKey: k,
-          provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
-      }
+      const ask = this.peopleConfirm ?? {}
+      const check = { added: gained.length, memoryAnswers: ask.memoryAnswers ?? 0, fileAnswers: ask.fileAnswers ?? 0, accountAnswers: ask.accountAnswers ?? 0, places: ask.places ?? [], otherPlaces: false, roomsUnseen: !!ask.roomsUnseen, unchecked: ask.unchecked ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}) }
+      if (dry) return { check, previewKey: gained.length ? k : '' }
+      // a save that brings anyone in carries the key of the check (the preview's): else the check, nothing saved
+      if (gained.length && c.body.confirmKey !== k) return { status: 'confirm', check, confirmKey: k, reason: c.body.confirmKey === undefined ? 'unchecked' as const : 'changed' as const }
       // who saw it, before or after (never its creator)
       const past = this.peoplePast.get(chat.id) ?? new Set<string>()
       for (const id of [...was, ...after]) if (id !== c.user.id) past.add(id)
@@ -6275,6 +6281,8 @@ export class MockServer {
       if (!ps) this.peopleNotCopied = 0
       return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user), ...(notCopied ? { filesNotCopied: notCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
     }
+    h.putChatAudience = (c) => putOrPreview(c, false) as never
+    h.previewChatAudience = (c) => putOrPreview(c, true) as never
     const hide = (c: Ctx, on: boolean) => {
       const chat = sees(c.params.id!, c.user)
       const s = this.sharedChats.get(chat.id)
@@ -6937,23 +6945,18 @@ export class MockServer {
       const others = this.sharedAudience(p).filter((u) => u.id !== c.user.id)
       const msgs = this.messages.filter((m) => m.chatId === chat.id)
       const blind = new Set<string>()
-      const places = new Map<string, AnswerSharePlace>()
-      let otherPlaces = false
       for (const f of msgs.filter((m) => m.role === 'assistant').flatMap((m) => this.sources.get(m.id) ?? [])) {
-        const miss = others.filter((u) => this.access(f.path, u) === 'none')
-        if (!miss.length) continue
-        for (const u of miss) blind.add(u.id)
-        const place: AnswerSharePlace | null = f.path.startsWith(`users/${c.user.id}/`) ? { kind: 'mine' } : this.access(f.path, c.user) !== 'none' ? { kind: 'folder', path: f.path.split('/').slice(0, -1).join('/') } : null
-        if (place) places.set(JSON.stringify(place), place)
-        else otherPlaces = true
+        for (const u of others.filter((x) => this.access(f.path, x) === 'none')) blind.add(u.id)
       }
       const memories = msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
       const confirmKey = `mock-share-${chat.id}-${this.shareEpoch}-${others.length}`
       // `ask` (the title menu): the question first even when nothing applies
       if ((blind.size || memories || c.body.ask || c.body.confirmKey !== undefined) && c.body.confirmKey !== confirmKey) {
+        // (each answer's own files: counted by answer, as the server's check: chat/audience-check.ts)
+        const fileAnswers = msgs.filter((m) => m.role === 'assistant' && (this.sources.get(m.id) ?? []).some((f) => others.some((u) => this.access(f.path, u) === 'none'))).length
         return {
-          status: 'confirm', audience: others.length, memories, confirmKey,
-          provenance: blind.size ? { people: blind.size, places: [...places.values()], otherPlaces } : null,
+          status: 'confirm', audience: others.length, confirmKey,
+          check: { added: others.length, memoryAnswers: memories ? msgs.filter((m) => m.role === 'assistant').length : 0, fileAnswers, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 },
           ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
         }
       }

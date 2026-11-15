@@ -144,8 +144,8 @@ describe('sharing', () => {
     const c = await put('alice', id, [bob])
     expect(c.status).toBe('confirm')
     if (c.status !== 'confirm') return
-    expect(c.added).toBe(1)
-    expect(c.provenance?.people).toBe(1)
+    expect(c.reason).toBe('unchecked')
+    expect(c.check).toMatchObject({ added: 1, fileAnswers: 1, memoryAnswers: 0, accountAnswers: 0, unchecked: 0 })
     expect(JSON.stringify(c)).not.toMatch(/bob|Bob/)
     // nothing saved yet
     expect(db().query('SELECT people_shared_at FROM chats WHERE id = ?').get(id)).toEqual({ people_shared_at: null })
@@ -154,13 +154,16 @@ describe('sharing', () => {
     expect(other).toMatchObject({ status: 'confirm', reason: 'changed' })
     const saved = await put('alice', id, [bob], c.confirmKey)
     expect(saved.status).toBe('saved')
-    // erin (marketing) added later reads the brief herself: nothing to ask
-    expect((await put('alice', id, [bob, marketing])).status).toBe('saved')
+    // erin (marketing) added later reads the brief herself: nothing at stake, but the save still carries the check's key
+    const quiet = await put('alice', id, [bob, marketing])
+    expect(quiet).toMatchObject({ status: 'confirm', reason: 'unchecked', check: { added: 1, fileAnswers: 0, memoryAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false } })
+    if (quiet.status === 'confirm') expect((await put('alice', id, [bob, marketing], quiet.confirmKey)).status).toBe('saved')
     // the widening list of this chat (phase 1's list, chat target): its creator only; its total is the confirm's count
     const carol: Sub = { subjectType: 'user', subjectId: 'carol' }
     const ask2 = await put('alice', id, [bob, marketing, carol])
     const list = await h.api('alice').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [bob, marketing, carol] } })
-    expect(list.total).toBe(ask2.status === 'confirm' ? ask2.hiddenAnswers : 0)
+    expect(ask2.status).toBe('confirm')
+    if (ask2.status === 'confirm') expect(list.total).toBe(ask2.check.fileAnswers)
     for (const it of list.items) { expect(it.chatId).toBe(id); expect(it.missedBy).toEqual(['Carol Park']) }
     expect(await reason(h.api('bob').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [carol] } }))).toEqual([403, 'widening_not_allowed'])
     expect((await errOf(h.api('dana').call(API.wideningAnswers, { body: { target: { kind: 'chat', chatId: id }, add: [carol] } }))).status).toBe(404)
@@ -450,5 +453,109 @@ describe('rollback guard', () => {
       expect(await status('bob', `/api/chats/${id}`)).toBe(404)
     }
     expect(db().query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'chat.unshared_rollback' AND target IN (?, ?)").get(ran, moved)).toEqual({ n: 2 })
+  })
+})
+
+// ---------------- one press: the preview and the key (QA TC-3092) ----------------
+describe('the preview and the key', () => {
+  const preview = (user: string, chatId: string, subjects: Sub[]) => h.api(user).call(API.previewChatAudience, { params: { id: chatId }, body: { subjects } })
+  const carol: Sub = { subjectType: 'user', subjectId: 'carol' }
+  async function briefChat() {
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await ask('alice', id, fake({ tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }))
+    return id
+  }
+
+  test('the preview says what is at stake, saves nothing, and its key saves in one press', async () => {
+    const id = await briefChat()
+    const audits = () => (db().query("SELECT COUNT(*) AS n FROM audit_log WHERE target = ?").get(id) as { n: number }).n
+    const before = audits()
+    const p = await preview('alice', id, [bob])
+    expect(p.check).toMatchObject({ added: 1, fileAnswers: 1, memoryAnswers: 0, accountAnswers: 0, unchecked: 0 })
+    expect(p.previewKey).not.toBe('')
+    // never who: no name of the people picked, nor of anyone else
+    expect(JSON.stringify(p)).not.toMatch(/bob|Bob|erin|Erin/)
+    expect(db().query('SELECT people_shared_at FROM chats WHERE id = ?').get(id)).toEqual({ people_shared_at: null })
+    expect(audits()).toBe(before)
+    // one press
+    expect((await put('alice', id, [bob], p.previewKey)).status).toBe('saved')
+  })
+
+  test('a group picked: the preview counts its new people and names nothing of them', async () => {
+    const id = await briefChat()
+    const p = await preview('alice', id, [marketing])
+    // erin is in marketing and reads the brief: nothing at stake, one new person
+    expect(p.check).toMatchObject({ added: 1, fileAnswers: 0 })
+    expect(JSON.stringify(p)).not.toMatch(/erin|Erin/)
+  })
+
+  test('no key, or a key of another list or state: nothing is saved and the answer is the check', async () => {
+    const id = await briefChat()
+    // add two, take one out: the first preview's key is no yes for the second list
+    const two = await preview('alice', id, [bob, carol])
+    expect(two.check.added).toBe(2)
+    const one = await put('alice', id, [bob], two.previewKey)
+    expect(one).toMatchObject({ status: 'confirm', reason: 'changed', check: { added: 1 } })
+    // the second list's own preview saves it in one press
+    const again = await preview('alice', id, [bob])
+    expect((await put('alice', id, [bob], again.previewKey)).status).toBe('saved')
+    // a new message since the preview: asked again
+    const id2 = await briefChat()
+    const p = await preview('alice', id2, [bob])
+    await ask('alice', id2, `more\n${fake({ say: 'more' })}`)
+    expect(await put('alice', id2, [bob], p.previewKey)).toMatchObject({ status: 'confirm', reason: 'changed' })
+    // someone joined the group picked since the preview: asked again
+    const id3 = await newChat()
+    const g = await preview('alice', id3, [marketing])
+    db().query("INSERT INTO group_members (group_id, user_id) VALUES ('marketing', 'carol')").run()
+    try {
+      expect(await put('alice', id3, [marketing], g.previewKey)).toMatchObject({ status: 'confirm', reason: 'changed', check: { added: 2 } })
+    } finally { db().query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'carol'").run() }
+    // taking people out needs no key
+    const id4 = await newChat()
+    await share('alice', id4, [bob, marketing])
+    expect((await put('alice', id4, [marketing])).status).toBe('saved')
+  })
+
+  test('memories count only the answers of the chat\'s private time', async () => {
+    const memory = crypto.randomUUID()
+    db().query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES (?, 'alice', 'likes tea', 'user', ?)").run(memory, '2020-01-01T00:00:00.000Z')
+    try {
+      const id = await newChat('alice', 'tea')
+      expect((await preview('alice', id, [bob])).check.memoryAnswers).toBe(1)
+      await share('alice', id, [bob])
+      // bob's answer in the shared chat carries no memories
+      await ask('bob', id, `from bob\n${fake({ say: 'ok' })}`)
+      expect((await preview('alice', id, [bob, carol])).check.memoryAnswers).toBe(1)
+    } finally { db().query('DELETE FROM memories WHERE id = ?').run(memory) }
+  })
+
+  test('who may preview: its creator; another person in it 403, anyone else 404; the refusals of a save', async () => {
+    const id = await newChat()
+    await share('alice', id, [bob])
+    expect(await reason(preview('bob', id, [bob, carol]))).toEqual([403, 'chat_share_creator_only'])
+    for (const u of ['carol', 'dana']) expect((await errOf(preview(u, id, [carol]))).status).toBe(404)
+    expect(await reason(preview('alice', id, [bob, { subjectType: 'user', subjectId: 'nobody' }]))).toEqual([400, 'unknown_subject'])
+    expect(await reason(preview('alice', id, [bob, finance]))).toEqual([400, 'unknown_subject'])
+  })
+
+  test('chat_busy while a turn runs, as a save', async () => {
+    const id = await newChat()
+    const started = await send('alice', id, `slow\n${fake({ sleep: 3000 }, { say: 'slow' })}`)
+    try {
+      expect(await reason(preview('alice', id, [bob]))).toEqual([409, 'chat_busy'])
+    } finally { await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000) }
+  })
+
+  test('at most 60 previews a minute (429); the same list answers from the cache', async () => {
+    const id = await newChat()
+    const first = await preview('alice', id, [bob])
+    const again = await preview('alice', id, [bob])
+    expect(again.previewKey).toBe(first.previewKey)
+    let limited = false
+    for (let i = 0; i < 70 && !limited; i++) {
+      try { await preview('alice', id, [bob]) } catch (e) { limited = (e as ApiError).status === 429 }
+    }
+    expect(limited).toBe(true)
   })
 })
