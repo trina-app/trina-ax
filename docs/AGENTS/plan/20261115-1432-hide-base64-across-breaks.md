@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 14:32
 - Branch: `fix/hide-base64-across-breaks`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections (hide.ts, redact.ts). Why: the server's key hiding (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no new feature or API change
@@ -43,4 +43,6 @@ an optional break run between them). Plain-words check: no new words; the mark i
 
 ## Result
 
-Filled in at the end.
+Built as planned. hide.ts: base64 and fully escaped forms match across white space and JSON-escaped breaks (between
+whole escapes); redact.ts holds line breaks inside an encoded run. The part already shown before a tool call is not
+taken back while the turn runs (an open question in the PR); the saved answer is hidden.
