@@ -30,7 +30,10 @@ test('all groupings show shares of displayed row tokens and preserve report tota
     await page.getByTestId('usage-groupby').selectOption(group)
     const table = page.getByTestId('usage-table')
     await expect(table).toContainText(`${group} 1`)
-    await expect(page.getByTestId('usage-unpriced')).toHaveCount(1)
+    // row 0 has only unpriced answers: "No price", not "$0.00 +?" (TC-3467); the total is partly priced: "+?"
+    await expect(page.getByTestId('usage-no-price')).toHaveCount(1)
+    await expect(page.getByTestId('usage-unpriced')).toHaveCount(0)
+    await expect(table.locator('tfoot td').nth(4)).toContainText('+?')
     await expect(page.getByTestId('usage-unpriced-note')).toBeVisible()
     const widths = await barWidths(page)
     expect(widths).toHaveLength(3)
