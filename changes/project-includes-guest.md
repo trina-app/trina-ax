@@ -1,1 +1,0 @@
-- A member's project page says "Includes 1 guest" under the faces as soon as it opens, not only after the Members dialog has been opened.

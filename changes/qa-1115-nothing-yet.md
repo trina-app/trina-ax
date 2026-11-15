@@ -1,1 +1,0 @@
-- Apps in rooms: **Nothing yet?** now appears in a guide two minutes after the app was added. While the guide checked the app every few seconds, the line never showed.
