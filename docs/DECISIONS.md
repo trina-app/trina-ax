@@ -17293,8 +17293,8 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
   whose OAuth sign-in is theirs, read from `team_sign_ins` alone (written by the sign-in, cleared when it ends; a sign-in
   from before that record is unknown and neither listed nor ended); team API keys and keys typed into a connection
-  are the team's and never listed), each ticked "넘기면
-  끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
+  are the team's and never listed), each kept by default
+  with its own opt-in "넘길 때 끊기" (QA TC-3095, below; it was ticked "넘기면 끊어요" at first), the line on who can still reset passwords (hosted, the office server Mac, a
   self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
   are ended by that person, at the handover. Which ones is written in the transfer's own write (`owner_transfers.to_end`,
   only what is the caller's then), and they are ended **after the commit** (`owner.transfer.disconnect` per connection;
@@ -29022,6 +29022,19 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
 - Tests: `tests/unit/c-integrations-secret-files.test.ts`, `c-integrations-secret-echo.test.ts`.
 - Version impact: **patch** (a security fix; no new feature or API change).
 
+## Owner transfer keeps every connection unless asked (fix/owner-transfer-keep-default, 2026-11-15, QA TC-3095)
+
+- **Problem.** The transfer confirm listed the connections made with the owner's own accounts with a box ticked by
+  default ("disconnected on transfer"); an unticked box read "kept". The owner could not tell what the box meant, and
+  the default ended the team's own AI seat.
+- **Decision (product owner).** Kept is the default: a team account stays with the team. Each row says **Kept** or
+  **Will be disconnected**, and its box is the action, **Disconnect when I hand over**, off by default; a box left
+  unticked never sits beside the word "kept". [Transfer] without touching anything ends nothing. The server already
+  treats a missing `end` as "keep" (`TransferOwnershipBody.end` defaults to `[]`), now pinned by a test. The new owner
+  can still disconnect anything later in Admin › AI providers or Connected apps.
+- The [Transfer] button keeps the shared `danger` variant of every destructive confirm; it is disabled until the
+  password is typed (the screenshot was that state).
+
 ## The welcome card brings work files from this computer (feat/welcome-find-files, 2026-11-15, product owner)
 
 Owner, 2026-11-15: the invited person's welcome card gets an optional fourth row for "Find work files on this computer",
@@ -29059,6 +29072,20 @@ setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Ho
   reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
   (1440 and 390, light and dark).
 - Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).
+
+## Desktop team list: a workspace switcher (fix/team-picker-lean, 2026-11-15, QA TC-3090)
+
+The owner found the desktop's team list heavy, and its "Open now" pill looked like a button that did nothing (it was
+the open team's status tag; only the team's name opened it). Decided, after Slack's workspace switcher: with saved
+teams the screen leads with "Your teams", one row per team (an initial tile, the name, the address without "https://"
+as 13px meta), the web app's list row look (List.tsx ListRow: 15px name, 13px `--faint` meta, 8px rounded hover fill,
+the row's inset outside the text column). The whole row opens the team; the open team's row ends in a quiet check and
+"Current" and a click on it goes back to it. "Remove from list" moved from a red-outlined button into the row's "···"
+menu (faint until the row is hovered or focused, full on a touch screen); its question puts Cancel first and focuses it. The
+address box comes under the list as "Add another team" (no hint paragraph there); with no saved team the screen is
+unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
+row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
+one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
 
 ## Find work files: the Full Disk Access screen says what you get; Restart lands back on the step (fix/work-files-copy, 2026-11-15, QA TC-3098)
 
