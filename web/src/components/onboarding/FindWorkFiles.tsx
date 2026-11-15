@@ -10,8 +10,9 @@
 //            (never a personal-looking file, at most 100), at most 1 GB per add; a line for each folder macOS kept the
 //            app out of ("… can't see Downloads · Allow in Settings"), a cut folder, files over 50 MB, a folder left out
 // Nothing is read before Add: the files' contents are read by the upload, one by one (LocalDoc.open → workFiles.read).
-// Two places use it: My files (FindWorkFilesEntry: the files go to My files › From this computer, the member's own AI
-// turn; the result has Open and Undo) and the setup's 팀 파일 step on the desktop app (TeamFilesStep: the owner's files go
+// Three places use it: My files (FindWorkFilesEntry) and an invited person's welcome card on Home (its optional "Bring
+// work files from this computer" row), both through useMyWorkFiles (the files go to My files › From this computer, the
+// member's own AI turn; the result has Open and Undo), and the setup's 팀 파일 step on the desktop app (TeamFilesStep: the owner's files go
 // to the team home as before, the team pick, then the step's own run and folder plan).
 import clsx from 'clsx'
 import { FolderSearch, Loader2, Undo2 } from 'lucide-react'
@@ -445,12 +446,14 @@ async function alreadyThere(docs: readonly LocalDoc[], base: string): Promise<Se
 const made = new WeakMap<FolderUpload, RunMade>()
 
 /**
- * My files on the desktop app (Windows, the Mac app from the website): one quiet line, "Find work files on this computer",
- * for anyone but guests. It opens the steps above in a dialog; the files go to My files › From this computer (only the
- * person sees them), as the person's own AI turn. Not in a browser, on a phone, in the Mac App Store build or an older
- * desktop app (no matching bridge).
+ * The My files dialog of "Find work files on this computer": the steps above, the files to My files › From this computer
+ * (only the person sees them), as the person's own AI turn; then the run's result with Open and Undo. Two places open
+ * it: the quiet line on My files (FindWorkFilesEntry) and the invited person's welcome card on Home (MemberWelcome.tsx,
+ * the optional "Bring work files from this computer" row). `available` is false in a browser, on a phone's app, in the
+ * Mac App Store build, in a desktop app without the bridge's version, and for guests: nothing to show then.
+ * `onChange`: the dialog closed or a run's Undo ended (the card reads its rows again); `onLanded`: a new file is up.
  */
-export function FindWorkFilesEntry({ here }: { here: string }) {
+export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void } = {}) {
   const t = useT()
   const me = useMeStrict()
   const narrow = useMediaQuery('(max-width: 767.98px)')
@@ -458,10 +461,10 @@ export function FindWorkFilesEntry({ here }: { here: string }) {
   const own = `users/${me.user.id}`
   const [open, setOpen] = useState(false)
   const [run, setRun] = useState<Run | null>(null)
-  if (!bridge || isGuestMe(me) || (here !== own && here !== runFolder(own))) return null
-  const close = () => { setOpen(false); setRun(null) }
+  const available = !!bridge && !isGuestMe(me)
+  const close = () => { setOpen(false); setRun(null); o.onChange?.() }
   // a run of this screen still going (the dialog was closed while it uploaded): its progress, then its result and Undo
-  const reopen = () => {
+  const start = () => {
     const going = taggedRun(TAG)
     setRun(going && going.view.status === 'running' && made.has(going.run) ? going : null)
     setOpen(true)
@@ -472,32 +475,47 @@ export function FindWorkFilesEntry({ here }: { here: string }) {
     const r = startFolderUpload(plan, own, (view) => toast({ level: 'error', text: `${errorText(view.refusal, currentLocale(), tNow('error.network'))} ${tNow('files.folderUpload.stopped', { n: view.waiting })}`, ...storagePlansAction(view.refusal) }), {
       tag: TAG,
       // a file of the person's that was there already (kept, nothing new made) is not the run's to take back
-      onLanded: (p, kept) => { if (!kept) record.files.push(p) },
+      onLanded: (p, kept) => { if (!kept) { record.files.push(p); o.onLanded?.() } },
       onMade: (p) => record.folders.push(p),
     })
     made.set(r.run, record)
     setRun(r)
   }
+  const dialog = bridge && available ? (
+    <Modal open={open} onClose={close} title={t('files.findWork.dialogTitle')} width={640}>
+      {run ? <RunResult run={run} onClose={close} onUndone={o.onChange} phone={narrow} />
+        : <FindWorkFiles bridge={bridge} rank="own" audience="me" phone={narrow} placeName={t('files.findWork.myPlace')} alreadyIn={(docs) => alreadyThere(docs.map((d) => ({ ...d, pick: `${FROM_COMPUTER}/${d.pick}` })), own)} onAdd={add} onClose={close} />}
+    </Modal>
+  ) : null
+  return { available, narrow, open, start, dialog, own }
+}
+
+/**
+ * My files on the desktop app (Windows, the Mac app from the website): one quiet line, "Find work files on this computer",
+ * for anyone but guests. It opens the dialog above. Not in a browser, on a phone, in the Mac App Store build or an older
+ * desktop app (no matching bridge).
+ */
+export function FindWorkFilesEntry({ here }: { here: string }) {
+  const t = useT()
+  const f = useMyWorkFiles()
+  if (!f.available || (here !== f.own && here !== runFolder(f.own))) return null
   return (
     <>
       {/* the line on a computer's width; a dialog already open stays when the window is made narrow */}
-      {!narrow && (
+      {!f.narrow && (
         <p className="mx-4 mb-2 text-sm sm:mx-6">
-          <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5')} onClick={reopen} data-testid="files-find-work-entry">
+          <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5')} onClick={f.start} data-testid="files-find-work-entry">
             <FolderSearch size={14} className="shrink-0 text-faint" aria-hidden /> {t('files.findWork.entry')}
           </button>
         </p>
       )}
-      <Modal open={open} onClose={close} title={t('files.findWork.dialogTitle')} width={640}>
-        {run ? <RunResult run={run} onClose={close} phone={narrow} />
-          : <FindWorkFiles bridge={bridge} rank="own" audience="me" phone={narrow} placeName={t('files.findWork.myPlace')} alreadyIn={(docs) => alreadyThere(docs.map((d) => ({ ...d, pick: `${FROM_COMPUTER}/${d.pick}` })), own)} onAdd={add} onClose={close} />}
-      </Modal>
+      {f.dialog}
     </>
   )
 }
 
 /** The run's progress, then "Added 6 files to My files › From this computer" with Open and Undo. */
-function RunResult({ run: start, onClose, phone }: { run: Run; onClose: () => void; phone: boolean }) {
+function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose: () => void; onUndone?: () => void; phone: boolean }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
@@ -520,6 +538,7 @@ function RunResult({ run: start, onClose, phone }: { run: Run; onClose: () => vo
         },
       })
       setUndo({ s: 'done', n: r.removed.length, until: r.purgeAt, failed: r.failed.length })
+      onUndone?.()
     } catch (e) {
       setUndo({ s: 'error', text: errorText(e, locale, t('error.network')) })
     }
