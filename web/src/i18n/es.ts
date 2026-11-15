@@ -4455,7 +4455,6 @@ export const es: Record<MessageKey, string> = {
   "skillShare.later": "Más tarde",
   "skillShare.note": "La IA de todo el equipo seguirá esta forma · puede cambiarla cuando quiera en Habilidades del equipo",
   "teamLink.messageMade": "Dejé lista la habilidad '{skill}' para {team}. Abra el enlace y úsela igual al momento.\n{url}",
-  "skillForm.madeBy": "Habilidad del equipo creada por {by} · Solo tú puedes ver este chat",
   "steps.receiptBy": "Habilidad del equipo '{skill}' de {by} · {n, plural, one {# archivo del equipo} other {# archivos del equipo}}",
   "audit.act.onboarding.skill_share": "Habilidad del equipo compartida (primeros pasos)",
   "welcome.progress.ai": "Conectar IA",

@@ -4440,7 +4440,6 @@ export const zh: Record<MessageKey, string> = {
   "skillShare.later": "稍后",
   "skillShare.note": "团队中每个人的 AI 都会按这种方式工作 · 可随时在团队技能中修改",
   "teamLink.messageMade": "我为{team}做了一个团队技能：“{skill}”。打开链接即可用同样的方式使用。\n{url}",
-  "skillForm.madeBy": "{by}创建了这个团队技能 · 这个对话只有你能看到",
   "steps.receiptBy": "{by}的团队技能“{skill}” · {n, plural, one {#个团队文件} other {#个团队文件}}",
   "audit.act.onboarding.skill_share": "已共享团队技能（欢迎步骤）",
   "welcome.progress.ai": "连接 AI",

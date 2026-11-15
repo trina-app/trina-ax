@@ -1,8 +1,7 @@
 // A member and a team skill someone made from their own work (docs/DECISIONS.md "S"):
 // - joining with a link to a skill lands on Home, also when an older server's answer names the skill's form and its
-//   maker (docs/DECISIONS.md "A new member lands on Home"); nothing is held for a form;
-// - a form that was told who made it says so on top ("김지훈님이 만든 팀 스킬이에요 · 이 채팅은 나만 볼 수 있어요"), until
-//   the form goes away;
+//   maker (docs/DECISIONS.md "A new member lands on Home"); the form has no maker line (the chat footer says who sees
+//   new chats);
 // - the answer's receipt names the maker: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -11,7 +10,7 @@ import { useLocaleStore } from '../../src/i18n'
 import { TeamJoin } from '../../src/pages/Auth'
 import Steps from '../../src/components/chat/Steps'
 import { SkillFormDialog } from '../../src/components/skills/SkillForm'
-import { forgetStarters, heldMadeBy, holdMadeBy } from '../../src/lib/starter'
+import { forgetStarters } from '../../src/lib/starter'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
 import { forgetSkillList } from '../../src/lib/skillTitles'
 import { teamLinkMessage } from '../../src/lib/team-link'
@@ -96,7 +95,6 @@ describe('a member and a team skill someone made', () => {
       await m.click('invite-submit')
       await m.until(() => m.find('where'), 'the next page')
       expect(m.get('where').textContent).toBe('/')
-      expect(heldMadeBy('minji', QUOTE.path)).toBeNull()
     } finally {
       await m.unmount()
       delete routes['POST /api/team-link/info']
@@ -105,23 +103,13 @@ describe('a member and a team skill someone made', () => {
     }
   })
 
-  test('the form says who made it and who sees the chat, in place of the description; gone with the form', async () => {
+  test('the form shows the skill\'s description and its fields, no maker line', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: meOf('minji', '민지') } } as never)
-    holdMadeBy('minji', QUOTE.path, '김지훈')
     const m = await mount(<MemoryRouter><SkillFormDialog path={QUOTE.path} onClose={() => {}} /></MemoryRouter>)
     try {
-      await m.until(() => m.find('skill-form-by'), 'the line')
-      expect(m.get('skill-form-by').textContent).toBe('김지훈님이 만든 팀 스킬이에요 · 이 채팅은 나만 볼 수 있어요')
-      expect(m.get('skill-form').textContent).not.toContain('팀 양식으로 견적서를 만들어요')
-      expect(m.find('skill-input-customer')).not.toBeNull()
+      await m.until(() => m.find('skill-input-customer'), 'the form')
+      expect(m.find('skill-form-by')).toBeNull()
     } finally { await m.unmount() }
-    expect(heldMadeBy('minji', QUOTE.path)).toBeNull()
-    // another time (from the Team skills page): the usual form
-    const again = await mount(<MemoryRouter><SkillFormDialog path={QUOTE.path} onClose={() => {}} /></MemoryRouter>)
-    try {
-      await again.until(() => again.find('skill-input-customer'), 'the form')
-      expect(again.find('skill-form-by')).toBeNull()
-    } finally { await again.unmount() }
   })
 
   test('the receipt names who made the skill; without a maker as before', async () => {

@@ -4455,7 +4455,6 @@ export const ja: Record<MessageKey, string> = {
   "skillShare.later": "あとで",
   "skillShare.note": "チーム全員のAIがこのやり方に従います · チームのスキルでいつでも直せます",
   "teamLink.messageMade": "{team}のスキル「{skill}」を作っておきました。リンクを開けば同じやり方ですぐ使えます。\n{url}",
-  "skillForm.madeBy": "{by}さんが作ったチームのスキルです · この会話は自分だけが見られます",
   "steps.receiptBy": "{by}さんのチームスキル「{skill}」 · チームのファイル{n, plural, one {#個} other {#個}}",
   "audit.act.onboarding.skill_share": "チームのスキルを共有(はじめの設定)",
   "welcome.progress.ai": "AI接続",

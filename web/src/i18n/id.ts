@@ -4499,7 +4499,6 @@ export const id: Record<MessageKey, string> = {
   "skillShare.later": "Nanti",
   "skillShare.note": "AI seluruh tim mengikuti cara ini · bisa diubah kapan saja di Skill tim",
   "teamLink.messageMade": "Saya sudah membuat skill tim '{skill}' untuk {team}. Buka tautannya dan langsung pakai dengan cara yang sama.\n{url}",
-  "skillForm.madeBy": "Skill tim buatan {by} · Hanya Anda yang dapat melihat obrolan ini",
   "steps.receiptBy": "Skill tim '{skill}' dari {by} · {n} file tim",
   "audit.act.onboarding.skill_share": "Skill tim dibagikan (langkah awal)",
   "welcome.progress.ai": "Hubungkan AI",

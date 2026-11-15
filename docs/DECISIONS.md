@@ -28365,9 +28365,11 @@ W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is
 - **A skill form opened from a link that says where it came from** (`navigate('/skills?run=…', { state: { back } })`):
   ✕ or Esc goes back there (a path in this app only) instead of staying on Team skills. Without `state.back` the form
   closes onto Team skills as before.
-- **The form's maker line** reads "{by} made this team skill · Only you can see this chat" (it named the reader in the
-  third person: "Only test can see this chat"). Nothing in this change holds a maker for it any more (the join sent
-  it); the line stays for the form and shows only when a maker is held.
+- **The form's maker line is gone** ("{by} made this team skill · Only {name} can see this chat", S): only the join's
+  `skillBy` fed it, and it named the reader in the third person ("Only test can see this chat"). The form shows the
+  skill's description again; the chat footer already says "Only you can see new chats". Removed: `skillForm.madeBy` in
+  all six languages, `SkillForm`'s `by`, and the maker hold in `lib/starter.ts` (which now only clears what an older
+  version left in the tab at sign-out).
 - **Phones:** while the welcome card shows, Home's big greeting is for screen readers only (the card already says hello;
   two greetings, one half under the docked box). Computers keep it.
 - Side effect on the 7-day goal: members are no longer pushed into the link's skill on arrival, so first runs may come
