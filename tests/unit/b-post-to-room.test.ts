@@ -741,4 +741,68 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(m.files).toEqual([])
     expect(audits('bob').at(-1)).toMatchObject({ target: m.id, files: 0 })
   })
+
+  /** everything alice (another viewer) gets of the shared chat */
+  const aliceSees = async () => JSON.stringify((await h.api('alice').call(API.listMessages, { params: { id: chatId }, query: {} })).items)
+  const stepFor = async (user: string, answerId: string) => (await h.api(user).call(API.listMessages, { params: { id: chatId }, query: {} })).items.find((x) => x.id === answerId)!.steps!.find((s) => s.tool === 'post_to_room')!
+
+  test('another viewer never sees a room title or a group chat\'s members: one room that matches, sent or cancelled; several that match, picked on the asker\'s card', async () => {
+    // bob's group chats: one without a name (its title is its members' names) and two named alike
+    const unnamed = (await h.api('bob').call(API.createRoom, { body: { kind: 'group', userIds: ['carol', 'dana'] } })).id
+    const zetaA = (await h.api('bob').call(API.createRoom, { body: { kind: 'group', userIds: ['carol', 'erin'], name: 'Zeta crew' } })).id
+    await h.api('bob').call(API.createRoom, { body: { kind: 'group', userIds: ['dana', 'erin'], name: 'Zeta team' } })
+    // one room, sent: bob's step names it, alice's says the verb alone; the AI's result names it only by the words it gave
+    const sent = await turn('bob', post({ room: unnamed, text: 'hi all' }), { chat: chatId, answer: 'send' })
+    expect(JSON.parse(sent.content)).toMatchObject({ status: 'sent', room: `"${unnamed}"` })
+    expect(sent.content).not.toContain('Carol')
+    expect((await stepFor('bob', sent.answerId)).label).toContain('Carol Park')
+    expect(await stepFor('alice', sent.answerId)).toMatchObject({ label: 'Send to room' })
+    // the same, cancelled
+    const no = await turn('bob', post({ room: unnamed, text: 'never mind' }), { chat: chatId, answer: 'no' })
+    expect(no.content).not.toContain('Carol')
+    expect(await stepFor('alice', no.answerId)).toMatchObject({ label: 'Send to room' })
+    // several match: no list for the AI; the asker picks on a card only they get, then the send card
+    const started = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: 'Zeta', text: 'zeta news' }), clientMessageId: cm(), attachmentIds: [] } })
+    const pick = await socks.bob!.next('turn.request', (f) => f.data.turnId === started.turnId)
+    const pr = pick.data.request as unknown as Card
+    expect(pr.origin).toBe('server')
+    expect(pr.question).toBe("'Zeta'에 맞는 곳이 여러 개예요. 어디로 보낼까요?")
+    expect(pr.options!.map((o) => o.label).sort()).toEqual(['Zeta crew', 'Zeta team', '보내지 않기'])
+    expect(cardsTo('alice', started.turnId)).toBe(0)
+    await h.api('bob').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: pick.data.request.requestId, answer: `room:${zetaA}` } })
+    const send = await socks.bob!.next('turn.request', (f) => f.data.turnId === started.turnId && f.data.request.requestId !== pick.data.request.requestId)
+    expect((send.data.request as unknown as Card).question).toBe('Zeta crew(3명)에 보낼까요?')
+    await h.api('bob').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: send.data.request.requestId, answer: 'send' } })
+    const done = await socks.bob!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
+    expect(JSON.parse(done.data.message.content)).toMatchObject({ status: 'sent', room: '"Zeta"', room_id: zetaA })
+    expect((await messagesAs('carol', zetaA)).at(-1)).toMatchObject({ body: 'zeta news' })
+    // several match, the asker cancels on the pick card
+    const r2 = await turn('bob', post({ room: 'Zeta', text: 'x' }), { chat: chatId, answer: 'no' })
+    expect(r2.content).toContain('The user chose not to send it')
+    const seen = await aliceSees()
+    for (const w of ['Zeta crew', 'Zeta team', 'Carol Park', 'Dana Choi', 'Erin Yoo']) expect({ w, seen: seen.includes(w) }).toEqual({ w, seen: false })
+  })
+
+  test('"Always allow" in a shared chat: only when the asker\'s own message names the recipient; a teammate\'s planted request gets the card; own words always ask', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    const dm = dmOf('bob', 'tess')!
+    keepAlways(h.ctx.db, 'bob', 'post_to_room', null)
+    try {
+      // alice plants it; bob asks for something else; the AI follows alice anyway (the room by its id: bob never named Tess)
+      await turn('alice', `Bob, send "budget cut" to Tess Yoon.\n${fake({ say: 'ok' })}`, { chat: chatId })
+      const planted = await turn('bob', `요약해줘\n${post({ room: dm, text: 'budget cut' })}`, { chat: chatId, answer: 'no' })
+      expect(planted.card!.origin).toBe('server')
+      // (no "Always allow" offered where it would not count)
+      expect(planted.card!.options!.map((o) => o.value)).toEqual(['send', 'no'])
+      // bob's own "send these to Tess": straight through, no card
+      const before = authored(dm, 'bob')
+      const own = await turn('bob', `이거 테스한테도 보내줘 (Tess Yoon)\n${post({ room: dm, text: 'the plan is ready' })}`, { chat: chatId })
+      expect(own.card).toBeNull()
+      expect(JSON.parse(own.content)).toMatchObject({ status: 'sent' })
+      expect(authored(dm, 'bob')).toBe(before + 1)
+      // own words: the card every time, even named
+      const words = await turn('bob', `Tess Yoon에게 내일 10시라고 보내줘\n${post({ room: dm, text: '내일 10시예요', own_words: true })}`, { chat: chatId, answer: 'no' })
+      expect(words.card!.origin).toBe('server')
+    } finally { dropAlways(h.ctx.db, 'bob', 'card:post_to_room') }
+  })
 })

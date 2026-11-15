@@ -36,8 +36,11 @@
 // sender's: spec.userId): their rooms and teammates, their redactor, their read access for every linked file and copy,
 // their sending budget, and the card goes to them alone (TurnExec.waitForPerson: the runner's cards). Other people's
 // messages in the chat are information (the shared prompt); one of them asking for a post still meets the asker's card.
-// The asker's "Always allow" counts there as in their own chat (the owner's rule: the turn's own person's choice). In
-// the list for several matches the AI gets no last-activity times there (it writes where everyone in the chat reads).
+// What the AI writes there everyone in the chat reads, so the AI never gets a room's title there (a group chat's title is
+// its members' names): its results name the place by the words it gave, and when several match the asker picks on a
+// card only they get (no list for the AI). Other viewers see the step's verb alone (ChatStore.viewSteps). The asker's
+// "Always allow" counts there only when their own latest message names the recipient (namedByAsker), never for
+// own_words.
 //
 // Never offered (postToRoomOff): a room's "@트리나" session (its answers go to the room by the room's rule), a
 // draft / judge / merge chat, an approved scheduled template's run, a confidential chat, a scheduled run
@@ -166,9 +169,12 @@ export function postToRoomTool(exec: TurnExec): Tool {
         let roomId = ''
         /** a teammate with no 1:1 chat with the user yet: the chat is made only on the yes (Rooms.openDm) */
         let pendingTo: Teammate | null = null
+        /** in a shared chat, how the AI names the place: the words it gave (never the room's title, which may be its
+         * members' names; the AI writes where everyone in the chat reads) */
+        let refAi = ''
         if (a.data.room !== undefined) {
           const ref = a.data.room
-          const refAi = neutralizeTags(oneLine(ref, 120))
+          refAi = neutralizeTags(oneLine(ref, 120))
           const f = ref.trim().startsWith(PERSON_REF) ? null : findRoom(db, spec.userId, ref)
           // the team's people too ("tell bob …"): alone when no room of mine matches; next to rooms that match, the people
           // those rooms do not already stand for (their 1:1 chat listed) are asked about when the room match is only a part
@@ -185,12 +191,36 @@ export function postToRoomTool(exec: TurnExec): Tool {
           // a 1:1 chat found by a part of the name only ("Al" for "Alice", who left; "민수" for "김민수 씨"), and no person
           // named so in full: a guess about who gets it, so the user is asked (with "Always allow" it would go unseen)
           const guessDm = !!f && 'one' in f && !f.exact && f.one.room.kind === 'dm' && !people.some((t) => t.exact && t.dmRoomId === f.one.room.id)
-          if (asked.length || (f && 'many' in f) || guessDm) {
-            // (a shared chat: no times; what the AI writes there everyone in the chat reads)
-            const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))}${exec.shared ? '' : ` · last activity ${localTime(r.view.activityAt, rt.timeZone)}`} · room_id=${r.room.id}`), ...asked.map(personLine)]
+          const ambiguous = asked.length > 0 || (!!f && 'many' in f) || guessDm
+          if (ambiguous && exec.shared) {
+            // a shared chat (QA TC-3091 review): the AI never gets the list (a group chat's title is its members' names, and
+            // the AI writes where everyone in the chat reads). The asker picks on a card only they see; the AI learns
+            // only that one was picked
+            const options = [
+              ...roomsListed.map((r) => ({ label: roomTitleFor(db, r.room, rooms.mine(spec.userId, r.room.id).me, L), value: `room:${r.room.id}` })),
+              ...asked.map((t) => ({ label: tr('postRoomDm', L, { name: oneLine(t.name, 40) }), value: `${PERSON_REF}${t.id}` })),
+              { label: tr('postRoomDont', L), value: 'no' },
+            ]
+            const v0 = await exec.waitForPerson({
+              kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('postRoomPick', L, { ref: oneLine(ref, 60) }), options, multiple: false, allowText: false,
+              expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+            const v = Array.isArray(v0) && v0.length === 1 ? v0[0] : v0
+            const room = typeof v === 'string' && v.startsWith('room:') ? roomsListed.find((r) => `room:${r.room.id}` === v) : undefined
+            const person = typeof v === 'string' && v.startsWith(PERSON_REF) ? asked.find((t) => `${PERSON_REF}${t.id}` === v) : undefined
+            if (!room && !person) {
+              detail = tr('postRoomNotSent', L)
+              return v === 'no'
+                ? no(`The user chose not to send it, so nothing was posted to "${refAi}". Do not post it another way unless the user asks again.`, 'not sent: the user said no')
+                : no(`Nothing was posted to "${refAi}": several rooms or people match, and the card that asked the user which one got no answer in time. Ask the user whether to send it.`, 'not sent: no answer')
+            }
+            if (room) roomId = room.room.id
+            else if (person!.dmRoomId) roomId = person!.dmRoomId
+            else pendingTo = person!
+          } else if (ambiguous) {
+            const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))} · last activity ${localTime(r.view.activityAt, rt.timeZone)} · room_id=${r.room.id}`), ...asked.map(personLine)]
             return no(`Nothing was posted: ${lines.length === 1 ? `only a part of the name matches "${refAi}"` : `several rooms or people match "${refAi}"`}. Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>"${asked.length ? morePeople : ''}:\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
-          }
-          if (f && 'one' in f) roomId = f.one.room.id
+          } else if (f && 'one' in f) roomId = f.one.room.id
           else if (people.length === 1) {
             const t = people[0]!
             if (t.dmRoomId) roomId = t.dmRoomId
@@ -202,9 +232,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (!pendingTo) try { mine = rooms.mine(spec.userId, roomId) } catch { return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room') }
         const title = mine ? roomTitleFor(db, mine.room, mine.me, L) : tr('postRoomDm', L, { name: oneLine(pendingTo!.name, 40) })
         named = title
-        // (for the AI: a group chat's name is any member's words)
-        const titleAi = neutralizeTags(title)
-        if (pendingTo && a.data.thread_id !== undefined) return no(`Nothing was posted: the user has no 1:1 chat with ${neutralizeTags(oneLine(pendingTo.name, 40))} yet, so there is no thread to reply in. Call post_to_room again without thread_id.`, 'refused: thread in a new 1:1 chat')
+        // (for the AI: a group chat's name is any member's words; in a shared chat only the words it gave, see refAi)
+        const titleAi = exec.shared ? (refAi ? `"${refAi}"` : 'the room the user named') : neutralizeTags(title)
+        const whoAi = (t: Teammate) => exec.shared ? titleAi : neutralizeTags(oneLine(t.name, 40))
+        if (pendingTo && a.data.thread_id !== undefined) return no(`Nothing was posted: the user has no 1:1 chat with ${whoAi(pendingTo)} yet, so there is no thread to reply in. Call post_to_room again without thread_id.`, 'refused: thread in a new 1:1 chat')
         let threadRootId: string | undefined
         if (a.data.thread_id !== undefined) {
           if (!isUuid7(a.data.thread_id)) return no('Nothing was posted: thread_id is the id of the thread\'s first message (from room_read, or the thread_id a quoted question names). Call again with that id, or without thread_id to post to the room.', 'refused: not a message id')
@@ -293,7 +324,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         ]
         // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
         // card. Not on a card that also offers the linked files (review of #678): that choice is the person's each time
-        const reply = await withAlways(all ? null : exec.alwaysPlace?.(), 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
+        // A shared chat (QA TC-3091 review): other people's messages are in the AI's context, so "Always allow" counts only
+        // when the asker's own latest message names the recipient as matched, and never for own_words (a message in the
+        // asker's own words always shows them the card)
+        const alwaysOk = !all && (!exec.shared || (!plain && namedByAsker(db, spec.userMessageId, a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))))
+        const reply = await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
@@ -338,7 +373,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           try { roomId = rooms.openDm(spec.userId, pendingTo.id).id } catch (e) {
             if (!(e instanceof HttpError)) throw e
             detail = tr('postRoomNotSent', L)
-            return no(`Nothing was posted: ${neutralizeTags(oneLine(pendingTo.name, 40))} can no longer be reached (their account was turned off or removed from the team). Tell the user.`, 'refused: person not active')
+            return no(`Nothing was posted: ${whoAi(pendingTo)} can no longer be reached (their account was turned off or removed from the team). Tell the user.`, 'refused: person not active')
           }
           opened = !existed
           const real = await prepareIn(roomId, false)
@@ -370,6 +405,32 @@ export function postToRoomTool(exec: TurnExec): Tool {
     if (e.code === 'not_found') return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room')
     return no(`Nothing was posted: ${e.message || 'the post could not be checked'}. Tell the user.`, `refused: ${e.code}`)
   }
+}
+
+/** The names that stand for where a post goes, as matched: a teammate's name and username; a 1:1 chat's other
+ * person's; a team room's or group chat's own name (a team room's group name too). */
+export function recipientNames(db: import('bun:sqlite').Database, me: string, room: RoomRow | null, to: Teammate | null): string[] {
+  if (to) {
+    const u = db.query('SELECT name, username FROM users WHERE id = ?').get(to.id) as { name: string; username: string } | null
+    return [to.name, u?.username ?? ''].filter(Boolean)
+  }
+  if (!room) return []
+  if (room.kind === 'dm') return (db.query('SELECT u.name, u.username FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { name: string; username: string }[]).flatMap((u) => [u.name, u.username])
+  return [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean)
+}
+
+const fold = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+/** Does the asker's own message (`messageId`, the turn's question) name the recipient? A matched name or username in it,
+ * or the words the AI gave (`ref`, 님/씨 dropped) when they are in it and are that name in full, one word of it, or its
+ * end (a Korean given name: "대현" for "남대현"), two letters at least. Fails closed. */
+export function namedByAsker(db: import('bun:sqlite').Database, messageId: string, ref: string | undefined, names: readonly string[]): boolean {
+  const said = fold((db.query('SELECT content FROM messages WHERE id = ?').get(messageId) as { content: string | null } | null)?.content ?? '')
+  if (!said) return false
+  const ns = names.map(fold).filter((n) => n.length >= 2)
+  if (ns.some((n) => said.includes(n))) return true
+  const r = fold((ref ?? '').replace(/\s*(님|씨)$/u, ''))
+  if (r.length < 2 || r.startsWith(PERSON_REF) || !said.includes(r)) return false
+  return ns.some((n) => n === r || n.split(' ').includes(r) || n.endsWith(r))
 }
 
 /** The questions above an answer on its branch, the nearest first: the first line or so of each (all a quote's thread

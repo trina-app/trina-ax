@@ -29029,18 +29029,23 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
   - Files: only links to files the asker may open now are offered as copies, and `RoomFiles.fromTeamFile` checks the
     asker's read access again when it copies; a file they cannot read is never attached and never named.
   - The provenance and access lines, hidden answers, the sending budget, the redactor and the audit row
-    (`room.answer_share`, `via: 'ai'`) are the asker's, as in their own chat. Where the post went (`Step.posted`) and the
-    card's answer stay the runner's; the other viewers see the step's words ("대화방에 보내기 · …"), as they see the
-    asker's own message asking for it.
-  - When several rooms or people match, the AI gets them without last-activity times there (what it writes, everyone
-    in the chat reads).
+    (`room.answer_share`, `via: 'ai'`) are the asker's, as in their own chat.
+  - The asker's room names never reach the others (security review of #980). A group chat's title is its members'
+    names, and the AI writes where everyone in the chat reads, so in a shared chat the AI is never given a room's or
+    person's title: its results name the place by the words it gave (`"<room>"`). When several rooms or people match,
+    the AI gets no list: the asker picks on a card only they get ("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?",
+    `postRoomPick`), then the send card follows; [보내지 않기] or no answer posts nothing. Other viewers see a
+    post_to_room step as its verb alone ("대화방에 보내기"), without the room, detail or `posted`, whether it was sent,
+    cancelled or refused (`ChatStore.viewSteps`); live step frames go to the runner only.
   - Unchanged: a sub-agent never gets it; confidential chats, scheduled runs, Slack questions, restricted and template
     runs never offer it.
-- **Always allow.** Kept as it is (the owner, "Always allow on every card": the turn's own person's choice, also in a
-  shared chat): with the asker's "Always allow" for posts on, a post that offers no files goes without the card, as in
-  their own chat; one that offers files always asks. The cost is the one accepted for always-allow after outside
-  content: an instruction in another person's message could then reach a post in the asker's name without a card. The
-  asker's own chat has the same exposure through room messages and web pages.
+- **Always allow, narrowed in shared chats** (security review of #980). Other people's messages are in the AI's
+  context there, so the asker's "Always allow" for posts counts only when the asker's own latest message names the
+  recipient as matched (`namedByAsker`: the person's name or username, a 1:1 chat's other person, a room's or its
+  group's name; or the words the AI gave when they are in the message and are that name in full, one word of it or its
+  end, like "대현" for "남대현"; two letters at least; fails closed). Otherwise the card shows (without the "Always
+  allow" choice). `own_words` never goes without the card there, and a card that offers files always asks, as
+  everywhere. In the asker's own chat nothing changes.
 - **Prompt.** `sharedSection(…, post)`: with the tool, one line says to use post_to_room for "send/share this with
   <person>", to link team files and leave `own_words` off so the card offers them, that the files go to that person's
   1:1 chat with the asker, and to say it was sent only on "sent"; posting leaves the "Not available" list (reading team
