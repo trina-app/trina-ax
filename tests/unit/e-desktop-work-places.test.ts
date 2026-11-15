@@ -485,3 +485,21 @@ describe('review of part 5', () => {
     expect(windowsSearchScript(['C:\\Users\\a'])).toContain("System.FileExtension IN (''.pdf'',")
   })
 })
+
+describe('re-review of part 5', () => {
+  test('outside a cloud drive only folders are asked about, and a folder without folders asks nothing', async () => {
+    const { fs } = fakeFs({ Users: dir({ alex: dir({ Documents: dir({ 'a.pdf': file(), Plans: dir({ 'b.pdf': file() }), Online: dir({ 'c.pdf': file() }) }) }) }) })
+    const asked: string[][] = []
+    const r = await scanRoots([FOLDERS[0]!], fs, { platform: 'darwin', newId, placeholders: async (paths) => { asked.push(paths); return new Set(paths.filter((x) => x.endsWith('/Online'))) } })
+    expect(asked).toEqual([['/Users/alex/Documents/Plans', '/Users/alex/Documents/Online']])
+    expect(r.files.map((f) => f.name).sort()).toEqual(['a.pdf', 'b.pdf'])
+  })
+
+  test('Windows never walks OneDrive-moved folders; a Mac looks at its cloud drives before walking; enrich keeps the deadline', () => {
+    const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
+    expect(ctl).toContain("noWalk: (root) => root.id === 'cloud' || root.oneDrive,")
+    expect(ctl).toContain("process.platform === 'win32' ? [...others, ...folders, ...cloud] : [...others, ...cloud, ...folders]")
+    const common = readFileSync(join(import.meta.dir, '../../desktop/src/common/work-files.ts'), 'utf8')
+    expect(common).toContain('deadline: Math.min(Date.now() + FALLBACK_LIMITS.rootMs, o.deadline ?? Infinity)')
+  })
+})

@@ -28772,11 +28772,16 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   rows. Reopen works only within 15 minutes of Open Settings while the probe still says no, never during a look.
   Windows short (8.3) names and names ending in a dot or space are never trusted; a stat that does not answer for a path
   counts it as online only; an online-only file the index gives no date for is not listed; a late read checks the real
-  path again after the open.
-- **Speed (this Mac, load 19–20).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
+  path again after the open. Re-review (three SHOULD-FIX, fixed): Windows never walks a Documents or Desktop moved
+  into OneDrive either; a Mac looks at its cloud drives (Spotlight, asked at the start) before walking the three folders,
+  so a big Documents cannot use up their time (Windows keeps the cloud drives last, after the three folders); outside a
+  cloud drive only folders get the online-only check, and a folder without folders asks nothing; the step that asks
+  Spotlight about walked files keeps the look's deadline.
+- **Speed (this Mac, load 19–45).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
   in Documents and Downloads, a messenger and two work folders, a recent list): the wide look 1.9–2.0 s warm (the
   cloud walk with its flag checks 0.7–0.85 s of it), 5.6 s on the first, cold run; after the review (online-only
-  checks in every root) 1.7–2.3 s, one run 7.2 s at load 20. Spotlight for one place with 3,000
+  checks in every root) 1.7–2.3 s, one run 7.2 s at load 20; after the re-review 2.7 s at load 30–45, two runs 5.1 and
+  8.4 s while that load spiked. Spotlight for one place with 3,000
   recent files: `mdfind` 0.65–0.74 s, `mdls` of 400 0.2–0.6 s, flags 40 ms; the places are queried at once while the
   folders are walked. Home-wide Spotlight (last opened, 180 days) 0.23–0.31 s; the shared file lists (48 here) 0.27 s.
 - **Ranking:** a place's weight: a work folder 1.3, a cloud drive 1.2, home and other drives 1, a messenger 0.8 (as

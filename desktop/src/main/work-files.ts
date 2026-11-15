@@ -167,10 +167,14 @@ export class WorkFilesController {
   private async lookWide(folders: WorkRoot[], places: Place[], generation: number) {
     const home = app.getPath('home')
     const deadline = Date.now() + WIDE_MS
-    // messengers' and work folders first (a messenger's folder inside Downloads keeps its name), then the three folders,
-    // then the cloud drives (Documents moved into OneDrive stays "Documents (OneDrive)" with its own limits)
+    // messengers' and work folders first (a messenger's folder inside Downloads keeps its name). Windows: then the three
+    // folders, then the cloud drives (a Documents moved into OneDrive stays "Documents (OneDrive)"). A Mac: the cloud
+    // drives before the three folders, whose walks could otherwise use up the look's time (their Spotlight rows are
+    // asked for at the start anyway)
     const place = (x: Place): WorkRoot => ({ id: x.kind, path: x.path, oneDrive: false, place: x.label })
-    const roots: WorkRoot[] = [...places.filter((x) => x.kind !== 'cloud').map(place), ...folders, ...places.filter((x) => x.kind === 'cloud').map(place)]
+    const cloud = places.filter((x) => x.kind === 'cloud').map(place)
+    const others = places.filter((x) => x.kind !== 'cloud').map(place)
+    const roots: WorkRoot[] = process.platform === 'win32' ? [...others, ...folders, ...cloud] : [...others, ...cloud, ...folders]
     const stopped = () => this.stopped || generation !== this.generation
     const common = {
       platform: process.platform,
@@ -190,7 +194,7 @@ export class WorkFilesController {
       return lookWide(roots, NODE_WORK_FS, {
         ...common,
         // a cloud drive's folder is never walked on Windows (a walk would touch online-only files): the index only
-        noWalk: (root) => root.id === 'cloud',
+        noWalk: (root) => root.id === 'cloud' || root.oneDrive,
         index: async () => all,
         recent: async () => (await all) ?? [],
         network: (path) => path.startsWith('\\\\') || !fixedNow.some((d) => path.toLowerCase().startsWith(d.toLowerCase())),
@@ -202,7 +206,8 @@ export class WorkFilesController {
       ...common,
       index: async (_real, root) => (root.place !== undefined ? (pre.get(root.path) ?? null) : null),
       enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until),
-      // every root: iCloud's Desktop & Documents with Optimize Storage keeps folders in the cloud too
+      // every root (iCloud's Desktop & Documents with Optimize Storage keeps folders in the cloud too); outside a cloud
+      // drive only folders are asked about (scanRoots)
       placeholders: (paths) => macDatalessSet(paths),
       recent: () => macRecent(home, deadline),
     })

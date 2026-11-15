@@ -230,8 +230,11 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       // online-only folders and files (a cloud drive's): one question for the folder's entries; a folder in the cloud is
       // never entered, a file in the cloud is listed as such
       let cloud = new Set<string>()
-      if (o.placeholders && (dirs.length || files.length)) {
-        cloud = await inTime(o.placeholders([...dirs, ...files.map((f) => f.parts)].map((x) => join(p, real, ...x)), root)).catch(() => {
+      // a cloud drive's folder: its folders and files; elsewhere only its folders (entering an online-only folder makes
+      // the provider fetch it; an lstat of an online-only file fetches nothing), and no call without folders
+      const ask = root.id === 'cloud' ? [...dirs, ...files.map((f) => f.parts)] : dirs
+      if (o.placeholders && ask.length) {
+        cloud = await inTime(o.placeholders(ask.map((x) => join(p, real, ...x)), root)).catch(() => {
           // no answer: nothing of this folder is entered or listed (it may all be in the cloud)
           dirs.length = 0
           files.length = 0
@@ -442,7 +445,7 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
         const newest = [...w.files].sort((a, b) => b.modified - a.modified).slice(0, ENRICH_MAX)
         const pathOf = new Map(newest.map((f) => [sameKey(lib.join(real, ...w.found.get(f.id)!.parts), p), f]))
         // within the folder's time, and Stop ends it (a Spotlight that does not answer holds nothing up)
-        const known = await o.enrich([...newest.map((f) => lib.join(real, ...w.found.get(f.id)!.parts))], { deadline: Date.now() + FALLBACK_LIMITS.rootMs, stopped: () => !!o.stopped?.() }).catch(() => [] as IndexedFile[])
+        const known = await o.enrich([...newest.map((f) => lib.join(real, ...w.found.get(f.id)!.parts))], { deadline: Math.min(Date.now() + FALLBACK_LIMITS.rootMs, o.deadline ?? Infinity), stopped: () => !!o.stopped?.() }).catch(() => [] as IndexedFile[])
         for (const k of known) {
           const f = pathOf.get(sameKey(k.path, p))
           if (!f) continue
