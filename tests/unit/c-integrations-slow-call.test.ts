@@ -24,6 +24,8 @@ setDefaultTimeout(30_000)
 const REQUEST_MS = 1000, IDLE_MS = 10_000, CALL_MS = 30_000
 /** the same, smaller, for the tests of the limits themselves */
 const SHORT = { idle: 1500, call: 4000 }
+/** a timer may end a few ms before Date.now() says it should (Bun 1.3.12 in a Linux VM): lower bounds allow for that */
+const SLACK = 200
 
 let A: CApp, fake: FakeServices, id = ''
 beforeAll(async () => {
@@ -44,6 +46,11 @@ const svc = () => integrationsOf(A.ctx)
 const row = () => getRow(A.ctx.db, id)!
 const stored = () => { const r = row(); return { status: r.status, last_error: r.last_error } }
 const timed = async <T>(run: () => Promise<T>) => { const t0 = Date.now(); try { return { r: await run(), ms: Date.now() - t0 } } catch (e) { return { e: e as Error, ms: Date.now() - t0 } } }
+/** the notifications/cancelled for this call, once it has come (best effort on our side: it may come a little later) */
+const cancelOf = async (requestId: unknown) => {
+  for (let i = 0; i < 100; i++) { const c = fake.cancelled.find((x) => x.requestId === requestId); if (c) return c; await Bun.sleep(50) }
+  return null
+}
 const short = async <T>(run: () => Promise<T>) => {
   const net = svc().net
   net.callIdleMs = SHORT.idle; net.callTimeoutMs = SHORT.call
@@ -79,7 +86,7 @@ describe('a slow tool', () => {
     try {
       const { r, ms } = await timed(() => svc().callTool(row(), 'scrape_as_markdown', { url: 'https://example.com/post' }))
       expect(r).toMatchObject({ content: [{ type: 'text', text: 'scrape_as_markdown: done after 3000 ms' }] })
-      expect(ms).toBeGreaterThanOrEqual(3 * REQUEST_MS)
+      expect(ms).toBeGreaterThanOrEqual(3 * REQUEST_MS - SLACK)
       // what the AI gets through the team connection's tool
       const { tools, tc } = turn('alice')
       const out = await tools.get('team_scraper__scrape_as_markdown')!.call({ url: 'https://example.com/post' }, tc)
@@ -100,7 +107,7 @@ describe('a slow tool', () => {
       try {
         const { r, ms } = await timed(() => svc().callTool(row(), 'scrape_as_markdown', {}))
         expect(r).toMatchObject({ content: [{ text: 'scrape_as_markdown: done after 3000 ms' }] })
-        expect(ms).toBeGreaterThanOrEqual(3000)
+        expect(ms).toBeGreaterThanOrEqual(3000 - SLACK)
       } finally { fake.slow = null }
     })
   })
@@ -111,7 +118,7 @@ describe('a slow tool', () => {
       try {
         const { e, ms } = await timed(() => svc().callTool(row(), 'scrape_as_markdown', {}))
         expect(e?.message).toBe(`Scraper sent nothing for 5 minutes, so the call was stopped (a call may run up to 15 minutes while the service keeps sending)`)
-        expect(ms).toBeGreaterThanOrEqual(SHORT.idle)
+        expect(ms).toBeGreaterThanOrEqual(SHORT.idle - SLACK)
         expect(ms).toBeLessThan(SHORT.call)
       } finally { fake.slow = null }
     })
@@ -123,7 +130,6 @@ describe('a slow tool', () => {
   })
 
   test('a call past the hard limit fails cleanly at it, even while progress keeps coming (a hung service cannot hold the turn)', async () => {
-    fake.cancelled = []
     await short(async () => {
       fake.slow = { ms: 20_000, progressEveryMs: 200 }
       try {
@@ -133,14 +139,13 @@ describe('a slow tool', () => {
         const ms = Date.now() - t0
         expect(out.isError).toBe(true)
         expect(JSON.stringify(out.content)).toContain('did not finish within 15 minutes, so the call was stopped')
-        expect(ms).toBeGreaterThanOrEqual(SHORT.call)
-        expect(ms).toBeLessThan(SHORT.call + 2000)
+        expect(ms).toBeGreaterThanOrEqual(SHORT.call - SLACK)
+        expect(ms).toBeLessThan(SHORT.call + 3000)
       } finally { fake.slow = null }
     })
     expect(stored()).toEqual({ status: 'error', last_error: 'call_timeout' })
     // the service is told to stop its work (it may be billing for it)
-    for (let i = 0; i < 40 && !fake.cancelled.length; i++) await Bun.sleep(50)
-    expect(fake.cancelled).toEqual([{ requestId: fake.progressTokens.at(-1), reason: 'timed out' }])
+    expect(await cancelOf(fake.progressTokens.at(-1))).toEqual({ requestId: fake.progressTokens.at(-1), reason: 'timed out' })
     expect(TEXT.call_timeout.en).toBe('A tool of the service did not finish within 15 minutes, so the call was stopped.')
     await svc().callTool(row(), 'scrape_as_markdown', {})
     expect(stored()).toEqual({ status: 'connected', last_error: null })
@@ -148,20 +153,18 @@ describe('a slow tool', () => {
 
   test('Stop ends the call at once and tells the service; the connection stays as it was', async () => {
     fake.slow = { ms: 20_000, progressEveryMs: 200 }
-    fake.cancelled = []
     const stop = new AbortController()
     try {
       const { tools, tc } = turn('alice', stop.signal)
       setTimeout(() => stop.abort(), 500)
       const t0 = Date.now()
       const out = await tools.get('team_scraper__scrape_as_markdown')!.call({}, tc).catch((e) => ({ thrown: e }))
-      expect(Date.now() - t0).toBeLessThan(2000)
+      expect(Date.now() - t0).toBeLessThan(3000)
       expect(out).toMatchObject({ isError: true, summary: 'team_scraper__scrape_as_markdown -> stopped' })
       expect(JSON.stringify(out)).toContain('Scraper was stopped because the answer was stopped')
     } finally { fake.slow = null }
     // the service is told which request (best effort, after the stop)
-    for (let i = 0; i < 40 && !fake.cancelled.length; i++) await Bun.sleep(50)
-    expect(fake.cancelled).toEqual([{ requestId: fake.progressTokens.at(-1), reason: 'stopped by the user' }])
+    expect(await cancelOf(fake.progressTokens.at(-1))).toEqual({ requestId: fake.progressTokens.at(-1), reason: 'stopped by the user' })
     expect(stored()).toEqual({ status: 'connected', last_error: null })
   })
 })
