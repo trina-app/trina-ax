@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 00:16
 - Branch: `fix/qa-1115-desktop-chat-link`
-- Status: in progress
+- Status: done
 - Where: desktop/src (link reader, team window) and web/src (chat title menu). Why: the desktop app's link handling and
   the web page that offers it are Team AX core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to an existing link and one menu item
@@ -40,3 +40,9 @@ Out: rooms and projects get no menu item (the desktop accepts their links); Linu
 URL handling: a web page can now move the desktop app to a page of a team it already has. Only fixed read-only routes
 with id-shaped segments; the server's own access checks still apply (a chat the person may not see shows "not found").
 No navigation to another origin, no other scheme.
+
+## Result
+
+Done as planned. The open team gets the page through its router (`bridge:open`, like a notification's click, no
+reload); another remembered team or a room message (`?m=`) loads the address. Checks: typecheck, i18n, docs, web unit
+(3376 pass), desktop unit `tests/unit/e-*` (339 pass).
