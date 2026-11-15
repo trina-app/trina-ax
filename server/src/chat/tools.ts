@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
@@ -54,6 +55,8 @@ import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
+import { isGuestUser } from '../credentials/guest-ai'
+import { GUEST_TURN_TOOLS } from './guest-tools'
 
 export interface Tool {
   name: string
@@ -132,6 +135,8 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
+  // a guest's turn: only the tools of chat/guest-tools.ts, and no connection provider at all
+  const guest = isGuestUser(exec.rt.db, exec.spec.userId)
   const tools = new Map<string, Tool>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
@@ -146,6 +151,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // or for a merge only on its team skills)
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
+    if (guest && !GUEST_TURN_TOOLS.has(t.name)) return false
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts)
     if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
@@ -167,6 +173,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)
   if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
+  // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
+  // see the chat; only where the chat holds such files or is shared with people
+  if (chatFileOffered(exec)) add(chatFileTool(exec))
   // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
   // (chat/post-to-room.ts): only in their own chat, never in a shared, confidential, draft or template
   // chat, a scheduled run or a question from Slack (postToRoomOff)
@@ -208,7 +217,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
-  for (const p of confidential || exec.restricted || exec.shared ? [] : providers) {
+  for (const p of confidential || exec.restricted || exec.shared || guest ? [] : providers) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }

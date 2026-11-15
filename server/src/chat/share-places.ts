@@ -8,6 +8,7 @@ import { getRow } from '../integrations/connections/store'
 import { shareRow } from '../integrations/google-drive/shares'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { groupName, roomRow } from '../rooms/store'
+import { seesChatFiles } from './chat-files-access'
 import { slackPlaceName, sourceOf, type ReadSource } from './read-scope'
 
 /** The place of one source as `userId` (`me`, their principal now) may be told it, or null: not named. */
@@ -30,6 +31,8 @@ export function sharePlaceOf(db: Database, rules: RuleSet, userId: string, me: P
       // a 1:1 or group conversation: its name is people's names
       return r?.kind === 'dm' || r?.kind === 'group' ? { kind: 'conversation' } : null
     }
+    // a chat's own files (chat/chat-files.ts): the chat, never by its title or its people, for someone who sees it
+    case 'chat': return seesChatFiles(db, userId, s.id) ? { kind: 'conversation' } : null
     case 'name': {
       const segs = s.path.split('/').filter(Boolean)
       if (segs[0] === 'users') return segs[1] === userId ? { kind: 'mine' } : null

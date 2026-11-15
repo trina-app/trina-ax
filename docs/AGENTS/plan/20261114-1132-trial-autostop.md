@@ -12,7 +12,7 @@
 ## Goal
 
 The hosting service stops an idle trial team's server to save cost and starts it again when someone opens the team.
-Someone who opens a stopped team sees "Starting your team…" (about a minute) and the page opens by itself when the
+Someone who opens a stopped team sees "Resuming your team…" (about a minute) and the page opens by itself when the
 server is back. Apps and webhooks get a retryable 503.
 
 ## Scope
@@ -20,7 +20,7 @@ server is back. Apps and webhooks get a retryable 503.
 In: port the unmerged F2 sleep work onto dev:
 - shared cloud protocol: idle-wait `--activity` facts, relay sleep flag, relay wake request (same as the control
   plane's vendored copy);
-- team server: when it was last in use (signed-in request, open app connection, running answer, background job,
+- team server: when it was last in use (signed-in request, running answer, background job,
   backup, running dev environment command), the next due schedule or push retry, `admin.js cloud-idle`;
 - mycel-ctl `idle-wait --activity`;
 - relay: per-team sleep flag (operator route), wake request to the control plane, the waking page.

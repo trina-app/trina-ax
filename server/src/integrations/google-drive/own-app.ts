@@ -52,6 +52,34 @@ export class GoogleOwnAppError extends Error {
   constructor(readonly reason: string, readonly status = 400) { super(`google_own_app_${reason}`) }
 }
 
+/** Asks Google whether it knows a client ID: true = clearly unknown, false = known or no clear answer (never blocks a save). */
+export type ClientProbe = (clientId: string, redirectUri: string) => Promise<boolean>
+
+/** Google's sign-in page answers an unknown client with a redirect (3xx) to /signin/oauth/error whose `authError` (base64 of
+ * a small message) says "invalid_client ... The OAuth client was not found"; a known client with a wrong return address goes
+ * to the same page with "redirect_uri_mismatch", and a known one with the right address to a normal sign-in. Only the first
+ * counts; a network error, a timeout or anything else lets the save go on. The secret cannot be checked this way. */
+export async function probeGoogleClient(clientId: string, redirectUri: string, fetchFn: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<boolean> {
+  try {
+    const q = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'openid' })
+    const r = await fetchFn(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, { redirect: 'manual', signal: AbortSignal.timeout(4000) })
+    if (r.status < 300 || r.status > 399) return false
+    const loc = r.headers.get('location')
+    if (!loc) return false
+    const u = new URL(loc, 'https://accounts.google.com')
+    if (u.pathname !== '/signin/oauth/error') return false
+    const err = u.searchParams.get('authError')
+    if (!err) return false
+    const text = Buffer.from(err.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1')
+    return /invalid_client|OAuth client was not found/i.test(text)
+  } catch { return false }
+}
+/** Not asked under tests (inject a probe to test the save). */
+const googleProbe: ClientProbe = (id, uri) => process.env.NODE_ENV === 'test' ? Promise.resolve(false) : probeGoogleClient(id, uri)
+let clientProbe: ClientProbe = googleProbe
+/** For tests: replace what asks Google (null puts the real one back). */
+export const setOwnAppClientProbe = (p: ClientProbe | null) => { clientProbe = p ?? googleProbe }
+
 const rowOf = (ctx: AppContext) => {
   const r = getSetting<OwnAppRow>(ctx.db, OWN_APP_SETTING)
   return r && typeof r === 'object' && typeof r.key === 'string' ? r : null
@@ -109,7 +137,16 @@ export async function ownAppStatusFresh(ctx: AppContext, env: Record<string, str
 }
 
 /** Use the company's Google app for all five (or replace it). Throws GoogleOwnAppError. */
-export function setOwnApp(ctx: AppContext, actor: string, body: { file?: string; clientId?: string; clientSecret?: string }, env: Record<string, string | undefined> = process.env): GoogleOwnAppStatus {
+export async function setOwnApp(ctx: AppContext, actor: string, body: { file?: string; clientId?: string; clientSecret?: string }, env: Record<string, string | undefined> = process.env): Promise<GoogleOwnAppStatus> {
+  const first = checkOwnApp(ctx, body, env)
+  // before anything is written: a client ID Google does not know is refused here, not at the first sign-in
+  if (await clientProbe(first.cfg.clientId, first.addresses.apps)) throw new GoogleOwnAppError('client_unknown')
+  return applyOwnApp(ctx, actor, body, env)
+}
+
+type OwnAppBody = { file?: string; clientId?: string; clientSecret?: string }
+
+function checkOwnApp(ctx: AppContext, body: OwnAppBody, env: Record<string, string | undefined>) {
   const st = stateOf(ctx, env)
   if (st.blocked || !st.addresses) throw new GoogleOwnAppError(st.blocked ?? 'public_host', 409)
   // the same parsing as Drive's and a card's own setup, once per return address: a downloaded file must list both
@@ -120,7 +157,12 @@ export function setOwnApp(ctx: AppContext, actor: string, body: { file?: string;
   const forApps = clientFromBody(body, st.addresses.apps)
   if (forApps === 'invalid') throw new GoogleOwnAppError('client_invalid')
   if (forApps === 'redirect') throw new GoogleOwnAppError('client_redirect_apps')
+  return { st, cfg, addresses: st.addresses }
+}
 
+function applyOwnApp(ctx: AppContext, actor: string, body: OwnAppBody, env: Record<string, string | undefined>): GoogleOwnAppStatus {
+  // checked again: the state may have changed while Google was asked
+  const { st, cfg } = checkOwnApp(ctx, body, env)
   const svc = st.svc
   try { svc.store.safeDirectory(true) } catch { throw new GoogleOwnAppError('key_unsafe', 503) }
   const previous = (() => { try { return fs.readFileSync(svc.clientFile) } catch { return null } })()

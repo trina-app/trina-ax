@@ -34,8 +34,10 @@ import { runPostMigrationSteps, stepsPending } from './db-steps'
 export const MIGRATIONS_DIR = path.join(import.meta.dir, '..', 'migrations')
 /** Raise when this build stops understanding DBs written by older releases' assumptions (see header). 5: group chats
  * and event lines in rooms (250_b_group_rooms.sql). 6: thread replies in rooms (251_b_room_threads.sql). 7: folder
- * access adds up like Google Drive (121_a_folder_limited.sql; an older build reads the converted rules deepest-wins). */
-export const SCHEMA_READER_LEVEL = 7
+ * access adds up like Google Drive (121_a_folder_limited.sql; an older build reads the converted rules deepest-wins). 8:
+ * guests (122_a_guests.sql; an older build reads a guest as a full member; 123_a_guest_place_return.sql, which changes
+ * its table, carries the same level). */
+export const SCHEMA_READER_LEVEL = 8
 
 export class SchemaTooNewError extends Error {
   constructor(public needed: number, public have: number, public migration: string) {

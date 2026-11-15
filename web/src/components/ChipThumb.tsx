@@ -4,7 +4,8 @@
 // the server gave back shows its room thumbnail (`src`). A picture that cannot be drawn (a HEIC photo in Chrome, a
 // thumbnail that did not load) shows a square with a picture icon. Its name is its tip and its alt text; what the chip
 // says (uploading, attached, its size) is for screen readers, beside it in each box. A click on it opens the image viewer
-// (components/ImageViewer.tsx), in both boxes.
+// (components/ImageViewer.tsx), in both boxes. Any other file is a compact chip whose ✕ is ChipRemove, and a failure's
+// reason beside either wraps in full (FAILED_REASON; QA TC-2285: "The storage is full. Empt…" was all it said).
 import clsx from 'clsx'
 import { FileImage, Loader2, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -100,5 +101,28 @@ export function PictureTile({ name, file, src, busy, percent = null, failed, rem
         </button>
       </Tooltip>
     </span>
+  )
+}
+
+/** A failed attachment's reason beside its chip or square: in full, on as many lines as it needs (never cut with "…"). */
+export const FAILED_REASON = 'max-w-[220px] whitespace-normal break-words leading-snug text-danger'
+
+/** A file chip's ✕ in a message box (both boxes): a 24 px target on a computer, 44 px on a phone (WCAG target size,
+ * as PictureTile's ✕), its icon as before. The negative margins keep a computer's chip its height; a phone's chip is
+ * as tall as the target. */
+export function ChipRemove({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Tooltip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        title=""
+        onClick={onClick}
+        className="-my-1 -mr-1.5 flex size-6 shrink-0 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink max-md:-my-1.5 max-md:-mr-2 max-md:size-11"
+        data-testid="chip-remove"
+      >
+        <X size={14} aria-hidden />
+      </button>
+    </Tooltip>
   )
 }

@@ -86,7 +86,7 @@ test("someone else's shared chat: the pin is there though nothing else is mine t
   }
 })
 
-test('no call from the page: no item but the link and Share… (a chat of mine outside projects)', async () => {
+test('no call from the page: no item but the link and Share (a chat of mine outside projects)', async () => {
   const c = chat()
   const m = await mount(<ChatTitleMenu chat={c} title={c.title} />)
   try {

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
-import { appIdOfToken, normEmail, slackOf } from '../../server/src/integrations/slack/service'
+import { appIdOfToken, linkWaitOf, linkWaitText, normEmail, slackOf } from '../../server/src/integrations/slack/service'
 import { questionText, refusal, say as sayText } from '../../server/src/integrations/slack/text'
 import { isWebAddress, plainOf, richBlocks, richText, slackAnswer } from '../../server/src/integrations/slack/rich-text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
@@ -1433,6 +1433,32 @@ describe('text', () => {
   })
 })
 
+describe('no new connect link now: why, in words', () => {
+  test('the hourly cap says when a link can be had again; a link sent within the minute says "use it" (QA chatB)', () => {
+    const now = Date.parse('2026-11-15T14:00:30Z')
+    const at = (ms: number) => new Date(now - ms).toISOString()
+    // nothing held back: a link may be made
+    expect(linkWaitOf({ n: 3, first: at(50 * 60_000), last: at(5 * 60_000) }, now)).toBeNull()
+    expect(linkWaitOf({ n: 0, first: null, last: null }, now)).toBeNull()
+    // a link still to be used, sent seconds ago: the short wait
+    expect(linkWaitOf({ n: 2, first: at(30 * 60_000), last: at(10_000) }, now)).toEqual({ key: 'linkWait' })
+    // the 11th link of the hour: the cap, with the minute the oldest of the hour leaves it (even with one sent just now)
+    const first = '2026-11-15T13:05:20Z'
+    const w = linkWaitOf({ n: 10, first, last: at(10_000) }, now)
+    expect(w).toEqual({ key: 'linkHourly', again: Date.parse('2026-11-15T14:06:00Z') })
+    const en = linkWaitText(w!, 'en')
+    expect(en).toBe('You got 10 connect links in the last hour. Use the newest one, or ask again after <!date^1794751560^{time}|14:06 UTC>.')
+    expect(en).not.toContain('few minutes')
+    expect(linkWaitText({ key: 'linkWait' }, 'en')).toContain('a few minutes')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      const s = linkWaitText(w!, l)
+      expect(s).toContain('<!date^1794751560^{time}|14:06 UTC>')
+      expect(s).toContain('10')
+      expect(s).not.toMatch(/\{(n|at)\}/)
+    }
+  })
+})
+
 describe('the own app\'s bot token is refused by Slack', () => {
   test('Admin says so in a state of its own (not Connected) and offers new tokens; saving tokens again clears it', async () => {
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
@@ -1450,5 +1476,29 @@ describe('the own app\'s bot token is refused by Slack', () => {
     // new tokens: the problem is gone
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
     expect(await waitFor(async () => { const v = (await call('dana', 'GET', '/api/admin/slack')).json; return v.state === 'connected' && v.lastError === null })).toBe(true)
+  })
+
+  test('revoked in Slack (auth.revoke): the scopes check at start and every 10 minutes says so too; a rate limit or a Slack error does not (QA TC-2140)', async () => {
+    const admin = async () => (await call('dana', 'GET', '/api/admin/slack')).json
+    expect(await admin()).toMatchObject({ state: 'connected', lastError: null })
+    const before = (h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n
+    // not about the token: nothing changes
+    for (const error of ['ratelimited', 'internal_error', 'fatal_error']) {
+      fake.failNext['auth.test'] = { error }
+      await slackOf(h.ctx).checkBotScopes()
+      expect(await admin()).toMatchObject({ state: 'connected', lastError: null })
+    }
+    // Slack's answers for a revoked token: the state of its own, with "Replace tokens"
+    for (const error of ['account_inactive', 'token_revoked', 'invalid_auth', 'not_authed']) {
+      fake.failNext['auth.test'] = { error }
+      await slackOf(h.ctx).checkBotScopes()
+      expect({ error, v: await admin() }).toMatchObject({ error, v: { mode: 'own', state: 'error', lastError: 'bot_refused', tokens: true } })
+      expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+      expect(await waitFor(async () => { const v = await admin(); return v.state === 'connected' && v.lastError === null })).toBe(true)
+    }
+    expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n).toBe(before + 4)
+    // another token checked before it is saved (a wrong one pasted, Slack: invalid_auth) says nothing about the saved one
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens('xoxb-999-888-' + 'w'.repeat(24)))).status).toBe(400)
+    expect(await admin()).toMatchObject({ state: 'connected', lastError: null })
   })
 })

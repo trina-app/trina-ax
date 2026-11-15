@@ -1,0 +1,19 @@
+{
+ "id": "evt_3TestPI0001",
+ "object": "event",
+ "created": 1794646801,
+ "livemode": false,
+ "type": "payment_intent.succeeded",
+ "data": {
+  "object": {
+   "id": "pi_3TestPayment0001",
+   "object": "payment_intent",
+   "amount": 4900,
+   "amount_received": 4900,
+   "currency": "usd",
+   "description": "Pro plan (monthly)",
+   "receipt_email": "jamie@example.com",
+   "status": "succeeded"
+  }
+ }
+}

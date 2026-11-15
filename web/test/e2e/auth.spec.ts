@@ -204,7 +204,7 @@ test('an invite link creates an account', async ({ page, browser }) => {
   // the username rule is checked while typing (a space, "!"), not by a browser bubble after the button
   await p2.getByTestId('invite-username').fill('new bie!')
   await expect(p2.getByTestId('invite-username')).toHaveAttribute('aria-invalid', 'true')
-  await expect(p2.getByRole('alert')).toContainText('영문·숫자와')
+  await expect(p2.getByRole('alert')).toContainText('띄어쓰기 없이')
   await p2.getByTestId('invite-username').fill('newbie')
   await expect(p2.getByTestId('invite-username')).not.toHaveAttribute('aria-invalid', 'true')
   await p2.getByTestId('invite-password').fill('another password 1')
@@ -213,7 +213,7 @@ test('an invite link creates an account', async ({ page, browser }) => {
   // the used link is now invalid
   await p2.context().clearCookies()
   await p2.goto(link)
-  await expect(p2.getByText('만료됐거나 이미 사용됐어요')).toBeVisible()
+  await expect(p2.getByText('이미 사용한 초대 링크예요')).toBeVisible()
   await other.close()
 })
 
@@ -269,7 +269,7 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByTestId('auth-locale')).toHaveValue('en')
   // each language is named in its own language
-  await expect(page.getByTestId('auth-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
+  await expect(page.getByTestId('auth-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español', '简体中文'])
   await page.getByTestId('auth-locale').selectOption('id')
   await expect(page.getByRole('heading', { name: 'Masuk' })).toBeVisible()
   await page.reload()
@@ -426,6 +426,29 @@ test('the offline page retries by itself and goes back to the chat when the serv
   // no click: the next quiet try (every few seconds) brings the app back
   await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('cant-reach')).toHaveCount(0)
+})
+
+// A stopped trial server starts in about a minute: the relay answers a retryable 503 (x-relay-error: team_waking).
+// The app says "Resuming your team" with a spinner, not "Can't reach", and comes back by itself.
+test('a starting team shows "Resuming your team", not an error, and opens by itself', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.route('**/api/me', route => route.fulfill({
+    status: 503,
+    headers: { 'content-type': 'application/json', 'x-relay-error': 'team_waking', 'retry-after': '4' },
+    body: JSON.stringify({ error: { code: 'unavailable', message: 'Resuming your team…', reason: 'team_waking', retryAfter: 4 } }),
+  }))
+  await page.reload()
+  const waking = page.getByTestId('team-waking')
+  await expect(waking).toBeVisible()
+  await expect(waking).toContainText('Resuming your team')
+  await expect(page.getByText('about a minute')).toBeVisible()
+  await expect(page.getByTestId('cant-reach')).toContainText('Resuming your team')
+  await expect(page.getByText("Can't reach the team server")).toHaveCount(0)
+  await page.screenshot({ path: process.env.WAKE_SHOT_DIR ? `${process.env.WAKE_SHOT_DIR}/wake-web-${test.info().project.name}.png` : test.info().outputPath('wake-web.png') })
+  await page.unroute('**/api/me')
+  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('team-waking')).toHaveCount(0)
 })
 
 test('the offline page asks at once when the network comes back', async ({ page }) => {

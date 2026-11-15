@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, WriteInput, type MediaKind } from '@mycel/shared'
+import { isGuestUser } from '../credentials/guest-ai'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
@@ -969,6 +970,8 @@ export class FileService {
     const cores = cpuBudget()
     const none = (key: MediaTextKey, provider = s.speechProvider): MediaTranscript => ({ segments: [], from: w.from, covered: w.from, notes: [say(key)], label: '', languages: [], provider, made: 0, cached: 0, silent: 0, stopped: key })
     if (s.speechProvider === 'off') return none('voiceOff')
+    // a guest's AI never turns sound into text: speech is a team cost outside the guest's own limit (credentials/guest-ai.ts)
+    if (isGuestUser(this.db, ctx.user.id)) return none('transcriptsOff')
     // the hosting service's key turns it on by default (its free hours); the team's own key does not
     const free = s.speechProvider === 'openrouter' ? this.speechFree() : null
     // off by default on a small server (shared mediaTranscriptsDefault): the note says why, and that an admin can turn it on

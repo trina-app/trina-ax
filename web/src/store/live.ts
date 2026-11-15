@@ -25,6 +25,7 @@ import { useTyping } from './typing'
 import { useRooms } from './rooms'
 import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
+import { isGuestMe } from '../lib/guests'
 import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
 import { toast, useUi } from './ui'
 import { useWelcome } from './welcome'
@@ -48,6 +49,9 @@ export const schedulesChanged = new Emitter<void>()
 export const enginesChanged = new Emitter<void>()
 /** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
+/** who is in a team project changed (someone joined or left it, a guest accepted their invite): its page reads its
+ * people again (server/src/chat/project-joins.ts, the notice project_people_changed; its message is the projects' ids, comma-separated) */
+export const projectPeopleChanged = new Emitter<string>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
 /** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
@@ -200,6 +204,10 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         if (usePeople.getState().loaded) void usePeople.getState().load(true)
         return
       }
+      if (ev.data.code === 'project_people_changed') {
+        for (const id of ev.data.message.split(',')) if (id) projectPeopleChanged.emit(id)
+        return
+      }
       if (ev.data.code === 'speech_changed') {
         // an admin turned voice input on or off: the composer shows or hides the mic (Me.team.voiceInput)
         void useSession.getState().refreshMe()
@@ -260,7 +268,14 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen
-      if (useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('ended')
+      if (useSession.getState().status.kind === 'signed-in') {
+        // a guest whose account was turned off: the sign-in page says they are no longer in the team (not "signed out
+        // elsewhere"); docs/DECISIONS.md "Guests: only what they were invited to"
+        const st = useSession.getState().status
+        const me = st.kind === 'signed-in' ? st.me : null
+        if (ev.data.reason === 'disabled' && isGuestMe(me)) useSession.getState().signedOut('removed', me!.team.name)
+        else useSession.getState().signedOut('ended')
+      }
       return
   }
 }

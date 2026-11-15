@@ -126,7 +126,7 @@ test.describe('phone', () => {
     await page.waitForTimeout(650)
     await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
     const sheet = page.getByRole('menu')
-    await expect(sheet.getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '숨기기'])
+    await expect(sheet.getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '앱 추가', '링크 복사', '숨기기'])
     await page.waitForTimeout(450)
     await page.getByTestId('room-menu-pin').click()
     await expect.poll(() => state.pinned).toEqual([{ roomId: TEAM, pinned: true }])

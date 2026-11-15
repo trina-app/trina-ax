@@ -143,6 +143,22 @@ h1 {
   min-height: 1.45em;
   margin: 8px 0 0;
 }
+/* a sleeping trial team starting while it is added (welcome.ts waking) */
+.waking {
+  margin: 12px 0 0;
+}
+.waking-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+.waking-detail {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
 .teams {
   margin-top: 22px;
   border-top: 1px solid var(--line);

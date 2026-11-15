@@ -98,7 +98,7 @@ export const authRoutes: RouteModule = {
       if (renamed) {
         forgetUserName(ctx, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: ['name'], name: { from: u!.name, to: body.name } } })
-        ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
+        ctx.services.realtime.publishEach(profileChangedFor(ctx.db, auth.user.id))
       }
       // the person's other windows and devices switch too
       if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)

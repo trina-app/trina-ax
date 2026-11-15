@@ -57,7 +57,11 @@ export const roomsRoutes: RouteModule = {
     // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
-    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale') }))
+    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
+    // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts): the composer's
+    // "someone here can't see that message" question, and the sender's "Remove preview"
+    kit.handle(API.roomMessageLinkAudience, ({ auth, params, body }) => rooms.linkAudience(auth.user.id, params.id, body))
+    kit.handle(API.hideRoomLinkPreview, ({ auth, params, body }) => rooms.hidePreview(auth.user.id, params.id, params.messageId, body.linkedMessageId))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
@@ -68,7 +72,7 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMembers, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.members(auth.user.id, params.id) } })
     // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): any member invites or leaves; the manager, or an owner or
     // admin in it, takes someone out
-    kit.handle(API.inviteRoomMembers, ({ auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds))
+    kit.handle(API.inviteRoomMembers, ({ c, auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds, c.get('locale')))
     kit.handle(API.removeRoomMember, ({ auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId))
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only

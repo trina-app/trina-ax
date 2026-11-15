@@ -13,11 +13,14 @@ import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
+import { accountRemoved, type SignedOutReason } from '../lib/signedOut'
 
 export type AuthStatus =
   | { kind: 'loading' }
   | { kind: 'setup'; teamName: string | null }
-  | { kind: 'signed-out'; reason?: 'expired' | 'ended' }
+  // 'removed': an account taken out of the team. A guest turned off while signed in carries the team's name for the
+  // sign-in page's guest line; a removed member (TC-1974, lib/signedOut.ts) has none (pages/Auth.tsx Login)
+  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string }
   | { kind: 'signed-in'; me: Me }
   | { kind: 'error'; error: unknown }
 
@@ -26,7 +29,7 @@ interface SessionState {
   load: () => Promise<void>
   /** after sign-in; `adoptPick`: a language picked on the sign-in screen becomes the account's own when it has none */
   signedIn: (me: Me, opts?: { adoptPick?: boolean }) => void
-  signedOut: (reason?: 'expired' | 'ended') => void
+  signedOut: (reason?: SignedOutReason, team?: string) => void
   /** the team default or the person's language may have changed elsewhere (admin, another window): ask again */
   refreshMe: () => Promise<void>
   /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
@@ -41,6 +44,16 @@ interface SessionState {
   setAway: (away: boolean) => Promise<void>
   /** shown at once on this device; the account keeps it for the others */
   setTextSize: (s: TextSize) => Promise<void>
+}
+
+/** A guest turned off while signed in: the team's name, kept in this browser until the next sign-in, so the sign-in page
+ * still says why on a later visit (the server's answer to their password is only "wrong"). */
+const REMOVED_KEY = 'mycel.removedFrom'
+export function removedFrom(): string | null {
+  try { return localStorage.getItem(REMOVED_KEY) } catch { return null }
+}
+function rememberRemoved(team: string | null) {
+  try { if (team) localStorage.setItem(REMOVED_KEY, team); else localStorage.removeItem(REMOVED_KEY) } catch { /* storage blocked: said only this time */ }
 }
 
 function applyMe(me: Me) {
@@ -145,6 +158,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedIn(me, opts) {
+    rememberRemoved(null)
     lastTeamDefault = me.team.defaultLocale
     const picked = storedLocale()
     if (opts?.adoptPick && pickedBeforeSignIn && picked && me.user.localeChoice === null && picked !== me.user.locale) pendingPick = picked
@@ -168,7 +182,7 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  signedOut(reason) {
+  signedOut(reason, team) {
     forgetPersonInTab()
     pendingPick = null
     pickedBeforeSignIn = false
@@ -176,7 +190,16 @@ export const useSession = create<SessionState>((set, get) => ({
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-    set({ status: { kind: 'signed-out', reason } })
+    if (reason === 'removed' && team) rememberRemoved(team)
+    set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
+    // ended from elsewhere (the live link said so, or it was refused): the server tells this sign-in's own holder when
+    // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974)
+    if (reason === 'ended' || reason === 'expired') {
+      api.call(API.me).then(() => {}, (e) => {
+        const st = get().status
+        if (accountRemoved(e) && st.kind === 'signed-out' && st.reason === reason) set({ status: { kind: 'signed-out', reason: 'removed' } })
+      })
+    }
   },
 
   async refreshMe() {
@@ -336,9 +359,9 @@ async function readMe(get: Get, set: Set): Promise<void> {
         const locale = pickLocale(storedLocale(), s.defaultLocale)
         await wordsFor(locale)
         useLocaleStore.getState().setLocale(locale)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out' } })
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
       } catch {
-        set({ status: { kind: 'signed-out' } })
+        set({ status: { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
       }
       return
     }

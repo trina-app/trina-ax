@@ -267,7 +267,7 @@ export function treeAnswer(src: TreeSource, segs: readonly string[], exists: boo
   }
   return {
     path: segs.join('/'), exists,
-    people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
+    people: src.people.length, members: src.people.filter((p) => p.role === 'member' || p.role === 'guest').length,
     self: tc.node(segs, exists), levels,
   }
 }
@@ -297,7 +297,7 @@ export function ruledAnswer(src: TreeSource, segs: readonly string[], exists: bo
   }
   return {
     path: base, exists,
-    people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
+    people: src.people.length, members: src.people.filter((p) => p.role === 'member' || p.role === 'guest').length,
     self: tc.node(segs, exists),
     levels: [{ path: base, children: items.map((p) => tc.node(segsOf(p))), total: all.length, nextCursor: from.length > items.length ? items[items.length - 1]! : null }],
     above: [...above.values()],

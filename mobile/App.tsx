@@ -13,6 +13,7 @@ import { documentId, documentScript, FileTransfers, loadStartFences, MobileRecei
 import { backAction, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhotoPicks } from './src/photos'
+import { Reconnect } from './src/reconnect'
 import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
 import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
@@ -235,6 +236,15 @@ function Center({ children }: { children: ReactNode }) {
   const i = useSafeAreaInsets(), c = useContext(Look)
   return <View style={[s.fill, s.center, { backgroundColor: c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]}>{children}</View>
 }
+/** A sleeping free trial team is starting while it is added (about a minute): a calm wait, not an error; the add goes
+ * on by itself when it answers (src/team-check.ts, QA wake gap 1). */
+function WakingNote() {
+  const c = useContext(Look)
+  return <View style={s.waking} accessibilityRole="progressbar" accessibilityLiveRegion="polite" testID="team-waking">
+    <View style={s.wakingRow}><ActivityIndicator color={c.muted} /><Text style={[s.wakingTitle, { color: c.ink }]}>{t.waking}</Text></View>
+    <Text style={[s.hint, { color: c.muted }]}>{t.wakingDetail}</Text>
+  </View>
+}
 /** A question before connecting: an address the hosted service does not run (once, on the first connect), a renamed
  * team, or leaving the team this phone is in. [취소] has the focus. */
 type Ask = { kind: 'outside' | 'renamed' | 'switch'; address: TeamAddress; host: string; hosted: boolean }
@@ -244,20 +254,28 @@ type Ask = { kind: 'outside' | 'renamed' | 'switch'; address: TeamAddress; host:
  * over it ([{team}(으)로 돌아가기]); it is left only when the new address answered and the person said yes.
  */
 function Setup({ current, onDone, onBack, onSame }: { current: string | null; onDone: (address: TeamAddress) => Promise<boolean>; onBack?: () => void; onSame?: (address: TeamAddress) => void }) {
-  const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [waking, setWaking] = useState(false)
   const [view, setView] = useState<'main' | 'unknown' | 'none'>('main'), [ask, setAsk] = useState<Ask | null>(null)
   const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
+  // the wait for a starting team can be cancelled (it lasts up to 3 minutes): the box is free again at once
+  const stop = useRef<AbortController | null>(null)
+  function cancelWake() { stop.current?.abort(); stop.current = null; setWaking(false); setBusy(false) }
   async function submit() {
     if (busy) return
     const r = readTeamInput(value, service.teamDomain)
     if (!r.ok) { setError(inputError(t, r.error)); return }
     if (current === r.origin) { onSame?.({ origin: r.origin, entryPath: r.entryPath }); return }
     setBusy(true); setError(''); setAsk(null)
+    const mine = stop.current = new AbortController()
     try {
       // the name is checked only here, on the button, and only under the team domain
-      const c = await checkTeam(r.origin, service.teamDomain)
+      // a sleeping trial team: "Resuming your team…" while it starts, then on by itself (QA wake gap 1)
+      const c = await checkTeam(r.origin, service.teamDomain, () => setWaking(true), mine.signal)
+      // cancelled meanwhile: nothing more (a later try has its own)
+      if (mine.signal.aborted) return
+      setWaking(false)
       if (!c.ok) {
-        setError(c.reason === 'unknown' ? fill(t.teamUnknown, { name: r.name ?? r.host }) : c.reason === 'suspended' ? t.suspended : c.reason === 'notTeam' ? t.notTeam : t.unreachableSetup)
+        setError(c.reason === 'unknown' ? fill(t.teamUnknown, { name: r.name ?? r.host }) : c.reason === 'suspended' ? t.suspended : c.reason === 'notTeam' ? t.notTeam : c.reason === 'wakeTimeout' ? t.wakeTimeout : t.unreachableSetup)
         return
       }
       const address = { origin: c.origin, entryPath: r.entryPath }
@@ -268,8 +286,8 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
       else if (c.renamed) setAsk({ kind: 'renamed', address, host: hostOf(c.origin), hosted })
       else if (!hosted) setAsk({ kind: 'outside', address, host: hostOf(c.origin), hosted })
       else if (!await onDone(address)) setError(t.stillSwitching)
-    } catch { setError(t.saveFailed) }
-    finally { setBusy(false) }
+    } catch { if (!mine.signal.aborted) setError(t.saveFailed) }
+    finally { if (!mine.signal.aborted) { setBusy(false); setWaking(false) } if (stop.current === mine) stop.current = null }
   }
   async function yes(a: Ask) {
     setBusy(true)
@@ -319,6 +337,8 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
       <TextInput style={[s.input, { borderColor: c.field, backgroundColor: c.surface, color: c.ink }]} value={value} onChangeText={v => { setValue(v); if (ask) setAsk(null) }} placeholder={t.setupPlaceholder} placeholderTextColor={c.field}
         autoCapitalize="none" autoCorrect={false} keyboardAppearance={c === DARK ? 'dark' : 'light'} accessibilityLabel={t.setupPlaceholder}
         keyboardType="url" returnKeyType="go" onSubmitEditing={() => void submit()} editable={!busy} testID="team-url" />
+      {waking && <WakingNote />}
+      {waking && <Pressable style={s.link} onPress={cancelWake} testID="team-waking-cancel" accessibilityRole="button"><Text style={[s.linkText, { color: c.ink }]}>{t.cancel}</Text></Pressable>}
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="setup-error">{error}</Text>}
       {ask ? <View style={[s.ask, { borderColor: c.field, backgroundColor: c.surface }]} testID="setup-ask" accessibilityViewIsModal>
         {ask.kind === 'switch' && current && <Text style={[s.askTitle, { color: c.ink }]}>{fill(t.switchTitle, { old: hostOf(current), new: ask.host })}</Text>}
@@ -351,8 +371,11 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  * [바꾸기]) only then checks the address and connects: the same path as the box, leaving the old team only now.
  */
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<boolean> }) {
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), busyRef = useRef(false)
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), busyRef = useRef(false), [waking, setWaking] = useState(false)
   busyRef.current = busy
+  // while a starting team is waited for, Back is Cancel too
+  const wakingRef = useRef(false)
+  wakingRef.current = waking
   // the connect the person said yes to could not reach the team (or not be saved): [다시 시도] goes again with that link
   const [again, setAgain] = useState(false)
   // [연결] is on only once ④ has been on screen a while (the gate counts 600 ms from gate.shown)
@@ -363,7 +386,9 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   const i = useSafeAreaInsets(), c = useContext(Look)
   const switching = !!current && current !== offer.origin
   const host = moved ? hostOf(moved.origin) : offer.host
-  function no() { gate.answer(false, offer.host, Date.now()); onClose() }
+  // Cancel stays open while a starting team is waited for (up to 3 minutes): the wait stops with the sheet
+  const stop = useRef<AbortController | null>(null)
+  function no() { stop.current?.abort(); gate.answer(false, offer.host, Date.now()); onClose() }
   async function yes() {
     if (busy) return
     if (moved) {
@@ -378,10 +403,13 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
     const o = again ? gate.retry(offer.host) : gate.answer(true, offer.host, Date.now())
     if (!o) return
     setBusy(true); setError(''); setAgain(false)
+    const mine = stop.current = new AbortController()
     try {
-      const r = await checkTeam(o.origin, service.teamDomain)
+      const r = await checkTeam(o.origin, service.teamDomain, () => setWaking(true), mine.signal)
+      if (mine.signal.aborted) return
+      setWaking(false)
       if (!r.ok) {
-        if (r.reason === 'unreachable') { setError(t.linkUnreachable); setAgain(true); return }
+        if (r.reason === 'unreachable' || r.reason === 'wakeTimeout') { setError(r.reason === 'wakeTimeout' ? t.wakeTimeout : t.linkUnreachable); setAgain(true); return }
         setError(r.reason === 'unknown' ? fill(t.teamUnknown, { name: o.name ?? o.host }) : r.reason === 'suspended' ? t.suspended : t.notTeam)
         return
       }
@@ -390,14 +418,14 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       // another switch is still running: ④ stays with [Try again] (the gate keeps the link this yes confirmed)
       else if (!await onDone({ origin: r.origin, entryPath: o.entryPath })) { setError(t.stillSwitching); setAgain(true); return }
       gate.clear(offer.id)
-    } catch { setError(t.saveFailed); setAgain(true) } finally { setBusy(false) }
+    } catch { if (!mine.signal.aborted) { setError(t.saveFailed); setAgain(true) } } finally { if (!mine.signal.aborted) { setBusy(false); setWaking(false) } }
   }
   useEffect(() => {
     gate.shown(offer.id, Date.now())
     const on = setTimeout(() => setReady(true), 650)
     const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
     // during a switch (the old team's sign-out) back cancels nothing
-    const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!busyRef.current) no(); return true })
+    const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!busyRef.current || wakingRef.current) no(); return true })
     return () => { clearTimeout(id); clearTimeout(on); back.remove() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer])
@@ -407,16 +435,17 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       <Text style={[s.hint, { color: c.muted }]}>{moved ? fill(t.renamed, { host }) : t.linkBody}</Text>
       {!offer.hosted && <Text style={[s.askText, { color: c.ink }]} testID="link-outside">{t.outsideBody}</Text>}
       {switching && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current!) })}</Text>}
+      {waking && <WakingNote />}
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
       <View style={s.askRow}>
-        <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={no} disabled={busy} testID="link-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+        <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && !waking && s.off]} onPress={no} disabled={busy && !waking} testID="link-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy && !waking }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
         {(!error || again) && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
           {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{again ? t.retry : switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
       </View>
     </View>
   </View>
 }
-type Failure = 'offline' | 'unreachable'
+type Failure = 'offline' | 'unreachable' | 'updating'
 function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
@@ -572,11 +601,28 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
     } catch { /* opaque/local schemes never leave the WebView */ }
   }
   const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setPageNav(null); setFailed(kind) }
+  // The failure screen tries again by itself (src/reconnect.ts, QA TC-2265): when the team answers its health check
+  // again, the page loads again, as Try again does (the source is still the page that failed: a tapped push's chat)
+  const reconnect = useRef<Reconnect | null>(null)
+  if (!reconnect.current) reconnect.current = new Reconnect(
+    // (Trina is updating: the screen says so, and keeps trying)
+    async () => { const c = await checkTeam(address.origin, service.teamDomain); if (!c.ok && c.updating) setFailed(f => (f ? 'updating' : f)); return c.ok || c.reason !== 'unreachable' },
+    () => setFailed(null))
+  useEffect(() => {
+    const again = reconnect.current!
+    if (failed) again.start(); else again.stop()
+  }, [failed])
+  useEffect(() => {
+    const again = reconnect.current!
+    const sub = AppState.addEventListener('change', state => { if (state === 'active') again.wake(); else again.pause() })
+    return () => { sub.remove(); again.stop() }
+  }, [])
   /** The page has arrived: install the bridge; a page that does not confirm it pads itself gets the app's padding. */
   function settle(url: string) {
     void loaded(url).then(installed => {
       ready.current = installed && !loadFailed.current
       if (ready.current) {
+        reconnect.current?.reset()
         checkSession()
         if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)
       }
@@ -590,10 +636,11 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       }, 3000)
     }, () => fail('unreachable'))
   }
-  // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page.
+  // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page; the
+  // app also does by itself once the team answers (reconnect above)
   if (failed) return <Center>
-    <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header">{failed === 'offline' ? t.offlineTitle : t.unreachableTitle}</Text>
-    <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : t.unreachableHint}</Text>
+    <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header" testID={failed === 'updating' ? 'updating-title' : undefined}>{failed === 'offline' ? t.offlineTitle : failed === 'updating' ? t.updatingTitle : t.unreachableTitle}</Text>
+    <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : failed === 'updating' ? t.updatingHint : t.unreachableHint}</Text>
     <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
     <Pressable style={s.link} onPress={changeTeam} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   // the team address the app connected to (drawn here: a page can draw anything) and "another team": on the sign-in
@@ -698,7 +745,7 @@ const s = StyleSheet.create({
   fill: { flex: 1 }, center: { alignItems: 'center', justifyContent: 'center', padding: 24 },
   setup: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 24 }, title: { fontSize: 24, fontWeight: '600', marginBottom: 8 },
   hint: { fontSize: 15, marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderRadius: 10, padding: 14, fontSize: 16 },
-  error: { marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
+  error: { marginTop: 10, lineHeight: 20 }, waking: { marginTop: 14 }, wakingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }, wakingTitle: { fontSize: 15, fontWeight: '600' }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
   buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingTop: 8 }, footerButton: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { fontSize: 15 }, centerText: { textAlign: 'center' }, underline: { textDecorationLine: 'underline' }, centered: { alignSelf: 'center' },
   secondary: { marginTop: 12, alignItems: 'center' }, secondaryText: { fontSize: 16, fontWeight: '500', borderWidth: 1, borderRadius: 10, padding: 13, minWidth: 160, width: '100%', textAlign: 'center', overflow: 'hidden' },

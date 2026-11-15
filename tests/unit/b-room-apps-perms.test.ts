@@ -8,6 +8,7 @@ import { credentialsOf } from '../../server/src/credentials/store'
 import { rekeyCredentials } from '../../server/src/credentials/rekey'
 import { APP_DATA_NOTE, readRoom, searchRooms } from '../../server/src/rooms/reader'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { addGuest } from './guest-lib'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -150,6 +151,11 @@ test('rekeying the credentials keeps every address working and copyable', async 
   expect(after.key_version).toBe(before.key_version + 1)
   const again = await ada.client.call('GET', `/api/rooms/${team}/apps/${a.app.id}/address`)
   expect(again).toEqual({ address: a.address, secret: s.secret })
+  // the secret still checks after rekeying: GitHub's signed ping is taken (and turns the check on), unsigned is refused
+  const ping = '{"zen":"x","hook_id":1}'
+  const sig = `sha256=${crypto.createHmac('sha256', s.secret).update(ping).digest('hex')}`
+  const token = a.address.split('/in/')[1]
+  expect((await h.fetch(`/in/${token}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': 'ping', 'x-hub-signature-256': sig }, body: ping })).status).toBe(200)
   expect((await post(a.address, 'x')).status).toBe(401)
 })
 
@@ -176,4 +182,19 @@ test('the /in/ address is exempt from the public address\'s country list while t
   expect((await send('/api/health', 'GET')).status).toBe(403)
   expect((await send(`/in/${token}`, 'GET')).status).toBe(403)
   expect((await send('/in/nope', 'POST', '{}')).status).toBe(403)
+})
+
+test('a guest in a group chat manages none of its apps: every apps route 403, an app\'s message not theirs to delete (QA TC-1922)', async () => {
+  const { mia, nora, gc, post } = await setup()
+  const gus = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: gc } })
+  const a = await nora.client.call('POST', `/api/rooms/${gc}/apps`, { kind: 'other', name: 'Deploys' })
+  expect((await gus.client.try('GET', `/api/rooms/${gc}/apps`)).status).toBe(403)
+  expect((await gus.client.try('POST', `/api/rooms/${gc}/apps`, { kind: 'other' })).status).toBe(403)
+  expect((await post(a.address, 'Deployed v2')).status).toBe(200)
+  await settle()
+  const [m] = (await gus.client.call('GET', `/api/rooms/${gc}/messages`)).items.filter((x: any) => x.app)
+  expect(m).toBeTruthy()
+  expect((await gus.client.try('DELETE', `/api/rooms/${gc}/messages/${m.id}`)).status).toBe(403)
+  // a member of the chat still may
+  await nora.client.call('DELETE', `/api/rooms/${gc}/messages/${m.id}`)
 })

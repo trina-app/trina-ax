@@ -4,6 +4,7 @@
 import { buildPath, isSchema, type BodyOf, type Endpoint, type ParamsOf, type QueryOf, type ResponseOf } from './endpoint'
 import { ApiErrorResponse, CSRF_HEADER, DEFAULT_LOCALE, WINDOW_HEADER, type ApiErrorBody, type ErrorCode } from './common'
 import { ERROR_MESSAGES } from './errors'
+import { updatingAnswer } from '../team-link'
 
 /** The error code for a response with no JSON error body (a proxy or relay page, a crash before the handler). */
 function fallbackCode(status: number): ErrorCode {
@@ -12,6 +13,12 @@ function fallbackCode(status: number): ErrorCode {
   // not 404 → not_found: a 404 page from a proxy does not mean the item is gone, and callers act on not_found
   // (drop a project, leave a folder, hide a section)
   return 'internal'
+}
+
+/** An answer that says Trina is updating (503): the update's stand-in (x-mycel-updating, server/src/system/
+ * updating-page.ts) or the relay while a hosted team's server is updated (x-relay-error: team_maintenance). */
+export function isUpdatingAnswer(res: Pick<Response, 'status' | 'headers'>): boolean {
+  return updatingAnswer(res.status, res.headers.get('x-mycel-updating'), res.headers.get('x-relay-error'))
 }
 
 export class ApiError extends Error {
@@ -95,6 +102,13 @@ export class ApiClient {
         const j = ApiErrorResponse.safeParse(await res.json())
         if (j.success) parsed = j.data.error
       } catch { /* not JSON (e.g. relay HTML error page) */ }
+      // The relay answers a stopped team's request with a retryable 503 while the server starts (relay/src/pages.ts
+      // team_waking). Its marker is the x-relay-error header; the body's own `reason` is not kept by the schema.
+      if (res.status === 503 && res.headers.get('x-relay-error') === 'team_waking') parsed = { ...parsed, params: { ...parsed.params, reason: 'team_waking' } }
+      // Trina is updating: the update's stand-in while the database is migrated (server/src/system/migrate-start.ts,
+      // x-mycel-updating), or the relay while the control plane updates a hosted team (team_maintenance). It passes by
+      // itself; the web app waits for it and sends what waits (web/src/lib/serverUpdating.ts).
+      if (isUpdatingAnswer(res)) parsed = { ...parsed, params: { ...parsed.params, reason: 'updating' } }
       throw new ApiError(res.status, parsed)
     }
     const r = ep.response

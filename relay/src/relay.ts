@@ -741,10 +741,11 @@ export class RelayServer {
     const { row } = this.lookupName(host.name)
     if (!row) { this.counters.wsUnknown++; rawHttp(socket, 404); return }
     if (row.status === 'suspended') { this.counters.wsSuspended++; rawHttp(socket, 403); return }
-    const sleeping = this.startWake(row, 'ws')
-    const ctl = await this.connFor(row.id, req, sleeping ? { holdMs: this.cfg.wake!.holdMs, stop: sleeping.stop } : undefined)
+    // an open or reconnecting socket is no use: it never wakes a stopped team (the apps would wake it again at every
+    // stop). The next real request does (mayWake); the socket is closed 1013 until the server is back.
+    const ctl = await this.connFor(row.id, req)
     if (socket.destroyed) return
-    if (!ctl && sleeping) this.counters.wsWaking++
+    if (!ctl && row.sleeping_since) this.counters.wsWaking++
     if (!ctl) {
       // browsers can't read a status on a failed upgrade: accept, then close 1013 so the client knows why
       this.counters.wsOffline++

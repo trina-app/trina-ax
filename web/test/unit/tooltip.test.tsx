@@ -185,6 +185,39 @@ test('focus from a click, or a dialog focusing its first button after a click op
   }
 })
 
+test('a phone with a pen (QA N5): focus right after a tap anywhere shows no tip, after a key it does; a tap anywhere takes a tip away', async () => {
+  media(true)
+  const m = await mount(
+    <div>
+      <button data-testid="elsewhere">open</button>
+      <Tooltip label="닫기"><button aria-label="닫기" data-testid="b">x</button></Tooltip>
+    </div>,
+  )
+  try {
+    const b = m.get('b')
+    // a tap opened something that focused this button (a dialog's first one): no tip
+    fire(m.get('elsewhere'), 'pointerdown', { pointerType: 'touch' })
+    await m.settle(600)
+    fire(b, 'focusin')
+    await m.settle(10)
+    expect(tip()).toBeNull()
+    fire(b, 'focusout')
+    // a key (Tab) moved it there: the tip
+    fire(document.body, 'keydown', { key: 'Tab' })
+    fire(b, 'focusin')
+    await m.settle(10)
+    expect(tip()?.textContent).toBe('닫기')
+    // a tap somewhere else, even one that moves no focus: gone
+    fire(m.get('elsewhere'), 'pointerdown', { pointerType: 'touch' })
+    await m.settle(10)
+    expect(tip()).toBeNull()
+  } finally {
+    await m.unmount()
+    // the next tests focus with no key before it: the last thing done is a key again
+    fire(document.body, 'keydown', { key: 'Shift' })
+  }
+})
+
 test('no tip while the element shows the same words; it comes when a narrow window hides them', async () => {
   media(true)
   const m = await mount(

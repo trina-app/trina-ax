@@ -329,12 +329,13 @@ describe('migrations', () => {
     expect(() => readMigrations(dir('dup', { '005_a_x.sql': '', '005_b_y.sql': '' }))).toThrow('two migrations with number 5')
   })
   test('every repo migration is numbered in its component\'s range (db.ts header, docs/WORKPLAN.md)', () => {
-    const range: Record<string, [number, number]> = { a: [100, 199], b: [200, 299], c: [300, 399], f: [600, 699], g: [700, 799] }
+    // B has a second range, 400–499, once 200–299 is full (docs/DECISIONS.md "B gets a second range, 400–499")
+    const ranges: Record<string, [number, number][]> = { a: [[100, 199]], b: [[200, 299], [400, 499]], c: [[300, 399]], f: [[600, 699]], g: [[700, 799]] }
     const wrong = readMigrations().filter((m) => {
       const c = /^\d{3}_([a-z])_/.exec(m.name)?.[1]
       if (c === undefined) return m.version > 99
-      const r = range[c]
-      return !r || m.version < r[0] || m.version > r[1]
+      const rs = ranges[c]
+      return !rs || !rs.some(([lo, hi]) => m.version >= lo && m.version <= hi)
     }).map((m) => m.name)
     expect(wrong).toEqual([])
   })

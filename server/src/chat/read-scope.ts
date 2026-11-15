@@ -23,6 +23,9 @@
 //                        result Slack named no conversation of), its kind and a channel's name. Only that person is
 //                        known to see it here (who is in a Slack conversation is not mapped to accounts); "Post to
 //                        channel" lets the conversation the answer goes back to through (post-check.ts)
+//   {type:'chat', id}   a file kept with a chat shared with people and groups that the AI read (chat_file,
+//                        chat/chat-files.ts): its viewers are the people who see that chat now (its creator alone once
+//                        it is private again)
 //   {type:'name', path}  a Slack chat (the sub-folders its listings
 //                        showed): a team path whose name the tools showed or
 //                        answered about (a sub-folder in a listing, a path a call named: there, a folder, not there),
@@ -44,8 +47,10 @@ import { newId } from '../db'
 import { writeFolderAccess } from '../admin/folders'
 import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
+import { isPeopleRow, peopleAudience } from './chat-audience'
 
 export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string; via?: 'browser' | 'connection' } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
+  | { type: 'chat'; id: string }
   | { type: 'slack'; id: string; userId: string; kind?: 'channel' | 'private' | 'dm' | 'group'; name?: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
@@ -149,6 +154,7 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
   if (s.type === 'slack') return new Set(people.some((p) => p.id === s.userId) ? [s.userId] : [])
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq, reader)
+  if (s.type === 'chat') return chatViewers(db, s.id, people)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
   if (s.type === 'folder') {
@@ -157,6 +163,15 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
     segs = row.path === '' ? [] : row.path.split('/')
   }
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
+}
+
+/** Who sees a chat's own files now (chat/chat-files.ts): a chat shared with people, its people; else its creator alone
+ * (a chat gone: nobody). Only active people of `people`. */
+export function chatViewers(db: Database, chatId: string, people: Principal[]): Set<string> {
+  const c = db.query('SELECT id, user_id, people_shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null } | null
+  if (!c) return new Set()
+  const ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  return new Set(ids.filter((id) => people.some((p) => p.id === id)))
 }
 
 /** A name source's path as the rules compare it. */
@@ -260,10 +275,11 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
  * the person as text); without it by the server's name only (anything the AI reads back: any member of a group chat may
  * set its own name). `place`: a team path in the person's words (the card: chat/place-words.ts, "전사 공유 › 영업",
  * another person's folder by their name); without it the path (what the AI reads). */
-export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }, o: { ownNames?: boolean; place?: (path: string) => string } = {}): string {
+export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string; chat?: string }, o: { ownNames?: boolean; place?: (path: string) => string } = {}): string {
   const at = (path: string) => (o.place ? o.place(path) : path + '/')
   if (s.type === 'root') return text.root
   if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id, !!o.ownNames))
+  if (s.type === 'chat') return text.chat ?? 'files of this chat'
   if (s.type === 'user') return s.id === me ? text.mine : at(`users/${s.id}`)
   if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? (o.place ? o.place(segs.join('/')) : segs.join('/')) : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'

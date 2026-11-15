@@ -15,7 +15,7 @@ import { Download, Loader2 } from 'lucide-react'
 import Papa from 'papaparse'
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { fetchFileBlob, fetchRoomFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, roomFileUrl, errorText } from '../lib/api'
+import { chatFileUrl, fetchChatFileBlob, fetchFileBlob, fetchRoomFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, roomFileUrl, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
@@ -108,6 +108,7 @@ export function useFileBlob(file: PreviewFile, rev = 0, limits: FileLimit = prev
     const keep = file.source === 'team' ? fileRead(file.path, variant) : null
     const load = file.source === 'room'
       ? fetchRoomFileBlob(file.roomId, file.fileId, limit.max, ctrl.signal, { truncate: limit.truncate })
+      : file.source === 'chat' ? fetchChatFileBlob(file.chatId, file.fileId, limit.max, ctrl.signal, { truncate: limit.truncate })
       : viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
     load.then(
       (b) => {
@@ -270,8 +271,8 @@ function PanelPicture({ blob, file, download, openPicture }: { blob: Blob; file:
   const t = useT()
   const url = useMemo(() => URL.createObjectURL(blob), [blob])
   useEffect(() => () => URL.revokeObjectURL(url), [url])
-  const href = file.source === 'team' ? (serverPreview(file.name) ? null : fileUrl(file.path, 'inline')) : file.source === 'room' ? roomFileUrl(file.roomId, file.fileId) : null
-  const key = file.source === 'team' ? `team:${file.path}` : file.source === 'room' ? `room:${file.roomId}:${file.fileId}` : `local:${file.name}`
+  const href = file.source === 'team' ? (serverPreview(file.name) ? null : fileUrl(file.path, 'inline')) : file.source === 'room' ? roomFileUrl(file.roomId, file.fileId) : file.source === 'chat' ? chatFileUrl(file.chatId, file.fileId) : null
+  const key = file.source === 'team' ? `team:${file.path}` : file.source === 'room' ? `room:${file.roomId}:${file.fileId}` : file.source === 'chat' ? `chat:${file.chatId}:${file.fileId}` : `local:${file.name}`
   const viewer = useViewerItem(openPicture ? null : () => ({ key, name: file.name, original: null, blob, download: file.source === 'local' ? undefined : download, href }))
   return (
     <div className="flex justify-center p-4">

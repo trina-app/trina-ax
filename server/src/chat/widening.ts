@@ -43,7 +43,7 @@ export interface WideningResult { total: number; totalCapped: boolean; items: Wi
 /** Counted for the bench and its limits: rule checks, by place and person set. */
 export interface WideningStats { checks: number }
 /** Words for the places that have no name of their own (the caller's locale). */
-export interface PlaceWords { root: string; mine: string; room: string }
+export interface PlaceWords { root: string; mine: string; room: string; chat?: string }
 
 /** The first line of an answer as plain text, at most PREVIEW_MAX characters. */
 export function answerPreview(content: string): string {
@@ -180,6 +180,8 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
       case 'drive_share': return shareRow(db, s.id)?.name ?? 'Google Drive'
       case 'room': return words.room.replace('{name}', roomName(db, s.id))
       case 'slack': return slackPlaceName(s)
+      // a chat's own files (chat/chat-files.ts): the chat is the place
+      case 'chat': return words.chat ?? 'files sent in a shared chat'
     }
   }
   const items: WideningItem[] = []

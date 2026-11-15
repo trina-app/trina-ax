@@ -166,7 +166,7 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   for (const c of changed) {
     if (c.direction === 'less') less += c.people.length
     else more += c.people.length
-    if (c.after === 'none' && c.people[0]!.role === 'member') membersLosingRead += c.people.length
+    if (c.after === 'none' && (c.people[0]!.role === 'member' || c.people[0]!.role === 'guest')) membersLosingRead += c.people.length
     const key = `${c.before}\u0000${c.after}`
     const g = byChange.get(key)
     if (g) g.people.push(...c.people)
@@ -210,7 +210,7 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
 
   return {
     current, hash: rulesHash(current, limitedNow), limited: limitedNow,
-    people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
+    people: src.people.length, members: src.people.filter((p) => p.role === 'member' || p.role === 'guest').length,
     now, next: nextWho, above, everyoneAbove, ...latentOf(src, before, after, path, below.paths), changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
   }
 }

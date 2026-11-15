@@ -1,0 +1,6 @@
+{"eventType":"PAYMENT_STATUS_CHANGED","createdAt":"2026-11-14T10:20:30.000000","data":{"mId":"tosspayments","version":"2024-06-01",
+ "lastTransactionKey":"B7103F204998813B889C77C043D09502","paymentKey":"tgen_20261114102000aB1c2","orderId":"order-20261114-0001",
+ "orderName":"Spring sale tote bag","status":"DONE","requestedAt":"2026-11-14T19:20:00+09:00","approvedAt":"2026-11-14T19:20:21+09:00",
+ "useEscrow":false,"currency":"KRW","totalAmount":15000,"method":"카드",
+ "card":{"issuerCode":"61","acquirerCode":"31","number":"48902300****406*","installmentPlanMonths":0,"amount":15000},
+ "mobilePhone":{"customerMobilePhone":"01012345678"},"secret":"ps_example_secret","metadata":{"note":"gift"}}}

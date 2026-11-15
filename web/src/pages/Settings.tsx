@@ -19,7 +19,7 @@ import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ACCOUNT_DELETION_GRACE_DAYS, type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
+import { type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -31,6 +31,7 @@ import { browser, canInstallIn, installGuideShown, isStandalone, platform } from
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
@@ -53,7 +54,7 @@ import { squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AiAllowances } from '../components/settings/AiAllowances'
-import { AccountDeletion } from '../components/settings/AccountDeletion'
+import { AccountDeletion, deletionRowText, useMyDeletionRequest } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
@@ -133,6 +134,11 @@ function Profile() {
   const ids = useId()
   const locale = useLocale()
   const me = useMeStrict()
+  // who sees the profile, and the role line: a guest is seen only by the people of their one place and is in no group
+  // (lib/guests.ts), so no "No groups" for them
+  const guestPlace = meGuest(me)?.place
+  const visible = !isGuestMe(me) ? t('profile.visible') : guestPlace?.name ? t('profile.visibleGuest', { place: guestPlace.name }) : t('profile.visibleGuestSome')
+  const groupsLine = me.groups.map((g) => g.name).join(', ') || (isGuestMe(me) ? '' : t('settings.noGroups'))
   const signedIn = useSession((s) => s.signedIn)
   const setLocale = useSession((s) => s.setLocale)
   const setTheme = useSession((s) => s.setTheme)
@@ -146,6 +152,12 @@ function Profile() {
   const [busy, setBusy] = useState(false)
   const previewUrl = photo && photo !== 'remove' ? photo.url : null
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
+  // the "Delete account" row says the date and offers "Keep my account" while a deletion is pending (TC-1976); a request
+  // that cannot be read leaves the plain link to the page
+  const deletion = useMyDeletionRequest()
+  const setDeletion = deletion.setValue
+  useEffect(() => { api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion])
+  const deletionRow = deletionRowText(t, deletion.value, locale)
   // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
   // changed
   // the one-line status is no longer asked for here (kept on the account, shown nowhere)
@@ -202,7 +214,7 @@ function Profile() {
               />
               {/* the hints under the group: the email's and who sees what */}
               <PhoneSection className="mb-0">
-                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {t('profile.visible')}</span>} testId="profile-fields">
+                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {visible}</span>} testId="profile-fields">
                   <PhoneField label={t('auth.name')} id={`${ids}-name`}>
                     <input id={`${ids}-name`} className={phoneFieldCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" />
                   </PhoneField>
@@ -245,7 +257,7 @@ function Profile() {
           <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
           </Row>
-          <p className="pt-3 text-xs text-muted">{t('profile.visible')}</p>
+          <p className="pt-3 text-xs text-muted" data-testid="profile-visible">{visible}</p>
           </>
           )}
           <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
@@ -271,7 +283,7 @@ function Profile() {
           <PhoneSection className="mb-0">
             <PhoneListGroup testId="profile-account">
               <PhoneListRow title={t('auth.username')} badge={<span className="max-w-[60%] truncate text-sm text-muted" data-testid="profile-username">{me.user.username}</span>} />
-              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}</span>} />
+              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)}{groupsLine && ` · ${groupsLine}`}</span>} />
             </PhoneListGroup>
           </PhoneSection>
         ) : (
@@ -285,20 +297,26 @@ function Profile() {
             {/* phones: the role in words, not a badge */}
             {phone ? (
               <span className="block text-sm text-muted md:text-right">
-                {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+                {t(`role.${me.user.role}`)}{groupsLine && ` · ${groupsLine}`}
               </span>
             ) : (
               <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted md:justify-end">
-                <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+                <Badge>{t(`role.${me.user.role}`)}</Badge>{groupsLine && ` · ${groupsLine}`}
               </span>
             )}
           </Row>
           {/* a person deletes their own account, 7 days after asking (App Store review 5.1.1(v)); a phone has it as the
               page's last row */}
-          {!phone && <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS })}>
-            <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
-              {t('accountDeletion.request')}
-            </Link>
+          {!phone && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
+            {deletionRow.keep ? (
+              <Button type="button" size="sm" busy={deletion.busy} onClick={() => void deletion.keep()} data-testid="account-deletion-keep">
+                {t('accountDeletion.cancel')}
+              </Button>
+            ) : (
+              <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
+                {t('accountDeletion.request')}
+              </Link>
+            )}
           </Row>}
         </div>
         )}
@@ -357,8 +375,10 @@ function Profile() {
       <TextSizeSetting />
       {phone && (
         <PhoneSection className="-mt-6">
-          <PhoneListGroup title={t('accountDeletion.row')} footer={t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS })}>
-            <PhoneListRow title={t('accountDeletion.request')} to="/settings/account/delete" testId="account-deletion-link" />
+          <PhoneListGroup title={t('accountDeletion.row')} footer={deletionRow.hint}>
+            {deletionRow.keep
+              ? <PhoneListRow title={t('accountDeletion.cancel')} onClick={() => void deletion.keep()} disabled={deletion.busy} testId="account-deletion-keep" />
+              : <PhoneListRow title={t('accountDeletion.request')} to="/settings/account/delete" testId="account-deletion-link" />}
           </PhoneListGroup>
         </PhoneSection>
       )}

@@ -39,6 +39,8 @@ Type a name. Each person or group gets **Viewer** or **Editor**. **Remove access
 The dialog names who will gain or lose access. Nothing changes until you save. Giving more access asks first, and so does a limit that shuts out people the folder above lets in.
 :::
 
+![Share "Marketing": Add people and groups, People with access with Sam Ortiz as Viewer, Dana Brooks as Editor from "budget" with Change there, and Owner and admins as Manager, then General access Restricted and Settings › Limit access](../images/files/share-dialog.webp "A folder's Share dialog")
+
 Access adds up, as in Google Drive: what a folder gives comes on top of what the folders above give. A role lower than that cannot be picked; the row says where the higher one comes from ("Editor from "Company-wide"").
 
 To give a folder less than the folders above, turn on **Settings › Limit access**. Then only the people and groups added there open it. **Access removed** lists the people who can open the folder above but not this one; **Add** brings one back as Viewer. Turning the limit off again raises any role lower than the folders above to that level.

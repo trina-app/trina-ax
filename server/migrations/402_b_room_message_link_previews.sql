@@ -1,0 +1,12 @@
+-- min_compatible_reader: 1
+-- Component B: message links with previews (docs/DECISIONS.md "Message links and their previews", plan
+-- docs/AGENTS/plan/20261114-1705-message-link-previews.md).
+--   link_previews: JSON { "hidden": [message id, …], "snapshots": [Snapshot, …] } of a person's message, NULL for none.
+--   hidden: the linked messages whose card the sender removed ("Remove preview"). snapshots: what the sender chose to show
+--   with "Show message" for a link into a conversation some readers cannot see, built by the server from the original at
+--   send time with the sender's own access (rooms/link-previews.ts): its text (at most 4,000 characters), the ids of its
+--   author and of the people it mentions, its time, the conversation's kind (and a team room's name), its files' count and
+--   first name. Never file contents or ids. The stored text is wiped when the original is deleted, when the sender removes
+--   the preview, when an edit takes the link out and when the message holding it is deleted.
+-- Additive only (reader 1): older builds ignore it.
+ALTER TABLE room_messages ADD COLUMN link_previews TEXT;

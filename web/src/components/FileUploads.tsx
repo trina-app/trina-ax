@@ -1,6 +1,7 @@
 // The files going up from the file screen, one row each. A component of its own, so that a progress report redraws these
 // rows and not the page with its file list (lib/fileUploads.ts holds them; a whole folder: FolderUploads.tsx). Phones:
 // two or more finished ones fold into one line ("3개 올렸어요"), so the list there is what still needs an eye (QA TC-258).
+import clsx from 'clsx'
 import { Loader2, X } from 'lucide-react'
 import { dropFileUpload, useFileUploads } from '../lib/fileUploads'
 import { formatSize } from '../lib/format'
@@ -9,6 +10,7 @@ import { baseName } from '../lib/paths'
 import { uploadBar } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { Button, IconButton, useMediaQuery } from './ui'
+import { StoragePlansLink } from './StoragePlansLink'
 import { UploadLabel } from './UploadLabel'
 
 export default function FileUploads({ here }: { here: string }) {
@@ -36,7 +38,7 @@ export default function FileUploads({ here }: { here: string }) {
         // connection
         const pct = uploadBar(u.progress)
         return (
-          <li key={u.id} className="flex items-center gap-2 text-xs" data-status={u.status}>
+          <li key={u.id} className={clsx('flex items-center gap-x-2 gap-y-1 text-xs', u.status === 'failed' && 'flex-wrap')} data-status={u.status}>
             {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok" aria-hidden>✓</span> : <span className="text-danger" aria-hidden>!</span>}
             <span className="min-w-0 flex-1 truncate">
               {/* dropped on a folder row: where it goes */}
@@ -68,6 +70,7 @@ export default function FileUploads({ here }: { here: string }) {
                 <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
               </div>
             )}
+            {u.status === 'failed' && <StoragePlansLink url={u.plans} phoneLine />}
             {u.status === 'failed' && u.retry && (
               <Button size="sm" onClick={u.retry} data-testid="file-upload-retry">
                 {t('common.retry')}

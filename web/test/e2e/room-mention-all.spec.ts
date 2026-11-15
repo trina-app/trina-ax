@@ -31,7 +31,7 @@ test('the first row, a token once picked, sent with mentionsAll and shown as a m
   await expect(rows(page)).toHaveCount(4)
   await expect(rows(page).nth(0)).toHaveAttribute('data-all', '')
   await expect(rows(page).nth(0)).toContainText('전체')
-  await expect(rows(page).nth(0)).toContainText('이 방의 3명에게 알림')
+  await expect(rows(page).nth(0)).toContainText('이 방의 다른 3명에게 알림')
   // Slack's word finds it too
   await page.keyboard.type('chan')
   await expect(rows(page)).toHaveCount(1)

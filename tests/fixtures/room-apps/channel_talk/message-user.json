@@ -1,0 +1,3 @@
+{"event":"push","type":"message","entity":{"chatKey":"userChat-6512ab01cd","id":"msg-001","channelId":"12345","chatType":"userChat","chatId":"6512ab01cd",
+ "personType":"user","personId":"u-77","createdAt":1763115000000,"version":0,"blocks":[{"type":"text","value":"The order number is 1042."}],"plainText":"The order number is 1042."},
+ "refers":{"user":{"name":"Jamie Rivera","email":"jamie@example.com","mobileNumber":"+82 10 0000 0000"}}}

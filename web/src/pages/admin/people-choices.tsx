@@ -5,7 +5,7 @@ import type { Group, Role } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { inputCls } from '../../components/ui'
 
-export type MemberRole = Exclude<Role, 'owner'>
+export type MemberRole = Exclude<Role, 'owner' | 'guest'>
 
 /** `newGroupLink`: a small "Make a new group" link under the checks that opens Admin › Groups (groups are made there,
  * never inline; the team link's picker, QA TC-458). */

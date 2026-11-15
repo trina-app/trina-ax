@@ -13,7 +13,7 @@ import { Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { z } from 'zod'
-import { TRIAL_CREDENTIAL_ID, type UsageQuery, type UsageResponse } from '@mycel/shared/api'
+import { type UsageQuery, type UsageResponse } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -107,12 +107,12 @@ export default function Usage() {
   const engineName = (k: string, label = k) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? label
   const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : label)
   // removed connections have no label: with more than one, a number tells them apart (QA TC-068)
-  const removed = (facets?.credentials ?? []).filter((c) => c.key !== TRIAL_CREDENTIAL_ID && !c.label).map((c) => c.key)
+  const removed = (facets?.credentials ?? []).filter((c) => !c.label).map((c) => c.key)
   const removedName = (k: string) => {
     const i = removed.indexOf(k)
     return removed.length > 1 && i >= 0 ? t('usage.deletedCredentialN', { n: i + 1 }) : t('usage.deletedCredential')
   }
-  const credName = (k: string, label: string) => (k === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : label || removedName(k))
+  const credName = (k: string, label: string) => label || removedName(k)
   const rowLabel = (key: string, label: string) =>
     groupBy === 'engine' ? engineName(key, label) : groupBy === 'model' ? modelName(key, label) : groupBy === 'credential' ? credName(key, label) : label
   const all = (k: MessageKey) => ({ value: ALL, label: t(k) })
@@ -264,7 +264,7 @@ export default function Usage() {
                       return (
                         <li key={r.key} className="py-2.5 text-sm" data-testid="usage-row">
                           <div className="flex items-baseline gap-3">
-                            <span className={clsx('min-w-0 flex-1 truncate font-medium', groupBy === 'credential' && r.key !== TRIAL_CREDENTIAL_ID && !r.label ? 'text-faint' : 'text-ink')}>{name}</span>
+                            <span className={clsx('min-w-0 flex-1 truncate font-medium', groupBy === 'credential' && !r.label ? 'text-faint' : 'text-ink')}>{name}</span>
                             <span className="shrink-0 text-ink tabular-nums">
                               {formatUsd(r.costUsd, locale)}
                               {!!r.unpricedTurns && <span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span>}
@@ -303,7 +303,7 @@ export default function Usage() {
                           return (
                             <tr key={r.key}>
                               <td className="max-w-[16rem] truncate py-3 pr-3" title={name || undefined}>
-                                {groupBy === 'credential' && r.key !== TRIAL_CREDENTIAL_ID && !r.label ? <span className="text-faint">{name}</span> : name}
+                                {groupBy === 'credential' && !r.label ? <span className="text-faint">{name}</span> : name}
                               </td>
                               <td className="py-3 pr-3 text-right tabular-nums">{formatNumber(r.turns, locale)}</td>
                               <td className="hidden py-3 pr-3 text-right tabular-nums md:table-cell">{formatNumber(tok, locale)}</td>

@@ -7,7 +7,7 @@ type ByLocale = Record<PushLocale, string>
 
 export const DEFAULT_APP_TITLE = 'Trina AX'
 
-export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared', ByLocale> = {
+export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'connection.reconnect' | 'chat.answer_done' | 'chat.shared' | 'room_app.paused', ByLocale> = {
   'schedule.success': {
     ko: '예약 작업이 완료됐어요.',
     en: 'A scheduled task completed.',
@@ -35,6 +35,12 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
     ko: '누군가 채팅을 공유했어요.',
     en: 'Someone shared a chat with you.',
     id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
+  },
+  // an app in a room the person manages paused for the day; older team servers never send it
+  'room_app.paused': {
+    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a room was paused for today.',
+    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
   },
 }
 

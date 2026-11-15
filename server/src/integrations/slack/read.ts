@@ -315,8 +315,8 @@ async function mayRead(s: SlackConnector, bot: string, slackUser: string, conv: 
 const whereWords = (c: Conversation) => c.kind === 'dm' ? 'a direct message with the app' : c.kind === 'group' ? 'a group direct message' : `${c.kind === 'private' ? 'the private channel' : 'the channel'} #${c.name ?? c.id}`
 const sourceOf = (c: Conversation, userId: string): ReadSource => ({ type: 'slack', id: c.id, userId, kind: c.kind, ...(c.name ? { name: c.name } : {}) })
 
-/** A Slack error as words for the AI */
-function refusal(s: SlackConnector, e: unknown): string {
+/** A Slack error as words for the AI (`bot`: the token the read was made with) */
+function refusal(s: SlackConnector, e: unknown, bot: string): string {
   const code = e instanceof SlackApiError ? e.code : 'unknown'
   if (code === 'ratelimited') return s.readLimited() ? RATE_OFFICIAL : RATE_OWN
   if (code === 'not_in_channel') return inviteFirst(s)
@@ -326,7 +326,12 @@ function refusal(s: SlackConnector, e: unknown): string {
     void s.checkBotScopes()
     return NEEDS_UPDATE
   }
-  if (code === 'invalid_auth' || code === 'token_revoked' || code === 'account_inactive' || code === 'not_authed') return 'Slack does not accept the Slack app\'s token now. The team\'s owner or an admin checks Admin › Connected apps › Slack.'
+  if (code === 'invalid_auth' || code === 'token_revoked' || code === 'account_inactive' || code === 'not_authed') {
+    // Admin shows it too, as after a refused post: the own app is no longer "Connected" (Replace tokens), the official
+    // app is removed (QA TC-1203: a read alone left Admin saying "Connected")
+    s.tokenRefused(e, bot)
+    return 'Slack does not accept the Slack app\'s token now. The team\'s owner or an admin checks Admin › Connected apps › Slack.'
+  }
   return `Slack did not answer now (${code}). Try again in a moment.`
 }
 
@@ -385,7 +390,7 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
           const names = await namesOf(s, rd.bot, msgs)
           const more = r.more ? (limited() ? '\n(the thread has more replies than shown: this Slack app reads only the first 15, about once a minute; the newest may be missing, so say so)' : '\n(earlier replies left out: the first message and the newest are shown)') : ''
           return text(`A Slack thread in ${whereWords(conv)} (channel=${conv.id}, thread_ts=${a.data.thread_ts}), ${msgs.length} messages, oldest first. ${DATA_NOTE}\n<slack_messages>\n${messageLines(msgs, names, TOOL_CHARS)}\n</slack_messages>${more}`, false, `slack_read_thread -> ${msgs.length} messages`)
-        } catch (e) { return text(refusal(s, e), true, `slack_read_thread -> error (${e instanceof SlackApiError ? e.code : 'unknown'})`) }
+        } catch (e) { return text(refusal(s, e, rd.bot), true, `slack_read_thread -> error (${e instanceof SlackApiError ? e.code : 'unknown'})`) }
       },
     },
     {
@@ -413,7 +418,7 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
           const oldest = typeof msgs[0]?.ts === 'string' ? msgs[0].ts : null
           const more = r.has_more === true && oldest ? `\n(older messages exist: before="${oldest}")` : ''
           return text(`The newest messages of ${whereWords(conv)} (channel=${conv.id}), ${msgs.length}, oldest first. ${DATA_NOTE}\n<slack_messages>\n${messageLines(msgs, names, TOOL_CHARS)}\n</slack_messages>${more}`, false, `slack_read_channel -> ${msgs.length} messages`)
-        } catch (e) { return text(refusal(s, e), true, `slack_read_channel -> error (${e instanceof SlackApiError ? e.code : 'unknown'})`) }
+        } catch (e) { return text(refusal(s, e, rd.bot), true, `slack_read_channel -> error (${e instanceof SlackApiError ? e.code : 'unknown'})`) }
       },
     },
   ]

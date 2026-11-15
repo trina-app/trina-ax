@@ -1,4 +1,4 @@
-// "Share…" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405; plan
+// "Share" for a chat outside projects (docs/DECISIONS.md "Chats shared with people and groups", QA TC-1405; plan
 // docs/AGENTS/plan/20261114-shared-chats-everywhere.md phase 3). Its creator picks people and groups (no whole-team
 // option); then it works like a shared project chat: each turn is its sender's (SHARED_TOOLS only, the read card, no
 // memories), everyone in it sees the whole chat and may continue it. Who sees it is read per request
@@ -17,9 +17,8 @@
 // First share of a private chat: people_shared_at set, the engine session forgotten (its instructions held the
 // memories), the earlier turns marked as before the share (their steps are their runner's: chat/store.ts viewSteps;
 // the rollback guard passes them: chat/people-guard.ts), every earlier answer recorded with the people who see it now
-// (chat/shared-answers.ts). A computer upload from before the share stays its sender's alone (Message attachments are
-// shown to their sender only in a shared chat); a chat-scoped file store for computer uploads comes later, so none are
-// taken in a people-shared chat yet (Chat.shared.canUpload false).
+// (chat/shared-answers.ts), and the creator's computer uploads in it copied to the chat's own files (chat/chat-files.ts
+// copyEarlier), which everyone in it sees; later computer uploads go there directly (Chat.shared.canUpload).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ChatAudience, Locale, PutChatAudienceResult } from '@mycel/shared/api'
@@ -43,9 +42,10 @@ import { sourceKey, sourceOf, type ReadSource } from './read-scope'
 import type { ReadGroup } from './shared-answers'
 import { placeWords } from './place-words'
 import { wideningAnswers, type WideningResult, type WideningSubject } from './widening'
-import { isPeopleRow, peopleAudience, resolveSubjects, subjectsOf, type AudienceSubject } from './chat-audience'
+import { isPeopleRow, peopleAudience, rememberAudience, resolveSubjects, subjectsOf, type AudienceSubject } from './chat-audience'
 import { tr } from './i18n'
 import { notificationsOf } from '../notifications/service'
+import { chatFilesOf } from './chat-files'
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
@@ -55,7 +55,8 @@ const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
 export function checkNewSubjects(ctx: AppContext, me: Principal, added: readonly AudienceSubject[], locale: Locale): void {
   for (const s of added) {
     const ok = s.type === 'user'
-      ? !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.id)
+      // a guest is never shared a chat with (their one place is a room or a project): the same answer as an unknown person
+      ? !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(s.id)
       : !!ctx.db.query('SELECT 1 FROM groups WHERE id = ?').get(s.id) && (isAdmin(me.role) || me.groups.includes(s.id))
     if (!ok) fail('validation', tr('chatShareUnknownPerson', locale), { params: { reason: 'unknown_subject' } })
   }
@@ -68,6 +69,12 @@ export function checkWideningAdd(ctx: AppContext, me: Principal, chat: Pick<Chat
   if (keys.size > CHAT_AUDIENCE_MAX) fail('validation', tr('chatShareAudienceFull', locale), { params: { reason: 'audience_full' } })
   const there = new Set(subjectsOf(ctx.db, chat.id).map(subjectKey))
   checkNewSubjects(ctx, me, add.map((x) => ({ type: x.subjectType, id: x.subjectId })).filter((s) => !there.has(subjectKey(s))), locale)
+}
+
+/** Which of `groups` this person is in (by id, in the order given). */
+const groupsOfIn = (db: AppContext['db'], userId: string, groups: readonly string[]): string[] => {
+  const mine = new Set((db.query(`SELECT group_id FROM group_members WHERE user_id = ? AND group_id IN (SELECT value FROM json_each(?))`).all(userId, JSON.stringify(groups)) as { group_id: string }[]).map((g) => g.group_id))
+  return groups.filter((g) => mine.has(g))
 }
 
 /** A scheduled task's run made this chat (or ran in it). */
@@ -85,6 +92,9 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   // a group's size, and with a group in it the count, only for the creator and admins (S8)
   const full = a.creator || isAdmin(me?.role)
   const subjects = subjectsOf(db, r.id)
+  // the groups listed that each person listed is in too (QA TC-2264): for the creator and admins, and only the groups
+  // the viewer is in (admins any): a member never learns who is in a group of someone else's
+  const listedGroups = full ? subjects.filter((s) => s.type === 'group' && (isAdmin(me?.role) || !!me?.groups.includes(s.id))).map((s) => s.id) : []
   const rows: ChatAudience['subjects'] = []
   for (const s of subjects) {
     if (s.type === 'user') {
@@ -95,7 +105,8 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
       // (their save keeps the row, so the person is back in when enabled again)
       const inactive = u.status !== 'active'
       if (inactive && !full) continue
-      rows.push({ subjectType: 'user', subjectId: s.id, name: u.name, ...(u.title ? { title: u.title } : {}), ...(u.avatar_version ? { avatarVersion: u.avatar_version } : {}), ...(inactive ? { inactive: true as const } : {}) })
+      const inGroups = listedGroups.length ? groupsOfIn(db, s.id, listedGroups) : []
+      rows.push({ subjectType: 'user', subjectId: s.id, name: u.name, ...(u.title ? { title: u.title } : {}), ...(u.avatar_version ? { avatarVersion: u.avatar_version } : {}), ...(inactive ? { inactive: true as const } : {}), ...(inGroups.length ? { inGroups } : {}) })
     } else {
       const g = db.query('SELECT name FROM groups WHERE id = ?').get(s.id) as { name: string } | null
       if (!g) continue
@@ -152,7 +163,7 @@ export function chatWidening(ctx: AppContext, viewer: Principal, chat: ChatRow, 
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
   const rules = ctx.files.rules()
-  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
+  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale), chat: tr('scopeChatFiles', locale) }
   // places in the Files screen's words, as the read card says them
   const place = (path: string) => placeWords(db, path, locale, viewer.id)
   return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place })
@@ -225,18 +236,20 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       const use = chatUse(db, r.id)
       const prov = await provenanceChecker(ctx, userId, newPeople, use.answers).of([use], new Set())
       const memories = memoriesInPlay(db, r.id, userId)
+      // a first share also shows the creator's earlier computer uploads to them (copied: chat/chat-files.ts)
+      const earlierFiles = before.shared ? 0 : await chatFilesOf(ctx).earlierUploads(r.id)
       const hiddenAnswers = chatWidening(ctx, me, r, wanted.map((s) => ({ subjectType: s.type, subjectId: s.id })), { limit: 0 }, locale).total
       // (from here on nothing waits: the state read now is the one saved)
       const now = stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found'))
       if (!same(now, before)) continue
       // someone new would see a room it read but for old answers hidden from them: never shown, confirmed or not
       if (prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-      const key = confirmMac(ctx, { kind: 'chat.audience', v: 1, userId, chatId: r.id, subjects: wanted.map(subjectKey).sort(), newPeople, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, hiddenAnswers, messages: before.messages })
+      const key = confirmMac(ctx, { kind: 'chat.audience', v: 1, userId, chatId: r.id, subjects: wanted.map(subjectKey).sort(), newPeople, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, hiddenAnswers, earlierFiles, messages: before.messages })
       const people = prov.unknown ? newPeople.length : prov.missing.size
-      const applies = people > 0 || memories || hiddenAnswers > 0
+      const applies = people > 0 || memories || hiddenAnswers > 0 || earlierFiles > 0
       if ((applies || body.confirmKey !== undefined) && body.confirmKey !== key) {
         confirm = {
-          status: 'confirm', added: newPeople.length, memories, hiddenAnswers, confirmKey: key,
+          status: 'confirm', added: newPeople.length, memories, hiddenAnswers, confirmKey: key, ...(earlierFiles ? { earlierFiles } : {}),
           provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
           ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
         }
@@ -279,6 +292,8 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         db.query('DELETE FROM chat_list_hidden WHERE chat_id = ?').run(r.id)
       }
       for (const id of lost) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id = ?').run(r.id, id)
+      // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)
+      rememberAudience(db, r.id, new Set([...nowPeople, ...afterPeople]), at)
       // counts only: no names, no content
       auditId = audit(db, { actor: userId, action: 'chat.audience', target: r.id, detail: {
         added: { people: added.filter((s) => s.type === 'user').length, groups: added.filter((s) => s.type === 'group').length },
@@ -288,6 +303,12 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     })()
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
     if (first) fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
+    // the creator's earlier computer uploads: copied to the chat's own files so everyone in it sees them (S6). A copy
+    // that fails leaves that one its sender's alone, as before; the share stands
+    // (in this request, read and written without blocking the server, each at most 50 MB: the creator is told how many
+    // could not be shared, filesNotCopied)
+    let filesNotCopied = 0
+    if (first) { try { filesNotCopied = (await chatFilesOf(ctx).copyEarlier(r.id)).notCopied } catch (e) { ctx.log.warn('earlier uploads of a shared chat not copied', { err: e }) } }
     // the people who lost it: their windows drop it (its id alone, nothing of it)
     for (const id of lost) rt.hub.publish(id, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })
     // everyone in it now hears the chat as they see it (the newly added get it as a new row of their list)
@@ -301,8 +322,18 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         for (const id of newPeople) n.chatShared(id, String(auditId), r.id, userId, named.has(id), at)
       } catch (e) { ctx.log.warn('chat share notices failed', { err: e }) }
     }
+    // people taken out by name who still see it through a group listed: the creator is told which (QA TC-2264), only
+    // through groups they are in themselves (admins: any). Through none of those: nothing is said (that would tell them
+    // who is in a group they are not in)
+    const afterGroups = after.filter((s) => s.type === 'group').map((s) => s.id)
+    const keptThrough = removed.filter((s) => s.type === 'user' && afterPeople.has(s.id)).map((s) => {
+      const name = (db.query('SELECT name FROM users WHERE id = ?').get(s.id) as { name: string } | null)?.name ?? ''
+      const groups = groupsOfIn(db, s.id, afterGroups.filter((g) => isAdmin(me.role) || me.groups.includes(g)))
+        .map((g) => (db.query('SELECT name FROM groups WHERE id = ?').get(g) as { name: string } | null)?.name).filter((n): n is string => !!n)
+      return { name, groups }
+    }).filter((k) => k.name && k.groups.length)
     const out = rt.store.chatRow(r.id)!
-    return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }) }
+    return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }), ...(filesNotCopied ? { filesNotCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
   }
   return fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
 }

@@ -79,7 +79,8 @@ export function readQuestions(db: Database, now = new Date()): Question[] {
   if (typeof since !== 'string' || !since || since >= to) return []
   const chatOk = [
     'c.active_leaf_id IS NOT NULL', 'c.deleted_at IS NULL', 'c.room_id IS NULL', 'c.side_room_id IS NULL', 'c.project_id IS NULL',
-    "u.status = 'active'", 'u.deleted_at IS NULL', 'c.updated_at >= $from', notInternalChat(db, 'c.id'),
+    // a guest's questions never surface to the team (docs/DECISIONS.md "Guests: only what they were invited to")
+    "u.status = 'active'", 'u.deleted_at IS NULL', 'u.guest = 0', 'c.updated_at >= $from', notInternalChat(db, 'c.id'),
     ...(hasTable(db, 'slack_threads') ? ['NOT EXISTS (SELECT 1 FROM slack_threads s WHERE s.chat_id = c.id)'] : []),
     ...(hasTable(db, 'safe_ops_chats') ? ['NOT EXISTS (SELECT 1 FROM safe_ops_chats o WHERE o.chat_id = c.id AND o.material != 0)'] : []),
   ].join(' AND ')
@@ -373,7 +374,8 @@ export function buildSnapshot(db: Database, rules: RuleSet, o: { now?: Date; ran
   for (let i = taken.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [taken[i], taken[j]] = [taken[j]!, taken[i]!] }
   const entries: Entry[] = taken.map((x, i) => ({ id: `q${i + 1}`, user: x.user, text: x.text, at: x.at, said: saidOf(x.text) }))
 
-  const people = (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
+  // guests are no audience: the team's list never counts or reaches them
+  const people = (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0").all() as { id: string }[]).map((r) => r.id)
   const active = new Set(people)
   const principals = people.map((id) => ({ id, name: id, role: 'member' as const, groups: (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(id) as { group_id: string }[]).map((r) => r.group_id) }))
   const audiences: Audience[] = [{ key: 'team', groupId: null, members: active, entries, askers: new Set(entries.map((e) => e.user)) }]
@@ -478,7 +480,8 @@ const NONE: OftenAsked = { scope: 'none', items: [] }
  * nothing. Only the caller's own groups, read now. */
 export function oftenAskedFor(db: Database, userId: string, now = new Date()): OftenAsked {
   if (!getTeamSettings(db).oftenAsked) return NONE
-  if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId)) return NONE
+  // a guest never sees the team's frequent questions (the endpoint is off their allow-list too)
+  if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(userId)) return NONE
   const groups = db.query('SELECT g.id, g.name FROM group_members gm JOIN groups g ON g.id = gm.group_id WHERE gm.user_id = ? ORDER BY g.name, g.id').all(userId) as { id: string; name: string }[]
   const lists = groups.map((g) => ({ g, items: listOf(db, g.id, now) })).filter((x) => x.items.length)
   if (lists.length === 1) return { scope: 'group', group: lists[0]!.g.name, items: lists[0]!.items }

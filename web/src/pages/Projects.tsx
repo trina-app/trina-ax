@@ -37,7 +37,7 @@
 // ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
@@ -55,7 +55,7 @@ import { toast } from '../store/ui'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
-import { accessChanged, chatChanged, reloadAsked } from '../store/live'
+import { accessChanged, chatChanged, projectPeopleChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { hideProject, keepPendingProject, readManagedList, showProject, unhideProject, useProjects } from '../store/projects'
 import { optimistic, optimisticPending } from '../lib/optimistic'
@@ -80,6 +80,10 @@ import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
+import { IncludesGuests } from '../components/GuestTag'
+import { usePeopleList } from '../store/people'
+import { guestProject, isGuestMe } from '../lib/guests'
+import { GuestProjectNote, useGuestAiOff } from '../components/GuestView'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
@@ -194,13 +198,16 @@ export function useDeleteProject() {
         return 'gone'
       }
     }
+    const toTrash = isProjectsFolder(now.folderPath) && !now.inTrash
+    // its guests are switched off with it (and come back when it is restored): said before, with how many (QA TC-2240)
+    let guests = 0
+    if (toTrash) try { guests = (await api.call(API.getProjectPeople, { params: { id: p.id } })).people.filter((x) => x.guest).length } catch { /* not known: the general words */ }
     // the person left the page while it was asked: no confirm on another page
     if (opener && !opener.isConnected) return null
     opener?.focus()
-    const toTrash = isProjectsFolder(now.folderPath) && !now.inTrash
     const forGood = !!now.inTrash
     const ask = toTrash
-      ? { title: t('projects.trashTitle', { name: now.name }), body: t('projects.trashBody'), confirm: t('files.moveToTrash') }
+      ? { title: t('projects.trashTitle', { name: now.name }), body: guests ? <>{t('projects.trashBody')}<span className="mt-2 block" data-testid="project-trash-guests">{t('projects.trashGuests', { n: guests })}</span></> : t('projects.trashBody'), confirm: t('files.moveToTrash') }
       : forGood
         ? {
             title: t('projects.deleteForGoodTitle', { name: now.name }),
@@ -366,7 +373,10 @@ function ProjectCardLines({ project: p }: { project: Project }) {
   const t = useT()
   const who = whoSeesProject(t, p, 'projects.whoMembers')
   const hidden = p.member === false
-  const about = !hidden && p.instructions ? firstParagraph(p.instructions) : ''
+  // a guest whose invite gives them no AI: the instructions are for the AI only, so the card has no line for them either
+  // (their page has none; useGuestAiOff is the page's own test: Team AI that cannot answer yet keeps its instructions)
+  const noAiGuest = useGuestAiOff()
+  const about = !hidden && !noAiGuest && p.instructions ? firstParagraph(p.instructions) : ''
   const none = hidden ? (
     p.inTrash ? null : (
       <>
@@ -386,7 +396,7 @@ function ProjectCardLines({ project: p }: { project: Project }) {
         </span>
       )}
       {/* 'block' would cancel line-clamp's display */}
-      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || none}</span>
+      {!noAiGuest && <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || none}</span>}
     </>
   )
 }
@@ -394,6 +404,7 @@ function ProjectCardLines({ project: p }: { project: Project }) {
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
   // the list as last read (store/projects.ts managed): a visit after the first shows it at once and reads it again behind
   // it; only the very first read shows the skeleton (docs/DECISIONS.md "Projects and Files lists open at once")
   const items = useProjects((s) => s.managed)
@@ -472,9 +483,12 @@ export function ProjectList() {
         title={t('projects.title')}
         desc={t('projects.desc')}
         actions={
-          <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
-            <Plus size={15} aria-hidden /> {t('projects.new')}
-          </Button>
+          // a guest makes no projects (lib/guests.ts: they are in one place only)
+          !isGuestMe(me) && (
+            <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
+              <Plus size={15} aria-hidden /> {t('projects.new')}
+            </Button>
+          )
         }
       />
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
@@ -657,7 +671,14 @@ function ProjectPage() {
   const navigate = useNavigate()
   // a project seen a moment ago shows as it was at once (store/projectPage.ts, its files store/teamFiles.ts) and is read
   // again behind it
-  const [p, setP] = useState<Project | null>(() => keptPage(projectId).project)
+  const [rawP, setP] = useState<Project | null>(() => keptPage(projectId).project)
+  // a guest: the project with nothing to change on it (lib/guests.ts guestProject)
+  const guestHere = isGuestMe(useMe())
+  const p = useMemo(() => (guestHere && rawP ? guestProject(rawP) : rawP), [guestHere, rawP])
+  // a guest whose invite gives them no AI: no box and no Trina history; the project's files and members are the page,
+  // under one quiet line (components/GuestView.tsx useGuestAiOff; Team AI that cannot answer yet keeps the page, and its
+  // box says why)
+  const aiOff = useGuestAiOff()
   const [missing, setMissing] = useState(false)
   // not found because I was taken out of it (or left): its name (QA TC-1067)
   const [goneFrom, setGoneFrom] = useState<string | null>(null)
@@ -691,6 +712,11 @@ function ProjectPage() {
   // in the members dialog
   const [peopleVersion, setPeopleVersion] = useState(0)
   const people = useProjectPeople(p, peopleVersion)
+  // someone joined or left it while the page is open (a guest who accepted their invite): its faces, its count and
+  // "Includes 1 guest" follow at once (store/live.ts projectPeopleChanged)
+  useEffect(() => projectPeopleChanged.on((id) => { if (id === projectId) setPeopleVersion((v) => v + 1) }), [projectId])
+  // the team directory knows who is a guest: "Includes 1 guest" under the faces needs it before the members dialog is opened
+  usePeopleList()
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
   // type in (with a mouse; a phone's keyboard does not jump up)
   const location = useLocation()
@@ -715,6 +741,19 @@ function ProjectPage() {
     projectEdits.current++
     setP(next)
   }
+  // someone joined or left (a guest accepted): who sees it is not "Only me" any more, in the box, on the members line and
+  // in the list at the left: the project is read again with the people (a read that was started before an edit made
+  // here does not undo it)
+  useEffect(() => projectPeopleChanged.on((id) => {
+    if (id !== projectId) return
+    const from = projectEdits.current
+    api.call(API.getProject, { params: { id }, query: { manage: '1' } }).then((x) => {
+      if (projectEdits.current !== from || shownP.current?.id !== id) return
+      const fresh = keepPendingProject(x, shownP.current)
+      setP(fresh)
+      useProjects.getState().put(fresh)
+    }, () => {})
+  }), [projectId])
   /** the chats' changes made since a read started (a row's rename, an event): made again on its answer, numbered */
   const chatEdits = useRef<{ n: number; f: (cur: Chat[]) => Chat[] }[]>([])
   const chatEditCount = useRef(0)
@@ -944,10 +983,19 @@ function ProjectPage() {
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
   // name, its members, their own chats in it; nothing of its contents
   const outside = p.member === false
-  const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
+  // a guest has no 파일 screen (components/GuestView.tsx NotForGuests): their project's folders open on its own files
+  // screen (ProjectFiles below), on a computer as on a phone
+  const folderHref = (path: string) => {
+    if (!guestHere) return `/files?path=${encodeURIComponent(path)}`
+    const dir = path === p.folderPath ? '' : path.slice(p.folderPath.length + 1)
+    return `/projects/${p.id}/files${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`
+  }
+  const folderLink = folderHref(p.folderPath)
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
-  const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
+  // the project has no files (as far as this person reads it)
+  const filesNone = !!files && !files.failed && !files.entries.length && !files.more
+  const filesEmpty = filesNone && p.canEdit
   // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
   // empty folder comes back (a folder with files becomes its one line). A phone: always its one row (QA TC-1072)
   const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
@@ -1017,12 +1065,14 @@ function ProjectPage() {
         {hasMembers && people && people.people.length > 0 && (
           <div className="mt-2 flex max-md:mt-0" data-testid="project-people-header">
             <PeopleStack people={people.people} onOpen={() => setMembers(true)} testId="project-header" />
+            {/* "Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
+            <IncludesGuests ids={people.people.map((x) => x.id)} className="ml-2 self-center text-xs text-faint" />
           </div>
         )}
         {/* no copy of the instructions here: they show once, in 지침 beside the box (QA TC-980) */}
         {/* phone: the box, then the chats right under it, then the side lines (QA TC-1072); wide: the chats under the
             box, the lines beside them */}
-        <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
+        <div className={aiOff ? 'mt-6 grid max-w-[720px] gap-y-6' : 'mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]'}>
           <div className="min-w-0 lg:col-start-1">
             {/* a project whose folder is in the trash takes no chat: the note says so, with what the owner and admins
                 can do; a project I manage without being a member: one quiet block in place of the box */}
@@ -1056,6 +1106,12 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
+              aiOff ? (
+                <p className="text-sm text-muted" data-testid="guest-no-ai">{t('guest.noAi')}</p>
+              ) : (
+              <>
+              {/* a guest, once: their chats here are seen by the project's members (components/GuestView.tsx) */}
+              <GuestProjectNote projectId={p.id} />
               <NewChatComposer
                 projectId={p.id}
                 project={p}
@@ -1064,10 +1120,12 @@ function ProjectPage() {
                 autoFocus={newChat || !!privateAsk}
                 {...(privateAsk ? { initialText: privateAsk.text, startPrivate: true, resetKey: privateAsk.n } : {})}
               />
+              </>
+              )
             )}
           </div>
           {(!outside || hasMembers) && (
-            <aside aria-label={t('projects.about')} className="min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1">
+            <aside aria-label={t('projects.about')} className={aiOff ? 'min-w-0' : 'min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1'}>
               <div className="divide-y divide-line">
                 {!outside && !p.instructions?.trim() && p.canEdit && phone ? (
                   // a phone: one line, its name and 지침 쓰기 (QA TC-1072: two empty boxes pushed the chats down)
@@ -1091,7 +1149,8 @@ function ProjectPage() {
                       <Plus size={14} aria-hidden /> {t('projects.page.writeInstructions')}
                     </Button>
                   </EmptySideBox>
-                ) : !outside && (
+                ) : !outside && !aiOff && (
+                  // (a guest with no AI: the instructions are for the AI only, so none here; components/GuestView.tsx)
                   <DisclosureRow
                     testId="project-instructions"
                     icon={<ScrollText size={16} />}
@@ -1151,32 +1210,32 @@ function ProjectPage() {
                     testId="project-files"
                     icon={<Folder size={16} />}
                     label={t('files.title')}
-                    meta={files && !files.failed && (files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
+                    // none yet, for someone who cannot add them (who may, has the box above): the phone's words ("No
+                    // files yet", not "0 items", QA N4) and nothing to open
+                    meta={files && !files.failed && (filesNone ? <span data-testid="project-files-empty">{t('projects.page.filesEmpty')}</span> : files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
                     action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
                   >
-                    {!files && <Skeleton lines={3} />}
-                    {files && !files.failed && !files.entries.length && (
-                      // none yet, for someone who cannot add them (who may, has the box above)
-                      <p className="text-faint" data-testid="project-files-empty">
-                        {t('projects.page.filesEmpty')}
-                      </p>
-                    )}
-                    {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
-                    <ul className="-mx-3">
-                      {files?.entries.slice(0, 30).map((f) => (
-                        <ListRow
-                          key={f.path}
-                          onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
-                          icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
-                          name={f.name}
-                          nameTitle={f.name}
-                        />
-                      ))}
-                    </ul>
-                    {files && (files.more || files.entries.length > 30) && (
-                      <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
-                        {t('projects.openFolder')}
-                      </Link>
+                    {filesNone ? undefined : (
+                      <>
+                        {!files && <Skeleton lines={3} />}
+                        {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
+                        <ul className="-mx-3">
+                          {files?.entries.slice(0, 30).map((f) => (
+                            <ListRow
+                              key={f.path}
+                              onClick={() => (f.type === 'folder' ? navigate(folderHref(f.path)) : openTeamFile(f.path))}
+                              icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
+                              name={f.name}
+                              nameTitle={f.name}
+                            />
+                          ))}
+                        </ul>
+                        {files && (files.more || files.entries.length > 30) && (
+                          <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
+                            {t('projects.openFolder')}
+                          </Link>
+                        )}
+                      </>
                     )}
                   </DisclosureRow>
                 )}
@@ -1197,7 +1256,7 @@ function ProjectPage() {
               {/* no folder path line: people read 파일 (its 열기 opens the folder) and 멤버, not paths */}
             </aside>
           )}
-          {canAsk && (
+          {canAsk && !aiOff && (
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
             {/* the heading's line: the name, and at its end, on its baseline, 기존 대화 가져오기 for a member, however many
@@ -1206,7 +1265,7 @@ function ProjectPage() {
               <h2 id="pj-chats" className="min-w-0 truncate text-title-sm font-semibold">
                 {t('sidebar.aiChats', { name: aiName(t) })}
               </h2>
-              {!outside && !p.inTrash && (
+              {!outside && !p.inTrash && !guestHere && (
                 <Button size="sm" className="shrink-0" onClick={() => setImporting(true)} data-testid="project-import">
                   <Import size={14} aria-hidden /> {t('projects.page.import')}
                 </Button>
@@ -1371,6 +1430,10 @@ export function ProjectFiles() {
   const dir = projectDir(params.get('dir'))
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE)
+  // a guest has no 파일 screen: this screen lists their project's folders on a computer too (a computer otherwise goes on
+  // to the 파일 screen below)
+  const guest = isGuestMe(useMe())
+  const here = phone || guest
   // the project as this window knows it (its page a moment ago, or the projects store): a computer goes on to its
   // folder at once, a phone lists the folder without waiting for it
   const [p, setP] = useState<Project | null>(() => knownProject(projectId))
@@ -1385,7 +1448,7 @@ export function ProjectFiles() {
     let live = true
     setMissing(false)
     // a computer that knows the project goes to its folder (below) and asks nothing here
-    if (!phone && knownProject(projectId)) return
+    if (!here && knownProject(projectId)) return
     api.call(API.getProject, { params: { id: projectId! }, query: { manage: '1' } }).then(
       (x) => { if (!live) return; setP(x); useProjects.getState().put(x) },
       (e) => { if (!live) return; if (isApiError(e, 'not_found')) setMissing(true); else setError(errorText(e, locale, t('error.network'))) },
@@ -1407,30 +1470,39 @@ export function ProjectFiles() {
     setList(keptList(path))
     setError(null)
     // (a computer goes to the 파일 screen, which lists the folder itself)
-    if (phone && p?.member !== false) read()
+    if (here && p?.member !== false) read()
     return () => { loads.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, p?.member])
   // a computer: the folder on the 파일 screen (the project's page for someone who is not a member: no files for them)
-  if (!phone && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
+  if (!here && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
   if (missing) return <EmptyState screen title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   const name = dir ? dir.slice(dir.lastIndexOf('/') + 1) : t('files.title')
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="project-files-page">
-      <h1 className="sr-only">{name}</h1>
-      <PhoneBarTitle>{name}</PhoneBarTitle>
-      {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them */}
-      {path !== null && p?.member !== false && (
-        <PhoneBarAction>
-          <Tooltip label={t('projects.openFolder')}>
-            <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
-              <FolderOpen size={20} aria-hidden />
-            </button>
-          </Tooltip>
-        </PhoneBarAction>
-      )}
-      <div className="px-4 pt-2 pb-8">
+      {/* a computer (a guest): the project page's padding and header (24px from the sidebar, the name large), a phone the
+          bar's */}
+      <div className={phone ? 'px-4 pt-2 pb-8' : 'mx-auto w-full max-w-[1080px] px-6 pt-10 pb-12'} data-testid="project-files-body">
+        {/* a computer (a guest): the way back to the project, which a phone's bar has */}
+        {!phone && p && (
+          <Link to={dir ? `/projects/${p.id}/files${dir.includes('/') ? `?dir=${encodeURIComponent(dir.slice(0, dir.lastIndexOf('/')))}` : ''}` : `/projects/${p.id}`} className="inline-flex w-fit items-center gap-1 text-sm text-muted hover:text-ink" data-testid="project-files-back">
+            <ChevronLeft size={14} aria-hidden /> {dir ? (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')).split('/').pop() : t('files.title')) : p.name}
+          </Link>
+        )}
+        <h1 className={phone ? 'sr-only' : 'mt-2 mb-4 text-display font-semibold tracking-tight break-words text-ink'} data-testid="project-files-title">{name}</h1>
+        <PhoneBarTitle>{name}</PhoneBarTitle>
+        {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them; nor a
+            guest, who has no 파일 screen */}
+        {path !== null && p?.member !== false && !guest && (
+          <PhoneBarAction>
+            <Tooltip label={t('projects.openFolder')}>
+              <button type="button" onClick={() => navigate(`/files?path=${encodeURIComponent(path)}`)} aria-label={t('projects.openFolder')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-files-in-files">
+                <FolderOpen size={20} aria-hidden />
+              </button>
+            </Tooltip>
+          </PhoneBarAction>
+        )}
         {error && <ErrorNote onRetry={() => read()}>{error}</ErrorNote>}
         {p?.member === false && <p className="py-3 text-sm break-keep text-muted" data-testid="project-files-members-only">{t('projects.membersOnly')}</p>}
         {!list && !error && p?.member !== false && <Skeleton lines={4} />}

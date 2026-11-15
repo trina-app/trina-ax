@@ -26,7 +26,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
 import { DriveFlowPanel, useDriveFlow } from '../settings/DriveConnection'
-import { Badge, Button, ErrorNote, inputCls } from '../ui'
+import { Badge, Button, ErrorNote, LinkButton, inputCls } from '../ui'
 
 type Busy = 'connect' | 'done' | 'skip' | null
 
@@ -346,9 +346,9 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
             )}
             <div className="flex flex-wrap items-center gap-2">
               {flow.url && ['pending', 'exchanging'].includes(flow.state) && (
-                <a href={flow.url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent-text underline">
+                <LinkButton variant="primary" size="sm" href={flow.url}>
                   {t('integrations.signIn.open')}
-                </a>
+                </LinkButton>
               )}
               {/* waiting too: a window closed before it finished needs a way back (QA TC-1417) */}
               {flow.state !== 'starting' && (

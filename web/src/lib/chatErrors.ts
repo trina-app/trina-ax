@@ -6,7 +6,7 @@ import type { ChatErrorReason } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
-type Role = 'owner' | 'admin' | 'member' | undefined
+type Role = 'owner' | 'admin' | 'member' | 'guest' | undefined
 /** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), the server's health (Admin › System ›
  * Health, the owner's page only), or the server page with its storage card (Admin › System, which admins see too) */
 type Where = 'providers' | 'health' | 'system'
@@ -19,8 +19,6 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   endpoint_unreachable: 'providers',
   // the AI accounts page shows an engine version whose lockdown test failed (server/src/admin/engines.ts)
   lockdown: 'providers',
-  trial_credit_used: 'providers',
-  trial_ended: 'providers',
   proxy_down: 'health',
   // the server's disk is full: the storage card shows what uses the space
   storage_full: 'system',

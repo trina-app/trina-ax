@@ -26,7 +26,7 @@ import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
-import { dropFolderRow, hasAccessSettings } from '../admin/folders'
+import { dropFolderRow, hasAccessSettings, runAccessHooks } from '../admin/folders'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { FileError, fileError } from './errors'
@@ -1397,6 +1397,9 @@ export class TeamFiles {
       this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
       // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
       this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
+      // a folder holding a team project went to the trash: a guest whose one place it was is switched off (admin/guests.ts,
+      // through the access-change hooks; the project's rules were parked, no afterAccessChange runs here)
+      if (isDir && r.segs[0] !== 'users') runAccessHooks(this.ctx, userId)
     }
     // the AI's delete: it is in the trash now, with its row, whatever a listener does next; the call says so (its trash
     // id goes into the audit row)
@@ -2302,7 +2305,7 @@ const aiReason = (e: unknown) => (e instanceof Denied || e instanceof ToolError 
 
 /** Every active person with their groups (who could be affected by an audience change). */
 export function activePeople(db: AppContext['db']): Principal[] {
-  const users = db.query("SELECT id, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Principal['role'] }[]
+  const users = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Principal['role'] }[]
   const groups = new Map<string, string[]>()
   for (const m of db.query('SELECT group_id, user_id FROM group_members').all() as { group_id: string; user_id: string }[]) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
   return users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] }))

@@ -4,7 +4,7 @@
 // earlier (cleanUpDeletedAccounts), and twice is the same as once.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
-import { accountCleanups, cleanUpDeletedAccounts, KEPT_WITH_ACCOUNT, REMOVED_BY_REMOVE_ACCOUNT, runAccountCleanups } from '../../server/src/auth/account-removal'
+import { accountCleanups, cleanUpDeletedAccounts, KEPT_WITH_ACCOUNT, REMOVED_BY_REMOVE_ACCOUNT, runAccountCleanups, USER_COLUMNS_WITHOUT_FK } from '../../server/src/auth/account-removal'
 
 let h: Harness, owner: Client
 beforeAll(async () => {
@@ -19,6 +19,12 @@ function userColumns(): string[] {
     for (const fk of h.ctx.db.query(`PRAGMA foreign_key_list("${name}")`).all() as { table: string; from: string }[]) {
       if (fk.table === 'users') out.push(`${name}.${fk.from}`)
     }
+  }
+  // a person's id without a foreign key (room_app_viewers.user_id): decided like the others, and each must exist
+  for (const c of USER_COLUMNS_WITHOUT_FK) {
+    const [t, col] = c.split('.') as [string, string]
+    expect((h.ctx.db.query(`PRAGMA table_info("${t}")`).all() as { name: string }[]).map((x) => x.name), c).toContain(col)
+    out.push(c)
   }
   return out.sort()
 }

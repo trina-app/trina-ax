@@ -1,4 +1,5 @@
 import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
+import { guestDetail, placePeople, roleSql } from '../auth/guests'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -18,7 +19,7 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { contributionOf } from '../skills/suggestions'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
-import { roomAppNoticeOut } from '../rooms/apps/notice'
+import { roomAppLeaverOut, roomAppNoticeOut } from '../rooms/apps/notice'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
@@ -63,7 +64,7 @@ export type ServiceRequestEvent = Extract<NotificationEventType, 'service.reques
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -74,9 +75,9 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
  * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), and an
- * app in a room that paused for the day (migration 299)
+ * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'chat_answer_notices', 'chat_share_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -188,7 +189,7 @@ export class Notifications {
     const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL AND substr(source_id, 1, ${NOT_READY_SOURCE.length}) != '${NOT_READY_SOURCE}' ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
     const now = new Date().toISOString(), touched = new Set<string>()
     for (const r of rows) {
-      const m = this.ctx.db.query("SELECT id, role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
+      const m = this.ctx.db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
       if (m && !canUseAi(this.ctx, m)) continue
       this.ctx.db.query('UPDATE onboarding_notices SET read_at=? WHERE id=? AND read_at IS NULL').run(now, r.id)
       touched.add(r.user_id)
@@ -301,6 +302,12 @@ export class Notifications {
   roomAppPaused(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'room_app.paused', sourceId, createdAt, true)
   }
+  /** Someone who was shown the address of an app in a room this person may manage can no longer manage it (rooms/apps/
+   * service.ts leaverSweep). The source is "<app id>.<first 12 of the address's token hash>": one notice per app,
+   * person and address. Shown always: there is no setting for it, and only "Get a new address" ends it. Activity only. */
+  roomAppLeaver(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'room_app.leaver', sourceId, createdAt, true)
+  }
   /** A role changed: what an owner or admin no longer handles leaves their inbox. A person who became a member is no
    * longer told of anyone's request; a member who became an admin is now the owner's business only, so the admins'
    * entries for that person go (the owners keep theirs). */
@@ -326,7 +333,7 @@ export class Notifications {
       WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND u.role != 'owner'`).all() as { user_id: string }[]
     if (!open.length) return
     const now = new Date().toISOString()
-    for (const r of open) for (const id of deletionHandlers(this.ctx, (db.query('SELECT role FROM users WHERE id=?').get(r.user_id) as { role: string }).role)) {
+    for (const r of open) for (const id of deletionHandlers(this.ctx, (db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id=?`).get(r.user_id) as { role: string }).role)) {
       const o = { id }
       if (!db.query("SELECT 1 FROM account_deletion_notices WHERE user_id=? AND event_type='account.deletion_request' AND source_id=?").get(o.id, r.user_id)) this.record(o.id, 'account.deletion_request', r.user_id, now, true)
     }
@@ -416,7 +423,7 @@ export class Notifications {
     args.push(new Date(Date.now() - MEMBER_WELCOME_DAYS * 86_400_000).toISOString())
     args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
     const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
-      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
+      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 AND (t.created_by IS NULL OR u.id <> t.created_by)
       WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
         NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM member_welcome w WHERE w.user_id = u.id AND w.apps_seen_at IS NULL AND w.joined_at >= ? AND t.created_at <= w.joined_at)
@@ -614,8 +621,17 @@ export class Notifications {
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
+      // a guest joined their one place, not the team: "X joined 'Quote prep' as a guest" (auth/guests.ts guestDetail). The
+      // place's name as it is now, only to a reader who is in that place or is the owner or an admin (who see it in
+      // Admin › Guests anyway); an inviter who left it reads "a group chat" / "a project", never a later rename
+      const place = u ? guestDetail(this.ctx.db, row.source_id)?.place : undefined
+      // Its link: the owner and admins keep Admin › Members (no id); anyone else, the place itself while they are in it
+      // (its id), else nowhere (null): Admin is not theirs
+      const staff = !!place && isStaff(this.ctx.db, row.user_id)
+      const inPlace = !!place && !staff && placePeople(this.ctx.db, row.source_id).has(row.user_id)
+      const named = staff || inPlace
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
-        ...(u ? { joined: { name: u.name } } : {}) }
+        ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: named ? place.name : '', ...(staff ? {} : { id: inPlace ? place.id : null }) } } : {}) } } : {}) }
     }
     // the owner and the admins see who asks (a name while the account is there) and where the request is now; while it
     // waits, the link opens that person in Admin › Members, where the account is deleted
@@ -655,6 +671,12 @@ export class Notifications {
       const roomApp = roomAppNoticeOut(this.ctx, row.user_id, row.source_id)
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: roomApp?.roomId ? 'room' : null, outcome: null,
         ...(roomApp ? { roomApp } : {}) }
+    }
+    // someone who left knows an app's address: the app and its room now, absent once removed or given a new address
+    if (row.event_type === 'room_app.leaver') {
+      const roomAppLeaver = roomAppLeaverOut(this.ctx, row.user_id, row.source_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: roomAppLeaver?.roomId ? 'room' : null, outcome: null,
+        ...(roomAppLeaver ? { roomAppLeaver } : {}) }
     }
     if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
@@ -879,15 +901,21 @@ export function notifyHosting(ctx: AppContext, event: HostingNoticeEvent, source
     for (const id of ids) notificationsOf(ctx).hostingNotice(id, event, sourceId)
   } catch { ctx.log.warn('hosting notification recording failed') }
 }
+/** The owner or an admin (the guest-aware role: auth/guests.ts roleSql). */
+function isStaff(db: AppContext['db'], userId: string): boolean {
+  return !!db.query(`SELECT 1 FROM users WHERE id = ? AND ${roleSql()} IN ('owner', 'admin')`).get(userId)
+}
 export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joinedUserId: string) {
   for (const userId of new Set(userIds)) {
     try { notificationsOf(ctx).teamJoined(userId, joinedUserId) }
     catch { ctx.log.warn('team join notification recording failed') }
   }
 }
-/** Who is told about, and handles, a request from someone with this role: the owners, and the admins when a member asks. */
+/** Who is told about, and handles, a request from someone with this role: the owners, and the admins when a member asks.
+ * A guest's request is handled as a member's (owner decision 2026-11-14). The filter reads the stored role: a guest is
+ * stored as 'member' (users.guest = 1), and only owners and admins are selected, so no guest is ever a handler. */
 export function deletionHandlers(ctx: AppContext, requesterRole: string): string[] {
-  const roles = requesterRole === 'member' ? "'owner', 'admin'" : "'owner'"
+  const roles = requesterRole === 'member' || requesterRole === 'guest' ? "'owner', 'admin'" : "'owner'"
   return (ctx.db.query(`SELECT id FROM users WHERE role IN (${roles}) AND status = 'active' AND deleted_at IS NULL`).all() as { id: string }[]).map((u) => u.id)
 }
 

@@ -28,6 +28,8 @@ import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
 import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, rulesOf, validateRules, writeFolderAccess } from '../admin/folders'
+import '../admin/guest-hooks'
+import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
@@ -47,6 +49,9 @@ import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { isPeopleRow } from '../chat/chat-audience'
+import { chatFilesOf } from '../chat/chat-files'
+import { streamFile } from '../team-files/download'
+import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -159,6 +164,10 @@ function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: strin
 }
 
 /** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first, as `viewer` sees them. */
+/** May this attachment go into a message of this shared chat: a team file, or in a chat shared with people a file kept
+ * with it (chat/chat-files.ts: Attachments.lookup finds only the caller's own of this chat). */
+const sharedAttachment = (a: ChatAccess, x: Attachment): boolean => x.source === 'team' || (x.source === 'chat' && a.kind === 'people')
+
 function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale, through?: string): { items: Message[]; nextCursor: string | null } {
   // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
   const view = messageView(rt, chat, viewer, locale)
@@ -199,7 +208,7 @@ function messageInChat(rt: ChatRuntime, chatId: string, id: string): MessageRow 
 /** A used-up "block" budget of this person stops the turn before it is queued (tab 5 "사용 한도 도달"). */
 function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
   const b = budgetBlock(ctx.db, userId, locale)
-  if (b) fail('budget_exceeded', b.message)
+  if (b) fail('budget_exceeded', b.message, { params: { resetsAt: b.resetsAt } })
 }
 
 /** One turn at a time per chat. A shared chat busy with someone else's question: 409 shared_chat_busy, naming them
@@ -342,11 +351,14 @@ export const chatsRoutes: RouteModule = {
         if (query.projectId) {
           const p = rt.store.projectRow(query.projectId)
           if (!p || !aud.sees(me, p)) where.push('shared_at IS NULL')
+          // a guest: other people's shared chats are never theirs (Audiences.seesChat)
+          else if (aud.isGuest(me)) { where.push('(shared_at IS NULL OR user_id = ?)'); args.push(me) }
         } else {
           const projects = (ctx.db.query(`SELECT DISTINCT project_id FROM chats WHERE ${where.join(' AND ')} AND shared_at IS NOT NULL AND project_id IS NOT NULL`).values(...args) as [string][]).map((r) => r[0])
           const seen = projects.filter((id) => { const p = rt.store.projectRow(id); return !!p && aud.sees(me, p) })
           where.push('(shared_at IS NULL OR project_id IN (SELECT value FROM json_each(?)))')
           args.push(JSON.stringify(seen))
+          if (aud.isGuest(me)) { where.push('(shared_at IS NULL OR user_id = ?)'); args.push(me) }
         }
         let ids: string[] | null = null
         for (const like of [...words].sort((a, b) => b.length - a.length)) {
@@ -417,7 +429,7 @@ export const chatsRoutes: RouteModule = {
         // a chat shared with people and groups: while I am in it now; in the trash only its creator's
         if (isPeopleRow(r)) return aud.seesChat(me, r) && (!q || found(r)) && (!query.trash || r.user_id === me)
         const p = rt.store.projectRow(r.project_id!)
-        return !!p && aud.sees(me, p) && (!q || found(r)) && (!query.trash || mayRestore(r, p))
+        return !!p && aud.seesChat(me, r) && (!q || found(r)) && (!query.trash || mayRestore(r, p))
       }
       const out: ChatRow[] = []
       let after = cur
@@ -643,7 +655,7 @@ export const chatsRoutes: RouteModule = {
     // "프로젝트 멤버와 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
     // of what it contains, every branch (chat/share-chat.ts); a shared chat answers 409 already_shared to whoever sees it
     kit.handle(API.shareChat, ({ c, params, body, auth }) => shareChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
-    // Share… for a chat outside projects (chat/people-share.ts): who sees it, its creator's save, a recipient's "Hide
+    // Share for a chat outside projects (chat/people-share.ts): who sees it, its creator's save, a recipient's "Hide
     // from my list". Anyone who cannot see the chat gets the 404 of a missing chat first (chatFor)
     kit.handle(API.getChatAudience, ({ c, params, auth }) => chatAudienceView(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view')))
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
@@ -657,6 +669,20 @@ export const chatsRoutes: RouteModule = {
     // the delete-account dialog's count (admins): the chats this person shared with people that others wrote in
     kit.handle(API.userSharedChats, ({ params }) => ({ sharedChats: peopleSharedChatsOf(ctx, params.id) }))
     kit.handle(API.hideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), true))
+    // a file kept with a chat shared with people (chat/chat-files.ts): whoever sees the chat now (its creator in the trash
+    // too), else the 404 of a missing chat; a file not sent yet only for its sender. Sent as a room file is (streamFile:
+    // nosniff, a sandbox CSP, a page or script type inline as text/plain); one on the download-only list only as a
+    // download, never a thumbnail, an inline read or a page's picture, frame, player or script (Fetch Metadata)
+    kit.handle(API.chatFile, ({ c, params, query, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      // the chat's own files follow the people-shared rule, never another audience the chat got later (a chat made
+      // private again and then shared with a project: its creator alone)
+      if (!chatFilesOf(ctx).seesChat(auth.user.id, a.row.id)) fail('not_found')
+      const f = chatFilesOf(ctx).open(auth.user.id, a.row.id, params.fileId, !!query.thumb)
+      const dest = c.req.raw.headers.get('sec-fetch-dest')
+      if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via })
+    })
     kit.handle(API.unhideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), false))
 
     kit.handle(API.sendMessage, ({ c, params, body, auth }) => {
@@ -671,8 +697,9 @@ export const chatsRoutes: RouteModule = {
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
       }
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
-      // a shared chat takes team files only (D3): a computer upload never reaches it
-      if (a.shared && atts.some((x) => x.source !== 'team')) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
+      // a shared chat takes team files only (D3), and a chat shared with people its own files too (chat/chat-files.ts):
+      // a computer upload in someone's own folder never reaches it
+      if (a.shared && atts.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
@@ -719,7 +746,7 @@ export const chatsRoutes: RouteModule = {
       if (a.shared && target.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
       busy(a, c.get('locale'), auth.user.id)
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
-      if (a.shared && atts.some((x) => x.source !== 'team')) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
+      if (a.shared && atts.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
@@ -1199,10 +1226,13 @@ export const chatsRoutes: RouteModule = {
         audit(ctx.db, { actor: auth.user.id, action: 'project.trash', target: r.id, detail: { name: r.name, folderPath: r.folder_path } })
         // its shared chats leave everyone's lists until it comes back
         for (const x of shared) for (const uid of audience) rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } })
+        // a guest whose one place this project was is switched off (admin/guests.ts)
+        disablePlacelessGuests(ctx, auth.user.id)
         return
       }
       // for good: the same path as Files › Trash's Delete for good on a project's own folder (chat/project-delete.ts)
       deleteProjectForGood(ctx, rt, r, auth.user.id, locale)
+      disablePlacelessGuests(ctx, auth.user.id)
     })
   },
 }

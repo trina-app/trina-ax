@@ -11,6 +11,8 @@
 // with its +, then each folder as a group in that section (fold ▾, its "⋯", the rooms I keep in it by latest activity; a
 // folded one keeps one pill). A room shows in one place only: pinned › its folder › its kind. With no folder yet, one
 // quiet row "새 폴더" ends the list.
+import { isGuestMe } from '../../lib/guests'
+import { useMe } from '../../store/session'
 import clsx from 'clsx'
 import { ChevronRight, EyeOff, Pin } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -52,6 +54,7 @@ export const rowsToDraw = (budget: number, openAt: number) => Math.max(budget, o
 
 export function RoomsByKind() {
   const t = useT()
+  const guest = isGuestMe(useMe())
   const locale = useLocale()
   const titleOf = useRoomTitle()
   const everyRoom = useRooms((s) => s.rooms)
@@ -139,7 +142,8 @@ export function RoomsByKind() {
       {loaded && !everyRoom.length && <p className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</p>}
       {out}
       {more && <ul aria-hidden><li ref={end} className="h-px" data-testid="chats-panel-more" /></ul>}
-      {loaded && !folders.length && everyRoom.length > 0 && <NewFolderRow kind="rooms" className="mt-2" />}
+      {/* a guest's list is their one room and their DMs: no folders to make (components/GuestView.tsx) */}
+      {loaded && !folders.length && everyRoom.length > 0 && !guest && <NewFolderRow kind="rooms" className="mt-2" />}
       {/* not on the conversations page itself, which lists them already */}
       {hidden > 0 && pathname !== '/rooms' && (
         <Link to="/rooms" className={`${panelRowBox} mt-2 text-meta text-muted`} data-testid="chats-panel-hidden">

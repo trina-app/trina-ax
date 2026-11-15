@@ -87,7 +87,7 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
   const shown = new Map<string, RoomSearchHit>()
   const named: RoomSearchRoom[] = []
   for (const m of new Set(kept.map((h) => h.mine))) {
-    for (const msg of messagesOut(db, kept.filter((h) => h.mine === m).map((h) => h.row), m.me)) {
+    for (const msg of messagesOut(db, kept.filter((h) => h.mine === m).map((h) => h.row), m.me, false)) {
       if (msg.withheld || msg.deletedAt || msg.event || !msg.body) continue
       shown.set(msg.id, {
         id: msg.id, roomId: msg.roomId, threadRootId: msg.threadRootId ?? null, authorKind: msg.authorKind,

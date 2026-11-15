@@ -188,7 +188,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const fx = makeFixture(base)
   const dataDir = fx.data
   const dead = 'http://127.0.0.1:9'
-  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, openrouter: dead + '/api/v1', ...o.upstreams }
+  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, ...o.upstreams }
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error',

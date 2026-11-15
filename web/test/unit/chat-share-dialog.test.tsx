@@ -7,7 +7,7 @@
 // - a failed save keeps the picks with the error above the button; a refusal says the server's words;
 // - the server's check comes back in place: the lines, "Share anyway", which sends the key back; another pick asks
 //   again; the widening line opens the list with the chat as its target;
-// - someone else's shared chat: read only, who can change it; a personal project: why, and Move….
+// - someone else's shared chat: read only, who can change it; a personal project: why, and Move.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { ChatAudience, PutChatAudienceResult } from '@mycel/shared/api'
@@ -16,6 +16,7 @@ import { ChatShareDialog } from '../../src/components/chat/ChatShareDialog'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const C1 = '01900000-0000-7000-8000-0000000000c1'
@@ -95,6 +96,17 @@ describe('the save model and every exit', () => {
     await m.click(closeButton(m))
     expect(closed).toBe(2)
     expect(m.find('dialog-confirm')).toBeNull()
+    await m.unmount()
+  })
+
+  test('a guest is never offered (a chat shared with people is no place of theirs); a member is', async () => {
+    routesWith(audience())
+    routes['GET /api/people'] = () => json(200, { people: [...PEOPLE.people, { id: 'gina', name: 'Gina Park', guest: true, guestPlace: { kind: 'room', id: 'r1', name: 'Quote prep' } }] })
+    const m = await open()
+    await m.type('chat-share-picker-search', 'park')
+    expect(m.find('participant-add-user-gina')).toBeNull()
+    await m.type('chat-share-picker-search', 'bob')
+    expect(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000)).toBeTruthy()
     await m.unmount()
   })
 
@@ -195,6 +207,31 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
+  test('a first share: the files I attached will be visible to them (a quiet line, asked even alone); what could not go is said after', async () => {
+    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: false, hiddenAnswers: 0, earlierFiles: 2, confirmKey: 'k2', provenance: null }
+    let closed = 0
+    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'k2' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]), filesNotCopied: 1 }) : json(200, confirm))
+    useUi.setState({ toasts: [] })
+    const m = await open(() => closed++)
+    await addBob(m)
+    await m.click('chat-share-save')
+    const line = await m.until(() => m.find('chat-share-earlier-files'), 'the files line', 2000)
+    expect(line.textContent).toBe(en('chat.share.earlierFiles', { n: 2 }))
+    expect(en('chat.share.earlierFiles', { n: 2 })).toBe('2 files you attached will be visible to them.')
+    // no warning about the people, so the note is the whole one
+    expect(m.find('chat-share-warning')).toBeNull()
+    expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
+    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.shareAnyway'))
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    expect(useUi.getState().toasts.map((t) => [t.level, t.text])).toContainEqual(['warn', en('chat.share.filesNotCopied', { n: 1 })])
+    // one file is "it", more are "them" (QA TC-2022)
+    expect(en('chat.share.filesNotCopied', { n: 1 })).toMatch(/^1 file you attached earlier wasn't shared .*Only you can open it\.$/)
+    expect(en('chat.share.filesNotCopied', { n: 2 })).toMatch(/^2 files .*Only you can open them\.$/)
+    useUi.setState({ toasts: [] })
+    await m.unmount()
+  })
+
   test('a group picked: whoever joins it later sees it too', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'mia', name: 'Mia', role: 'member' }, groups: [{ id: 'g1', name: 'Sales' }], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
     routesWith(audience())
@@ -222,7 +259,7 @@ describe('not mine to change, or not here', () => {
     await m.unmount()
   })
 
-  test('a personal project: why, and Move…', async () => {
+  test('a personal project: why, and Move', async () => {
     routes = { 'GET /api/projects': () => json(200, { items: [] }) }
     const m = await mount(<MemoryRouter><ChatShareDialog chat={{ ...chat, projectId: '01900000-0000-7000-8000-0000000000a1' }} personal onClose={() => {}} /></MemoryRouter>)
     expect(m.get('chat-share-personal').textContent).toContain(en('chat.share.personalProject'))
@@ -230,5 +267,69 @@ describe('not mine to change, or not here', () => {
     await m.click('chat-share-move')
     await m.until(() => m.find('chat-project-save'), 'the move dialog', 2000)
     await m.unmount()
+  })
+})
+
+describe('QA 11-15: kept through a group, the focus, the live line', () => {
+  const SALES = { subjectType: 'group' as const, subjectId: 'g1', name: 'Sales', members: 3 }
+  test('taking someone out by name who is in a picked group says they keep access through it, and the save says it again (TC-2264)', async () => {
+    let closed = 0
+    routesWith(audience([{ ...SORA, inGroups: ['g1'] }, SALES]), () => json(200, { status: 'saved', chat: chatOut, audience: audience([SALES]), keptThrough: [{ name: 'Sora', groups: ['Sales'] }] }))
+    useUi.setState({ toasts: [] })
+    const m = await open(() => closed++)
+    await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+    expect(m.find('chat-share-keeps-through')).toBeNull()
+    await m.click('participant-remove-user-sora')
+    const line = await m.until(() => m.find('chat-share-keeps-through'), 'the kept line', 2000)
+    expect(line.textContent).toBe(en('chat.share.keepsThrough', { name: 'Sora', groups: 'Sales' }))
+    expect(en('chat.share.keepsThrough', { name: 'Sora', groups: 'Sales' })).toBe('Sora keeps access through Sales.')
+    // read out too
+    expect(m.get('chat-share-live').textContent).toContain('Sora keeps access through Sales.')
+    // the group taken out as well: nothing keeps her in
+    await m.click('participant-remove-group-g1')
+    await m.until(() => !m.find('chat-share-keeps-through'), 'no kept line', 2000)
+    await m.click('participant-undo-group-g1')
+    await m.until(() => m.find('chat-share-keeps-through'), 'the kept line again', 2000)
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'saved', 2000)
+    expect(useUi.getState().toasts.map((t) => t.text)).toContainEqual('Sora keeps access through Sales.')
+    useUi.setState({ toasts: [] })
+    await m.unmount()
+  })
+
+  test('the check\'s warning is in a polite live region (TC-2271)', async () => {
+    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: false, hiddenAnswers: 0, confirmKey: 'k3', provenance: { people: 1, places: [{ kind: 'mine' }], otherPlaces: false } }
+    routesWith(audience(), () => json(200, confirm))
+    const m = await open()
+    const live = m.get('chat-share-live')
+    expect(live.getAttribute('aria-live')).toBe('polite')
+    expect(live.textContent).toBe('')
+    await addBob(m)
+    await m.click('chat-share-save')
+    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 2000)
+    expect(m.get('chat-share-live').textContent).toBe(warning.textContent)
+    await m.unmount()
+  })
+
+  test('after Discard the focus goes back to what opened it (TC-2271)', async () => {
+    routesWith(audience())
+    let closed = 0
+    const trigger = document.createElement('button')
+    trigger.textContent = 'Share'
+    document.body.appendChild(trigger)
+    // opened from a menu item, which goes with its menu: focus must not fall back to it (or to the page)
+    const item = document.createElement('button')
+    document.body.appendChild(item)
+    item.focus()
+    const m = await mount(<MemoryRouter initialEntries={[`/c/${C1}`]}><ChatShareDialog chat={chat} returnTo={trigger} onClose={() => closed++} /><DialogHost /></MemoryRouter>)
+    document.body.removeChild(item)
+    await m.until(() => m.find('participant-user-mia'), 'the creator\'s row', 2000)
+    await addBob(m)
+    await m.click('chat-share-cancel')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard ask', 2000))
+    await m.until(() => closed === 1, 'closed', 2000)
+    await m.unmount()
+    expect(document.activeElement).toBe(trigger)
+    document.body.removeChild(trigger)
   })
 })

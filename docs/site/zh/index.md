@@ -18,7 +18,7 @@ Trina AX 是一个公司 AI 工作空间。你在服务器上设置一次 Claude
 
 ---
 
-![电脑上的应用：左侧栏有 Trina、聊天、项目、文件和动态，旁边是 Trina 列表，以及首页](../images/overview/app.webp "电脑上的 Trina AX")
+![电脑上的应用：左侧栏有 Trina、聊天、项目、文件和动态，旁边是 Trina 列表，以及首页](../images/zh/overview/app.webp "电脑上的 Trina AX")
 
 ## 新开发者的推荐路线
 

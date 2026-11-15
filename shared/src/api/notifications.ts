@@ -4,6 +4,7 @@ import { IsoTime } from './common'
 import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
 import { RoomKind } from './rooms'
+import { RoomAppKind, RoomAppPresetSeen } from './room-apps'
 import { UserId } from '../ids'
 import { RequestableService } from './service-requests'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
@@ -56,7 +57,10 @@ export function plainLabel(s: string, max = 80): string {
  * chat_share_push_deliveries; docs/DECISIONS.md "Chats shared with me: a push that names the sharer"). Listed in the
  * Inbox always; pushed only for a share by name, while "Chats shared with me" (chatShares) is on. A group's people get
  * the Inbox row alone. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared'])
+/** room_app.paused: an app in a room the person manages reached the day's cap and paused (room_app_notices with their
+ * own deliveries, room_app_push_deliveries, migration 352; docs/DECISIONS.md "Apps posting in rooms"). No setting of its
+ * own: pushed while the notice is unread, the app still paused and the person still in its room. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -82,8 +86,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
  * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
  * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices), and room_app.paused to the people who manage an app in a room that paused for the day
- * (room_app_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.paused'])
+ * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
+ * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
+ * "Apps posting in rooms"). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -107,8 +113,11 @@ export const InboxNotification = z.object({
    * start, POST /api/me/ai-not-ready/tell), not a wait for an AI connection; older servers omit it */
   notReady: z.literal(true).optional(),
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
-   * older servers omit it */
-  joined: z.object({ name: z.string() }).optional(),
+   * older servers omit it. `guestPlace`: they joined as a guest, into this one room or project (its name; '' for a
+   * group chat with no name, or when the reader is not in that place and is not the owner or an admin), not the team. Its `id`: absent for the owner
+   * and admins (the line opens Admin › Members), the place's id for anyone else in that place (the line opens it), null
+   * for anyone else (no link) */
+  joined: z.object({ name: z.string(), guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string(), id: z.string().nullable().optional() }).optional() }).optional(),
   /** 'account.deletion_request' only (owners and admins): who asked for their account to be deleted, by display name while the
    * account is there (null once it is deleted), and where the request is now: open (waits for the owner or an admin; link
    * 'admin_members' opens that person in Admin › Members, sourceId is their id), cancelled (they took it back) or
@@ -124,8 +133,22 @@ export const InboxNotification = z.object({
    * once the app is removed, and from older servers */
   roomApp: z.object({
     appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable(),
+    /** the app's kind (Google Forms counts responses); older servers omit it */
+    kind: RoomAppKind.optional(),
+    /** an Other app's service (its logo); older servers omit it */
+    preset: RoomAppPresetSeen,
     day: z.string(), cap: z.number().int().positive(), skipped: z.number().int().nonnegative(), pausedUntil: IsoTime.nullable(), canResume: z.boolean(),
+    /** the team's cap paused it (all the team's apps together reached it; `cap` is the team's then): nothing to resume
+     * until `pausedUntil`, said in the team's `timeZone`. Older servers omit it */
+    team: z.literal(true).optional(),
+    timeZone: z.string().optional(),
   }).optional(),
+  /** 'room_app.leaver' only (the people who may manage the app, docs/DECISIONS.md "Apps posting in rooms"): someone who
+   * was shown the app's address (or a secret Trina made) left the room or the team, or is no longer an admin of a team
+   * room, and still knows it ("Get a new address" in the app's settings). The app, its room (link 'room' while I am
+   * still in it; roomId null else); the names are plain lines. Absent once the app is removed or got a new address, and
+   * from older servers */
+  roomAppLeaver: z.object({ appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable() }).optional(),
   /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */

@@ -24,8 +24,10 @@
 // is writing here (RoomTypingLine, docs/DECISIONS.md "입력 중 표시").
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
+import { composerInset, composerRadius } from '../chat/composerBox'
+import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
-import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, X } from 'lucide-react'
+import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
@@ -41,7 +43,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
@@ -50,11 +52,13 @@ import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
+import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 import { AttachSheet } from '../chat/AttachSheet'
 import { ComposerToolbar } from '../chat/ComposerToolbar'
 import TeamFilePicker from '../chat/TeamFilePicker'
 import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
+import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
 
 interface Upload {
   key: number
@@ -62,6 +66,8 @@ interface Upload {
   status: 'uploading' | 'done' | 'failed'
   roomFile?: RoomFile
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
   abort: AbortController
   /** a team file (the attach sheet's 팀 파일): its team path, and once copied how many other members cannot open it */
   teamPath?: string
@@ -90,6 +96,8 @@ onRoomDraftElsewhere((key) => {
 /** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
   const t = useT()
+  // a guest whose AI is off: no "✦ to ask on the side" in the box (components/GuestView.tsx)
+  const guestNoAi = useGuestNoAi()
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
   const key = placeKey(roomId, threadRootId)
@@ -196,7 +204,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
   const behindPanel = usePanelExpanded()
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty && !guestNoAi ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
@@ -219,7 +227,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: f } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
 
@@ -248,7 +256,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
     }
   }
   const addTeamFiles = (picked: FileEntry[]) => {
@@ -285,6 +293,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const ready = files.filter((f) => f.status === 'done')
   const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX && !voice.busy
 
+  // links to messages some readers here cannot see: Slack's "Only show link" / "Show message" (MessageLinkChoice.tsx)
+  const linkChoice = useLinkChoice(roomId, threadRootId, text)
   const all = mention.mentionsAll()
   // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
   const ask = asking && all
@@ -300,7 +310,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setAsking(false)
     // "stopped" before the message, so nobody sees it arrive under "… is typing"
     typing.stop()
-    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
+    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom, ...(linkChoice.showMessages.length ? { showMessages: linkChoice.showMessages } : {}) })
+    linkChoice.reset()
     setText('')
     setFiles([])
     mention.reset()
@@ -407,13 +418,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   )
 
   return (
-    <div ref={root} className="relative shrink-0 px-3 pb-[var(--box-bottom)] sm:px-4" data-bottom-bar>
+    <div ref={root} className={clsx('relative shrink-0 pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
       <VoiceLive voice={voice} />
       {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
       <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
       {above}
       <div
-        className={clsx('relative mx-auto max-w-[780px] rounded-2xl border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
+        className={clsx('relative mx-auto max-w-[780px]', composerRadius, 'border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="room-composer"
       >
@@ -436,6 +447,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             </div>
           </div>
         )}
+        {!voice.recording && <MessageLinkChoice choice={linkChoice} />}
         {files.length > 0 && (
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
           // pictures are one pane of the image viewer (← →)
@@ -459,20 +471,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     // its own bytes in the image viewer, or the room's copy the server gave back
                     item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
-                  <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} title={f.error}>
+                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'sr-only'}>
                     {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
+                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                 </li>
               ) : (
-                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
+                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                  <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
+                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
                     {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                   </span>
-                  <IconButton tip label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">
-                    <X size={13} />
-                  </IconButton>
+                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
+                  <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),
             )}

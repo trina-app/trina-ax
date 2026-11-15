@@ -9,7 +9,7 @@
 // 48px on a computer and at least 48px on a phone (not the panels' 30px), every title flush with the "트리나 기록"
 // heading, every time ending at one x, and a shared chat's faces the same size and centred on their row.
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -123,6 +123,12 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
       const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', viewport: { width, height }, colorScheme: scheme, serviceWorkers: 'block' })
       const bob = await ctx.newPage()
       await signIn(bob, BOB)
+      // faces are the others who wrote in a shared chat (TC-1406): the owner writes in one, Bob in another, so each
+      // of them sees faces on a row (a shared chat nobody else wrote in keeps the people icon after its title)
+      for (const [p, chatId, content] of [[page, made[0]!, '이번 주 숫자 정리해 줘'], [bob, made[2]!, '요약 다시 해 줘']] as const) {
+        expect((await post(p, `/api/chats/${chatId}/messages`, { content, clientMessageId: uuidv7() })).status()).toBe(202)
+        await expect.poll(async () => ((await (await p.request.get(`/api/chats/${chatId}`)).json()) as { runState: string }).runState).toBe('idle')
+      }
       for (const [who, p] of [['owner', page], ['member', bob]] as const) {
         await p.goto(`/projects/${id}`)
         const list = p.getByTestId('project-chats')

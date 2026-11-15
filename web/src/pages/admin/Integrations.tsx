@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate, useParams } from 'react-router-dom'
 import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type GoogleOwnAppStatus, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
+import { connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, teamAboutKey, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
@@ -210,7 +210,7 @@ export default function AdminIntegrations() {
                       ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(connectorHref(c.id)), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
-                about={t('connectors.mcp.aboutForTeam', { name: c.name })} />
+                about={t(teamAboutKey(c), { name: c.name })} />
             )
           }
           if (open?.kind === 'team') return teamOpen ? teamPage(teamOpen) : null

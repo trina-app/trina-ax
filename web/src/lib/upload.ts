@@ -318,7 +318,9 @@ async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, fin
       out = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name, size: String(total) }, file: body, filename: target.name }, ...request })
-      kept(attachment.size)
+      // a picture kept with a chat shared with people is stored without its place and camera (smaller): the server says
+      // how many bytes it received before that (QA TC-2023)
+      kept(attachment.receivedSize ?? attachment.size)
       out = { kind: 'attachment', attachment }
     } else {
       const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })

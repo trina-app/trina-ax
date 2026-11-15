@@ -249,8 +249,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const c = await chat(page, 'Competitor notes')
       await page.goto('/')
       let { row, menu } = await rowMenu(page, 'Competitor notes')
-      // (no 폴더로 옮기기: the 트리나 list's own folders left the screen, docs/DECISIONS.md "Projects: a place of their own")
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
+      // (no 폴더로 옮기기: the 트리나 list's own folders left the screen, docs/DECISIONS.md "Projects: a place of their own";
+      // 공유 opens the Share dialog for a chat outside projects, docs/DECISIONS.md "Chats shared with people and groups")
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['chat.share.menu'], t['common.delete']])
       await audit(page, 'chat row menu open')
       await menu.getByRole('menuitem', { name: t['chat.project.add'] }).click()
       // the dialog is named by the item that opened it (QA TC-1086)

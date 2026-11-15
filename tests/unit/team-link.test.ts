@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as shared from '../../shared/src/team-link'
 import * as phone from '../../mobile/src/team-link'
+import { checkTeamWith } from '../../mobile/src/team-check'
 
 const ROOT = path.join(import.meta.dir, '../..')
 const DESKTOP = { teamDomain: 'trina.app', loopbackHttp: true }
@@ -94,6 +95,14 @@ const TABLE: [string, unknown, unknown?][] = [
   ['data:text/html,hi', err('unsupported_scheme')],
   ['https://', err('invalid')],
   ['acme team', err('invalid')],
+  // a host with no dot is not a team's address (Chinese typed in an IME, an intranet word; QA TC-1839)
+  ['团队', err('invalid')],
+  ['https://团队', err('invalid')],
+  ['https://teamserver', err('invalid')],
+  ['https://teamserver:8443/login', err('invalid')],
+  // ...while an IP literal and a full tailnet name still read as addresses
+  ['https://100.64.0.1', other('100.64.0.1')],
+  ['https://box.tail123.ts.net', other('box.tail123.ts.net')],
   ['localhost:19100', { ok: true, origin: 'http://localhost:19100', host: 'localhost:19100', name: null, hosted: false, loopback: true, entryPath: '/' }, { ok: true, origin: 'https://localhost:19100', host: 'localhost:19100', name: null, hosted: false, loopback: true, entryPath: '/' }],
   ['http://acme.localhost:19883', { ok: true, origin: 'http://acme.localhost:19883', host: 'acme.localhost:19883', name: 'acme', hosted: false, loopback: true, entryPath: '/' }, err('insecure')],
   // look-alikes are not hosted (the apps ask before connecting to them)
@@ -163,6 +172,24 @@ describe('where the apps show the team address', () => {
       for (const inner of ['https://[::ffff:127.0.0.1]/', 'https://[::]/', 'https://0.0.0.0/', 'https://0/'])
         expect({ inner, r: m.parseTeamInput(inner, PHONE) }).toMatchObject({ inner, r: { ok: true, loopback: true, hosted: false } })
     }
+  })
+})
+
+describe('Trina is updating (QA TC-2260)', () => {
+  test('the update\'s stand-in (x-mycel-updating) or the relay\'s team_maintenance, on a 503 only', () => {
+    for (const m of [shared, phone]) {
+      expect(m.updatingAnswer(503, '1', null)).toBe(true)
+      expect(m.updatingAnswer(503, null, 'team_maintenance')).toBe(true)
+      expect(m.updatingAnswer(503, null, 'team_offline')).toBe(false)
+      expect(m.updatingAnswer(503, null, null)).toBe(false)
+      expect(m.updatingAnswer(502, '1', null)).toBe(false)
+    }
+  })
+  test('the phone app\'s address check says "updating" with "unreachable" (its failure screen says so and keeps trying)', async () => {
+    const answer = (headers: Record<string, string>) => checkTeamWith({ fetch: async () => ({ status: 503, ok: false, headers: new Headers(headers), body: null }) }, 'https://acme.trina.app')
+    expect(await answer({ 'x-mycel-updating': '1' })).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(await answer({ 'x-relay-error': 'team_maintenance' })).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(await answer({ 'x-relay-error': 'team_offline' })).toEqual({ ok: false, reason: 'unreachable' })
   })
 })
 

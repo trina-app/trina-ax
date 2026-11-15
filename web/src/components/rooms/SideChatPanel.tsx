@@ -31,6 +31,10 @@
 // drops them, and an opening keeps the chat they wait in. The column around it is components/rooms/RoomSideColumn.tsx: drawn
 // here (`frame`), or by the room page around this (frame={false}). `closeX`: the ✕ at every width, never the phone's ‹
 // (the file viewer's sheet on a phone, which closes back to the file).
+import { GuestNoAi, useGuestNoAi } from '../GuestView'
+import { meGuest } from '../../lib/guests'
+import AiAccessBanner from '../chat/AiAccessBanner'
+import { useAiAccess } from '../../store/aiAccess'
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -69,6 +73,7 @@ import { LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
+import { appChip } from '../../lib/roomApps'
 
 /** the newest side chat of mine for this room (not deleted), or null: one asks the server */
 export async function newestSideChat(roomId: string): Promise<Chat | null> {
@@ -182,7 +187,12 @@ export interface SideSeed { key: string; author: string; at: string; text: strin
   /** a file sent in this room ("Ask Trina about this file" in its preview): the AI reads it with room_file */
   file?: { id: string; name: string }
   /** the thread an answer about the message goes to with one click (lib/sideChatAsk.ts messageSeed): its first message */
-  thread?: string }
+  thread?: string
+  /** a message an app posted (docs/DECISIONS.md "Apps posting in rooms"): its quick questions start with "Summarise this
+   * thread" */
+  app?: true
+  /** a question sent at once with the message quoted (an app's thread: "Summarise this thread") */
+  ask?: string }
 /** the longest quote that goes with a question (the AI can read the whole room with room_read) */
 export const SEED_QUOTE_MAX = 4000
 
@@ -221,6 +231,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const locale = useLocale()
   const me = useMeStrict()
   const navigate = useNavigate()
+  const guestNoAi = useGuestNoAi()
+  // a guest with their own sign-in not made yet: the line above the box offers it (Connect my AI), as Home's box does
+  const guestOwn = meGuest(me)?.ai === 'own'
+  // and until it is made (ai-access answers usable), no starters or quick asks: nothing would answer them, so the
+  // "Connect my AI" line is the one thing to do here
+  const guestWaits = useAiAccess((s) => guestOwn && !(s.loaded && s.usable))
   // opened while the room's side chat was closed: which chat it starts on (sideChatOpening), decided once, written to
   // the store before the first paint and shown by this panel until then, so nothing here sees the chat it replaces
   const opening = useRef<Partial<SideChatState> | null | undefined>(undefined)
@@ -280,6 +296,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const list = useStickToBottom()
   const { scroller, content, stick } = list
   const box = useRef<HTMLTextAreaElement>(null)
+  /** a seed's question waiting to be sent (SideSeed.ask) */
+  const autoAsk = useRef<{ key: string; ask: string } | null>(null)
   // the box's files (the full chat box's own parts), kept per room like the draft, in every panel of the room
   const [fileError, setFileError] = useState<string | null>(null)
   const files = useComposerFiles({
@@ -345,6 +363,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     if (!seed || taken.includes(seed.key)) return
     patch({ quoted: seed, seedKeys: [...taken, seed.key].slice(-SEED_KEYS_MAX) })
     setHistory(null)
+    if (seed.ask) autoAsk.current = { key: seed.key, ask: seed.ask }
     box.current?.focus()
   }, [seed?.key])
 
@@ -358,6 +377,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
 
   const fail = (e: unknown) => toast({ level: 'warn', text: errorText(e, locale, t('error.network')) })
+  // the room's apps (docs/DECISIONS.md "Apps posting in rooms"): one chip chosen by the apps that posted here, from the
+  // messages on screen (a member cannot list the apps)
+  const chip = useRooms((s) => (s.timeline?.roomId === roomId ? appChip(s.timeline.messages) : null))
   // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
   const canSend = chatId !== undefined && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
   const sendLabel = question ? t('sideChat.answer') : t('sideChat.send')
@@ -417,6 +439,15 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     setDraft('')
     box.current?.focus()
   }
+  // a seed with its question (an app's thread: "Summarise this thread"): sent once the message is quoted and the chat
+  // can take it
+  useEffect(() => {
+    const a = autoAsk.current
+    if (!a || quoted?.key !== a.key || chatId === undefined || busy) return
+    autoAsk.current = null
+    void send(a.ask)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoted?.key, chatId, busy])
   const toggleHistory = async () => {
     if (history) return setHistory(null)
     setHistoryBusy(true)
@@ -527,8 +558,15 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
               </span>
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
-              {!quoted && (
+              {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
+              {!quoted && !guestNoAi && !guestWaits && (
                 <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
+                  {chip && (
+                    <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(chip === 'forms' ? 'roomApps.askForms' : 'roomApps.askToday'))}
+                      className="rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-hover disabled:opacity-40 max-md:min-h-11" data-testid="side-chat-app-chip">
+                      {t(chip === 'forms' ? 'roomApps.chipForms' : 'roomApps.chipToday')}
+                    </button>
+                  )}
                   {STARTERS.map((k) => (
                     <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(`sideChat.starter.${k}`))}
                       className="rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-hover disabled:opacity-40 max-md:min-h-11" data-testid={`side-chat-starter-${k}`}>
@@ -559,6 +597,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         </div>
       </div>
       <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
+        {/* a guest whose AI is off: one line in place of the box (components/GuestView.tsx) */}
+        {guestNoAi ? <GuestNoAi /> : (<>
+        {guestOwn && <AiAccessBanner />}
         {quoted && (
           <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
             <div className="flex items-start gap-2">
@@ -574,8 +615,14 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 <X size={13} aria-hidden />
               </IconButton>
             </div>
-            {!question && (
+            {!question && !guestWaits && (
               <div className="mt-2 flex flex-wrap gap-1.5">
+                {quoted.app && quoted.thread && (
+                  <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t('roomApps.askThread'))}
+                    className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid="side-chat-quick-app-thread">
+                    {t('roomApps.chipThread')}
+                  </button>
+                )}
                 {(quoted.file ? QUICK_FILE : QUICK_MESSAGE).map((k) => (
                   <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(SIDE_CHAT_QUICK[k].ask[locale])}
                     className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
@@ -667,6 +714,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           />
         )}
         <p className="pt-1.5 text-center text-micro text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+        </>)}
       </div>
     </FileDropZone>
   )

@@ -551,7 +551,7 @@ function sourceRefusal(ctx: AppContext, locale: Locale, chatId: string, use: { u
  * open). Cheap checks first: this runs for every answer such a person reads.
  */
 export function teamSkillOffer(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: string, messageId: string): boolean {
-  const role = (ctx.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
+  const role = (ctx.db.query(`SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(userId) as { role: string } | null)?.role
   if (role !== 'owner' && role !== 'admin') return false
   const src = rt.store.ownChat(userId, chatId)
   if (!src || readWelcome(ctx)?.resultChatId === src.id) return false
@@ -749,7 +749,7 @@ function askRewrite(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: st
   if (rt.activeTurn(chatId) || ctx.db.query("SELECT 1 FROM turns WHERE chat_id = ? AND status IN ('queued','running')").get(chatId)) return 'busy'
   if (ctx.db.query('UPDATE onboarding_skill_drafts SET rewrite_at = ? WHERE chat_id = ? AND rewrite_at IS NULL').run(new Date().toISOString(), chatId).changes !== 1) return 'no'
   const chat = rt.store.chatRow(chatId)
-  const user = ctx.db.query('SELECT id, role FROM users WHERE id = ?').get(userId) as { id: string; role: string } | null
+  const user = ctx.db.query(`SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?`).get(userId) as { id: string; role: string } | null
   if (!chat || !user) return 'no'
   const content = read.problem === 'specific' ? fill(TEXT.rewriteSpecific[locale], { list: read.leftovers.map((x) => `"${x}"`).join(', ') }) : fill(TEXT.rewriteUnreadable[locale], { reason: read.reason })
   try {

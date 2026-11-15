@@ -4,7 +4,7 @@
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
-import { parseTeamInput, readAppLink, relayAnswer, relayRename, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
+import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
@@ -35,6 +35,49 @@ export function readDesktopLink(raw: string): TeamInput | null {
   return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
 }
 
+/** An id in a page address: the server's ids (uuidv7) and nothing that could move the path (no `.`, `%`, `/`, `\`). */
+const PAGE_ID = '[A-Za-z0-9_-]{1,64}'
+/** The team pages a link from outside may open in the app (web/src/App.tsx routes): a chat, a room, a room's thread,
+ * a project. Nothing else (settings, admin, files, sign-in pages). */
+const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID})$`)
+const ROOM_PATH = /^\/rooms\//
+const MESSAGE_ID = new RegExp(`^${PAGE_ID}$`)
+
+/**
+ * The team page inside a link from outside (`trina-ax://open?url=https://acme.trina.app/c/<id>`, the web's "Open in
+ * the app" on a chat; docs/DECISIONS.md "A chat link opens the desktop app on that chat"). The link must pass
+ * readDesktopLink first (https, no user:password, no loopback host, nothing around the address). Then the page:
+ * - only `/c/<id>`, `/rooms/<id>`, `/rooms/<id>/t/<id>` and `/projects/<id>`, ids `[A-Za-z0-9_-]{1,64}`, one optional
+ *   trailing slash dropped;
+ * - written exactly as the URL parser reads it (no `..`, `.`, `\`, `%`-escapes, tabs or other control characters,
+ *   `//`, which the parser would change or which an id never has);
+ * - a room's page keeps one `?m=<id>` (the message to show) and nothing else; any other query and the fragment are
+ *   dropped.
+ * Returns the team origin and the page, or null (the link opens as before: screen ④, the team's start). The caller
+ * opens it only on a team this app already has, by exact origin (AppWindow.offerLink).
+ */
+export function desktopPagePath(raw: string): { origin: string; path: string } | null {
+  const p = readDesktopLink(raw)
+  if (!p?.ok || p.entryPath !== '/') return null
+  let inner: URL
+  let text: string
+  try {
+    text = new URL(raw).searchParams.get('url') ?? ''
+    inner = new URL(text)
+  } catch {
+    return null
+  }
+  if (inner.origin !== p.origin) return null
+  // the path as it was written: from the first '/' after the authority up to '?' or '#'
+  const written = /^https:\/\/[^/?#\\]+(\/[^?#]*)?/i.exec(text)?.[1] ?? ''
+  if (/[^\x21-\x7e]/.test(written) || written !== inner.pathname) return null
+  const path = inner.pathname.length > 1 && inner.pathname.endsWith('/') ? inner.pathname.slice(0, -1) : inner.pathname
+  if (!PAGE_PATH.test(path)) return null
+  const m = inner.searchParams.get('m')
+  const query = ROOM_PATH.test(path) && m && MESSAGE_ID.test(m) && [...inner.searchParams.keys()].length === 1 ? `?m=${m}` : ''
+  return { origin: p.origin, path: path + query }
+}
+
 /** The link in a command line: Windows and Linux start the app (or its second instance) with the link as an argument.
  * Anything else on the command line (Chromium switches, the app's path) is ignored. */
 export function linkFromArgv(argv: readonly string[], scheme = LINK_SCHEME): string | null {
@@ -48,7 +91,7 @@ export interface HealthAnswer { status: number; location: string | null; relayEr
 export type HealthVerdict =
   | { ok: true }
   | { ok: false; rename: string }
-  | { ok: false; error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' }
+  | { ok: false; error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'asleep' }
 
 /**
  * A team renamed at its relay answers 308 with its new address: the app follows it once, only to another
@@ -64,10 +107,48 @@ export function healthVerdict(origin: string, r: HealthAnswer): HealthVerdict {
   const answer: RelayAnswer = relayAnswer(r.status, r.relayError)
   if (answer === 'unknown') return { ok: false, error: 'teamUnknown' }
   if (answer === 'suspended') return { ok: false, error: 'suspended' }
+  // a free trial's server turned off for no use: the check does not wake it, a person's page load does (checkTeam)
+  if (mayBeAsleep(r.status, r.relayError)) return { ok: false, error: 'asleep' }
   // a tunnel / relay error page (e.g. Cloudflare 530 while the office's Mac is off) is "cannot reach", not "not a team server"
   if (answer === 'offline' || isGatewayDown(r.status)) return { ok: false, error: 'unreachable' }
   if (r.status < 200 || r.status > 299 || !r.bodyOk) return { ok: false, error: 'notTeamServer' }
   return { ok: true }
+}
+
+/** What the add-team check found: the team's origin (after a relay rename) and how it answered. */
+export type TeamCheck =
+  | { ok: true; origin: string }
+  | { ok: false; error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' }
+export interface TeamCheckIo extends Omit<WakeSteps, 'wake'> {
+  health: (origin: string) => Promise<HealthAnswer>
+  /** GET <origin>/ as a page load (main/app-window.ts fetchWake) */
+  wake: (origin: string) => Promise<WakeAnswer>
+}
+/**
+ * The add-team check (main/app-window.ts addTeam): GET /api/health, one relay rename hop, and a sleeping trial team
+ * woken and waited for ("Resuming your team…", about a minute) instead of "cannot reach" (QA wake gap 1). Throws
+ * when the address cannot be fetched at all.
+ */
+export async function checkTeam(origin: string, io: TeamCheckIo): Promise<TeamCheck> {
+  let v = healthVerdict(origin, await io.health(origin))
+  // a team renamed at its relay: one hop to its new <name>.<team domain>, and no further
+  if (!v.ok && 'rename' in v) {
+    origin = v.rename
+    v = healthVerdict(origin, await io.health(origin))
+    if (!v.ok && 'rename' in v) return { ok: false, error: 'notTeamServer' }
+  }
+  if (!v.ok && 'error' in v && v.error === 'asleep') {
+    const at = origin
+    const w = await wakeTeam({ ...io, wake: () => io.wake(at) })
+    // (cancelled: the caller sees its own stop and adds nothing)
+    if (w === 'timeout') return { ok: false, error: 'wakeTimeout' }
+    if (w === 'notAsleep' || w === 'cancelled') return { ok: false, error: 'unreachable' }
+    v = healthVerdict(origin, await io.health(origin))
+    // still not answering right after it answered the page: say so as before
+    if (!v.ok && ('rename' in v || v.error === 'asleep')) return { ok: false, error: 'unreachable' }
+  }
+  if (!v.ok) return { ok: false, error: 'error' in v && v.error !== 'asleep' ? v.error : 'notTeamServer' }
+  return { ok: true, origin }
 }
 
 /** Origin of a URL, or '' (about:blank, garbage). */

@@ -2,7 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, TextSize, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -47,6 +47,8 @@ export const User = z.object({
   groupIds: z.array(Uuid7),
   createdAt: IsoTime,
   lastSeenAt: IsoTime.nullable(),
+  /** role guest only: their one place and AI choice */
+  guest: GuestDetail.optional(),
 })
 export type User = z.infer<typeof User>
 
@@ -84,6 +86,12 @@ export const Invite = z.object({
   /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
    * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
   leadFor: z.string().nullable().optional(),
+  /** a guest invite's one place; absent on member invites. `name`: a project's name (the invite list names it; a room's
+   * name is left out, since a group chat is its people's) */
+  guestPlace: GuestPlace.extend({ name: z.string().optional() }).optional(),
+  /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
+   * the links apart by it); absent when none was given and on member invites */
+  guestName: z.string().optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
@@ -93,7 +101,7 @@ export type SubjectType = z.infer<typeof SubjectType>
 /** One rule: who (subject) gets what (access) on a folder. subjectId: null for everyone, a Role for role, group id, user id. */
 export const FolderRuleInput = z.discriminatedUnion('subjectType', [
   z.object({ subjectType: z.literal('everyone'), subjectId: z.null(), access: Access }),
-  z.object({ subjectType: z.literal('role'), subjectId: Role.exclude(['owner']), access: Access }),
+  z.object({ subjectType: z.literal('role'), subjectId: TeamRole, access: Access }),
   z.object({ subjectType: z.literal('group'), subjectId: Uuid7, access: Access }),
   z.object({ subjectType: z.literal('user'), subjectId: UserId, access: Access }),
 ])
@@ -311,12 +319,14 @@ export type Chat = z.infer<typeof Chat>
  * messages.attachments[]: files the person attached. Uploads are stored in users/<id>/.attachments/<chatId>/;
  * team files (source 'team', POST /api/attachments/team-file) are references to a file in the team folder, not copies:
  * the server follows the file (moves, edits) and checks the person's read access again whenever it is shown or sent.
+ * In a chat shared with people and groups a file from the computer is kept with the chat (source 'chat', no team path:
+ * GET /api/chats/:id/files/:fileId, for everyone who sees the chat).
  */
 export const Attachment = z.object({
   id: Uuid7,
   name: z.string(),
   /** team-relative path: of the stored upload (users/<me>/.attachments/<chatId>/<name>), or where the referenced team
-   * file is now ('' when it is unavailable) */
+   * file is now ('' when it is unavailable, and for a chat's own file) */
   path: RelPath,
   size: z.number().int().nonnegative(),
   mime: z.string(),
@@ -324,8 +334,9 @@ export const Attachment = z.object({
   /** images: width/height for layout before the thumbnail loads */
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
-  /** 'team': a reference to a team-folder file (absent: an upload) */
-  source: z.enum(['upload', 'team']).optional(),
+  /** 'team': a reference to a team-folder file; 'chat': a file from the computer kept with a chat shared with people and
+   * groups (its people open it through the chat); absent: an upload */
+  source: z.enum(['upload', 'team', 'chat']).optional(),
   /** team references: sha256 of the content when it was attached */
   sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** team references: the content changed since it was attached (the AI gets the current version) */
@@ -334,6 +345,10 @@ export const Attachment = z.object({
   moved: z.boolean().optional(),
   /** team references: deleted, or the viewer can no longer read it; name, path and size are then blanked */
   unavailable: z.boolean().optional(),
+  /** the answer to an upload only: how many bytes the server received, when the file it kept is another size (a
+   * picture's place and camera cut out after it arrived whole: a file kept with a chat shared with people). The sender
+   * checks the file arrived whole against this, `size` is what everyone opens (QA TC-2023) */
+  receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message. */

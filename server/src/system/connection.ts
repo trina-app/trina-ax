@@ -141,12 +141,20 @@ export function teamAddressOf(ctx: Pick<AppContext, 'config' | 'services'>, at?:
   return reachedAddress(ctx.config, at)
 }
 
+/** The /in/ exemption holds (http/middleware.ts hostCheck): a country or network list on the server's own public address,
+ * and at least one app in a room. Admin › System › Connection says apps reach this server from anywhere then. */
+function appsAnywhere(ctx: AppContext): boolean {
+  const t = ctx.config.tunnel
+  if (!t || !(t.allowFrom.length || t.countries.length)) return false
+  try { return !!ctx.db.query('SELECT 1 FROM room_apps LIMIT 1').get() } catch { return false }
+}
+
 export function connectionStatus(ctx: AppContext): ConnectionStatus {
   const cfg = ctx.config
   // office mode: the fingerprint the desks compare is the office CA's (tls/ca.crt next to the server certificate)
   const fpFile = cfg.tls ? (cfg.office ? path.join(path.dirname(cfg.tls.certFile), 'ca.crt') : cfg.tls.certFile) : null
   const direct = { enabled: !!cfg.tls, port: cfg.tls?.port ?? 8443, fingerprintSha256: fpFile ? certFingerprint(fpFile) : null }
-  const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg) }
+  const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg), appsAnywhere: appsAnywhere(ctx) }
   if (ctx.services.relay) {
     const s = ctx.services.relay.status()
     return { ...s, direct: s.direct.fingerprintSha256 || !direct.enabled ? s.direct : direct, ...extra, publicAddress: publicAddress(cfg, s.address) }

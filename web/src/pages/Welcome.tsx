@@ -50,6 +50,7 @@ import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { Button, ErrorNote, Modal, Skeleton, useMediaQuery } from '../components/ui'
+import { StoragePlansLink, storagePlansUrl } from '../components/StoragePlansLink'
 
 export default function Welcome() {
   const me = useMeStrict()
@@ -266,7 +267,7 @@ function WelcomeSteps() {
     return true
   }
   const mark = (id: WelcomeStep, state: WelcomeStepState) => run(async () => void (await go(await useWelcome.getState().update({ step: { id, state } }), id)))
-  /** AI answers now (connected in the dialog, in another tab, or a trial credit arrived): recorded once, so the progress
+  /** AI answers now (connected in the dialog or in another tab): recorded once, so the progress
    * keeps the step, then where the steps resume with AI (an open step, else a counted step that was put off: the one
    * the owner came back for), the end when nothing is left */
   const aiConnected = () => run(async () => {
@@ -316,7 +317,7 @@ function WelcomeSteps() {
         <Skeleton lines={5} />
       </Page>
     )
-  // AI went away after the steps started (a key removed, the trial credit used): the AI step holds back 회사 소개
+  // AI went away after the steps started (a key removed): the AI step holds back 회사 소개
   const gate = step === 'ai' || (!aiReady && step !== 'done' && needsAi(step))
   // a computer's "← 이전" (a phone's is the bar's ‹, the history's own Back)
   const back = gate || step === 'done' || !computer ? null : prevStep(step, computer)
@@ -580,8 +581,8 @@ function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (
 }
 
 /**
- * AI 연결, only while no AI answers the owner (GET /api/me/ai-access; a hosted trial credit, a managed engine or any
- * working connection skips it). One reason line, then the shared way to connect (components/onboarding/ConnectAi.tsx:
+ * AI 연결, only while no AI answers the owner (GET /api/me/ai-access; a managed engine or any working connection
+ * skips it). One reason line, then the shared way to connect (components/onboarding/ConnectAi.tsx:
  * "Claude 구독 연결" (추천), "ChatGPT 구독 연결" and "API 키로 연결" at once, and a quiet line to the AI engines page;
  * the same panel is Home's card and the same dialog opens from "AI 연결하기" anywhere). When AI answers, the steps move
  * on by themselves (WelcomeSteps). "나중에
@@ -607,6 +608,8 @@ interface Picked {
   /** where it went (a name already there gets a new one) */
   path: string | null
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
 }
 
 /** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6", "Team folder basics"): picked files go up at once into the
@@ -632,13 +635,13 @@ function useIntroFiles(progress: WelcomeProgress) {
       const brand = p.teamGroup?.brandFolder
       if (!brand) throw new Error(t('welcome.teamFiles.noFolder'))
       await Promise.allSettled(list.map(async (x) => {
-        patch(x.id, { status: 'uploading', progress: null, error: undefined })
+        patch(x.id, { status: 'uploading', progress: null, error: undefined, plans: undefined })
         try {
           const r = await uploadFile(x.file, { kind: 'path', path: joinPath(brand, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
           if (r.kind !== 'path') throw new Error('unexpected upload result')
           patch(x.id, { status: 'done', path: r.entry.path, progress: null })
         } catch (e) {
-          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
+          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
         }
       }))
     } catch (e) {
@@ -699,7 +702,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
       {files.items.length > 0 && (
         <ul className="space-y-1 text-sm" aria-label={t('welcome.profile.files')} data-testid="welcome-files-list">
           {files.items.map((x) => (
-            <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-file" data-status={x.status}>
+            <li key={x.id} className={clsx('flex min-w-0 items-center gap-x-2 gap-y-1', x.status === 'failed' && 'flex-wrap')} data-testid="welcome-file" data-status={x.status}>
               {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
               <span className="min-w-0 truncate text-ink">{x.file.name}</span>
               {x.status === 'uploading' && (
@@ -709,6 +712,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
               )}
               {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
               {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
+              {x.status === 'failed' && <StoragePlansLink url={x.plans} className="text-xs" phoneLine />}
             </li>
           ))}
         </ul>

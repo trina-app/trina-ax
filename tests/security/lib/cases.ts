@@ -236,7 +236,7 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
       if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
     } },
-  // Share… for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
+  // Share for a chat outside projects (chat/people-share.ts): alice's private chat. Only she reaches it (everyone else,
   // admins and the owner too, the 404 of a missing chat); her own empty list is refused (her chat is in her personal project:
   // project_personal) and nothing is shared; a hide on her own chat is refused (chat_hide_creator)
   getChatAudience: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/audience`), scope: 'own-alice-chat',
@@ -489,6 +489,14 @@ export const SPECS: Record<string, Spec> = {
   uploadAttachment: { build: (c, w) => c.req('POST', '/api/uploads', undefined, { form: aform(w.ids.chatA, 'x.png') }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached into alice's chat`) } },
   attachmentThumbnail: { build: (c, w) => c.get(`/api/uploads/${w.ids.attachment}/thumbnail`), scope: 'own-alice' },
+  // a file kept with a chat shared with people (chat/chat-files.ts) goes only through its chat: alice's private chat holds
+  // none, and her computer upload there is no chat file (an upload's id never opens through this route; 404 for her
+  // too). Everyone else gets the 404 of a missing chat first, admins and the owner included
+  chatFile: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/files/${w.ids.attachment}`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} opened an upload's id as a chat file`)
+      if (who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found": ${r.status}`)
+    } },
   // team files attached by reference (the composer's "Add from team files") and the picker's listings: each persona
   // makes an own chat and aims at a file NAME inside users/alice/ (only alice may read it; owner and admin included
   // are refused with the plain 404). find / recent list only readable files: the canary check covers every name.
@@ -542,6 +550,10 @@ export const SPECS: Record<string, Spec> = {
   endPendingConnections: { build: (c) => c.post('/api/admin/handover/end-pending', { transferId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
   listInvites: { build: (c) => c.get('/api/admin/invites'), scope: 'byLevel' },
   createInvite: { build: (c) => c.post('/api/admin/invites', { role: 'member', groupIds: [] }), scope: 'byLevel' },
+  // guests (docs/DECISIONS.md "Guests: only what they were invited to"): convert / AI of an unknown account (the guest
+  // invite is in rooms-cases.ts)
+  convertGuest: { build: (c) => c.post('/api/admin/users/nobody-here/convert-guest'), scope: 'byLevel', allowNotFound: true },
+  updateGuestAi: { build: (c) => c.patch('/api/admin/users/nobody-here/guest-ai', { mode: 'none' }), scope: 'byLevel', allowNotFound: true },
   revokeInvite: { build: (c, w) => c.del(`/api/admin/invites/${w.ids.invite}`), scope: 'byLevel' },
   listGroups: { build: (c) => c.get('/api/admin/groups'), scope: 'byLevel' },
   createGroup: { build: (c) => c.post('/api/admin/groups', { name: 'g' + Math.random().toString(36).slice(2, 6), memberIds: [] }), scope: 'byLevel' },

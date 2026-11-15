@@ -6,7 +6,7 @@
 // API key stays in the server (<data>/secrets/api-engine.key); only the model's provider sees the conversation, as with
 // the other engines.
 //
-// Settings: <data>/engine-api.json { "baseUrl": "https://api.openai.com/v1", "model": "gpt-4.1", "label": "GPT-4.1" }.
+// Settings: <data>/engine-api.json { "baseUrl": "https://api.openai.com/v1", "model": "gpt-5.4-mini", "label": "GPT-5.4 mini" }.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EngineEvent } from '@mycel/shared'
@@ -17,24 +17,6 @@ import { LinkGuard } from './api-links'
 /** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
  * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
 export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null; setBy?: 'admin' }
-
-/**
- * Spend control per completion, for a key someone else pays for (the hosting service's trial credit,
- * credentials/hosted-chat.ts createTrialMeter). Completions of one run are sent one after another, so the meter holds
- * at most one at a time.
- */
-export interface ApiMeter {
-  /** just before a completion is sent, with what it may cost at most (its body's bytes, its max_tokens): the key to send
-   * it with (read again for every completion), or null to send nothing and end the run (the meter has said why) */
-  start(est: { bodyBytes: number; maxTokens: number }): { key: string } | null
-  /** that completion is over: what it cost in dollars; 'none' when no answer came (refused, not reached: nothing to
-   * count); 'unfinished' when an answer started but its cost never came (stopped, broken off, no price) */
-  end(cost: number | 'none' | 'unfinished'): void
-  /** the provider refused it (HTTP status, or the code of an error inside the stream; its text; the key it was sent
-   * with): true when the meter takes it as its own (a used credit, a refused key) and has said so; the run then ends
-   * without the provider error */
-  refused(status: number, body: string, key: string): boolean
-}
 
 const MAX_STEPS = 30
 const TOOL_OUTPUT_MAX = 30_000
@@ -180,31 +162,23 @@ export function usageEvent(model: string, u: any, requestId: string | undefined)
 /** How long a provider may take to start answering (response headers); the stream itself has no limit here. */
 export const HEADERS_TIMEOUT_MS = 90_000
 
-interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; guard: LinkGuard; meter?: ApiMeter; maxTokens?: number; activity?: () => void }
+interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; guard: LinkGuard; activity?: () => void }
 /** One streamed completion: text deltas out as events; returns the tool calls and whether the model stopped. */
 async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unknown[], emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send): Promise<{ text: string; calls: ToolCall[] } | null> {
   const { guard } = o
   // the text the guard still holds goes out at the end of every completion (normal end, error or abort)
-  try { return await metered(conf, messages, tools, emit, signal, o) } finally {
+  try { return await stream(conf, messages, tools, emit, signal, o) } finally {
     const rest = guard.flush()
     if (rest) emit({ type: 'text', delta: rest })
   }
 }
 
-/** One completion with its meter, if any: started (or refused) before it is sent, ended once whatever happens. */
-async function metered(conf: ApiEngineConf, messages: ChatMessage[], tools: unknown[], emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send): Promise<{ text: string; calls: ToolCall[] } | null> {
+async function stream(conf: ApiEngineConf, messages: ChatMessage[], tools: unknown[], emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send): Promise<{ text: string; calls: ToolCall[] } | null> {
+  const { fetchFn, headersTimeoutMs, guard } = o
+  const key = conf.key
   // OpenRouter reports the request's cost in the usage only when asked (other providers refuse unknown fields)
   const openrouter = /^https:\/\/openrouter\.ai\//.test(conf.baseUrl + '/')
-  const body = JSON.stringify({ model: conf.model, messages, tools: tools.length ? tools : undefined, stream: true, stream_options: { include_usage: true }, ...(o.maxTokens ? { max_tokens: o.maxTokens } : {}), ...(openrouter ? { usage: { include: true } } : {}) })
-  if (!o.meter) return stream(conf, conf.key, body, emit, signal, o, { cost: 'none' })
-  const m = o.meter.start({ bodyBytes: Buffer.byteLength(body), maxTokens: o.maxTokens ?? 0 })
-  if (!m) return null
-  const spent: { cost: number | 'none' | 'unfinished' } = { cost: 'none' }
-  try { return await stream(conf, m.key, body, emit, signal, o, spent) } finally { o.meter.end(spent.cost) }
-}
-
-async function stream(conf: ApiEngineConf, key: string | null, body: string, emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send, spent: { cost: number | 'none' | 'unfinished' }): Promise<{ text: string; calls: ToolCall[] } | null> {
-  const { fetchFn, headersTimeoutMs, guard, meter } = o
+  const body = JSON.stringify({ model: conf.model, messages, tools: tools.length ? tools : undefined, stream: true, stream_options: { include_usage: true }, ...(openrouter ? { usage: { include: true } } : {}) })
   // an address that never answers fails after headersTimeoutMs instead of at the turn's stall guard
   const hdr = new AbortController()
   const timer = setTimeout(() => hdr.abort(new Error(`no answer within ${Math.round(headersTimeoutMs / 1000)} s`)), headersTimeoutMs)
@@ -218,12 +192,9 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
   } finally { clearTimeout(timer) }
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')
-    if (key && meter?.refused(res.status, text, key)) return null
     emit(errorOf(res.status, text, key))
     return null
   }
-  // an answer started: from here on it costs something even if it never finishes
-  spent.cost = 'unfinished'
   let text = ''
   const calls: ToolCall[] = []
   const dec = new TextDecoder()
@@ -233,8 +204,6 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
   let requestId: string | undefined
   // why the model stopped ("stop", "tool_calls", "length" …)
   let finish: string | undefined
-  // the completion's usage goes out as an event; its cost is what the meter counts (none known: its reservation)
-  const counted = (ev: Extract<EngineEvent, { type: 'usage' }>) => { emit(ev); spent.cost = ev.costUsd ?? 'unfinished' }
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
     // every chunk is a sign of life for the turn's stall guard (tool-call arguments stream without any event)
     o.activity?.()
@@ -249,9 +218,8 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
       let j: any
       try { j = JSON.parse(data) } catch { continue }
       if (j.error) {
-        if (usage) counted(usageEvent(conf.model, usage, requestId))
+        if (usage) emit(usageEvent(conf.model, usage, requestId))
         const code = typeof j.error.code === 'number' ? j.error.code : 0
-        if (key && meter?.refused(code, JSON.stringify(j.error), key)) return null
         emit(errorOf(code, JSON.stringify(j.error), key))
         return null
       }
@@ -276,7 +244,7 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
   }
   // a round that asked for tools goes on after this usage (continues: the turn may stop it at the budget before its
   // tool calls run); the answer's last round never does
-  if (usage) counted({ ...usageEvent(conf.model, usage, requestId), ...(calls.some(Boolean) && finish !== 'length' ? { continues: true } : {}) })
+  if (usage) emit({ ...usageEvent(conf.model, usage, requestId), ...(calls.some(Boolean) && finish !== 'length' ? { continues: true } : {}) })
   // the model stopped at its output limit (max_tokens): the answer is cut off, and a tool call in it may be too (its
   // arguments half written). Nothing more is sent: another round would cost again and could only repeat the cut
   if (finish === 'length') {
@@ -304,8 +272,6 @@ function toolContent(out: string, links: string[]): string {
  * own addresses, so absolute links to them are checked too.
  */
 export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string; message: string; rpc: Rpc; emit: (e: EngineEvent) => void; signal: AbortSignal; fetchFn?: typeof fetch; maxSteps?: number; headersTimeoutMs?: number; publicOrigins?: readonly string[]
-  /** spend control per completion (ApiMeter); `maxTokens`: sent as max_tokens (none: the provider's default) */
-  meter?: ApiMeter; maxTokens?: number
   /** before each round after the first (the turn checks the person's budget; a used-up one aborts `signal`) */
   beforeRound?: () => void
   /** each chunk of a model stream: a sign of life for the turn's stall guard (chat/turn.ts STALL_TIMEOUT_MS) */
@@ -331,7 +297,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
     if (o.signal.aborted) return
     if (step > 0 && o.toolsChanged?.()) tools = await listTools()
     let r: Awaited<ReturnType<typeof complete>>
-    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, meter: o.meter, maxTokens: o.maxTokens, activity: o.activity }) } catch (e) {
+    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, activity: o.activity }) } catch (e) {
       if (o.signal.aborted) return
       // refused connection, unknown host, no answer in time, a cut stream, an address the cloud does not allow
       const why = (e as Error)?.cause instanceof Error ? `${(e as Error).message}: ${((e as Error).cause as Error).message}` : String((e as Error)?.message ?? e)

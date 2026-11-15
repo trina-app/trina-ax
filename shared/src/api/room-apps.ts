@@ -10,7 +10,10 @@
 // group chat any of its members (there are no admins there). Everyone else in the room sees the app's messages like any
 // message (people who join later too, as a team room's history); anyone not in the room gets 404, whatever their role.
 //
-// Trina's own words never say "webhook": the vendors' screen labels are quoted where a guide needs them (web phase 2).
+// Words: part 1 never said "webhook"; part 2 (plan 20261114-1522, owner decision 3) uses Slack's own terms ("Webhook
+// URL", Copy, Regenerate). An Other app can be set up as a named service (RoomAppPreset: Notion, Typeform, Tally,
+// Jotform, Stripe, Shopify, Zendesk; phase 4 Jira, HubSpot and, under "Show more services", Toss Payments, Channel Talk,
+// PortOne) and reads Slack-, Discord- and JANDI-shaped messages.
 import { z } from 'zod'
 import { IsoTime } from './common'
 import { empty, endpoint } from './endpoint'
@@ -18,6 +21,83 @@ import { UserRef } from './entities'
 
 export const RoomAppKind = z.enum(['sentry', 'github', 'google_forms', 'other'])
 export type RoomAppKind = z.infer<typeof RoomAppKind>
+
+/** A named service set up through "Other" (plan docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md, migration
+ * 401): the row's kind stays 'other' (an older build and an older phone app still read it as an Other app); the preset
+ * names the reader, the switches, the signature scheme and the logo. Fixed when the app is added (a different service
+ * is a new app), so a secret is never checked under another preset's scheme. The list grows in code. */
+export const RoomAppPreset = z.enum(['notion', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'zendesk', 'jira', 'hubspot', 'toss_payments', 'channel_talk', 'portone'])
+export type RoomAppPreset = z.infer<typeof RoomAppPreset>
+/** A preset as a client reads it: one this build does not know (a newer server's) is dropped, so the app shows as a
+ * plain Other app instead of the whole list or message failing to parse (the list grows: phase 4, then email). */
+export const RoomAppPresetSeen = RoomAppPreset.optional().catch(undefined)
+
+/** Each preset's switches and whether each is on when the app is added (as ROOM_APP_SWITCHES). Notion's body cannot
+ * say whether a page was added or changed: one switch. Zendesk: the Copy body names the trigger (roomAppZendeskBody). */
+export const ROOM_APP_PRESET_SWITCHES = {
+  notion: [{ key: 'entry', on: true }],
+  typeform: [{ key: 'response', on: true }],
+  tally: [{ key: 'response', on: true }],
+  jotform: [{ key: 'response', on: true }],
+  stripe: [
+    { key: 'payment', on: true }, { key: 'refund', on: true }, { key: 'failed', on: true }, { key: 'dispute', on: true },
+    { key: 'subscription_ended', on: true }, { key: 'subscription_new', on: false },
+  ],
+  shopify: [
+    { key: 'order', on: true }, { key: 'paid', on: true }, { key: 'cancelled', on: true }, { key: 'refund', on: true },
+    { key: 'fulfilled', on: false },
+  ],
+  zendesk: [{ key: 'new_ticket', on: true }, { key: 'updated', on: true }],
+  // phase 4. Jira: one rule per trigger, each with its own Copy body naming it (roomAppJiraBody)
+  jira: [{ key: 'created', on: true }, { key: 'transitioned', on: true }, { key: 'commented', on: false }],
+  // HubSpot: one workflow per object; the body names the object (the guide's "object" key)
+  hubspot: [{ key: 'deal', on: true }, { key: 'contact', on: true }, { key: 'ticket', on: true }],
+  toss_payments: [{ key: 'payment', on: true }, { key: 'cancelled', on: true }, { key: 'waiting', on: false }, { key: 'failed', on: false }],
+  channel_talk: [{ key: 'new_chat', on: true }, { key: 'customer_message', on: true }, { key: 'manager_message', on: false }],
+  portone: [{ key: 'payment', on: true }, { key: 'cancelled', on: true }, { key: 'failed', on: true }, { key: 'virtual_account', on: false }],
+} as const satisfies Record<RoomAppPreset, readonly { key: string; on: boolean }[]>
+
+/** The vendors' own names, the name an app of the preset gets when it is added (a brand: not translated). */
+export const ROOM_APP_PRESET_NAMES: Record<RoomAppPreset, string> = {
+  notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk',
+  jira: 'Jira', hubspot: 'HubSpot', toss_payments: 'Toss Payments', channel_talk: 'Channel Talk', portone: 'PortOne',
+}
+
+/** Whether the preset's service can sign what it sends, and who makes the secret: `none` (the Webhook URL's token
+ * only; setRoomAppSecret answers 400 no_signing), `trina_makes` (the service has a field to paste one in: Trina makes it
+ * with `generate`, a pasted one is taken too), `paste` (the service makes it: the person pastes it; `shape` is the check
+ * with a plain error). Signatures are optional (owner decision 4); once a secret is saved, unsigned or wrong requests
+ * are refused. */
+export const ROOM_APP_PRESET_SIGNING: Record<RoomAppPreset, { signing: 'none' } | { signing: 'trina_makes' } | { signing: 'paste'; shape?: RegExp }> = {
+  notion: { signing: 'none' },
+  typeform: { signing: 'trina_makes' },
+  tally: { signing: 'trina_makes' },
+  jotform: { signing: 'none' },
+  // Stripe's "Reveal secret": whsec_ and base64-ish characters, used as the literal string
+  stripe: { signing: 'paste', shape: /^whsec_[A-Za-z0-9+/=_-]{16,200}$/ },
+  shopify: { signing: 'paste' },
+  zendesk: { signing: 'paste' },
+  jira: { signing: 'none' },
+  hubspot: { signing: 'none' },
+  // the "보안 키" (security key) of the Toss developer center (API 키 › 보안 키, 64 hex characters). Which events Toss
+  // signs is not documented (live check, TC-1634): the guide says to take it away if payments stop showing
+  toss_payments: { signing: 'paste', shape: /^[0-9a-fA-F]{64}$/ },
+  // Channel Talk adds ?token=<its token> to the Webhook URL (no HMAC): the token shown on its webhook's page
+  channel_talk: { signing: 'paste' },
+  // PortOne V2 signs by Standard Webhooks: the key in base64, "whsec_" before it or not ("웹훅 시크릿 발급")
+  portone: { signing: 'paste', shape: /^(whsec_)?[A-Za-z0-9+/]{22,200}={0,2}$/ },
+}
+
+/** What a preset needs on the service's side ("Needs: …" on the picker row and the guide's header): the key of the
+ * web app's words (roomApps.needs.*), absent when anyone can set it up. */
+export const ROOM_APP_PRESET_NEEDS: Partial<Record<RoomAppPreset, 'paid_plan' | 'stripe_role' | 'shopify_settings' | 'zendesk_team_admin' | 'jira_space_admin' | 'hubspot_data_hub'>> = {
+  notion: 'paid_plan', stripe: 'stripe_role', shopify: 'shopify_settings', zendesk: 'zendesk_team_admin',
+  jira: 'jira_space_admin', hubspot: 'hubspot_data_hub',
+}
+
+/** Zendesk's documented public test secret (used for "Test webhook" before a webhook exists): never a real one,
+ * refused by setRoomAppSecret. */
+export const ZENDESK_TEST_SECRET = 'dGhpc19zZWNyZXRfaXNfZm9yX3Rlc3Rpbmdfb25seQ=='
 
 /** The switches of each kind ("Show in this room") and whether each is on when the app is added. A switch that is off
  * makes its events count as skipped (never shown). Google Forms' `email` sends the respondent's email when the form
@@ -36,10 +116,11 @@ export const ROOM_APP_SWITCHES = {
 } as const satisfies Record<RoomAppKind, readonly { key: string; on: boolean }[]>
 export type RoomAppSwitch<K extends RoomAppKind = RoomAppKind> = (typeof ROOM_APP_SWITCHES)[K][number]['key']
 /** The switches of a kind as {key: on}, the defaults. */
-export const roomAppDefaults = (kind: RoomAppKind): Record<string, boolean> =>
-  Object.fromEntries(ROOM_APP_SWITCHES[kind].map((s) => [s.key, s.on]))
+export const roomAppDefaults = (kind: RoomAppKind, preset?: RoomAppPreset | null): Record<string, boolean> =>
+  Object.fromEntries((preset ? ROOM_APP_PRESET_SWITCHES[preset] : ROOM_APP_SWITCHES[kind]).map((s) => [s.key, s.on]))
 
-/** The names an app gets when it is added (the vendor's own name; "Other" is renamed by the person). */
+/** The names an app gets when it is added, in English (the vendor's own name; "Other" is named by the person). The
+ * server gives Google Forms and Other their names in the team's language (rooms/apps/text.ts nameForms, nameOther). */
 export const ROOM_APP_DEFAULT_NAMES: Record<RoomAppKind, string> = { sentry: 'Sentry', github: 'GitHub', google_forms: 'Google Forms', other: 'Other app' }
 
 /** Apps in one room, at most. */
@@ -99,13 +180,19 @@ export const RoomAppRef = z.object({
   id: z.string().nullable(),
   name: z.string().max(ROOM_APP_NAME_MAX),
   kind: RoomAppKind,
+  /** the service of an Other app set up as a preset (its logo); older servers omit it */
+  preset: RoomAppPresetSeen,
   quiet: z.literal(true).optional(),
   example: z.literal(true).optional(),
+  /** who added it, for the sender's popover ("Set up by Mina"; members: "Ask Mina to change what shows here"): null
+   * once they left the team or the app was removed. Older servers omit it */
+  by: UserRef.nullable().optional(),
 })
 export type RoomAppRef = z.infer<typeof RoomAppRef>
 
-/** Why the last request was not shown: the signature did not match, the body was not one Trina can read, too big. */
-export const RoomAppRefusal = z.enum(['signature', 'format', 'too_big'])
+/** Why the last request was not shown: the signature did not match, the body was not one Trina can read, too big, the
+ * server's storage was full (answered 503 with Retry-After, so the service may send it again). */
+export const RoomAppRefusal = z.enum(['signature', 'format', 'too_big', 'storage_full'])
 export type RoomAppRefusal = z.infer<typeof RoomAppRefusal>
 
 /** One app as the people who manage it see it: never its address or secret (getRoomAppAddress). */
@@ -113,12 +200,17 @@ export const RoomApp = z.object({
   id: z.string(),
   roomId: z.string(),
   kind: RoomAppKind,
+  /** an Other app set up as a named service (fixed when it was added); older servers omit it */
+  preset: RoomAppPresetSeen,
   name: z.string(),
-  /** the switches, every key of the kind's (ROOM_APP_SWITCHES) */
+  /** the switches, every key of the kind's (ROOM_APP_SWITCHES) or the preset's (ROOM_APP_PRESET_SWITCHES) */
   events: z.record(z.string(), z.boolean()),
   quiet: z.boolean(),
   /** a secret is set: requests must carry its signature (GitHub's X-Hub-Signature-256, Sentry's Sentry-Hook-Signature) */
   signed: z.boolean(),
+  /** a secret Trina made is saved but no signed request came yet: requests without a signature are still shown until
+   * the first signed one (then `signed`). Older servers omit it */
+  signingPending: z.literal(true).optional(),
   /** who added it (null: someone who left) */
   createdBy: UserRef.nullable(),
   createdAt: IsoTime,
@@ -131,8 +223,21 @@ export const RoomApp = z.object({
   pausedUntil: IsoTime.nullable(),
   /** "Resume now" is offered: paused for its own cap, and not resumed today yet */
   canResume: z.boolean(),
+  /** while paused, why: 'app' (its own daily cap, ROOM_APP_DAILY_CAP) or 'team' (all the team's apps together reached
+   * ROOM_APP_TEAM_DAILY_CAP: every app waits for the team's midnight, nothing to resume). Older servers omit it */
+  pausedBy: z.enum(['app', 'team']).optional(),
+  /** while paused, the number it reached: the team's cap, or the app's (twice it after "Resume now" that day) */
+  pausedCap: z.number().int().positive().optional(),
+  /** the team's time zone, while paused by the team's cap (the end of the pause is said in it) */
+  timeZone: z.string().optional(),
+  /** when the Webhook URL was last regenerated (null: never). Until a message arrives after it (lastOkAt), the status
+   * says it waits for the service to use the new one. Older servers omit it */
+  rotatedAt: IsoTime.nullable().optional(),
   /** messages shown today (the team's day) */
   today: z.number().int().nonnegative(),
+  /** the switch keys an event has arrived for at least once (also while its switch is off): the settings say "Not set
+   * up in <service>" under the others. Keys only, never content. Older servers omit it */
+  eventsSeen: z.array(z.string().max(32)).optional(),
   /** someone who was shown the address (or a secret Trina made) can no longer manage the app (left the room or the
    * team, or is no longer an admin in a team room): "Someone who left knows this address · Get a new address" */
   leaverKnows: z.literal(true).optional(),
@@ -161,7 +266,8 @@ export const RoomAppCreated = z.object({ app: RoomApp, address: z.string() })
 export type RoomAppCreated = z.infer<typeof RoomAppCreated>
 
 const AppName = z.string().trim().min(1).max(ROOM_APP_NAME_MAX).refine((s) => !/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(s), 'no control or format characters')
-export const CreateRoomAppBody = z.object({ kind: RoomAppKind, name: AppName.optional() }).strict()
+/** `preset` only with kind 'other' (400 otherwise); it cannot be changed later (UpdateRoomAppBody has none). */
+export const CreateRoomAppBody = z.object({ kind: RoomAppKind, preset: RoomAppPreset.optional(), name: AppName.optional() }).strict()
 export type CreateRoomAppBody = z.infer<typeof CreateRoomAppBody>
 /** Any of: switches (only keys of the kind; the others stay), Quiet, the name. */
 export const UpdateRoomAppBody = z.object({
@@ -171,7 +277,8 @@ export const UpdateRoomAppBody = z.object({
 }).strict()
 export type UpdateRoomAppBody = z.infer<typeof UpdateRoomAppBody>
 /** "Make it safer" (optional for GitHub and Sentry, owner decision 9): `generate` makes a secret Trina shows once here
- * (and on getRoomAppAddress), for GitHub's Secret field; `secret` saves Sentry's Client Secret (64 hex characters);
+ * (and on getRoomAppAddress), for GitHub's Secret field (it waits for the first request signed with it: `signingPending`
+ * until then, and unsigned requests are still taken); `secret` saves Sentry's Client Secret (64 hex characters);
  * `secret: null` takes the secret away (requests are then taken unsigned and their names marked "(unverified)"). */
 export const SetRoomAppSecretBody = z.union([
   z.object({ generate: z.literal(true) }).strict(),
@@ -183,6 +290,29 @@ export type RoomAppSecretResult = z.infer<typeof RoomAppSecretResult>
 
 /** Sentry's Client Secret as Sentry shows it (checked in TC-1546): 64 hex characters. */
 export const SENTRY_SECRET_RE = /^[0-9a-f]{64}$/i
+
+/** The JSON body for a Zendesk trigger's "Notify webhook" action (Copy body, inside the step where it is pasted): the
+ * placeholders are Zendesk's. `event` names the trigger ('created': "Ticket is Created", 'updated': "Ticket is
+ * Updated"), so the app's switches new_ticket / updated can tell them apart. Zendesk does not JSON-escape a
+ * placeholder's value, so everything an outsider writes (title, names, the comment) goes through Liquid's `escape`
+ * (HTML entities: a `"` can't end the string and add keys); the server decodes them and refuses a body that names a
+ * key twice. */
+export function roomAppZendeskBody(event: 'created' | 'updated'): string {
+  return `{"trina":"zendesk","event":"${event}","id":"{{ticket.id}}","title":"{{ticket.title | escape}}","status":"{{ticket.status}}",
+ "priority":"{{ticket.priority}}","requester":"{{ticket.requester.name | escape}}","assignee":"{{ticket.assignee.name | escape}}",
+ "url":"{{ticket.url}}","update":"{{ticket.latest_public_comment | escape}}"}`
+}
+
+/** The custom body for a Jira automation flow's "Send web request" (Copy body, inside the step where it is pasted): one
+ * flow per trigger, `event` naming it ('created': "Work item created", 'transitioned': "Work item transitioned",
+ * 'commented': "Work item commented"; Jira has no documented smart value for the trigger). Jira pastes smart values
+ * as they are, so everything a person writes goes through `.jsonEncode` (quotes and backslashes escaped, no quotes
+ * added); the server refuses a body that names a key twice and links only to the same key on the pinned site. */
+export function roomAppJiraBody(event: 'created' | 'transitioned' | 'commented'): string {
+  const comment = event === 'commented' ? `,"comment":"{{comment.body.jsonEncode}}","by":"{{comment.author.displayName.jsonEncode}}"` : ''
+  return `{"trina":"jira","event":"${event}","key":"{{issue.key}}","title":"{{issue.summary.jsonEncode}}","status":"{{issue.status.name.jsonEncode}}",
+ "assignee":"{{issue.assignee.displayName.jsonEncode}}","url":"{{issue.url}}"${comment}}`
+}
 
 /** The Google Forms Apps Script (Copy code), with the address filled in. `sendEmail`: the form's respondent email is
  * sent when the form collects it (the app's `email` switch; the server drops it while the switch is off either way). */
@@ -225,13 +355,13 @@ export const ROOM_APPS = {
   listRoomApps: endpoint({ method: 'GET', path: '/api/rooms/:id/apps', auth: 'user', owner: 'B', response: RoomAppList,
     summary: `The apps posting in a room ("Apps posting here") and whether this server can be reached by them at all. ${WHO}` }),
   createRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps', auth: 'user', owner: 'B', status: 201, body: CreateRoomAppBody, response: RoomAppCreated,
-    summary: `Add an app (on the first "Copy address"): its secret address comes back. ${WHO} At most ${ROOM_APPS_MAX} per room (409 room_apps_full), ${ROOM_APPS_PER_HOUR} added per person and hour (429); 409 no_public_address without an internet address; 400 when the name is a person's in this team. Audited.` }),
+    summary: `Add an app (on the first "Copy address"): its secret address comes back. \`preset\` (only with kind other, 400 otherwise) sets it up as a named service (Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk); it is fixed from then on. ${WHO} At most ${ROOM_APPS_MAX} per room (409 room_apps_full), ${ROOM_APPS_PER_HOUR} added per person and hour (429); 409 no_public_address without an internet address; 400 when the name is a person's in this team. Audited.` }),
   getRoomAppAddress: endpoint({ method: 'GET', path: '/api/rooms/:id/apps/:appId/address', auth: 'user', owner: 'B', response: RoomAppAddress,
     summary: `Copy an app's address again (and a secret Trina made for it). ${WHO}` }),
   updateRoomApp: endpoint({ method: 'PATCH', path: '/api/rooms/:id/apps/:appId', auth: 'user', owner: 'B', body: UpdateRoomAppBody, response: RoomApp,
     summary: `Change an app's switches, Quiet or name. ${WHO} Audited.` }),
   setRoomAppSecret: endpoint({ method: 'PUT', path: '/api/rooms/:id/apps/:appId/secret', auth: 'user', owner: 'B', body: SetRoomAppSecretBody, response: RoomAppSecretResult,
-    summary: `"Make it safer": make a secret for GitHub, save Sentry's Client Secret, or take the secret away (optional for both). ${WHO} Audited (never the secret).` }),
+    summary: `"Make it safer" / "Signing secret (optional)": make a secret (GitHub, Typeform, Tally), save the service's own (Sentry's Client Secret; Stripe's, Shopify's, Zendesk's, Toss Payments' or PortOne's signing secret, Channel Talk's webhook token; checked by its shape; Zendesk's public test secret is refused), or take the secret away. 400 no_signing for a service that cannot sign (plain Other, Google Forms, Notion, Jotform, Jira, HubSpot). Once a secret is saved, unsigned or wrong requests are refused (401). ${WHO} Audited (never the secret).` }),
   rotateRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/rotate', auth: 'user', owner: 'B', response: RoomAppCreated,
     summary: `"Get a new address": the old one stops working at once. ${WHO} Audited.` }),
   resumeRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/resume', auth: 'user', owner: 'B', response: RoomApp,

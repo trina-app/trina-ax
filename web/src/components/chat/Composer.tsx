@@ -33,11 +33,13 @@
 // caret at its end, so what they type or paste next follows it (a caret left at the start put a pasted text before
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
+import { composerRadius } from './composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isConnectionError } from '../../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
@@ -49,6 +51,7 @@ import { registerComposer } from '../../lib/teamAttach'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions, showsEnginePicker } from './EngineMenu'
@@ -140,7 +143,7 @@ export default function Composer({
   /** a shared project chat: a file from this computer is saved in its project folder (the server's doing), and a line
    * under the chips says so and how many people see it there (`audience`). `allowed` false: the person may not write
    * that folder (Project.chatUploads, Chat.shared.canUpload), so files come from the team folder only */
-  sharedUploads?: { audience: number; allowed?: boolean }
+  sharedUploads?: { audience: number; allowed?: boolean; kind?: 'project' | 'people' }
   /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
   projectId?: string | null
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
@@ -179,10 +182,11 @@ export default function Composer({
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // the send failed for the connection (lib/api.ts isConnectionError): the calm line under the box, the text kept in it
-  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors")
-  const [unsent, setUnsent] = useState(false)
+  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors"). 'updating': Trina is
+  // updating (lib/serverUpdating.ts): the line says so and the box sends it once by itself when the server is back
+  const [unsent, setUnsent] = useState<false | 'connection' | 'updating'>(false)
   // it says the connection is down: a notice of the same page (Home's 「팀에 준비된 것」) does not say it again
-  useSaysConnection(unsent && !error)
+  useSaysConnection(!!unsent && !error)
   // files from this computer: everywhere but a shared chat whose project folder the person may not write
   const computer = sharedUploads?.allowed !== false
   // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
@@ -354,7 +358,7 @@ export default function Composer({
         roomMenu.reset()
         writeDraft(userId, draftId, '')
       } catch (e) {
-        if (isConnectionError(e)) setUnsent(true)
+        if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
         else setError(errorText(e, locale, t('error.network')))
       } finally {
         setSending(false)
@@ -373,12 +377,23 @@ export default function Composer({
       writeDraft(userId, draftId, '')
       clearSent()
     } catch (e) {
-      if (isConnectionError(e)) setUnsent(true)
+      if (isConnectionError(e)) setUnsent(waitsForUpdate(e) ? 'updating' : 'connection')
       else setError(errorText(e, locale, t('error.network')))
     } finally {
       setSending(false)
     }
   }
+
+  // Trina was updating: once the server is back the box's text goes, once (an emptied box, or a send meanwhile, ends the
+  // wait: the line is gone then)
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    if (unsent !== 'updating') return
+    let live = true
+    void waitForUpdate().then(() => { if (live) void sendRef.current(false) })
+    return () => { live = false }
+  }, [unsent])
 
   const stop = async () => {
     setStopping(true)
@@ -499,7 +514,7 @@ export default function Composer({
               }}
               data-testid="attach-team"
             >
-              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
+              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t(isGuestMe(me) ? 'picker.guestTitle' : 'composer.fromTeam')}
             </button>
           </div>
           </div>
@@ -543,7 +558,7 @@ export default function Composer({
             // the AI's question: also how phones (Enter makes a new line there) answer from the box
             <Tooltip label={t('composer.sendAnswer')}>
               <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
-                {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} aria-hidden />}
               </button>
             </Tooltip>
           )
@@ -570,13 +585,14 @@ export default function Composer({
               onClick={submit}
               disabled={!canSend}
               aria-label={t('chat.send')}
-              // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+              // ↑ as on phones and in a room's box (a return key was not read as send); phones: Enter makes a new line there,
+              // so the room box's round send instead of the quiet key
               className={clsx('touch-hit flex items-center justify-center transition', phone
                 ? clsx(stacked ? 'size-9' : 'size-10', 'rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
                 : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
               data-testid="send"
             >
-              {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
+              {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} aria-hidden />}
             </button>
           </Tooltip>
         )
@@ -626,12 +642,12 @@ export default function Composer({
       {/* The one field that is focused most of the time: a quiet edge, as in Claude, not the 2px accent edge of other
           fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
-        className={clsx(stacked ? 'rounded-3xl' : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
+        className={clsx(stacked ? composerRadius : 'rounded-2xl', 'border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="composer"
       >
         <ComposerFileList files={files} onRemove={removeFile} className="px-4 pt-3" />
-        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} className="px-4 pt-2" />}
+        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} kind={sharedUploads.kind} className="px-4 pt-2" />}
 
         {voice.recording ? (
           stacked ? (
@@ -771,8 +787,9 @@ export default function Composer({
         <CalmNotice
           className="mt-2"
           testId="composer-unsent"
-          icon={<WifiOff size={16} />}
-          title={t('conn.unsent')}
+          state={unsent}
+          icon={unsent === 'updating' ? <Loader2 size={16} className="animate-spin" /> : <WifiOff size={16} />}
+          title={t(unsent === 'updating' ? 'conn.updatingUnsent' : 'conn.unsent')}
           action={<Button size="sm" variant="secondary" disabled={!canSend} onClick={submit} data-testid="composer-unsent-retry">{t('common.retry')}</Button>}
         />
       )}

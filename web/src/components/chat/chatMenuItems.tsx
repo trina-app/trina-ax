@@ -1,8 +1,8 @@
 // The "···" of an AI chat's row: the Trina list (the 트리나 panel, the phone's 트리나 tab) and a project page's chat list show the same
 // items by the same rules. 상단에 고정 / 고정 해제 for anyone who sees the chat, 링크 복사, 이름 바꾸기 for its creator,
-// 프로젝트에 추가 / 프로젝트 변경 where a chat may move (never a shared one), "Share…" where sharing is possible (lib/
+// 프로젝트에 추가 / 프로젝트 변경 where a chat may move (never a shared one), "Share" where sharing is possible (lib/
 // sharedChat.ts shareKindOf: a chat outside projects that is mine, my private chat in a team project, my chat in a
-// personal project, which explains and offers Move…; never a shared project chat: docs/DECISIONS.md "Chats shared with
+// personal project, which explains and offers Move; never a shared project chat: docs/DECISIONS.md "Chats shared with
 // people and groups"), "Hide from my list" for a chat someone shared with me (opening it brings it back), 삭제 for its
 // creator or an editor of its project (lib/sharedChat.ts sharedRights: the server's own rules).
 import { EyeOff, FolderInput, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'

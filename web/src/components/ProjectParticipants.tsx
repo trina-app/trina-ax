@@ -9,10 +9,12 @@
 // The count is the server's (POST /api/projects/access-preview), so it matches who really sees it: its members ("멤버
 // 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
 // for the owner and admins by role any more).
+import { GuestTagFor } from './GuestTag'
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Search, Users, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { Group, ProjectAccessPreview, ProjectParticipant, ProjectPerson, SubjectType } from '@mycel/shared/api'
+import { ApiError } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
@@ -92,7 +94,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, readOnly = false, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, unavailable, readOnly = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -111,6 +113,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   /** key → a short tag a phone shows instead of the row's whole tag (a chat's Share dialog: "You" for "You · Started
    * this chat") */
   phoneTags?: ReadonlyMap<string, string>
+  /** key → a result that cannot be added (a guest in another place: "In the 'Quote prep' room"): shown greyed out with
+   * those words and no Add, with `action` beside it (the owner's and admins' "Make team member") */
+  unavailable?: ReadonlyMap<string, { text: string; action?: ReactNode }>
   /** who is in it, without the search and without × (someone else's shared chat) */
   readOnly?: boolean
   testId?: string
@@ -226,6 +231,20 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
         <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} onMouseDown={(e) => e.preventDefault()} data-testid={`${testId}-results`}>
           {results.map((x) => {
             const added = isIn(x)
+            const away = added ? undefined : unavailable?.get(participantKey(x))
+            if (away)
+              return (
+                <ListRow
+                  key={participantKey(x)}
+                  face
+                  icon={<Face x={x} />}
+                  name={<span className="flex min-w-0 items-baseline gap-1.5 text-muted"><span className="truncate">{x.name}</span><GuestTagFor userId={x.subjectId} /></span>}
+                  // the place wraps rather than being cut beside the button on a phone
+                  meta={<span className="block whitespace-normal break-keep">{away.text}</span>}
+                  actions={away.action}
+                  li={{ 'data-testid': `participant-elsewhere-${x.subjectType}-${x.subjectId}` }}
+                />
+              )
             return (
               <ListRow
                 key={participantKey(x)}
@@ -233,7 +252,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                 disabled={added}
                 face
                 icon={<Face x={x} />}
-                name={x.name}
+                name={x.subjectType === 'user' ? <span className="flex min-w-0 items-baseline gap-1.5"><span className="truncate">{x.name}</span><GuestTagFor userId={x.subjectId} /></span> : x.name}
                 meta={sub(x) || undefined}
                 end={
                   <span className="flex shrink-0 items-center gap-2.5 self-center">
@@ -272,6 +291,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   name={
                     <>
                       <span className={clsx(out && 'text-faint line-through')}>{x.name}</span>
+                      {x.subjectType === 'user' && <GuestTagFor userId={x.subjectId} className="ml-1.5" />}
                       {fresh && <span className="ml-1.5 text-meta font-medium text-accent-text">{t('projects.newTag')}</span>}
                       {s && !below && <span className="ml-1.5 text-meta font-normal text-faint">{s}</span>}
                     </>
@@ -361,22 +381,41 @@ export interface AccessCount { n: number; hiddenAnswers?: number }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
  * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
- * answers the people added would start seeing, a walk of the project's shared chats); null while asking or when it
- * failed. */
+ * answers the people added would start seeing, a walk of the project's shared chats); null while asking. When the dry
+ * run fails (past its 60 a minute, 429) the last count comes back, with no error: the widening warning that reads it
+ * stays (QA TC-1695); null only when no count came yet. */
 export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean; removeRules?: readonly RuleRef[] }): AccessCount | null {
   const [n, setN] = useState<AccessCount | null>(null)
+  const last = useRef<AccessCount | null>(null)
+  // a refused dry run asks again by itself (after the server's Retry-After), so the kept count is soon the picks' own
+  const [retry, setRetry] = useState(0)
   const key = participants.map(participantKey).sort().join(',')
   const removing = (o.removeRules ?? []).map(ruleKey).sort().join(',')
   useEffect(() => {
     if (!o.enabled) return
     let live = true
-    setN(null)
+    let again: ReturnType<typeof setTimeout> | undefined
+    if (!retry) setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => live && setN({ n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }), () => {})
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => {
+        if (!live) return
+        last.current = { n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }
+        setN(last.current)
+      }, (e) => {
+        if (!live) return
+        setN(last.current)
+        // only a refusal that passes (the limit, a server busy or starting) is asked again, a few times
+        const passing = e instanceof ApiError && (e.status === 429 || e.status >= 500 || e.body.retryAfter !== undefined)
+        if (!passing || retry >= 8) return
+        const wait = e.body.retryAfter
+        again = setTimeout(() => { if (live) setRetry((x) => x + 1) }, Math.min(60, Math.max(1, wait ?? 15)) * 1000)
+      })
     }, ACCESS_COUNT_DEBOUNCE_MS)
-    return () => { live = false; clearTimeout(h) }
+    return () => { live = false; clearTimeout(h); clearTimeout(again) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, removing, o.projectId, o.enabled])
+  }, [key, removing, o.projectId, o.enabled, retry])
+  // new picks start the retries over
+  useEffect(() => { setRetry(0) }, [key, removing, o.projectId])
   return n
 }
 

@@ -230,7 +230,7 @@ export function systemCases() {
     test('the one page as before, with its forms; a part\'s address opens the page', async ({ page }) => {
       await signIn(page)
       await page.goto('/admin/system/backups')
-      await expect(page).toHaveURL(/\/admin\/system$/)
+      await expect(page).toHaveURL(/\/admin\/system#system-backups$/)
       await expect(page.getByTestId('backup-now')).toBeVisible()
       await expect(page.getByTestId('system-list')).toHaveCount(0)
       const titles = await page.getByTestId('system-page').locator(':scope > section > header h2').allInnerTexts()

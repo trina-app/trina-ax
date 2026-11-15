@@ -1,0 +1,2 @@
+{"trina":"jira","event":"commented","key":"OPS-142","title":"Checkout page shows the wrong \"total\"","status":"In Progress",
+ "assignee":"Sam Lee","url":"https://acme-example.atlassian.net/browse/OPS-142","comment":"Found it: rounding in the tax step.\nFix coming today.","by":"Jamie Rivera"}

@@ -10,6 +10,16 @@ and the whole answer is also kept as a chat in Trina AX.
 It takes two short steps. The team's owner or an admin adds the app to Slack once, and each person links their own Slack account
 once.
 
+:::tip
+**What you need**
+
+- **To add the app** (once): the team's owner or an admin in Trina AX, and someone who can approve apps in your Slack
+  workspace (a Slack workspace admin or owner). Nothing to copy or paste.
+- **To link your account** (each person, once): your own Slack account. Nothing to copy or paste.
+- **Only on a server without Add to Slack**: four values from your own Slack app, see
+  [below](#if-add-to-slack-isnt-there).
+:::
+
 :::note
 The screenshots on this page use a made-up team and workspace, "Acme".
 :::
@@ -37,7 +47,8 @@ corner if needed, then choose **Allow**.
 
 #### You're back on Slack's page in Trina AX
 It says "Added to Slack. Invite the app to the channels where people will use it." The line shows your workspace and
-the app, **Connecting** for a few seconds, then **Connected**. There is nothing to copy or paste.
+the app, **Connecting** for a few seconds, then **Connected**. There is nothing to copy or paste. While Trina AX waits
+for Slack's window, **Try again** and **Cancel** are there; the wait ends by itself after five minutes.
 
 ![Slack's page after it is added: Added to Slack, then Connected, Acme · @trina-ax, the /invite @trina-ax hint, 0 people linked, Remove Slack and a Turn off button](../images/slack/connected.webp "Added and connected")
 :::
@@ -89,6 +100,8 @@ Go back to Slack and ask your question again. From now on Trina AX answers right
 
 - **Go on in the same thread.** Mention the app again in that thread, or reply in the DM thread: it continues the same
   chat. A new thread starts a new chat.
+- **In your language.** Trina AX's own lines in Slack ("Working on it…", "Answering as …", "Open in Trina AX") are in
+  your Trina AX language. The answer itself follows the language you chose for AI answers.
 - **The whole answer is in Trina AX too.** A long answer is shortened in Slack, with a link to the rest. "Working
   on it…" also names the account it answers as, so you can tell it's yours.
 - **Before you post.** If the answer used a place not everyone on the team can see, such as a group's folder or your
@@ -99,9 +112,54 @@ Go back to Slack and ask your question again. From now on Trina AX answers right
 
 **Add to Slack** appears where the Trina hosting service serves your server: a hosted team, or a server you installed
 yourself that the hosting service has registered. Anywhere else, Slack's page in **Admin › Connected apps** shows
-**Connect a Slack app** instead: four steps to make your team's own Slack app from our manifest and paste its keys. Follow
-[Setting up the team's own app](../../SLACK.md#setting-up-the-teams-own-app-the-owner). Only the team's owner can do
-this, because it means pasting the app's keys; an admin sees "Only the team owner can connect Slack here."
+**Connect a Slack app** instead: four steps to make your team's own Slack app from our manifest and paste its keys. Only
+the team's owner can do this, because it means pasting the app's keys; an admin sees "Only the team owner can connect
+Slack here." Open the page at your team's `https://` address: people's **Sign in with Slack** links come back there.
+
+![Connect a Slack app: 1 Create the app in Slack, 2 Install it in the workspace, 3 Make the app token and copy the app credentials, 4 Paste them and turn on, with the fields Bot User OAuth Token, App-Level Token, Client ID and Client Secret](../images/connect/slack-own-app.webp "Connect a Slack app")
+
+:::tip
+**What you need, all from your Slack app's settings at api.slack.com/apps**
+
+| Field in Trina AX | Where in Slack | Looks like |
+|---|---|---|
+| **Bot User OAuth Token** | **Install App** (or **OAuth & Permissions**), after **Install to Workspace** | `xoxb-…` |
+| **App-Level Token** | **Basic Information › App-Level Tokens › Generate Token and Scopes**, with the scope `connections:write` | `xapp-…` |
+| **Client ID** | **Basic Information › App Credentials** | numbers with a dot |
+| **Client Secret** | **Basic Information › App Credentials**, **Show** | letters and numbers |
+:::
+
+:::steps
+#### Create the app in Slack
+Choose **Create the app in Slack**. Slack opens "Create an app" with everything filled in from our manifest. Pick your
+workspace and choose **Create**. It makes an app for your workspace only.
+
+#### Install it in the workspace
+Choose **Install it in the workspace** (Slack's **Install App** page), then **Install to Workspace** and **Allow**. Copy
+the **Bot User OAuth Token**, which starts with `xoxb-`.
+
+#### Make the app token and copy the app credentials
+Choose **Make the app token and copy the app credentials** (Slack's **Basic Information** page). Under **App-Level
+Tokens**, choose **Generate Token and Scopes**, give it any name, add the scope `connections:write`, and choose
+**Generate**. Copy the token, which starts with `xapp-`. On the same page, under **App Credentials**, copy the
+**Client ID** and the **Client Secret** (choose **Show** first).
+
+#### Paste them and turn on
+Paste the four values into their fields and choose **Check and turn on**. Trina AX checks them with Slack. A value
+Slack refuses is named under its own field, with the Slack page where you fix it.
+:::
+
+Then invite the app to channels as above. Details for operators:
+[Setting up the team's own app](../../SLACK.md#setting-up-the-teams-own-app-the-owner).
+
+| What you see | What to do |
+|---|---|
+| "This is not a bot token." or "Slack does not accept this token." | Copy the **Bot User OAuth Token** (`xoxb-`) again from **Install App**, with Slack's copy button. |
+| "Slack does not accept this app token." | Make a new App-Level Token with the scope `connections:write` and paste it. |
+| "The two tokens belong to different Slack apps." | Both tokens must come from the same Slack app. |
+| "This is not a Client ID." or "This is not a Client Secret." | Copy them again from **Basic Information › App Credentials**; the two fields may be swapped. |
+| "Turn on Slack app settings › Socket Mode." | The manifest turns it on; if someone turned it off, turn it on again in Slack. |
+| **Sign in with Slack** fails with a redirect error | The page was saved from another address than the team's `https://` one. Open it at the team's address and save again. |
 
 You also see the four steps when your team's own Slack app is set up already. To switch, the owner removes it first
 (**Replace tokens**, then **Remove Slack**), then presses **Add to Slack**. An admin can turn the team's own app off and
@@ -110,8 +168,9 @@ team's owner or an admin: ask them.
 
 ## Remove or reconnect
 
-Slack's page in **Admin › Connected apps** always says where things stand, and its row in the list shows **On**,
-**Off** or what needs you. When the app was removed in Slack, the row says **Reconnect** and the page offers **Add to
+Slack's page in **Admin › Connected apps** always says where things stand, and its row in the list shows the same
+state: **On**, **Connecting**, **Off** or what needs you. If Slack has not answered for a few minutes, the page says
+**Not answering**, with what to do. When the app was removed in Slack, the row says **Reconnect** and the page offers **Add to
 Slack** again, or **Remove Slack** if you don't want it back.
 
 ![Slack's page after the app was removed in Slack: The app was removed from Slack. Add it to Slack again. Above the Add to Slack button and Remove Slack](../images/slack/removed.webp "After the app was removed in Slack")
@@ -140,9 +199,11 @@ Trina AX account is disabled or deleted is unlinked at once.
 
 ### What does Trina AX see in Slack?
 
-Only messages that mention @Trina AX in channels it was invited to, and direct messages sent to it. It doesn't read
-channel history, the earlier messages of a thread or files: the AI gets the text of your question only. To link
-accounts and to say who asked, it reads people's names and e-mail addresses in the workspace. In a channel, an answer
+Messages that mention @Trina AX in channels it was invited to, and direct messages sent to it. When you ask in a
+thread, the AI also reads that thread. When you ask it to, it can read a channel or thread the app was invited to and
+you are in. Messages from other apps there, such as form or monitoring alerts, come with their details. It doesn't read
+files, and it can't read channels the app wasn't invited to. To link accounts and to say who asked, it reads people's
+names and e-mail addresses in the workspace. In a channel, an answer
 is shown only to the person who asked until they post it.
 
 ### Whose permissions does an answer use?

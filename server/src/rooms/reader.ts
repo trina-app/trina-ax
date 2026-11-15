@@ -18,7 +18,9 @@
 //                 ROOM_SEARCH_BUDGET positions in all (the rooms with the latest activity first; the rest is said).
 // The caller (chat/room-tools.ts) marks the chat (chats.rooms_seen), taints it and adds the rooms whose messages a result
 // gave (`seen`; a list of rooms gives none) to its read scope.
+import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
+import { reachFilter } from '../auth/guests'
 import { isStatusEmoji } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
@@ -89,7 +91,9 @@ export function myRooms(db: Database, userId: string): Mine[] {
       m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.hidden_at,
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden
     FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
-  return rows.map((r) => ({
+  // a DM whose two no longer share a guest's place is closed to both (docs/DECISIONS.md "Guests: only what they were
+  // invited to"; rooms/guest-reach.ts dmPairOk): not listed, not searched, not read
+  return rows.filter((r) => dmPairOk(db, r.kind, r.dm_key)).map((r) => ({
     room: { id: r.id, kind: r.kind, group_id: r.group_id, dm_key: r.dm_key, created_by: r.created_by, created_at: r.created_at, last_seq: r.last_seq, activity_at: r.activity_at, archived_at: r.archived_at, name: r.name },
     me: { room_id: r.room_id, user_id: r.user_id, joined_at: r.joined_at, last_read_seq: r.last_read_seq, visible_from_seq: r.visible_from_seq, history_from_seq: r.history_from_seq, has_hidden: r.has_hidden, muted: r.muted, hidden_at: r.hidden_at },
   }))
@@ -172,7 +176,9 @@ export const PERSON_REF = 'person:'
  */
 export function findPeople(db: Database, userId: string, ref: string): { one: Teammate } | { many: Teammate[]; total: number } | null {
   const raw = ref.trim()
-  const people = db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]
+  // (only the people I may reach: a guest, the people of their one place; nobody, a guest outside my places)
+  const reach = reachFilter(db, userId)
+  const people = (db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]).filter((p) => reach(p.id))
   const dmOf = (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)
     .get(userId, [userId, otherId].sort().join('|')) as { id: string } | null)?.id ?? null
   const out = (p: { id: string; name: string }, exact: boolean): Teammate => ({ id: p.id, name: p.name, dmRoomId: dmOf(p.id), exact })
@@ -412,7 +418,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
     const view = roomOut(db, r.room, r.me)
     const title = titleOf(view)
     const rows = top.filter((h) => h.mine === r).map((h) => h.row)
-    for (const m of messagesOut(db, rows, r.me)) shown.set(m.id, messageText({ ...m, body: excerpt(m.body, words) }, userId, tz, { room: title, roomId: r.room.id }))
+    for (const m of messagesOut(db, rows, r.me, false)) shown.set(m.id, messageText({ ...m, body: excerpt(m.body, words) }, userId, tz, { room: title, roomId: r.room.id }))
     seen.set(r.room.id, Math.min(...rows.map((x) => seenSeq(x))))
   }
   const parts: string[] = []
@@ -484,7 +490,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   }
   const more = rows.length > limit
   const page = rows.slice(0, limit)
-  const out = messagesOut(db, page, me)
+  const out = messagesOut(db, page, me, false)
   // newest first until the result is full; a deleted root whose replies I cannot see is nothing to me
   const parts: string[] = []
   const used: MessageRow[] = []
@@ -499,7 +505,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
     total += t.length
   }
   parts.reverse()
-  const rootText = root ? messageText(messagesOut(db, [root], me)[0]!, userId, tz) : ''
+  const rootText = root ? messageText(messagesOut(db, [root], me, false)[0]!, userId, tz) : ''
   const oldest = used.at(-1)
   const what = root ? 'the first message of a thread and its replies' : 'messages'
   const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : ''].filter(Boolean).join(' ')

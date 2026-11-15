@@ -12,7 +12,8 @@ import { ACCOUNT_DELETION_GRACE_DAYS, type AccountDeletionRequest, type InboxNot
 import { api, API, errorText } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { useMe, useMeStrict } from '../../store/session'
+import { meGuest } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { ReauthDialog } from '../../pages/admin/common'
 import { Button, ErrorNote, Skeleton } from '../ui'
@@ -40,10 +41,54 @@ export function deletionDueText(t: T, item: Pick<InboxNotification, 'deletionDue
   return due ? t('accountDeletion.dueNotice', { date: formatDate(due, locale) }) : t('accountDeletion.dueNoticeClosed')
 }
 
+/** Settings › Profile's "Delete account" row (TC-1976): while a deletion is pending it says the date and offers "Keep
+ * my account" there, not "Delete my account" again; otherwise (no request, the owner, not read yet) the link to the page. */
+export function deletionRowText(t: T, value: AccountDeletionRequest | null, locale: L = 'en'): { hint: string; keep: boolean } {
+  if (value?.state === 'pending') {
+    return { keep: true, hint: value.dueAt ? t('accountDeletion.pending', { date: formatDate(value.dueAt, locale) }) : t('accountDeletion.pendingAsked', { date: formatDate(value.requestedAt, locale) }) }
+  }
+  return { keep: false, hint: t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS }) }
+}
+
+/** The person's own deletion request (null until read, or when it could not be read) and "Keep my account" (the page
+ * and the profile row share it). */
+export function useMyDeletionRequest() {
+  const t = useT()
+  const locale = useLocale()
+  const [value, setValue] = useState<AccountDeletionRequest | null>(null)
+  const [busy, setBusy] = useState(false)
+  const keep = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      setValue(await api.call(API.cancelAccountDeletion))
+      toast({ level: 'success', text: t('accountDeletion.cancelled') })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { value, setValue, busy, keep }
+}
+
 /** What happens, in plain lines: the same list before and after asking. */
 function WhatHappens({ value, viewerIsAdmin }: { value: AccountDeletionRequest; viewerIsAdmin: boolean }) {
   const t = useT()
-  const lines = [
+  // a guest (lib/guests.ts) has none of a member's things (team folders, shared skills, scheduled tasks or app
+  // connections): only their account, their chats with the AI when it is on for them, the files they saved in "Your
+  // files", and what they sent in their one place, which stays
+  const guest = meGuest(useMe())
+  const lines = guest ? [
+    t('accountDeletion.told'),
+    t(guest.ai === 'own' ? 'accountDeletion.goesGuestOwn' : guest.ai === 'team' ? 'accountDeletion.goesGuestAi' : 'accountDeletion.goesGuest'),
+    // their own folder ("Your files" in the pickers): what they saved there goes to the owner's archive, as a member's
+    t('accountDeletion.folderGuest'),
+    guest.place?.kind === 'project'
+      ? t('accountDeletion.staysGuestProject', { place: guest.place.name ? t('accountDeletion.placeNamed', { name: guest.place.name }) : t('accountDeletion.guestProject') })
+      : t('accountDeletion.staysGuestRoom', { place: guest.place?.name ? t('accountDeletion.placeNamed', { name: guest.place.name }) : t('accountDeletion.guestRoom') }),
+    t('accountDeletion.kept', { days: value.auditDays ?? DEFAULT_AUDIT_DAYS }),
+  ] : [
     t(viewerIsAdmin ? 'accountDeletion.toldAdmin' : 'accountDeletion.told'),
     t('accountDeletion.goes'),
     t('accountDeletion.folder'),
@@ -100,9 +145,8 @@ export function AccountDeletion() {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
-  const [value, setValue] = useState<AccountDeletionRequest | null>(null)
+  const { value, setValue, busy, keep } = useMyDeletionRequest()
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const load = async () => {
     try {
@@ -116,18 +160,6 @@ export function AccountDeletion() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const keep = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      setValue(await api.call(API.cancelAccountDeletion))
-      toast({ level: 'success', text: t('accountDeletion.cancelled') })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     // the way back is the dialog's: Profile stays marked in its list, and a phone's back arrow goes to Profile
     <section data-testid="account-deletion">

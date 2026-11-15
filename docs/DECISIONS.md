@@ -4909,6 +4909,7 @@ Founder decision: hosted teams (every plan, the free one too) get speech-to-text
 month in one pool shared by voice input and video and audio reads, through OpenRouter's
 `openai/whisper-large-v3-turbo` on DeepInfra (US, $0.012 an hour of sound), with Groq (US, $0.04 an hour) as the
 fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-DEEPINFRA-TEST.md` (private).
+"The free one too": Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"; the 14-day trial gets Starter's hours.
 Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business 200; plan.json `speechFreeHours`, else
 10), see "Hosted speech-to-text hours per plan"; "10 hours" below is that default.
 
@@ -7316,6 +7317,9 @@ An independent review said "merge after should-fix" and found nothing that break
 
 ## B — Hosted trial AI credit (feat/onboarding-b, 2026-11-04)
 
+> **Superseded 2026-11-15** by "Hosted trial AI credit removed (owner 2026-11-15)" (end of this file): the
+> feature is gone; what follows is history.
+>
 > Superseded in part by "Z — trial credit on the API engine" (end of this file): the trial key is an OpenRouter key
 > and answers on the app's own API engine, never in Claude Code; what follows about the direct Anthropic key, its place
 > in `resolveCredential`, the Claude launch and the model proxy no longer holds.
@@ -7877,6 +7881,9 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
   against the mock.
 
 ## Z — trial credit on the API engine (feat/onboarding-z, 2026-11-04)
+
+> **Superseded 2026-11-15** by "Hosted trial AI credit removed (owner 2026-11-15)" (end of this file): the
+> feature is gone; the API engine itself stays. What follows is history.
 
 Supersedes the Claude Code parts of "B — Hosted trial AI credit" above (which key, where it sits in the order, the launch
 path, the proxy's part); B's cap, holds, errors, storage and screens stay, now on the API engine. Why: Anthropic's
@@ -13425,7 +13432,8 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   (a plan without hosted speech gets no hosting key: with a key and 0 hours voice input would be on and refuse
   everything).
 - **Not a plan-id table in the server.** The control plane's ids are `free`, `basic` (Starter), `team` and `pro`
-  (Business) (trina-cloud `src/teams/plans.ts`, as `tests/unit/devenv-hosted-boot.test.ts` records), not the names in
+  (Business) (`free`: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"; the trial's id is `trial` (trials started before 2026-11-14: `basic`), and the server keeps accepting `free` from a control plane that
+  still has a Free team) (trina-cloud `src/teams/plans.ts`, as `tests/unit/devenv-hosted-boot.test.ts` records), not the names in
   the owner's words; prices and plans belong to the private repositories (REPOSITORY-RULES); every other per-plan value
   (seats, memory, backups) is already a plan.json field and the dev environment is derived from the plan's resources.
   The server never branches on the id, and the hours change without a server release.
@@ -13444,7 +13452,7 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   when it makes the key), outside this repository. OpenRouter's prices for `openai/whisper-large-v3-turbo` on
   2026-11-07 (`/api/v1/models/openai/whisper-large-v3-turbo/endpoints`): DeepInfra $0.012 an hour of sound, Groq $0.04.
   A month of the plan's hours costs $0.60 / $1.20 / $2.40 (Starter / Team / Business) through DeepInfra and $2 / $4 /
-  $8 if all of it went to Groq (Free: $0.12 / $0.40). Groq bills at least 10 s a request (its answer's `usage.seconds`),
+  $8 if all of it went to Groq (Free: $0.12 / $0.40; the Free plan: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"). Groq bills at least 10 s a request (its answer's `usage.seconds`),
   so short voice clips through Groq cost more than they count. The limit has to cover the plan's hours: the keys made
   so far were sized for 10 hours, so the control plane raises the limit of every existing key and on every plan change,
   together with `speechFreeHours`. A limit under the plan's hours stops the team with "hosted transcription is not
@@ -27305,6 +27313,109 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
   (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
 
+## Guests: only what they were invited to — 게스트 (feat/guest-invites-p1, 2026-11-14, the owner; phase 1, server only)
+
+- **Ask:** a team brings an outside person (a client, a freelancer) into one conversation or one project without that
+  person seeing the rest of the team. Phase 1 is the security core and the server side of the invite; the screens are
+  phase 2. Plan: docs/AGENTS/plan/20261114-1016-guest-invites-p1.md.
+- **Exactly one place** (owner, final): one group chat (`rooms.kind 'group'`) or one team project. Never several.
+  Putting a guest into a second place (another group chat, a new group chat with them, another project's people, a
+  group, a second invite) is 409 `conflict` with `params.reason: 'guest_one_place'` and the message "A guest can be in
+  one room or project only. To add them to more, make them a team member." (ko "게스트는 방이나 프로젝트 한 곳에만 들어갈
+  수 있어요. 여러 곳에 넣으려면 팀원으로 초대해 주세요."). The way out is "convert to member"
+  (`POST /api/admin/users/:id/convert-guest`, takes a seat: 409 seat_limit). No "move place" endpoint (owner: lean).
+  DMs never count as a place: a guest may DM only the people of their place. Removed from the place (taken out of the
+  chat, left it, the chat archived, out of the project's people, the project trashed): the account is switched off.
+- **Deny by default.** A guest may call only the endpoints in `server/src/auth/guest-endpoints.ts` (built from the
+  `API.*` objects; `enforceAuth` answers 403 to every other one, so a new endpoint is closed to guests until added on
+  purpose). Raw routes check themselves (the realtime socket, the remote MCP connector: refused). Inside the allowed
+  endpoints everything is narrowed: folders (below), people, presence, rooms, DMs, projects, project chats, AI.
+- **Folders:** for a guest only person rules inside `projects/<name>` count; everyone, role and group rules never
+  apply; nothing outside the members-only zone opens (shared/, skills/, connected/, any team folder); a folder deeper
+  than `projects/<name>` only once they read `projects/<name>` itself. Their own `users/<id>/` stays write. The policy
+  keys off the guest ids it loads with the rules (`users.guest = 1`), not only the Principal's role, so a Principal
+  built anywhere with role 'member' still fails closed (review must-fix 1).
+- **Stored as role 'member' + `users.guest = 1`** (migration `122_a_guests.sql`, reader level 8): `users.role` has a
+  CHECK that cannot be widened without rebuilding `users` (104 foreign keys, `foreign_keys = ON` inside the migration;
+  `writable_schema` is refused in defensive mode), and tables are never rebuilt. Every read of the role goes through
+  the guest-aware `CASE` (USER_COLS, USER_COLS_U, loadPrincipal, every raw `SELECT role`); a test keeps a reviewed list
+  of the SQL that reads `role`. An older build would read a guest as a member, so it refuses the database.
+- **AI is off by default:** `guests.ai` `none | team | own`. `team` = the one team connection in
+  `guests.team_credential_id` under a `block` budget of their own (the limit), never an
+  `engine_credential_assignments` row (one would make a team-wide connection assigned-only for every member). `own` =
+  their own Claude/Codex sign-in, whatever the member-own switch says. Never the hosted trial credit, the team's API
+  key, group or team-wide connections. A server with `engine.authMode` `local-login` (an Office Mac, and dev mode), whose
+  engines use the host's own sign-in, never answers a guest; hosted, Linux, Docker and .pkg installs are `managed` and
+  do (see "Guest states" below). Only the owner or an admin may give the `team` choice.
+- **Invites:** `POST /api/guest-invites` (or the admin invite with role guest) carries one place and the AI choice. A
+  member invites into a group chat they are in; into a project only its creator (while they read it) or an admin;
+  the owner and admins into a group chat only when they are in it. The same rule is checked again at accept, with the
+  place still open and the team connection still a team one; accept is one write. Guests take no seats. The plan's cap
+  (`PlanFile.maxGuests`, owner: Free 3 (the Free plan: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only"), Starter 10, Team 30, Business 100; set by the control plane later, a plan file
+  without it allows 3; no plan = self-hosted = no cap) is 409 `plan_limit` reason `guest_limit` at create and accept.
+- **Other choices:** one guest type, no expiry, a member is never made a guest, guests join no groups and never the
+  everyone room (no joined line), other members' project chats stay hidden from a guest while the guest's own project
+  chats follow the team default (visible to the project's members; phase 2 tells the guest), connectors stay off,
+  deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
+  and skills/.
+
+## Guest invites, phase 2: the screens — 게스트 초대 화면 (feat/guest-invites-p2, 2026-11-14, the owner)
+
+넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `GuestTag.tsx`, `GuestView.tsx`, `web/src/lib/guests.ts`, `web/src/pages/admin/Guests.tsx`), 이유: people, rooms and projects are core. Builds on phase 1 (the server security core, `docs/AGENTS/plan/20261114-1016-guest-invites-p1.md`, "Guests: only what they were invited to"); the server decides what a guest reaches, the screens only label guests and leave out what is not theirs.
+
+- **Invite.** One row, "Invite a guest", at the top of a group chat's add list (anyone in it but a guest) and of a project's members dialog (whoever changes its members: its creator, the owner, an admin). A small dialog: their name, the AI (No AI by default; Team AI with an AI account and a monthly limit for the owner and admins only; Their own sign-in), Create link, then the one-time link with Copy. When the plan's guests are all there (`409 plan_limit` reason `guest_limit`; there is no count before, so the first refused Create link tells it) the dialog says "You've reached N guests, the most for this plan." (ko "게스트는 N명까지예요. 이미 다 찼어요."), Create link turns off, and the owner and admins get "See plans" when the server names a plan page; nothing about a cap shows before, and never a word about seats. No end date is shown or asked.
+- **One place.** Adding a guest to a second room or project is refused by the server (`409 conflict` reason `guest_one_place`); the add list shows the owner's words right under that guest's row (in the project dialog, under the list), and for the owner and admins a **Make team member** button on its own line that opens the guest's row in Admin. No floating message (on a phone it covered the search).
+- **Invite page.** The team and who invited them in the title, then exactly where they will be ("You'll join only the 'Quote prep' project. You won't see the rest of the team."), then the members' sign-up form. A guest invite is never stopped by full seats.
+- **Guest tag.** A quiet outline "Guest" beside a guest's name in list rows, the room's members, mentions, a message's author and a project's people; "Includes 1 guest" after a room's and a project's member count.
+- **A guest's own view.** No Files place or tab, no Projects for a guest in a room, no Scheduled or Skills, the team's pages (Files, Skills, Scheduled, Admin, the welcome steps, connecting apps) go Home, Settings keeps their own sections (no connected apps, AI apps, allowances, browser, dev environment, and no Memory: the server has no memories for guests; with their AI off no Usage or AI accounts either, while their own sign-in keeps AI accounts), no "New project", 1:1 chats only (since feat/guest-ux-nav no + or start line in the chats list: a 1:1 opens from Search), no folders to make in the chats list, no Invite in the room info, nothing to change on their project. Home is the greeting and the box only; its footer drops "only you can see new chats" for a guest (in a project: "Members of this project can see chats you start here").
+- **A guest whose AI is off** (the default; coordinator review 2026-11-14): no 트리나 place or tab at all (no Ask Trina, no history), Home opens their one place (their room or their project); their project's page is its files and members under one quiet line "AI isn't on for you. Ask the person who invited you." (no Trina history, no box); a room has no ✦ side chat and no "✦ to ask" in its box. Other ways to the box (a chat, a side chat opened from a message) show that line instead of a box. With their own sign-in the box stays (its sign-in offer) and their project says once (first visit, remembered in the browser) "Members of this project can see your chats here."
+- **Everyone:** the Trina panel's "No history yet." sits under the "Trina history" heading, not above it.
+- **A guest's navigation** (feat/guest-ux-nav, 2026-11-14, the owner's guest UX audit M3/M5/M6/S4/S9/N7): a guest opens
+  straight into their one place, as Slack does for single-channel guests: sign-in, an accepted invite, Settings opened by
+  its address (the page under it) and, on a computer, the chats page of a guest in a room go to their room or project
+  (`lib/guests.ts guestPlacePath`, `GuestView.tsx useGuestPlacePath`). What hides the 트리나 place, the ✦ side chat and
+  the Home redirect is the invite's AI choice (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
+  a Team AI guest keeps 트리나 and ✦ like a member with AI also while the team account cannot answer here (ai-access not
+  usable, e.g. a server without managed AI), and the box says "AI can't answer you here yet. Ask the person who invited
+  you." (`useGuestNoAi`, no side-chat starters, no "✦ ask privately"); their project page keeps its box place,
+  instructions and history, and Settings keeps Usage and AI accounts. Nothing to start from the chats list for any guest (no "+", no start line, no "or start a new one with +";
+  a 1:1 with someone of their place still opens from Search). A guest in a project with no conversation has no 대화
+  place or tab, and `/rooms` opens their project. A guest with no AI sees no project instructions (they are for the AI).
+  Their profile says "visible to the people in '<place>'" and the role line drops "No groups". A guest whose account is
+  turned off while signed in (`session.ended` reason `disabled`) lands on a sign-in page titled "You're no longer in
+  <team>" with "ask the person who invited you" and no forgot-password line (session status reason `removed`); this
+  browser keeps the team's name (`mycel.removedFrom`) until the next sign-in, so a later visit says it too (the server's
+  answer to their password is only "wrong"). A member's sign-in page stays as before. On a computer a guest in a room
+  still gets the chats page while they have hidden conversations (that page lists them).
+- **Admin › Members & invites › Guests.** Guests are out of the members table and its count; their own list says where each one is and their AI; "…" changes the AI (`PATCH /api/admin/users/:id/guest-ai`, the same three choices), **Make team member** (takes a seat: "Every seat is taken…" when none is free) or **Remove guest** (the account is turned off; a removed guest can then be deleted as a member is). Guest invite links say which room or project they join, after who the link is for (the dialog's name, sent as `CreateGuestInviteBody.name`).
+- **API fields read** (in one place, `lib/guests.ts`): Person.guest, Me.guest, User.guest, InviteInfo.guestPlace. `Invite.guestName` (added here: `server/src/auth/accounts.ts` toInvite returns `invites.guest_name`, test `tests/unit/a-guests-invite-name.test.ts`) puts who a link is for on its Invite links row.
+- Version impact: **minor** (new screens; no API change in this PR).
+
+## Guest invites: the admin and invite screens, simpler — 게스트 초대·관리 화면 다듬기 (feat/guest-ux-admin, 2026-11-14, the owner; guest UX audit M1, M4, S1–S3, S5–S7, N1, N2, N6, N8)
+
+넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `web/src/pages/admin/Guests.tsx`, `web/src/pages/admin/Members.tsx`, the invite page in `web/src/pages/Auth.tsx`; server `GET /api/guest-invites/limit`), 이유: builds on "Guest invites, phase 2: the screens" above; the server still decides everything.
+
+- **A guest elsewhere is greyed out, not refused after.** In a group chat's add list and in the search of a project's members dialog, a guest who is in another room or project shows with "In the 'Quote prep' project" and no tick or Add; the owner and admins get **Make team member** on that row, which opens its dialog right there (the add list and its picks stay; the list is read again after). In "New chat" a guest can still be picked alone for a 1:1 chat; once someone else is picked the guest is greyed out the same way, and a group with a guest already ticked says "A guest can be in one room or project only." with its button off. The place comes from `Person.guestPlace` (kind, id, name), which `GET /api/people` sends only for a guest the viewer sees at all, so only for a place the viewer is in. The 409 `guest_one_place` note stays for anything that gets through.
+- **The guest cap is read first.** `GET /api/guest-invites/limit` (anyone signed in but a guest: `{ full, limit }`; the owner and admins also `seatsFull` and the plan page) is read when the invite dialog opens. A full plan shows the limit at the top in place of the form: members "Ask an admin if you need to invite more.", the owner and admins what to do and **See plans** (never in a store app). This replaces "nothing about a cap before the first refused Create link"; Create link is never a dead button.
+- **Make team member** reads the seats before its dialog: with every seat taken it says so, with See plans, and has nothing to confirm. Picked: the guest's AI **resets**, said plainly ("Their AI then follows the team's settings, like any member's."), because a member's AI follows the team's rules and keeping a guest-only team AI under a member would be a second, hidden kind of member.
+- **AI choice.** Team AI's account and monthly limit sit right under Team AI. Without a team AI account Team AI cannot be picked (so Save and Create link never wait on it) and says "The team has no AI account yet. **Add an AI account**" (a link to Admin › AI accounts). No hover fill on the rows (a phone kept it on an unpicked one). The "AI for Alex" dialog has one title (the choices' heading is for screen readers only).
+- **An Office Mac** (`engine.authMode` `local-login`, the Office Mac and dev mode: the team's AI runs on that Mac's own sign-in, `CredentialsResponse.guestAiUnavailable` 'host_sign_in', from feat/guest-own-signin; hosted, Linux, Docker and .pkg installs are `managed`, give guests AI and never show it): in the invite and Change AI dialogs Team AI and their own sign-in are off, No AI stays picked, and one line says "On this server, guests can't use AI. Installing with the admin installer (.pkg) makes it possible." (the owner's words, with the way out; docs/OFFICE.md says the same). A member's invite dialog cannot read it (the AI accounts list is the admins'), so the server's refusal of a guest's turn stays the backstop there.
+- **Admin › Members & invites.** Guests is in the Role filter (then only the guests' list and the guest links); the search narrows guests too. Removed guests are out of sight behind "Show removed (N)". A used guest link leaves the invite list (the guest is in Guests now); member links keep "Used by". A project guest link names its project (`Invite.guestPlace.name`, projects only: a room's name stays with its people).
+- **Guest QA fixes (2026-11-15).** A chat's Share list never offers a guest (a chat shared with people is no place of theirs; the server refuses too, and the dialog now leaves them out so nobody is offered someone who cannot be added). A guest who opens a connect-an-app address (`/connectors/authorize`) reads "Guests can't connect apps to Trina" in place of the redirect Home; nothing is asked of the server and no grant is made (it answered 403 and still does). The realtime `profile_changed` notice (empty, carries no name) goes only to a window whose person may see the one who changed (`sharesPlace`): a guest's rename or photo is not signalled to members outside their place, and a member's change is not signalled to a guest outside that member's places. The notice only says "read the directory again", but its time showed that a guest was there.
+- **The link, made:** Copy link is the dialog's main button, Done beside it.
+- **Invite page:** the Name starts with the name the inviter typed (`InviteInfo.guestName`, only while the link works); one language control (the switcher under the card, no browser-language line); no "Already joined? Sign in" or "Open in the app" for a guest. The username rule in plain words for everyone: "You'll use it to sign in: at least 2 English letters or numbers, no spaces. You can also use . _ - @" (the check itself is unchanged; the same words are its error).
+- **Dark mode:** a disabled main button keeps a quiet edge, so it still reads as a button that is off (not as one to press).
+## Guest screens, small fixes: two-word names in the "@" list, "the other N people", a project's guest for admins, "No files yet", tooltips on phones (feat/guest-ux-misc, 2026-11-14, guest UX audit M7, N3, S8, N4, N5)
+
+넣을 곳: Team AX core (`web/src/lib/rooms.ts` mentionAt, `components/rooms/useMentionMenu.tsx`, `components/GuestTag.tsx`, `store/people.ts`, `components/ProjectPeople.tsx`, `pages/Projects.tsx`, `components/Tooltip.tsx`; `server/src/chat/project-access.ts` projectPeople, `shared/src/api/chats.ts` ProjectPerson), 이유: findings of the guest UX audit after phase 2; each one also reached members.
+
+- **"@" and a name of two words (M7).** A guest typed "@QA Member" and the message mentioned nobody. Root cause in the box, for everyone: the "@" list closed at the first space (`mentionAt`), so a name with a space could only be picked after its first word, and typed out in full it was plain text ("text that only looks like a mention notifies nobody", 메시지 상자의 멘션). The server was not the cause: it keeps the words as sent and keeps a mention only of someone in the room (`validMentions`), which for a guest is their place (test `tests/unit/a-guests-rooms.test.ts` "mentions"). Now a space keeps the list while a member's name (or a word of "@전체") still starts with what was typed; a whole name with a space after it ends it, so Enter sends again. A name typed out still has to be picked (Enter, Tab or a click) to become a mention, as a one-word name always had to; "@Ben " in a room with "Ben Lee" and no "Ben" keeps the list, so Enter right then picks Ben Lee. A guest still mentions only the people of their place (the room's members); anyone else stays plain text. The lost words of the audit's shot (08) did not happen again on dev (desktop and phone, typed, picked, Enter or the send button).
+- **"@전체" says who it reaches (N3).** The row said "notify all 2 in this room" under a header that says "3 members" (the header counts me). The number stays everyone but me; the words say so: "notify the other 2 people here" (ko "이 방의 다른 2명에게 알림").
+- **A project's guest for an owner or admin outside it (S8).** A guest sees and is seen only inside their place (sharesPlace), so an admin who is not in a members-only project has no guest in their people list, and the project page (#848 for members) missed "Includes 1 guest" and the Guest tags. The project's people list (`GET /api/projects/:id/people`) already names that guest to whoever may read it; it now says `guest: true`, and the client keeps those ids (`usePeople.guestIds`) for the tag and the count. No one learns of a person they could not see before.
+- **"No files yet" on a computer too (N4).** The Files row of a project page said "0 items" and opened onto "No files yet"; it now says "No files yet" as the phone row does, with nothing to open.
+- **Tooltips on phones (N5).** Tooltips never show for a finger, but a phone with a pen (any-pointer fine) showed one on the focus a tap moved (a dialog's close X, the side chat's history button) and it stayed. Focus shows a tip only when the last thing done was a key press (not a tap or click), and a tap or click anywhere takes a tip away.
+- Version impact: **patch** (UI; one optional API field).
+
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
 
 넣을 곳: Team AX core (`server/src/notifications/push-gateway-setting.ts`, `server/src/routes/push.ts`,
@@ -27473,7 +27584,10 @@ guides, "Apps posting here") are phase 2.
   stops the old one at once. Unknown, rotated, removed and archived-room tokens answer the same `404 not_found`; any
   other method on `/in/*` too (never the web app's page). `loggablePath` hides the token.
 - **Order of work at /in/** (rooms/apps/inbound.ts): token lookup first (a live token is not counted with anonymous
-  traffic); a browser `Origin` → 403; the app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
+  traffic); a browser `Origin` → 403; the server refusing writes (full disk or plan, `storageRefusesWrites`, the rule
+  of `assertStorageRoom`) → `503 storage_full` with `Retry-After: 600` before the body, and the app's status line says
+  "the server's storage was full" (QA TC-2285: it answered 200 and posted the card while nothing could be saved); the
+  app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
   for unknown tokens 30 a minute per client address (and 4× per /24 or IPv6 /48); content type (415); the raw body,
   256 KiB (GitHub 1 MiB, 413) within 10 s (408); the signature when a secret is set (401); parse (400); the switch
   (200, skipped); the caps (429); then one transaction writes the delivery row, the card or reply, the root's status,
@@ -27481,14 +27595,22 @@ guides, "Apps posting here") are phase 2.
   buckets need no history; nothing shared with the external apps' limits), not the plan's `room_app_limits` table.
 - **Signatures optional for both (owner decision 9).** "Make it safer": GitHub gets a secret Trina makes (`tax_whs_…`,
   shown on the address again); Sentry takes its Client Secret (64 hex). Once set, a request without the right
-  signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)".
+  signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)". A secret
+  Trina makes (GitHub, Typeform, Tally) waits for the service (migration 405 `room_apps.secret_pending`, QA
+  2026-11-15): until the first request signed with it, unsigned ones are still taken (Copy secret must not drop what
+  the service sends before the person pastes it there; the safer of "after the first signed delivery" and "I've pasted
+  it", which drops deliveries when pressed too early); the app's `signingPending` says so. Changing or removing the
+  secret clears an old "didn't match" refusal.
 - **Delivery keys.** GitHub `X-GitHub-Delivery`; Sentry sha256(resource + body), never the unsigned timestamp; Forms
   `id + at`; Other `Idempotency-Key`, else the body's hash within 10 minutes. Written with the post, so a retry after a
   429 posts once.
 - **Caps (owner decision 3).** 500 shown per app and team day; past it the app pauses until the team's midnight: a quiet
   line from the app in the room, a `room_app.paused` notice (table `room_app_notices`, Activity only in phase 1) to the
   people who manage it and the person who added it, an audit row; 429 meanwhile. "Resume now" once a day allows as many
-  again. 5,000 per team a day pauses every app the same way (no resume). 10 apps a room, 10 added per person an hour,
+  again. 5,000 per team a day pauses every app the same way (no resume); its line, status and notice say the team's
+  number and when it ends in the team's time zone (QA TC-2067; migration 403 `room_app_days.paused_by`). After
+  Regenerate the status waits for the service to use the new Webhook URL until a message arrives after
+  `room_apps.rotated_at` (QA TC-2086). 10 apps a room, 10 added per person an hour,
   5 examples an app an hour.
 - **Quiet.** Short lines that count nowhere: no unread, no notice, not the rooms list's line, no activity bump
   (`app_quiet`; unreadCount, threadsUnread, lastMessage, recordNotices, unhideFor). Otherwise an app's message counts
@@ -27527,6 +27649,113 @@ guides, "Apps posting here") are phase 2.
     naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
 - Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
   tests/security/lib/room-apps-cases.ts.
+- **Paused push (phase 3).** The `room_app.paused` notice also goes to phones and browsers through the normal push
+  pipeline, if the person allows push: it is a PushEventType now, with its own deliveries (`room_app_push_deliveries`,
+  migration `352_c_room_app_push.sql`, numbered in C because B's 200–299 is full; push-service.ts SOURCES). No switch
+  of its own, like `owner.lead_joined`: pushed while the notice is unread, the app is still there and still paused
+  (`paused_until` after now; "Resume now" also marks the notices read) and the person is still in its room
+  (`rooms/apps/notice.ts` roomAppPushWanted, asked before and after each send). Generic words only, never the app's or
+  the room's name: "An app in a room was paused for today." (server `notifications/text.ts` and push-gateway
+  `EVENT_TEXT` the same). A tap opens `/rooms/<roomId>` while the person is still in the room and it is not archived
+  (push-events.ts; the web worker takes the id from the signed-in notice's `roomApp.roomId`), else the start page /
+  the Inbox. Tests: tests/unit/b-room-app-push.test.ts, push-worker.test.ts, push-gateway.test.ts, push-locale.test.ts.
+  - **Leaver notice in Activity.** The people who may manage the app (`mayManageApps`: a team room's owners and admins
+    in it, everyone in a 1:1 or group chat), never the leaver, get `room_app.leaver`: "Someone who left knows the
+    address of <app> · Get a new address". Activity only (not a PushEventType), shown always (no setting). Its own
+    table `room_app_leaver_notices` (in the same unmerged migration 352: the notice tables' event_type CHECK lists are
+    fixed). Source `<app id>.<first 12 of the token hash>`: one notice per person and address, never twice; a new
+    address starts over. Detection does not hang on one code path: `RoomApps.leaverSweep()` checks every app with
+    viewers every 5 minutes and with the hourly prune (routes/room-apps.ts; not under tests). No call from the
+    membership and role code: a room left or a member taken out (Rooms.dropMembers), a group's members changed (team
+    rooms), a role change, a disabled or deleted account are separate paths with no single hook, so a notice may come up
+    to 5 minutes late. "Get a new address" marks them read; removing the app deletes them; the notice's
+    `roomAppLeaver` (app, room while the reader is in it) is absent once either happened. `room_app_viewers.user_id`
+    is kept with a deleted account on purpose (KEPT_WITH_ACCOUNT; it has no foreign key, so the coverage test reads
+    `USER_COLUMNS_WITHOUT_FK` too): the person stays flagged as knowing the address until it changes.
+    Tests: tests/unit/b-room-apps-leaver.test.ts.
+- **Phases 2–4: the screens (feat/room-apps-p2, QA TC-1546, TC-1547, TC-1412).** Words as owner decision 6 ("Add an
+  app", "Apps posting here · N", the "App" tag); Trina's own words never say "webhook" (a web unit test greps every
+  `roomApps.*` key of the six languages; `roomApps.vendorLabel.*` are the services' own labels, quoted in the language's
+  marks, and still to be checked against the live tools with screenshots in TC-1546).
+  - **Where:** the room's ⋯ (`RoomMenu` action `apps`, after Rename) for those who manage the room's apps
+    (`store/roomApps.ts mayManageApps`, the server's rule); one dialog (`components/rooms/apps/AppsDialog.tsx`, a sheet on a
+    phone, loaded on first open by `AppsHost`) with the picker (letter tiles), the four guides, the list and one app's
+    settings. The room page reads the list for managers only (a member would get 403), so the ⋯ can say how many post
+    there; `?apps=<id>` opens an app's settings (the notices' links).
+  - **Guide:** nothing is added before the first Copy (address, Forms code, GitHub secret or a saved Sentry secret); the
+    copy happens in the click with a `ClipboardItem` promise (Safari), and when no copy is possible the text is shown to
+    copy by hand. The status line follows the app live: it reads the list every 4 s while the app waits for its first
+    message or shows a refusal, and at once when a message from it reaches the room (no new realtime event).
+    "Nothing yet?" after 2 minutes for GitHub and Other; "Show an example" once the app exists. Signatures are an
+    optional, folded "Optional: make it safer" step (owner decision 9); Sentry's alert rules a second folded step.
+    Forms: the respondent's email note in step 4 (owner decision 12) and the copied code's `SEND_EMAIL` follows the
+    switch.
+  - **Settings:** the status line (last message, refusal with "Set up again", paused with "Resume now", no internet
+    address, and "Someone who left knows this address · Get a new address" from `RoomApp.leaverKnows`), the switches
+    (one PATCH each, on screen at once, back with "Couldn't save. Try again."), Quiet, Address (Copy / "Get a new
+    address" with its confirm) and Remove with the plan's words.
+  - **Cards:** one component, `components/rooms/AppCard.tsx` `AppCardText` (`card`, `reply`, `quiet`), plain text with
+    only the card's checked link ("Open in Sentry ↗": a button on a computer, a link on the status line on a phone);
+    the sender is `AppSender` (the app's name, `SenderTag` "App" / "Example", a popover: "Set up by Mina · Sentry" and
+    Manage for managers, "Ask Mina to change what shows here." for everyone else). `RoomAppRef.by` (who added it, while
+    in the team) was added for that popover. Search hits and the rooms list name the app; a quoted app message
+    (`RoomQuote.app`) shows its plain text, never links found in it.
+  - **AI chips (phase 3):** the side chat's starters get one chip chosen from the app messages on screen ("Summarise
+    today's responses" when they are forms only, else "What happened today?"), read from the timeline so members get it
+    too; an app's thread has "Summarise this thread", which opens the side chat with the root quoted and sends the
+    question at once (`SideSeed.ask`); a quoted app message's quick questions start with it.
+  - **Notices:** the paused notice (`room_app.paused`) reads "{app} paused in {room}. It reached 500 messages today. N
+    more were skipped and won't appear. It starts again tomorrow." ("at 09:00" when the team's midnight is another time
+    where the reader is), with Resume now and Open settings; on a computer it opens as itself while it can be resumed.
+  - **Self-installed (phase 4):** "Add an app" without an internet address shows who can fix it (the owner: "Turn on the
+    Trina relay…" and Open connection settings; everyone else: "Ask the team owner…"), with How it works
+    (docs/site/use/room-apps.md); existing apps' list and settings say "This server has no internet address now".
+    `ConnectionStatus.appsAnywhere` (a country or network list on the server's own address and at least one app) shows
+    "Apps can reach this server from anywhere at its /in/ addresses…" in Admin › System › Connection.
+  - Not done: the relay's `relay.address_moved` line for apps and per-step screenshots inside the guides (they need the
+    live-tool check of TC-1546 first).
+  - Tests: web/test/unit/room-apps.test.ts, web/test/e2e/room-apps.spec.ts (1440 and 390), web/test/e2e/shots-room-apps.spec.ts
+    (ROOM_APPS_SHOTS).
+
+- **Settings, logos and Slack's words (fix/room-apps-settings-logos, 2026-11-14, the owner and an independent UX
+  review, QA TC-1632, TC-1633).**
+  - **Words: Slack's (owner, overrides "never say webhook" for these labels).** The room ⋯ says "Add an app", then
+    "Integrations · N"; the dialog lists the room's apps under "Apps" with "Add an App"; the sender tag is "APP"; the
+    address is the "Webhook URL" with "Copy" and "Regenerate"; Remove is "Remove app". The web unit test still greps
+    every `roomApps.*` text for "webhook" but allows "Webhook URL". "Summarise" became "Summarize" in these keys.
+  - **Marks instead of letter tiles (replaces owner decision 7).** `AppTile` (`AppParts.tsx`, sizes `title` 24 /
+    `row` 28 / `face` 32, one component for the picker, list, settings title, timeline and search) draws Sentry's and
+    GitHub's one-colour marks (Simple Icons 16.37.0, CC0; `web/public/icons/room-apps`) in the text colour through a CSS
+    mask, so they read in both themes (both brands allow black or white). Google asks for permission before its product
+    icons are used, so Google Forms gets a plain form icon (lucide ClipboardList) and Other a plain app icon (Blocks).
+    Sources and terms: docs/THIRD-PARTY-NOTICES.md.
+  - **Names.** An Other app is named at the top of its guide (sent with the first Copy); every app can be renamed in its
+    settings (PATCH name; the server's lookalike check stays). Default names follow the team's language on the server
+    (`rooms/apps/text.ts` nameForms, nameOther: "Google 설문지", "다른 앱"); Sentry and GitHub keep theirs. The settings
+    title is the name, with the kind small beside it when they differ.
+  - **"(unverified)" after each name is gone** (review: noisy on every card). A card from an unsigned request still
+    carries `unverified`; the app's settings say once "Not signed: anyone with the Webhook URL can post · Make it
+    safer" for GitHub and Sentry without a secret, and the guide's safer step says it too. Members no longer see a mark.
+  - **Settings layout:** "Set up by Mina · How to connect" (the guide again) on top; the status line (last message
+    "today 10:58", paused, or one waiting state for every kind: a breathing dot and "Waiting for the first message. You
+    can close this."); one warnings block with one action each (refusal → Check the secret, someone who left →
+    Regenerate, not signed → Make it safer, no connection), and Regenerate is not repeated on the Webhook URL row while
+    the warning offers it; Name; "Show in this room" only when the kind has more than one switch (Other has none);
+    "Post quietly"; Other's "How to send" (a JSON example of the fields `parse.ts other()` reads, Copy example, and on a
+    computer "Copy test command", a curl line whose URL is filled only in what is copied, never shown); Webhook URL;
+    Remove app.
+  - **Guide:** Forms shows only "Code to paste into your form" (no URL box) and "It's safe: the script is your own…"; the
+    Korean Forms steps quote Google's Korean screens; one main button at a time (Copy until used, then "✓ Copied" in
+    outline and Done main); "Nothing yet?"'s curl is folded under "For developers"; **Show an example previews the card
+    in the dialog and posts nothing** (the example API stays for older clients). The picker order is Google Forms,
+    Other, GitHub, Sentry.
+  - Cards: "Open in Sentry ↗" is an inline link on every width; the "Example" tag is neutral. The sender popover opens
+    under the name, left-aligned (`MenuButton startAligned`), headed "Set up by Mina". The paused notice carries the
+    app's kind (`roomApp.kind`); Google Forms says "responses" and that the skipped ones are still in the form's
+    Responses tab. No-connection screens: "Apps need an outside connection…", the owner's "Turn on connection", "Ask the
+    team owner to turn on the connection." (the people list has no roles, so no name).
+  - Not done (nice-to-have of the review): the empty room's hint about apps and showing the side chat's app chip by the
+    room's apps rather than the messages on screen.
 
 ## Hosted teams that sleep: idle facts, the relay's sleep flag and wake, data disk grow (feat/trial-autostop, 2026-11-14, the owner)
 
@@ -27540,7 +27769,7 @@ guides, "Apps posting here") are phase 2.
   minute, read back at start, never later than now): a stopped EC2 instance wakes with a fresh boot, and a clock
   that started at boot would make every wake (a backup, a schedule, a bot) cost a full idle limit of running time.
   Use: a signed-in request (session middleware; every chunk of an upload is one), a connector call with a live token
-  (`/mcp`) or an upload through a live upload link, an open realtime connection (web, desktop, mobile), a running or queued answer, a queued or
+  (`/mcp`) or an upload through a live upload link, a running or queued answer, a queued or
   running background job, a backup in progress, and (new here) a dev environment job that waits or runs
   (`dev_env_runs` kind `job`) count as use. A dev environment *server* (a preview) does not: one left running would
   keep a trial team awake for ever; it stops with the server and is started again from the chat. Requests nobody
@@ -27558,16 +27787,16 @@ guides, "Apps posting here") are phase 2.
   own Ed25519 wake key, its own signing domain), once per team per 10 s, 30 a minute in all, 5 s timeout. The control
   plane answers waking, awake, busy or unknown; the relay does not decide. Only a person wakes a team (`mayWake`): a
   real browser's page load (`Sec-Fetch-Mode: navigate`, which crawlers and link previews do not send), or a request
-  with a cookie or an `Authorization` header (a signed-in page, the apps, the connector), and a WebSocket; never HEAD,
+  with a cookie or an `Authorization` header (a signed-in page, the apps, the connector), never HEAD,
   OPTIONS or `/robots.txt`, `/favicon.ico` and the like. Anything else gets the offline page and no wake, so a scanner
   or an uptime check cannot keep an idle trial running. Over the relay's own 30-a-minute budget the visitor still gets
   the waking page (it reloads and asks again).
-- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Starting your team…" (about a
+- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Resuming your team…" (about a
   minute, six languages), which reloads the same address after the control plane's `retryAfterSec` kept to 3-20 s
   (the control plane answers 20 for a stopped EC2 instance; the first branch reloaded every 3 s, which for a
   one-minute boot was 20 reloads and wake calls). The page does not echo the address, so an OAuth callback's `code`
   never goes into HTML. Everything else (desktop and phone apps, API, webhooks) waits up to `RELAY_WAKE_HOLD_MS` (20 s)
-  and gets a retryable 503 `team_waking` with the control plane's Retry-After (1-30 s); WebSockets close 1013. busy is
+  and gets a retryable 503 `team_waking` with the control plane's Retry-After (1-30 s); WebSockets close 1013 and never wake (an open app is no use, see below). busy is
   shown at once; unknown or an error shows the cloud offline page as before. No `RELAY_WAKE_URL` = off.
 - Not ported: the relay client's time-jump reconnect (first branch, `server/src/relay-client/time-jump.ts`). A trial
   team's server is stopped and started (a fresh boot that connects at once), not suspended to disk.
@@ -27653,3 +27882,462 @@ and the phone push are core.
   reader-level check is what keeps data safe whatever the order, so the naming is a separate decision.
 - Tests: native/cmd/mycel-ctl/readerlevel_test.go (Linux Docker); tests/unit/update-reader-gate.test.ts;
   tests/unit/g-update-auto.test.ts (hold and 409 through the app); web/test/unit/update-outcome.test.ts.
+
+
+## Files from the computer in a chat shared with people (feat/shared-chats-s6, 2026-11-14, product owner, QA TC-1413)
+
+Where: Team AX core (`server/src/chat/{chat-files,chat-file-tool,people-share,read-scope,shared,tools,turn}.ts`,
+`server/src/uploads/attachments.ts`, `server/src/routes/{chats,files}.ts`, migration `400_b_chat_files.sql`,
+`shared/src/api/{entities,chats}.ts`, `shared/src/tools.ts`; web `ComposerFiles`, `Messages`, `FileBody`, `FilePanel`).
+Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` S6. Until now a file from the computer was refused in a chat
+shared with people and groups, and files attached before the share stayed visible to their sender only.
+
+- **The chat owns the file.** A computer upload into a people-shared chat is kept by the server in
+  `<team>/.system/chat-files/<chat id>/<file id>` (0700/0600) with a `chat_files` row (chat, sender, name, size, type,
+  sha256, preview; `copied_from` for a copy made at the share). `.system/` is closed to every person, the AI's file
+  tools and the owner's export, and it is in every backup of the team folder, as room files are; the plan said the data
+  directory, but there a restore of the team folder would lose the files of the chats it brings back. No folder rule
+  changes and nothing under `users/<id>/` is opened to anyone: the file is in no folder at all.
+- **Who opens it.** Only through the chat: `GET /api/chats/:id/files/:fileId` (`chatFor 'view'`: whoever sees the chat
+  now, its creator in the trash too; everyone else the 404 of a missing chat), and the attachment thumbnail by id through
+  the file's chat. A file not sent in a message yet is its sender's alone. A file on the download-only list goes only as
+  a download, as a room file. Removing someone, a group they leave, a disabled account or making the chat private again
+  takes the files away with the chat (the same check, nothing to revoke). In the message the attachment has
+  `source: 'chat'` and no team path; everyone who sees the chat sees it (`viewAs`). The files keep the people-shared
+  rule even if the chat later gets another audience (made private, then moved into a project and shared there): then
+  only its creator opens them and the others see the chip blanked (`seesChatFiles`, from the independent review).
+- **The AI.** Whoever runs a turn reads such a file with the new `chat_file` tool (offered where the chat is shared with
+  people or holds such files; in `SHARED_TOOLS`; not for sub-agents): as that person, while they see the chat, checked
+  again before the result goes out; text through the room-file extractors (a PDF's text layer, no OCR), a picture as an
+  image (the team's switch and the engine), nothing for a file on the download-only list. The message tells the AI the
+  file's id and name. What it read joins the chat's read scope as `{type: 'chat'}`, whose viewers are the chat's people
+  now, so saving it somewhere other people can read asks as any read does; a card names it "files sent in a shared
+  chat", never the chat's title or people.
+- **Earlier uploads.** At the first share of a private chat (and again after it was made private and shared again) the
+  creator's computer uploads in its messages are copied into the chat's files and the messages point to the copies
+  (`ChatFiles.copyEarlier`). The Share check counts them first: the confirm answer carries `earlierFiles` (in the key)
+  and asks even when nothing else would ("N files you attached will be visible to them", `chat.share.earlierFiles`).
+  The copy runs in the share request, read and written without blocking the server through one descriptor that follows
+  no link, each file at most 50 MB and checked against the team's storage (`assertStorageRoom`). Not copied, and so
+  still its sender's alone: a file gone, unreadable, edited or replaced since it was attached (another sha256), over
+  50 MB, without storage room, or a picture whose metadata cannot be cut out; the saved answer tells the creator how
+  many (`filesNotCopied`, `chat.share.filesNotCopied`). The originals stay in their folder. Not after the response: the
+  creator must be told what was not shared, and a 50 MB cap keeps the request short.
+- **Limits and storage.** At most 50 MB a file in such a chat, a chunked upload too (413 `chat_file_too_large` when the
+  session is made and again when it is placed; elsewhere a chunked attachment may be larger). The storage check as for
+  any upload; the bytes count in the team's storage (no per-person ledger exists; Admin › System counts them with the
+  team folder, as room files). A picture's metadata (the place it was taken, the camera) is cut out before others get
+  it, as in rooms (`uploads/metadata.ts` PHOTO), on upload and on the copy at the share (the sha256 check is on the
+  bytes as attached, before cleaning); a picture that cannot be cleaned is refused (upload) or not copied; one that can
+  be neither cleaned nor shown as it is goes as a plain file.
+- **Deleting.** Deleting a chat for good (trash purge) removes its rows (ON DELETE CASCADE) and its folder. ✕ on a chip
+  before sending removes that upload (`DELETE /api/attachments/:id`); uploads never sent go after a day. Nothing else is
+  deleted on a guess: the hourly sweep sets aside the folder of a chat that is gone (an account purge's chats) and a
+  file without its row (an hour old; a new file's time is set when it is placed) in `.system/chat-files-orphans/`, kept
+  30 days like room files' orphans, so a database restored from an older backup can be gone back from.
+- **Audit.** `chat.file_add` (the chat, size and kind; never the file's name) and `chat.files_copied` (counts: copied,
+  not copied).
+- **Composer.** The computer is offered in such a chat again (`Chat.shared.canUpload`, false while safe operations are
+  on); the line under the chips says "Everyone who sees this chat can open it" (`chat.share.uploadLine`, 6 languages).
+- **Numbering.** Migration 400: component B's 200–299 is full (298, 299), and 400–499 is B's second range.
+- Version impact: **minor**.
+
+## Trial auto-stop tuning (owner decisions 2026-11-14, delegated to the coordinator)
+
+- **An open app is not use (hosted free teams too: the server does not know the team's kind; free teams: Superseded 2026-11-14 by "Free plan removed (owner 2026-11-14): trial with a card only").** An open web, desktop or phone connection with nothing happening does not keep a hosted
+  server awake (`activityFacts` no longer touches the clock for open connections; `sleepableBy` ignores them). What
+  counts is real use: a signed-in request (also one on an open connection), a message or answer, an upload, a connector
+  call, a job, a schedule. The number of open connections is still reported in `status.json`.
+- **A WebSocket never wakes a stopped team.** An app that reconnects on its own would wake the team after every stop.
+  The socket is closed 1013; the next real request wakes it ("Resuming your team…" or a retryable 503 `team_waking`).
+- The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
+  `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
+
+## A guest with their own sign-in connects it themselves — 게스트 본인 로그인 (feat/guest-own-signin, 2026-11-14, QA)
+
+넣을 곳: Team AX core (`server/src/credentials/policy.ts`, `server/src/credentials/access.ts`,
+`server/src/routes/credentials.ts`, `web/src/components/rooms/SideChatPanel.tsx`), 이유: AI connections and guests are core.
+Builds on "Guests: only what they were invited to" and "Guest invites, phase 2".
+
+- **The bug.** A guest whose AI is `own` ("Their own sign-in") and who had not connected yet read "AI isn't on for you.
+  Ask the person who invited you." `aiAccessFor` answered `ask_owner` to every guest, and the personal-connection routes
+  followed the members' switch (`credentials.memberOwn`), so with it off the guest could not connect at all.
+- **One rule for "may keep a connection of one's own":** `personalConnectionsAllowed(db, userId)` (credentials/policy.ts).
+  A guest: only with AI `own`, whatever the members' switch says (the team chose it for this guest, as resolve.ts already
+  read it); `none` and `team`: never. Anyone else: the members' switch, as before. Used by every path that adds, signs in
+  or keeps a personal connection: `GET /api/me/credentials` (`allowed`), `POST /api/me/credentials`, `POST
+  /api/me/credential-logins` and the sign-in's store step (ChatGPT and Claude; a choice changed while it ran ends it
+  `policy_changed`), `createCredential`'s policy check, the ChatGPT token refresh (idle refresh and the proxy's 401). The
+  guest endpoint allow-list already had these routes; the team ones (`/api/admin/credential*`) stay closed.
+- **What a guest is told:** `aiAccessFor` answers `connect_own` to an `own` guest on a server that answers with AI
+  connections; anyone else of the guests, and an `own` guest on a server on the host's own sign-in (where a guest is
+  never answered), still `ask_owner`. Still never the trial credit, a team or group connection, or the API engine
+  (credentials/resolve.ts unchanged).
+- **Screens:** the line above the box ("You have no AI to use. Connect your own…" with **Connect my AI**) on Ask
+  Trina, their project and, for a guest, the room's ✦ side chat; a failed answer for want of AI says the same with the
+  button (not "ask the person who invited you"); Settings › AI accounts says "Your questions use only your own account"
+  for a guest (no team accounts behind theirs), and its Add account dialog drops the company key and "made for team
+  use" words for a guest (`credentials.personalFirstGuest`, `credentials.kind.*-api-key.descGuest`). An `own` guest may
+  add their own API key too, as a member may (coordinator, 2026-11-14).
+- **Servers on the host's own sign-in** (`engine.authMode` `local-login`: the Office Mac and dev mode; hosted, Linux,
+  Docker and .pkg installs are `managed` and answer guests) keep refusing every guest turn, Team AI and own alike. There the engines run with the host's Claude /
+  ChatGPT login inside a sandbox that can read it, no AI connection is used by anyone (no credential broker, often no
+  model proxy), so a guest's turn could only run next to the owner's login. Running a guest on an API-key connection
+  there would be a new engine mode, not a fix. The admin's guest dialogs read `CredentialsResponse.guestAiUnavailable`
+  ('host_sign_in', on `GET /api/admin/credentials`) and say Team AI and their own sign-in cannot work on this server.
+- **Settings opened by its address** by a guest whose AI is off showed 트리나's list behind the dialog (the page under it
+  is Home's): a place a guest does not have (`useGuestHidden`) has no list panel.
+- Version impact: **patch** (no API shape change).
+
+## Apps in rooms: presets and JANDI — 방 앱: 서비스 프리셋과 잔디 (feat/room-apps-presets-server, 2026-11-14, the owner, QA TC-1634)
+
+Plan: docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md (revision 2, owner decisions 1-8), phase 1, the server
+part. The picker groups, guides, logos and the Slack words in the web app come in the next PR (after the UI fix
+`fix/room-apps-settings-logos`); email in is phases 2-3 and waits for the mail domain.
+
+- **Other reads JANDI too.** After Slack's `text` and Discord's `content`, a string `body` is JANDI's incoming-webhook
+  shape: `[label](https://…)` gives the label and the card's one link (an address-looking label for another host
+  shows the real address, as Slack's `<url|label>`; an http link shows its label and links nowhere); `connectInfo`
+  (10 read) becomes "title: description" lines, the first three on the card, all in the plain text. `imageUrl` is
+  never fetched or shown, `connectColor` ignored, any `Accept` answered with `200 ok`. The first of text / content /
+  body wins.
+- **Presets.** `room_apps.preset` (migration `401_b_room_app_presets.sql`, B's second range; 401-499 checked free on
+  dev, every branch and the open PRs on 2026-11-14): `notion`, `typeform`, `tally`, `jotform`, `stripe`, `shopify`,
+  `zendesk` (`shared RoomAppPreset`; Jira and HubSpot are phase 4). The row's kind stays `other`, so older builds and
+  phone apps read it as an Other app. One reader per service in `server/src/rooms/apps/presets/*` (content types,
+  body cap, signature, parser); vendor sample payloads with fake data in `tests/fixtures/room-apps/`. Switches and
+  defaults as the plan (`ROOM_APP_PRESET_SWITCHES`: Notion one `entry` switch; Stripe `subscription_new` off; Shopify
+  `fulfilled` off). Cards are plain text with one link built on a fixed host (Stripe's dashboard from the payment
+  intent id, Shopify admin from `<handle>.myshopify.com`, a `.zendesk.com` ticket URL, Notion's hosts) or none; a file
+  answer shows its name, never the service's file URL; a payment shows a customer's name (Shopify: first name and
+  city), never email, phone, street or card data. Names on a card from an unsigned request set the card's
+  `unverified` flag only (the UI fix's rule; no mark after each name). Default name: the vendor's (a brand).
+- **Threads and dedupe.** Stripe `pi:<payment intent>` (a Checkout session and its intent are one card: the second
+  event only changes the status line, `AppEvent.onlyStatus`, no reply and not counted; refunds and disputes join it,
+  a dispute also in the room), event `id` dedupe. Shopify `order:<id>` (the id from `admin_graphql_api_id` when sent:
+  a JSON number past 2^53 loses digits), "Order payment" status only, dedupe `X-Shopify-Event-Id` else
+  `X-Shopify-Webhook-Id`. Zendesk `ticket:<id>`, dedupe sha256(raw) and the ticket's id + status + title + latest
+  comment for 10 minutes (the plan's id + status alone also swallowed a ticket reopened within 10 minutes of being
+  created); a solved or closed ticket opened again also shows in the room (`AppEvent.backFrom`). Notion `page:<id>`,
+  dedupe `source.event_id` (not `attempt`: a retry's attempt grows), else sha256(raw) for 10 minutes. Forms
+  `response:<id>`, dedupe `event_id` / `eventId` (7 days, as every delivery key) / `submissionID`.
+- **Zendesk's Copy body** (`roomAppZendeskBody(event)`) adds `"event": "created" | "updated"` to the plan's body so the
+  switches `new_ticket` / `updated` can tell the two triggers apart (without it: `new_ticket`). A body whose JSON is
+  broken by an unescaped quote is read key by key between the template's known keys (only with `"trina":"zendesk"`).
+- **Signatures** (`server/src/rooms/apps/signatures.ts`, replacing `inbound.ts signatureOk`): `hex-body` (GitHub,
+  Sentry), `b64-body` (Typeform `sha256=<b64>`, Shopify), `b64-json` (Tally: the raw bytes first, then
+  `JSON.stringify(JSON.parse(raw))`; the card is built from that one verified parse; a signed `createdAt` older than
+  2 days is refused, 401), `stripe` (`t.raw`, hex, any `v1`, |now − t| ≤ 5 min, the `whsec_` secret used literally),
+  `zendesk` (base64 of timestamp + raw; the timestamp ISO-8601 with a zone or Unix seconds and ≤ 5 min off, else 401).
+  All constant time over equal-length digests. Optional (owner decision 4): once a secret is saved, unsigned or wrong
+  requests answer 401.
+- **Preset rules.** `preset` only with kind `other` (400) and fixed at create (`UpdateRoomAppBody` has none; strict).
+  `setRoomAppSecret` on a service that cannot sign (plain Other, Google Forms, Notion, Jotform, an unknown preset):
+  400 `params.reason: no_signing`. `generate` only where the service has a field to paste one in (GitHub, Typeform,
+  Tally); Stripe, Shopify and Zendesk paste their own (Stripe checked against `whsec_…`; printable, 16-200 characters);
+  Zendesk's public test secret is refused. A row whose preset this build does not know answers 401 with a secret, 400
+  without, never read as Other.
+- **Jotform** posts a form: `multipart/form-data` or urlencoded, read from the bounded raw body (512 KiB) into at most
+  100 fields of 64 KB; file parts are dropped, never stored. Labels from `pretty`, else the `rawRequest` keys.
+- **API (additive).** `RoomApp.preset?`, `RoomAppRef.preset?` (also on stored cards, so a removed app's messages keep
+  their logo), the paused notice's `roomApp.preset?`, `CreateRoomAppBody.preset?`, `ROOM_APP_PRESET_SWITCHES / _NAMES /
+  _SIGNING / _NEEDS`, `ZENDESK_TEST_SECRET`, `roomAppZendeskBody()`. Audit: `room_app.add` / `.remove` carry `preset`.
+- **`RoomApp.eventsSeen`** (additive, for the web's "Not set up in Shopify" under a switch): the app's switch keys an
+  event has arrived for at least once, also while its switch is off; keys only (`room_apps.events_seen`, JSON array, in
+  migration 401), written once per key after the body was read. A Zendesk key written with `\uXXXX` escapes counts
+  as a duplicate too (the check runs on a copy with them decoded; re-review of #854).
+- **Logs.** `loggablePath` also drops the query string on `/in/` (a service that puts a token in `?token=`).
+- **After the security review of #854.**
+  - **Zendesk quote injection (blocker).** Zendesk does not JSON-escape placeholder values, so a customer comment
+    `x","id":"123","status":"solved","url":"https://evil.zendesk.com/p","update":"y` made valid JSON whose later
+    duplicate keys won (another ticket's thread and status, a link to another tenant). Now the Copy body passes every
+    outsider-written placeholder (title, requester, assignee, latest comment) through Liquid's `| escape` and the
+    server decodes `&quot; &amp; &lt; &gt; &#39;`; a body whose raw text names any template key more than once is
+    refused (400, also in the tolerant reader); the link is built only as `https://<sub>.zendesk.com/agent/tickets/<the
+    same id>`, and the subdomain is pinned to the app on first sight (`room_apps.preset_pin`, added to the unmerged
+    migration 401): another subdomain gets no link. Live check: that Zendesk applies `| escape` in a webhook body.
+  - **Shopify.** Its topic and event-id headers are outside the HMAC: the topic must agree with the signed body
+    (`orders/paid` ⇒ `financial_status` paid, `orders/cancelled` ⇒ `cancelled_at`, `orders/fulfilled` ⇒
+    `fulfillment_status` fulfilled, `orders/create` ⇒ not cancelled; else skipped, 200), a second delivery key
+    `shopify-body:<sha256(raw)>:<topic>` for 7 days stops a replay under a new event id, and the store handle is
+    pinned per app on first sight (another store: no link).
+  - **Typeform.** Its signature has no time: a signed response whose `form_response.submitted_at` is older than 2 days
+    (or missing) is refused, 401, as Tally's `createdAt`.
+  - **Zendesk dedupe** also covers the assignee and priority (a reassignment is a new change).
+  - The pin (owner decision via the coordinator): set by the first event that posts; with a secret saved only a signed
+    request may set it. Regenerate clears it, and so does saving a secret (a pin set by an unsigned request before the
+    secret is forgotten; the next signed request pins again).
+- **Rollback note for 401.** Rolling the server back to a build before this one keeps the column but ignores it: every
+  preset row is read as plain Other. Such a build checks a saved secret against `Sentry-Hook-Signature` for every
+  non-GitHub kind, so **Stripe, Shopify, Zendesk and Tally (and Typeform) apps with a saved secret answer 401** and their
+  vendors retry, then disable or delete the webhook (Shopify after repeated failures, Stripe after 3 days). Unsigned
+  preset apps keep posting as Other cards, with a `format` refusal for most bodies. It fails closed (nothing is posted
+  wrongly), but the vendor setups may need redoing: say so in the release notes of any rollback past this build, and
+  prefer rolling forward.
+- **Still to check live** (TC-1634, plan "Live checks"): Notion's envelope and property shapes; Typeform's secret field;
+  Tally's `data` keys and its real signature; Jotform's content type and fields; Stripe's event names and roles;
+  Shopify's signing key for admin-made webhooks; Zendesk's `| escape` filter in a webhook body, its timestamp format and
+  `{{ticket.latest_public_comment}}`; JANDI-compatible senders and `200 ok`.
+- Tests: tests/unit/b-room-apps-presets.test.ts (incl. the quote-injection fixture), b-room-app-signatures.test.ts;
+  tests/security/lib/room-apps-cases.ts (no_signing, preset fixed).
+- Version impact: **minor**.
+
+## Apps in rooms: Jira, HubSpot and more services — 방 앱: Jira, HubSpot, 다른 서비스 (feat/room-apps-presets-p4, 2026-11-15, the owner, QA TC-1634)
+
+Plan: docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md (revision 2), phase 4. Builds on "Apps in rooms: presets
+and JANDI" (#854) and its web PR. No migration: presets are `room_apps.preset` (401). Vendor facts checked 2026-11-15
+(sources in each `server/src/rooms/apps/presets/*.ts` header and the PR).
+
+- **Presets** `jira`, `hubspot`, `toss_payments`, `channel_talk`, `portone` (shared `RoomAppPreset`). Picker: Jira and
+  HubSpot under Work; the three regional ones behind **Show more services** (collapsed, the same list for everyone, no
+  language or country logic; open from the start when the room has one already). Logos: initials ("Ji", "H", "TP",
+  "CT", "PO"): Atlassian and HubSpot ask for permission before their marks are used, and none of the three regional
+  marks is in a free set with terms we could check.
+- **Clients tolerate a preset they don't know.** `RoomApp.preset`, `RoomAppRef.preset` and the paused notice's preset
+  are `RoomAppPreset.optional().catch(undefined)` (`RoomAppPresetSeen`), as `textSize` is: the shared API client
+  parses every answer with zod, so a desktop app one version behind its server would otherwise fail the whole room
+  list on a new preset (this phase, then `email`). No released client has the strict enum yet (#854 is on dev only).
+- **Jira** (automation "Send web request", custom body `roomAppJiraBody(event)`): one flow per trigger ("Work item
+  created", "Work item transitioned", optional "Work item commented"), each body naming it in `event` (Jira has no
+  documented smart value for the trigger; `{{triggerType}}` was not found). Smart values are pasted as they are, so
+  every person-written one goes through `.jsonEncode` (escapes, adds no quotes: `"title":"{{issue.summary.jsonEncode}}"`;
+  the status name too). Same care as Zendesk after #854's review: a body that names a template key twice (also via
+  `\uXXXX`) is refused, 400; the link is only `https://<site>.atlassian.net/browse/<the same key>`, the site pinned on
+  first sight (`preset_pin`). Thread `issue:<key>`; transitions edit the status line and join the thread, comments
+  join it (off by default). Dedupe: the body's hash and key + event + what the card shows, 10 minutes. No signature.
+  Needs: space admin.
+- **HubSpot** (workflow "Data ops › Send a webhook", Data Hub Professional or Enterprise): "Customize request body"
+  with keys the guide lists per object (`object` static deal / contact / ticket, `id` = Record ID, then name, amount,
+  stage…); "Include all properties" is read too by HubSpot's internal names (shape a live check). Never shown: email,
+  phone or any other property; a contact shows name and company. Thread `<object>:<id>`, the stage on the status line.
+  The record link (`app.hubspot.com/contacts/<portal>/record/<0-1|0-3|0-5>/<id>`) only when the body names the
+  account (`portal` / `portalId`), pinned on first sight. No signature: HubSpot signs with an app's secret only.
+- **Toss Payments**: `PAYMENT_STATUS_CHANGED` and `DEPOSIT_CALLBACK` (other event types read and skipped). Card: the
+  amount, the order's name, the method, the order id; never the card number, virtual account, phone, cash receipt,
+  `secret` or `metadata`. Thread `order:<orderId>`; DONE only changes the status line of an order's card that is there
+  (a transfer reported by both events shows once); cancels join the thread. Switches `payment`, `cancelled` on;
+  `waiting` (virtual account), `failed` (aborted, expired) off. Dedupe eventType + orderId + status + createdAt.
+  Optional signature `toss` (`v1:<b64>` over `raw + ":" + transmission-time`, ≤ 5 min): the security key is 64 hex
+  characters and Toss does not say whether the HMAC key is the text or its bytes, so both are tried; it also does not
+  say which events are signed, so the guide says to take the key away if payments stop showing (live check).
+- **Channel Talk**: `userChat` (a card "New chat from <name>" with its first message; later changes only the status
+  line) and `message` (a customer's message, or with `manager_message` on the team's reply, in the chat's thread;
+  bots skipped). Group chats and DMs of the team (`chatType` other than `userChat`) and `user` events are skipped.
+  Only the customer's name is read from `refers.user` (it carries email, phone and location). Dedupe on the message
+  id; chat changes on the body hash and chat + state for 10 minutes. Optional `url-token`: Channel Talk adds
+  `?token=<its token>` to the URL; once saved, exactly one matching `token` is required (compared as SHA-256 digests).
+  Its length is undocumented, so 8 characters are taken. `/in/` query strings were already never logged (#854).
+- **PortOne V2**: the 2024-04-25 body (`type: Transaction.*`, `data.paymentId`) and the 2024-01-01 one (`status`,
+  `payment_id`). The body has no amount or name: the card is "Payment <id>" and its state. `Transaction.Paid` after a
+  virtual account only changes the status line. Other types (Ready, PayPending, CancelPending, disputes, BillingKey.*)
+  skipped. Dedupe `webhook-id`, else type + id + timestamp. Optional `standard` signature (Standard Webhooks: HMAC of
+  `id.timestamp.raw` with the base64-decoded key, `whsec_` prefix optional as PortOne's SDK, ≤ 5 min, any `v1`).
+- **Secrets**: Jira and HubSpot 400 `no_signing`; Toss 64 hex, PortOne base64 (16+ bytes) with or without `whsec_`,
+  Channel Talk 8-200 printable. A saved one makes unsigned or wrong requests 401, as every preset.
+- **Not done in this phase** (plan): Zapier and Make stay the P1 how-tos; no links on regional cards (no documented
+  dashboard address for one payment or chat).
+- **Still to check live** (TC-1634): Jira's field labels ("Web request body" › "Custom data"), `.jsonEncode` on
+  Cloud and the 2026 step limits; HubSpot's all-properties body and whether it carries the account id; which Toss
+  events are signed and how the key is used; Channel Talk's token in its UI, Korean labels and a desk link; PortOne's
+  default webhook version and where the secret shows.
+- Tests: tests/unit/b-room-apps-presets-p4.test.ts (fixtures under tests/fixtures/room-apps/{jira,hubspot,
+  toss_payments,channel_talk,portone}), web/test/unit/room-apps.test.ts, tests/security/lib/room-apps-cases.ts (Jira
+  and HubSpot no_signing).
+- Version impact: **minor**.
+
+## A link to a chat you were taken out of says so (fix/qa-1115-sharing, 2026-11-15, QA TC-2009/TC-2032/TC-2034)
+
+Where: `server/src/chat/{chat-audience,shared,people-share,chat-files,store}.ts`, `server/src/admin/{folders,groups}.ts`,
+migration `404_b_chat_audience_past.sql`, `shared/src/api/{entities,chats}.ts`, `web/src/pages/Chat.tsx`,
+`web/src/components/chat/{ChatShareDialog,Messages}.tsx`, `web/src/lib/{sharedChat,upload}.ts`.
+
+- **The rule.** A chat shared with people and groups answers someone who does not see it now with the 404 of a missing
+  chat, as before, with one exception, the same as a shared project chat's `no_longer_member` (#768/#794): a person who
+  was one of its people answers with reason `no_longer_shared` and the words "This chat is no longer shared with you".
+  Who was in it is recorded in `chat_audience_past` (chat, person, when; never the creator): every save of the audience
+  records everyone who saw it before or after the save, leaving a listed group records the person (`afterAccessChange`
+  → `peopleChatsLost`), and deleting a listed group records its active members before they go. Audit rows were not
+  used: `chat.audience` keeps counts only, by design.
+- **Who gets the reason.** Only an active member account (not a guest) with a row there, while the chat exists, is not
+  in the trash and is in no project; this covers a chat made private again (everyone taken out). Everyone else (an
+  outsider, the owner and admins outside it, a guest, a deleted chat, a chat moved into a project) gets the identical
+  plain 404, so its existence is never told to someone who was not in it. It tells a former member only what they knew
+  (that they were in it) and that it still exists. A deleted chat stays the plain 404 for everyone, as a deleted shared
+  project chat (TC-2034).
+- **The generic page** no longer says "share it with the project's members" (it may be a chat outside projects): "Ask
+  the person who sent the link to share it with you."
+- **Typed text is kept.** The box's draft is stored per chat (lib/localData.ts); the "no longer shared" page shows it
+  with Copy, never drops it (TC-2032).
+- **Related fixes in the same PR.** The share check counts only earlier uploads that will be copied (the rule `copyEarlier`
+  uses: TC-2022), reading a file only when its state says it may have changed (a picture, another size, written since
+  it was attached), at most 100 MB a check, with the verdict kept by path, inode, size and mtime for the save; a computer upload a viewer may not open is left out of their message instead of a
+  nameless "0 B" tile (team references still say "unavailable"); an upload whose picture metadata the server cut out
+  answers `Attachment.receivedSize` (the bytes it received, checked whole before the cut), which the sender's
+  whole-file check uses (TC-2023; the chunked path checks the sha256 before the cut already). `ChatAudienceRow.inGroups`
+  (the listed groups a listed person is in: creator and admins only, only groups the viewer is in, admins any) and
+  `keptThrough` on a save say who keeps access through a group when taken out by name (TC-2264); someone kept only
+  through groups the creator is not in is not mentioned (that would tell group membership). The footer of a
+  recipient whose chat nobody else sees now (its creator's account off) says who shared it, not "Only you" (TC-2263).
+- Tests: tests/security/people-shared-chats.test.ts (the reason for former members, identical 404 for outsiders, a
+  deleted chat, a group left and deleted), tests/unit/b-chat-files.test.ts (GPS photo on both upload paths, the count,
+  the hidden tile), web unit tests for the page, the dialog and the upload check.
+- Version impact: **patch**.
+
+## Message links and their previews — 메시지 링크 미리보기 (feat/message-link-previews, 2026-11-15, the owner, plan docs/AGENTS/plan/20261114-1705-message-link-previews.md)
+
+The owner asked for Slack's behaviour: copy a message's link, paste it, and the message shows under it as a card that
+opens it; for people who may not see it, "the same way as Slack". Read as the same behaviour and structure, in our own
+words and components.
+
+- **Copy link** in a message's ⋮ menu and long-press sheet: `/rooms/<room>?m=<message>` (a reply
+  `/rooms/<room>/t/<root>?m=<reply>`) on the team address (GET /api/me team.address) when there is one, else this page's
+  origin: in the desktop app on an office network the page is a LAN address others cannot open.
+- **Previews are decided on the server, per viewer, per read**, inside `messagesOut` (rooms/link-previews.ts), so every
+  list and the live event give the same answer: the viewer's member row of the original's room, the room not archived,
+  the DM still open to them (guests), `canSee` (where they see the room from, hidden old answers and their threads,
+  private previews), the link's room and thread its own. The place is named as the viewer names it, never stored.
+  Batched per read: the linked rows, rooms, files, people and apps once (once per live event for all members), the
+  viewer's member rows in one query; at most 100 linked messages per read, 5 cards per message, none when a message has
+  more than 5 links of any kind (Slack's rule: its message links stay chips, QA TC-2356).
+- **No trace for no access**: a link the viewer may not see, one to nothing and another team's all give a message with
+  no `linkPreviews` field; the web leaves the address the plain link it was, and the room opens on its usual "can't be
+  found". The web draws a chip and a card only for its own host or the team address (a look-alike address of another
+  site never shows a real-looking card under it).
+- **Show message (Slack's private-link prompt)**: when the box holds links some reader of the room or thread cannot see,
+  the composer asks `POST /api/rooms/:id/message-links/audience` (yes per link only, never names or counts; a link the
+  sender cannot see answers exactly as one that is not there; 30 then one a second per person) and shows one line with
+  **Only show link** (default) / **Show message**. Show message is a person's explicit, per-link consent: the server
+  builds a frozen snapshot from the original with the sender's own access at send time (`showMessages` on the person's
+  own send route, `POST /api/rooms/:id/messages`, which the web app uses and a script with the person's own sign-in could
+  too; never an AI, an app, the Team AX connector, a shared answer or an import, which do not pass it). This does not contradict "Nothing read is sent wider":
+  that rule binds what an AI does for a person; a person who can read a message choosing to show it after a warning is
+  the same human-consent pattern as "대화방에 보내기" and the widening cards.
+- **A snapshot's boundaries**: only a person's own message (never an AI answer, an app's card or a shared answer: those
+  carry team-file links and what they read, and have their own way to a room); text at most 4,000 characters; files as a
+  count and the first name (no ids, no contents); mentions as ids (names read when shown; they notify nobody); a DM or
+  group chat by its kind only ("Direct message", "Group chat"), a team room by its name as the sender saw it; marked
+  "Shared by". A reader outside the original conversation (a guest too) sees its author's name and photo: the sender
+  chose to show the message, with who wrote it. Its words are wiped when the original is deleted, when the sender removes the preview, when an edit takes
+  the link out and when the message holding it is deleted; on a delete of the original, the open windows of the messages
+  holding its snapshot hear it at once (room.message.updated). An edit never makes one (it notifies nobody and cannot widen).
+- **Remove preview**: `POST /api/rooms/:id/messages/:messageId/hide-preview`, the author of a person's message only (404
+  otherwise, as for a message that is not theirs), not through the edit route (no "(edited)").
+- Push, the rooms list's line, search and every AI read (rooms/reader.ts) get the typed text only (the address holds
+  ids, no name or content); they never read previews or snapshots (`messagesOut(…, false)`).
+- Storage: migration 402 `room_messages.link_previews` (JSON: removed previews and snapshots; ids, never names).
+- Step 0 (2026-11-15, Slack test workspace, read only): the ⋮ menu has **Copy link**; a pasted message link in the box
+  turns into the conversation's name ("<me> with <them>" for a DM) with a preview card ("Direct message" as its label)
+  that the writer can remove with "Remove link preview" before sending. No "Show message" prompt appeared there (every
+  reader could see the message); the non-member view could not be checked with one account, so the plan's behaviour
+  stands.
+- Not in v1: AI chat messages and `/c/<id>` links, links to a whole room, Forward, a per-person "no previews" setting,
+  Slack's one-hour repeat rule, thumbnails in a card, live updates of cards in other rooms, other websites' previews.
+
+## Guests: leftovers from QA — 게스트 남은 문제 (fix/guest-leftovers, 2026-11-15, QA TC-2451..TC-2457)
+
+넣을 곳: Team AX core (`web/src/components/GuestView.tsx` NotForRoomGuests, `components/rooms/SideChatPanel.tsx`, `lib/guestFiles.ts` with `components/chat/TeamFilePicker.tsx` and `components/FolderPicker.tsx`, `pages/Projects.tsx` with `store/live.ts`, `components/settings/AccountDeletion.tsx`, `components/settings/Notifications.tsx`; server `chat/project-joins.ts`, `auth/guests.ts` seenBy, `auth/status-messages.ts`, `notifications/service.ts`). Builds on "Guests: only what they were invited to".
+
+- **/projects for a guest in a room** opens their room (GuestLanding), like the team's pages that send a guest Home. A guest in a project keeps the list (their one project).
+- **Their own sign-in, not connected yet:** the ✦ side chat shows no starters ("Catch up", "For me", "Summarize", an app's chip) and no quick asks under a quoted message until ai-access answers usable; the "Connect my AI" line above the box is the one thing to do. The box stays (typing is never blocked).
+- **File pickers a guest opens** (add files to a message in Ask Trina, a project, a room or the side chat; Save an AI document): the server lets a guest read only their project's folder and their own folder, so the picker's top is those folders as one list named "Your files" (ko 내 파일), the folders it only passes through (`projects/`, `users/`) are no step of the path, and the menu rows read "Add from your files" / "Your files" / "Save to your files"; an attached file's chip drops the Projects step too. Never "Team folder". Their own folder stays listed: the server lets them keep files there, and the AI can save there. Search (⌘K) no longer offers a guest Open files, New project or New scheduled task (pages that only sent them Home).
+- **A project page follows its people live.** Whenever who reads a team project changes (`projectJoins`: a guest accepted, someone was added or left, a group changed), each person who reads it now and has a window open (`publishEach`: nothing buffered for anyone else) gets one quiet notice `project_people_changed` whose message is the changed projects' ids they read, comma-separated; an open page of one of them reads its people again (the faces, the count, "Includes 1 guest"). PR #871 re-reads the directory for a room; a project's people list carries `guest` itself, so reading it again is enough.
+- **A guest's account going is not signalled outside their place.** `statusGoneWithAccount` (an account switched off, deleted, or switched on with a status the team saw) sends the empty `profile_changed` notice only to the windows of people who may see that person (`seenBy`, read before the change and, for a switch-on, after it too: afterwards a gone account shares no place), and only when the account had a status. Same rule as PR #872's `profileChangedFor`, which covers a guest's own status writes and the status clock.
+- **Activity, a guest joined:** `team.joined` carries `joined.guestPlace` (kind, name) for a guest, and the line reads "X joined 'Quote prep' as a guest." The name is the place's current one, given only to a reader who is in that place or is the owner or an admin; anyone else (an inviter who left it, a group chat with no name) reads "X joined a group chat / a project as a guest.", so a later rename is never told. Its link (`guestPlace.id`): the owner and admins keep Admin › Members (no id); a member in that place (the inviter) opens the room or project (its id); anyone else has no link (null), since Admin is not theirs.
+- **A project guest's folders open on the project's own files screen** (`/projects/<id>/files?dir=…`, `ProjectFiles`), on a computer as on a phone: the project page's Files row, its Open and its folder rows go there for a guest instead of the 파일 screen (`/files`, which sends a guest Home). The screen lists the folder, opens files in the file sheet, has a back link on a computer and no button to the 파일 screen for a guest. Uploading stays where it was for a guest (attach in a chat); no upload button is added here (QA TC-2470).
+- **A guest's delete-account page** lists only what a guest has: who is told; deleted: sign-in, profile and photo, notifications, and with AI on their chats with the AI (their own sign-in also their AI account); the files they saved in "Your files" go to the owner's archive (the same as a member's own folder, in the pickers' words); stays with the team: what they sent in their place and to its people, by name; the activity log and backups line. No team folders, shared skills, scheduled tasks or app connections.
+- Version impact: **patch** (one optional field in `InboxNotification.joined`, one new notice code).
+
+## Guest states: true reasons, a reset AI, and coming back with a restored place — 게스트 상태 정리 (fix/guest-states, 2026-11-15, the owner's rules; independent QA review of guest invites)
+
+넣을 곳: Team AX core (server `auth/accounts.ts` invites, `auth/guests.ts`, `admin/guests.ts`, `admin/users.ts`, `admin/budgets.ts`, `chat/project-restore.ts`, migration `123_a_guest_place_return.sql`; web `pages/Auth.tsx` invite page, `components/GuestInvite.tsx`, `pages/admin/Guests.tsx`, `components/chat/Messages.tsx`, `lib/guests.ts`), 이유: what a person sees in each guest state (during it, the first action, the way out, being told before, the words being true, every role at 390 light and dark). Builds on "Guests: only what they were invited to" and the guest screen entries above.
+
+- **Make team member resets the guest's AI** (owner, QA TC-2199, 2247, 2306): the guests row with its team connection goes, and so do the guest's own `block` budgets (the monthly limit), so nothing of the guest AI stays under a member; an answer running on it stops. The dialog's "Their AI then follows the team's settings, like any member's" is now true. A removed guest made a team member is switched on with it (a member needs no place; the seat is checked first, 409 seat_limit), and the dialog says so ("They take one seat and can sign in again, as a team member.").
+- **A dead invite link says why** (TC-2219, 2225, 2226, 2230, 2297, 2298): `InviteInfo.reason` (only while `valid` is false) is `expired`, `used`, `revoked`, `inviter_gone` (the maker left the room, lost the project, was demoted while the link gives Team AI, or was switched off or deleted: switching an account off or demoting it revokes its links, so a revoked link whose maker can no longer invite says this, not "turned off") or `place_gone` (the room closed, the project in the trash or deleted); a Team AI link whose team AI account was deleted reads `revoked`. Order: used, then turned off, then expired, then the place, then the maker. Only the reason goes out: no place, no maker, nothing of the team but its name. The accept's 410 carries the same `params.reason` with the same sentence, and the page then shows it in place of the form (the maker lost access while the form was filled in). One sentence each, en first ("The person who made this link can no longer invite you. Ask them or someone else on the team for a new link.").
+- **Link expiry up front** (TC-2222, 2223): the invite dialog says "The link works once, for 7 days (until …)" before Create link, and the link screen the same with the link's own `expiresAt`, in the team's time zone (`Me.server.timeZone`).
+- **Admin › Guests reads "N of M guests"** (TC-2192) from `GuestInviteLimit.used` (owner and admins only: a member does not learn the count), or "N guests" without a cap. **A plan lowered below the guests** (TC-2256): nobody is removed, ever; new invites and switching a removed guest on are refused with the cap; the count turns the warning colour with one line ("This plan allows 1 guest. Everyone here keeps working, but you can't invite more until you remove guests or change the plan.").
+- **The limit says when it resets** (TC-2201): `budgetBlock` returns `resetsAt` (the start of the next period in the team's time zone, the date its message already used), sent as `params.resetsAt` on every `budget_exceeded` of a turn and a refused send. A guest reads "You've used this month's AI limit. It resets on Dec 1. Ask the person who invited you if you need more."; the server's own message for a guest says to ask the person who invited them, not an admin.
+- **Switching a removed guest back on** (TC-2233, 2307, 2308): allowed while they could come back to their place (`inPlaceEvenIfOff`: still a person of the project's folder; `placePeople` counts active accounts only, so before this a removed project guest could never be switched on). A removed room guest is out of the room for good (a switched-off account leaves its group chats), so only Make team member or a new invite bring them back. Otherwise 409 `conflict` reason `guest_no_place` with `params.placeOut` and a plain sentence: `gone` "Their room or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member." (the owner's words), `trashed` "Their project is in the trash. Restoring it brings them back, or you can make them a team member.", `left` "They're no longer in their room or project…". `User.guest.placeOut` (removed guests only) puts why on the row beforehand ("No longer in 'Quote prep'", "Project · Launch plan · in the trash", "Their room or project is gone"); then the row's "…" has no Switch back on, only Make team member and Delete. A refusal that still comes (the place went meanwhile) opens the sentence with Make team member.
+- **A restored place brings its guests back** (TC-2237–2242, 2239's open question settled by the coordinator: yes, by itself): `guests.off_with_place` marks a guest the server switched off because the place itself closed (the project to the trash, the room archived), not one taken out of it. Restoring the project (its page, Files › Trash, or an admin pointing it at a folder: `projectsRestored`) switches them on again while they are still in it, within the plan's guests (one over the cap stays off), audited `why: guest_place_back`. Any switch by hand (`PATCH status`, on or off, also "off" again) clears the mark: an admin's decision is never undone by a restore. A rename keeps the guest (the folder and its rules stay; every place reads the name live); deleted for good keeps them off and the row says the place is gone. A group chat has no un-archive, so the room side has nothing to restore.
+- **Told before the trash** (TC-2240, 2242): moving a project with guests to the trash reads its people first (`GET /api/projects/:id/people`, the guest tags) and its confirm adds "Its guest can't sign in until it's restored." (with the count for more), for whoever may move it (its creator, the owner, an admin). Not known (the read failed): the general words.
+- **A deleted team AI account** (TC-2255): `guests.team_credential_id` is set NULL with it. `Me.guest`/`User.guest` then carry `teamAiGone: true` with `ai` No AI: the guest keeps 트리나 and ✦ and reads "AI isn't available right now. Ask the person who invited you." (the Team AI state, without the "yet" of an account that cannot answer here); Admin's row says "Team AI · account removed" and Change AI puts it right. Nothing else changes: ai-access answers not usable, a send is refused as with no AI.
+- **A guest's project folder on a computer** (`/projects/<id>/files?dir=…`, ProjectFiles from #878) had its back link, title and rows 16px from the sidebar: it now has the project page's column (24px, at most 1080px, the name as large as the page's).
+- **Removed rows' menus** sat under the next row (a dimmed row is a stacking context): the dimmed row is undimmed and raised while focus is inside it.
+- Version impact: **minor** (new optional API fields `InviteInfo.reason`, `GuestInviteLimit.used`, `GuestDetail.placeOut`/`teamAiGone`, error `params.resetsAt` / `params.placeOut`; migration 123).
+
+## Guest states, round 2: a calm limit notice, whole status lines, Restore project on the row — 게스트 상태 2차 (fix/guest-states-2, 2026-11-15, the coordinator after #889; QA TC-2491..2493)
+
+넣을 곳: Team AX core (`web/src/components/chat/Messages.tsx`, `web/src/pages/admin/Guests.tsx`), 이유: follow-ups of "Guest states" above; the owner's rule "never an error's look for a known state".
+
+- **The AI limit used up** (code `budget_exceeded`) is a known state, not a failure: a neutral notice (the paused answer's look: a line border, a pause icon, `role="status"`, `answer-limit`) with the words as before (a guest's "…It resets on Dec 1…", a member's server message with its date), and no **Try again** in it nor the regenerate icon under it: both would be refused until the reset. Members and guests alike.
+- **Admin › Guests at 390:** a row's second line wraps to two lines and is never cut sideways; a removed guest's line drops the AI part (they cannot use it) so "Disabled" and why stay readable.
+- **Restore project** on the row of a guest whose project is in the trash (Admin is the owner's and admins'; `POST /api/projects/:id/restore`, which switches the guest back on within the plan's guests: "Guest states" above). Beside the "…" on a computer, under the words on a phone.
+- Version impact: **patch** (no API change).
+
+## Free plan removed (owner 2026-11-14): trial with a card only
+
+- **Owner decision (2026-11-14): the hosted Free plan is gone.** Trina Cloud has only the 14-day trial, which starts
+  with a card (Polar), and then the paid plans (Starter, Team, Business). No new Free team, no Free wording in the
+  docs, and an idle hosted team that sleeps is a trial team (paid teams do not sleep). This supersedes every earlier
+  Free-plan decision here (marked where they are): the speech hours of "the free one too" (the trial gets Starter's
+  50 hours), `free` in the control plane's plan ids, the Free guest cap, and "hosted free teams" in the trial auto-stop
+  tuning.
+- **Rollout: `plan: "free"` keeps working.** The team server never branches on the plan id (`PlanFile.plan` is any
+  `PlanId`, `shared/src/cloud-protocol/files.ts`; the Go reader takes any string), so a control plane may still write
+  `free` for a Free team that existed before. That team keeps running with the plan.json it gets until its owner chooses a paid
+  plan or the team is ended (trina-cloud docs/runbooks/free-plan-removal.md). No allowlist may refuse it: apply-plan and the enroll answer would
+  fail.
+- **Where the rest lives.** Billing, sign-up, the console, mails and the move of the existing Free teams are in the
+  hosting repository (trina-cloud); this repo changes only words.
+- Version impact: **none** (docs and comments).
+
+## A chat link opens the desktop app on that chat (fix/qa-1115-desktop-chat-link, 2026-11-15, QA TC-2266)
+
+Builds on "First run, phase 2". Plan: `docs/AGENTS/plan/20261115-0016-qa-1115-desktop-chat-link.md`.
+
+- **The desktop app reads a page inside its link** (`desktopPagePath`, `desktop/src/common/address.ts`): the link must
+  first pass `readDesktopLink` (https only, no user:password, no loopback host, one `url` and nothing else). Then only
+  `/c/<id>`, `/rooms/<id>`, `/rooms/<id>/t/<id>` and `/projects/<id>`, ids `[A-Za-z0-9_-]{1,64}`, one trailing slash
+  dropped; the path must be written exactly as the URL parser reads it (so no `..`, `.`, `//`, `\`, `%`-escapes or
+  control characters); a room keeps one `?m=<id>`, every other query and the fragment are dropped. Anything else opens
+  as before (screen ④, the team's start).
+- **Only on a team the app already has, by exact origin, and without screen ④** (`AppWindow.openLinkedPage`): no new
+  server is connected, so ④'s question ("connect to {host}?") has nothing to ask; Slack opens its links the same way.
+  The team on screen opens the page in its router (`bridge:open`, as a notification's click); another team, or a room
+  message, loads the address. A page of a team the app does not have yet goes to ④ and opens that team's start: a web
+  page can never add a team or reach another origin this way. The team's own sign-in and access checks still apply
+  (a chat the person may not see shows "not found").
+- **The web offers it in one place**: "Open in the app" in the chat's title menu (`chatOpenInAppHref`,
+  `web/src/lib/team-link.ts`), in a computer's web browser on macOS or Windows only (the systems with the desktop
+  app's link handler), not at phone width, not inside the apps, only on an https team. Without the app the browser
+  stays on the chat (Chrome and Edge do nothing; Safari may say it cannot open the address). Rooms and projects get no
+  item for now (owner prefers a lean menu); their links still open in the app.
+- Version impact: **patch**.
+
+## Hosted trial AI credit removed (owner 2026-11-15, chore/remove-hosted-trial-credit)
+
+Owner decision 2026-11-15: "우리 그런 기능 다 없앴는데? 관련된거 있으면 다 지워줘". The hosted trial AI credit ("B — Hosted
+trial AI credit", "Z — trial credit on the API engine") is removed product-wide. The control plane (trina-cloud) never
+shipped the sending side: its copy of the cloud contract never had `hosted-chat-key-set`, and the only OpenRouter keys
+it makes are the hosted speech keys.
+
+- **Gone from the team server:** `server/src/credentials/hosted-chat.ts` (storage, cap, holds, meter, refusal mark,
+  rekey, drop at start), the `'trial'` route of `connectionRoute` and the turn's trial path (`chat/turn.ts`: no
+  `hosted-trial` credential id, no `trial_credit_used` / `trial_ended` errors), the engine list's "the credit answers"
+  case (`admin/engine-choice.ts`), `AiAccess.trial`, `GET /api/admin/trial-credit` (`TrialCredit`,
+  `TRIAL_CREDENTIAL_ID`), admin.js `hosted-chat-key`, the backup / export / restore handling of the two rows, and
+  `engine.modelUpstreams.openrouter` (tests only). The API engine loses its per-completion meter (`ApiMeter`,
+  `maxTokens`): only the trial used them; it otherwise answers as before.
+- **Gone from the contract and mycel-ctl:** the tenant command `hosted-chat-key-set` (`HostedChatKeyInput`, its
+  vectors) and `cmdHostedChatKeySet`. A control plane that sent it would now get an unknown command.
+- **Gone from the web app:** `TrialCreditBar`, the trial line above the composer, on Home's no-AI card and in the
+  member welcome row, the Usage-by-connection label "Trial credit (hosting)", and their i18n keys in all six
+  languages. Turns answered on the credit before keep `turns.credential_id = 'hosted-trial'` and show as a removed
+  connection.
+- **Data:** migration `124_a_hosted_trial_credit_removed.sql` deletes the settings rows `ai.hostedChatKey` and
+  `ai.hostedChatUsage` (data only, `min_compatible_reader: 1`; it does not raise the reader level). An older build
+  that reads the database afterwards finds no row and treats the team as one that never had a credit (`stored()` and
+  `hostedChatUsedUsd()` return null / 0 for a missing row).
+- **Kept:** the hosted speech key (`credentials/speech-key.ts`, `hosted-speech-key-set`, `OpenRouterApiKey`), the API
+  engine, and "다른 AI로 대신 답하기".
+- Version impact: **minor** (an endpoint, a tenant command and visible lines removed).
+

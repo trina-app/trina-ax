@@ -136,6 +136,7 @@ export class ScheduleCover {
     if (s.type === 'integration') return `the team connection ${getRow(db, s.id)?.name ?? '?'}`
     if (s.type === 'drive_share') return 'a Google Drive shared with the team'
     if (s.type === 'slack') return 'messages the user read in Slack'
+    if (s.type === 'chat') return 'files sent in a shared chat'
     return `the name ${s.path}`
   }
 

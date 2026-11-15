@@ -10,6 +10,16 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
 
 整个过程大约需要 15 分钟：大部分时间在 Google Cloud 中，最后在 Trina AX 中完成一个对话框。
 
+:::tip
+**你需要准备的**
+
+| 内容 | 从哪里获取 | 填到哪里 |
+|---|---|---|
+| 两个**返回地址** | Trina AX 对话框的**在 Google Cloud 中**一步，每个都带有**复制**按钮 | Google Cloud › 客户端（Clients）› 你的客户端 › **已获授权的重定向 URI**（Authorized redirect URIs） |
+| **权限**（范围）列表 | 本页的权限代码块，见[添加权限](#在-google-cloud-中) | Google Cloud › **数据访问**（Data access）› **手动添加范围**（Manually add scopes） |
+| 客户端的 **JSON 文件**（或**客户端 ID** 和**客户端密钥**） | Google Cloud › **客户端**（Clients）› **下载 JSON**（Download JSON），在创建客户端后立即下载 | Trina AX 对话框的**在这里添加**一步 |
+:::
+
 :::note
 本页截图使用的是一个虚构的团队“Acme”。这里没有展示 Google Cloud 自己的页面，因为它们经常变化：本页会引用 Google
 的标签名称，并附上每个 Google Cloud 页面的链接。

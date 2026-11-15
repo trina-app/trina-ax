@@ -173,3 +173,23 @@ func TestContractVectors(t *testing.T) {
 		t.Fatalf("only %d plan vectors", n)
 	}
 }
+
+// maxGuests (guests the team may have): absent or null is the server's default, 0-10000 accepted, as by
+// shared/src/cloud-protocol PlanFile.
+func TestMaxGuests(t *testing.T) {
+	base := `{"format":1,"plan":"team","maxConcurrency":3,"memoryMiB":4096,"cpuCores":3,"diskGiB":50`
+	if p, err := Parse([]byte(base + `}`)); err != nil || p.MaxGuests != nil {
+		t.Fatalf("absent: %v %+v", err, p)
+	}
+	for _, g := range []int{0, 3, 10, 30, 100, 10000} {
+		p, err := Parse([]byte(base + `,"maxGuests":` + itoa(g) + `}`))
+		if err != nil || p.MaxGuests == nil || *p.MaxGuests != g {
+			t.Fatalf("%d: %v %+v", g, err, p)
+		}
+	}
+	for _, bad := range []string{`-1`, `10001`, `1.5`, `"3"`} {
+		if _, err := Parse([]byte(base + `,"maxGuests":` + bad + `}`)); err == nil {
+			t.Errorf("accepted maxGuests %s", bad)
+		}
+	}
+}

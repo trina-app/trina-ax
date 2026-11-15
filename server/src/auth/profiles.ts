@@ -1,6 +1,7 @@
 // Profiles and the people directory (docs/DECISIONS.md "프로필과 사람 목록"): the one-line title and status and the
 // photo of each person, in user_profiles (migration 115). A row exists only for people who set something.
 import type { Database } from 'bun:sqlite'
+import { guestDetail, reachFilter, sharesPlace } from './guests'
 import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
@@ -32,8 +33,14 @@ const refuse = (problem: AvatarProblem, locale: Locale): never =>
 export const PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'profile_changed', message: '' } } as const
 /** The same to the person who changed it: their windows also read their own account again (GET /api/me). */
 export const MY_PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'my_profile_changed', message: '' } } as const
-/** publishEach builder: MY_PROFILE_CHANGED to `userId`, PROFILE_CHANGED to everyone else. */
-export const profileChangedFor = (userId: string) => (to: string) => (to === userId ? MY_PROFILE_CHANGED : PROFILE_CHANGED)
+/** publishEach builder: MY_PROFILE_CHANGED to `who` (one person, or the people whose profile or status changed),
+ * PROFILE_CHANGED to everyone else who may see at least one of them. A guest and the people outside their one place
+ * never reach each other (auth/guests.ts), so neither gets even this empty "someone changed" notice about the other
+ * (it would show, by its time, that the guest is there). */
+export const profileChangedFor = (db: Database, who: string | Iterable<string>) => {
+  const own = new Set(typeof who === 'string' ? [who] : who)
+  return (to: string) => (own.has(to) ? MY_PROFILE_CHANGED : [...own].some((id) => sharesPlace(db, to, id)) ? PROFILE_CHANGED : null)
+}
 
 interface ProfileRow { title: string; status_text: string; avatar_version: number | null }
 const person = (id: string, name: string, p: ProfileRow | null): Person => ({
@@ -44,19 +51,26 @@ const person = (id: string, name: string, p: ProfileRow | null): Person => ({
 })
 
 /** Everyone who can sign in (not deactivated, not deleted), by name, with their status message now (started, not
- * cleared: auth/status-messages.ts). Nothing else about them. */
-export function listPeople(db: Database, now = new Date()): Person[] {
+ * cleared: auth/status-messages.ts). Nothing else about them. `viewerId`: only the people that viewer may reach (a
+ * guest sees the people of their one place; a member does not see a guest outside their places: auth/guests.ts). */
+export function listPeople(db: Database, now = new Date(), viewerId?: string): Person[] {
+  const reach = viewerId ? reachFilter(db, viewerId) : null
   const iso = now.toISOString()
-  const rows = db.query(`SELECT u.id, u.name, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
+  const rows = db.query(`SELECT u.id, u.name, u.guest, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
     LEFT JOIN user_profiles p ON p.user_id = u.id
     LEFT JOIN user_status_messages s ON s.user_id = u.id AND ${LIVE_SQL}
     WHERE u.deleted_at IS NULL AND u.status = 'active' ORDER BY lower(u.name), u.id`).all(iso, iso) as {
-    id: string; name: string; title: string | null; status_text: string | null; avatar_version: number | null
+    id: string; name: string; guest: number; title: string | null; status_text: string | null; avatar_version: number | null
     emoji: string | null; text: string | null; clears_at: string | null; until_day: string | null
   }[]
-  return rows.map((r) => ({
+  return rows.filter((r) => !reach || reach(r.id)).map((r) => ({
     ...person(r.id, r.name, { title: r.title ?? '', status_text: r.status_text ?? '', avatar_version: r.avatar_version }),
     ...(r.emoji ? { statusMessage: statusOut({ emoji: r.emoji, text: r.text ?? '', clears_at: r.clears_at, until_day: r.until_day }) } : {}),
+    // the "Guest" tag: only on a guest the viewer may see at all (reachFilter: the people of the guest's place; nobody
+    // else gets the guest in their list)
+    ...(r.guest === 1 ? { guest: true as const } : {}),
+    // where that guest is, by name: the viewer sees them only when they share that place, so it is a place of the viewer's
+    ...(r.guest === 1 ? ((d) => (d ? { guestPlace: d.place } : {}))(guestDetail(db, r.id)) : {}),
   }))
 }
 

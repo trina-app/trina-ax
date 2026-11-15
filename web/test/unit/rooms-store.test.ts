@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
+import { setServerUpdatingDeps } from '../../src/lib/serverUpdating'
 import { mergeMessages, placeKey, settledPending, toggledReactions, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { readUpTo, roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
@@ -408,6 +409,33 @@ describe('handleEvent', () => {
     useRooms.getState().send(r.id, { body: 'in the thread', mentions: [], files: [], threadRootId: root, alsoInRoom: true })
     await new Promise((res) => setTimeout(res, 20))
     expect(useRooms.getState().returned[placeKey(r.id, root)]).toMatchObject({ body: 'in the thread', threadRootId: root, alsoInRoom: true })
+  })
+
+  test('a send while Trina is updating waits with its note and goes once, with the same client id, when the server is back (QA TC-2260)', async () => {
+    const r = room()
+    useRooms.setState({ rooms: [r], loaded: true })
+    let healthy = false
+    setServerUpdatingDeps({ sleep: () => new Promise<void>((res) => setTimeout(res, 1)), health: async () => healthy })
+    const posts: string[] = []
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const id = JSON.parse(String(init?.body)).clientMessageId as string
+      posts.push(id)
+      if (!healthy) return new Response(JSON.stringify({ error: { code: 'unavailable', message: 'Trina is updating.', params: { reason: 'updating' } } }), { status: 503, headers: { 'content-type': 'application/json', 'x-mycel-updating': '1' } })
+      return new Response(JSON.stringify(message({ roomId: r.id, seq: 1, author: ME, body: 'during the update', clientMessageId: id })), { status: 201, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    try {
+      useRooms.getState().send(r.id, { body: 'during the update', mentions: [], files: [] })
+      await new Promise((res) => setTimeout(res, 20))
+      expect(useRooms.getState().pending[r.id]).toMatchObject([{ body: 'during the update', state: 'sending', updating: true }])
+      expect(posts).toHaveLength(1)
+      healthy = true
+      await new Promise((res) => setTimeout(res, 30))
+      expect(posts).toHaveLength(2)
+      expect(posts[1]).toBe(posts[0])
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    } finally {
+      setServerUpdatingDeps(null)
+    }
   })
 
   describe('a send the server got while its answer was lost shows once (QA TC-236)', () => {

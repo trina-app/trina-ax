@@ -167,6 +167,10 @@ export const ConnectionStatus = z.object({
    * team.example.com: tunnel.host or an https origin with an internet name, server/src/system/connection.ts
    * publicAddress); null = none, so without the relay only the office network */
   publicAddress: z.string().nullable().optional(),
+  /** the server's own public address has a country or network list, and the team has an app posting in a room: apps
+   * reach it anyway at its /in/ addresses (docs/DECISIONS.md "Apps posting in rooms", owner decision 8). Older servers
+   * omit it */
+  appsAnywhere: z.boolean().optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>
 /** Team name at a relay: becomes <name>.<relay domain>. ASCII lowercase letters, digits and inner hyphens (tab 6). */
@@ -208,7 +212,10 @@ export const LanFailureBody = z.object({ code: LanFailureCode })
 export const StorageLevel = z.enum(['ok', 'warn', 'high', 'full'])
 export type StorageLevel = z.infer<typeof StorageLevel>
 const Bytes = z.number().nonnegative()
-export const StorageBreakdown = z.object({ team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
+export const StorageBreakdown = z.object({
+  /** of team: files of deleted chats and rooms, kept 30 days before they are removed (absent from an older server) */
+  kept: Bytes.optional(),
+  team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
 export type StorageBreakdown = z.infer<typeof StorageBreakdown>
 export const StorageStatus = z.object({
   /** statfs of the team folder's disk. When the plan is smaller than the disk: total = the plan's bytes, used = statfs,

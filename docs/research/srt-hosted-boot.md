@@ -36,7 +36,7 @@ Reference: Starter (4096 MiB, 2 vCPU). u = plan `memoryMiB` / 4096.
 | maxRunning | 1 + log2(u), max 4 | 1 | 2 | 3 |
 | network | always `open` | open | open | open |
 
-A plan under 4096 MiB (Free, the old trial) gets no dev environment: no `dev-env.json`, no server drop-in. A move down
+A plan under 4096 MiB (the old 2 GiB plans; the hosted Free plan was removed 2026-11-14) gets no dev environment: no `dev-env.json`, no server drop-in. A move down
 to such a plan removes both. The node, srt and package files stay (they are part of the image).
 
 The machine caps the plan. The script uses min(plan `memoryMiB`, machine memory) for u, and min(plan `cpuCores`,
@@ -45,7 +45,7 @@ The machine caps the plan. The script uses min(plan `memoryMiB`, machine memory)
 (2 GiB) has 1942 MiB. Reason: on a move up, the control plane writes the new `plan.json` at once, but the VM gets the
 new size only at its next idle reboot. Thus:
 
-- A move up from Free (2 GiB VM) keeps the dev environment off until that reboot. At the reboot the unit turns it on
+- A move up from a 2 GiB VM keeps the dev environment off until that reboot. At the reboot the unit turns it on
   before the server starts, so there is no restart during the day.
 - A move up from Starter to Team keeps the Starter numbers until the reboot.
 
@@ -75,11 +75,11 @@ turns it on and accepts the warning (beta.5).
 - Memory: on Starter the slice can use 1536 MiB of 4096 MiB. Section 13 of `srt-dev-env.md` measured this size with a
   Remotion render; Team and Business are proportional, not measured.
 - Every server start runs the unit (an estimate of 1 to 2 s, not measured: the srt version check and a scope probe).
-- A move down to Free removes the drop-in, so the server restarts once (`--no-block`) and the running answers end. A
-  move up from Free does not restart the server (see the machine cap above).
+- A move down to a plan under 4096 MiB removes the drop-in, so the server restarts once (`--no-block`) and the running answers end. A
+  move up from a 2 GiB VM does not restart the server (see the machine cap above).
 - Order in the control plane (trina-cloud `src/teams/lifecycle.ts`): a move up is `resize(idle)`, then `apply-plan`.
   With `applyMemory: 'idle'` the new memory can come only at the next idle reboot. Fixed by the machine cap: until the
-  reboot the old machine size counts, so a team that moved up from Free never gets Starter limits on a 2 GiB VM.
+  reboot the old machine size counts, so a team that moved up from a 2 GiB VM never gets Starter limits on a 2 GiB VM.
 - On Starter the ceilings add up to more than the RAM (launcher 3328 + server 1792 + slice 1536 MiB on 4096 MiB).
   `run-wrap` sets `oom_score_adj` 800 for every run, so in a machine-wide shortage the kernel kills a run before the
   server.

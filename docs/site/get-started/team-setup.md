@@ -23,7 +23,7 @@ Bring the skills you use with Claude Code or Codex to the team. Pick your `.clau
 Put the team's documents (company intro, reports, forms) into the team's folder. One line says who will see them.
 
 #### Invite
-Copy the ready-made message. It names one skill, and people who join land on that skill's form. When each person signs in to their own AI, the message says so.
+Copy the ready-made message. It names one skill, and people who join land on that skill's form. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
 :::
 
 At the end, **You're all set** offers to try that skill yourself first. It shows once.

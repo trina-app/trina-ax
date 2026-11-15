@@ -31,12 +31,12 @@ import { Link, useLocation, useNavigate, useNavigationType, useParams, type Navi
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { readUpTo, threadClosing, threadOpening } from '../lib/rooms'
+import { readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
 import { holdPlace, listPlace, restorePlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
 import { useT } from '../i18n'
-import { usePeople, usePeopleList } from '../store/people'
+import { usePeople, usePeopleList, useReadPeopleFor } from '../store/people'
 import { keptFor, keptPlace, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
 import { useSideChats } from '../store/sideChats'
@@ -47,6 +47,7 @@ import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
 import { ImageGroup } from '../components/ImageViewer'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
+import { mayManageApps, useRoomApps } from '../store/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
@@ -62,6 +63,8 @@ import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
 import { StatusDmLine } from '../components/StatusMessage'
 import { usePresenceOf } from '../store/presence'
+import { IncludesGuests } from '../components/GuestTag'
+import { useGuestAiOff } from '../components/GuestView'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
  * forward inside the app or by the page reloading itself (an update, a refresh: docs/DECISIONS.md "대화 숨기기")?
@@ -122,7 +125,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the timeline's own sends (a thread's are in its panel)
   const pending = useMemo(() => allPending.filter((p) => !p.threadRootId), [allPending])
   const roomMembers = useRooms((s) => s.members[roomId]) as RoomMember[] | undefined
+  const guestNoAi = useGuestAiOff()
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
+  const memberIds = useMemo(() => (roomMembers ?? []).map((m) => m.user.id), [roomMembers])
+  // someone who joined while the room is open: the directory says whether they are a guest (the tag, "Includes 1 guest")
+  useReadPeopleFor(memberIds)
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
   // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), where a thread opens: one of
@@ -151,8 +158,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useOverlayEntry(sideOpen && !threadId, closeSide)
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
-  const askTrina = useCallback((m: RoomMessage) => {
-    setSideSeed(messageSeed(m, aiName(t)))
+  // `ask`: a question that goes at once with the message quoted (an app's thread: "Summarise this thread")
+  const askTrina = useCallback((m: RoomMessage, ask?: string) => {
+    setSideSeed({ ...messageSeed(m, aiName(t)), ...(ask ? { ask } : {}) })
     setSideOpen(true)
   }, [t, setSideOpen])
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
@@ -162,6 +170,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // ?m=<message>: the message a link points at (an Inbox row: components/settings/RoomNoticeRow.tsx), picked out in the
   // thread when one is open, else in the timeline
   const target = useMemo(() => { const m = new URLSearchParams(location.search).get('m'); return m && isUuid7(m) ? m : null }, [location.search])
+  // the room's apps (docs/DECISIONS.md "Apps posting in rooms"), for those who manage them: the ⋯ says how many post
+  // here; ?apps=<app id> (the paused notice's "Open settings") opens that app's settings, once
+  const manages = mayManageApps(room, me)
+  useEffect(() => { if (manages) void useRoomApps.getState().load(roomId).catch(() => {}) }, [manages, roomId])
+  const appsParam = useMemo(() => new URLSearchParams(location.search).get('apps'), [location.search])
+  useEffect(() => {
+    if (!appsParam || !manages) return
+    useRoomApps.getState().open(roomId, isUuid7(appsParam) || /^[A-Za-z0-9_-]{1,64}$/.test(appsParam) ? { view: 'settings', appId: appsParam } : { view: 'auto' })
+    navigate({ pathname: location.pathname, search: '' }, { replace: true, state: location.state })
+  }, [appsParam, manages, roomId, navigate, location.pathname, location.state])
   // a thread opened from this room is one step back from it (the back arrow, the browser's back, a phone's back
   // gesture all close it); one thread replaces another and keeps how the first was reached; a thread opened from a link
   // or a notice closes to its room
@@ -417,6 +435,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               {room && room.kind !== 'dm' && (
                 <span className="shrink-0 text-xs font-normal text-faint max-md:basis-full max-md:leading-4" data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}
+                  {/* "· Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
+                  <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " />
                 </span>
               )}
             </button>
@@ -433,7 +453,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
         )}
-        {room && (
+        {/* ✦: not for a guest whose invite gives them no AI (components/GuestView.tsx useGuestAiOff) */}
+        {room && !guestNoAi && (
           <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
             onClick={() => { if (sideOpen) closeSide(); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
             <AiMark />
@@ -455,7 +476,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           />
         )}
       </div>
-      {room && askHint.show && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
+      {room && askHint.show && !guestNoAi && <RoomAskHint onAsk={() => { if (threadId) closeThread(); setSideOpen(true) }} onClose={askHint.seen} />}
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-6">
@@ -466,7 +487,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               <LoadError error={timeline.error} onRetry={() => useRooms.getState().loadNewest(roomId)} what="room-messages" />
             </div>
           )}
-          {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
+          {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t(roomEmptyKey(room))}</p>}
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
             <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={threadId ? null : target} />
@@ -516,7 +537,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     {/* the room's right column: the thread in the address, else my Trina side chat */}
     {threadId ? (
       <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
-        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />
+        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m, ask) => { closeThread(); askTrina(m, ask) }} focusBox={focusThread} highlight={target} />
       </RoomSideColumn>
     ) : sideOpen ? (
       <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>

@@ -20,13 +20,13 @@ import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
-import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
+import { ApiError, SLACK, SLACK_CONNECTING_SLOW_S, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { outcomeText } from '../../lib/slackSignIn'
 import { SLACK_APP, slackLogo } from '../../lib/connectors'
-import { Badge, Button, Field, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, Field, WaitLine, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { AppDetail } from '../../components/integrations/AppDetail'
 import { Card, Loadable, useAction, useLoad } from './common'
 import { isOwner, useMe } from '../../store/session'
@@ -216,6 +216,10 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                       {fix.page === 'replace' && !owner ? t('slack.admin.askOwner')
                         : <FixText text={t(fix.key)} href={fix.page && fix.page !== 'replace' ? slackPage(s.appId, fix.page) : undefined} onClick={fix.page === 'replace' ? () => setReplacing(true) : undefined} />}
                     </p>
+                  ) : s.enabled && s.state === 'connecting' ? (
+                    // under way: a spinner and when it stops being a wait (slackView turns it into the problem line
+                    // after SLACK_CONNECTING_SLOW_S; QA TC-2132)
+                    <WaitLine className="mt-2 text-sm text-muted" text={t('slack.connecting.text')} hint={t('slack.connecting.hint', { n: Math.round(SLACK_CONNECTING_SLOW_S / 60) })} testId="slack-connecting" />
                   ) : s.enabled && s.botName ? (
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>
                   ) : null}
@@ -242,6 +246,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                     <StateBadge s={s} />
                   </p>
                   <p className="text-sm text-muted">{t('slack.admin.ownerOnlySetup')}</p>
+                  <p className="mt-2 text-sm text-muted" data-testid="slack-reads">{t('slack.reads')}</p>
                 </Card>
               ) : (!s.tokens || replacing) && !owner ? null
               : (!s.tokens || replacing) && phone ? (
@@ -256,6 +261,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                 </Card>
               ) : (!s.tokens || replacing) && (
                 <Card flat title={t('slack.admin.setupTitle')} testId="slack-setup">
+                  {!s.tokens && <p className="mb-4 text-sm text-muted" data-testid="slack-reads">{t('slack.reads')}</p>}
                   <ol className="space-y-4 text-sm">
                     <Step n={1} title={t('slack.admin.create')} href={s.createUrl} testId="slack-create">{t('slack.admin.createHint')}</Step>
                     <Step n={2} title={t('slack.admin.install')} href={slackPage(s.appId, 'install')}>{t('slack.admin.installHint')}</Step>
@@ -304,6 +310,8 @@ function OfficialAdd({ removed, onOwnApp, onRemove, onBack }: { removed: boolean
     <Card flat title={t('slack.official.title')} testId="slack-official">
       {removed && <p className="mb-2 text-sm text-warn" data-testid="slack-removed">{t('slack.err.removed')}</p>}
       <p className="text-sm text-muted">{t('slack.official.hint')}</p>
+      {/* what it will read, before it is added (QA TC-2142: the bot's channels:history and groups:history) */}
+      <p className="mt-2 text-sm text-muted" data-testid="slack-reads">{t('slack.reads')}</p>
       {error && <p role="alert" className="mt-2 text-sm text-danger" data-testid="slack-add-error">{error}</p>}
       {away.timedOut && <p role="status" className="mt-2 text-sm text-warn" data-testid="slack-add-timeout">{t('connect.wait.timedOut')}</p>}
       {away.waiting ? (

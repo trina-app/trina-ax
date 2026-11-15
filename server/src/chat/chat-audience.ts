@@ -7,6 +7,8 @@
 //                            ordinary private chat of its creator)
 //   chat_audience            the people (by name) and the groups it is shared with
 //   chat_list_hidden         "Hide from my list", per person
+//   chat_audience_past       who was one of its people at some point (migration 404): their old link says "This chat is
+//                            no longer shared with you" instead of the plain 404 (QA TC-2009)
 //
 // The people who see it now are its creator and the active people listed or in a listed group, read per request: a
 // group's new member sees it at once, someone who leaves the group or whose account is disabled loses it at once.
@@ -29,15 +31,17 @@ export function resolveSubjects(db: Database, subjects: readonly AudienceSubject
   const users = subjects.filter((s) => s.type === 'user').map((s) => s.id)
   const groups = subjects.filter((s) => s.type === 'group').map((s) => s.id)
   if (!users.length && !groups.length) return []
-  return (db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND (id IN (SELECT value FROM json_each(?1))
+  // never a guest (docs/DECISIONS.md "Guests: only what they were invited to": a chat shared with people is no place of theirs)
+  return (db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 AND (id IN (SELECT value FROM json_each(?1))
     OR id IN (SELECT user_id FROM group_members WHERE group_id IN (SELECT value FROM json_each(?2)))) ORDER BY id`).all(JSON.stringify(users), JSON.stringify(groups)) as { id: string }[]).map((r) => r.id)
 }
 
 /** The people who see this people-shared chat now: its creator (while active) and the active people it names or who are
  * in a group it names. Sorted. */
 export function peopleAudience(db: Database, chat: { id: string; user_id: string }): string[] {
+  // a guest is never in someone else's people-shared chat (only its creator could be one, and guests cannot share)
   return (db.query(`SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND (id = ?1
-    OR id IN (SELECT subject_id FROM chat_audience WHERE chat_id = ?2 AND subject_type = 'user')
+    OR (guest = 0 AND id IN (SELECT subject_id FROM chat_audience WHERE chat_id = ?2 AND subject_type = 'user'))
     OR id IN (SELECT g.user_id FROM group_members g JOIN chat_audience a ON a.subject_type = 'group' AND a.subject_id = g.group_id WHERE a.chat_id = ?2))
     ORDER BY id`).all(chat.user_id, chat.id) as { id: string }[]).map((r) => r.id)
 }
@@ -45,8 +49,10 @@ export function peopleAudience(db: Database, chat: { id: string; user_id: string
 /** Is `userId` in this people-shared chat now (its creator, or an active person it names or who is in a group it
  * names)? */
 export function inPeopleAudience(db: Database, chat: { id: string; user_id: string }, userId: string): boolean {
-  if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId)) return false
+  const u = db.query("SELECT guest FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId) as { guest: number } | null
+  if (!u) return false
   if (chat.user_id === userId) return true
+  if (u.guest === 1) return false
   return !!db.query(`SELECT 1 FROM chat_audience a WHERE a.chat_id = ?1 AND ((a.subject_type = 'user' AND a.subject_id = ?2)
     OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?2))) LIMIT 1`).get(chat.id, userId)
 }
@@ -96,4 +102,26 @@ export function peopleChatsLost(db: Database, before: ReadonlyMap<string, readon
     }
   }
   return out
+}
+
+/** Record that these people were in this people-shared chat (chat_audience_past, migration 404): a save of its audience
+ * that showed it to them or took it away, a group they left, a listed group deleted. Never its creator. */
+export function rememberAudience(db: Database, chatId: string, userIds: Iterable<string>, at = new Date().toISOString()): void {
+  const ins = db.query('INSERT OR IGNORE INTO chat_audience_past (chat_id, user_id, at) SELECT id, ?, ? FROM chats WHERE id = ? AND user_id <> ?')
+  for (const id of userIds) ins.run(id, at, chatId, id)
+}
+
+/**
+ * Someone who does not see this chat now but was one of its people (chat_audience_past): the reason their link says
+ * "This chat is no longer shared with you" (QA TC-2009, TC-2032). Only while the chat is still there and not in the
+ * trash (a deleted chat is the one 404 for everyone, as a deleted shared project chat is), and only to an active member
+ * account (not a guest): it tells them nothing they did not know (that they were in it and that it still exists). The
+ * caller checked that they do not see it now.
+ */
+export function wasInPeopleChat(db: Database, chat: { id: string; user_id: string; deleted_at: string | null; project_id: string | null }, userId: string): boolean {
+  if (chat.deleted_at || chat.project_id || chat.user_id === userId) return false
+  try {
+    return !!db.query(`SELECT 1 FROM chat_audience_past p JOIN users u ON u.id = p.user_id
+      WHERE p.chat_id = ? AND p.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0`).get(chat.id, userId)
+  } catch { return false }
 }

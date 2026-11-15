@@ -41,9 +41,12 @@ export type PlanLimits = z.infer<typeof PlanLimits>
 
 export const PlanFile = z.object({
   format: z.literal(1),
-  /** the control plane's plan id (trina-cloud src/teams/plans.ts: free, basic = Starter, team = Team, pro = Business).
+  /** the control plane's plan id (trina-cloud src/teams/plans.ts: trial, basic = Starter, team = Team, pro = Business).
    * The server never branches on it: every per-plan value is a field of this file, and Admin > System shows
-   * `display.name` */
+   * `display.name`. Any id that matches PlanId is accepted, on purpose: the hosted Free plan was removed (owner
+   * decision 2026-11-14, docs/DECISIONS.md "Free plan removed"), but a control plane may still write `plan: "free"`
+   * for a Free team that existed before, until its owner chooses a paid plan or the team is ended. Never add an allowlist that
+   * would refuse such a plan.json (apply-plan and the enroll answer would fail and the team keep a stale plan). */
   plan: PlanId,
   maxConcurrency: z.number().int().min(1).max(16),
   memoryMiB: z.number().int().min(1024).max(262_144),
@@ -61,7 +64,7 @@ export const PlanFile = z.object({
   /** when the control plane made this plan (always written by it; a hand-written self-host file may leave it out) */
   updatedAt: IsoTime.optional(),
   // ---- control plane additions (control-plane 3.5.6) ----
-  /** active accounts allowed (control plane D38, owner decision 2026-11-13: Free 3, Starter/basic 5, Team 15, Business/pro 40), the owner included, disabled ones not; null = no limit.
+  /** active accounts allowed (control plane D38, owner decision 2026-11-13: Starter/basic and the trial 5, Team 15, Business/pro 40), the owner included, disabled ones not; null = no limit.
    * The server refuses invites, direct adds and re-enabling an account over it (409 plan_limit, reason seat_limit). */
   maxActiveMembers: z.number().int().min(1).max(10_000).nullable().default(null),
   /** what Admin > System shows as the plan name */
@@ -78,6 +81,13 @@ export const PlanFile = z.object({
    * 0.4.0-beta.10: TenantStatus.rootVersion for apply-plan, EnrollRequest.kitVersion for the enroll answer's plan
    * ("unknown" counts as older). */
   speechFreeHours: z.number().int().min(1).max(1000).nullish(),
+  /** guests the team may have (owner decision 2026-11-14: Starter/basic and the trial 10, Team 30, Business/pro 100);
+   * they take no seat. Absent or null on a plan file: the server allows 3 until the control plane writes it; a
+   * self-hosted server without a plan has no cap. The server refuses a guest invite or join over it (409 plan_limit,
+   * reason guest_limit). 0–10000: the Go reader's range (native/internal/plan).
+   * ORDER: as speechFreeHours, an older mycel-ctl refuses a plan.json with this key: leave it out (no default here)
+   * unless the tenant's kit knows it. */
+  maxGuests: z.number().int().min(0).max(10_000).nullish(),
 })
 export type PlanFile = z.infer<typeof PlanFile>
 export type PlanFileInput = z.input<typeof PlanFile>

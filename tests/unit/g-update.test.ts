@@ -9,6 +9,7 @@ import { silentLogger } from '../../server/src/log'
 import { packBundle, publicKeyB64, signManifest, writeManifest } from '../../server/src/system/bundle'
 import { compareVersions, UpdateManager, verifyBundleDir } from '../../server/src/system/update'
 import { WORK } from '../lib/env'
+import { SCHEMA_READER_LEVEL } from '../../server/src/db'
 
 const W = path.join(WORK, 'g-update')
 fs.rmSync(W, { recursive: true, force: true })
@@ -113,7 +114,7 @@ describe('update manager', () => {
     fs.mkdirSync(path.join(app, 'versions'), { recursive: true })
     const src = path.join(W, 'mgr', 'build', '2.0.0')
     fs.mkdirSync(path.dirname(src), { recursive: true })
-    await fakeVersion(path.join(W, 'mgr', 'build-app'), '2.0.0', 'ok', { 'RELEASE_NOTES.md': '새 기능', 'server/migrations/900_x.sql': '-- min_compatible_reader: 8\n' })
+    await fakeVersion(path.join(W, 'mgr', 'build-app'), '2.0.0', 'ok', { 'RELEASE_NOTES.md': '새 기능', 'server/migrations/900_x.sql': `-- min_compatible_reader: ${SCHEMA_READER_LEVEL + 1}\n` })
     fs.renameSync(path.join(W, 'mgr', 'build-app', 'versions', '2.0.0'), src)
     const archive = path.join(W, 'mgr', 'b.tar.zst')
     await packBundle(src, archive)

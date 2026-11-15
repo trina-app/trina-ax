@@ -13,11 +13,12 @@
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import {
-  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP,
-  ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE,
+  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_PRESET_NAMES, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES,
+  ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE, ZENDESK_TEST_SECRET,
   type CreateRoomAppBody, type Locale, type RoomApp, type RoomAppAddress, type RoomAppCreated, type RoomAppKind, type RoomAppList, type RoomAppRefusal,
   type RoomAppSecretResult, type SetRoomAppSecretBody, type UpdateRoomAppBody,
 } from '@mycel/shared/api'
+import { limitResetText } from '@mycel/shared'
 import { PRODUCT } from '@mycel/shared/product'
 import type { AppContext } from '../../context'
 import { newId, nowIso } from '../../db'
@@ -34,7 +35,8 @@ import { mayManageApps, messageRow, roomAuditRef, threadable, type MessageRow, t
 import { bodyOf, cleanCard, line, type StoredCard } from './card'
 import { AppLimits } from './limits'
 import type { AppEvent } from './parse'
-import { appText } from './text'
+import { presetOf } from './presets'
+import { appNumber, appText } from './text'
 
 const TOKEN_KIND = 'room_app_token'
 const SECRET_KIND = 'room_app_secret'
@@ -50,9 +52,12 @@ const THREADS_KEPT_DAYS = 90
 const REFUSAL_EVERY_MS = 60_000
 
 export interface AppRow {
-  id: string; room_id: string; kind: RoomAppKind; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
+  id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; events_seen: string; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
+  rotated_at: string | null
+  /** migration 405: a secret Trina made, not yet seen on a request (older rows: 0) */
+  secret_pending?: number
 }
 
 export const sha256 = (s: string | Uint8Array) => crypto.createHash('sha256').update(s).digest('hex')
@@ -83,6 +88,11 @@ export function teamDay(db: Database, now: number): { day: string; next: string 
 }
 
 export { mayManageApps }
+
+/** The source of a "someone who left knows the address" notice for the app's current address (room_app_leaver_notices,
+ * migration 352): one per person and address; a new address starts over. */
+export const leaverSource = (row: Pick<AppRow, 'id' | 'token_hash'>) => `${row.id}.${row.token_hash.slice(0, 12)}`
+const likePrefix = (id: string) => `${id.replace(/[\\%_]/g, (c) => `\\${c}`)}.%`
 
 const services = new WeakMap<AppContext, RoomApps>()
 export function roomAppsOf(ctx: AppContext): RoomApps {
@@ -128,6 +138,28 @@ export class RoomApps {
       EXISTS (SELECT 1 FROM users u WHERE u.id = v.user_id AND u.status = 'active' AND u.deleted_at IS NULL) active FROM room_app_viewers v WHERE v.app_id = ?`).all(row.room_id, row.id) as { user_id: string; inroom: number; active: number }[]
     return viewers.some((v) => !v.inroom || !v.active || !mayManageApps(this.db, room, v.user_id))
   }
+  /** Tells the people who may manage an app that someone who left knows its address (Activity, 'room_app.leaver'), for
+   * every app with viewers whose leaverKnows holds now. It does not hang on one code path (a room left, a member taken
+   * out, a team left, an admin made a member, an account disabled or deleted): the 5-minute and hourly ticks run it
+   * (routes/room-apps.ts). Idempotent: one notice per person and address (the table's UNIQUE). Returns how many apps had
+   * a leaver. */
+  leaverSweep(): number {
+    const rows = this.db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
+      WHERE EXISTS (SELECT 1 FROM room_app_viewers v WHERE v.app_id = a.id)`).all() as AppRow[]
+    const n = notificationsOf(this.ctx)
+    let found = 0
+    for (const row of rows) {
+      try {
+        if (!this.leaverKnows(row)) continue
+        found++
+        const room = this.db.query('SELECT * FROM rooms WHERE id = ?').get(row.room_id) as RoomRow | null
+        if (!room) continue
+        const members = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id) as { user_id: string }[]).map((m) => m.user_id)
+        for (const u of members) if (mayManageApps(this.db, room, u)) n.roomAppLeaver(u, leaverSource(row))
+      } catch (e) { this.ctx.log.warn('room app leaver notice failed', { err: e }) }
+    }
+    return found
+  }
   tokenOf(row: AppRow): string {
     try { return (this.vault.decrypt(row.id, TOKEN_KIND, row.token_enc, row.key_version) as { token: string }).token } catch {
       // the key file it was sealed with is gone: only a new address helps (the status line says so)
@@ -150,12 +182,30 @@ export class RoomApps {
   // ---------------- reading ----------------
   private locale(): Locale { try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE } }
   row(id: string): AppRow | null { return this.db.query('SELECT * FROM room_apps WHERE id = ?').get(id) as AppRow | null }
-  switches(row: Pick<AppRow, 'kind' | 'events'>): Record<string, boolean> {
+  /** The app's preset when this build knows it (an unknown one: none here; inbound.ts refuses its requests). */
+  presetOf(row: Pick<AppRow, 'kind' | 'preset'>) {
+    const p = row.kind === 'other' ? presetOf(row.preset) : null
+    return p === 'unknown' ? null : p
+  }
+  switches(row: Pick<AppRow, 'kind' | 'events' | 'preset'>): Record<string, boolean> {
     let saved: Record<string, unknown> = {}
     try { saved = JSON.parse(row.events) as Record<string, unknown> } catch { saved = {} }
-    const out = roomAppDefaults(row.kind)
+    const out = roomAppDefaults(row.kind, this.presetOf(row))
     for (const k of Object.keys(out)) if (typeof saved[k] === 'boolean') out[k] = saved[k] as boolean
     return out
+  }
+  /** The switch keys an event has arrived for (only keys of the app's switches). */
+  eventsSeen(row: Pick<AppRow, 'kind' | 'preset' | 'events' | 'events_seen'>): string[] {
+    let v: unknown = []
+    try { v = JSON.parse(row.events_seen ?? '[]') } catch { v = [] }
+    const known = Object.keys(this.switches(row))
+    return Array.isArray(v) ? known.filter((k) => v.includes(k)) : []
+  }
+  /** An event for `key` arrived (inbound.ts, after it was read): remembered once. */
+  sawEvent(row: AppRow, key: string) {
+    if (this.eventsSeen(row).includes(key) || !(key in this.switches(row))) return
+    const next = [...this.eventsSeen(row), key]
+    this.db.query('UPDATE room_apps SET events_seen = ? WHERE id = ?').run(JSON.stringify(next), row.id)
   }
   private shownToday(appId: string, day: string): number {
     return (this.db.query('SELECT shown FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { shown: number } | null)?.shown ?? 0
@@ -167,6 +217,23 @@ export class RoomApps {
       AND (d.app_id = ? OR (d.room_id = ? AND d.kind = ? AND NOT EXISTS (SELECT 1 FROM room_apps a WHERE a.id = d.app_id)))`).get(day, row.id, row.room_id, row.kind) as { shown: number; resumed: number }
     return { shown: r.shown, resumed: !!r.resumed }
   }
+  /** Why the app is paused (it is): the team's cap when that is what holds it (paused for it, or the team is full now:
+   * Resume now could not help), else its own. */
+  pausedBy(row: Pick<AppRow, 'id'>, day: string): 'app' | 'team' {
+    if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) return 'team'
+    const r = this.db.query('SELECT paused_by FROM room_app_days WHERE app_id = ? AND day = ?').get(row.id, day) as { paused_by: string | null } | null
+    return r?.paused_by === 'team' ? 'team' : 'app'
+  }
+  /** The number the pause is about: the team's cap, else the app's own (twice it after Resume now that day). */
+  pausedCap(row: Pick<AppRow, 'id' | 'room_id' | 'kind' | 'resumed_on'>, day: string, by: 'app' | 'team'): number {
+    return by === 'team' ? ROOM_APP_TEAM_DAILY_CAP : ROOM_APP_DAILY_CAP * (this.capDay(row, day).resumed || row.resumed_on === day ? 2 : 1)
+  }
+  /** "until Nov 16, 00:00": the end of a pause in the team's time zone (24-hour time, as usage limits say it). */
+  pauseEnd(until: string, locale: Locale): string { return limitResetText(new Date(until), locale, teamTimeZone(this.db)) }
+  /** The team's cap refusal and room line: "Your team's apps reached 5,000 messages today. All apps are paused until …". */
+  teamCapText(locale: Locale, until: string): string {
+    return appText('teamCap', locale, { cap: appNumber(ROOM_APP_TEAM_DAILY_CAP, locale), time: this.pauseEnd(until, locale) })
+  }
   teamShownToday(day: string): number {
     return (this.db.query('SELECT COALESCE(SUM(shown), 0) n FROM room_app_days WHERE day = ?').get(day) as { n: number }).n
   }
@@ -176,11 +243,17 @@ export class RoomApps {
     const by = row.created_by ? this.db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(row.created_by) as { id: string; name: string } | null : null
     const paused = row.paused_until && Date.parse(row.paused_until) > now ? row.paused_until : null
     const reason = row.last_refusal as RoomAppRefusal | null
+    const preset = this.presetOf(row)
+    const pausedBy = paused ? this.pausedBy(row, day) : null
     return {
-      id: row.id, roomId: row.room_id, kind: row.kind, name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc,
+      id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc && !row.secret_pending,
+      ...(row.secret_enc && row.secret_pending ? { signingPending: true as const } : {}),
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
-      pausedUntil: paused, canResume: !!paused && !this.capDay(row, day).resumed && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      pausedUntil: paused, canResume: pausedBy === 'app' && !this.capDay(row, day).resumed,
+      ...(pausedBy ? { pausedBy, pausedCap: this.pausedCap(row, day, pausedBy) } : {}), ...(pausedBy === 'team' ? { timeZone: teamTimeZone(this.db) } : {}),
+      rotatedAt: row.rotated_at ?? null,
+      eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       today: this.shownToday(row.id, day),
     }
@@ -220,17 +293,22 @@ export class RoomApps {
   create(userId: string, roomId: string, b: CreateRoomAppBody, locale: Locale): RoomAppCreated {
     const room = this.managed(userId, roomId)
     if (this.base() === null) fail('conflict', appText('noAddress', locale), { params: { reason: 'no_public_address' } })
-    const name = line(b.name ?? ROOM_APP_DEFAULT_NAMES[b.kind], 40)
+    // a name the person gave, else the kind's in the team's language (Google Forms and Other; Sentry and GitHub are names)
+    const L = this.locale()
+    // a preset only for Other (it is fixed from here on: a different service is a new app)
+    if (b.preset && b.kind !== 'other') fail('validation', appText('presetNotForKind', locale), { fields: { 'body.preset': 'only with kind other' } })
+    const preset = b.preset ?? null
+    const name = line(b.name ?? (preset ? ROOM_APP_PRESET_NAMES[preset] : b.kind === 'google_forms' ? appText('nameForms', L) : b.kind === 'other' ? appText('nameOther', L) : ROOM_APP_DEFAULT_NAMES[b.kind]), 40)
     this.checkName(name, locale)
     const n = (this.db.query('SELECT COUNT(*) n FROM room_apps WHERE room_id = ?').get(room.id) as { n: number }).n
     if (n >= ROOM_APPS_MAX) fail('conflict', appText('full', locale, { max: ROOM_APPS_MAX }), { params: { reason: 'room_apps_full' } })
-    this.takeHourly(this.added, userId, ROOM_APPS_PER_HOUR)
+    this.takeHourly(this.added, userId, ROOM_APPS_PER_HOUR, (minutes) => appText('addLimit', locale, { n: ROOM_APPS_PER_HOUR, minutes }))
     const id = newId(), now = nowIso(), token = newToken()
     const s = this.seal(id, token, null)
     this.db.transaction(() => {
-      this.db.query(`INSERT INTO room_apps (id, room_id, kind, name, token_hash, token_enc, secret_enc, key_version, events, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`).run(id, room.id, b.kind, name, s.token_hash, s.token_enc, s.key_version, JSON.stringify(roomAppDefaults(b.kind)), userId, now, now)
-      audit(this.db, { actor: userId, action: 'room_app.add', target: id, detail: { ...roomAuditRef(room), kind: b.kind } })
+      this.db.query(`INSERT INTO room_apps (id, room_id, kind, preset, name, token_hash, token_enc, secret_enc, key_version, events, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`).run(id, room.id, b.kind, preset, name, s.token_hash, s.token_enc, s.key_version, JSON.stringify(roomAppDefaults(b.kind, preset)), userId, now, now)
+      audit(this.db, { actor: userId, action: 'room_app.add', target: id, detail: { ...roomAuditRef(room), kind: b.kind, ...(preset ? { preset } : {}) } })
     })()
     const row = this.row(id)!
     return { app: this.out(row), address: this.addressOf(row, userId) }
@@ -247,7 +325,8 @@ export class RoomApps {
     const changed: string[] = []
     let events = this.switches(row)
     if (b.events) {
-      const known = new Set<string>(ROOM_APP_SWITCHES[row.kind].map((s) => s.key))
+      const p = this.presetOf(row)
+      const known = new Set<string>((p ? ROOM_APP_PRESET_SWITCHES[p] : ROOM_APP_SWITCHES[row.kind]).map((s) => s.key))
       for (const k of Object.keys(b.events)) if (!known.has(k)) fail('validation', undefined, { fields: { [`body.events.${k}`]: 'not a switch of this app' } })
       events = { ...events, ...b.events }
       changed.push('events')
@@ -265,21 +344,50 @@ export class RoomApps {
 
   setSecret(userId: string, roomId: string, appId: string, b: SetRoomAppSecretBody, locale: Locale): RoomAppSecretResult {
     const { room, row } = this.mine(userId, roomId, appId)
-    if (row.kind !== 'github' && row.kind !== 'sentry') fail('validation', appText('noSecretForKind', locale), { fields: { body: 'this app takes no secret' } })
+    // which services can sign: GitHub and Sentry, and the presets whose service signs (an unknown preset: none here)
+    const unknownPreset = row.kind === 'other' && presetOf(row.preset) === 'unknown'
+    const preset = this.presetOf(row)
+    const signing = preset ? ROOM_APP_PRESET_SIGNING[preset] : null
+    const canSign = row.kind === 'github' || row.kind === 'sentry' || (!!signing && signing.signing !== 'none')
+    if (!canSign || unknownPreset) fail('validation', appText('noSecretForKind', locale), { fields: { body: 'this app takes no secret' }, params: { reason: 'no_signing' } })
     let secret: { secret: string; made: boolean } | null
-    if ('generate' in b) secret = { secret: newSecret(), made: true }
-    else if (b.secret === null || b.secret === '') secret = null
+    if ('generate' in b) {
+      // a secret Trina makes is for a service with a field to paste it in (GitHub, Typeform, Tally); Stripe, Shopify,
+      // Zendesk, Toss Payments, Channel Talk and PortOne make their own, so one made here could never match
+      if (signing?.signing === 'paste' || row.kind === 'sentry') fail('validation', undefined, { fields: { 'body.generate': 'this service makes its own secret: paste it' } })
+      secret = { secret: newSecret(), made: true }
+    } else if (b.secret === null || b.secret === '') secret = null
     else {
-      // what the person pasted: Sentry's Client Secret, or (GitHub) a secret they chose in GitHub
+      // what the person pasted: Sentry's Client Secret, a service's signing secret, or (GitHub) a secret they chose there
       const v = b.secret.trim()
       if (row.kind === 'sentry' && !SENTRY_SECRET_RE.test(v)) fail('validation', appText('sentrySecretShape', locale), { fields: { 'body.secret': 'not a Sentry Client Secret' } })
-      if (v.length < 16 || /\s/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'at least 16 characters, no spaces' } })
+      if (preset && signing?.signing === 'paste' && signing.shape && !signing.shape.test(v)) {
+        // said with the field's own name (Toss Payments' "Security key", PortOne's "Webhook secret")
+        const why = preset === 'toss_payments' ? appText('tossKeyShape', locale) : preset === 'portone' ? appText('portoneSecretShape', locale) : appText('presetSecretShape', locale, { app: ROOM_APP_PRESET_NAMES[preset] })
+        fail('validation', why, { fields: { 'body.secret': `not a ${ROOM_APP_PRESET_NAMES[preset]} signing secret` } })
+      }
+      if (preset === 'zendesk' && v === ZENDESK_TEST_SECRET) fail('validation', appText('zendeskTestSecret', locale), { fields: { 'body.secret': "Zendesk's public test secret" } })
+      if (v.length > 200 || /[^\x21-\x7e]/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'printable characters only' } })
+      // Channel Talk's webhook token: its length is not documented (live check), so a shorter one is taken
+      const min = preset === 'channel_talk' ? 8 : 16
+      if (v.length < min || /\s/.test(v)) fail('validation', undefined, { fields: { 'body.secret': `at least ${min} characters, no spaces` } })
       secret = { secret: v, made: ROOM_APP_SECRET_RE.test(v) }
     }
     const token = this.tokenOf(row)
     const s = this.seal(row.id, token, secret)
+    // the first secret Trina makes for an app waits for the first request signed with it (unsigned ones are shown until
+    // then: copying it must not drop what the service sends before it is pasted there). Once a secret is enforced, a
+    // new one is enforced at once (security review of #880: making another must not let unsigned posts in again); one
+    // the person pasted is the service's own
+    const enforced = !!row.secret_enc && !row.secret_pending
+    const pending = !!secret?.made && 'generate' in b && !enforced
     this.db.transaction(() => {
-      this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, secret_pending = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, pending ? 1 : 0, nowIso(), row.id)
+      // "…the secret didn't match" was about the secret before: not said after it changed or was taken away
+      this.db.query("UPDATE room_apps SET last_refusal = NULL, last_refusal_at = NULL WHERE id = ? AND last_refusal = 'signature'").run(row.id)
+      // a new secret: the service account pinned before it (possibly by an unsigned request) is forgotten; the next
+      // signed request pins it again
+      if (secret) this.db.query('UPDATE room_apps SET preset_pin = NULL WHERE id = ?').run(row.id)
       audit(this.db, { actor: userId, action: 'room_app.secret', target: row.id, detail: { ...roomAuditRef(room), set: !!secret } })
     })()
     if (secret?.made) this.saw(row.id, userId)
@@ -294,12 +402,20 @@ export class RoomApps {
     if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
     const s = this.seal(row.id, newToken(), prev)
     this.db.transaction(() => {
-      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // Regenerate also forgets the pinned service account (Zendesk subdomain, Shopify store): whoever knew the old URL
+      // may have pinned it
+      // rotated_at: the status waits for the service to use the new URL until a message arrives after it
+      const at = new Date(this.clock()).toISOString()
+      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, rotated_at = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, at, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
     })()
     this.limits.forget(row.id)
     // a new address: only the person who got it knows it now
     this.db.query('DELETE FROM room_app_viewers WHERE app_id = ?').run(row.id)
+    // the "someone who left knows the address" notices of the old address are settled (a later leaver of the new one
+    // makes new ones: their source is the new address's)
+    const read = this.db.query("UPDATE room_app_leaver_notices SET read_at = ? WHERE source_id LIKE ? ESCAPE '\\' AND read_at IS NULL RETURNING user_id").all(nowIso(), likePrefix(row.id)) as { user_id: string }[]
+    for (const u of new Set(read.map((r) => r.user_id))) this.signal(u)
     const now = this.row(row.id)!
     const address = this.addressOf(now, userId)
     return { app: this.out(now), address }
@@ -309,9 +425,10 @@ export class RoomApps {
     const { room, row } = this.mine(userId, roomId, appId)
     this.db.transaction(() => {
       this.db.query('DELETE FROM room_apps WHERE id = ?').run(row.id)
-      // its paused notices go with it (a notice of an app that is gone opens nothing)
-      this.db.query("DELETE FROM room_app_notices WHERE source_id LIKE ? ESCAPE '\\'").run(`${row.id.replace(/[\\%_]/g, (c) => `\\${c}`)}.%`)
-      audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind } })
+      // its paused and leaver notices go with it (a notice of an app that is gone opens nothing)
+      this.db.query("DELETE FROM room_app_notices WHERE source_id LIKE ? ESCAPE '\\'").run(likePrefix(row.id))
+      this.db.query("DELETE FROM room_app_leaver_notices WHERE source_id LIKE ? ESCAPE '\\'").run(likePrefix(row.id))
+      audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind, ...(row.preset ? { preset: row.preset } : {}) } })
     })()
     this.limits.forget(row.id)
   }
@@ -322,7 +439,7 @@ export class RoomApps {
     const { day } = teamDay(this.db, now)
     if (!row.paused_until || Date.parse(row.paused_until) <= now) fail('conflict', appText('notPaused', locale), { params: { reason: 'not_paused' } })
     if (row.resumed_on === day || this.capDay(row, day).resumed) fail('conflict', appText('alreadyResumed', locale), { params: { reason: 'already_resumed' } })
-    if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) fail('conflict', appText('teamCap', locale, { cap: ROOM_APP_TEAM_DAILY_CAP }), { params: { reason: 'team_cap' } })
+    if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) fail('conflict', this.teamCapText(locale, row.paused_until!), { params: { reason: 'team_cap' } })
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET paused_until = NULL, resumed_on = ?, updated_at = ? WHERE id = ?').run(day, nowIso(), row.id)
       this.db.query(`INSERT INTO room_app_days (app_id, day, room_id, kind, resumed) VALUES (?, ?, ?, ?, 1) ON CONFLICT(app_id, day) DO UPDATE SET resumed = 1`).run(row.id, day, row.room_id, row.kind)
@@ -338,16 +455,20 @@ export class RoomApps {
 
   example(userId: string, roomId: string, appId: string): void {
     const { row } = this.mine(userId, roomId, appId)
-    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR)
     const L = this.locale()
+    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', L, { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
     const card = cleanCard({ kind: appText('example', L), title: appText('exampleTitle', L, { app: row.name }), details: [], status: undefined })
     this.insert(row, { card, quiet: true, example: true })
   }
 
-  private takeHourly(m: Map<string, number[]>, key: string, max: number) {
+  /** `text`: the refusal in words, with the minutes to wait (the oldest of the hour's tries leaves the window then) */
+  private takeHourly(m: Map<string, number[]>, key: string, max: number, text: (minutes: number) => string) {
     const now = this.clock()
     const recent = (m.get(key) ?? []).filter((t) => now - t < HOUR)
-    if (recent.length >= max) fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((recent[0]! + HOUR - now) / 1000)) })
+    if (recent.length >= max) {
+      const wait = Math.max(1, Math.ceil((recent[0]! + HOUR - now) / 1000))
+      fail('rate_limited', text(Math.ceil(wait / 60)), { retryAfter: wait })
+    }
     recent.push(now)
     m.set(key, recent)
   }
@@ -366,6 +487,11 @@ export class RoomApps {
   /** A request the limits turned away: counted in memory and written at most once a minute per app (a flood must not
    * write a row per request). */
   private drops = new Map<string, { row: Pick<AppRow, 'id' | 'room_id' | 'kind'>; day: string; n: number; at: number }>()
+  /** The first request signed with a secret Trina made: from now on only signed requests are shown. */
+  /** `secretEnc`: the sealed secret the request was checked with; a secret set again since then is left waiting. */
+  signingSeen(appId: string, secretEnc: string) {
+    this.db.query('UPDATE room_apps SET secret_pending = 0 WHERE id = ? AND secret_enc = ?').run(appId, secretEnc)
+  }
   dropped(row: Pick<AppRow, 'id' | 'room_id' | 'kind'>, day: string) {
     const now = this.clock()
     const d = this.drops.get(row.id)
@@ -409,15 +535,24 @@ export class RoomApps {
     const team = this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP
     if (!own && !team) return null
     const paused = this.db.query('UPDATE room_apps SET paused_until = ? WHERE id = ? AND (paused_until IS NULL OR paused_until <= ?)').run(next, row.id, new Date(now).toISOString()).changes > 0
-    if (paused) this.paused(this.row(row.id) ?? row, day, team && !own)
+    if (paused) this.paused(this.row(row.id) ?? row, day, team, next)
     return next
   }
-  private paused(row: AppRow, day: string, team: boolean) {
-    const cap = team ? ROOM_APP_TEAM_DAILY_CAP : ROOM_APP_DAILY_CAP
+  /** `team`: the team's cap is reached (its line and notice then, even when the app's own cap is too: Resume now could
+   * not help). */
+  private paused(row: AppRow, day: string, team: boolean, until: string) {
+    const cap = this.pausedCap(row, day, team ? 'team' : 'app')
+    this.db.query(`INSERT INTO room_app_days (app_id, day, room_id, kind, paused_by) VALUES (?, ?, ?, ?, ?) ON CONFLICT(app_id, day) DO UPDATE SET paused_by = excluded.paused_by`).run(row.id, day, row.room_id, row.kind, team ? 'team' : 'app')
     const room = this.db.query('SELECT * FROM rooms WHERE id = ?').get(row.room_id) as RoomRow | null
     if (!room) return
     audit(this.db, { actor: null, action: 'room_app.paused', target: row.id, detail: { ...roomAuditRef(room), cap, team } })
-    try { this.postLine(row, appText('pausedLine', this.locale(), { app: row.name, cap })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    const L = this.locale()
+    // the team's cap pauses every app at once: its line is said once per room that day, by the first app paused there
+    // (10 apps must not post 10 equal lines; QA TC-2067); an app's own cap keeps its own line
+    const saidInRoom = team && !!this.db.query("SELECT 1 FROM room_app_days WHERE room_id = ? AND day = ? AND paused_by = 'team' AND app_id <> ? LIMIT 1").get(row.room_id, day, row.id)
+    if (!saidInRoom) {
+      try { this.postLine(row, team ? this.teamCapText(L, until) : appText('pausedLine', L, { app: row.name, cap: appNumber(cap, L) })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    }
     // who is told: the people in the room who manage it, and the person who added it while they are in it
     const members = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id) as { user_id: string }[]).map((m) => m.user_id)
     const to = members.filter((u) => u === row.created_by || mayManageApps(this.db, room, u))
@@ -439,7 +574,7 @@ export class RoomApps {
     const dh = sha256(ev.delivery)
     const dh2 = ev.alsoDelivery ? sha256(ev.alsoDelivery) : null
     const keyHash = ev.key ? sha256(ev.key) : null
-    let out: { id: string; root: MessageRow | null; rootChanged: boolean } | null = null
+    let out: { id: string | null; root: MessageRow | null; rootChanged: boolean } | null = null
     db.transaction(() => {
       const window = now - (ev.deliveryMinutes ? ev.deliveryMinutes * 60_000 : DELIVERY_DAYS * DAY)
       for (const h of [dh, dh2]) {
@@ -448,6 +583,8 @@ export class RoomApps {
         if (prior && Date.parse(prior.at) > window) return
       }
       for (const h of [dh, dh2]) if (h) db.query('INSERT OR REPLACE INTO room_app_deliveries (app_id, delivery_hash, at) VALUES (?, ?, ?)').run(row.id, h, at)
+      // the service account this app posts from, pinned on first sight (presets/zendesk.ts, shopify.ts)
+      if (ev.pin) db.query('UPDATE room_apps SET preset_pin = ? WHERE id = ? AND preset_pin IS NULL').run(ev.pin, row.id)
       let root: MessageRow | null = null
       let thread: { root_id: string; state: string | null; last_at: string } | null = null
       if (keyHash) {
@@ -460,16 +597,27 @@ export class RoomApps {
         }
       }
       let rootChanged = false
-      let id: string
+      let id: string | null
       if (root) {
         const reply = ev.reply ?? { title: ev.card.title, details: ev.card.details?.slice(0, 1) }
         const card = cleanCard({ title: reply.title, details: reply.details ?? [], link: ev.card.link, unverified: reply.unverified })
-        id = this.insert(row, { card, root, alsoInRoom: !!ev.back, quiet: !!row.quiet, at })
-        // the root's status line follows the thing's state
-        if (ev.status && ev.state && ev.state !== thread!.state) {
+        // `onlyStatus`: no reply, the root's status line below is the whole change
+        // `backFrom`: shown in the room too when the thing was in one of those states (a solved ticket opened again)
+        const back = !!ev.back || (!!ev.backFrom && !!thread!.state && !!ev.state && ev.backFrom.includes(thread!.state) && !ev.backFrom.includes(ev.state))
+        // `extra` (a Jira comment, a Zendesk update, a Channel Talk message in full): in the reply's text too, not only
+        // the lines its card shows (QA TC-2413)
+        id = ev.onlyStatus ? null : this.insert(row, { card, root, alsoInRoom: back, quiet: !!row.quiet, at, extra: ev.extra })
+        // the root's status line follows the thing's state, and its headline too where the event names one (QA TC-2483:
+        // a merged pull request's card no longer reads "Pull request opened")
+        if ((ev.status || ev.rootKind) && ev.state && ev.state !== thread!.state) {
           const stored = JSON.parse(root.app_card ?? '{}') as StoredCard
-          if (stored && typeof stored.title === 'string' && stored.status !== ev.status) {
-            const next: StoredCard = { ...stored, status: line(ev.status) }
+          const status = ev.status ? line(ev.status) : stored?.status
+          const kind = ev.rootKind ? line(ev.rootKind) : stored?.kind
+          if (stored && typeof stored.title === 'string' && (status !== stored.status || kind !== stored.kind)) {
+            // a headline taken from an unsigned request that names someone ("Resolved by Jun") marks the card as such
+            // (security review of #890); a mark once there stays
+            const marked = !!ev.rootKind && kind !== stored.kind && !!ev.card.unverified
+            const next: StoredCard = { ...stored, ...(status ? { status } : {}), ...(kind ? { kind } : {}), ...(marked ? { unverified: true as const } : {}) }
             db.query('UPDATE room_messages SET app_card = ?, body = ? WHERE id = ?').run(JSON.stringify(next), bodyOf(next.app.name, cleanCard({ ...next, link: next.link?.url })), root.id)
             rootChanged = true
           }
@@ -479,12 +627,15 @@ export class RoomApps {
         id = this.insert(row, { card: cleanCard(ev.card), quiet: !!row.quiet, at, extra: ev.extra })
         if (keyHash) db.query('INSERT OR REPLACE INTO room_app_threads (app_id, key_hash, root_id, state, last_at) VALUES (?, ?, ?, ?, ?)').run(row.id, keyHash, id, ev.state ?? null, at)
       }
-      this.count(row, 'shown', day)
+      // a status-only change is no new message: not counted toward the cap
+      if (id) this.count(row, 'shown', day)
       db.query('UPDATE room_apps SET last_ok_at = ?, first_ok_at = COALESCE(first_ok_at, ?) WHERE id = ?').run(at, at, row.id)
       out = { id, root, rootChanged }
     })()
     if (!out) return false
-    const o = out as { id: string; root: MessageRow | null; rootChanged: boolean }
+    const o = out as { id: string | null; root: MessageRow | null; rootChanged: boolean }
+    // nothing changed at all (the second event of one payment, its status the same): counted as skipped
+    if (!o.id && !o.rootChanged) return false
     // after the answer (the sender waits for it: Sentry gives a second)
     setImmediate(() => this.after(row.room_id, o.id, o.root, o.rootChanged))
     return true
@@ -495,7 +646,8 @@ export class RoomApps {
   private insert(row: AppRow, o: { card: ReturnType<typeof cleanCard>; root?: MessageRow | null; alsoInRoom?: boolean; quiet?: boolean; example?: boolean; at?: string; extra?: string }): string {
     const db = this.db, id = newId(), at = o.at ?? new Date(this.clock()).toISOString()
     const inTimeline = !o.root || !!o.alsoInRoom
-    const stored: StoredCard = { ...o.card, app: { name: row.name, kind: row.kind }, ...(o.example ? { example: true as const } : {}) }
+    const preset = this.presetOf(row)
+    const stored: StoredCard = { ...o.card, app: { name: row.name, kind: row.kind, ...(preset ? { preset } : {}) }, ...(o.example ? { example: true as const } : {}) }
     const write = () => {
       // a quiet message does not bring the room to the top of the list
       const bump = inTimeline && !o.quiet
@@ -511,16 +663,17 @@ export class RoomApps {
 
   /** After the answer: the message to the members who see it (and its notices), the thread's summary, the root's new
    * status. Never throws: the message is posted. */
-  private after(roomId: string, id: string, root: MessageRow | null, rootChanged: boolean) {
+  private after(roomId: string, id: string | null, root: MessageRow | null, rootChanged: boolean) {
     try {
       const rooms = roomsOf(this.ctx)
-      const msg = messageRow(this.db, roomId, id)
-      if (!msg) return
-      rooms.messageEvent('room.message', msg, rooms.notify(msg))
+      // id null: only the root's status line changed (no new message, nobody notified)
+      const msg = id ? messageRow(this.db, roomId, id) : null
+      if (id && !msg) return
+      if (msg) rooms.messageEvent('room.message', msg, rooms.notify(msg))
       if (root) {
         const r = messageRow(this.db, roomId, root.id)
         if (r && rootChanged) rooms.messageEvent('room.message.updated', r)
-        if (r) rooms.afterReply(r)
+        if (r && msg) rooms.afterReply(r)
       }
     } catch (e) { this.ctx.log.warn('room app message not sent out', { err: e }) }
   }

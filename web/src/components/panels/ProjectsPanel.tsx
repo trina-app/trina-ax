@@ -9,6 +9,7 @@
 // recently active first, the ones without a chat of mine after them, newest first. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
 // on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
+import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
 import { FolderLock, Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -22,6 +23,7 @@ import { accessChanged, reloadAsked } from '../../store/live'
 import { isAdmin, useMe } from '../../store/session'
 import { readManagedList, readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
+import { useGuestAiOff } from '../GuestView'
 import { whoSeesProject } from '../projectWho'
 import { ListIcon, ListRow } from '../list/List'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
@@ -41,7 +43,10 @@ export function ProjectsPanel() {
 export function NewProjectRow(_: { phone?: boolean } = {}) {
   const t = useT()
   const navigate = useNavigate()
+  const me = useMe()
   const [open, setOpen] = useState(false)
+  // a guest makes no projects (lib/guests.ts: they are in one place only)
+  if (isGuestMe(me)) return null
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium')} data-testid="projects-panel-new">
@@ -55,6 +60,7 @@ export function NewProjectRow(_: { phone?: boolean } = {}) {
 /** The projects I see, the most recently active first (see the top of this file). A phone passes `phone` (its rows are panelRow's own 48 px). */
 export function ProjectsList(_: { phone?: boolean } = {}) {
   const t = useT()
+  const noAiGuest = useGuestAiOff()
   const locale = useLocale()
   const { groups } = useGroupsRead()
   const byId = useProjects((s) => s.byId)
@@ -104,7 +110,8 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
         // alone, with the trash icon (nobody is its member then, so no members line: QA TC-1012)
         const who = p.inTrash ? t('chat.project.inTrash') : onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         // in the trash: only that (its chats are nobody's to open there; QA TC-1060)
-        const meta = p.inTrash ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
+        // a guest with no AI has no chats here (no Chats tab): no count of the team's chats either
+        const meta = p.inTrash || noAiGuest ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
         return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={p.inTrash ? <Trash2 className="text-faint" data-testid="projects-panel-in-trash" /> : <SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
       })}

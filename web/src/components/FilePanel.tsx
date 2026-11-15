@@ -14,7 +14,7 @@ import clsx from 'clsx'
 import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, API, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
+import { api, API, chatFileUrl, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
 import { extOf, parentPath } from '../lib/paths'
 import { PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import { openTeamFile, setPanelExpanded, setPanelGuard, type PreviewFile } from '../lib/sidePanel'
@@ -232,6 +232,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const download = () =>
     file.source === 'team' ? startDownload(fileUrl(file.path), file.name)
     : file.source === 'room' ? startDownload(roomFileUrl(file.roomId, file.fileId, { download: '1' }), file.name)
+    : file.source === 'chat' ? startDownload(chatFileUrl(file.chatId, file.fileId, { download: '1' }), file.name)
     : saveBlob(file.blob, file.name)
   // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
   const teamPath = file.source === 'team' ? file.path : null

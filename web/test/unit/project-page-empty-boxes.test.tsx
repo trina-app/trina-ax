@@ -115,7 +115,10 @@ describe('a project page with nothing in it yet', () => {
     }
     const m = await page(id)
     try {
-      await m.until(() => m.find('project-files-toggle')?.textContent?.includes(en('projects.items', { n: 0 })), 'the files row', 2000)
+      // no files: the phone's words ("No files yet", never "0 items", QA N4), a row with nothing to open
+      await m.until(() => m.find('project-files-empty')?.textContent === en('projects.page.filesEmpty'), 'the files row', 2000)
+      expect(m.get('project-files').textContent).not.toContain(en('projects.items', { n: 0 }))
+      expect(m.find('project-files-toggle')).toBeNull()
       expect(m.find('project-instructions-toggle')).not.toBeNull()
       for (const x of ['project-instructions-write', 'project-files-upload']) expect({ x, shown: !!m.find(x) }).toEqual({ x, shown: false })
     } finally { await m.unmount() }

@@ -1,0 +1,2 @@
+{"event":"push","type":"message","entity":{"id":"msg-002","channelId":"12345","chatType":"userChat","chatId":"6512ab01cd","personType":"manager","personId":"m-1",
+ "createdAt":1763115060000,"plainText":"Thanks! It ships today."},"refers":{"manager":{"id":"m-1","name":"Sam Lee","email":"sam@example.com","mobileNumber":"+82 10 1111 1111"}}}

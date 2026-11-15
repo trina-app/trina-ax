@@ -13,6 +13,7 @@ import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
 import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
@@ -68,8 +69,12 @@ export interface PendingSend {
   threadRootId: string | null
   /** a reply also sent to the room */
   alsoInRoom: boolean
+  /** "Show message" for these linked messages (SendRoomMessageBody.showMessages) */
+  showMessages?: string[]
   state: 'sending' | 'failed'
   error?: string
+  /** on its way, waiting while Trina is updating: it goes once the server is back */
+  updating?: boolean
   createdAt: string
   /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
    * may have reached the server. Try again is safe (the same client id). */
@@ -355,7 +360,7 @@ const myRef = () => {
   return s.kind === 'signed-in' ? { id: s.me.user.id, name: s.me.user.name } : null
 }
 
-export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean }
+export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean; showMessages?: string[] }
 
 interface RoomsState extends RoomsData {
   kept: Record<string, KeptTimeline>
@@ -413,6 +418,8 @@ interface RoomsState extends RoomsData {
    * Never rejects: false when it failed and nothing newer of it was made since (the box can open again with the text) */
   edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<boolean>
   remove: (roomId: string, messageId: string) => Promise<void>
+  /** "Remove preview" on my own message: that link's card goes for everyone (a failure says so in a toast) */
+  hidePreview: (roomId: string, messageId: string, linkedMessageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
   /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (asked
@@ -783,7 +790,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
   const post = async (roomId: string, p: PendingSend) => {
     try {
-      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
+      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}), ...(p.showMessages?.length ? { showMessages: p.showMessages } : {}) } })
       goneElsewhere.delete(p.clientMessageId)
       patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
@@ -794,6 +801,17 @@ export const useRooms = create<RoomsState>((set, get) => {
       if (goneElsewhere.delete(p.clientMessageId)) {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
         return
+      }
+      // Trina is updating (lib/serverUpdating.ts): it stays on its way with a note and goes once the server is back,
+      // with the same client id (the update's stand-in kept nothing)
+      if (waitsForUpdate(e)) {
+        const mark = (updating: boolean) => setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'sending', updating: updating || undefined } : x)))
+        mark(true)
+        await waitForUpdate()
+        const still = get().pending[roomId]?.find((x) => x.clientMessageId === p.clientMessageId)
+        if (!still) return
+        mark(false)
+        return post(roomId, { ...still, state: 'sending', updating: undefined })
       }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
@@ -1113,7 +1131,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     send(roomId, input) {
-      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, state: 'sending', createdAt: new Date().toISOString() }
+      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, ...(input.showMessages?.length ? { showMessages: input.showMessages } : {}), state: 'sending', createdAt: new Date().toISOString() }
       setPending(roomId, (list) => [...list, p])
       void post(roomId, p)
       // sent from a window around an older message: back to the newest, where it goes
@@ -1162,8 +1180,21 @@ export const useRooms = create<RoomsState>((set, get) => {
       // the room.message.updated event says the same; show it at once
       const m = findMessage(get(), roomId, messageId)
       if (m) {
-        const { reactions: _r, ...rest } = m
+        const { reactions: _r, linkPreviews: _l, ...rest } = m
         patchMessages((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
+      }
+    },
+
+    async hidePreview(roomId, messageId, linkedMessageId) {
+      const m = findMessage(get(), roomId, messageId)
+      // gone from the screen at once; the server's message (and its room.message.updated) says the same
+      if (m?.linkPreviews) patchMessages((s) => withUpdatedMessage(s, roomId, { ...m, linkPreviews: m.linkPreviews!.map((p) => (p.messageId === linkedMessageId ? { ...p, removed: true as const, body: '', files: { count: 0 } } : p)) }))
+      try {
+        const next = await api.call(API.hideRoomLinkPreview, { params: { id: roomId, messageId }, body: { linkedMessageId } })
+        patchMessages((s) => withUpdatedMessage(s, roomId, next))
+      } catch (e) {
+        if (m) patchMessages((s) => withUpdatedMessage(s, roomId, m))
+        toast({ level: 'error', text: errorText(e, currentLocale(), t('error.network')) })
       }
     },
 

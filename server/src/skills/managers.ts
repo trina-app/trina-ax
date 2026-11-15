@@ -125,7 +125,7 @@ export function listSkillManagers(ctx: AppContext): SkillManagersResponse {
 export function setSkillManager(ctx: AppContext, actor: string, b: { subjectType: 'user' | 'group'; subjectId: string; path: string; enabled: boolean }, locale: Locale): SkillManagersResponse {
   const db = ctx.db
   if (b.subjectType === 'user') {
-    const u = db.query("SELECT role FROM users WHERE id = ? AND deleted_at IS NULL").get(b.subjectId) as { role: string } | null
+    const u = db.query("SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND deleted_at IS NULL").get(b.subjectId) as { role: string } | null
     if (!u) fail('validation', msg('unknownUsers', locale), { fields: { 'body.subjectId': 'unknown person' } })
     if (u!.role === 'owner' || u!.role === 'admin') fail('validation', st('managerNotSubject', locale), { fields: { 'body.subjectId': 'owner and admins always manage skills' } })
   } else if (!db.query('SELECT 1 FROM groups WHERE id = ?').get(b.subjectId)) {

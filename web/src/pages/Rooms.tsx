@@ -14,11 +14,13 @@
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
+import { useCanStartChat, useGuestHidden } from '../components/GuestView'
+import { guestPlacePath, meGuest } from '../lib/guests'
 import clsx from 'clsx'
 import { ListHeading, ListIcon, rowName } from '../components/list/List'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
@@ -55,6 +57,15 @@ export default function Rooms() {
   // and stays on the list, and a chat opened from it takes that entry, so Back from the chat comes back to the list
   const [params, setParams] = useSearchParams()
   const [picking, setPicking] = useState(false)
+  // the start hint and "or start a new one with +": not a guest's (components/GuestView.tsx)
+  const canStart = useCanStartChat()
+  // a guest opens their one place (Slack's single-channel guests): on a computer a guest in a room gets their room
+  // itself, not "pick one"; a guest in a project with no conversation (no 대화 place) gets their project
+  const me = useMe()
+  const guestPlace = meGuest(me)?.place
+  const guestRoom = guestPlace?.kind === 'room' ? guestPlace.id : undefined
+  const noChats = useGuestHidden().has('chats')
+  const guestHome = guestPlacePath(me)
   const asked = params.has('new')
   useEffect(() => {
     if (!asked) return
@@ -74,11 +85,14 @@ export default function Rooms() {
   const folders = useFolders('rooms', !computer)
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
+  if (noChats && guestHome) return <Navigate to={guestHome} replace />
+  // (not while they have hidden conversations: this page is where those are)
+  if (computer && guestRoom && !asked && !hidden.length) return <Navigate to={`/rooms/${guestRoom}`} replace />
   if (computer)
     return (
       <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
-          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t('rail.pickConversation')}</p>
+          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t(canStart ? 'rail.pickConversation' : 'rail.pickConversationOnly')}</p>
           {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         </div>
         {/* /rooms?new=1 (a link that asks for a new conversation) opens the people list here too */}
@@ -108,7 +122,7 @@ export default function Rooms() {
               </section>
             )
           })}
-        {loaded && !failed && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
+        {loaded && !failed && canStart && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
           <button type="button" onClick={() => setPicking(true)} className="mt-2 flex min-h-11 w-full items-center gap-2 px-4 text-left text-sm text-muted hover:text-ink sm:px-6" data-testid="rooms-start-hint">
             <Plus size={16} aria-hidden />
             {t('rooms.startHint')}
@@ -206,7 +220,8 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const line = !m ? '' : plainLine(m.excerpt)
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const nameOf = useNameOf()
-  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
+  // an app's message: the app's name (docs/DECISIONS.md "Apps posting in rooms")
+  const who = !m ? null : m.app ? m.app.name : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
   const unread = roomUnread(room)
   const menu = useRowMenu()
   return (

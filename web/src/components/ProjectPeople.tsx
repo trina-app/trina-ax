@@ -11,9 +11,11 @@ import { useT } from '../i18n'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { reactionWho } from '../lib/rooms'
 import { useMe } from '../store/session'
+import { usePeople } from '../store/people'
 import { useProjectPage } from '../store/projectPage'
 import { Avatar } from './Avatar'
 import { FaceStack, FACES_MAX } from './FaceStack'
+import { GuestTagFor } from './GuestTag'
 
 /** A team project with a list of its people: in projects/<name>, not in the trash. */
 export const hasPeopleList = (p: Pick<Project, 'folderPath' | 'inTrash'>) => isProjectsFolder(p.folderPath) && !p.inTrash
@@ -38,7 +40,13 @@ export function useProjectPeople(p: Pick<Project, 'id' | 'folderPath' | 'inTrash
     const id = p!.id
     api.call(API.getProjectPeople, { params: { id } }).then(
       // (an answer to an older ask, after a save asked again, changes nothing)
-      (r) => { if (live) { useProjectPage.getState().keepPeople(id, r); setPeople(r) } },
+      (r) => {
+        if (!live) return
+        // its guests get their tag and "Includes 1 guest" also where the directory does not have them (components/GuestTag.tsx)
+        usePeople.getState().noteGuests(r.people.filter((x) => x.guest).map((x) => x.id))
+        useProjectPage.getState().keepPeople(id, r)
+        setPeople(r)
+      },
       () => { if (live) { useProjectPage.getState().keepPeople(id, undefined); setPeople(false) } },
     )
     return () => { live = false }
@@ -87,6 +95,7 @@ export function PeopleList({ people }: { people: readonly ProjectPerson[] }) {
             <li key={x.id} className="flex min-h-9 items-center gap-2.5" data-testid={`project-person-${x.id}`}>
               <Avatar user={x} size={24} />
               <span className="min-w-0 truncate text-sm text-ink">{x.name}</span>
+              <GuestTagFor userId={x.id} />
               {tags && <span className="shrink-0 text-xs text-faint" data-testid={`project-person-tag-${x.id}`}>{tags}</span>}
             </li>
           )

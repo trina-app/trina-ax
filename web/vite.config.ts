@@ -10,16 +10,17 @@
 // scripts/compress-dist.ts writes the .br / .gz copies the team server sends.
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type UserConfig } from 'vite'
 import pkg from './package.json' with { type: 'json' }
 import { emojiData } from './scripts/emoji-data.ts'
 import { localesOnDemand } from './scripts/locales-on-demand.ts'
 import { pdfjsAssets } from './scripts/pdfjs-assets.ts'
 import { productPages } from './scripts/product-pages.ts'
+import { demoConfig } from './demo/vite.ts'
 
 const API_TARGET = process.env.MYCEL_API_TARGET ?? 'http://127.0.0.1:19100'
 
-export default defineConfig({
+const config: UserConfig = {
   // one tsconfig for every file: web imports mobile/src/protocol.ts, and mobile/tsconfig.json extends
   // expo/tsconfig.base, which a clean checkout does not have (mobile/ is not a workspace; vite 8 reads the
   // nearest tsconfig per file otherwise and the build fails with "Tsconfig not found expo/tsconfig.base")
@@ -42,4 +43,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 3000,
   },
   worker: { format: 'es' },
-})
+}
+
+// `--mode demo` (bun run build:demo): the hands-on demo build, web/demo/vite.ts; every other mode builds the product as it is
+export default defineConfig(({ mode }) => (mode === 'demo' ? demoConfig(config) : config))

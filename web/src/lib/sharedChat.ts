@@ -38,10 +38,10 @@ export const mayHideChat = (chat: Partial<Pick<Chat, 'shared' | 'deletedAt'>> | 
   !!chat && isPeopleShared(chat) && chat.shared!.by.id !== me && !chat.deletedAt
 
 /**
- * What "Share…" opens for a chat (docs/DECISIONS.md "Chats shared with people and groups"; plan
+ * What "Share" opens for a chat (docs/DECISIONS.md "Chats shared with people and groups"; plan
  * 20261114-shared-chats-everywhere UX 1):
  * - 'people': a chat outside projects that is mine (private, or already shared with people): the Share dialog;
- * - 'personal': a private chat of mine in a personal project: the dialog explains it and offers Move…;
+ * - 'personal': a private chat of mine in a personal project: the dialog explains it and offers Move;
  * - 'project': my private chat in a team project: the check, then shared with the project's members (ShareChat.tsx);
  * - null: no item (a shared project chat, someone else's chat, a room's side chat, a confidential or scheduled task's
  *   chat, one in the trash, or any chat while safe operations are on). The server checks all of it again.
@@ -108,6 +108,12 @@ export const refusalReason = (e: unknown): string | null =>
  * "You're no longer a member of <project>" in place of the generic not-found (QA TC-1067). Null for any other error. */
 export const noLongerMemberOf = (e: unknown): string | null =>
   e instanceof ApiError && e.status === 404 && e.body.params?.reason === 'no_longer_member' && typeof e.body.params.project === 'string' ? e.body.params.project : null
+
+/** A 404 for a chat shared with people and groups that the caller was taken out of (or whose group they left, or that
+ * was made private again): "This chat is no longer shared with you" in place of the generic not-found (QA TC-2009). The
+ * server says so only to someone who was in it; everyone else gets the plain 404. */
+export const noLongerSharedWith = (e: unknown): boolean =>
+  e instanceof ApiError && e.status === 404 && e.body.params?.reason === 'no_longer_shared'
 
 /** The refusal in the person's words: a reason the screens name, else null (the caller shows the server's own message).
  * `where`: safe operations refuse a chat ("continue in a chat of your own") and the project setting differently. */

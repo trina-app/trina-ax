@@ -72,6 +72,7 @@ import type { FileListStatus } from '@mycel/shared/api'
 import { WideningAnswer } from '@mycel/shared/api'
 import type { ChatAudience } from '@mycel/shared/api'
 import { ACCOUNT_DELETION_GRACE_DAYS } from '@mycel/shared/api'
+import type { GuestAiChoice } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -146,6 +147,26 @@ const MOCK_CLAUDE_AUTHORIZE = 'https://claude.com/cai/oauth/authorize?code=true&
 const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>, params?: Record<string, string | number | boolean>): never => {
   throw new Fail(code, status, msg, fields, params)
 }
+/** A JPEG without its APP1 (Exif) segments, as the server keeps a picture in a chat shared with people
+ * (server/src/uploads/metadata.ts cleanImage, short); anything else as it came. */
+function withoutExif(d: Uint8Array): Uint8Array {
+  if (d[0] !== 0xff || d[1] !== 0xd8) return d
+  const parts: Uint8Array[] = [d.subarray(0, 2)]
+  let i = 2
+  while (i + 4 <= d.length && d[i] === 0xff) {
+    const m = d[i + 1]!
+    if (m === 0xda) break
+    const end = i + 2 + ((d[i + 2]! << 8) | d[i + 3]!)
+    if (m !== 0xe1) parts.push(d.subarray(i, end))
+    i = end
+  }
+  if (parts.length === 1 && i === 2) return d
+  parts.push(d.subarray(i))
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let o = 0
+  for (const p of parts) { out.set(p, o); o += p.length }
+  return out
+}
 /** Like server/src/admin/users.ts temporaryFor: a typed temporary password must be ASCII, 8+ and not a common one. */
 function checkTemp(pw: string | undefined): void {
   if (pw === undefined) return
@@ -208,7 +229,9 @@ function slidePng(i: number): Uint8Array {
 }
 
 interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; mime?: string }
-interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
+export interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
+/** a server-side socket: Bun's ServerWebSocket, or the in-page one of web/demo/ */
+export interface MockSocket { data: WsData; send(text: string): unknown; close(code?: number, reason?: string): unknown }
 interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
 /** Folders below the mock share account's top level, found by the folder picker's search */
@@ -261,7 +284,7 @@ export class MockServer {
   epoch = uuidv7()
   seq = 0
   buffer: { seq: number; text: string }[] = []
-  sockets = new Set<Bun.ServerWebSocket<WsData>>()
+  sockets = new Set<MockSocket>()
   /** status messages (docs/DECISIONS.md "상태 메시지"; server/src/auth/status-messages.ts): mine through PUT/DELETE
    * /api/me/status, anyone's through POST /__test/status; worked out by the server's own rules in the team's zone */
   statuses = new Map<string, { emoji: string; text: string; clear: StatusClear; starts_at: string | null; clears_at: string | null; until_day: string | null }>()
@@ -368,6 +391,16 @@ export class MockServer {
   chats: Chat[] = []
   /** the team chat rooms the signed-in person is in (empty unless a test sets them: /__test/rooms) */
   rooms: Room[] = []
+  /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
+   * one's one place and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
+  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean }>()
+  /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
+   * server) and whether every seat is taken (making a guest a member is then refused, 409 seat_limit) */
+  guestCap: number | null = null
+  /** POST /__test/host-sign-in {on}: the engines run on the server's own sign-in (not managed): no guest AI here
+   * (CredentialsResponse.guestAiUnavailable 'host_sign_in') */
+  hostSignIn = false
+  seatsFull = false
   /** the messages of those rooms: only what was sent to them here ("대화방에 보내기"), oldest first */
   roomMessages = new Map<string, RoomMessage[]>()
   /** a shared answer's clientMessageId → its room message (the same id sent again gets it back) */
@@ -663,6 +696,7 @@ export class MockServer {
     this.deckThumbs = true
     this.deckTier = 'quick'
     this.allConfidential = false
+    this.peopleChats.clear()
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
@@ -732,6 +766,10 @@ export class MockServer {
     this.pluginManaged.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
+    this.guests.clear()
+    this.guestCap = null
+    this.hostSignIn = false
+    this.seatsFull = false
     this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
     if (!this.setupNeeded) this.seed()
@@ -806,6 +844,9 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
+  /** POST /__test/people-chat {chatId}: chats shared with people and groups (Chat.shared.kind people); a file from the
+   * computer there is kept with the chat (server/src/chat/chat-files.ts: Attachment source 'chat', no team path) */
+  peopleChats = new Set<string>()
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   /** a trash item the person sees and may restore (server trashVisible): write access to its original path, and never
@@ -824,6 +865,8 @@ export class MockServer {
       const owner = path.split('/')[1]
       return owner === user.id || user.role === 'owner' ? 'write' : 'none'
     }
+    // a guest reads only inside the project they are in (the folder rules of their project, below)
+    if (user.role === 'guest' && !path.startsWith('projects/')) return 'none'
     if (path === 'finance' || path.startsWith('finance/')) return user.role === 'owner' ? 'read' : 'none'
     // a team project's folder: its members only, the owner and admins too only as members (projectMembers; docs/
     // DECISIONS.md "Project contents only for members"); someone with another setting there reads
@@ -872,7 +915,7 @@ export class MockServer {
   /** like mayManageProject: the owner and admins for every team project (also without reading it, also in the trash);
    * its creator while they may edit it */
   projectManages(p: Project, u: User): boolean {
-    if (!p.folderPath.startsWith('users/') && u.role !== 'member') return true
+    if (!p.folderPath.startsWith('users/') && (u.role === 'owner' || u.role === 'admin')) return true
     return !p.inTrash && p.createdBy?.id === u.id && this.access(p.folderPath, u) === 'write'
   }
   /** like server/src/chat/shared.ts memberWhileTrashed: a team project in the trash (its folder not purged) this person is
@@ -1419,11 +1462,68 @@ export class MockServer {
     if ((body.engine !== undefined && body.engine !== current.engine) || (body.model !== undefined && (body.model ?? null) !== current.model))
       fail('forbidden', 403, 'AI 엔진과 모델은 관리자가 정해요. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답해요.')
   }
+  makeGuest(u: User, place: { kind: 'room' | 'project'; id: string }, ai: GuestAiChoice, invitedBy: string | null) {
+    this.guests.set(u.id, { place, ai, invitedBy })
+    if (place.kind === 'project') {
+      const pr = this.projects.find((x) => x.id === place.id)
+      const pm = pr && this.projectMembers.get(pr.folderPath)
+      if (pm && !pm.participants.some((x) => x.subjectType === 'user' && x.subjectId === u.id)) pm.participants.push({ subjectType: 'user', subjectId: u.id })
+    } else {
+      const r = this.rooms.find((x) => x.id === place.id)
+      if (r && !r.peers.some((x) => x.id === u.id)) { r.peers.push({ id: u.id, name: u.name }); r.memberCount++ }
+    }
+  }
+  /** May this person keep AI connections of their own (credentials/policy.ts personalConnectionsAllowed): a guest only
+   * with their own sign-in (AI 'own', whatever the members' switch says), anyone else while the members' switch is on. */
+  personalAllowed(userId: string): boolean {
+    const g = this.guests.get(userId)
+    return g ? g.ai.mode === 'own' : this.credMemberOwn
+  }
+  /** A guest's place by name (null when it is gone). */
+  guestPlaceNamed(place: { kind: 'room' | 'project'; id: string }): { kind: 'room' | 'project'; id: string; name: string } | null {
+    if (place.kind === 'project') {
+      const pr = this.projects.find((x) => x.id === place.id && !x.inTrash)
+      return pr ? { ...place, name: pr.name } : null
+    }
+    const r = this.rooms.find((x) => x.id === place.id)
+    return r ? { ...place, name: r.name ?? r.peers.map((x) => x.name).join(', ') } : null
+  }
+  /** The people a guest shares their place with (them included): the room's people, or the project's members. */
+  guestPeers(guestId: string): Set<string> {
+    const g = this.guests.get(guestId)
+    const out = new Set([guestId])
+    if (!g) return out
+    if (g.place.kind === 'room') {
+      const r = this.rooms.find((x) => x.id === g.place.id)
+      for (const p of r?.peers ?? []) out.add(p.id)
+      if (g.invitedBy) out.add(g.invitedBy)
+      return out
+    }
+    const pr = this.projects.find((x) => x.id === g.place.id)
+    for (const u of this.users) if (pr && this.access(pr.folderPath, u) !== 'none') out.add(u.id)
+    return out
+  }
+  /** Me.guest and User.guest: a guest's place by name and AI; for a removed guest why they are not in it (placeOut, as
+   * POST /__test/guest {out} sets it; a deleted place keeps no name), and a Team AI whose account was deleted. */
+  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true } } {
+    const g = this.guests.get(u.id)
+    if (!g) return {}
+    const out = u.status !== 'active' ? g.out : undefined
+    const place = this.guestPlaceNamed(g.place) ?? (out ? { ...g.place, name: out === 'gone' ? '' : String((this.projects.find((x) => x.id === g.place.id) ?? this.rooms.find((x) => x.id === g.place.id))?.name ?? '') } : null)
+    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}) } } : {}
+  }
+  /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
+  assertGuestFree() {
+    const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+    if (this.guestCap !== null && used >= this.guestCap) throw new Fail('plan_limit', 409, `The plan's guest limit (${this.guestCap}) is reached.`, undefined, { reason: 'guest_limit', limit: this.guestCap, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
+  }
+
   me(u: User, sid: string): Me {
     const prefs = { ...((u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {}) }
     const choose = this.canChoose(u)
     if (!choose) { delete prefs.engine; delete prefs.model }
     return {
+      ...this.guestDetail(u),
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)), ...(this.webTeam() && this.webAccess.has(u.id) ? { webAllowAll: true as const } : {}) },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, ...(this.webTeam() ? { webAllowAll: true as const } : {}), iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
@@ -2096,6 +2196,8 @@ export class MockServer {
         assistant.error = { code: text.code, message: text.ko, ...(fixture[1] ? {} : { params: { reason } }) }
       } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
       else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
+      // the monthly limit used up (server/src/admin/budgets.ts budgetBlock): when it resets, 00:00 KST on Dec 1
+      else if (fixture?.[2] === 'budget') assistant.error = { code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요. 12월 1일 0시부터 다시 쓸 수 있어요.', params: { resetsAt: '2026-11-30T15:00:00.000Z' } }
     }
     if (/sources/i.test(prompt)) {
       // like server/src/files/sources.ts: what the answer read or saw passages of, a sub-agent's read marked; one file
@@ -2232,7 +2334,8 @@ export class MockServer {
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
-    listRooms: () => ({ items: this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
+    // a guest: their one room and their DMs only (server/src/auth/guests.ts)
+    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
@@ -2242,7 +2345,12 @@ export class MockServer {
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
       signIn: false, redirectUrl: null, readScopes: null, missingScopes: [], ...this.slackOver.admin,
     }),
-    listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name, ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }),
+    // a guest sees only the people of their place, and a guest only those of theirs (reachFilter); Person.guest tags them
+    listPeople: (c) => {
+      const mine = c.user.role === 'guest' ? this.guestPeers(c.user.id) : null
+      const reach = (u: User) => (mine ? mine.has(u.id) : u.role !== 'guest' || this.guestPeers(u.id).has(c.user.id))
+      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true, ...((d) => (d.guest ? { guestPlace: d.guest.place } : {}))(this.guestDetail(u)) } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
+    },
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
     setMyStatus: (c) => {
       this.setStatus(c.user.id, c.body, c.user.localeChoice ?? this.settings.defaultLocale)
@@ -2349,14 +2457,27 @@ export class MockServer {
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)
       if (!i) fail('not_found', 404)
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt }
+      // a guest invite names its place (InviteInfo.guestPlace)
+      const place = (i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace
+      const named = place ? this.guestPlaceNamed(place) : null
+      // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
+      const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
+      if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
       if (!i) fail('gone', 410)
+      // a reason set after the page was opened (its maker lost access meanwhile): 410 with it, like the server
+      const late = (i as { lateReason?: string }).lateReason
+      if (late) { (i as { deadReason?: string }).deadReason = late; throw new Fail('gone', 410, 'This link no longer works.', undefined, { reason: late }) }
+      if (i!.role === 'guest') this.assertGuestFree()
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: i!.role, groupIds: i!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       i!.usedAt = now()
       i!.usedBy = { id: u.id, name: u.name }
+      // a guest: their one place (a project: a person rule on its folder, as the members dialog writes it)
+      const gi = i as typeof i & { guestPlace?: { kind: 'room' | 'project'; id: string }; guestAi?: GuestAiChoice }
+      if (gi.role === 'guest' && gi.guestPlace) this.makeGuest(u, gi.guestPlace, gi.guestAi ?? { mode: 'none' }, gi.createdBy?.id ?? null)
       u.lastSeenAt = now()
       // a lead link (팀장 넘기기): the owner who flagged it gets the card, an Inbox notice and the realtime notice
       if (i!.leadFor && i!.leadBy) {
@@ -2537,6 +2658,48 @@ export class MockServer {
       const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
       return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), rooms, nextCursor: null }
     },
+    // like server/src/auth/accounts.ts createGuestInvite (short): a member of the group chat (the rooms of POST /__test/rooms
+    // are the caller's), or a project's creator, the owner or an admin; team AI only from the owner or an admin; the cap
+    createGuestInvite: (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      const place = c.body.place as { kind: 'room' | 'project'; id: string }
+      const staff = c.user.role === 'owner' || c.user.role === 'admin'
+      if (place.kind === 'room' && !this.rooms.some((r) => r.id === place.id && r.kind === 'group')) fail('forbidden', 403)
+      if (place.kind === 'project') {
+        const pr = this.projects.find((x) => x.id === place.id && !x.inTrash) ?? fail('not_found', 404)
+        if (!staff && pr.createdBy?.id !== c.user.id) fail('forbidden', 403)
+      }
+      if (c.body.ai.mode === 'team' && !staff) fail('forbidden', 403)
+      this.assertGuestFree()
+      const token = 'inv' + uuidv7().replace(/-/g, '')
+      const i = { id: uuidv7(), role: 'guest' as const, groupIds: [] as string[], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInHours ?? 168) * 3600_000).toISOString(), usedAt: null, usedBy: null, leadFor: null, guestPlace: place, guestAi: c.body.ai as GuestAiChoice, ...(c.body.name ? { guestName: c.body.name as string } : {}), token }
+      this.invites.push(i)
+      const { token: _t, guestAi: _a, ...invite } = i as typeof i & { guestName?: string }
+      return { status: 201, body: { invite, token, url: `/invite/${token}` } }
+    },
+    // like server/src/auth/accounts.ts guestInviteLimit: the guest cap now; seats and the plan page for the owner and admins
+    guestInviteLimit: (c) => {
+      const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+      const staff = c.user.role === 'owner' || c.user.role === 'admin'
+      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
+    },
+    updateGuestAi: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const g = this.guests.get(u.id) ?? fail('conflict', 409)
+      if (c.body.mode === 'team' && !this.credentials.some((x) => x.id === c.body.credentialId && !x.owner)) fail('validation', 400)
+      g.ai = c.body
+      return { ...u, ...this.guestDetail(u) }
+    },
+    convertGuest: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (u.role !== 'guest') fail('conflict', 409)
+      if (this.seatsFull) throw new Fail('plan_limit', 409, 'Every seat is taken.', undefined, { reason: 'seat_limit' })
+      // like the server: the guest AI and its limit end, and a removed guest is switched on with it
+      u.role = 'member'
+      u.status = 'active'
+      this.guests.delete(u.id)
+      return u
+    },
     listRoomMembers: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
@@ -2627,7 +2790,7 @@ export class MockServer {
       return undefined
     },
     // like server/src/routes/chats.ts: the projects the caller reads; manage=1 also those they manage without reading
-    listProjects: (c) => ({ items: this.projects.filter((p) => this.projectSees(p, c.user) || (c.query.manage === '1' && (this.projectManages(p, c.user) || this.projectWasMember(p, c.user)))).map((p) => this.projectOut(p, c.user)) }),
+    listProjects: (c) => ({ items: this.projects.filter((p) => (c.user.role === 'guest' ? this.guests.get(c.user.id)?.place.id === p.id && this.projectSees(p, c.user) : this.projectSees(p, c.user)) || (c.query.manage === '1' && (this.projectManages(p, c.user) || this.projectWasMember(p, c.user)))).map((p) => this.projectOut(p, c.user)) }),
     // like server/src/routes/chats.ts (docs/DECISIONS.md "Projects live only in projects/"): a team project is a new
     // projects/<name> (a taken name gets "-2") with its people, a personal one users/<me>/projects/<name>. The app sends
     // no folder. A spec may still name one: that sets up a project as older builds made them on an existing folder (the
@@ -2718,6 +2881,13 @@ export class MockServer {
       for (const [k, n] of kept!) this.files.set(k, n)
       this.trashedProjects.delete(p.id)
       p.inTrash = false
+      // like admin/guests.ts returnGuestsWithPlace: its guests the trash switched off come back with it
+      for (const [id, g] of this.guests) {
+        if (g.place.kind !== 'project' || g.place.id !== p.id || g.out !== 'trashed') continue
+        const u = this.users.find((x) => x.id === id)
+        if (u) u.status = 'active'
+        delete g.out
+      }
       return this.sharedProjectOut(p, c.user)
     },
     getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c), c.user),
@@ -2744,7 +2914,7 @@ export class MockServer {
       if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', undefined, { reason: 'project_personal' })
       if (!/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
       const creator = p.createdBy?.id
-      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}) }))
+      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}), ...(u.role === 'guest' ? { guest: true as const } : {}) }))
         .sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name))
       if (!this.projectManages(p, c.user)) return { people }
       const pm = this.projectMembers.get(p.folderPath)
@@ -2922,12 +3092,17 @@ export class MockServer {
 
     tree: (c) => {
       const path = c.query.path ?? ''
+      // a guest passes through the top, projects/ and users/ to their project and their own folder, and is listed
+      // nothing else there (server/src/policy/access.ts: canList)
+      const guest = c.user.role === 'guest'
+      const pass = guest && (path === '' || path === 'projects' || path === 'users')
       if (path && !this.files.has(path)) fail('not_found', 404)
-      if (this.access(path, c.user) === 'none' && path !== 'secret') fail('not_found', 404)
+      if (this.access(path, c.user) === 'none' && path !== 'secret' && !pass) fail('not_found', 404)
       const kids = [...this.files.entries()].filter(([p]) => (path ? p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/') : !p.includes('/')))
       const entries = kids
         .map(([p, n]) => this.entry(p, n, c.user))
         .filter((e) => !(e.path.startsWith('users/') && e.access === 'none'))
+        .filter((e) => !guest || (path === '' ? e.path === 'projects' || e.path === 'users' : e.access !== 'none'))
         .sort((a, b) => (a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : a.name.localeCompare(b.name)))
       return { path, access: this.access(path, c.user), entries, nextCursor: null }
     },
@@ -3243,6 +3418,12 @@ export class MockServer {
       await this.uploadAnswer()
       return { status: 201, body: this.makeAttachment(c.body.chatId, c.body.name ?? c.file!.name, data, c.file!.type, c.user) }
     },
+    // a file kept with a chat shared with people (server/src/routes/chats.ts chatFile)
+    chatFile: (c) => {
+      const a = this.attachments.get(c.params.fileId!)
+      if (!a || a.source !== 'chat' || !(this.peopleChats.has(c.params.id!) || this.peopleShared.has(c.params.id!))) fail('not_found', 404)
+      return new Response(a!.data as unknown as BodyInit, { headers: { 'content-type': a!.mime, 'content-disposition': c.query.download ? 'attachment' : 'inline' } })
+    },
     attachmentThumbnail: (c) => {
       const a = this.attachments.get(c.params.id!) ?? fail('not_found', 404)
       return new Response(a.data as unknown as BodyInit, { headers: { 'content-type': a.mime } })
@@ -3332,7 +3513,7 @@ export class MockServer {
     // the people who asked to have their account deleted: the owner sees them all, an admin the members' only
     listUsers: (c) => {
       const asked = this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member'))
-      return { items: this.users, deletionRequested: asked.map((u) => u.id), deletionDue: Object.fromEntries(asked.map((u) => [u.id, deletionDue(this.deletionRequests.get(u.id)!)])) }
+      return { items: this.users.map((u) => ({ ...u, ...this.guestDetail(u) })), deletionRequested: asked.map((u) => u.id), deletionDue: Object.fromEntries(asked.map((u) => [u.id, deletionDue(this.deletionRequests.get(u.id)!)])) }
     },
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
@@ -3341,6 +3522,9 @@ export class MockServer {
       return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
     updateUser: (c) => {
+      // a removed guest switched on with nothing to bring them back to (admin/users.ts: 409 guest_no_place, placeOut)
+      const gOut = c.body.status === 'active' ? this.guests.get(c.params.id)?.out : undefined
+      if (gOut) throw new Fail('conflict', 409, "Their room or project is gone, so there's nothing to bring them back to.", undefined, { reason: 'guest_no_place', placeOut: gOut })
       const { locale, ...rest } = c.body
       const u = Object.assign(this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
       if (locale !== undefined) u.localeChoice = locale
@@ -3431,7 +3615,8 @@ export class MockServer {
       this.resetLinks.set(token, { userId: u.id, expiresAt, usedAt: null })
       return { token, url: `/reset-password/${token}`, expiresAt }
     },
-    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
+    // a guest link's project by name (server/src/auth/accounts.ts toInvite; never a room's)
+    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl?.kind === 'project' ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
       // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
@@ -3505,9 +3690,15 @@ export class MockServer {
       const maker = l!.skillPath ? this.users.find((x) => x.id === this.skillMakers.get(l!.skillPath!))?.name ?? null : null
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, skillBy: maker } }
     },
-    // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
+    // onboarding A, B, D: the scripted AI answers everyone, there is no company profile yet
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
-    getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false, notReadyTold: this.notReadyTold.has(c.user.id) }),
+    // a guest: AI off by default (none), their own sign-in still to make (own), or a team AI account (team)
+    getAiAccess: (c) => {
+      const g = this.guests.get(c.user.id)
+      // (own: usable once they have a connection of their own, as credentials/resolve.ts reads it for a guest)
+      if (g) return { usable: g.ai.mode === 'team' || (g.ai.mode === 'own' && this.credentials.some((x) => x.owner?.id === c.user.id && !x.disabled)), action: g.ai.mode === 'own' ? 'connect_own' : 'ask_owner', requested: false }
+      return { usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false, notReadyTold: this.notReadyTold.has(c.user.id) }
+    },
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     // "Trina isn't ready yet": a member tells the owner and admins (the server sends one notice an hour; here nothing is
     // sent, only who told is kept, so "Told" survives a reload like on the server)
@@ -3517,7 +3708,6 @@ export class MockServer {
       this.notReadyTold.add(c.user.id)
       return { told: true as const, already }
     },
-    trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
     // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
     // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its
@@ -4148,7 +4338,7 @@ export class MockServer {
     // like server/src/system/storage.ts: a 50 GB disk, 41 GB used (over 80%); the plan on Team AX Cloud
     storage: () => ({
       totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false, graceEndsAt: null,
-      breakdown: { team: 30 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
+      breakdown: { kept: 1.2 * 1024 ** 3, team: 30 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
       measuredAt: now(), planDiskGiB: this.cloud ? 50 : null,
     }),
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
@@ -4220,13 +4410,13 @@ export class MockServer {
     officeUpdateStatus: () => null,
     officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없어요.'),
     // ---------------- AI connections (like server/src/routes/credentials.ts) ----------------
-    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
+    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22', ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }),
     sealingKey: () => this.sealer.publicKey(),
     createCredential: async (c) => {
       return { status: 201, body: await this.addCredential(c.user, c.body, false) }
     },
     createMyCredential: async (c) => {
-      if (!this.credMemberOwn) fail('forbidden', 403)
+      if (!this.personalAllowed(c.user.id)) fail('forbidden', 403)
       return { status: 201, body: await this.addCredential(c.user, c.body, true) }
     },
     updateCredential: (c) => {
@@ -4266,13 +4456,13 @@ export class MockServer {
       if (c.body.sharedSubscriptions !== undefined) this.credSharedSubscriptions = c.body.sharedSubscriptions
       return { memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions }
     },
-    myCredentials: (c) => ({ allowed: this.credMemberOwn, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
+    myCredentials: (c) => ({ allowed: this.personalAllowed(c.user.id), allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
     startCredentialLogin: (c) => {
       if (!this.credSharedSubscriptions) fail('forbidden', 403)
       return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId, c.body.kind) }
     },
     startMyCredentialLogin: (c) => {
-      if (!this.credMemberOwn) fail('forbidden', 403)
+      if (!this.personalAllowed(c.user.id)) fail('forbidden', 403)
       return { status: 202, body: this.startLogin(c.user, c.body.label, true, c.body.reconnectId, c.body.kind) }
     },
     submitCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
@@ -4378,6 +4568,9 @@ export class MockServer {
         if (!uris.includes(st.returnAddresses!.drive)) own('client_redirect_drive')
         if (!uris.includes(st.returnAddresses!.apps)) own('client_redirect_apps')
       } else if (!/\.apps\.googleusercontent\.com$/.test(c.body.clientId ?? '')) own('client_invalid')
+      // the real server asks Google first: a client ID it does not know (here: one starting "unknown-") is refused
+      const id = c.body.file !== undefined ? (JSON.parse(c.body.file) as { web: { client_id: string } }).web.client_id : c.body.clientId ?? ''
+      if (id.startsWith('unknown-')) own('client_unknown')
       this.googleOwn = { ...this.googleOwn, active: true, stale: false, by: { id: c.user.id, name: c.user.name }, at: now() }
       this.googleApps.ownApp = true
       this.googleSignInsEnded()
@@ -5070,7 +5263,7 @@ export class MockServer {
     setTimeout(() => { if (l.state !== 'starting') return; l.state = 'code'; l.url = 'https://auth.openai.com/codex/device'; l.code = 'WXYZ-12AB3'; pub() }, 150)
     setTimeout(() => {
       if (l.state !== 'code') return
-      if (!(personal ? this.credMemberOwn : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
+      if (!(personal ? this.personalAllowed(user.id) : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
       if (reconnectId) { const x = this.credentials.find((y) => y.id === reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
       else { const c = this.newCredential(user, 'chatgpt', label, personal, 'ok'); this.credentials.push(c); l.credential = c }
       // like the server (credentials/store.ts connectionsChanged): open screens ask GET /api/engines again, then "done"
@@ -5336,6 +5529,16 @@ export class MockServer {
   }
 
   makeAttachment(chatId: string, name: string, data: Uint8Array, mime: string, user: User): Attachment {
+    if (this.peopleChats.has(chatId) || this.peopleShared.has(chatId)) {
+      // kept with the chat (server/src/chat/chat-files.ts): no team path; a JPEG's Exif (place, camera) cut out, and the
+      // answer says how many bytes arrived before that (Attachment.receivedSize, QA TC-2023)
+      const k = mime || mimeOf(name) || 'application/octet-stream'
+      const clean = withoutExif(data)
+      const kept: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: clean.byteLength, mime: k, kind: k.startsWith('image/') ? 'image' : /\.(txt|md)$/i.test(name) ? 'text' : 'other', source: 'chat', data: clean }
+      this.attachments.set(kept.id, kept)
+      const { data: _k, ...shown } = kept
+      return clean.byteLength !== data.byteLength ? { ...shown, receivedSize: data.byteLength } : shown
+    }
     const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: `users/${user.id}/.attachments/${chatId}/${name}`, size: data.byteLength, mime: mime || 'application/octet-stream', kind: mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : 'other', data }
     this.attachments.set(a.id, a)
     this.putFile(a.path, data)
@@ -5405,7 +5608,7 @@ export class MockServer {
       const user = this.userOf(req)
       if (ep.auth !== 'public') {
         if (!user) fail('unauthorized', 401)
-        if (((ep.auth === 'admin' || ep.auth === 'admin-reauth') && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
+        if (((ep.auth === 'admin' || ep.auth === 'admin-reauth') && (user!.role === 'member' || user!.role === 'guest')) || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
         // like the server: a temporary password reaches only the endpoints that change it
         if (user!.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required', 403)
       }
@@ -5596,6 +5799,13 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/people-chat') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat) return Response.json({ ok: false }, { status: 404 })
+      const by = this.users.find((u) => u.username === String(body.by ?? 'olga')) ?? this.users[0]!
+      this.peopleChats.add(chat.id)
+      chat.shared = { kind: 'people', by: { id: by.id, name: by.name }, audience: Number(body.audience ?? 3), answering: null, mine: true, canDelete: true, canUpload: true }
+    }
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
@@ -5642,6 +5852,41 @@ export class MockServer {
         for (let d = f.path.lastIndexOf('/'); d > 0; d = f.path.lastIndexOf('/', d - 1)) this.files.set(f.path.slice(0, d), this.files.get(f.path.slice(0, d)) ?? { type: 'folder', mtime: now() })
         this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n${f.title ? `metadata:\n  title: ${f.title}\n` : ''}---\n${f.name} steps\n`)
       }
+    }
+    // a guest in one place (a room of POST /__test/rooms, or a project by id or name): signs in as `${id}` / `${id} password 1`
+    else if (p === '/__test/host-sign-in') {
+      this.hostSignIn = body.on !== false
+      return Response.json({ ok: true })
+    }
+    else if (p === '/__test/guest') {
+      const id = String(body.id ?? 'gina')
+      const pl = body.place as { kind: 'room' | 'project'; id?: string; name?: string }
+      const placeId = pl.kind === 'project' ? (this.projects.find((x) => x.id === pl.id || x.name === pl.name) ?? fail('validation', 400, 'no such project')).id : String(pl.id)
+      const u = this.addUser({ id, username: id, name: String(body.name ?? 'Gina'), role: 'guest', groupIds: [], localeChoice: (body.locale as Locale | undefined) ?? null }, `${id} password 1`)
+      this.makeGuest(u, { kind: pl.kind, id: placeId }, (body.ai as GuestAiChoice | undefined) ?? { mode: 'none' }, String(body.invitedBy ?? 'olga'))
+      // a removed guest (status disabled) and why they are not in their place; a Team AI whose account was deleted
+      if (body.status === 'disabled') u.status = 'disabled'
+      const g = this.guests.get(u.id)!
+      if (body.out === 'left' || body.out === 'trashed' || body.out === 'gone') g.out = body.out
+      if (body.teamAiGone === true) g.teamAiGone = true
+      return Response.json({ id: u.id })
+    }
+    // a team AI account (an API key, checked), for the guest invite's Team AI choice
+    else if (p === '/__test/team-credential') {
+      const id = uuidv7()
+      this.credentials.push({ id, kind: 'anthropic-api-key', label: String(body.label ?? 'Team Claude'), scope: 'team', owner: null, assignments: [], priority: this.credentials.length, disabled: false, state: 'ok', detail: null, hint: 'abcd', planType: null, expiresAt: null, limitedUntil: null, checkedAt: now(), lastUsedAt: null, spendLimit: { usd: null, tokens: null, action: 'warn' }, month: { usd: 0, tokens: 0, requests: 0 }, createdAt: now() })
+      return Response.json({ id })
+    }
+    // POST /__test/invite-reason {token, reason, late?}: why an invite link does not work (InviteInfo.reason); late: only
+    // once it is accepted (its maker lost access while the form was filled in: the accept is 410 with the reason)
+    else if (p === '/__test/invite-reason') {
+      const i = this.invites.find((x) => x.token === body.token) ?? fail('not_found', 404)
+      if (body.late) (i as { lateReason?: string }).lateReason = String(body.reason)
+      else (i as { deadReason?: string }).deadReason = String(body.reason)
+    }
+    else if (p === '/__test/guest-limit') {
+      if ('guests' in body) this.guestCap = typeof body.guests === 'number' ? body.guests : null
+      if ('seatsFull' in body) this.seatsFull = body.seatsFull === true
     }
     else if (p === '/__test/rooms') {
       // session markers (docs/DECISIONS.md): rooms as GET /api/rooms lists them (unread counts, "@", the AI waiting on
@@ -5737,8 +5982,12 @@ export class MockServer {
   peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
   /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
   peopleHidden = new Set<string>()
-  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[] } | null = null
+  /** who was one of a chat's people (chat_audience_past): their link says "no longer shared with you" (QA TC-2009) */
+  peoplePast = new Map<string, Set<string>>()
+  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[]; earlierFiles?: number } | null = null
   peopleFail = 0
+  /** POST /__test/chat-share {filesNotCopied}: the next first share says this many earlier files could not go with it */
+  peopleNotCopied = 0
   readonly peopleSharedInstalled = this.installPeopleShared()
 
   /** everyone who sees a people-shared chat now: its creator, the active people listed and the active members of the
@@ -5747,7 +5996,8 @@ export class MockServer {
     const ps = this.peopleShared.get(chatId)
     const s = this.sharedChats.get(chatId)
     if (!ps || !s) return []
-    const out = new Set([s.by.id])
+    // its creator too, while their account is on (server/src/chat/chat-audience.ts peopleAudience)
+    const out = new Set(this.users.some((u) => u.id === s.by.id && u.status === 'active') ? [s.by.id] : [])
     for (const x of ps.subjects) {
       if (x.subjectType === 'user') { if (this.users.some((u) => u.id === x.subjectId && u.status === 'active')) out.add(x.subjectId) }
       else for (const id of this.groups.find((g) => g.id === x.subjectId)?.memberIds ?? []) if (this.users.some((u) => u.id === id && u.status === 'active')) out.add(id)
@@ -5784,7 +6034,7 @@ export class MockServer {
         shared: {
           kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
           answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
-          mine: true, canDelete: creator, canUpload: false,
+          mine: true, canDelete: creator, canUpload: !this.allConfidential,
         },
       }
     }
@@ -5792,8 +6042,10 @@ export class MockServer {
     this.reset = (o) => {
       this.peopleShared = new Map()
       this.peopleHidden = new Set()
+      this.peoplePast = new Map()
       this.peopleConfirm = null
       this.peopleFail = 0
+      this.peopleNotCopied = 0
       baseReset(o)
     }
     // a people-shared chat's chat.updated without the chat (deleted, purged): to everyone who sees it
@@ -5809,8 +6061,9 @@ export class MockServer {
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
       if (p !== '/__test/chat-share') return baseControl(p, req)
-      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number }
+      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number; filesNotCopied?: number }
       if (body.confirm !== undefined) this.peopleConfirm = body.confirm
+      if (body.filesNotCopied !== undefined) this.peopleNotCopied = body.filesNotCopied
       if (body.fail !== undefined) this.peopleFail = body.fail
       return Response.json({ ok: true })
     }
@@ -5847,7 +6100,8 @@ export class MockServer {
       return ps.subjects.flatMap((x): ChatAudience['subjects'] => {
         if (x.subjectType === 'user') {
           const u = this.users.find((y) => y.id === x.subjectId)
-          return u ? [{ subjectType: 'user' as const, subjectId: u.id, name: u.name }] : []
+          const inGroups = full ? ps.subjects.filter((g) => g.subjectType === 'group' && (viewer.role !== 'member' || !!this.groups.find((y) => y.id === g.subjectId)?.memberIds.includes(viewer.id)) && !!this.groups.find((y) => y.id === g.subjectId)?.memberIds.includes(x.subjectId)).map((g) => g.subjectId) : []
+          return u ? [{ subjectType: 'user' as const, subjectId: u.id, name: u.name, ...(inGroups.length ? { inGroups } : {}) }] : []
         }
         const g = this.groups.find((y) => y.id === x.subjectId)
         if (!g) return []
@@ -5879,6 +6133,17 @@ export class MockServer {
       return chat
     }
     h.getChatAudience = (c) => audienceOf(sees(c.params.id!, c.user), c.user)
+    // someone who was one of its people and does not see it now: the 404 says why (server/src/chat/shared.ts chatFor)
+    for (const name of ['getChat', 'listMessages'] as const) {
+      over(name, (c, base) => {
+        try { return base(c) } catch (e) {
+          const chat = this.chats.find((x) => x.id === c.params.id)
+          const was = !!chat && !chat.deletedAt && !chat.projectId && (this.chatOwners.get(chat.id) ?? this.sharedChats.get(chat.id)?.by.id) !== c.user.id && !!this.peoplePast.get(chat.id)?.has(c.user.id)
+          if (e instanceof Fail && e.status === 404 && was) fail('not_found', 404, '이 채팅은 더 이상 나와 공유되어 있지 않아요.', undefined, { reason: 'no_longer_shared' })
+          throw e
+        }
+      })
+    }
     h.putChatAudience = (c) => {
       const chat = sees(c.params.id!, c.user)
       const no = (status: number, reason: string, message: string): never => fail(status === 400 ? 'validation' : 'conflict', status, message, undefined, { reason })
@@ -5920,12 +6185,22 @@ export class MockServer {
       const after = resolve(wanted)
       const gained = after.filter((id) => !was.has(id))
       const lost = [...was].filter((id) => !after.includes(id))
+      // taken out by name, still in through a group listed (QA TC-2264)
+      const afterGroups = wanted.filter((x) => x.subjectType === 'group').map((x) => this.groups.find((g) => g.id === x.subjectId)).filter((g): g is NonNullable<typeof g> => !!g)
+      const keptThrough = removed.filter((x) => x.subjectType === 'user' && after.includes(x.subjectId)).map((x) => ({
+        name: this.users.find((u) => u.id === x.subjectId)?.name ?? '',
+        groups: afterGroups.filter((g) => g.memberIds.includes(x.subjectId) && (c.user.role !== 'member' || g.memberIds.includes(c.user.id))).map((g) => g.name),
+      })).filter((k) => k.groups.length)
       const k = `ok:${key(wanted)}`
       const ask = this.peopleConfirm
       if (gained.length && ask && c.body.confirmKey !== k) {
-        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, confirmKey: k,
+        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}), confirmKey: k,
           provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
       }
+      // who saw it, before or after (never its creator)
+      const past = this.peoplePast.get(chat.id) ?? new Set<string>()
+      for (const id of [...was, ...after]) if (id !== c.user.id) past.add(id)
+      this.peoplePast.set(chat.id, past)
       // the people who lose it hear it is gone (its id alone), before the rows change
       for (const id of lost) this.sharedSend((uid) => (uid === id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
       if (!wanted.length) {
@@ -5941,7 +6216,9 @@ export class MockServer {
       const named = new Set(added.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
       for (const id of gained) this.note(id, { kind: 'chat_shared', chatId: chat.id, byId: c.user.id, named: named.has(id) })
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
-      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
+      const notCopied = !ps ? this.peopleNotCopied : 0
+      if (!ps) this.peopleNotCopied = 0
+      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user), ...(notCopied ? { filesNotCopied: notCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
     }
     const hide = (c: Ctx, on: boolean) => {
       const chat = sees(c.params.id!, c.user)
@@ -6495,19 +6772,20 @@ export class MockServer {
     }
     over('uploadAttachment', async (c, base) => {
       const chatId = (c.body as { chatId?: string }).chatId
-      if (!shared(chatId)) return base(c)
+      // (a chat shared with people keeps the file with the chat: makeAttachment)
+      if (!shared(chatId) || this.peopleShared.has(chatId!)) return base(c)
       const data = new Uint8Array(await c.file!.arrayBuffer())
       await this.uploadAnswer()
       return { status: 201, body: saveShared(chatId!, c.body.name ?? c.file!.name, data, c.user) }
     })
     over('createUploadSession', (c, base) => {
       const target = c.body.target as { kind: string; chatId?: string }
-      if (target.kind === 'attachment' && shared(target.chatId)) uploadFolder(target.chatId!, c.user)
+      if (target.kind === 'attachment' && shared(target.chatId) && !this.peopleShared.has(target.chatId!)) uploadFolder(target.chatId!, c.user)
       return base(c)
     })
     over('completeUploadSession', async (c, base) => {
       const s = this.uploads.get(c.params.id!)
-      if (!s || s.target.kind !== 'attachment' || !shared(s.target.chatId)) return base(c)
+      if (!s || s.target.kind !== 'attachment' || !shared(s.target.chatId) || this.peopleShared.has(s.target.chatId)) return base(c)
       const out = await base(c) as { kind: 'attachment'; attachment: Attachment }
       // the base kept it as an upload of the person's own folder: it goes to the project folder instead
       const a = this.attachments.get(out.attachment.id)!
@@ -6714,6 +6992,48 @@ export class MockServer {
     pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
   }
 
+  /** a socket's data from its upgrade request (also used by web/demo/, which runs this mock in the browser) */
+  socketData(req: Request): WsData {
+    const url = new URL(req.url)
+    const user = this.userOf(req)
+    const after = url.searchParams.get('after')
+    return { user: user?.id ?? '', windowId: url.searchParams.get('windowId') ?? '', epoch: url.searchParams.get('epoch'), after: after === null ? null : Number(after) }
+  }
+
+  /** the WebSocket protocol's server side (hello / resume / reset, presence, ping), for Bun.serve and web/demo/ */
+  socketOpen(ws: MockSocket) {
+    if (!ws.data.user) { ws.close(WsClose.unauthorized, 'sign in'); return }
+    this.sockets.add(ws)
+    const hello = (resumed: boolean) => JSON.stringify({ type: 'hello', epoch: this.epoch, seq: this.seq, resumed, windowId: ws.data.windowId, serverVersion: this.serverVersion, pingIntervalMs: 20000 })
+    const { epoch, after } = ws.data
+    if (epoch && epoch !== this.epoch) {
+      ws.send(hello(false))
+      ws.send(JSON.stringify({ type: 'reset', epoch: this.epoch, seq: this.seq, reason: 'epoch_mismatch' }))
+    } else if (epoch && after !== null) {
+      const oldest = this.buffer[0]?.seq ?? this.seq + 1
+      if (after + 1 < oldest) {
+        ws.send(hello(false))
+        ws.send(JSON.stringify({ type: 'resync', epoch: this.epoch, seq: this.seq, reason: 'buffer_overflow' }))
+      } else {
+        ws.send(hello(true))
+        for (const b of this.buffer) if (b.seq > after) ws.send(b.text)
+      }
+    } else ws.send(hello(false))
+    // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
+    ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...this.presence].map(([id, state]) => ({ id, state })) })))
+  }
+
+  socketMessage(ws: MockSocket, msg: string | Uint8Array) {
+    const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
+    if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+    if (f.type === 'room.typing') this.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
+    if (f.type === 'presence') this.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
+  }
+
+  socketClose(ws: MockSocket) {
+    this.sockets.delete(ws)
+  }
+
   serve(port: number, dist: string) {
     const self = this
     return Bun.serve<WsData, never>({
@@ -6722,10 +7042,7 @@ export class MockServer {
       async fetch(req, server) {
         const url = new URL(req.url)
         if (url.pathname === WS_PATH) {
-          const user = self.userOf(req)
-          const after = url.searchParams.get('after')
-          const data: WsData = { user: user?.id ?? '', windowId: url.searchParams.get('windowId') ?? '', epoch: url.searchParams.get('epoch'), after: after === null ? null : Number(after) }
-          const ok = server.upgrade(req, { data, headers: { 'sec-websocket-protocol': 'mycel.v1' } })
+          const ok = server.upgrade(req, { data: self.socketData(req), headers: { 'sec-websocket-protocol': 'mycel.v1' } })
           return ok ? undefined : new Response('upgrade failed', { status: 400 })
         }
         const res = await self.handle(req, dist)
@@ -6736,36 +7053,9 @@ export class MockServer {
         return marked
       },
       websocket: {
-        open(ws) {
-          if (!ws.data.user) return ws.close(WsClose.unauthorized, 'sign in')
-          self.sockets.add(ws)
-          const hello = (resumed: boolean) => JSON.stringify({ type: 'hello', epoch: self.epoch, seq: self.seq, resumed, windowId: ws.data.windowId, serverVersion: self.serverVersion, pingIntervalMs: 20000 })
-          const { epoch, after } = ws.data
-          if (epoch && epoch !== self.epoch) {
-            ws.send(hello(false))
-            ws.send(JSON.stringify({ type: 'reset', epoch: self.epoch, seq: self.seq, reason: 'epoch_mismatch' }))
-          } else if (epoch && after !== null) {
-            const oldest = self.buffer[0]?.seq ?? self.seq + 1
-            if (after + 1 < oldest) {
-              ws.send(hello(false))
-              ws.send(JSON.stringify({ type: 'resync', epoch: self.epoch, seq: self.seq, reason: 'buffer_overflow' }))
-            } else {
-              ws.send(hello(true))
-              for (const b of self.buffer) if (b.seq > after) ws.send(b.text)
-            }
-          } else ws.send(hello(false))
-          // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
-          ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
-        },
-        message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string; roomId?: string; threadRootId?: string | null; typing?: boolean }
-          if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
-          if (f.type === 'room.typing') self.typingSent.push({ user: ws.data.user, roomId: String(f.roomId), threadRootId: f.threadRootId ?? null, typing: !!f.typing, at: Date.now() })
-          if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
-        },
-        close(ws) {
-          self.sockets.delete(ws)
-        },
+        open: (ws) => { self.socketOpen(ws) },
+        message: (ws, msg) => self.socketMessage(ws, msg),
+        close: (ws) => self.socketClose(ws),
       },
     })
   }

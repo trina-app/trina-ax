@@ -85,6 +85,8 @@ No sudo is needed. It installs into `~/TeamAX`. An AI coding agent can do this f
 Use the local setup link the installer prints. Office computers then use `https://<Mac-IP>:8443` after trusting the office certificate (`~/TeamAX/teamax card` shows its fingerprint).
 :::
 
+Guests (people from outside the team) can't use AI on an office Mac installed this way, without an administrator password. Installing with the admin installer (.pkg) makes it possible. See [Guests](../use/guests.md).
+
 Full guide: [Office Mac](../../OFFICE.en.md).
 
 @tab Trina hosting

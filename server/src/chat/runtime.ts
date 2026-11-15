@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import { chatFilesOf } from './chat-files'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -954,7 +955,8 @@ export class ChatRuntime {
     // Conservatively include an in-memory item until reconciliation, including after a failed DB write.
     const team = Math.max(counts.team, this.queued.length)
     const mine = Math.max(counts.mine, this.queued.filter((s) => s.userId === userId).length)
-    const people = (this.db.query("SELECT COUNT(*) n FROM users WHERE status='active' AND deleted_at IS NULL").get() as { n: number }).n
+    // the team's people (guests take no seat, so they add no room to the team's queue)
+    const people = (this.db.query("SELECT COUNT(*) n FROM users WHERE status='active' AND deleted_at IS NULL AND guest = 0").get() as { n: number }).n
     const teamMax = Math.max(QUEUE_TEAM_MIN, 4 * this.concurrency(), QUEUE_PER_USER * Math.min(people, 100))
     if (team < teamMax && mine < QUEUE_PER_USER) return
     const reason = team >= teamMax ? 'queue_full' : 'queue_full_user'
@@ -1251,6 +1253,8 @@ export class ChatRuntime {
       this.db.query('UPDATE memories SET source_chat_id = NULL WHERE source_chat_id = ?').run(chatId)
       this.db.query('DELETE FROM chats WHERE id = ?').run(chatId)
     })()
+    // the files kept with a chat shared with people (chat/chat-files.ts): their rows went with the chat, their folder now
+    try { chatFilesOf(this.ctx).removeChat(chatId) } catch (e) { this.log.warn('chat files not removed (the sweep tries again)', { err: e }) }
   }
 
   /** Stop taking new turns and wait for the running ones (planned restart / update). */

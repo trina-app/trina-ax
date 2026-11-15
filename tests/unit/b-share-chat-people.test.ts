@@ -132,7 +132,7 @@ describe('sharing', () => {
     expect(erins.count).toBeUndefined()
     expect(erins.subjects.find((s) => s.subjectId === 'marketing')).toEqual({ subjectType: 'group', subjectId: 'marketing', name: 'Marketing', mine: true })
     const chat = await h.api('bob').call(API.getChat, { params: { id } })
-    expect(chat.shared).toMatchObject({ kind: 'people', audience: 0, audienceHidden: true, canDelete: false, canUpload: false })
+    expect(chat.shared).toMatchObject({ kind: 'people', audience: 0, audienceHidden: true, canDelete: false, canUpload: true })
     expect((await h.api('alice').call(API.getChat, { params: { id } })).shared?.audience).toBe(3)
   })
 
@@ -230,7 +230,7 @@ describe('sharing', () => {
     // POST /share (a project's members) on a chat outside projects: the revised words
     const e = await errOf(h.api('alice').call(API.shareChat, { params: { id: await newChat() }, body: {} }))
     expect(e.body.params?.reason).toBe('project_not_sharing')
-    expect(e.body.message).toContain('Share…')
+    expect(e.body.message).toContain('Use Share to share')
   })
 })
 

@@ -53,6 +53,7 @@ import { aiName } from '../lib/tabs'
 import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
+import { isGuestMe } from '../lib/guests'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap, useMediaQuery } from './ui'
 import { contentQueryReady } from './FileContentSearch'
@@ -75,6 +76,8 @@ import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
 import { ChatFaces, otherWriters } from './chat/SharedChat'
+import { AppTile, SenderTag, useAppName } from './rooms/apps/AppParts'
+import { serviceOf } from '../lib/roomApps'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -325,6 +328,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // the window's own unread count (the rail's), not a read of its own
   const unread = useInboxUnread()
   const admin = isAdmin(useMe())
+  const guest = isGuestMe(useMe())
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
   const myRooms = useRooms((s) => s.rooms)
@@ -526,15 +530,18 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
       { key: 'act:chat', kind: 'action', icon: AskAi, title: t('sidebar.askAi', { name: aiName(t) }), href: newChatPath() },
-      { key: 'act:project', kind: 'action', icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
-      { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
+      // a guest makes no projects or scheduled tasks and has no Files page (components/GuestView.tsx)
+      ...(guest ? [] : [
+        { key: 'act:project', kind: 'action' as const, icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
+        { key: 'act:schedule', kind: 'action' as const, icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
+      ]),
     ]
     const m = ok(mcp)
     // Settings › Connectors for everyone (it has no item in the rail or its panels): owners and admins who may add their own go straight to
     // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
-    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: t('files.root') })
+    if (!guest) list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: t('files.root') })
     // 모든 프로젝트 and Usage (in Settings) are found here too
     list.push(
       { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
@@ -554,7 +561,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale, admin])
+  }, [mcp, unread, locale, admin, guest])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -1013,14 +1020,17 @@ function MessageHit({ hit, room, text }: { hit: RoomSearchHit; room: RoomSearchR
   const locale = useLocale()
   const person = useAvatarOf(hit.author)
   const ai = hit.authorKind === 'ai'
-  const name = ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
+  // an app's message (docs/DECISIONS.md "Apps posting in rooms"): the app's name with the "App" tag, never a person
+  const appName = useAppName()
+  const name = hit.app ? appName(hit.app) : ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
   const where = useWhere()(room, hit.author?.id)
   return (
     <>
-      {ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
+      {hit.app ? <AppTile service={serviceOf(hit.app)} size="face" /> : ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
-          <span className="shrink-0 font-medium text-ink">{name}</span>
+          <span className="shrink-0 font-medium text-ink" data-testid="search-message-author">{name}</span>
+          {hit.app && <SenderTag />}
           <span className="min-w-0 truncate text-xs text-faint" data-testid="search-message-room">
             {where}
             {hit.threadRootId && ` · ${t('search.inThread')}`}

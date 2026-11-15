@@ -202,3 +202,20 @@ test('a thread I cannot see (joined after its root, or gone) says so, with no bo
     await m.unmount()
   }
 })
+
+test('a thread in a DM with someone who left says why there is no reply box (on a phone the thread covers the room)', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  const r = room({ kind: 'dm', gone: true, peers: [BEN] } as never)
+  const root = message({ roomId: r.id, seq: 1, author: BEN, body: 'old question', thread: { replyCount: 1, lastReplyAt: at(2), repliers: [ME], newReplies: false } })
+  routes = { [`GET /api/rooms/${r.id}/messages/${root.id}/thread`]: { body: { root, items: [message({ roomId: r.id, seq: 2, author: ME, body: 'my answer', threadRootId: root.id })], nextCursor: null } } }
+  serve()
+  useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id })
+  const m = await mount(<ThreadPanel roomId={r.id} rootId={root.id} roomTitle="Ben" members={[ME, BEN]} meId={ME.id} onClose={() => {}} />)
+  try {
+    await m.until(() => m.find('thread-peer-gone'), 'the line')
+    expect(m.get('thread-peer-gone').textContent).toBe(translate('en', 'rooms.peerGone', { name: BEN.name }))
+    expect(m.find('room-input')).toBeNull()
+  } finally {
+    await m.unmount()
+  }
+})

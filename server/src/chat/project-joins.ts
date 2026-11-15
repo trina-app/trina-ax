@@ -12,6 +12,10 @@ import { atLeast, inProjectZone, RuleSet, type Principal } from '../policy/acces
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from './runtime'
 
+/** The quiet notice to a project's people when who is in it changed (its message: the ids of the changed projects the
+ * person reads, comma-separated; web store/live.ts). */
+export const PROJECT_PEOPLE_CHANGED = 'project_people_changed'
+
 /** What projectJoins compares: the active people (with groups) and the rules, as admin/folders.ts captureState holds them. */
 export interface JoinState { principals: readonly Principal[]; rules: RuleSet }
 
@@ -28,6 +32,8 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
     const projects = ctx.db.query(`SELECT p.id, p.name, p.folder_path, t.original_path, t.storage_path FROM projects p
       LEFT JOIN trash_items t ON t.id = p.trashed_with AND t.restored_at IS NULL
       WHERE p.folder_path LIKE 'projects/%' AND (p.trashed_with IS NULL OR t.id IS NOT NULL)`).all() as { id: string; name: string; folder_path: string; original_path: string | null; storage_path: string | null }[]
+    // each person who reads a project whose people changed: those projects' ids (one notice each, below)
+    const peopleChanged = new Map<string, string[]>()
     for (const pr of projects) {
       const segs = pr.folder_path.split('/')
       if (segs.length !== 2 || !inProjectZone(segs)) continue
@@ -44,6 +50,12 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
         if (nowIds.has(id) || (by.only && !by.only.has(id)) || !after.principals.some((p) => p.id === id)) continue
         audit(ctx.db, { actor: by.actor, action: 'project.member_lost', target: pr.id, detail: { projectId: pr.id, userId: id, name: pr.name, via: by.via, ...(by.actor === id ? { self: true } : {}) } })
       }
+      // who reads it changed (someone joined or left, a guest accepted their invite): every window of its people now
+      // reads its people again (the member list, "Includes 1 guest"), quietly; the notice names the project only, and
+      // only to people who see it
+      if (now.some((p) => !was.has(p.id)) || [...was].some((id) => !nowIds.has(id))) {
+        for (const m of now) { let l = peopleChanged.get(m.id); if (!l) peopleChanged.set(m.id, (l = [])); l.push(pr.id) }
+      }
       if (!gained.length) continue
       for (const g of gained) {
         const id = audit(ctx.db, { actor: by.actor, action: 'project.member_gained', target: pr.id, detail: { projectId: pr.id, userId: g.id, via: by.via, ...(by.actor === g.id ? { self: true } : {}) } })
@@ -56,6 +68,12 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
         }
       }
     }
+    // only open windows (publishEach: nothing is kept for someone with none), one notice per person naming every
+    // changed project they read, comma-separated
+    if (peopleChanged.size) ctx.services.realtime.publishEach((to) => {
+      const ids = peopleChanged.get(to)
+      return ids ? { type: 'notice', data: { level: 'info', code: PROJECT_PEOPLE_CHANGED, message: ids.join(',') } } : null
+    })
   } catch (e) { ctx.log.warn('project joins not recorded', { err: e }) }
 }
 

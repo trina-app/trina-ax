@@ -4,6 +4,8 @@
 // 검색, 예약 작업 and 팀 스킬, then "트리나 기록" (it folds; the filter and sort menu beside it; the whole history by
 // date: 오늘, 어제 …, nav/HistoryList.tsx), and at the bottom my status and 삭제한 기록. It closes when a page opens and
 // on Back (lib/backCloses.ts), on Esc, and with a tap beside it.
+import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
 import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
@@ -61,6 +63,7 @@ export function TrinaDrawer() {
 
 function DrawerBody({ close }: { close: () => void }) {
   const t = useT()
+  const guest = isGuestMe(useMe())
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
   // by date by default, as the drawer was before the navigation redesign (Today, Yesterday …); its own choice, apart
@@ -102,8 +105,9 @@ function DrawerBody({ close }: { close: () => void }) {
           name={t('sidebar.search')}
           testId="drawer-search"
         />
-        <ListRow to="/scheduled" selected={here('/scheduled')} onClick={close} icon={<CalendarClock aria-hidden />} name={t('sidebar.scheduled')} testId="nav-scheduled" />
-        <ListRow to="/skills" selected={here('/skills')} onClick={close} icon={<BookMarked aria-hidden />} name={t('sidebar.skills')} testId="nav-skills" />
+        {/* scheduled tasks and the team's skills: not a guest's (components/GuestView.tsx) */}
+        {!guest && <ListRow to="/scheduled" selected={here('/scheduled')} onClick={close} icon={<CalendarClock aria-hidden />} name={t('sidebar.scheduled')} testId="nav-scheduled" />}
+        {!guest && <ListRow to="/skills" selected={here('/skills')} onClick={close} icon={<BookMarked aria-hidden />} name={t('sidebar.skills')} testId="nav-skills" />}
       </ul>
       <div
         className={clsx('scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-t px-2 pb-2', scrolled ? 'border-line' : 'border-transparent')}

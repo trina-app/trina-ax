@@ -45,7 +45,7 @@ In **Edit**, the **Save folder** field picks another folder or removes it (×), 
 
 Open a task to see its schedule, instructions, next run and last run.
 
-![A task page: the title with Run now and an On switch, the history on the left, and Instruction, Repeats, Runs with and Details on the right](../images/scheduled/task.webp "A scheduled task")
+![A task page: the title with Run now and an On switch, Runs on the left, and Instruction, Repeats, Runs with and Details on the right](../images/scheduled/task.webp "A scheduled task")
 
 - **Run now** runs it at once.
 - The switch pauses and resumes it.
@@ -55,6 +55,6 @@ A finished one-time task, or one that can no longer run, says why it cannot be t
 
 ## On a phone
 
-The cards stack in one column.
+The tasks are one list, with a search box above it and **+** at the top for a new task.
 
 ![Scheduled tasks on a phone: a search box and the tasks in one column, with the tabs Trina, Chats, Projects, Files and Me at the bottom](../images/scheduled/list-phone.webp "Scheduled tasks on a phone")

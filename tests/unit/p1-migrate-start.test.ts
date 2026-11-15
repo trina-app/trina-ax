@@ -55,20 +55,33 @@ describe('start-up on a database an update must migrate', () => {
     let done = false
     void run.finally(() => { done = true })
     const seen: { status: number; body: Record<string, unknown> }[] = []
-    const others: { status: number; code: string }[] = []
+    const others: { status: number; code: string; reason: unknown; marker: string | null }[] = []
+    const pages: { status: number; type: string | null; html: string; marker: string | null }[] = []
     while (!done) {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2000) })
         seen.push({ status: r.status, body: await r.json() as Record<string, unknown> })
         const other = await fetch(`http://127.0.0.1:${port}/api/me`, { signal: AbortSignal.timeout(2000) })
-        others.push({ status: other.status, code: ((await other.json()) as { error: { code: string } }).error.code })
+        const j = (await other.json()) as { error: { code: string; params?: { reason?: unknown } } }
+        others.push({ status: other.status, code: j.error.code, reason: j.error.params?.reason, marker: other.headers.get('x-mycel-updating') })
+        // a shared chat link opened in a browser meanwhile (QA TC-2260)
+        const page = await fetch(`http://127.0.0.1:${port}/c/0190a1b2-c3d4?answer=x`, { headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate', cookie: 'mycel_locale=ko' }, signal: AbortSignal.timeout(2000) })
+        pages.push({ status: page.status, type: page.headers.get('content-type'), html: await page.text(), marker: page.headers.get('x-mycel-updating') })
       } catch { /* not listening yet, or just stopped */ }
       await Bun.sleep(30)
     }
     expect(await run).toBe(true)
     expect(seen.length).toBeGreaterThan(0)
     expect(others.length).toBeGreaterThan(0)
-    for (const x of others) expect(x).toEqual({ status: 503, code: 'unavailable' })
+    for (const x of others) expect(x).toEqual({ status: 503, code: 'unavailable', reason: 'updating', marker: '1' })
+    expect(pages.length).toBeGreaterThan(0)
+    for (const p of pages) {
+      expect(p).toMatchObject({ status: 503, type: 'text/html; charset=utf-8', marker: '1' })
+      expect(p.html).toContain('트리나를 업데이트하고 있어요')
+      expect(p.html).toContain('http-equiv="refresh"')
+      // the address is not written into the page
+      expect(p.html).not.toContain('0190a1b2')
+    }
     for (const s of seen) {
       expect(s.status).toBe(503)
       expect(s.body).toMatchObject({ ok: false, status: 'migrating', version: '9.9.9', migrating: { pending: 1 } })

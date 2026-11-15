@@ -55,7 +55,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
-  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'hideChat', 'unhideChat', 'userSharedChats'] },
+  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
@@ -65,7 +65,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
   { id: 'chat.allowances', name: 'What I allowed the AI in advance', area: 'AI chat', endpoints: ['*AiAllowance*'], screens: ['/settings/allowances'] },
-  { id: 'chat.ai-access', name: 'Can I use AI now: ask the owner, AI not ready', area: 'AI chat', endpoints: ['getAiAccess', 'requestAiAccess', 'tellAiNotReady', 'trialCredit'] },
+  { id: 'chat.ai-access', name: 'Can I use AI now: ask the owner, AI not ready', area: 'AI chat', endpoints: ['getAiAccess', 'requestAiAccess', 'tellAiNotReady'] },
 
   // ---------------- Projects ----------------
   { id: 'projects.list', name: 'Projects list and new project', area: 'Projects', endpoints: ['listProjects', 'createProject', 'previewProjectAccess'], screens: ['/projects'] },
@@ -93,12 +93,13 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.messages', name: 'Room messages: send, edit, delete, read', area: 'Rooms', endpoints: ['getRoom', 'listRoomMessages', 'sendRoomMessage', 'editRoomMessage', 'deleteRoomMessage', 'markRoomRead'], screens: ['/rooms/:roomId'] },
   { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId'] },
   { id: 'rooms.reactions', name: 'Reactions', area: 'Rooms', endpoints: ['reactRoomMessage'] },
+  { id: 'rooms.message-links', name: 'Message links: Copy link, previews, Show message, remove preview', area: 'Rooms', endpoints: ['roomMessageLinkAudience', 'hideRoomLinkPreview'] },
   { id: 'rooms.members', name: 'Room members: invite, remove, leave, rename', area: 'Rooms', endpoints: ['updateRoom', 'listRoomMembers', 'inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] },
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
   { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity'] },
-  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, other services)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp'], screens: ['/rooms/:roomId'] },
+  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp'], screens: ['/rooms/:roomId'] },
 
   // ---------------- Skills ----------------
   { id: 'skills.list', name: 'Skills page: my, group and team skills', area: 'Skills', endpoints: ['listSkills', 'listSkillIssues', 'skillsOverview'], screens: ['/skills'] },
@@ -154,6 +155,7 @@ export const FEATURES: Feature[] = [
   { id: 'admin.home', name: 'Admin home and owner checklist', area: 'Admin', endpoints: ['afterUpdateActions', 'dismissAfterUpdate', 'managedNotices', 'plan'], screens: ['/admin'] },
   { id: 'admin.members', name: 'Members: add, change role, remove, reset password', area: 'Admin', endpoints: ['listUsers', 'createUser', 'updateUser', 'deleteUser', 'resetPassword', 'createResetLink', 'transferOwnership'], screens: ['/admin/members', '/admin/members/:id'] },
   { id: 'admin.invites', name: 'Invites', area: 'Admin', endpoints: ['listInvites', 'createInvite', 'revokeInvite'] },
+  { id: 'admin.guests', name: 'Guests', area: 'Admin', endpoints: ['createGuestInvite', 'guestInviteLimit', 'convertGuest', 'updateGuestAi'] },
   { id: 'admin.groups', name: 'Groups', area: 'Admin', endpoints: ['listGroups', 'createGroup', 'updateGroup', 'deleteGroup', 'originCheck'], screens: ['/admin/groups', '/admin/groups/:id'] },
   { id: 'admin.folders', name: 'Folder permissions', area: 'Admin', endpoints: ['listFolders', 'createFolder', 'putFolderRules', 'deleteFolder', 'previewRules', 'explain*Access*', 'previewFolderEdit', 'folderAccessNotice', 'dismissFolderAccessNotice'], screens: ['/admin/folders'] },
   { id: 'admin.plugins', name: 'Plugins', area: 'Admin', endpoints: ['*Plugin*'], screens: ['/admin/plugins', '/admin/plugins/:id'] },

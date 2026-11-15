@@ -14,7 +14,8 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 
 // Every column is deliberately classified. Adding a schema field requires an audit.
 const policy: Record<string, string> = {
-  users: 'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
+  // guest (122): an account that is a guest reads only their one place
+  users: 'id username password_hash role guest status must_change_password deleted_at temp_password_expires_at',
   groups: 'id folder_id', group_members: 'group_id user_id', folders: 'id path limited',
   folder_rules: 'id folder_id subject_type subject_id access origin',
   integrations: 'id scope owner_user_id kind slug url auth auth_header account write_policy tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',

@@ -100,7 +100,7 @@ test('R3: mismatched text/provenance from concurrent cache writers is refused be
 test('R3: every actual policy column changes and restores its epoch; bookkeeping values do neither', async () => {
   const a=await makeCApp('r3-epoch-every-column'),db=a.ctx.db
   const policy:Record<string,string>={
-    users:'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
+    users:'id username password_hash role guest status must_change_password deleted_at temp_password_expires_at',
     groups:'id folder_id',group_members:'group_id user_id',folders:'id path limited',
     folder_rules:'id folder_id subject_type subject_id access origin',
     integrations:'id scope owner_user_id kind slug url auth auth_header account write_policy tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',

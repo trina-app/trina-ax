@@ -74,7 +74,10 @@ export function plainText(app: string, card: RoomAppCard, extra?: string): strin
 }
 function textPart(app: string, card: RoomAppCard, extra?: string): string {
   const head = [card.kind, card.title].filter(Boolean).join(' · ')
-  const parts = [`${app}: ${head}`, ...card.details, ...(extra ? [extra] : []), ...(card.status ? [card.status] : [])]
+  // a detail line that `extra` holds in full (a reply's first lines of a comment) is not said twice
+  const inExtra = new Set((extra ?? '').split('\n').map((x) => x.trim()).filter(Boolean))
+  const details = card.details.filter((d) => !inExtra.has(d.replace(/ …$/, '')))
+  const parts = [`${app}: ${head}`, ...details, ...(extra ? [extra] : []), ...(card.status ? [card.status] : [])]
   const text = parts.join('\n')
   const chars = [...text]
   return chars.length > ROOM_APP_TEXT_MAX + 600 ? chars.slice(0, ROOM_APP_TEXT_MAX + 599).join('') + '…' : text
@@ -99,14 +102,15 @@ export function parseCard(s: string | null): RoomAppCard | null {
 }
 
 /** What room_messages.app_card holds: the card and the app as it was (name, kind; example). */
-export interface StoredCard extends RoomAppCard { app: { name: string; kind: string }; example?: true }
-export function parseStored(s: string | null): { card: RoomAppCard; app: { name: string; kind: string }; example: boolean } | null {
+export interface StoredCard extends RoomAppCard { app: { name: string; kind: string; preset?: string }; example?: true }
+export function parseStored(s: string | null): { card: RoomAppCard; app: { name: string; kind: string; preset?: string }; example: boolean } | null {
   const card = parseCard(s)
   if (!card) return null
   try {
     const v = JSON.parse(s!) as Partial<StoredCard>
     const name = typeof v.app?.name === 'string' ? line(v.app.name, 40) : ''
     const kind = typeof v.app?.kind === 'string' ? v.app.kind : 'other'
-    return { card, app: { name: name || 'App', kind }, example: !!v.example }
+    const preset = typeof v.app?.preset === 'string' ? v.app.preset : undefined
+    return { card, app: { name: name || 'App', kind, ...(preset ? { preset } : {}) }, example: !!v.example }
   } catch { return null }
 }

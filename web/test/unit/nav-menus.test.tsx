@@ -53,7 +53,7 @@ const chatsBefore = { chats: useChats.getState().chats, chatsLoaded: useChats.ge
 const inboxBefore = useInbox.getState().unread
 // the setup row (onboarding/SetupRow.tsx, on top of every list panel) reads these: put them back as they were
 const welcomeBefore = (({ loaded, progress }) => ({ loaded, progress }))(useWelcome.getState())
-const aiAccessBefore = (({ loaded, usable, action, requested, trial, sending, failed }) => ({ loaded, usable, action, requested, trial, sending, failed }))(useAiAccess.getState())
+const aiAccessBefore = (({ loaded, usable, action, requested, sending, failed }) => ({ loaded, usable, action, requested, sending, failed }))(useAiAccess.getState())
 beforeAll(() => {
   installDom()
   useLocaleStore.setState({ locale: 'ko' })
@@ -344,7 +344,7 @@ describe('a chat row\'s "…"', () => {
     const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
       // no 폴더로 옮기기: the Trina list has no folders (the owner, 2026-11-13); a project keeps chats together
-      // a chat of mine outside projects: Share… (docs/DECISIONS.md "Chats shared with people and groups")
+      // a chat of mine outside projects: Share (docs/DECISIONS.md "Chats shared with people and groups")
       expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
       expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone

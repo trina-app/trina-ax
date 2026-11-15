@@ -20,6 +20,8 @@ import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
 import { ListRow } from '../list/List'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
+import { GuestTagFor } from '../GuestTag'
+import { isGuestMe } from '../../lib/guests'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
   const t = useT()
@@ -42,7 +44,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
         {room?.canRename && <NameRow room={room} />}
         {/* the lists' rows (components/list/List.tsx, a list of people: the face box), inset so the words line up
             with the dialog's 20px (16px on a phone) */}
-        {(group || room?.kind === 'dm') && (
+        {(group || room?.kind === 'dm') && !isGuestMe(me) && (
           <ul className="px-2 py-1 max-sm:px-1">
             <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t('rooms.info.invite')}</span>} testId="room-invite" />
           </ul>
@@ -66,6 +68,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
                     // the name is cut first; the status, "· 나" and "· 매니저" always show
                     <span className="flex min-w-0 items-baseline gap-1">
                       <span className="truncate" data-member-name>{name}</span>
+                      <GuestTagFor userId={user.id} />
                       <StatusEmoji userId={user.id} tap className="shrink-0 self-center" />
                       <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-meta text-faint">· {t('rooms.you')}</span>}

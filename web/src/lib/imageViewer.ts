@@ -13,7 +13,7 @@
 // own on top of the viewer's, so Back closes the sheet first, then the viewer, then leaves the page.
 import { useSyncExternalStore } from 'react'
 import { API, type Attachment, type Me, type RoomFile, type UserRef } from '@mycel/shared/api'
-import { api, fileUrl, roomFileUrl, startDownload, thumbnailUrl } from './api'
+import { api, chatFileUrl, fileUrl, roomFileUrl, startDownload, thumbnailUrl } from './api'
 import { opensWithoutServer, previewKind, previewLimit, roomNoPreview, serverPreview } from './preview'
 import { roomPreview, type PreviewFile } from './sidePanel'
 import { holdOverlayEntry, whenOverlaysSettled } from './backCloses'
@@ -220,6 +220,24 @@ export function roomFileItem(roomId: string, f: RoomFile, me: Pick<Me, 'server'>
 }
 
 /** A picture attached in the AI chat: its thumbnail, then the team file by its path (a HEIC photo as the server's JPEG). */
+/** A picture kept with a chat shared with people (Attachment source 'chat'): its thumbnail, then the original through the
+ * chat (whoever sees it now). A HEIC photo or one past the preview limit keeps its thumbnail. */
+export function chatFileItem(chatId: string, a: Attachment, meta: ViewerMetaValue = {}): ViewerItem {
+  const drawable = !serverPreview(a.name) && a.size <= IMAGE_MAX
+  const inline = chatFileUrl(chatId, a.id)
+  return {
+    key: `chat:${chatId}:${a.id}`,
+    name: a.name,
+    thumb: thumbnailUrl(a.id),
+    original: drawable ? inline : null,
+    width: a.width,
+    height: a.height,
+    download: () => startDownload(chatFileUrl(chatId, a.id, { download: '1' }), a.name),
+    href: drawable ? inline : null,
+    ...shown(meta),
+  }
+}
+
 export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): ViewerItem {
   const heic = serverPreview(a.name)
   const big = a.size > IMAGE_MAX

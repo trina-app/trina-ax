@@ -35,7 +35,7 @@ Read [permissions and data flows](security-and-permissions.md). Give [IT](for-ad
 
 ## Cost and help
 
-Self-hosted software is free; hardware, operations and provider costs are separate. Free 14-day trial on Trina hosting (AWS Seoul), then a monthly plan; AI usage is billed separately by the account you connect. [Current prices and enquiries](https://ax.trina.app/#pricing) · [Support](../SUPPORT.md).
+Self-hosted software is free; hardware, operations and provider costs are separate. Free 14-day trial on Trina hosting (AWS Seoul), then a monthly plan; AI usage is billed separately by the account you connect. During the free trial the server turns off when nobody uses it, and starting it again takes about a minute; paid plans stay on all the time. [Current prices and enquiries](https://ax.trina.app/#pricing) · [Support](../SUPPORT.md).
 
 ## Real demo screens
 

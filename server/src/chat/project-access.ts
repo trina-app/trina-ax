@@ -263,9 +263,10 @@ export function projectPeople(ctx: AppContext, r: ProjectRow, o: { manage: boole
   const ids = new Audiences(db, ctx.files).of(r)
   const there = new Set(ids)
   const rows = ids.length
-    ? db.query(`SELECT u.id, u.name, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id WHERE u.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; avatar_version: number | null }[]
+    ? db.query(`SELECT u.id, u.name, u.guest, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id WHERE u.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; guest: number; avatar_version: number | null }[]
     : []
-  const people: ProjectPerson[] = rows.map((x) => ({ id: x.id, name: x.name, ...(x.avatar_version ? { avatarVersion: x.avatar_version } : {}), ...(x.id === r.created_by ? { creator: true as const } : {}) }))
+  // a guest says so (their tag, "Includes 1 guest"): whoever reads this list already sees them in it by name
+  const people: ProjectPerson[] = rows.map((x) => ({ id: x.id, name: x.name, ...(x.avatar_version ? { avatarVersion: x.avatar_version } : {}), ...(x.id === r.created_by ? { creator: true as const } : {}), ...(x.guest ? { guest: true as const } : {}) }))
   people.sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
   if (!o.manage) return { people }
   const row = getFolderByPath(db, r.folder_path)
@@ -395,7 +396,7 @@ export function projectWidening(ctx: AppContext, p: Principal, r: ProjectRow, pa
       : (db.query('SELECT name FROM groups WHERE id = ?').get(x.subjectId) as { name: string } | null)?.name
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
-  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
+  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale), chat: tr('scopeChatFiles', locale) }
   // places in the Files screen's words, as the read card says them
   const place = (path: string) => placeWords(db, path, locale, p.id)
   const v = { ...wideningAnswers(db, { now: plan.rulesNow, after: plan.rulesAfter }, { kind: 'project', projectId: r.id }, gained, p, page, { subjects, words, place }), subjects }

@@ -13,7 +13,6 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { CredentialKind } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { trialLine } from '../../lib/aiAccess'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { toast } from '../../store/ui'
@@ -193,13 +192,11 @@ export function ConnectAiButton({ personal = false, panel = false, size = 'sm', 
  */
 export function NoAiCard() {
   const t = useT()
-  const { action, requested, trial, sending, failed, ask } = useAiAccess()
-  const trialNote = trial && <p className="mb-1 text-sm font-medium text-ink" data-testid="ai-access-trial">{t(trialLine(trial))}</p>
+  const { action, requested, sending, failed, ask } = useAiAccess()
   if (action === 'connect_team')
     return (
       // phones (below 768px): no frame, centred like the greeting under it
       <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
-        {trialNote}
         <h2 id="no-ai-title" className="text-title-sm font-semibold text-ink">{t('welcome.ai.title')}</h2>
         <p className="mt-1 mb-4 text-sm text-balance text-muted">{t('welcome.ai.why')}</p>
         <ConnectAiPanel />
@@ -208,7 +205,6 @@ export function NoAiCard() {
   return (
     // phones (below 768px): no frame; the line, then its button under it, centred like the greeting
     <section role="status" className="mb-6 rounded-2xl border border-line px-4 py-3.5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" data-testid="no-ai-card" data-action={action}>
-      {trialNote}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 max-md:flex-col max-md:gap-y-3">
         <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink text-balance max-md:flex-none">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
         {!requested && (

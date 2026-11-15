@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
+import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomEmptyKey, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -36,6 +36,24 @@ describe('@mentions', () => {
     expect(mentionAt('@ben hi', 7)).toBeNull()
     expect(mentionAt('@ben\nhi', 7)).toBeNull()
     expect(mentionAt('no at sign', 10)).toBeNull()
+  })
+
+  test('a name of two words: the space does not end it while a name still fits (QA M7), a whole name and a space does', () => {
+    const names = ['QA Member', 'QA Member Two', 'Ben']
+    const at = (s: string) => mentionAt(s, s.length, names)
+    expect(at('Hello from the guest, @QA M')).toEqual({ start: 22, query: 'QA M' })
+    expect(at('Hello, @qa member')).toEqual({ start: 7, query: 'qa member' })
+    expect(at('@QA ')).toEqual({ start: 0, query: 'QA ' })
+    // nobody's name goes on like that, or a whole name was typed and a space after it: done
+    expect(at('@QA Member, hi')).toBeNull()
+    expect(at('@Ben is here')).toBeNull()
+    expect(at('@QA Member ')).toBeNull()
+    expect(at('@QA\nMember')).toBeNull()
+    // a first name and a space, with only a longer name to fit: the list stays (Enter then picks that name)
+    expect(mentionAt('@Ben ', 5, ['Ben Lee'])).toEqual({ start: 0, query: 'Ben ' })
+    expect(mentionAt('@Ben is', 7, ['Ben Lee'])).toBeNull()
+    // without the names (as before): a space ends it
+    expect(mentionAt('@QA M', 5)).toBeNull()
   })
 
   test('members whose name holds the query, names that start with it first, never me', () => {
@@ -242,5 +260,13 @@ describe('how far the room is read (pages/Room.tsx tryRead, QA TC-155)', () => {
 
   test('a window around an older message (a search result): nothing', () => {
     expect(readUpTo(tl(run(1, 50), { newerCursor: 'newer' }), 0, all)).toBe(0)
+  })
+})
+
+describe('the empty room line (QA TC-1973)', () => {
+  test('a room one can write in invites the first message; a DM with a person who left the team does not', () => {
+    expect(translate('en', roomEmptyKey(room({ id: R, kind: 'dm', peers: [BEN] })))).toBe('No messages yet. Send the first one.')
+    expect(translate('en', roomEmptyKey({ ...room({ id: R, kind: 'dm', peers: [BEN] }), gone: true }))).toBe('No messages.')
+    expect(translate('en', roomEmptyKey(null))).toBe('No messages yet. Send the first one.')
   })
 })

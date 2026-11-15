@@ -2,6 +2,7 @@
 // AES-256-GCM encrypted with the Vault primitive in a dedicated key directory (<secrets>/integrations/connections),
 // the AAD binding each secret to its connection ("<scope>:<owner or team>:<id>") or sign-in flow; the directory is
 // checked like Drive's (owned by the server account, 0700, no links). Who may use a connection is decided here.
+import { isGuestUser } from '../../credentials/guest-ai'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -81,7 +82,7 @@ export interface Viewer { id: string; role: Role }
 export const isAdmin = (role: Role) => role === 'admin' || role === 'owner'
 
 export function activeUser(db: Database, id: string): Viewer | null {
-  return db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(id) as Viewer | null
+  return db.query("SELECT id, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(id) as Viewer | null
 }
 
 /** at most this much saved tool JSON (characters, about its bytes) is kept parsed in memory per database, the list
@@ -185,6 +186,8 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
+  // a guest uses no connection at all, theirs or the team's (owner decision 2026-11-14: connectors stay off for guests)
+  if (isGuestUser(db, userId)) return false
   // a person's own Google app: only its owner, whatever the switch for members' own MCP connections says. The account
   // an admin shared with the team for an app (scope 'team', migration 349) follows the team rule below like any team
   // connection

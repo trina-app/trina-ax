@@ -207,7 +207,7 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
   // you first, so adding yourself is the first tick; the rest keep the team's order (by when they joined)
   const meId = useMeStrict().user.id
   // a disabled account is offered only while it is already in the group (to take it out): the server never adds one
-  const people = [...users].filter((u) => u.status === 'active' || group?.memberIds.includes(u.id)).sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
+  const people = [...users].filter((u) => (u.status === 'active' && u.role !== 'guest') || group?.memberIds.includes(u.id)).sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
   const save = async () => {
     // people taken out of the group who keep folder access by name (added when folders changed): said before saving
     const leaving = group ? group.memberIds.filter((id) => !memberIds.includes(id)).map((userId) => ({ userId, groupId: group.id })) : []

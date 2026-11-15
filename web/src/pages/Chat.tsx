@@ -18,6 +18,9 @@
 // this view only (the chat's active branch is not changed for anyone), scrolled to it and lit for a moment; an answer
 // no longer there opens the chat at its end with "That answer is no longer here." On a phone, opened from a sharing
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
+import clsx from 'clsx'
+import { composerInset } from '../components/chat/composerBox'
+import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -26,10 +29,12 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isPeopleShared, noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
+import { readDraft } from '../lib/localData'
+import { fromWire } from '../lib/roomRefs'
 import { useBackLink } from '../lib/back'
 import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
@@ -61,7 +66,7 @@ import { openChatShare, useSharedWithNames } from '../components/chat/ChatShareD
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
-import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
+import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -125,6 +130,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const list = useStickToBottom()
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
+  const guestNoAi = useGuestNoAi()
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -164,11 +170,14 @@ function ChatView({ chatId }: { chatId: string }) {
   // opens the Share dialog; to someone not told how many see it (a group in it), the names it is shared with
   const people = isPeopleShared(chat)
   const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
+  // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
+  // shared with me, never "Only you can see this chat" (QA TC-2263)
+  const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
       shared={shared ? { audience: shared.audience, alone: project?.alone } : null}
       place="chat"
-      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : undefined}
+      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : sharedToMeAlone ? t('chat.share.sharedToMeAlone', { name: shared!.by.name }) : undefined}
       onOpen={people ? (rights.creator && !chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
       openLabel={people ? t('chat.share.changeWho') : undefined}
     />
@@ -386,16 +395,23 @@ function ChatView({ chatId }: { chatId: string }) {
     if (othersTurn) throw new Error(t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }))
     const clientMessageId = uuidv7()
     const r = await send({ chatId, content: text, attachments, author, clientMessageId })
-    try {
-      await r.sent
-    } catch (e) {
-      if (!refusalReason(e) && !isApiError(e, 'conflict')) return // shown on the message ("not sent", send again)
+    const refused = (e: unknown): Error | null => {
+      if (!refusalReason(e) && !isApiError(e, 'conflict')) return null // shown on the message ("not sent", send again)
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
       if (local) discardLocal(chatId, local.id)
       void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
       const key = refusalKey(e, 'chat')
-      throw new Error(key ? t(key) : errorText(e, locale, t('error.network')))
+      return new Error(key ? t(key) : errorText(e, locale, t('error.network')))
     }
+    // Trina is updating: the message waits on screen with its note and goes when the server is back (store/chats.ts),
+    // so the box is free again now; a refusal after the update says why in a notice (the box may hold new text by then)
+    const first = await Promise.race([r.sent.then(() => null, (e: unknown) => ({ e })), untilWaitingForUpdate(chatId, clientMessageId, r.sent)])
+    if (first === 'updating') {
+      r.sent.catch((e: unknown) => { const err = refused(e); if (err) toast({ level: 'warn', text: err.message }) })
+      return
+    }
+    const err = first ? refused(first.e) : null
+    if (err) throw err
   }
 
   /** Sent from the message box while the AI waits for the answer to its question: the text answers it, like the card's
@@ -457,17 +473,10 @@ function ChatView({ chatId }: { chatId: string }) {
         </EmptyState>
       </div>
     )
-  // a chat someone shared with me, and I was taken out (or left its group) while it was open
-  if (loadError && isApiError(loadError, 'not_found') && wasSharedWithMe.current)
-    return (
-      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="shared">
-        <EmptyState screen title={t('notifications.event.chat.sharedGone')}>
-          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-gone-home">
-            {t('notFound.home')}
-          </Link>
-        </EmptyState>
-      </div>
-    )
+  // a chat someone shared with me, and I was taken out (or left its group): while it was open, or its link opened later
+  // (the server says so only to someone who was in it: QA TC-2009). What I was typing there stays, with Copy (TC-2032)
+  if (loadError && isApiError(loadError, 'not_found') && (wasSharedWithMe.current || noLongerSharedWith(loadError)))
+    return <NoLongerShared userId={me.user.id} chatId={chatId} />
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
@@ -583,11 +592,14 @@ function ChatView({ chatId }: { chatId: string }) {
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[780px] px-4 pb-[var(--box-bottom)]" data-bottom-bar>
+      <div className={clsx('mx-auto w-full max-w-[780px] pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onShown={setChat} />
         ) : readOnly ? (
           <SharedReadOnly />
+        ) : guestNoAi ? (
+          // a guest whose AI is off: one line in place of the box (components/GuestView.tsx)
+          <GuestNoAi className="mb-3" />
         ) : (
           <>
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
@@ -615,7 +627,7 @@ function ChatView({ chatId }: { chatId: string }) {
             // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
             hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
-            sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
+            sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}
             autoFocus
           />
@@ -679,6 +691,34 @@ function BrowserToggle() {
 const noAiError = (m: { role: string; status?: string; error?: Parameters<typeof chatErrorReason>[0] | null } | undefined) =>
   !!m && m.role === 'assistant' && m.status === 'error' && !!m.error && isNoAiReason(chatErrorReason(m.error))
 
+/** "This chat is no longer shared with you" (a chat someone shared with me that I was taken out of) and the way Home.
+ * What I had typed in its box is not lost (QA TC-2032): the box's draft is kept per chat (lib/localData.ts), so it shows
+ * here with Copy, to paste into a chat of my own. */
+function NoLongerShared({ userId, chatId }: { userId: string; chatId: string }) {
+  const t = useT()
+  const [draft] = useState(() => fromWire(readDraft(userId, chatId)).text.trim())
+  return (
+    <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="shared">
+      <EmptyState screen title={t('notifications.event.chat.sharedGone')}>
+        {draft && (
+          <div className="mx-auto mt-1 mb-3 w-full max-w-md text-left" data-testid="chat-gone-draft">
+            <p className="mb-1.5 text-sm break-keep text-muted">{t('chat.goneDraft')}</p>
+            <div className="rounded-xl border border-line bg-surface p-3">
+              <p className="max-h-40 overflow-y-auto text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="chat-gone-draft-text">{draft}</p>
+              <div className="mt-2 flex justify-end">
+                <CopyButton text={draft} showLabel />
+              </div>
+            </div>
+          </div>
+        )}
+        <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-gone-home">
+          {t('notFound.home')}
+        </Link>
+      </EmptyState>
+    </div>
+  )
+}
+
 /** A shared chat link of a team project in the trash, opened by one of its members: the project is in the trash, who
  * moved it there, who can restore it, and its page (where its creator or an admin restores it). The project is read
  * as its card is (GET /api/projects/:id?manage=1: its name and state only); not readable any more: the plain answer. */
@@ -709,4 +749,15 @@ function ChatOfTrashedProject({ projectId }: { projectId: string }) {
       </EmptyState>
     </div>
   )
+}
+
+/** Settles 'updating' once the message sent with `clientMessageId` waits for Trina's update (store/chats.ts deliver);
+ * never while it was sent or refused before (`sent` ends the watch). */
+function untilWaitingForUpdate(chatId: string, clientMessageId: string, sent: Promise<void>): Promise<'updating'> {
+  return new Promise((resolve) => {
+    const waits = (s: ReturnType<typeof useChats.getState>) => !!s.threads[chatId]?.messages.some((m) => m.local?.clientMessageId === clientMessageId && m.local.updating)
+    if (waits(useChats.getState())) { resolve('updating'); return }
+    const stop = useChats.subscribe((s) => { if (waits(s)) { stop(); resolve('updating') } })
+    void sent.then(stop, stop)
+  })
 }

@@ -264,9 +264,12 @@ export class RemoteOAuth {
     this.db.query('INSERT INTO remote_mcp_requests VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, c.id, redirect, body.code_challenge, body.state as string ?? null, JSON.stringify(scopes(body.scope)), this.resource(), null, null, this.now() + REQUEST_MS)
     return origin + '/connectors/authorize?id=' + id
   }
+  /** The person's signed-in browser session, for the consent page and the code. Never a guest (docs/DECISIONS.md "Guests:
+   * only what they were invited to"): the remote connector reaches the team's files, rooms and skills. grant() refuses a
+   * guest's grant on every request and upload too. */
   private browser(auth: AuthInfo): number {
     const row = this.db.query(`SELECT s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-      WHERE s.id=? AND s.user_id=? AND u.status='active' AND u.deleted_at IS NULL AND u.must_change_password=0`).get(auth.session.id, auth.user.id) as { expires_at: string } | null
+      WHERE s.id=? AND s.user_id=? AND u.status='active' AND u.deleted_at IS NULL AND u.must_change_password=0 AND u.guest=0`).get(auth.session.id, auth.user.id) as { expires_at: string } | null
     const end = row ? Date.parse(row.expires_at) : 0
     if (!end || end <= this.now() || auth.session.tempLogin) throw new OAuthError('access_denied', 403)
     return end
@@ -328,7 +331,7 @@ export class RemoteOAuth {
   grant(id: string): Grant {
     const g = this.db.query(`SELECT g.* FROM remote_mcp_grants g JOIN users u ON u.id=g.user_id
       JOIN sessions s ON s.id=g.session_id AND s.user_id=g.user_id WHERE g.id=? AND u.status='active'
-      AND u.deleted_at IS NULL AND u.must_change_password=0 AND s.expires_at>?`).get(id, iso(this.now())) as Grant | null
+      AND u.deleted_at IS NULL AND u.must_change_password=0 AND u.guest=0 AND s.expires_at>?`).get(id, iso(this.now())) as Grant | null
     if (!g || g.revoked_at !== null || g.expires_at <= this.now() || g.resource !== this.resource()) throw invalid()
     return g
   }

@@ -289,6 +289,14 @@ yet, so check by hand on the first instance:
 
 Local test without AWS: `bun test tests/unit/image-build-ami.test.ts` (stub `aws`, `ssh` and `scp` on PATH).
 
+### Built by the release CI
+
+Every stable release builds its AMI in CI (`.github/workflows/team-image.yml`, started by release.yml's `build-ami`
+job): `build-ami.sh` in ap-northeast-2 with `--tag ax:built-by=release-ci`, `--manifest-v2 --copy-to ap-southeast-1`
+signed with the release key, `scripts/release/publish-ami.ts` puts the manifest and `team-image.json` under
+`server/<version>/` on the update feed, and `ami-prune.sh` keeps the newest 3 CI images per region. AWS access is a
+GitHub OIDC role, no stored key. Setup, IAM policy, network and cost: `docs/RELEASE-CI.md` section 10.
+
 ### Several regions: the v2 manifest
 
 `build-ami.sh` builds the AMI in one region and writes a v1 manifest (one `region`, one `imageId`). An ax-hostd that

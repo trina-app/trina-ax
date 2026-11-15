@@ -103,6 +103,18 @@ export function openInAppHref(o: { scheme: string; origin: string; path: string;
 export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: string | null): href is string => client === 'web' && href !== null
 
 /**
+ * "Open in the app" in a chat's title menu (docs/DECISIONS.md "A chat link opens the desktop app on that chat"): the
+ * same chat in the desktop app, which opens it at once on a team it already has and else asks on its screen ④. Only in
+ * a computer's web browser on macOS or Windows (the systems the desktop app answers the link on), never at phone width,
+ * never inside our apps, and only on an https team (the desktop app opens no other link). Without the app the browser
+ * does nothing more (the page stays as it is).
+ */
+export function chatOpenInAppHref(o: { scheme: string; origin: string; chatId: string; platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'; client: 'web' | 'desktop' | 'mobile'; phone: boolean }): string | null {
+  if (o.client !== 'web' || o.phone || !/^https:\/\/[^/]+$/.test(o.origin) || (o.platform !== 'mac' && o.platform !== 'windows') || !/^[A-Za-z0-9_-]{1,64}$/.test(o.chatId)) return null
+  return openInAppHref({ scheme: o.scheme, origin: o.origin, path: `/c/${o.chatId}`, platform: o.platform, androidPackage: '' })
+}
+
+/**
  * "Get the app" on the join pages (docs/DECISIONS.md "Get the app"): a phone's web browser without the app lands here
  * from a tapped invite or team link (with the app, the link itself opens it). The edition's store listing for this
  * phone, else its download page (APP_DOWNLOADS, shared/src/app-downloads.ts); nothing on a computer, inside our own
