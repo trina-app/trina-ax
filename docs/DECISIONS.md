@@ -28925,3 +28925,4 @@ QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
   for everyone (an admin cannot set those up either). With members' own connections off, the line saying so always
   shows, and a member's search lists the listed services with "Ask admin to add it" (their page has the button); without
   a search they stay out of Discover.
+- Version impact: **patch** (words, one list entry kept, one optional field on two answers).
