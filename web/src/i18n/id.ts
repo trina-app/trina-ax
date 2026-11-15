@@ -4508,6 +4508,7 @@ export const id: Record<MessageKey, string> = {
   "slack.err.officialScopes": "Slack perlu persetujuan baru untuk aplikasi ini. [Tambahkan ke Slack] lagi lalu izinkan.",
   "slack.err.officialEnterprise": "Pemasangan untuk seluruh organisasi belum didukung. [Tambahkan ke Slack] lagi dan pilih satu workspace.",
   "slack.err.officialUnknown": "Ada masalah dengan koneksi Slack. [Tambahkan ke Slack] lagi untuk memperbaikinya.",
+  "slack.err.officialUnreachable": "Trina belum bisa terhubung ke Slack. Trina terus mencoba sendiri; jika berlanjut, hubungi dukungan.",
   "slack.err.bot_refused": "Slack tidak lagi menerima token bot yang tersimpan, jadi jawaban tidak bisa diposting. Masukkan token baru di [Ganti token].",
   "slack.admin.removeOfficialBody": "Aplikasi dikeluarkan dari workspace Slack Anda dan tautan akun semua orang dihapus.",
   "slack.admin.removeRemovedBody": "Slack dikeluarkan dari Aplikasi terhubung dan tautan akun semua orang dihapus. Anda bisa menambahkannya lagi nanti.",

@@ -72,7 +72,8 @@ const OFFICIAL_FIX: Record<SlackErrorCode, Fix> = {
   missing_scope: { key: 'slack.err.officialScopes', page: 'add' }, enterprise_install: { key: 'slack.err.officialEnterprise', page: 'add' },
   socket_mode_off: { key: 'slack.err.officialUnknown', page: 'add' }, app_mismatch: { key: 'slack.err.officialUnknown', page: 'add' },
   workspace_changed: { key: 'slack.err.officialUnknown', page: 'add' }, unknown: { key: 'slack.err.officialUnknown', page: 'add' },
-  unreachable: { key: 'slack.err.unreachable' }, ratelimited: { key: 'slack.err.ratelimited' }, key_unsafe: { key: 'slack.err.key_unsafe' },
+  // the hosting service runs the server: its admin cannot check the server's internet, so Trina keeps trying (TC-3033)
+  unreachable: { key: 'slack.err.officialUnreachable' }, ratelimited: { key: 'slack.err.ratelimited' }, key_unsafe: { key: 'slack.err.key_unsafe' },
   broker_unreachable: { key: 'slack.err.broker_unreachable' }, not_served: { key: 'slack.err.not_served' }, removed: { key: 'slack.err.removed' },
 }
 /** What the page says for a problem of the running connection, by the app in use */

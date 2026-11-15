@@ -4509,6 +4509,7 @@ export const en: Record<MessageKey, string> = {
   "slack.err.officialScopes": "Slack needs a new approval for the app. [Add to Slack] again and allow it.",
   "slack.err.officialEnterprise": "Organization-wide installs are not supported yet. [Add to Slack] again and choose one workspace.",
   "slack.err.officialUnknown": "Something is wrong with the Slack connection. [Add to Slack] again to fix it.",
+  "slack.err.officialUnreachable": "Trina can't reach Slack right now. It keeps trying by itself; if this lasts, contact support.",
   "slack.err.bot_refused": "Slack no longer accepts the saved bot token, so answers cannot be posted. Enter new tokens under [Replace tokens].",
   "slack.admin.removeOfficialBody": "The app is taken out of your Slack workspace and everyone's account links are deleted.",
   "slack.admin.removeRemovedBody": "Slack leaves Connected apps and everyone's account links are deleted. You can add it again later.",

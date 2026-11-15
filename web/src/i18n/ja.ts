@@ -4464,6 +4464,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.err.officialScopes": "Slackでアプリをもう一度許可する必要があります。もう一度[Slackに追加]して許可してください。",
   "slack.err.officialEnterprise": "組織全体へのインストールにはまだ対応していません。もう一度[Slackに追加]して、ワークスペースを1つ選んでください。",
   "slack.err.officialUnknown": "Slackとの接続に問題があります。もう一度[Slackに追加]すると直ります。",
+  "slack.err.officialUnreachable": "現在Slackに接続できません。Trinaが自動で再試行します。続く場合はサポートにお問い合わせください。",
   "slack.err.bot_refused": "Slackが保存済みのボットトークンを受け付けなくなったため、回答を投稿できません。[トークンを変更]で新しいトークンを入力してください。",
   "slack.admin.removeOfficialBody": "Slackワークスペースからアプリを外し、全員のアカウント連携を削除します。",
   "slack.admin.removeRemovedBody": "連携サービスからSlackを外し、全員のアカウント連携を削除します。あとでまた追加できます。",

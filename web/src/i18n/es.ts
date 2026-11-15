@@ -4464,6 +4464,7 @@ export const es: Record<MessageKey, string> = {
   "slack.err.officialScopes": "Slack necesita una nueva aprobación para la aplicación. Vuelva a [Añadir a Slack] y permítala.",
   "slack.err.officialEnterprise": "Todavía no se admiten instalaciones en toda la organización. Vuelva a [Añadir a Slack] y elija un espacio de trabajo.",
   "slack.err.officialUnknown": "Algo falla en la conexión con Slack. Vuelva a [Añadir a Slack] para arreglarlo.",
+  "slack.err.officialUnreachable": "Trina no puede conectar con Slack ahora. Lo sigue intentando sola; si continúa, contacte con soporte.",
   "slack.err.bot_refused": "Slack ya no acepta el token de bot guardado, así que no se pueden publicar respuestas. Introduzca tokens nuevos en [Cambiar tokens].",
   "slack.admin.removeOfficialBody": "La aplicación se quita de su espacio de trabajo de Slack y se borran los vínculos de cuenta de todos.",
   "slack.admin.removeRemovedBody": "Slack se quita de Apps conectadas y se borran los vínculos de cuenta de todos. Puede volver a añadirlo más tarde.",
