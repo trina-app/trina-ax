@@ -757,11 +757,11 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(JSON.parse(sent.content)).toMatchObject({ status: 'sent', room: `"${unnamed}"` })
     expect(sent.content).not.toContain('Carol')
     expect((await stepFor('bob', sent.answerId)).label).toContain('Carol Park')
-    expect(await stepFor('alice', sent.answerId)).toMatchObject({ label: 'Send to room' })
+    expect(await stepFor('alice', sent.answerId)).toMatchObject({ label: 'Send to conversation' })
     // the same, cancelled
     const no = await turn('bob', post({ room: unnamed, text: 'never mind' }), { chat: chatId, answer: 'no' })
     expect(no.content).not.toContain('Carol')
-    expect(await stepFor('alice', no.answerId)).toMatchObject({ label: 'Send to room' })
+    expect(await stepFor('alice', no.answerId)).toMatchObject({ label: 'Send to conversation' })
     // several match: no list for the AI; the asker picks on a card only they get, then the send card
     const started = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: post({ room: 'Zeta', text: 'zeta news' }), clientMessageId: cm(), attachmentIds: [] } })
     const pick = await socks.bob!.next('turn.request', (f) => f.data.turnId === started.turnId)
