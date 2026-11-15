@@ -20,7 +20,7 @@ import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
 import { codexLoginState, launcherStatus } from '../native'
 import { connectionStatus } from './connection'
-import { diskSpace, resolveLayout, type InstallLayout } from './layout'
+import { diskSpaceOrUnknown, primeDiskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { compareVersions, UpdateManager } from './update'
@@ -43,6 +43,7 @@ import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
+import { diskStat, unknownChanged } from './disk-stat'
 
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
@@ -112,6 +113,10 @@ export class OpsService {
     })
     // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
     // of a team over its plan's limit is kept in the settings table
+    // where statfs cannot be believed (an Intel Mac, disk-stat.ts), df runs once now in the background, so the first
+    // upload or chat turn after a start already has a free-space answer
+    void primeDiskSpace(this.layout.dataDir)
+    void primeDiskSpace(this.layout.teamRoot)
     configureStorageGuard({
       root: this.layout.teamRoot, now: o.now ? () => this.now().getTime() : undefined,
       store: { get: (k) => getSetting<string | null>(ctx.db, k) ?? null, set: (k, v) => setSetting(ctx.db, k, v) },
@@ -467,15 +472,30 @@ export class OpsService {
     }
 
     // disk (tab 7 "디스크 단계")
-    const team = diskSpace(L.teamRoot), data = diskSpace(L.dataDir)
-    const diskCheck = (id: string, label: string, d: { free: number; total: number }) => {
+    // null: the free space could not be read (system/disk-stat.ts): a warning, not an error that stops the whole report
+    // (and with it the menubar status file)
+    await Promise.all([primeDiskSpace(L.teamRoot), primeDiskSpace(L.dataDir)])
+    const read = (where: string) => {
+      let error: unknown = null
+      const d = diskSpaceOrUnknown(where, (err) => { error = err })
+      // once per change, not on every diagnostics or menubar status run
+      if (unknownChanged(`ops:${where}`, d === null)) {
+        if (d === null) this.ctx.log.warn('could not read the free disk space', { where, err: error })
+        else this.ctx.log.info('the free disk space can be read again', { where })
+      }
+      return d
+    }
+    const team = read(L.teamRoot), data = read(L.dataDir)
+    const diskCheck = (id: string, label: string, d: { free: number; total: number } | null) => {
+      if (!d) return add(id, 'disk', label, 'warn', t(M.diskUnknown))
       const pct = d.total ? Math.round((d.free / d.total) * 100) : 0
       const ro = absoluteFloor(d.total)
       if (d.free < ro) add(id, 'disk', label, 'fail', t(M.diskReadOnly(d.free)))
       else if (pct < 15) add(id, 'disk', label, 'warn', t(M.diskLow(d.free, pct)))
       else add(id, 'disk', label, 'ok', t(M.diskOk(d.free, pct)))
     }
-    if (this.platform() === 'linux' && prod) this.linuxStorage(add, t, team, data)
+    // Linux: each readable disk by its levels (the team disk by the plan's view), even when the other cannot be read
+    if (this.platform() === 'linux' && prod) this.linuxStorage(add, t, team, data, t(M.diskUnknown))
     else {
       diskCheck('disk.team', t(M.diskTeam), team)
       diskCheck('disk.data', t(M.diskData), data)
@@ -676,10 +696,11 @@ export class OpsService {
       if (sp) add('system_packages', 'update', t(SYSTEM_PACKAGES_TEXT.label), sp.status, t(sp.text))
     }
 
+    const bytesOrNull = (v: number | undefined) => (v === undefined ? null : Math.max(0, Math.floor(v)))
     return {
       version: this.ctx.version,
       host: { os: `${process.platform} ${os.release()}`, arch: process.arch, hostname: os.hostname() },
-      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(cappedSnapshot()?.freeBytes ?? team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
+      disk: { teamFolderFreeBytes: bytesOrNull(cappedSnapshot()?.freeBytes ?? team?.free), dataFreeBytes: bytesOrNull(data?.free) },
       queue: q,
       checks,
       generatedAt: this.now().toISOString(),
@@ -696,10 +717,10 @@ export class OpsService {
 
   /** Linux: the team disk by its levels (system/storage.ts) instead of the Mac's absolute 10 GB rule. */
   private linuxStorage(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
-    team: { free: number; total: number }, data: { free: number; total: number }) {
+    team: { free: number; total: number } | null, data: { free: number; total: number } | null, unknownText: string) {
     const one = (id: string, d: { free: number; total: number }) => {
       let real
-      try { real = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      try { real = snapshotOf(diskStat(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
       // the team disk by the view the writes are judged by (the plan's bytes on a larger disk), or Admin shows ok while
       // writes are refused
       const s = id === 'disk.team' ? planView(real) : real
@@ -720,9 +741,12 @@ export class OpsService {
       else add(id, 'disk', t(ML.storage), 'ok', t(ML.storageOk(s.freeBytes, pct)))
       return real
     }
-    const real = one('disk.team', team)
+    if (!team) add('disk.team', 'disk', t(ML.storage), 'warn', unknownText)
+    const real = team ? one('disk.team', team) : null
     // the data folder is on the same disk in every Linux install; a separate one gets its own line
-    if (data.total !== team.total || data.free !== team.free) one('disk.data', data)
+    if (!data) add('disk.data', 'disk', t(ML.storage), 'warn', unknownText)
+    else if (!team || data.total !== team.total || data.free !== team.free) one('disk.data', data)
+    if (!real) return
     const plan = planDiskBytes()
     // a disk smaller than the plan means that a grow failed. A larger one is normal after a move to a smaller plan (a
     // Proxmox disk cannot shrink), and the plan's bytes are enforced in software (system/storage.ts).

@@ -29856,3 +29856,24 @@ W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is
 - Not changed: "Next" on a phone already names the next open step with the same rule as a computer
   (`Welcome.tsx nextLabel` → `lib/welcome.ts nextStep`, the device only drops 도구 연결); the walk's "Next: invite your
   team" after the skills step on a phone was not reproduced from the code.
+
+## Free disk space: a checked statfs, then df, and "unknown" never blocks (fix/intel-mac-free-space, 2026-11-15, QA TC-3099)
+
+On an Intel Mac the bundled Bun 1.3.12 (darwin-x64) returns `fs.statfsSync` with `bsize: 0` and the other fields
+shifted (`blocks: 4096, bfree: 1048576, bavail: 39270390` on a disk with 129 GB free), so every backup said "0 MB free,
+2 GB needed" and every office update stopped at its pre-update backup. Decided: every free-space reading goes through
+`server/src/system/disk-stat.ts` `diskStat()`. A reading is believed only when bsize (and frsize) > 0, blocks > 0,
+bfree and bavail ≤ blocks and the disk is below 1 EiB; otherwise `/bin/df -k -P -- <path>` (no shell, 5 s timeout,
+`LC_ALL=C`) gives it (Available × 1024; bfree = bavail like an APFS statfs, so "used" stays the whole container's). Both
+failing is `DiskSpaceUnknown`, which no gate treats as a full disk: the backup logs a warning and goes ahead (a really
+full disk still fails the copy), the update download's room check passes, the storage guard and `diskAlmostFull` say
+"not full", and Admin › System warns "Could not read the free space" (`disk.*` checks; `disk.*FreeBytes` null). A real
+low reading still refuses as before. The Go helpers (mycel-ctl) read statfs correctly on Intel and are unchanged.
+Version impact: **patch**.
+
+Follow-up (fix/intel-mac-free-space-2, 2026-11-15): df never runs on a request's path. It runs async in the background
+(one run per path at a time, killed after 5 s; no second one while a stuck one is still alive), sync readers only
+read its cache (a reading older than 10 s starts a refresh, one older than 60 s is unknown; both folders are primed at
+start), and only the one-shot gates (backup, update room check, Admin diagnostics) wait, at most about 6 s, for a
+fresh answer (`primeDiskStat`). A df stuck on a dead mount therefore means "unknown", never a stalled server. On Linux
+each readable disk keeps its level check when the other cannot be read. The "unknown" warning is logged once per change.

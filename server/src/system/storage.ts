@@ -37,6 +37,7 @@ import { ToolError } from '../policy/errors'
 import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
 import { limitsActive, planDiskBytes, planManageUrl } from './limits'
 import { zonedParts } from './time-zone'
+import { diskStat } from './disk-stat'
 
 const MIB = 1024 * 1024
 export const RESERVE_MIN_BYTES = 512 * MIB
@@ -83,7 +84,7 @@ export const DISK_FULL_TEXT = /\bENOSPC\b|no space left on device|disk quota exc
 
 /** Is one of these folders' disks (almost) out of space right now (fresh statfs)? For telling a crash apart from a
  * full disk after the fact: under `floor` (64 MiB) nothing works reliably. */
-export function diskAlmostFull(paths: string[], floor = 64 * MIB, statfs: (p: string) => StatFs = (p) => fs.statfsSync(p)): boolean {
+export function diskAlmostFull(paths: string[], floor = 64 * MIB, statfs: (p: string) => StatFs = (p) => diskStat(p)): boolean {
   for (const p of paths) {
     try { if (snapshotOf(statfs(p)).freeBytes < floor) return true } catch {}
   }
@@ -115,7 +116,7 @@ function memoryStore(): GuardStore {
 /** Set by the ops service at start (and by tests): which file system, how to read it, whether writes are refused,
  * where the grace state is kept (without a store: in memory only), the clock. */
 export function configureStorageGuard(c: { root: string; statfs?: (p: string) => StatFs; enforce?: () => boolean; store?: GuardStore; now?: () => number } | null) {
-  guard = c ? { root: c.root, statfs: c.statfs ?? ((p) => fs.statfsSync(p)), enforce: c.enforce ?? limitsActive, store: c.store ?? memoryStore(), now: c.now ?? Date.now } : null
+  guard = c ? { root: c.root, statfs: c.statfs ?? ((p) => diskStat(p)), enforce: c.enforce ?? limitsActive, store: c.store ?? memoryStore(), now: c.now ?? Date.now } : null
   cached = null
 }
 
