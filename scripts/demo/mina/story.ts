@@ -80,7 +80,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       where: { project: 'launch' },
       prompt: a.banner.prompt,
       steps: [
-        { label: `${st.useSkill} · ${s.brandSkill}`, tool: 'skill' },
+        { label: `${st.useSkill} · ${s.brandSkill}`, tool: 'skill', ms: 2200 },
         read(leoBanner),
         { label: `Higgsfield · ${st.higgsfieldHero}`, tool: 'higgsfield', ms: 3200 },
         { label: `Higgsfield · ${st.higgsfieldCrops}`, tool: 'higgsfield', ms: 2600 },
