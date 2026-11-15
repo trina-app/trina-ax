@@ -4201,7 +4201,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.deleteTitle": "Delete this message?",
   "rooms.deleteBody": "The message and its files are removed for everyone in the room. This can't be undone.",
   "rooms.editLabel": "Edit message",
-  "rooms.editNotSaved": "Your edit was not saved.",
+  "rooms.editNotSaved": "Your edit was not saved. {reason}",
   "rooms.editingNow": "Editing message",
   "rooms.placeholder": "Write a message",
   "rooms.placeholderEmptySide": "Message · ✦ ask privately",

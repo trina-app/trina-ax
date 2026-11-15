@@ -1174,7 +1174,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         // its own toast: it says the edit was not saved, then why (QA TC-3007)
         failText: false,
       })
-      if (!r.ok && r.newest) toast({ level: 'error', text: `${t('rooms.editNotSaved')} ${errorText(r.error, currentLocale(), t('error.network'))}` })
+      if (!r.ok && r.newest) toast({ level: 'error', text: t('rooms.editNotSaved', { reason: errorText(r.error, currentLocale(), t('error.network')) }) })
       return r.ok || !r.newest
     },
 

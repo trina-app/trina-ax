@@ -4142,7 +4142,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.deleteTitle": "删除这条消息？",
   "rooms.deleteBody": "这条消息及其文件会对群聊中的所有人移除。此操作无法撤销。",
   "rooms.editLabel": "编辑消息",
-  "rooms.editNotSaved": "你的修改没有保存。",
+  "rooms.editNotSaved": "你的修改没有保存。{reason}",
   "rooms.editingNow": "正在编辑消息",
   "rooms.placeholder": "输入消息",
   "rooms.placeholderEmptySide": "发消息 · ✦ 私下提问",

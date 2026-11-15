@@ -102,9 +102,16 @@ const TABLE: [string, unknown, unknown?][] = [
   ['https://teamserver', err('short_name')],
   ['https://teamserver:8443/login', err('short_name')],
   ['https://macmini', err('short_name')],
+  ['macmini:8443', err('short_name')],
   // an IPv6 host keeps its closing ']' (QA TC-3005)
   ['https://[::1]', { ok: true, origin: 'https://[::1]', host: '[::1]', name: null, hosted: false, loopback: true, entryPath: '/' }],
   ['https://[::1].', { ok: true, origin: 'https://[::1]', host: '[::1]', name: null, hosted: false, loopback: true, entryPath: '/' }],
+  ['https://[::1]]', { ok: true, origin: 'https://[::1]', host: '[::1]', name: null, hosted: false, loopback: true, entryPath: '/' }],
+  ['(https://[::1])', { ok: true, origin: 'https://[::1]', host: '[::1]', name: null, hosted: false, loopback: true, entryPath: '/' }],
+  ['https://[2001:db8::1]', other('[2001:db8::1]')],
+  // a stray ']' after a link is still punctuation
+  ['https://acme.example.com]', other('acme.example.com')],
+  ['[https://acme.example.com]', other('acme.example.com')],
   // ...while an IP literal and a full tailnet name still read as addresses
   ['https://100.64.0.1', other('100.64.0.1')],
   ['https://box.tail123.ts.net', other('box.tail123.ts.net')],

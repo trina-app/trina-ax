@@ -4156,7 +4156,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.deleteTitle": "¿Eliminar este mensaje?",
   "rooms.deleteBody": "El mensaje y sus archivos se eliminan para todos en la sala. No se puede deshacer.",
   "rooms.editLabel": "Editar mensaje",
-  "rooms.editNotSaved": "Su cambio no se guardó.",
+  "rooms.editNotSaved": "Su edición no se guardó. {reason}",
   "rooms.editingNow": "Editando mensaje",
   "rooms.placeholder": "Escriba un mensaje",
   "rooms.placeholderEmptySide": "Mensaje · ✦ en privado",

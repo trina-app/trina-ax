@@ -17,7 +17,8 @@ export interface TeamInputOptions {
 /**
  * empty: nothing typed. hangul: Korean letters or jamo (`acme` typed in 한글 mode is `ㅁ츼`). email: an email address.
  * link: an invite or team link that is cut off (its token is missing or broken). insecure: http to a real host.
- * credentials: user:password@ in the address. unsupported_scheme: not http(s). invalid: anything else.
+ * credentials: user:password@ in the address. unsupported_scheme: not http(s). short_name: a one-word ASCII host (not
+ * this machine, not an IP) such as https://macmini or macmini:8443. invalid: anything else.
  */
 export type TeamInputError = 'empty' | 'hangul' | 'email' | 'link' | 'invalid' | 'short_name' | 'insecure' | 'credentials' | 'unsupported_scheme'
 
