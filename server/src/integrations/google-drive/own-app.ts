@@ -55,18 +55,27 @@ export class GoogleOwnAppError extends Error {
 /** Asks Google whether it knows a client ID: true = clearly unknown, false = known or no clear answer (never blocks a save). */
 export type ClientProbe = (clientId: string, redirectUri: string) => Promise<boolean>
 
-/** Google's sign-in page answers an unknown client with an error page ("invalid_client", "The OAuth client was not found")
- * and a known one with a redirect to sign-in. Only that clear answer counts; a network error, a timeout or anything else
- * lets the save go on. The secret cannot be checked this way. Not asked under tests (inject a probe to test it). */
-const googleProbe: ClientProbe = async (clientId, redirectUri) => {
-  if (process.env.NODE_ENV === 'test') return false
+/** Google's sign-in page answers an unknown client with a redirect (3xx) to /signin/oauth/error whose `authError` (base64 of
+ * a small message) says "invalid_client ... The OAuth client was not found"; a known client with a wrong return address goes
+ * to the same page with "redirect_uri_mismatch", and a known one with the right address to a normal sign-in. Only the first
+ * counts; a network error, a timeout or anything else lets the save go on. The secret cannot be checked this way. */
+export async function probeGoogleClient(clientId: string, redirectUri: string, fetchFn: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<boolean> {
   try {
     const q = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'openid' })
-    const r = await fetch(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, { redirect: 'manual', signal: AbortSignal.timeout(4000) })
-    if (r.status !== 400 && r.status !== 401) return false
-    return /invalid_client|OAuth client was not found/i.test((await r.text()).slice(0, 200_000))
+    const r = await fetchFn(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, { redirect: 'manual', signal: AbortSignal.timeout(4000) })
+    if (r.status < 300 || r.status > 399) return false
+    const loc = r.headers.get('location')
+    if (!loc) return false
+    const u = new URL(loc, 'https://accounts.google.com')
+    if (u.pathname !== '/signin/oauth/error') return false
+    const err = u.searchParams.get('authError')
+    if (!err) return false
+    const text = Buffer.from(err.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1')
+    return /invalid_client|OAuth client was not found/i.test(text)
   } catch { return false }
 }
+/** Not asked under tests (inject a probe to test the save). */
+const googleProbe: ClientProbe = (id, uri) => process.env.NODE_ENV === 'test' ? Promise.resolve(false) : probeGoogleClient(id, uri)
 let clientProbe: ClientProbe = googleProbe
 /** For tests: replace what asks Google (null puts the real one back). */
 export const setOwnAppClientProbe = (p: ClientProbe | null) => { clientProbe = p ?? googleProbe }

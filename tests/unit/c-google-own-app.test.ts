@@ -22,7 +22,7 @@ import { clientSettingKey, setupOf } from '../../server/src/integrations/google-
 import { setSetting } from '../../server/src/admin/settings'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
 import { OWN_APP_SETTING } from '../../server/src/integrations/google-drive/config'
-import { ownAppStatus, setOwnAppClientProbe } from '../../server/src/integrations/google-drive/own-app'
+import { ownAppStatus, probeGoogleClient, setOwnAppClientProbe } from '../../server/src/integrations/google-drive/own-app'
 import { getSetting } from '../../server/src/admin/settings'
 import { publicHostOf } from '../../server/src/system/deployment'
 import { DRIVE_BROKER_PATHS } from '../../shared/src/cloud-protocol/drive-broker'
@@ -381,4 +381,15 @@ test('a client ID Google does not know is refused at save and nothing is written
   expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeFalsy()
   setOwnAppClientProbe(async () => false) // known, or Google could not be asked
   expect((await call('carol', 'PUT', { clientId: 'known-client', clientSecret: 'secret' })).status).toBe(200)
+})
+
+test('the Google probe: only a redirect to the error page saying invalid_client is "unknown"', async () => {
+  const b64 = (t: string) => Buffer.from(t, 'latin1').toString('base64url')
+  const redirect = (loc: string) => async () => new Response(null, { status: 302, headers: { location: loc } })
+  const err = (t: string) => `https://accounts.google.com/signin/oauth/error?authError=${b64(t)}&flowName=GeneralOAuthFlow`
+  expect(await probeGoogleClient('x', 'https://a/b', redirect(err('\x0a\x0einvalid_client\x12\x1fThe OAuth client was not found.')))).toBe(true)
+  expect(await probeGoogleClient('x', 'https://a/b', redirect(err('\x0a\x15redirect_uri_mismatch\x12\x10Some text')))).toBe(false)
+  expect(await probeGoogleClient('x', 'https://a/b', redirect('https://accounts.google.com/v3/signin/identifier?flowName=GeneralOAuthFlow'))).toBe(false)
+  expect(await probeGoogleClient('x', 'https://a/b', async () => new Response('invalid_client', { status: 400 }))).toBe(false)
+  expect(await probeGoogleClient('x', 'https://a/b', async () => { throw new Error('offline') })).toBe(false)
 })
