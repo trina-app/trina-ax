@@ -132,7 +132,9 @@ export default function Members() {
   const leadCard = useHandover((s) => s.state?.card ?? null)
   useLeadOffered()
   // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
-  const focusId = useSearchParams()[0].get('member')
+  const [params] = useSearchParams()
+  const focusId = params.get('member')
+  const initialRole = params.get('role')
   const scrolled = useRef<string | null>(null)
   const focusRow = useCallback((el: HTMLElement | null) => {
     if (!el || scrolled.current === focusId) return
@@ -235,7 +237,8 @@ export default function Members() {
 
   // search and role filter (like the Claude Console's Members): they narrow what is loaded, nothing is asked again
   const [query, setQuery] = useState('')
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  // ?role=guest (Admin Home's Guests card) opens the list filtered to guests
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>(() => (initialRole === 'guest' ? 'guest' : 'all'))
   const q = query.trim().toLocaleLowerCase(locale)
   const shown = (list: User[]) => list.filter((u) => (roleFilter === 'all' || u.role === roleFilter) && matches(q, locale, u.name, u.username, u.email))
   /** the owner changes roles (members ↔ admins) right in the row, on anyone but themselves; everyone else reads it */
@@ -785,7 +788,8 @@ function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Gro
     <Modal
       open
       onClose={onClose}
-      title={t('members.inviteToTeam')}
+      // titled by what is picked, never "Invite to team" over "Someone from outside the team" (walkthrough N1)
+      title={t(guest ? 'guest.invite.title' : 'members.inviteTitleMember')}
       footer={guest ? <GuestChoiceButtons choice={choice} admin onClose={onClose} /> : (
         <>
           <Button variant="ghost" onClick={onClose}>

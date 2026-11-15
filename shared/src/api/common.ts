@@ -98,6 +98,8 @@ export const GuestDetail = z.object({
    * project is in the trash (restoring it brings them back), 'gone' = the room was closed or the project deleted for
    * good. Absent for an active guest and for a removed one who could be switched back on */
   placeOut: z.enum(['left', 'trashed', 'gone']).optional(),
+  /** placeOut 'left' because they left it on their own (Admin: "Left"); absent when someone took them out ("Removed") */
+  leftThemselves: z.literal(true).optional(),
   /** Team AI was picked for them, but that team AI account was deleted since: `ai` reads No AI, and the guest is told
    * that AI can't answer them now (not that it is off) */
   teamAiGone: z.literal(true).optional(),

@@ -27,7 +27,7 @@ const status = (id: string) => (h.ctx.db.query('SELECT status FROM users WHERE i
 const tokenOf = (inv: { url: string }) => inv.url.split('/invite/')[1]!
 const info = (token: string) => h.client().call('GET', `/api/invites/${token}`)
 const accept = (token: string, username: string) => h.client().try('POST', `/api/invites/${token}/accept`, { username, name: username, password: 'guest river lamp 77' })
-const guestRow = async (owner: Client, id: string) => ((await owner.call('GET', '/api/admin/users')).items as { id: string; status: string; guest?: { placeOut?: string; teamAiGone?: boolean; ai: { mode: string } } }[]).find((u) => u.id === id)!
+const guestRow = async (owner: Client, id: string) => ((await owner.call('GET', '/api/admin/users')).items as { id: string; status: string; guest?: { placeOut?: string; leftThemselves?: boolean; teamAiGone?: boolean; ai: { mode: string } } }[]).find((u) => u.id === id)!
 
 async function setup(name: string) {
   h = await harness(name)
@@ -180,9 +180,33 @@ test('a removed guest: switched on while their place is there; said plainly why 
   expect((await guestRow(owner, g2.id)).guest?.placeOut).toBe('gone')
   const r2 = await owner.try('PATCH', `/api/admin/users/${g2.id}`, { status: 'active' })
   expect(r2.body.error.params).toMatchObject({ reason: 'guest_no_place', placeOut: 'gone' })
-  expect(AUTH_MESSAGES.guestNoPlaceGone.en).toBe("Their room or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
+  expect(AUTH_MESSAGES.guestNoPlaceGone.en).toBe("Their group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
   // the way out it offers works: made a team member (a member needs no place), on again
   expect(await owner.call('POST', `/api/admin/users/${g2.id}/convert-guest`)).toMatchObject({ role: 'member', status: 'active' })
+})
+
+test('Admin tells a guest who left on their own from one who was taken out (leftThemselves; walkthrough S3)', async () => {
+  const { owner, mia, room } = await setup('a-guests-states-left-themselves')
+  // left on their own: off, out of the room, and the row says they left it themselves
+  const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
+  await g.client.call('POST', `/api/rooms/${room}/leave`)
+  expect(status(g.id)).toBe('disabled')
+  const left = (await guestRow(owner, g.id)).guest
+  expect(left?.placeOut).toBe('left')
+  expect(left?.leftThemselves).toBe(true)
+  // taken out by someone else: off and out the same way, but not "left themselves"
+  const g2 = await addGuest(h, mia.client, { username: 'gia', place: { kind: 'room', id: room } })
+  await owner.call('DELETE', `/api/rooms/${room}/members/${g2.id}`)
+  const out = (await guestRow(owner, g2.id)).guest
+  expect(out?.placeOut).toBe('left')
+  expect(out?.leftThemselves).toBeUndefined()
+  // removed by an admin while still in the room: no placeOut, and nothing says they left
+  const g3 = await addGuest(h, mia.client, { username: 'gwen', place: { kind: 'room', id: room } })
+  await owner.call('PATCH', `/api/admin/users/${g3.id}`, { status: 'disabled' })
+  expect((await guestRow(owner, g3.id)).guest?.leftThemselves).toBeUndefined()
+  // an active guest never carries it
+  const g4 = await addGuest(h, mia.client, { username: 'gail', place: { kind: 'room', id: room } })
+  expect((await guestRow(owner, g4.id)).guest?.leftThemselves).toBeUndefined()
 })
 
 test('a project back from the trash brings its guests back; not one an admin switched by hand; rename keeps them; deleted for good keeps them off', async () => {
