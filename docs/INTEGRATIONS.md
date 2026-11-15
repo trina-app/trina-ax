@@ -377,7 +377,8 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
     edge of an embedded base64 value share a group with the text around them and stay. An encoded form (base64, or
     the value with every character %-escaped, `\uXXXX`-escaped or as an HTML entity) is found also when white space
     or a JSON-escaped `\n`, `\r`, `\t` splits it (a blank line around a tool call, base64 wrapped at 76 characters);
-    the value as written is not (QA TC-3096). While an answer streams, a base64 run before a line break, or before a
+    the value as written is not (QA TC-3096). Split forms are found on a copy of the stretch without its breaks,
+    never by white space in the one big pattern (that took seconds on Bun 1.3.12; DECISIONS). While an answer streams, a base64 run before a line break, or before a
     space when it looks like base64 (a digit, + or /, or a capital after the first letter), waits for the next piece;
     an all-lowercase piece before a space can show until the saved answer hides it.
   - where: one exit that every connection tool's result goes through (`tools.ts` `hiding`: `api_request` and MCP

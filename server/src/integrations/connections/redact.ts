@@ -5,7 +5,7 @@
 // below), the steps, the audit lines (tool_events) and the chat title. The person's own message is kept as typed
 // (the AI's history needs it).
 import type { AppContext } from '../../context'
-import { HIDDEN, secretRegex, secretValuesOf } from './hide'
+import { formSpans, replaceForms, secretForms, secretValuesOf, type SecretForms } from './hide'
 import { integrationsOf } from './service'
 
 export interface Redactor {
@@ -14,15 +14,17 @@ export interface Redactor {
   /** the values (for the stream's carry-over); empty: hide changes nothing */
   readonly values: readonly string[]
   readonly re: RegExp | null
+  /** the patterns (hide.ts formSpans: also an encoded form split by line breaks); null: hide changes nothing */
+  readonly forms: SecretForms | null
 }
 
-const NONE: Redactor = { hide: (s) => s, values: [], re: null }
+const NONE: Redactor = { hide: (s) => s, values: [], re: null, forms: null }
 
 export function redactorOf(values: Iterable<string | null | undefined>): Redactor {
   const vs = secretValuesOf(values)
-  const re = secretRegex(vs)
-  if (!re) return NONE
-  return { hide: (s) => (s ? s.replace(re, HIDDEN) : s), values: vs, re }
+  const forms = secretForms(vs)
+  if (!forms) return NONE
+  return { hide: (s) => replaceForms(s, forms), values: vs, re: forms.re, forms }
 }
 
 /** The redactor of this person's stored connection secrets now. A failure to read them leaves the text as it is (and
@@ -169,14 +171,13 @@ export class RedactingText {
     const text = this.pending
     if (!text) return ''
     const r = this.redactor()
-    if (!r.re) { this.pending = ''; return text }
+    if (!r.forms) { this.pending = ''; return text }
     let cut = all ? text.length : text.length - Math.max(carryLength(text, r.values), formCarryLength(text, r.values))
     if (cut < text.length) {
       // a whole form of a value across the cut stays with the held part (it is hidden together)
-      r.re.lastIndex = 0
-      for (const m of text.matchAll(r.re)) {
-        if (m.index! < cut && m.index! + m[0].length > cut) { cut = m.index!; break }
-        if (m.index! >= cut) break
+      for (const [a, b] of formSpans(text, r.forms)) {
+        if (a < cut && b > cut) { cut = a; break }
+        if (a >= cut) break
       }
     }
     this.pending = text.slice(cut)

@@ -29607,11 +29607,19 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
   a blank line around a tool call (`engine/claude-parse.ts`, `engine/codex-parse.ts`), so the saved answer held the
   base64 in two parts with "\n\n" between them, and `hide.ts`'s base64 patterns, which need the characters side by
   side, did not hide it. Base64 wrapped at 76 characters had the same gap.
-- **Decision.** Encoded forms match across breaks: the base64 patterns (every alignment, padded or not, URL-safe) and
-  the value with every character %-escaped, JSON `\u`-escaped or as an HTML entity (decimal or hex) allow white space,
-  or a JSON-escaped `\n`, `\r`, `\t`, between their characters (between whole escapes for the escaped forms), never
-  before or after. The whole match, breaks included, becomes `[hidden key]`. The value as written stays strict: letters
-  with spaces between them are ordinary text ("QA FAKE KEY" is not the key), and so is a key split as written.
+- **Decision.** Encoded forms are found across breaks: base64 (every alignment, padded or not, URL-safe) and the value
+  with every character %-escaped, JSON `\u`-escaped or as an HTML entity, split by white space or a JSON-escaped `\n`,
+  `\r`, `\t`. The whole form, breaks included, becomes `[hidden key]`. The value as written stays strict: letters with
+  spaces between them are ordinary text ("QA FAKE KEY" is not the key), and so is a key split as written.
+- **How (hide.ts `formSpans`, after the review of #984).** The one big pattern (every form, as before) runs on the text
+  as it is and never has white space in it: with white space between its characters it grew from about 290 K to 497 K
+  characters for a 1.4 KB token and a 1 MB answer took 8.3 s on CI's Bun 1.3.12. Instead, each stretch of encoded-form
+  characters (base64 and escape characters) with a break inside is looked at: without its breaks, if it is 12 characters
+  or longer and a form could begin in it (the first four characters of a base64 form, or an escape), a copy without the
+  breaks is searched with the encoded forms' own pattern and what it finds is mapped back to the text. Ordinary text
+  costs one scan of a character class. The tools' arguments (`hide-args.ts`) and the stream's cut (`RedactingText`)
+  use the same places. Measured on Bun 1.3.12, 1 MB: the CI text (1.4 KB token) about 30 ms (#981 alone about
+  160-300 ms), wrapped base64 about 20 ms, prose about 25-35 ms; `c-integrations-secret-breaks` checks each under 1 s.
 - **The live answer.** `redact.ts formCarryLength` also counts line breaks in the run of encoded-form characters it
   holds back, and goes on across a single space or tab when the run before it looks like base64 (8 or more base64
   characters with a digit, a + or /, or a capital after the first; review of #984), so text that arrives in pieces

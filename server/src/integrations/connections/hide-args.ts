@@ -9,7 +9,7 @@
 // form that the text it replaces already holds, and write keeps a form the file it overwrites already holds (their
 // own uploaded file with their key in it is not changed by an AI rewrite). Paths the tool only reads (make_file's
 // source and template, a promo's sources and logo) are left too.
-import { HIDDEN } from './hide'
+import { HIDDEN, replaceForms } from './hide'
 import type { Redactor } from './redact'
 
 type Obj = Record<string, unknown>
@@ -25,9 +25,9 @@ function deep(v: unknown, hide: (s: string) => string, keep: ReadonlySet<string>
 
 /** `text` with every key form hidden except the forms that `kept` holds as written */
 export function hideExcept(r: Redactor, text: string, kept: string | null | undefined): string {
-  if (!r.re || !text) return text
+  if (!r.forms || !text) return text
   if (!kept) return r.hide(text)
-  return text.replace(r.re, (m) => (kept.includes(m) ? m : HIDDEN))
+  return replaceForms(text, r.forms, (m) => (kept.includes(m) ? m : HIDDEN))
 }
 
 /** The tools whose arguments are saved somewhere, and what of them stays as given (see above). */

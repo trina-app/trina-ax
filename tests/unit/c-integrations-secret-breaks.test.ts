@@ -114,11 +114,21 @@ describe('no false positives on ordinary text', () => {
     expect(formCarryLength('hello wor', [KEY])).toBe(3)
   })
 
-  test('a 1 MB answer of base64-like lines is checked quickly', () => {
-    const big = (b64('lorem ipsum dolor sit amet, consectetur ').repeat(4) + '\n\n').repeat(4_000) + split(b64(KEY), 10, '\n\n')
-    expect(big.length).toBeGreaterThan(900_000)
-    const t0 = performance.now()
-    expect(hide(big).endsWith(HIDDEN)).toBe(true)
-    expect(performance.now() - t0).toBeLessThan(2_000)
+  // CI runs Bun 1.3.12, where a hider with white space inside its one big pattern took 8 s here (QA TC-3096 review):
+  // the split forms are found on a copy of the stretches that need it, never by a larger pattern
+  test('quick with a long token (the CI check): 1 MB of text with + / = & and digits, wrapped base64, prose', () => {
+    const jwt = 'eyJhbGciOiJSUzI1NiJ9.' + 'eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ'.repeat(30) + '.c2lnbmF0dXJl_-x'
+    const hideLong = secretHider([jwt, 'CANARY/echo+key=7731&x', 'CANARY-client-secret-8086', KEY])
+    const lines = (b64('lorem ipsum dolor sit amet, consectetur ').repeat(4) + '\n\n').repeat(4_000)
+    for (const [what, big] of [
+      ['the CI text', 'lorem ipsum, dolor/sit+amet=1&b; '.repeat(32_000) + jwt],
+      ['base64-like lines', lines + split(b64(KEY), 10, '\n\n')],
+      ['prose', 'The Q3 report is ready: revenue +12% on 2026 plans.\n\n'.repeat(20_000) + split(b64(KEY), 10, '\n\n')],
+    ] as const) {
+      expect(big.length, what).toBeGreaterThan(900_000)
+      const t0 = performance.now()
+      expect(hideLong(big).endsWith(HIDDEN), what).toBe(true)
+      expect(performance.now() - t0, what).toBeLessThan(1000)
+    }
   })
 })
