@@ -15263,7 +15263,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   `shared_chat_busy` names the runner ("○○님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요."), and
   `Chat.shared.answering` says the same (with `waiting` while their card is open). No queued sends.
 - **What a shared turn has.** `SHARED_TOOLS` = `ROOM_TOOLS` without the room's own tools: no memories, chat title,
-  connections, Drive, schedules, browser, box, dev environment or room reading. The PC runner (not merged yet) must be
+  connections, Drive, schedules, browser, box, dev environment or room reading (amended 2026-11-15: `post_to_room` is
+  in it, "Sending to a person or a room from a shared chat"). The PC runner (not merged yet) must be
   off there too. The instructions come from `SHARED_PROMPT_SECTIONS` (like the room's allowlist, with the project): the
   person lines name only the person's name and id and folders everyone who sees the chat may read; skills, team rules
   and the company profile only what they all read; no memories. A "Shared project chat" section says who sees it,
@@ -26308,7 +26309,8 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   goes (not offered on a card with [파일도 함께 보내기], as before).
 - **Unchanged.** Always one card unless "Always allow" is on;
   every place post_to_room is not offered (scheduled run, confidential chat, shared project chat, Slack, a restricted or
-  template run, a sub-agent). Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
+  template run, a sub-agent). (Amended 2026-11-15: shared chats have it now, "Sending to a person or a room from a
+  shared chat" below.) Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
   `own_words`, and to ask when several match.
 - No migration.
 
@@ -29004,3 +29006,48 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
   already did. box_shell (developer environments) runs its command as given; its shown command is already hidden.
 - Tests: `tests/unit/c-integrations-secret-files.test.ts`, `c-integrations-secret-echo.test.ts`.
 - Version impact: **patch** (a security fix; no new feature or API change).
+
+## Sending to a person or a room from a shared chat (fix/shared-chat-send-to-person, 2026-11-15, the owner, QA TC-3091)
+
+- **Problem.** In a chat shared with people, a member asked "저것들 대현도 볼 수 있게 공유해줘" (send these two photos
+  from my folder to my teammate). The AI refused and blamed Slack: it had no way to send. `post_to_room` was left out of
+  shared chats (`postToRoomOff`, `SHARED_TOOLS`), and the shared prompt listed "posting to a room" as unavailable.
+- **Decision (Option A, the owner: do it now).** `post_to_room` is offered in shared chats (a project's and one shared
+  with people), the same tool with the same card and checks as in the person's own chat, acting as the person who sent
+  the latest message: a turn is its sender's (`spec.userId`, "Shared project chats"). To a teammate by name the message
+  goes to the asker's 1:1 chat with them (made on send when there is none); to a room the asker is in, as before.
+  Amends "post_to_room" and "post_to_room to a person" (not offered in a shared project chat) and "Shared project chats"
+  (`SHARED_TOOLS`). Room reading (`rooms`, `room_read`, `room_file`, `save_room_file`) stays off there.
+- **Why it is safe.** Nothing new is reachable: the "대화방에 보내기" button under an answer of one's own turn already
+  sends from a shared chat with the same checks (`prepareShare` / `sendShare`), and the tool adds only the card.
+  - The card (`ask_user`, origin server) goes to the asker alone: cards of a shared chat are the runner's
+    (`TurnExec.waitForPerson`), and anyone else answering is refused (`shared_chat_runner`). It shows the recipient (a
+    new 1:1 chat says so), all of the text and, for [파일도 함께 보내기], the file names; nothing goes until the asker
+    presses send. An answer the card does not offer is refused.
+  - Other people's messages are information: the shared prompt says to call it only when the asker's own message asks,
+    never for another person's message, a file or a page; and whatever the AI does, the call meets the asker's card.
+  - Files: only links to files the asker may open now are offered as copies, and `RoomFiles.fromTeamFile` checks the
+    asker's read access again when it copies; a file they cannot read is never attached and never named.
+  - The provenance and access lines, hidden answers, the sending budget, the redactor and the audit row
+    (`room.answer_share`, `via: 'ai'`) are the asker's, as in their own chat. Where the post went (`Step.posted`) and the
+    card's answer stay the runner's; the other viewers see the step's words ("대화방에 보내기 · …"), as they see the
+    asker's own message asking for it.
+  - When several rooms or people match, the AI gets them without last-activity times there (what it writes, everyone
+    in the chat reads).
+  - Unchanged: a sub-agent never gets it; confidential chats, scheduled runs, Slack questions, restricted and template
+    runs never offer it.
+- **Always allow.** Kept as it is (the owner, "Always allow on every card": the turn's own person's choice, also in a
+  shared chat): with the asker's "Always allow" for posts on, a post that offers no files goes without the card, as in
+  their own chat; one that offers files always asks. The cost is the one accepted for always-allow after outside
+  content: an instruction in another person's message could then reach a post in the asker's name without a card. The
+  asker's own chat has the same exposure through room messages and web pages.
+- **Prompt.** `sharedSection(…, post)`: with the tool, one line says to use post_to_room for "send/share this with
+  <person>", to link team files and leave `own_words` off so the card offers them, that the files go to that person's
+  1:1 chat with the asker, and to say it was sent only on "sent"; posting leaves the "Not available" list (reading team
+  chat rooms stays in it, with the "Continue in a chat only you see" advice). A sub-agent's instructions keep the old
+  line.
+- **Removed.** `postToRoomOff`'s shared-chat refusal (unreachable now).
+- Tests: `tests/unit/b-post-to-room.test.ts` "a shared chat: …" (offered, the instructions, two photos to a new 1:1
+  chat with the card only to the asker, another member's request still meets the asker's card and only the asker may
+  answer it, a file the asker cannot read never goes).
+- Version impact: **patch** (a missing action restored in shared chats; no API change, no migration).

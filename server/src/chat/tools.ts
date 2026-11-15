@@ -177,9 +177,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people
   if (chatFileOffered(exec)) add(chatFileTool(exec))
-  // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
-  // (chat/post-to-room.ts): only in their own chat, never in a shared, confidential, draft or template
-  // chat, a scheduled run or a question from Slack (postToRoomOff)
+  // the AI posts to one of the person's rooms, a thread there or a teammate, after their yes on one server card
+  // (chat/post-to-room.ts): in their own chat and in a shared one (as the turn's own person, SHARED_TOOLS), never in a
+  // confidential, draft or template chat, a scheduled run or a question from Slack (postToRoomOff)
   if (!postToRoomOff(exec)) add(postToRoomTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential

@@ -31,8 +31,16 @@
 // every 1:1 chat). `own_words`: what the user dictated goes as their own message, with no AI-answer quote (no
 // answer_at), the same checks; the card shows exactly that message.
 //
-// Never offered (postToRoomOff): a room's "@트리나" session (its answers go to the room by the room's rule), a shared
-// project chat, a draft / judge / merge chat, an approved scheduled template's run, a confidential chat, a scheduled run
+// In a shared chat (a project's, or one shared with people: docs/DECISIONS.md "Sending to a person or a room from a
+// shared chat", QA TC-3091) it is offered too and works the same way, as the person whose turn it is (a turn is its
+// sender's: spec.userId): their rooms and teammates, their redactor, their read access for every linked file and copy,
+// their sending budget, and the card goes to them alone (TurnExec.waitForPerson: the runner's cards). Other people's
+// messages in the chat are information (the shared prompt); one of them asking for a post still meets the asker's card.
+// The asker's "Always allow" counts there as in their own chat (the owner's rule: the turn's own person's choice). In
+// the list for several matches the AI gets no last-activity times there (it writes where everyone in the chat reads).
+//
+// Never offered (postToRoomOff): a room's "@트리나" session (its answers go to the room by the room's rule), a
+// draft / judge / merge chat, an approved scheduled template's run, a confidential chat, a scheduled run
 // (nobody answers a card) or a question asked from Slack (Slack has its own "Post to channel"); never to a sub-agent
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
@@ -68,11 +76,10 @@ const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').tri
 export const POST_TEXT_FOLD = 600
 
 /** Why post_to_room is not offered in this turn (and refused when reached anyway), or null: it is. */
-export function postToRoomOff(exec: Pick<TurnExec, 'shared' | 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
+export function postToRoomOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
   const button = `"${SIDE_CHAT_SEND.room[exec.spec.locale] ?? SIDE_CHAT_SEND.room.en}"`
   if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'post_to_room') !== 'on') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
-  if (exec.shared) return { text: `Nothing was posted: this is a shared project chat that its project's people see, and posting to a room is done from the user's own chat only. Tell the user to ask in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: shared chat' }
   if (exec.spec.clientKind === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
   if (exec.restricted || exec.templateRun) return { text: 'Nothing was posted: this run is limited to one task and cannot post to rooms. Tell the user to ask in one of their own chats.', summary: 'post_to_room -> refused: not here' }
   return null
@@ -179,7 +186,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
           // named so in full: a guess about who gets it, so the user is asked (with "Always allow" it would go unseen)
           const guessDm = !!f && 'one' in f && !f.exact && f.one.room.kind === 'dm' && !people.some((t) => t.exact && t.dmRoomId === f.one.room.id)
           if (asked.length || (f && 'many' in f) || guessDm) {
-            const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))} · last activity ${localTime(r.view.activityAt, rt.timeZone)} · room_id=${r.room.id}`), ...asked.map(personLine)]
+            // (a shared chat: no times; what the AI writes there everyone in the chat reads)
+            const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))}${exec.shared ? '' : ` · last activity ${localTime(r.view.activityAt, rt.timeZone)}`} · room_id=${r.room.id}`), ...asked.map(personLine)]
             return no(`Nothing was posted: ${lines.length === 1 ? `only a part of the name matches "${refAi}"` : `several rooms or people match "${refAi}"`}. Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>"${asked.length ? morePeople : ''}:\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
           }
           if (f && 'one' in f) roomId = f.one.room.id
