@@ -5504,7 +5504,7 @@ export const es: Record<MessageKey, string> = {
   "gsign.error.server": "La configuración propia del servidor ya fija una app de Google, así que no se puede cambiar aquí.",
   "gsign.error.notService": "Este servidor no inicia sesión en Google a través del servicio de alojamiento. Configure cada app de Google en su propia página.",
   "gsign.error.unsafe": "Ahora el servidor no puede guardar el archivo de forma segura. Pida a quien gestiona el servidor que revise su carpeta privada.",
-  "gsign.error.unknown": "Google no reconoce este ID de cliente. Compruébelo en Google Cloud, en Clientes, o pregunte a quien gestiona la cuenta de Google de su empresa.",
+  "gsign.error.unknown": "Google no reconoce este ID de cliente. Compruébelo en Google Cloud, en 'Clients', o pregunte a quien gestiona la cuenta de Google de su empresa.",
   "gsign.confirm.what": "Después de guardar, Google Drive, Gmail, Calendar, Docs y Sheets inician sesión con la app de su empresa.",
   "gsign.confirm.people": "{n, plural, one {# persona tendrá que volver a conectar Google.} other {# personas tendrán que volver a conectar Google.}}",
   "gsign.confirm.nobody": "Nadie ha conectado Google aquí todavía, así que nadie tiene que volver a conectarlo.",

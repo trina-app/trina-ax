@@ -393,3 +393,15 @@ test('the Google probe: only a redirect to the error page saying invalid_client 
   expect(await probeGoogleClient('x', 'https://a/b', async () => new Response('invalid_client', { status: 400 }))).toBe(false)
   expect(await probeGoogleClient('x', 'https://a/b', async () => { throw new Error('offline') })).toBe(false)
 })
+
+test('members\' asks for a Google app close once the save is written, after Google was asked; a refused save leaves them open', async () => {
+  broker.trusted = 'not-registered' // the hosting service does not serve this team: Gmail is not available before the save
+  expect(await drive.checkBroker()).toBe(false)
+  A.ctx.db.query("INSERT INTO service_requests (id, user_id, service, created_at) VALUES ('ask-1', 'alice', 'gmail', ?)").run(new Date().toISOString())
+  const open = () => (A.ctx.db.query("SELECT closed_reason FROM service_requests WHERE id = 'ask-1'").get() as { closed_reason: string | null }).closed_reason
+  setOwnAppClientProbe(async (id) => { await new Promise((r) => setTimeout(r, 20)); return id === 'unknown-client' })
+  expect((await call('carol', 'PUT', { clientId: 'unknown-client', clientSecret: 'secret' })).status).toBe(400)
+  expect(open()).toBeNull()
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(200)
+  expect(open()).toBe('added')
+})

@@ -4546,6 +4546,9 @@ export class MockServer {
         if (!uris.includes(st.returnAddresses!.drive)) own('client_redirect_drive')
         if (!uris.includes(st.returnAddresses!.apps)) own('client_redirect_apps')
       } else if (!/\.apps\.googleusercontent\.com$/.test(c.body.clientId ?? '')) own('client_invalid')
+      // the real server asks Google first: a client ID it does not know (here: one starting "unknown-") is refused
+      const id = c.body.file !== undefined ? (JSON.parse(c.body.file) as { web: { client_id: string } }).web.client_id : c.body.clientId ?? ''
+      if (id.startsWith('unknown-')) own('client_unknown')
       this.googleOwn = { ...this.googleOwn, active: true, stale: false, by: { id: c.user.id, name: c.user.name }, at: now() }
       this.googleApps.ownApp = true
       this.googleSignInsEnded()

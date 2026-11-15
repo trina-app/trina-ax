@@ -5504,7 +5504,7 @@ export const ja: Record<MessageKey, string> = {
   "gsign.error.server": "サーバー自体の設定で Google アプリがすでに決まっているため、ここでは変更できません。",
   "gsign.error.notService": "このサーバーはホスティングサービス経由で Google にログインしていません。代わりに各 Google アプリのページで個別に設定してください。",
   "gsign.error.unsafe": "今はサーバーがファイルを安全に保管できません。サーバーの運用担当者に非公開フォルダーを確認してもらってください。",
-  "gsign.error.unknown": "Googleがこのクライアントを認識できません。Google Cloudの「クライアント」で確認するか、会社のGoogleアカウントの管理者に聞いてください。",
+  "gsign.error.unknown": "Google はこのクライアント ID を認識していません。Google Cloud の「Clients」で確認するか、会社の Google アカウントを管理している人に聞いてください。",
   "gsign.confirm.what": "保存すると、Google ドライブ、Gmail、カレンダー、ドキュメント、スプレッドシートは会社のアプリでログインします。",
   "gsign.confirm.people": "{n, plural, one {# 人が Google をもう一度接続する必要があります。} other {# 人が Google をもう一度接続する必要があります。}}",
   "gsign.confirm.nobody": "まだここで Google を接続した人がいないため、接続し直す人もいません。",
