@@ -16638,7 +16638,8 @@ accounts, relay names); nothing about plans or billing.
   Store allows a non-game app its own payment: the Windows store build keeps the button. The desktop's main process
   picks both addresses (`firstRunLinks`); the screen only names which (`ui:open-link`), so a screen can never open
   another address. The phone opens the guide in the browser sheet; closing it returns to ③.
-- **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
+- **The app draws the host, not the page.** (Since 2026-11-15 the desktop's sign-in pages draw it under the card from the
+  bridge's team address and the strip steps aside there: "Desktop first start, the sign-in line and one team screen".) A fake server can draw any address on its own sign-in page, and the desktop
   app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
   Both apps show it on the sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`) **and on every
   page until the team answered GET /api/me for a signed-in person** (`hostLineShown`, shared), because a fake sign-in
@@ -29086,3 +29087,45 @@ address box comes under the list as "Add another team" (no hint paragraph there)
 unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
 row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
+
+## Desktop first start, the sign-in line and one team screen for every switch (fix/desktop-first-run-localhost, 2026-11-15, owner)
+
+넣을 곳: the desktop app (`desktop/src/main/main.ts`, `main/app-window.ts`, `common/address.ts` `onThisComputer`,
+`common/teams.ts` `dataDirName`, `preload/app.ts`), `shared/src/desktop-bridge.ts` (`hostLine`) and the web sign-in pages
+(`web/src/pages/Auth.tsx` `DesktopTeamLine`, `web/src/lib/teamSwitch.ts`). 이유: the owner downloaded the signed 0.5.7
+DMG and its first screen was "팀 서버에 연결할 수 없어요 — http://localhost:19100".
+
+- **Cause**: the DMG has no localhost default (a clean profile opens "Join your team"). `bun run app` used the same
+  settings folder as the installed app (`~/Library/Application Support/Team AX`), so a development run with
+  `MYCEL_DESKTOP_TEAM=http://localhost:19100` left that team as the last one, and the installed app opened it at start.
+- **A development run has its own folder**: `Team AX (dev)` (`dataDirName`, unpackaged only). The installed app keeps
+  `Team AX`. Cost, accepted: a developer's dev teams from before are not seen by the dev build any more (added again once).
+- **A team at a development address that does not answer at start** (`localhost`, `*.localhost`; the app opened it by
+  itself, `openLast`): the first-run screen with the team list and the line "이 컴퓨터의 {address}가 응답하지 않아요.
+  팀을 고르거나 새로 참여하세요." instead of the offline card. The team stays in the list (Open, Remove from list); opened
+  from there it gets the offline card with [다시 시도]. A real team at start keeps the card and [다시 시도]: its server
+  may be down for a moment, and the person should not lose their place. Loopback IPs count as real: the Office Mac's own
+  server is `http://127.0.0.1:47820` and may still be starting after a restart.
+- **Sign-in line under the card** (amends "The app draws the host, not the page"): in the desktop app the sign-in pages
+  show "qa.trina.app · Switch team" under the card, and the app drops its strip above the page there, so the address is
+  shown once, next to the form (the owner did not find the strip). The address is the bridge's `connection.teamAddress`
+  (what the app connected to, punycode with its port), never `location.host`. The page tells the app with the optional
+  `hostLine(true)` as soon as it is on a sign-in path; the app hides the strip only on the sign-in paths and keeps that
+  until another team is opened (a sign-out or reload of the same team does not make the strip jump in and out), so off
+  those paths (a look-alike at `/` or `/signin`) the strip stays until `/api/me` answers. **Accepted cost**: the strip's
+  app-drawn address is removed on the sign-in paths of a team that asks for it, so a hostile server the person added
+  (through ④ or the outside-address question) can draw a look-alike address there with nothing on screen to contradict
+  it; the phone app's footer stays app-drawn. The line was recorded as a hint, not the protection (④ and the
+  outside-address question are). A follow-up can make the line app-drawn again (an app-owned view at the place the page
+  names) if the owner wants that back. A desktop app without `hostLine`: the page draws no line
+  and the strip stays. A plain browser: nothing. The phone app keeps its native footer (host and "다른 팀에 연결").
+- **Every switch opens the app's team screen**: the logo menu's "Switch team", the sign-in line, the offline card's "다른
+  팀" and an older page's `teamMenu()` open the first-run screen with "Your teams" (Open, Remove from list, Back to the
+  team you came from). The menu under the pointer is gone (owner: it floated over the rail). The OS 팀 menu and ⌘1–9
+  stay.
+- Tests: `tests/unit/e-desktop-common.test.ts` (`dataDirName`, `onThisComputer`, the strip rule), `desktop/e2e/desktop.spec.ts`
+  (start on a dead localhost team: list and line, then the card when opened; `hostLine` drops the strip on sign-in paths
+  only, also after a reload; `openTeams` and `teamMenu` both open the team screen, no popup, Back, Open), `web/test/e2e/sign-in-team-line.spec.ts`
+  (no line in a plain browser or an app without `hostLine`; the address and Switch team under the card; 1440/390 light and
+  dark pictures), `web/test/unit/nav-menus.test.tsx`.
+- Version impact: patch (a first-start fix; an optional bridge method, no API change).

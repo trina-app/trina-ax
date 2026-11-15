@@ -100,7 +100,7 @@ test.describe('team address and window', () => {
     }
   })
 
-  test('an unreachable team server shows the offline screen with retry and the team list', async () => {
+  test('an unreachable team server: the team list at start (on this computer), the offline screen with retry when opened', async () => {
     const userData = newUserData()
     let app = await launch(userData)
     try {
@@ -115,6 +115,14 @@ test.describe('team address and window', () => {
     app = await launch(userData)
     try {
       const w = await welcome(app)
+      // opened by the app itself at start, on this computer (a dev server left in the settings, 0.5.7 DMG): the
+      // first-run screen with the team list and a line, never the offline card as the first screen
+      await expect(w.getByTestId('address-error')).toHaveText('이 컴퓨터의 gone.localhost:19159 서버가 응답하지 않아요. 팀을 고르거나 새로 참여하세요.')
+      await expect(w.getByTestId('offline')).toHaveCount(0)
+      await expect(w.locator('#address')).toBeVisible()
+      await expect(w.getByTestId('team')).toHaveCount(1)
+      // the person opens it: now the offline card with [다시 시도], as for any team
+      await w.getByTestId('team-open').click() // the whole row opens the team (#974)
       await expect(w.getByTestId('offline')).toContainText('팀 서버에 연결할 수 없어요')
       await expect(w.getByTestId('offline')).toContainText('http://gone.localhost:19159')
       await w.getByRole('button', { name: '다시 시도' }).click()
@@ -122,6 +130,61 @@ test.describe('team address and window', () => {
       await w.getByRole('button', { name: '다른 팀' }).click()
       await expect(w.getByTestId('team')).toHaveCount(1)
       await addTeam(app, 'beta.localhost:19152', BETA)
+    } finally {
+      await close(app)
+    }
+  })
+})
+
+test.describe('switching team (owner 2026-11-15)', () => {
+  /** the host strip above the team page: attached to the window, and its height */
+  const strip = (app: ElectronApplication) => app.evaluate(({ BaseWindow }) => {
+    const v = BaseWindow.getAllWindows()[0]?.contentView.children.find((c: any) => c.webContents?.getURL().endsWith('/hostbar.html')) as Electron.WebContentsView | undefined
+    return v ? v.getBounds().height : 0
+  })
+  test('a sign-in page that draws its own line drops the strip; every switch opens the team screen, no menu', async () => {
+    const app = await launch(newUserData())
+    try {
+      await addTeam(app, 'acme.localhost:19151', ACME)
+      await addTeam(app, 'beta.localhost:19152', BETA)
+      const beta = await view(app, (u) => u.startsWith(BETA))
+      // signed out on a sign-in path: the app's strip shows the address
+      await beta.evaluate(() => history.pushState(null, '', '/login'))
+      await expect.poll(() => strip(app)).toBe(36)
+      // the page draws the address and "Switch team" under its card: the strip goes, also after a reload (no jump), and
+      // comes back when the page says it no longer draws it
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(true))
+      await expect.poll(() => strip(app)).toBe(0)
+      await beta.reload()
+      await beta.evaluate(() => history.pushState(null, '', '/login'))
+      await expect.poll(() => strip(app)).toBe(0)
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(false))
+      await expect.poll(() => strip(app)).toBe(36)
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(true))
+      // off the sign-in paths the page's word does not hide the strip
+      await beta.evaluate(() => { history.pushState(null, '', '/signin'); (window as any).mycelDesktop.hostLine(true) })
+      await expect.poll(() => strip(app)).toBe(36)
+      // "Switch team" (and an older page's teamMenu): the team screen with the list, never a menu under the pointer
+      await app.evaluate(({ Menu }) => {
+        ;(globalThis as any).__popups = 0
+        const popup = Menu.prototype.popup
+        Menu.prototype.popup = function (this: Electron.Menu, ...a: any[]) { (globalThis as any).__popups++; return popup.apply(this, a as any) }
+      })
+      for (const how of ['openTeams', 'teamMenu'] as const) {
+        await beta.evaluate((how) => (window as any).mycelDesktop[how](), how)
+        const w = await welcome(app)
+        await expect(w.getByTestId('team')).toHaveCount(2)
+        await expect(w.getByRole('button', { name: '돌아가기' })).toBeVisible()
+        await w.getByRole('button', { name: '돌아가기' }).click()
+        // back on the team it came from
+        await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.contentView.children.map((c: any) => new URL(c.webContents?.getURL() ?? 'about:blank').host).filter((h: string) => h && h !== 'app'))).toContain('beta.localhost:19152')
+        await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.contentView.children.some((c: any) => c.webContents?.getURL().endsWith('/welcome.html')))).toBe(false)
+      }
+      expect(await app.evaluate(() => (globalThis as any).__popups)).toBe(0)
+      // a team in the list opens it
+      await beta.evaluate(() => (window as any).mycelDesktop.openTeams())
+      await (await welcome(app)).getByTestId('team').filter({ hasText: 'acme' }).getByTestId('team-open').click()
+      await teamPage(app, ACME)
     } finally {
       await close(app)
     }
