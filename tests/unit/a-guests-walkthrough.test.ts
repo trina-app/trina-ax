@@ -68,6 +68,13 @@ test('M4: open guest links count toward the cap, so the link that does not fit i
   await nora.client.call('POST', `/api/rooms/${room}/leave`)
   expect(openGuestLinks(h.ctx.db, authOf(h.ctx).now())).toBe(0)
   expect(held.invite.id).toBeTruthy()
+  // guests alone at the cap: full, and the links are not said to hold the places (QA TC-3223)
+  await invite(mia.client, { kind: 'room', id: room })
+  expect(openGuestLinks(h.ctx.db, authOf(h.ctx).now())).toBe(1)
+  setPlanForTests(plan(1))
+  const atCap = await owner.call('GET', '/api/guest-invites/limit')
+  expect(atCap.full).toBe(true)
+  expect(atCap.pending).toBeUndefined()
   // no plan (a self-hosted server): no cap, nothing counted
   setPlanForTests(null)
   expect((await mia.client.call('GET', '/api/guest-invites/limit')).full).toBe(false)

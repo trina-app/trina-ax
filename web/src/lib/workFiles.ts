@@ -5,8 +5,8 @@
 // list's "Select all" (never a personal-looking file, at most 100) and Undo, which takes back only what the run made.
 // No API calls here: the screens give them, so the tests need no server.
 import { TEAM_FILES_LIMITS } from '@mycel/shared/api'
-import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type DesktopBridge, type WorkFileMeta, type WorkFileRead, type WorkFolderId, type WorkRootResult } from '@mycel/shared'
-import { WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
+import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type DesktopBridge, type WorkCloudProvider, type WorkFileMeta, type WorkFileRead, type WorkFolderId, type WorkRootResult } from '@mycel/shared'
+import { autoNamed, considered, copyOf, neverListed, tooSmall, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
 import { hasPhrase, latinWords, personalPath, type LocalDoc } from './teamFiles'
 import { joinPath } from './paths'
 
@@ -20,7 +20,53 @@ export const FIND_WORK_FILES_GUIDE = 'https://ax.trina.app/docs/use/find-work-fi
  * a phone: null, so no entry is shown). */
 export function workFilesBridge(bridge: DesktopBridge | null): WorkFilesBridge | null {
   const w = bridge?.workFiles
-  return w && w.version === WORK_FILES_BRIDGE_VERSION && typeof w.scan === 'function' && typeof w.read === 'function' ? w : null
+  if (!w || typeof w.scan !== 'function' || typeof w.read !== 'function') return null
+  // version 2 asks the person again in the app before any read (add); version 1 (an older app) has no such step
+  if (w.version === WORK_FILES_BRIDGE_VERSION) return typeof w.add === 'function' ? w : null
+  return w.version === 1 ? w : null
+}
+
+/** The ticked files named to the desktop app (version 2) as the person presses Add, before any is read: the app takes
+ * them only right after the person's own press (with VoiceOver or Voice Control on, after its own window) and reads
+ * nothing else. 'refused' (the list is over an hour old, the
+ * press did not reach it in time) asks for Add again or a new look. An app of version 1 has no such step ('added'). */
+export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<'added' | 'refused' | 'cancelled'> {
+  if (typeof bridge.add !== 'function') return 'added'
+  const ids = docs.map((d) => d.workId)
+  if (!ids.length || ids.some((id) => !id)) return 'refused'
+  const r = (await bridge.add(ids as string[]).catch(() => ({ state: 'refused' as const }))).state
+  // 'cancelled': VoiceOver or Voice Control on, the app asked in its own window and the person said no (nothing to say)
+  return r === 'added' || r === 'cancelled' ? r : 'refused'
+}
+
+/** "Not now" on the Full Disk Access screen is kept this long for this team (this page's storage) and person: the next
+ * looks go straight to the three folders, with a quiet "Look in more places" in the list's header. */
+export const FULL_DISK_LATER_MS = 30 * 24 * 60 * 60 * 1000
+const fullDiskLaterKey = (userId: string) => `mycel.findWork.fullDiskLater:${userId}`
+type KeyStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+const keyStore = (): KeyStore | null => {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+/** "Not now" was said within 30 days (a time in the future, or anything else stored, counts as not said). */
+export function fullDiskLater(userId: string, now = Date.now(), s: KeyStore | null = keyStore()): boolean {
+  try {
+    const at = Number(s?.getItem(fullDiskLaterKey(userId)) ?? NaN)
+    return Number.isFinite(at) && at <= now && now - at < FULL_DISK_LATER_MS
+  } catch {
+    return false
+  }
+}
+export function setFullDiskLater(userId: string, on: boolean, now = Date.now(), s: KeyStore | null = keyStore()) {
+  try {
+    if (on) s?.setItem(fullDiskLaterKey(userId), String(now))
+    else s?.removeItem(fullDiskLaterKey(userId))
+  } catch {
+    /* a private window: the screen comes again next time */
+  }
 }
 
 /** The folder in My files the files go to (shared/src/folder-labels.ts: its name on disk, said in the person's words). */
@@ -46,14 +92,22 @@ export function placeFolder(f: Pick<WorkFileMeta, 'root' | 'place'>): string {
 
 /** Why a read gave nothing, as an Error the upload counts as "could not be read" (the file is not tried again). */
 export class WorkFileReadError extends Error {
-  constructor(readonly reason: Extract<WorkFileRead, { ok: false }>['reason']) {
+  constructor(
+    readonly reason: Extract<WorkFileRead, { ok: false }>['reason'],
+    /** cloudTimeout: the cloud it did not come from in time */
+    readonly cloud?: WorkCloudProvider,
+  ) {
     super(`work file not read: ${reason}`)
   }
 }
 
+/** A cloud's name as the person knows it ("the cloud" when the app could not tell which). */
+export const CLOUD_NAMES: Record<Exclude<WorkCloudProvider, 'cloud'>, string> = { icloud: 'iCloud', onedrive: 'OneDrive', googleDrive: 'Google Drive', dropbox: 'Dropbox', box: 'Box' }
+export const cloudName = (c: WorkCloudProvider, t: (key: 'files.findWork.cloudGeneric') => string) => (c === 'cloud' ? t('files.findWork.cloudGeneric') : CLOUD_NAMES[c])
+
 /** The look's files as the step's documents: `pick` the root's folder name, `rel` the path inside it. Nothing is read:
  * `open` asks the app for the bytes, by id, when the file goes up. */
-export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) => Promise<WorkFileRead>): LocalDoc[] {
+export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string, o?: { onCloud?: (cloud: WorkCloudProvider) => void }) => Promise<WorkFileRead>): LocalDoc[] {
   return files.map((f) => {
     const pick = placeFolder(f)
     const folder = f.folder.normalize('NFC')
@@ -61,6 +115,7 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
     const rel = joinPath(folder, name)
     return {
       key: `${pick}/${rel}`,
+      workId: f.id,
       pick,
       rel,
       name,
@@ -71,12 +126,12 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
       personal: personalPath(joinPath(pick, rel)),
       ...(!isFolderId(f.root) ? { place: { kind: f.root, label: (f.place ?? '').normalize('NFC') } } : {}),
       ...(f.cloud ? { cloud: true } : {}),
-      ...(f.used || f.useCount || f.origins?.length || f.authors?.length || f.org
-        ? { hints: { ...(f.used ? { used: f.used } : {}), ...(f.useCount ? { useCount: f.useCount } : {}), ...(f.origins?.length ? { origins: f.origins } : {}), ...(f.authors?.length ? { authors: f.authors } : {}), ...(f.org ? { org: f.org } : {}) } }
+      ...(f.used || f.useCount || f.origins?.length || f.authors?.length || f.org || f.listed
+        ? { hints: { ...(f.used ? { used: f.used } : {}), ...(f.useCount ? { useCount: f.useCount } : {}), ...(f.origins?.length ? { origins: f.origins } : {}), ...(f.authors?.length ? { authors: f.authors } : {}), ...(f.org ? { org: f.org } : {}), ...(f.listed ? { listed: true } : {}) } }
         : {}),
-      open: async () => {
-        const r = await read(f.id)
-        if (!r.ok) throw new WorkFileReadError(r.reason)
+      open: async (o) => {
+        const r = await (o?.onCloud ? read(f.id, { onCloud: o.onCloud }) : read(f.id))
+        if (!r.ok) throw new WorkFileReadError(r.reason, r.reason === 'cloudTimeout' ? r.cloud : undefined)
         return new File([r.bytes as BlobPart], name, { lastModified: f.modified })
       },
     }
@@ -176,12 +231,9 @@ export const TO_AI = 80
 /** The company's words (GET /api/onboarding/files/company). */
 export interface CompanyWordsLike { names: readonly string[]; domains: readonly string[]; people: readonly string[] }
 
-/** Why a file is the company's: its name or folder says the company's name, it came from the company's address or a work
- * app, or one of the team wrote it. */
+/** Why a file is the company's: its name or folder says the company's name, it came from the company's address (or its
+ * own workspace of a work app: acme.slack.com, acme.notion.site), or one of the team wrote it. */
 export type CompanyMatch = { kind: 'name'; word: string } | { kind: 'from'; host: string } | { kind: 'by'; who: string }
-
-/** Hosts where work files come from whatever the company (its own address is matched by its domain). */
-const WORK_HOSTS = /(^|\.)(slack\.com|slack-files\.com|sharepoint\.com|drive\.google\.com|docs\.google\.com|dropbox\.com|box\.com|notion\.so|teams\.microsoft\.com|onedrive\.live\.com)$/i
 
 /** A word as names are compared: lower case, accents out. */
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC').toLowerCase()
@@ -210,6 +262,38 @@ export function domainStem(d: string): string {
   return s.length >= 3 && !NOT_A_NAME.has(s) ? s : ''
 }
 
+/** A company name as a host label ("Acme Labs" → "acmelabs", "acme-labs"); Latin names only. */
+const nameLabels = (n: string): string[] => {
+  const ws = latinWords(fold(n))
+  if (!ws.length || cjk(n)) return []
+  const out = [ws.join(''), ws.join('-')]
+  return out.filter((x) => x.length >= 3)
+}
+
+/** The company's labels a host may carry: its domains' names and its names as labels (never a word every host has). */
+const HOST_WORDS = new Set([...NOT_A_NAME, 'files', 'file', 'docs', 'doc', 'drive', 'dl', 'cdn', 'download', 'downloads', 'share', 'static', 'media', 'api'])
+const companyLabels = (w: CompanyWordsLike) => [...new Set([...w.domains.map(domainStem), ...w.names.flatMap(nameLabels)].filter((x) => x && !HOST_WORDS.has(x)))]
+
+/** Work apps' shared hosts: a file from one says nothing of whose it is, unless the host carries the company's own label
+ * left of the app's name (acme.slack.com, acme-my.sharepoint.com, acme.notion.site). */
+const SHARED_HOSTS = /(^|\.)(slack\.com|slack-files\.com|slack-edge\.com|sharepoint\.com|google\.com|googleusercontent\.com|dropbox\.com|dropboxusercontent\.com|box\.com|notion\.so|notion\.site|notion-static\.com|amazonaws\.com|microsoft\.com|live\.com|office\.com|office365\.com|atlassian\.net|figma\.com|canva\.com|wetransfer\.com|kakao\.com|kakaocdn\.net|naver\.com|daum\.net|line\.me|zoom\.us|github\.com|githubusercontent\.com|cloudfront\.net)$/i
+
+/** A host that is the company's: its own domain, a host of its own name (acme.com, files.acme.co.kr), or a work app's
+ * shared host that carries the company's label ("acme.slack.com", "acme-my.sharepoint.com", "acme.notion.site").
+ * docs.google.com, drive.google.com, www.notion.so, files.slack.com, dropbox.com and the like alone say nothing of whose
+ * file it is: it is just "from the web". */
+export function companyHost(host: string, w: CompanyWordsLike): boolean {
+  const h = host.toLowerCase()
+  if (w.domains.some((dom) => h === dom || h.endsWith(`.${dom}`))) return true
+  const labels = companyLabels(w)
+  if (!labels.length) return false
+  const parts = h.split('.')
+  const own = domainStem(h)
+  const shared = SHARED_HOSTS.test(h)
+  // a shared host: only a label left of the app's own name; any other host: its name too (acme.com, files.acme.co.kr)
+  return parts.some((label) => (!shared || label !== own) && labels.some((c) => label === c || label === `${c}-my`))
+}
+
 /** Why this file is the company's, or null. Names and folders, download hosts, authors and organisation only: no file
  * is read. */
 export function companyMatch(d: Pick<LocalDoc, 'pick' | 'folder' | 'name' | 'hints' | 'place'>, w: CompanyWordsLike): CompanyMatch | null {
@@ -217,11 +301,7 @@ export function companyMatch(d: Pick<LocalDoc, 'pick' | 'folder' | 'name' | 'hin
   const text = [d.place?.label ?? '', d.folder, d.name.replace(/\.[a-z0-9]+$/i, '')].join(' ').replace(/[/_]/g, ' ')
   for (const name of w.names) if (holds(text, name)) return { kind: 'name', word: name }
   for (const dom of w.domains) { const stem = domainStem(dom); if (stem && holds(text, stem)) return { kind: 'name', word: stem } }
-  for (const host of d.hints?.origins ?? []) {
-    const h = host.toLowerCase()
-    if (w.domains.some((dom) => h === dom || h.endsWith(`.${dom}`) || (domainStem(dom) && h.split('.').some((label) => label === domainStem(dom) || label === `${domainStem(dom)}-my`)))) return { kind: 'from', host: h }
-  }
-  for (const host of d.hints?.origins ?? []) if (WORK_HOSTS.test(host)) return { kind: 'from', host: host.toLowerCase() }
+  for (const host of d.hints?.origins ?? []) if (companyHost(host, w)) return { kind: 'from', host: host.toLowerCase() }
   const who = [...(d.hints?.authors ?? []), ...(d.hints?.org ? [d.hints.org] : [])]
   for (const a of who) {
     const p = w.people.find((x) => fold(x) === fold(a.trim()))
@@ -232,47 +312,131 @@ export function companyMatch(d: Pick<LocalDoc, 'pick' | 'folder' | 'name' | 'hin
   return null
 }
 
-/** When the file was last touched, and how: opened (the index knows it) or changed. */
+/** When the file was last touched, and how: opened (the index or a recent list knows it) or changed. */
 export const touched = (d: Pick<LocalDoc, 'modified' | 'hints'>): { at: number; opened: boolean } =>
   d.hints?.used && d.hints.used >= d.modified ? { at: d.hints.used, opened: true } : { at: d.modified, opened: false }
 
 export const isRecentDoc = (d: Pick<LocalDoc, 'modified' | 'hints'>, now = Date.now()) => now - touched(d).at <= RECENT_DAYS * 86_400_000
 
-const TYPE_WEIGHT: Record<string, number> = { pdf: 1, doc: 1, docx: 1, hwp: 1, hwpx: 1, xls: 1, xlsx: 1, csv: 0.6, ppt: 1, pptx: 1, key: 1, pages: 1, numbers: 1, txt: 0.6, md: 0.6, rtf: 0.6, png: 0.2, jpg: 0.2, jpeg: 0.2 }
+/** Documents people work on (owner, 2026-11-15): office files, PDFs, Hangul, Apple's iWork; Markdown with a real name.
+ * Plain text and CSV count only with a strong sign of the company. */
+const SUBSTANTIVE = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'hwp', 'hwpx', 'key', 'numbers', 'pages'])
+const TYPE_WEIGHT: Record<string, number> = { pdf: 1, doc: 1, docx: 1, hwp: 1, hwpx: 1, xls: 1, xlsx: 1, ppt: 1, pptx: 1, key: 1, pages: 1, numbers: 1, md: 0.6, rtf: 0.6, csv: 0.3, txt: 0.3, png: 0.2, jpg: 0.2, jpeg: 0.2 }
 const FOLDER_HINT: Record<string, number> = { Downloads: 0.7, Desktop: 1, Documents: 1.2 }
 /** Part 5: a place's weight (a work folder and the company's cloud drive above Documents; a messenger's downloads as
  * Downloads; the home folder's and other drives' recent files as Desktop). */
 const PLACE_HINT: Record<NonNullable<LocalDoc['place']>['kind'], number> = { folder: 1.3, cloud: 1.2, messenger: 0.8, home: 1, drive: 1 }
 
+/** A name with words in it: at least three letters once the digits, marks and copy words are out ("2026-10-09.pdf",
+ * "1.pdf", "f(3).txt" have none). */
+const LETTERS = /\p{L}/gu
+export const namedLikeAPerson = (name: string) => ((copyOf(name) ?? name).replace(/\.[a-z0-9]+$/i, '').match(LETTERS)?.length ?? 0) >= 3
+const substantive = (d: Pick<LocalDoc, 'ext' | 'name'>) => SUBSTANTIVE.has(d.ext) || (d.ext === 'md' && namedLikeAPerson(d.name) && latinWordsOr(d.name) >= 2)
+/** words in a name ("q3-sales-notes.md" → 3; Korean counts a word per run) */
+const latinWordsOr = (name: string) => name.replace(/\.[a-z0-9]+$/i, '').split(/[\s_\-.()[\]]+/).filter((x) => /\p{L}/u.test(x)).length
+
+/**
+ * Never a work file, whatever else is known (owner, 2026-11-15: "it only brought really useless ones"): inside a saved
+ * page's folder ("…_files", "…-Dateien"), a program's or a code project's folder, a name a program gave (f(8).txt,
+ * image001.png, Untitled, a hash, a chat export, README), an empty template or a text note of a few lines. The same rules
+ * as the app's own look (shared/src/file-scan.ts), so a list from an older app is held to them too.
+ */
+export function notWork(d: Pick<LocalDoc, 'folder' | 'name' | 'ext' | 'size'>): boolean {
+  const folders = d.folder ? d.folder.split('/').map((x) => x.normalize('NFC')) : []
+  if (folders.some((x) => neverListed(x))) return true
+  // the app's own rules for a name (a program's names, a saved page's pieces); a brand folder's pictures stay
+  if (!considered(d.name, folders) && !['png', 'jpg', 'jpeg'].includes(d.ext)) return true
+  return autoNamed(d.name) || tooSmall(d.ext, d.size)
+}
+
+/** Names that differ only in their numbers, in one folder, of one type: from this many on they are a series. */
+const SERIES_MIN = 4
+
+/** The files worth judging: not notWork, and of each copy ("Plan (1).pdf", "Copy of Plan.pdf") only the original when
+ * it is there; of a series in one folder ("Invoice 01.pdf" … "Invoice 14.pdf", four or more) only the newest, and none
+ * of a series whose names have no words. */
+export function workCandidates<T extends LocalDoc>(docs: readonly T[], now = Date.now()): T[] {
+  // recent first: a copy downloaded again lately stays when its original is old (and so not listed)
+  const ok = docs.filter((d) => !notWork(d) && isRecentDoc(d, now))
+  const keyOf = (d: LocalDoc, name: string) => `${d.pick}\u0000${d.folder}\u0000${fold(name)}`
+  const names = new Set(ok.map((d) => keyOf(d, d.name)))
+  const single = ok.filter((d) => { const base = copyOf(d.name); return !base || !names.has(keyOf(d, base)) })
+  // a series: the same name with its numbers taken out, in the same folder, of the same type
+  const series = new Map<string, T[]>()
+  for (const d of single) {
+    const k = `${d.pick}\u0000${d.folder}\u0000${d.ext}\u0000${fold(copyOf(d.name) ?? d.name).replace(/\.[a-z0-9]+$/, '').replace(/\d+/g, '#').replace(/[\s_\-.()]+/g, ' ').trim()}`
+    const g = series.get(k) ?? []
+    g.push(d)
+    series.set(k, g)
+  }
+  const out: T[] = []
+  for (const g of series.values()) {
+    if (g.length < SERIES_MIN) { out.push(...g); continue }
+    if (!namedLikeAPerson(g[0]!.name)) continue
+    out.push(g.reduce((a, b) => (touched(b).at > touched(a).at ? b : a)))
+  }
+  const keep = new Set(out)
+  return single.filter((d) => keep.has(d))
+}
+
 /** The fixed score (docs/DECISIONS.md part 4): recency (half-life 21 days) × use × type × the company × the folder. */
 export function workScore(d: LocalDoc, m: CompanyMatch | null, now = Date.now()): number {
   const age = Math.max(0, now - touched(d).at) / 86_400_000
   const recency = Math.pow(0.5, age / 21)
-  const use = 1 + Math.log(1 + (d.hints?.useCount ?? 0))
+  const use = 1 + Math.log(1 + (d.hints?.useCount ?? 0)) + (touched(d).opened || d.hints?.listed ? 0.5 : 0)
   const company = !m ? 1 : m.kind === 'from' ? 3 : m.kind === 'by' ? 2 : 1.5
   const where = d.place ? PLACE_HINT[d.place.kind] ?? 1 : (FOLDER_HINT[d.pick] ?? 1)
-  return recency * use * (TYPE_WEIGHT[d.ext] ?? 0.4) * company * where
+  const named = namedLikeAPerson(d.name) ? 1 : 0.5
+  return recency * use * (TYPE_WEIGHT[d.ext] ?? 0.4) * company * where * named
 }
 
-/** The AI's look: the best TO_AI recent files that look like no one's personal file, by the score. */
+/**
+ * The fixed rules on their own (no AI, or a file the AI was not shown): a strong sign only. The company's (its name in
+ * the name or folders, its own address or workspace, one of the team wrote it) for a document or, with that sign, a text
+ * file; or a document with a real name that the person opened lately (the index or a recent list says so) or keeps in a
+ * work folder or the company's cloud drive. A file only downloaded from a work app's shared host is not enough.
+ */
+export function strongWork(d: LocalDoc, m: CompanyMatch | null): boolean {
+  if (m) return substantive(d) || ['txt', 'csv', 'md', 'rtf'].includes(d.ext) || (d.ext === 'png' || d.ext === 'jpg' || d.ext === 'jpeg')
+  if (!substantive(d) || !namedLikeAPerson(d.name)) return false
+  return touched(d).opened || !!d.hints?.listed || (d.hints?.useCount ?? 0) >= 2 || d.place?.kind === 'folder' || d.place?.kind === 'cloud'
+}
+
+/** Plain text and CSV (exports, lists, notes) count only with the company's sign, whatever the AI says. */
+const PLAIN = new Set(['txt', 'csv'])
+const plainWithoutSign = (d: LocalDoc, m: CompanyMatch | null) => PLAIN.has(d.ext) && !m
+
+/** The AI's look: the best TO_AI recent candidates that look like no one's personal file, by the score. */
 export function forAiRecent(docs: readonly LocalDoc[], w: CompanyWordsLike, now = Date.now()): LocalDoc[] {
-  return docs.filter((d) => !d.personal && isRecentDoc(d, now))
-    .map((d) => ({ d, s: workScore(d, companyMatch(d, w), now) }))
+  return workCandidates(docs.filter((d) => !d.personal), now)
+    .map((d) => ({ d, m: companyMatch(d, w) }))
+    .filter(({ d, m }) => !plainWithoutSign(d, m))
+    .map(({ d, m }) => ({ d, s: workScore(d, m, now) }))
     .sort((a, b) => b.s - a.s).slice(0, TO_AI).map((x) => x.d)
 }
 
-/** "Looks like work": recent, not personal-looking, and the company's or picked by the AI; best first, at most
- * WORK_SHOWN. `more`: how many more would qualify (found by name). */
-export function workList(docs: readonly LocalDoc[], w: CompanyWordsLike, picks: ReadonlyMap<string, unknown> | null, now = Date.now(), ticked: ReadonlySet<string> = new Set()): { shown: LocalDoc[]; more: number } {
-  const all = docs.filter((d) => !d.personal && isRecentDoc(d, now)).flatMap((d) => {
+/** "Looks like work": candidates (workCandidates) that are not personal-looking, and
+ *  - the AI picked (`picks`, with `sent` the keys it was shown): of those it was shown, only its picks (its no is a
+ *    no); of the rest, only the strong ones (strongWork);
+ *  - no AI answer, or one with no pick at all: only the strong ones.
+ * Best first, at most WORK_SHOWN. `more`: how many more would qualify (found by name). Without `sent`, an AI answer
+ * counts for every file (an older caller). */
+export function workList(docs: readonly LocalDoc[], w: CompanyWordsLike, picks: ReadonlyMap<string, unknown> | null, now = Date.now(), ticked: ReadonlySet<string> = new Set(), sent?: ReadonlySet<string>): { shown: LocalDoc[]; more: number } {
+  const all = workCandidates(docs.filter((d) => !d.personal), now).flatMap((d) => {
     const m = companyMatch(d, w)
+    if (plainWithoutSign(d, m)) return []
     const picked = !!picks?.has(d.key)
-    return m || picked ? [{ d, s: workScore(d, m, now) * (picked ? 1.5 : 1) }] : []
+    // an answer with no pick at all is no judgement (a small model that said nothing): the rules decide
+    const judged = !!picks && picks.size > 0 && (sent ? sent.has(d.key) : true)
+    const ok = judged ? picked : strongWork(d, m)
+    return ok ? [{ d, s: workScore(d, m, now) * (picked ? 1.5 : 1) }] : []
   }).sort((a, b) => b.s - a.s)
   // a ticked file stays in view (the AI's picks coming late never push it out of sight while it is ticked)
   const top = all.slice(0, WORK_SHOWN)
   const kept = all.slice(WORK_SHOWN).filter((x) => ticked.has(x.d.key))
-  return { shown: [...top, ...kept].map((x) => x.d), more: Math.max(0, all.length - WORK_SHOWN - kept.length) }
+  const shownKeys = new Set([...top, ...kept].map((x) => x.d.key))
+  const tickedOut = docs.filter((d) => ticked.has(d.key) && !shownKeys.has(d.key) && !d.personal)
+  return { shown: [...top, ...kept].map((x) => x.d).concat(tickedOut), more: Math.max(0, all.length - WORK_SHOWN - kept.length) }
 }
 
 /** Part 5: the company's words as the app's look takes them (the names, and the name in each domain): they name the home

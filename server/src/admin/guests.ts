@@ -65,6 +65,9 @@ export function disableGuestIfPlaceless(ctx: AppContext, userId: string, actorId
   const closed = !!place && !placeAlive(ctx.db, place)
   const off = disableAccount(ctx, userId, actorId, 'guest_no_place')
   if (off && closed) ctx.db.query('UPDATE guests SET off_with_place = ? WHERE user_id = ?').run(new Date().toISOString(), userId)
+  // they left it on their own (the room service's leave passes the leaver as the actor): Admin says "Left", not
+  // "Removed" (User.guest.leftThemselves)
+  else if (off && actorId === userId) ctx.db.query('UPDATE guests SET left_at = ? WHERE user_id = ?').run(new Date().toISOString(), userId)
   return off
 }
 
@@ -110,7 +113,7 @@ export function returnGuestsWithPlace(ctx: AppContext, places: readonly GuestPla
 /**
  * PATCH /api/admin/users/:id/guest-ai (the owner or an admin): a guest's AI, with the invite's checks. 'team' needs a
  * team connection (not anyone's personal one) and a monthly token limit (an older guest's US dollar limit goes with it): guests.team_credential_id and the guest's own
- * 'block' budget (the earlier 'block' budgets of the guest are replaced); never an engine_credential_assignments row.
+ * 'block' budget (the earlier 'block' budgets and the month budget of the guest are replaced); never an engine_credential_assignments row.
  * Turned to 'none' or 'own': the connection is cleared and the guest's running answers stop.
  */
 export function updateGuestAi(c: Context<AppEnv>, ctx: AppContext, id: string, ai: GuestAiChoiceBody): User {
@@ -122,7 +125,9 @@ export function updateGuestAi(c: Context<AppEnv>, ctx: AppContext, id: string, a
     if (ai.mode === 'team' && !teamCredentialOk(ctx.db, ai.credentialId)) fail('validation', undefined, { fields: { 'body.credentialId': 'not a team connection' } })
     ctx.db.query('UPDATE guests SET ai = ?, team_credential_id = ? WHERE user_id = ?').run(ai.mode, ai.mode === 'team' ? ai.credentialId : null, id)
     if (ai.mode === 'team') {
-      ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block'").run(id)
+      // their month limit is replaced too, whatever its action: one limit per person and period (admin/budgets.ts
+      // checkNoDuplicate), so a month 'warn' limit set in Admin › Members does not stay beside the new one
+      ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND (action = 'block' OR period = 'month')").run(id)
       insertGuestBudget(ctx.db, id, ai.limitTokens)
     }
     audit(ctx.db, { actor: auth.user.id, action: 'user.guest_ai', target: id, detail: { ai: ai.mode, ...(ai.mode === 'team' ? { credentialId: ai.credentialId, limitTokens: ai.limitTokens } : {}) } })

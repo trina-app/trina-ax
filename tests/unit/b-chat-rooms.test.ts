@@ -311,7 +311,7 @@ describe('in a chat', () => {
     const steps = r.done.steps!.filter((s) => s.tool === 'rooms' || s.tool === 'room_read')
     // alice reads English: the room's step names it as she sees it (the AI passed its id)
     expect(steps.map((s) => s.label)).toEqual(['Find in conversations', `Read conversation · 마케팅${tag}`])
-    expect(localizeStep({ kind: 'tool', tool: 'room_read', label: steps[1]!.label }, 'ko').label).toBe(`대화방 읽기 · 마케팅${tag}`)
+    expect(localizeStep({ kind: 'tool', tool: 'room_read', label: steps[1]!.label }, 'ko').label).toBe(`대화 읽기 · 마케팅${tag}`)
     expect(roomsSeen(chat)).toBe(1)
     const row = h.ctx.db.query('SELECT session_tainted, session_read_scope s FROM chats WHERE id = ?').get(chat) as { session_tainted: number; s: string }
     expect(row.session_tainted).toBe(1)
@@ -484,8 +484,8 @@ describe('"#" room tokens', () => {
     expect(token).toBe(`#[토큰 확인](room:${roomId})`)
     expect(roomRefsBlock(`봐줘 ${token}`)).toContain(`room_id=${roomId}`)
     expect(roomRefsBlock('no token here')).toBe('')
-    expect(stepLabel('room_read', { room: token }, 'ko', new Set())).toBe('대화방 읽기 · 토큰 확인')
-    expect(stepLabel('room_read', { room: roomId }, 'ko', new Set())).toBe('대화방 읽기')
+    expect(stepLabel('room_read', { room: token }, 'ko', new Set())).toBe('대화 읽기 · 토큰 확인')
+    expect(stepLabel('room_read', { room: roomId }, 'ko', new Set())).toBe('대화 읽기')
     // the engine gets the block with the id in front of the message
     const chat = await newChat('alice')
     const seen = await turn('alice', chat, `${token} 봐봐\n${fake({ echo: 'message' })}`)

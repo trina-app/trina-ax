@@ -645,9 +645,11 @@ cd desktop && bun run dist:win
 ```
 
 This writes `desktop/release/Trina-AX-Setup-<version>-win-x64.exe`; it builds on a Mac. A local build is unsigned, so
-SmartScreen warns: click **More info → Run anyway**. The same address rules apply. Release installers are signed in CI
-with Microsoft Artifact Signing once it is set up ([RELEASE-CI.md](RELEASE-CI.md) 11): Windows then shows the company as
-the publisher, and SmartScreen stops warning once the release has enough downloads.
+SmartScreen warns: click **More info → Run anyway**. A Windows 11 PC with Smart App Control on blocks an unsigned
+installer with no such button (tested 2026-11-15 on Windows 11 build 26200): use the browser there until the installer
+is signed. The same address rules apply. Release installers are signed in CI with Microsoft Artifact Signing once it is
+set up ([RELEASE-CI.md](RELEASE-CI.md) 11): Windows then shows the company as the publisher, and SmartScreen stops
+warning once the release has enough downloads.
 
 **Offer the apps in the product.** Put the installers and an `index.json` in `<data>/downloads/`. Members then see
 them under **Settings → Apps → Desktop app** (signed-in people only: `/downloads/*` needs a session, with Range for

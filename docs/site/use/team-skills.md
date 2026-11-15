@@ -60,7 +60,7 @@ A group skill is written by the group's members, not by the team's skill manager
 
 ## Project skills
 
-A team project in `projects/<project>/` can have skills of its own in its `skills/` folder, one folder with a `SKILL.md` per skill. The AI uses them only in that project's chats (yours, shared ones and scheduled tasks in the project), never in rooms or your other chats. **Team skills** shows a section per project, **From the project <project>**, and the `/` menu marks them inside the project.
+A team project in `projects/<project>/` can have skills of its own in its `skills/` folder, one folder with a `SKILL.md` per skill. The AI uses them only in that project's chats (yours, shared ones and scheduled tasks in the project), never in conversations or your other chats. **Team skills** shows a section per project, **From the project <project>**, and the `/` menu marks them inside the project.
 
 - Whoever can write the project's folder can add or change them; the AI asks on a card first, named for the project, and every change is recorded with the project's name.
 - A project skill only adds new names. A name the team, a group or you already use is marked **Same name: the whole team** on the page, and the AI's card offers another name instead of saving one that would never run.

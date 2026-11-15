@@ -1257,7 +1257,7 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
 /** where a connection's sign-in or key is fixed: a Google app on its page under Settings › Connectors; the person's own
  * on a card in the chat (connect_service, QA TC-127) or in Settings › Connectors; one made from a team template on the
  * template's card; a team connection by an admin */
-const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connectors › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
+const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connected apps › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
   : row.google_app ? `Settings › Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
   : row.scope === 'team' ? 'Admin › Connected apps (only an admin can: tell the user to ask one)'
   : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Settings › Connectors`

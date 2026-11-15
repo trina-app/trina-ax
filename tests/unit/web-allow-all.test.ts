@@ -98,7 +98,7 @@ describe('the card', () => {
     await gate(chat, 'https://first.example/page', person('allow', asked))
     expect(values(asked[0])).toEqual(['allow', 'site', ALL_SITES_ANSWER, 'deny'])
     expect(asked[0]!.options![2]!.label).toBe('Allow all websites (turn off in Settings)')
-    expect(asked[0]!.question).toContain('If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and in rooms')
+    expect(asked[0]!.question).toContain('If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations')
     // the same plain words as the site line beside it (#348), no "token"
     expect(asked[0]!.question).toContain('Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.')
     expect(asked[0]!.question).not.toMatch(/token/i)

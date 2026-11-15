@@ -24,6 +24,7 @@ import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { useGuestFolderHref } from './GuestView'
 import { keptFolder } from '../store/teamFiles'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
@@ -238,10 +239,15 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const teamPath = file.source === 'team' ? file.path : null
   const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
   // the folder shows beside the panel: a big panel goes back side by side
+  // a guest has no 파일 screen: their project's files screen, or no button (their own folder has no screen)
+  const guestFolder = useGuestFolderHref()
+  const filesHref = teamPath === null ? null
+    : guestFolder ? guestFolder(parentPath(teamPath))
+    : `/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`
   const openInFiles = () => {
-    if (!teamPath) return
+    if (!filesHref) return
     setPanelExpanded(false)
-    navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+    navigate(filesHref)
   }
   const canDownload = error?.kind !== 'missing'
   // an .html team file the server can print (never a button that cannot work), not while editing or after an error
@@ -251,7 +257,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     ...(showEdit && phone && phoneCanEdit(file.name) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
-    ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
+    ...(filesHref ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
     ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
   ]
 
@@ -308,7 +314,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               {loadingEdit ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
             </IconButton>
           )}
-          {file.source === 'team' && (
+          {filesHref && (
             <IconButton label={t('preview.openInFiles')} className="max-md:hidden" onClick={openInFiles}>
               <FolderOpen size={16} />
             </IconButton>

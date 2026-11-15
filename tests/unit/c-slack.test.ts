@@ -1077,7 +1077,7 @@ describe('"Post to channel" checks what the answer used, against the whole team'
     try {
       const r = await press('trina_post', q.id, q.channel)
       expect(r.text).toBe('Read the room.')
-      expect(JSON.stringify(r.blocks)).toContain('This answer cannot be posted: it used an earlier answer in a room that some people on the team cannot see.')
+      expect(JSON.stringify(r.blocks)).toContain('This answer cannot be posted: it used an earlier answer in a conversation that some people on the team cannot see.')
       expect(JSON.stringify(r)).not.toContain('bob')
       expect(buttonsOf(r)).toEqual([])
     } finally { db.query('DELETE FROM room_hidden_answers WHERE message_id = ?').run(m.id) }

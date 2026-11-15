@@ -38,9 +38,9 @@ export const EVENT_TEXT: Record<'schedule.success' | 'schedule.failure' | 'conne
   },
   // an app in a room the person manages paused for the day; older team servers never send it
   'room_app.paused': {
-    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
-    en: 'An app in a room was paused for today.',
-    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
+    ko: '대화에 추가한 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a conversation was paused for today.',
+    id: 'Sebuah aplikasi di percakapan dijeda untuk hari ini.', ja: 'トークのアプリが今日は一時停止されました。', es: 'Una aplicación de una conversación se pausó por hoy.', zh: '聊天中的一个应用今天已暂停。',
   },
 }
 

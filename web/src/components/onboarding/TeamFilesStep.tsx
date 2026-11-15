@@ -42,7 +42,7 @@ import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
 import { failedReason, FindWorkFiles } from './FindWorkFiles'
-import { workFilesBridge } from '../../lib/workFiles'
+import { cloudName, workFilesBridge } from '../../lib/workFiles'
 import { hasResume, takeResume } from '../../lib/workFilesResume'
 import { TickFold, TickRow, TickSearch } from './TickList'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
@@ -776,7 +776,9 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
               {r.state === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : r.state === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden />
                 : r.state === 'active' ? <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden /> : <span className="size-3.5 shrink-0" aria-hidden />}
               <span className="min-w-0 flex-1 truncate text-ink">{baseName(r.rel)}</span>
-              {running && r.state !== 'failed' ? (
+              {running && r.state === 'active' && r.cloud ? (
+                <span className="max-w-[50%] shrink-0 truncate text-xs text-muted" data-testid="team-file-from-cloud">{t('files.findWork.fromCloudShort', { provider: cloudName(r.cloud, t) })}</span>
+              ) : running && r.state !== 'failed' ? (
                 <span className="h-1 w-20 shrink-0 overflow-hidden rounded bg-subtle" aria-hidden><span className="block h-full bg-accent transition-[width]" style={{ width: `${pct(r)}%` }} /></span>
               ) : r.state !== 'done' && <span className="max-w-[50%] shrink-0 truncate text-xs text-danger" title={reason(r)}>{reason(r)}</span>}
             </li>

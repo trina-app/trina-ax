@@ -115,6 +115,13 @@ export async function macDatalessSet(paths: readonly string[]): Promise<Set<stri
   return out
 }
 
+/** Whether one file's content is in the cloud only (SF_DATALESS), so reading it downloads it first. false when stat does
+ * not answer: the read goes on as for any file. */
+export async function macCloudOnly(path: string): Promise<boolean> {
+  const flags = parseStatFlags(await run('/usr/bin/stat', ['-f', '%Xf%t%N', '--', path], 3000)).get(path)
+  return flags !== undefined && macDataless(flags)
+}
+
 /** Spotlight's recent documents in one place (a cloud drive's folder, a work folder): the paths, what it knows of the
  * newest 400, and for a cloud drive which are online only. null: Spotlight did not answer. */
 export async function macPlaceIndex(place: { path: string; id: string }, deadline: number): Promise<IndexedFile[] | null> {

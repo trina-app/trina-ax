@@ -54,7 +54,7 @@ const W = {
     hintDefault: '보통 답변으로 어림한 수예요. 이 팀은 아직 답변이 적어요. 토큰은 AI가 읽고 쓰는 양이에요. 매달 1일에 다시 채워져요.',
     hintTeam: '이 팀의 최근 답변으로 어림한 수예요.',
     rowUsd: '한 달 최대 US$20.00', nowUsd: '지금은 한 달 US$20.00까지예요. 바꾸려면 토큰 양을 골라 주세요.',
-    rowTokens: '한 달 최대 100만 토큰 · 70만 남음', rowUsedUp: '한 달 최대 500만 토큰 · AI 한도를 다 썼어요',
+    rowTokens: '한 달 최대 100만 토큰 · 70만 남음', rowUsedUp: 'AI 한도를 다 썼어요 · 팀 AI · 한 달 최대 500만 토큰',
     limit: '이번 달 AI 한도(500만 토큰)를 다 썼어요. 12월 1일에 다시 채워져요. 더 필요하면 초대한 분께 물어봐 주세요.',
   },
   en: {
@@ -62,7 +62,7 @@ const W = {
     hintDefault: 'An estimate from a typical answer. This team has few answers so far. Tokens are how much the AI reads and writes. Starts over on the 1st of every month.',
     hintTeam: "An estimate from this team's recent answers.",
     rowUsd: 'up to $20.00 a month', nowUsd: 'Now up to $20.00 a month. Pick an amount in tokens to change it.',
-    rowTokens: 'up to 1M tokens a month · 700K left', rowUsedUp: 'up to 5M tokens a month · AI limit used up',
+    rowTokens: 'up to 1M tokens a month · 700K left', rowUsedUp: 'AI limit used up · Team AI · up to 5M tokens a month',
     limit: "You've used this month's AI limit (5M tokens). It resets on Dec 1. Ask the person who invited you if you need more.",
   },
 }

@@ -10,11 +10,11 @@
 // still the same file, the same size and date. Pure: the file system comes in as WorkFs, so it is unit-tested in
 // tests/unit/e-desktop-work-files.test.ts; desktop/src/main/work-files.ts wires it to Electron and node:fs.
 import { posix, win32 } from 'node:path'
-import { considered, fileExt, neverListed, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
-import type { WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
+import { considered, fileExt, neverListed, savedPage, softwareFolder, tooSmall, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
+import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
 import { browserOwnerChange, type MeResult } from './browser-owner'
 import { isRecent, MIN_BYTES, type IndexedFile } from './work-index'
-import { placeOf, type Place } from './work-places'
+import { cloudProviderOf, placeOf, type Place } from './work-places'
 import { folderKey, macBlocked } from './folder-access'
 
 export type { Found }
@@ -48,6 +48,9 @@ export interface WorkFs {
   realpath(path: string): Promise<string>
   /** open read only, never through a link at the last part */
   open(path: string): Promise<WorkHandle>
+  /** a Mac: whether the file's content is in the cloud only (SF_DATALESS), so a read downloads it first. Absent: not
+   * known before the read (Windows, where the look's index said so: Found.late) */
+  cloudOnly?(path: string): Promise<boolean>
 }
 
 /** A folder to look through: its place (app.getPath) and, on Windows, whether OneDrive keeps it ("Documents (OneDrive)"). */
@@ -87,6 +90,10 @@ function within<T>(p: Promise<T>, ms: number): Promise<T> {
 export const FIRST_READ_MS = 120_000
 /** A read of one file (at most 50 MB) gives up after this long: the next read waits behind it. */
 export const READ_MS = 60_000
+/** A read of a file in a cloud's folder (cloudProviderOf) that the app could not tell was online only, still going after
+ * this long: it is taken to be downloading, and the page says so. A guess: a large file there on a slow disk (or under a
+ * virus scan) says so too, and one that stalls a minute there ends as cloudTimeout. */
+export const CLOUD_HINT_MS = 1500
 /** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
 const CALL_MIN_MS = 1000
 
@@ -137,6 +144,8 @@ export interface ScanOptions {
 }
 
 export interface ScanResult {
+  /** the folders the walk did not enter because they are a program's or a code project's (sameKey real paths) */
+  skipped?: string[]
   stopped: boolean
   roots: WorkRootResult[]
   files: WorkFileMeta[]
@@ -149,7 +158,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
   const lim = { walkDocs: WORK_FILES_LIMITS.walkDocs, walkFiles: WORK_FILES_LIMITS.walkFiles, depth: WORK_FILES_LIMITS.depth, rootMs: WORK_FILES_LIMITS.rootMs, totalMs: WORK_FILES_LIMITS.totalMs, fileBytes: WORK_FILES_LIMITS.fileBytes, ...o.limits }
   const now = o.now ?? (() => Date.now())
   const p = o.platform
-  const out: ScanResult = { stopped: false, roots: [], files: [], found: new Map() }
+  const out: ScanResult = { stopped: false, roots: [], files: [], found: new Map(), skipped: [] }
   /** walking time of all roots so far (macOS's question for a folder is not counted) */
   let spent = 0
   const seenRoots: string[] = [...(o.earlier ?? [])]
@@ -185,10 +194,13 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       reported = r.checked
       o.onProgress({ root: root.id, checked: r.checked, docs: out.files.length })
     }
-    const queue: { parts: string[]; entries?: WorkDirent[] }[] = [{ parts: [], entries: top }]
+    // newest first: the folder changed most lately is walked next (a folder's date moves when a file is added, renamed or
+    // removed in it), so a look cut by its limits keeps the recent files; the top folder first
+    const queue = new FolderQueue()
+    queue.push({ parts: [], entries: top, mtimeMs: Infinity })
     let end = false
-    while (queue.length && !end) {
-      const dir = queue.shift()!
+    while (queue.size && !end) {
+      const dir = queue.pop()!
       let entries = dir.entries
       if (!entries) {
         try {
@@ -198,6 +210,9 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
           continue
         }
+        // a program's or a code project's folder (its .dll files, package.json, bin and lib): not entered further, and
+        // the recent lists' files inside it are left out too (lookRoots)
+        if (softwareFolder(entries)) { out.skipped?.push(sameKey(join(p, real, ...dir.parts), p)); continue }
       }
       // documents of this folder, their lstat a few at a time
       const files: { name: string; parts: string[] }[] = []
@@ -215,6 +230,8 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           try { kind = (await inTime(fs.lstat(join(p, real, ...dir.parts, e.name)))).kind } catch { continue }
         }
         if (kind === 'dir') {
+          // a browser's "Save page as" folder (its page saved beside it): never entered
+          if (savedPage(name, entries.map((x) => x.name))) continue
           if (dir.parts.length + 1 > lim.depth) { r.cut = true; continue }
           // a root looked at before, inside this one (Documents kept inside Desktop): not twice
           const sub = sameKey(join(p, real, ...dir.parts, e.name), p)
@@ -241,7 +258,14 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           return new Set<string>()
         })
       }
-      for (const d of dirs) if (!cloud.has(join(p, real, ...d))) queue.push({ parts: d })
+      const next = dirs.filter((d) => !cloud.has(join(p, real, ...d)))
+      // each folder's date (its lstat, 16 at a time) orders the walk; one that does not answer goes last
+      for (let i = 0; i < next.length && !end; i += 16) {
+        if (left() <= 0) break
+        const b = next.slice(i, i + 16)
+        const st = await Promise.all(b.map((d) => inTime(fs.lstat(join(p, real, ...d))).catch(() => null)))
+        b.forEach((d, j) => queue.push({ parts: d, mtimeMs: st[j]?.mtimeMs ?? 0 }))
+      }
       let halt = false
       // the documents found in this folder are all checked, even when a limit ended the folder's listing (end): only Stop,
       // the time and a drive that stops answering end the checks themselves
@@ -278,6 +302,51 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     report(true)
   }
   return out
+}
+
+/** The walk's folders, the newest first (a binary heap on the folder's date; the shallower first when dates are equal). */
+const DEPTH_AGE_MS = 14 * 86_400_000
+interface QueuedFolder { parts: string[]; entries?: WorkDirent[]; mtimeMs: number; seq?: number }
+class FolderQueue {
+  private readonly h: QueuedFolder[] = []
+  private seq = 0
+  get size() { return this.h.length }
+  /** newer first (each level down counts as two weeks older, so one fresh deep tree does not use up the walk), then
+   * shallower, then in the order found (as the breadth-first walk before) */
+  private before(a: QueuedFolder, b: QueuedFolder) {
+    const ka = a.mtimeMs - a.parts.length * DEPTH_AGE_MS
+    const kb = b.mtimeMs - b.parts.length * DEPTH_AGE_MS
+    if (ka !== kb) return ka > kb
+    if (a.parts.length !== b.parts.length) return a.parts.length < b.parts.length
+    return a.seq! < b.seq!
+  }
+  push(x: QueuedFolder) {
+    const h = this.h
+    h.push({ ...x, seq: this.seq++ })
+    for (let i = h.length - 1; i > 0;) {
+      const up = (i - 1) >> 1
+      if (!this.before(h[i]!, h[up]!)) break
+      ;[h[i], h[up]] = [h[up]!, h[i]!]
+      i = up
+    }
+  }
+  pop(): QueuedFolder | undefined {
+    const h = this.h
+    const top = h[0]
+    const last = h.pop()
+    if (!h.length || !last) return top
+    h[0] = last
+    for (let i = 0; ;) {
+      const l = 2 * i + 1, r = l + 1
+      let m = i
+      if (l < h.length && this.before(h[l]!, h[m]!)) m = l
+      if (r < h.length && this.before(h[r]!, h[m]!)) m = r
+      if (m === i) break
+      ;[h[i], h[m]] = [h[m]!, h[i]!]
+      i = m
+    }
+    return top
+  }
 }
 
 // ---------------------------------------------------------------- from the computer's index
@@ -334,7 +403,7 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
     for (const c of checks) {
       if (!c) continue
       if (c.st.size > fileBytes) { out.tooBig++; continue }
-      if (c.st.size < MIN_BYTES) continue
+      if (c.st.size < MIN_BYTES || tooSmall(fileExt(c.parts.at(-1)!), c.st.size)) continue
       if (undated(c.f) && !isRecent({ used: null, modified: c.st.mtimeMs }, now)) continue
       const same = `${c.st.dev}:${c.st.ino}`
       if (o.seen && c.st.ino !== 0n) { if (o.seen.has(same)) continue; o.seen.add(same) }
@@ -347,7 +416,7 @@ export async function filesFromIndex(root: WorkRoot, real: string, indexed: read
         id, root: root.id, ...(root.place !== undefined ? { place: root.place } : {}), folder: c.parts.slice(0, -1).map((x) => x.normalize('NFC')).join('/'), name, ext: fileExt(name), size: c.st.size, modified: Math.round(c.st.mtimeMs),
         ...(c.f.used ? { used: Math.round(c.f.used) } : {}), ...(c.f.useCount ? { useCount: c.f.useCount } : {}),
         ...(c.f.origins.length ? { origins: c.f.origins.slice(0, 4) } : {}), ...(c.f.authors.length ? { authors: c.f.authors.slice(0, 5).map((a) => a.slice(0, 120)) } : {}),
-        ...(c.f.org ? { org: c.f.org.slice(0, 120) } : {}), ...(c.f.cloud ? { cloud: true } : {}),
+        ...(c.f.org ? { org: c.f.org.slice(0, 120) } : {}), ...(c.f.cloud ? { cloud: true } : {}), ...(c.f.listed ? { listed: true } : {}),
       })
     }
     if (late) out.timedOut = true
@@ -379,6 +448,10 @@ export interface LookOptions extends Omit<ScanOptions, 'onProgress'> {
   noWalk?: (root: WorkRoot) => boolean
   /** part 5: the whole look ends here: roots not reached are 'skipped' (cut), a walk gets at most what is left */
   deadline?: number
+  /** the files a recent list or the index says were opened lately under a walked folder's real path (a Mac: Spotlight's
+   * last-opened, the shared file lists, Office's list): asked for when the folder's walk starts, added after it when the
+   * walk did not list them (a walk cut by its limits keeps the files the person really opened) */
+  recentIn?: (real: string, root: WorkRoot) => Promise<IndexedFile[]>
   /** part 5: a root's own walk limits (a place beyond the three folders gets a shorter walk) */
   rootLimits?: (root: WorkRoot) => Partial<Record<'walkDocs' | 'walkFiles' | 'depth' | 'rootMs' | 'totalMs', number>>
 }
@@ -396,6 +469,7 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
   const out: ScanResult = { stopped: false, roots: [], files: [], found: new Map() }
   const seenRoots: string[] = []
   const seen = new Set<string>()
+  const seenPaths = o.seenPaths ?? new Set<string>()
   const n = Math.max(1, roots.length)
   const tell = (root: WorkRoot, i: number, part: number, checked: number) => o.onProgress?.({ root: root.id, ...(root.place !== undefined ? { place: root.place } : {}), checked, docs: out.files.length, done: Math.min(1, (i + part) / n) })
   for (const [i, root] of roots.entries()) {
@@ -428,16 +502,17 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
       r.state = 'skipped'
     } else if (mine && (mine.length > 0 || top0 === 0)) {
       r.how = 'index'
-      const f = await filesFromIndex(root, real, mine!, fs, { platform: p, newId: o.newId, now: o.now, fileBytes: o.limits?.fileBytes, seen, seenPaths: o.seenPaths, stopped: () => !!o.stopped?.(), deadline: o.deadline })
+      const f = await filesFromIndex(root, real, mine!, fs, { platform: p, newId: o.newId, now: o.now, fileBytes: o.limits?.fileBytes, seen, seenPaths, stopped: () => !!o.stopped?.(), deadline: o.deadline })
       r.checked = f.checked
       r.tooBig = f.tooBig
       for (const x of f.files) out.files.push(x)
       for (const [id, x] of f.found) out.found.set(id, x)
     } else {
       r.how = 'walk'
+      const recentP = o.recentIn ? o.recentIn(real, root).catch(() => [] as IndexedFile[]) : null
       const lim = { ...FALLBACK_LIMITS, ...o.limits, ...o.rootLimits?.(root) }
       if (o.deadline !== undefined) lim.rootMs = Math.max(500, Math.min(lim.rootMs, o.deadline - Date.now()))
-      const w = await scanRoots([root], fs, { ...o, earlier: seenRoots.slice(0, -1), seen, seenPaths: o.seenPaths, limits: lim, onProgress: (x) => tell(root, i, 0.2 + 0.7 * Math.min(1, x.checked / FALLBACK_LIMITS.walkFiles), x.checked) })
+      const w = await scanRoots([root], fs, { ...o, earlier: seenRoots.slice(0, -1), seen, seenPaths, limits: lim, onProgress: (x) => tell(root, i, 0.2 + 0.7 * Math.min(1, x.checked / FALLBACK_LIMITS.walkFiles), x.checked) })
       const wr = w.roots[0]!
       Object.assign(r, { state: wr.state, cut: wr.cut, tooBig: wr.tooBig, checked: wr.checked })
       if (o.enrich && w.files.length) {
@@ -456,13 +531,38 @@ export async function lookRoots(roots: readonly WorkRoot[], fs: WorkFs, o: LookO
           if (k.org) f.org = k.org.slice(0, 120)
         }
       }
+      // an empty template, a stub, a text note of a few lines: no work document (the index's files: filesFromIndex)
+      for (const x of w.files) if (tooSmall(x.ext, x.size)) w.found.delete(x.id)
+      w.files = w.files.filter((x) => w.found.has(x.id))
       for (const x of w.files) {
         const fx = w.found.get(x.id)!
-        if (o.seenPaths) o.seenPaths.add(sameKey(join(p, fx.root, ...fx.parts), p))
+        seenPaths.add(sameKey(join(p, fx.root, ...fx.parts), p))
         out.files.push(x)
       }
       for (const [id, x] of w.found) out.found.set(id, x)
       if (w.stopped) out.stopped = true
+      // the files opened lately in this folder that the walk did not list (cut, too deep): added as the index's are
+      if (recentP && !out.stopped && !o.stopped?.()) {
+        const skipped = w.skipped ?? []
+        const rec = (await within(recentP, Math.max(500, Math.min(1500, (o.deadline ?? Infinity) - Date.now()))).catch(() => [] as IndexedFile[]))
+          .filter((x) => { const k = sameKey(x.path, p); return insideKey(k, key, p) && !skipped.some((s) => insideKey(k, s, p)) })
+        // a walked file the lists know: when it was opened, and that it is in a recent list
+        const walked = new Map(w.files.map((x) => { const fx = w.found.get(x.id)!; return [sameKey(join(p, fx.root, ...fx.parts), p), x] as const }))
+        for (const k of rec) {
+          const x = walked.get(sameKey(k.path, p))
+          if (!x) continue
+          if (k.used && (!x.used || k.used > x.used)) x.used = Math.round(k.used)
+          if (k.listed) x.listed = true
+          if (k.useCount && !x.useCount) x.useCount = k.useCount
+          if (k.origins.length && !x.origins?.length) x.origins = k.origins.slice(0, 4)
+        }
+        if (rec.length) {
+          const f = await filesFromIndex(root, real, rec, fs, { platform: p, newId: o.newId, now: o.now, fileBytes: o.limits?.fileBytes, seen, seenPaths, stopped: () => !!o.stopped?.(), deadline: Math.min(Date.now() + 2000, o.deadline ?? Infinity), max: 300 })
+          r.tooBig += f.tooBig
+          for (const x of f.files) out.files.push(x)
+          for (const [id, x] of f.found) out.found.set(id, x)
+        }
+      }
     }
     tell(root, i, 1, r.checked)
   }
@@ -520,6 +620,7 @@ export async function lookWide(roots: readonly WorkRoot[], fs: WorkFs, o: WideOp
       if (f.used && (!there.used || f.used > there.used)) there.used = Math.round(f.used)
       if (f.useCount && !there.useCount) there.useCount = f.useCount
       if (f.origins.length && !there.origins?.length) there.origins = f.origins.slice(0, 4)
+      if (f.listed) there.listed = true
       continue
     }
     if (notLooked.some((n) => insideKey(k, sameKey(n, p), p))) continue
@@ -576,6 +677,8 @@ interface Session {
   bytes: number
   /** reads in all, a file read again included */
   reads: number
+  /** the files the page named at the person's Add (WorkFilesController.add): only these are read */
+  added: Set<string>
 }
 
 /** The latest look of each team origin, for the person signed in (a sign-out or another person forgets them all). */
@@ -589,7 +692,7 @@ export class WorkFileSessions {
     private readonly fs: WorkFs,
     private readonly platform: string,
     private readonly now: () => number = () => Date.now(),
-    private readonly limits: Partial<Record<'readFiles' | 'readBytes' | 'sessionMs' | 'readMs', number>> = {},
+    private readonly limits: Partial<Record<'readFiles' | 'readBytes' | 'sessionMs' | 'readMs' | 'cloudHintMs', number>> = {},
   ) {}
 
   private get lim() {
@@ -598,7 +701,35 @@ export class WorkFileSessions {
 
   /** A new look for this origin: it replaces the one before (its ids read nothing any more). */
   begin(origin: string, found: Map<string, Found>) {
-    this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0, reads: 0 })
+    this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0, reads: 0, added: new Set() })
+  }
+
+  /** The files these ids name in this origin's latest look, before they are added: null when the look is gone or
+   * expired, an id is not of it, an id is named twice, or they are over the read limits (files, bytes) all together. */
+  toAdd(origin: string, ids: readonly string[]): { name: string; size: number }[] | null {
+    const s = this.sessions.get(origin)
+    if (!s || this.now() - s.at > this.lim.sessionMs || !ids.length || new Set(ids).size !== ids.length) return null
+    const files = ids.map((id) => s.found.get(id))
+    if (files.some((f) => !f)) return null
+    // with what was added before in this look: the same limits the reads keep
+    const all = new Set([...s.added, ...ids])
+    const bytes = [...all].reduce((n, id) => n + (s.found.get(id)?.size ?? 0), 0)
+    if (all.size > this.lim.readFiles || bytes > this.lim.readBytes) return null
+    return files.map((f) => ({ name: f!.parts.at(-1) ?? '', size: f!.size }))
+  }
+
+  /** An id of this origin's latest look that was added. */
+  isAdded(origin: string, id: string): boolean {
+    return !!this.sessions.get(origin)?.added.has(id)
+  }
+
+  /** The page named these files at the person's Add (WorkFilesController.add): they (and nothing else of the look) may be
+   * read now. */
+  allow(origin: string, ids: readonly string[]): boolean {
+    const s = this.sessions.get(origin)
+    if (!s || this.now() - s.at > this.lim.sessionMs || ids.some((id) => !s.found.has(id))) return false
+    for (const id of ids) s.added.add(id)
+    return true
   }
 
   /** This origin has a look to add to (not expired). */
@@ -616,14 +747,15 @@ export class WorkFileSessions {
     return true
   }
 
-  /** The bytes of one file of this origin's latest look, by its id. Reads run one after the other. */
-  read(origin: string, id: string): Promise<WorkFileRead> {
-    const next = this.queue.then(() => this.readNow(origin, id))
+  /** The bytes of one file of this origin's latest look, by its id. Reads run one after the other. `onCloud`: the file's
+   * content is in the cloud only and is being downloaded first (said once, when its read starts). */
+  read(origin: string, id: string, onCloud?: (cloud: WorkCloudProvider) => void): Promise<WorkFileRead> {
+    const next = this.queue.then(() => this.readNow(origin, id, onCloud))
     this.queue = next.catch(() => {})
     return next
   }
 
-  private async readNow(origin: string, id: string): Promise<WorkFileRead> {
+  private async readNow(origin: string, id: string, onCloud?: (cloud: WorkCloudProvider) => void): Promise<WorkFileRead> {
     const s = this.sessions.get(origin)
     if (!s) return { ok: false, reason: 'unknown' }
     if (this.now() - s.at > this.lim.sessionMs) {
@@ -631,7 +763,8 @@ export class WorkFileSessions {
       return { ok: false, reason: 'expired' }
     }
     const f = s.found.get(id)
-    if (!f) return { ok: false, reason: 'unknown' }
+    // a file the person did not add in the app's own window is not read, whatever the page asks (TC-3300)
+    if (!f || !s.added.has(id)) return { ok: false, reason: 'unknown' }
     const again = s.read.has(id)
     // a file read again counts once, but reads in all are limited too (a page reading one file over and over)
     if (s.reads >= this.lim.readFiles * 3) return { ok: false, reason: 'limit' }
@@ -642,8 +775,22 @@ export class WorkFileSessions {
       s.read.add(id)
       s.bytes += f.size
     }
-    // a file on a drive that stops answering gives up after READ_MS, so the reads behind it are not held forever
-    const r = await within(this.readFile(f), this.limits.readMs ?? READ_MS).catch((): WorkFileRead => ({ ok: false, reason: 'unreadable' }))
+    // a file on a drive that stops answering gives up after READ_MS, so the reads behind it are not held forever; one
+    // that was coming from the cloud says so (the person can open it once to download it, then add it again)
+    let cloud: WorkCloudProvider | null = null
+    let late: ReturnType<typeof setTimeout> | undefined
+    // the answer is given (a read that gave up goes on in the background): nothing more is said of it
+    let over = false
+    const fetching = (c: WorkCloudProvider) => {
+      clearTimeout(late)
+      if (cloud || over) return
+      cloud = c
+      try { onCloud?.(c) } catch { /* the page's listener: nothing of it stops the read */ }
+    }
+    const maybe = (c: WorkCloudProvider) => { if (!over) late = setTimeout(() => fetching(c), this.limits.cloudHintMs ?? CLOUD_HINT_MS) }
+    const r = await within(this.readFile(f, fetching, maybe), this.limits.readMs ?? READ_MS)
+      .catch((): WorkFileRead => (cloud ? { ok: false, reason: 'cloudTimeout', cloud } : { ok: false, reason: 'unreadable' }))
+      .finally(() => { over = true; clearTimeout(late) })
     // a session that changed while this read (a new look, a sign-out) gives nothing
     if (this.sessions.get(origin) !== s) return { ok: false, reason: 'unknown' }
     if (!r.ok && !again) {
@@ -653,8 +800,10 @@ export class WorkFileSessions {
     return r
   }
 
-  /** The file found again where the look found it, the same one, its bytes. */
-  private async readFile(f: Found): Promise<WorkFileRead> {
+  /** The file found again where the look found it, the same one, its bytes. `fetching`: its content is in the cloud only
+   * and the read downloads it (a Mac's flag, or Windows' index at the look); `maybe`: it is in a cloud's folder, and a read
+   * still going after a moment is taken for a download. */
+  private async readFile(f: Found, fetching: (c: WorkCloudProvider) => void, maybe: (c: WorkCloudProvider) => void): Promise<WorkFileRead> {
     const p = this.platform
     const path = join(p, f.root, ...f.parts)
     // found again where it was: no part of the way is a link now (the real path is the same path), still a file
@@ -668,6 +817,11 @@ export class WorkFileSessions {
     } catch {
       return { ok: false, reason: 'unreadable' }
     }
+    // online only: the open or the read makes the provider download it, which can take a while
+    const provider = cloudProviderOf(path, p)
+    const cloudOnly = p === 'win32' ? !!f.late : await this.fs.cloudOnly?.(path).catch(() => false)
+    if (cloudOnly) fetching(provider ?? (p === 'darwin' ? 'icloud' : 'cloud'))
+    else if (provider) maybe(provider)
     let h: WorkHandle
     try {
       h = await this.fs.open(path)

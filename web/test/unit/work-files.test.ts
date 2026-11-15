@@ -7,18 +7,42 @@ import { describe, expect, test } from 'bun:test'
 import { WORK_FILES_BRIDGE_VERSION, folderLabel, FROM_COMPUTER_DIR, type DesktopBridge, type WorkFileMeta, type WorkFileRead } from '@mycel/shared'
 import { FolderUpload, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { personalPath } from '../../src/lib/teamFiles'
-import { docsFromScan, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
+import { confirmAdd, docsFromScan, FULL_DISK_LATER_MS, fullDiskLater, setFullDiskLater, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
 import { folderWords } from '../../src/lib/folderLabels'
 
 const meta = (name: string, o: Partial<WorkFileMeta> = {}): WorkFileMeta => ({ id: `id-${name}`, root: 'documents', folder: '', name, ext: name.split('.').pop()!, size: 10, modified: Date.UTC(2026, 9, 3, 12), ...o })
 
 describe('which desktop app gets the entry', () => {
-  const w = { version: WORK_FILES_BRIDGE_VERSION, scan: async () => ({ state: 'cancelled' as const }), stop: () => {}, onProgress: () => () => {}, read: async () => ({ ok: false as const, reason: 'unknown' as const }), openSettings: () => {} }
+  const w = { version: WORK_FILES_BRIDGE_VERSION, scan: async () => ({ state: 'cancelled' as const }), stop: () => {}, onProgress: () => () => {}, add: async () => ({ state: 'added' as const }), read: async () => ({ ok: false as const, reason: 'unknown' as const }), openSettings: () => {} }
   test('only one with this version of workFiles (an older app, the Mac App Store build, a browser: none)', () => {
     expect(workFilesBridge(null)).toBeNull()
     expect(workFilesBridge({ bridgeVersion: 1 } as DesktopBridge)).toBeNull()
     expect(workFilesBridge({ bridgeVersion: 1, workFiles: { ...w, version: WORK_FILES_BRIDGE_VERSION + 1 } } as unknown as DesktopBridge)).toBeNull()
     expect(workFilesBridge({ bridgeVersion: 1, workFiles: w } as unknown as DesktopBridge)).toBe(w)
+  })
+  test('version 2 must have add (TC-3300); an app of version 1 (no add) still gets the entry', () => {
+    const { add: _add, ...noAdd } = w
+    expect(workFilesBridge({ bridgeVersion: 1, workFiles: noAdd } as unknown as DesktopBridge)).toBeNull()
+    const v1 = { ...noAdd, version: 1 }
+    expect(workFilesBridge({ bridgeVersion: 1, workFiles: v1 } as unknown as DesktopBridge)).toBe(v1)
+  })
+})
+
+describe('Add names the ticked files to the app before any is read (TC-3300)', () => {
+  const docs = docsFromScan([meta('a.pdf'), meta('b.pdf'), meta('c.pdf')], async () => ({ ok: false, reason: 'unknown' }))
+  test('only the ticked files\' ids, once, as the person presses Add; the answer decides', async () => {
+    const asked: string[][] = []
+    const bridge = (state: 'added' | 'refused') => ({ version: WORK_FILES_BRIDGE_VERSION, add: async (ids: string[]) => { asked.push(ids); return { state } } }) as unknown as Parameters<typeof confirmAdd>[0]
+    // a and c ticked (b ticked, then unticked)
+    expect(await confirmAdd(bridge('added'), [docs[0]!, docs[2]!])).toBe('added')
+    expect(asked).toEqual([['id-a.pdf', 'id-c.pdf']])
+    expect(await confirmAdd(bridge('refused'), [docs[0]!])).toBe('refused')
+    // a file not of the look (no id) is never sent
+    expect(await confirmAdd(bridge('added'), [{ ...docs[0]!, workId: undefined }])).toBe('refused')
+    expect(await confirmAdd(bridge('added'), [])).toBe('refused')
+  })
+  test('an app of version 1 has no add: the old way', async () => {
+    expect(await confirmAdd({ version: 1 } as unknown as Parameters<typeof confirmAdd>[0], [docs[0]!])).toBe('added')
   })
 })
 
@@ -113,6 +137,52 @@ describe('the run: read when it goes, the folders it made', () => {
     // only the folders the run made, never the one that was there
     expect(log.made).toEqual(['users/u1/From this computer/Documents'])
   })
+
+  test('a file the app gets from its cloud first: the run says where from while it does, then uploads it', async () => {
+    const seen: { cloud?: string; phase: unknown }[] = []
+    let release = () => {}
+    const reads: { id: string; cloud: boolean }[] = []
+    const read = (id: string, o?: { onCloud?: (c: 'icloud') => void }): Promise<WorkFileRead> => {
+      reads.push({ id, cloud: !!o?.onCloud })
+      o?.onCloud?.('icloud')
+      return new Promise((ok) => { release = () => ok({ ok: true, bytes: new Uint8Array([1, 2]) }) })
+    }
+    const [doc] = docsFromScan([meta('plan.pdf', { size: 2 })], read)
+    const { c } = calls(new Set())
+    let run: FolderUpload | null = null
+    run = new FolderUpload({ files: [{ rel: 'From this computer/Documents/plan.pdf', size: 2, open: doc!.open }], folders: [], unreadable: [], skipped: 0 }, 'users/u1', c, () => { const a = run?.view.active[0]; if (a) seen.push({ cloud: a.cloud, phase: a.phase }) })
+    const going = run.start()
+    for (let i = 0; i < 20 && !reads.length; i++) await new Promise((r) => setTimeout(r, 0))
+    expect(reads).toEqual([{ id: 'id-plan.pdf', cloud: true }])
+    expect(run.view.active).toEqual([{ name: 'From this computer/Documents/plan.pdf', phase: null, loaded: 0, total: 2, cloud: 'icloud' }])
+    expect(run.rows()[0]).toMatchObject({ state: 'active', cloud: 'icloud' })
+    release()
+    await going
+    expect(run.view).toMatchObject({ done: 1, failed: 0 })
+    // once read, it says nothing of a cloud any more
+    expect(seen.at(-1)?.cloud).toBeUndefined()
+    expect(run.rows()[0]!.cloud).toBeUndefined()
+  })
+
+  test('a cloud download over the read\'s minute fails the file with the cloud\'s name, not tried again', async () => {
+    const [doc] = docsFromScan([meta('plan.pdf', { size: 2 })], async (_id, o) => { o?.onCloud?.('onedrive'); return { ok: false, reason: 'cloudTimeout', cloud: 'onedrive' } })
+    const { c } = calls(new Set())
+    const run = new FolderUpload({ files: [{ rel: 'From this computer/Documents/plan.pdf', size: 2, open: doc!.open }], folders: [], unreadable: [], skipped: 0 }, 'users/u1', c)
+    await run.start()
+    const row = run.rows()[0]!
+    expect(row).toMatchObject({ state: 'failed', local: 'unreadable' })
+    expect(row.cloud).toBeUndefined()
+    expect(row.error).toBeInstanceOf(WorkFileReadError)
+    expect(row.error).toMatchObject({ reason: 'cloudTimeout', cloud: 'onedrive' })
+    expect(run.view.active).toEqual([])
+  })
+
+  test('an older app never says "cloud": the read goes as before', async () => {
+    // an app before onCloud ignores the second argument
+    const [doc] = docsFromScan([meta('plan.pdf', { size: 2 })], async () => ({ ok: true, bytes: new Uint8Array([1, 2]) }))
+    expect((await doc!.open({ onCloud: () => { throw new Error('never') } })).size).toBe(2)
+    expect((await doc!.open()).size).toBe(2)
+  })
 })
 
 describe('Undo', () => {
@@ -155,7 +225,7 @@ describe('part 4: recent, the company\'s, best first', () => {
   const D = 86_400_000
   const read = async (): Promise<WorkFileRead> => ({ ok: false, reason: 'unknown' })
   const words = { names: ['Acme', '에이크미'], domains: ['acme.co.kr'], people: ['Bo Lee'] }
-  const doc = (name: string, o: Partial<WorkFileMeta> = {}) => docsFromScan([meta(name, { modified: NOW - 10 * D, ...o })], read)[0]!
+  const doc = (name: string, o: Partial<WorkFileMeta> = {}) => docsFromScan([meta(name, { modified: NOW - 10 * D, size: 40_000, ...o })], read)[0]!
 
   test('recent: opened or changed within 180 days; "opened" when the index knows a later use', () => {
     expect(isRecentDoc(doc('a.pdf', { modified: NOW - 179 * D }), NOW)).toBe(true)
@@ -183,7 +253,9 @@ describe('part 4: recent, the company\'s, best first', () => {
     expect(companyMatch(doc('x.pdf', { origins: ['files.acme.co.kr'] }), words)).toEqual({ kind: 'from', host: 'files.acme.co.kr' })
     expect(companyMatch(doc('x.pdf', { origins: ['acme.slack.com'] }), words)).toEqual({ kind: 'from', host: 'acme.slack.com' })
     expect(companyMatch(doc('x.pdf', { origins: ['acme-my.sharepoint.com'] }), words)).toEqual({ kind: 'from', host: 'acme-my.sharepoint.com' })
-    expect(companyMatch(doc('x.pdf', { origins: ['files.slack.com'] }), words)).toEqual({ kind: 'from', host: 'files.slack.com' })
+    expect(companyMatch(doc('x.pdf', { origins: ['acme.notion.site'] }), words)).toEqual({ kind: 'from', host: 'acme.notion.site' })
+    // a work app's shared host alone is no company's: just "from the web" (owner, 2026-11-15: aif.notion.so junk)
+    for (const h of ['files.slack.com', 'docs.google.com', 'drive.google.com', 'aif.notion.so', 'www.notion.so', 'dl.dropboxusercontent.com', 'slack.com']) expect(companyMatch(doc('x.pdf', { origins: [h] }), words), h).toBeNull()
     expect(companyMatch(doc('x.pdf', { origins: ['www.example.org'] }), words)).toBeNull()
     expect(companyMatch(doc('x.pdf', { authors: ['bo lee'] }), words)).toEqual({ kind: 'by', who: 'Bo Lee' })
     expect(companyMatch(doc('x.pdf', { org: 'Acme Inc.' }), words)).toEqual({ kind: 'by', who: 'Acme' })
@@ -198,27 +270,73 @@ describe('part 4: recent, the company\'s, best first', () => {
     expect(workScore(doc('a.docx', { root: 'downloads' }), null, NOW)).toBeLessThan(workScore(doc('a.docx', { root: 'documents' }), null, NOW))
   })
 
-  test('Looks like work: recent AND (the company\'s OR the AI\'s pick), never personal, at most 50, best first', () => {
+  test('Looks like work without AI: only strong signs (the company\'s, or a real document opened lately), never personal, at most WORK_SHOWN, best first', () => {
     const docs = [
-      doc('Acme plan.docx'), doc('Acme old.docx', { modified: NOW - 400 * D }), doc('Acme payslip.pdf'), doc('random.pdf'), doc('picked.pdf'),
-      ...Array.from({ length: 60 }, (_, i) => doc(`Acme report ${i}.pdf`, { modified: NOW - (20 + i) * D })),
+      doc('Acme plan.docx'), doc('Acme old.docx', { modified: NOW - 400 * D }), doc('Acme payslip.pdf'), doc('random.pdf'), doc('Board deck.pptx', { used: NOW - 2 * D }),
+      doc('Market study.pdf', { listed: true }), doc('Notes from call.txt', { used: NOW - D }),
+      ...Array.from({ length: 60 }, (_, i) => doc(`Acme ${['north', 'south', 'east', 'west', 'core'][i % 5]} ${'abcdefghijkl'[Math.floor(i / 5)]} report.pdf`, { modified: NOW - (20 + i) * D })),
     ]
-    const r = workList(docs, words, new Map([['Documents/picked.pdf', 'report']]), NOW)
+    const r = workList(docs, words, null, NOW)
     expect(r.shown).toHaveLength(WORK_SHOWN)
-    expect(r.more).toBe(62 - WORK_SHOWN)
+    expect(r.more).toBe(63 - WORK_SHOWN)
     const names = r.shown.map((d) => d.name)
-    expect(names.slice(0, 2).sort()).toEqual(['Acme plan.docx', 'picked.pdf'].sort())
-    expect(names).not.toContain('Acme old.docx')
-    expect(names).not.toContain('Acme payslip.pdf')
-    expect(names).not.toContain('random.pdf')
-    // a ticked file stays in view when later picks would push it past 50
-    const last = r.shown.at(-1)!
-    const withPick = workList(docs, words, new Map([['Documents/picked.pdf', 'report'], ['Documents/random.pdf', 'report']]), NOW, new Set([last.key]))
-    expect(withPick.shown.map((d) => d.key)).toContain(last.key)
+    expect(names.slice(0, 3).sort()).toEqual(['Acme plan.docx', 'Board deck.pptx', 'Market study.pdf'].sort())
+    for (const n of ['Acme old.docx', 'Acme payslip.pdf', 'random.pdf', 'Notes from call.txt']) expect(names).not.toContain(n)
     // what goes to the AI: recent, never personal, the best by the rules
     const sent = forAiRecent(docs, words, NOW)
     expect(sent.some((d) => d.name === 'Acme old.docx' || d.name === 'Acme payslip.pdf')).toBe(false)
     expect(sent.length).toBeLessThanOrEqual(80)
+  })
+
+  test('the AI\'s answer decides for what it was shown: its picks stay, the rest it saw is out (even the company\'s); a ticked file stays in view', () => {
+    const docs = [doc('Acme plan.docx'), doc('Acme memo.docx'), doc('random.pdf'), doc('Proposal for Globex.pdf')]
+    const sent = new Set(docs.slice(0, 3).map((d) => d.key))
+    const r = workList(docs, words, new Map([['Documents/random.pdf', 'report']]), NOW, new Set(), sent)
+    // random.pdf: picked; Acme plan/memo: shown to the AI, not picked; the Globex proposal: not shown to it, no strong sign
+    expect(r.shown.map((d) => d.name)).toEqual(['random.pdf'])
+    // an answer with no pick at all is no judgement: the rules decide (the company's files stay)
+    expect(workList(docs, words, new Map(), NOW, new Set(), sent).shown.map((d) => d.name).sort()).toEqual(['Acme memo.docx', 'Acme plan.docx'])
+    // a ticked file stays even when the AI said no to it later
+    expect(workList(docs, words, new Map([['Documents/random.pdf', 'report']]), NOW, new Set(['Documents/Acme plan.docx']), sent).shown.map((d) => d.name).sort()).toEqual(['Acme plan.docx', 'random.pdf'])
+  })
+
+  test('never work: a saved page\'s pieces, a program\'s names, tiny notes, a tool\'s folder; a copy beside its original; a series shows its newest', () => {
+    const page = '261009 점검 _ 피드백_files'
+    const docs = [
+      ...Array.from({ length: 6 }, (_, i) => doc(`f(${i + 3}).txt`, { root: 'downloads', folder: page, origins: ['aif.notion.so'] })),
+      doc('Acme spec.txt', { root: 'downloads', folder: 'Report-Dateien' }),
+      doc('README.md', { folder: 'Acme tool' }), doc('Acme LICENSE.txt', { folder: 'node-v26.13.0-win-x64' }), doc('Acme todo.txt', { size: 900 }),
+      doc('image001.png', { folder: 'Acme logo' }), doc('Untitled 3.docx', { used: NOW - D }), doc('3f2b9c1e-4a5b-4c6d-8e9f-0123456789ab.pdf', { used: NOW - D }),
+      doc('KakaoTalk_20261009_1530_12_345_Acme.txt'),
+      doc('Acme quote.xlsx'), doc('Acme quote (1).xlsx'), doc('Copy of Acme quote.xlsx'),
+      ...Array.from({ length: 5 }, (_, i) => doc(`Acme invoice ${i + 1}.pdf`, { modified: NOW - (10 + i) * D })),
+      ...Array.from({ length: 4 }, (_, i) => doc(`2026-10-0${i + 1}.pdf`, { used: NOW - D })),
+      doc('<person>_1R 사업계획서.pdf', { root: 'downloads', origins: ['docs.google.com'], used: NOW - 9 * D }),
+    ]
+    const names = workList(docs, words, null, NOW).shown.map((d) => d.name)
+    expect(names.sort()).toEqual(['<person>_1R 사업계획서.pdf', 'Acme invoice 1.pdf', 'Acme quote.xlsx'].sort())
+  })
+
+  test('real work names are never taken for a program\'s (review of part 6)', async () => {
+    const { autoNamed, neverListed, savedPage } = await import('@mycel/shared/file-scan')
+    for (const n of ['License Agreement Acme.pdf', 'Licence application.docx', 'Authors guide.pdf', 'Contributing guidelines 2026.pdf', 'Changelog Q3.xlsx', 'AnnualReport2024Summary.pdf', 'Q3SalesReport2026Final.xlsx', 'AcmeProposal2026v2Final.docx', 'Chat with investors.docx', 'Talk_2026 keynote.pptx', 'Untitled proposal Acme.docx', 'HR(2).pdf', 'README for clients.pdf']) expect(autoNamed(n), n).toBe(false)
+    for (const n of ['f(8).txt', 'image001.png', 'Untitled.docx', 'Untitled 2.docx', 'New Text Document (2).txt', 'README.md', 'LICENSE', 'CHANGELOG.md', 'KakaoTalk_20261009_1530_12_345_group.txt', 'Talk_2026.10.30 21_05-1.txt', '3f2b9c1e-4a5b-4c6d-8e9f-0123456789ab.pdf', 'a8Fk2Lq9Zx01Pm3Rt7Vb.pdf']) expect(autoNamed(n), n).toBe(true)
+    for (const n of ['Project_files', 'Client_files', 'HR_files', 'Customer_file', 'Go-2026 plan', 'go2market', 'PHP8 migration', 'Node1 notes', 'git-2025', 'python3 course', 'Electron2026 launch', 'bin', 'Pods']) expect(neverListed(n), n).toBe(false)
+    for (const n of ['node-v26.13.0-win-x64', 'python-3.12.1', 'ffmpeg-7.1-darwin-arm64', 'node_modules']) expect(neverListed(n), n).toBe(true)
+    // a saved page's folder is told by the page beside it
+    expect(savedPage('Weekly digest_files', ['Weekly digest.html', 'a.pdf'])).toBe(true)
+    expect(savedPage('Client_files', ['Client list.xlsx'])).toBe(false)
+  })
+
+  test('a copy downloaded again lately stays when its original is old; the company\'s own site counts without a registered domain', async () => {
+    const { companyHost } = await import('../../src/lib/workFiles')
+    const docs = [doc('Plan.pdf', { modified: NOW - 200 * D }), doc('Plan (1).pdf', { used: NOW - D })]
+    expect(workList(docs, words, null, NOW).shown.map((d) => d.name)).toEqual(['Plan (1).pdf'])
+    const noDomain = { names: ['Acme'], domains: [], people: [] }
+    for (const h of ['acme.com', 'www.acme.com', 'files.acme.co.kr', 'acme.slack.com', 'acme.notion.site']) expect(companyHost(h, noDomain), h).toBe(true)
+    for (const h of ['slack.com', 'files.slack.com', 'docs.google.com', 'aif.notion.so', 'acmeco.com']) expect(companyHost(h, noDomain), h).toBe(false)
+    // a company named like a host word ("Files") never makes files.slack.com its own
+    expect(companyHost('files.slack.com', { names: ['Files'], domains: [], people: [] })).toBe(false)
   })
 })
 
@@ -265,5 +383,24 @@ describe('part 5: places beyond the three folders', () => {
     expect(offersWide(base)).toBe(false)
     expect(offersWide({ ...base, wide: WORK_FILES_WIDE_VERSION })).toBe(true)
     expect(offersWide({ ...base, wide: WORK_FILES_WIDE_VERSION + 1 })).toBe(false)
+  })
+})
+
+describe('Not now on the Full Disk Access screen, for 30 days (this team, this person)', () => {
+  const store = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) }, removeItem: (k: string) => { m.delete(k) } } }
+  test('kept for 30 days, per person; forgotten by the link; nonsense or a future time counts as not said', () => {
+    const s = store()
+    const now = Date.UTC(2026, 10, 15)
+    expect(fullDiskLater('u-bob', now, s)).toBe(false)
+    setFullDiskLater('u-bob', true, now, s)
+    expect(fullDiskLater('u-bob', now + 1000, s)).toBe(true)
+    expect(fullDiskLater('u-alex', now + 1000, s)).toBe(false)
+    expect(fullDiskLater('u-bob', now + FULL_DISK_LATER_MS, s)).toBe(false)
+    expect(fullDiskLater('u-bob', now - 1, s)).toBe(false)
+    setFullDiskLater('u-bob', false, now, s)
+    expect(fullDiskLater('u-bob', now + 1000, s)).toBe(false)
+    s.setItem('mycel.findWork.fullDiskLater:u-bob', 'soon')
+    expect(fullDiskLater('u-bob', now, s)).toBe(false)
+    expect(fullDiskLater('u-bob', now, null)).toBe(false)
   })
 })

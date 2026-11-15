@@ -52,7 +52,7 @@ test('a browser: no files row, and the card counts 1 of 3', async ({ page }) => 
 })
 
 test('an older desktop app: no files row', async ({ page }) => {
-  await fakeApp(page, { version: 2 })
+  await fakeApp(page, { version: 99 })
   await reset(page)
   await welcomeCard(page)
   await home(page)
@@ -120,7 +120,7 @@ test('the desktop app: the row (optional, not counted); Cancel in the app\'s win
   expect(own(errors)).toEqual([])
 })
 
-test('a Mac without Full Disk Access: Not now, then Cancel in the app\'s window, comes back to the card', async ({ page }) => {
+test('a Mac without Full Disk Access: Not now, then Cancel in the app\'s window, comes back to the card; Not now is kept', async ({ page }) => {
   await fakeApp(page, { wide: true, fullDisk: 'denied' })
   await reset(page)
   await welcomeCard(page)
@@ -131,10 +131,11 @@ test('a Mac without Full Disk Access: Not now, then Cancel in the app\'s window,
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
   await answer(page, 'cancel')
   await backOnCard(page)
-  // the Full Disk Access screen's own ✕ too
+  // Not now is kept (30 days): the next open goes straight to the three folders, and Cancel there comes back too
   await page.getByTestId('member-welcome-files-button').click()
-  await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'ask')
-  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await expect(page.getByTestId('find-work-access')).toHaveCount(0)
+  await answer(page, 'cancel')
   await backOnCard(page)
 })
 

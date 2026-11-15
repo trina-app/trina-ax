@@ -1,4 +1,4 @@
-// Bundle the desktop app into dist/: main process, the two preloads, the desktop's own screens and the injected
+// Bundle the desktop app into dist/: main process, the three preloads, the desktop's own screens and the injected
 // page script. `bun run build` (desktop/). Shared code (@mycel/shared, zod) is bundled; only electron is external.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -28,13 +28,15 @@ await Promise.all([
   one('src/main/main.ts', 'main.cjs', node),
   one('src/preload/app.ts', 'preload-app.cjs', node),
   one('src/preload/ui.ts', 'preload-ui.cjs', node),
+  one('src/preload/consent.ts', 'preload-consent.cjs', node),
   one('src/ui/welcome.ts', 'ui/welcome.js', { target: 'browser', format: 'esm', minify: prod }),
   one('src/ui/pane.ts', 'ui/pane.js', { target: 'browser', format: 'esm', minify: prod }),
   one('src/ui/hostbar.ts', 'ui/hostbar.js', { target: 'browser', format: 'esm', minify: prod }),
+  one('src/ui/consent.ts', 'ui/consent.js', { target: 'browser', format: 'esm', minify: prod }),
 ])
 // the screens' <title>: the product name from shared/src/product.ts (the one place it is written)
 const html = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-for (const f of ['welcome.html', 'pane.html', 'hostbar.html']) writeFileSync(join(out, 'ui', f), readFileSync(join(root, 'src/ui', f), 'utf8').replace(/__PRODUCT_NAME_HTML__/g, () => html(PRODUCT.displayName)))
+for (const f of ['welcome.html', 'pane.html', 'hostbar.html', 'consent.html']) writeFileSync(join(out, 'ui', f), readFileSync(join(root, 'src/ui', f), 'utf8').replace(/__PRODUCT_NAME_HTML__/g, () => html(PRODUCT.displayName)))
 cpSync(join(root, 'src/ui/ui.css'), join(out, 'ui', 'ui.css'))
 cpSync(join(root, 'src/main/pane/page-script.js'), join(out, 'page-script.js'))
 // a kit build for one team (src/common/kit.ts): TEAMAX_KIT_TEAM=<team address> [TEAMAX_KIT_LOCALE=ko|en|id|ja|es|zh]

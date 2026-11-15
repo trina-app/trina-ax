@@ -30,7 +30,10 @@ test('all groupings show shares of displayed row tokens and preserve report tota
     await page.getByTestId('usage-groupby').selectOption(group)
     const table = page.getByTestId('usage-table')
     await expect(table).toContainText(`${group} 1`)
-    await expect(page.getByTestId('usage-unpriced')).toHaveCount(1)
+    // row 0 has only unpriced answers: "No price", not "$0.00 +?" (TC-3467); the total is partly priced: "+?"
+    await expect(page.getByTestId('usage-no-price')).toHaveCount(1)
+    await expect(page.getByTestId('usage-unpriced')).toHaveCount(0)
+    await expect(table.locator('tfoot td').nth(4)).toContainText('+?')
     await expect(page.getByTestId('usage-unpriced-note')).toBeVisible()
     const widths = await barWidths(page)
     expect(widths).toHaveLength(3)
@@ -70,11 +73,12 @@ test('zero usage produces finite zero-width bars and an empty range remains expo
 })
 
 for (const [locale, phrases] of [
-  ['en', ['Amounts are estimates of the equivalent API cost.', 'Managed subscription connections have no per-request price, so they add 0', 'Development local-login shows the engine’s estimate of the equivalent API cost, also with a subscription.', 'not bills or subscription fees', 'Rows may overlap.', 'Est. cost']],
-  ['ko', ['금액은 같은 사용량을 API로 썼을 때의 추정 비용이에요.', '관리형 구독 연결은 요청 단가가 없어 0으로 더해요', '개발용 로컬 로그인(local-login)은 구독이어도 엔진이 추정한 API 환산 비용을 보여요.', '실제 청구액이나 구독료가 아니에요', '중복', '추정 금액']],
-  ['id', ['Jumlah adalah perkiraan biaya API yang setara.', 'Koneksi langganan terkelola tidak punya harga per permintaan, jadi menambah 0', 'Login lokal untuk pengembangan (local-login) menampilkan perkiraan biaya API setara dari mesin, juga dengan langganan.', 'bukan tagihan atau biaya langganan', 'Penggunaan dapat terhitung di beberapa baris.', 'Perkiraan biaya']],
+  // usage.costNote (estimates, API keys, subscription sign-ins, local login), usage.skillNote, usage.cost
+  ['en', ['Amounts are estimates, not bills.', 'API key connections use the cost the provider reports, or else the list price.', 'Subscription sign-ins (Claude or ChatGPT) have no price per request, so their use is estimated at API list prices.', "A local login on this computer shows the AI's own estimate at API prices.", 'Rows may overlap.', 'Est. cost']],
+  ['ko', ['금액은 추정치예요. 실제 청구 금액이 아니에요.', 'API 키 연결은 제공자가 알려 준 비용을 쓰고, 없으면 정가로 계산해요.', '구독 로그인(Claude, ChatGPT)은 요청마다 매기는 가격이 없어서 API 정가로 추정해요.', '이 컴퓨터의 로컬 로그인은 AI가 직접 추정한 API 가격을 보여 줘요.', '중복', '추정 금액']],
+  ['id', ['Jumlah adalah perkiraan, bukan tagihan.', 'Koneksi kunci API memakai biaya yang dilaporkan penyedia, atau harga daftar jika tidak ada.', 'Login langganan (Claude atau ChatGPT) tidak punya harga per permintaan, jadi pemakaiannya diperkirakan dengan harga daftar API.', 'Login lokal di komputer ini menampilkan perkiraan AI sendiri dengan harga API.', 'Penggunaan dapat terhitung di beberapa baris.', 'Perkiraan biaya']],
 ] as const) {
-  test(`cost explanation covers managed zero, API and local-login estimates in ${locale}`, async ({ page }, testInfo) => {
+  test(`cost explanation covers API keys, subscription and local-login estimates in ${locale}`, async ({ page }, testInfo) => {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
     await page.route('**/api/admin/usage?**', async (route) => {

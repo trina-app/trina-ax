@@ -41,8 +41,19 @@ export type GuestPlaceOut = NonNullable<NonNullable<User['guest']>['placeOut']>
 /** A guest's place and AI choice as Admin › Members shows them (User.guest), with why a removed one is not in their place
  * (`out`), whether their Team AI's account was deleted (`aiGone`), whether this month's limit is used up (`aiUsedUp`) and
  * how much of it is used (`aiUse`, Team AI only). */
-export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; aiGone: boolean; aiUsedUp: boolean; aiUse: NonNullable<User['guest']>['aiUse'] | null } | null {
-  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true, aiUse: u.guest?.aiUse ?? null } : null
+export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; leftThemselves: boolean; aiGone: boolean; aiUsedUp: boolean; aiUse: NonNullable<User['guest']>['aiUse'] | null } | null {
+  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, leftThemselves: u.guest?.leftThemselves === true, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true, aiUse: u.guest?.aiUse ?? null } : null
+}
+
+/** Where a guest's row goes in Admin (walkthrough S3/S4): 'active'; 'trashed' (switched off with their project in the
+ * trash: listed with the active ones, with Restore project, since restoring brings them back); 'left' (left their place
+ * on their own); 'removed' (taken out, removed by an admin, or their place gone). The last two stay behind a toggle. */
+export type GuestRowState = 'active' | 'trashed' | 'left' | 'removed'
+export function guestRowState(u: User): GuestRowState {
+  if (u.status === 'active') return 'active'
+  const g = userGuest(u)
+  if (g?.out === 'trashed' && g.place?.id) return 'trashed'
+  return g?.leftThemselves ? 'left' : 'removed'
 }
 
 /** Why an invite link does not work (InviteInfo.reason), or null while it works or when an older server does not say. */
@@ -63,3 +74,26 @@ export const GUEST_ONE_PLACE = 'guest_one_place'
 export const GUEST_LIMIT = 'guest_limit'
 /** A removed guest switched on with nothing to bring them back to (409 conflict, params.placeOut: why). */
 export const GUEST_NO_PLACE = 'guest_no_place'
+
+/**
+ * Where a guest opens a team folder (they have no 파일 screen: App.tsx NotForGuests): the files screen of the project
+ * that holds it (`/projects/<id>/files?dir=…`, Projects.tsx ProjectFiles); null for any other folder, their own
+ * users/<id>/ included (no screen lists it: its files open in the preview panel only).
+ */
+export function guestFolderHref(path: string, projects: readonly { id: string; folderPath: string }[]): string | null {
+  const clean = path.replace(/^\/+|\/+$/g, '')
+  const p = projects.find((x) => x.folderPath && (clean === x.folderPath || clean.startsWith(`${x.folderPath}/`)))
+  if (!p) return null
+  const dir = clean === p.folderPath ? '' : clean.slice(p.folderPath.length + 1)
+  return `/projects/${p.id}/files${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`
+}
+
+/** An in-app address as a guest opens it: a /files address goes to their project's files screen (guestFolderHref, via
+ * `folder`) or nowhere (null); any other address stays as it is. */
+export function guestAppHref(href: string, folder: (path: string) => string | null): string | null {
+  // (the router matches addresses without regard to case: /FILES is /files)
+  if (!/^\/files(\/|\?|#|$)/i.test(href)) return href
+  const u = new URL(href, 'http://app.invalid')
+  const path = u.pathname.toLowerCase() === '/files' ? u.searchParams.get('path') : null
+  return path ? folder(path) : null
+}
