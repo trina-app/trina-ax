@@ -7,7 +7,8 @@
 // channels below answer only a window this file opened, at its own address, in its top frame).
 import { BrowserWindow, ipcMain, type BaseWindow, type IpcMainEvent, type WebContents } from 'electron'
 import { PRODUCT } from '@mycel/shared'
-import { CONSENT_URL, ConsentGate, consentSender, type ConsentView } from '../common/work-consent'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { CONSENT_URL, ConsentGate, consentSender, parseMemory, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import { APP_WEB_PREFERENCES, guardUiView } from './security'
 
 const WIDTH = 440
@@ -108,4 +109,23 @@ export function askConsent(o: { parent: BaseWindow; preload: string; view: Conse
   wc.once('did-fail-load', () => done(false))
   void wc.loadURL(CONSENT_URL).catch(() => done(false))
   return { result, close: () => done(false) }
+}
+
+/** The yeses remembered per team and person (common/work-consent.ts covered), in a small file in the app's data. A
+ * missing or broken file remembers nothing (the window comes again). */
+export function consentMemoryFile(path: string): { load(): ConsentMemory; save(m: ConsentMemory): void } {
+  return {
+    load: () => {
+      try {
+        return parseMemory(JSON.parse(readFileSync(path, 'utf8')), Date.now())
+      } catch {
+        return {}
+      }
+    },
+    save: (m) => {
+      const tmp = `${path}.tmp`
+      writeFileSync(tmp, JSON.stringify(parseMemory(m, Date.now())), { mode: 0o600 })
+      renameSync(tmp, path)
+    },
+  }
 }

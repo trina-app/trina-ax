@@ -27,7 +27,7 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { companyMatch, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { companyMatch, confirmAdd, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
@@ -138,6 +138,14 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [already, setAlready] = useState(0)
   const [ticks, setTicks] = useState<Set<string>>(() => new Set())
   const [capped, setCapped] = useState(false)
+  // Add: the desktop app asks once more, in its own window, before any ticked file is read (TC-3300, confirmAdd)
+  const [adding, setAdding] = useState(false)
+  const addTicked = async () => {
+    const picked = docs.filter((d) => ticks.has(d.key))
+    setAdding(true)
+    const yes = await confirmAdd(bridge, picked).finally(() => setAdding(false))
+    if (yes) onAdd(picked)
+  }
   const [q, setQ] = useState('')
   const [openPersonal, setOpenPersonal] = useState(false)
   const [words, setWords] = useState<CompanyWordsLike>(NO_WORDS)
@@ -399,7 +407,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       {tooMuch && <p className="text-label text-warn" role="status" data-testid="find-work-bytes">{t('files.findWork.bytes')}</p>}
       <div className={phone ? 'space-y-2' : 'flex flex-wrap items-center justify-end gap-3'}>
         <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onClose} data-testid="find-work-cancel">{t('common.cancel')}</Button>
-        <Button variant="primary" className={phone ? 'w-full' : undefined} disabled={!ticks.size || tooMuch} onClick={() => onAdd(docs.filter((d) => ticks.has(d.key)))} data-testid="find-work-add">
+        <Button variant="primary" className={phone ? 'w-full' : undefined} disabled={!ticks.size || tooMuch} busy={adding} onClick={() => void addTicked()} data-testid="find-work-add">
           {ticks.size ? t('files.findWork.add', { n: ticks.size }) : t('files.findWork.addNone')}
         </Button>
       </div>

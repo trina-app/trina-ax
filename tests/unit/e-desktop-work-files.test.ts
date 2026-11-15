@@ -254,6 +254,8 @@ describe('reading a listed file afterwards', () => {
     const sessions = new WorkFileSessions(f.fs, 'darwin', () => clock, limits)
     const r = await scanRoots(ROOTS, f.fs, opts())
     sessions.begin(TEAM, r.found)
+    // these tests read: every file of the look was added in the app's window (e-desktop-work-consent.test.ts: only those)
+    sessions.allow(TEAM, [...r.found.keys()])
     const id = (name: string) => r.files.find((x) => x.name === name)!.id
     return { f, sessions, r, id, tick: (ms: number) => { clock += ms } }
   }
@@ -336,6 +338,7 @@ describe('reading a listed file afterwards', () => {
     for (const [platform, ok] of [['win32', false], ['darwin', true]] as const) {
       const s2 = new WorkFileSessions(w.fs, platform)
       s2.begin(TEAM, scanned.found)
+      s2.allow(TEAM, [...scanned.found.keys()])
       expect((await s2.read(TEAM, scanned.files[0]!.id)).ok, platform).toBe(ok)
     }
   })
@@ -384,12 +387,62 @@ describe('reading a listed file afterwards', () => {
   })
 })
 
+describe('only the files added in the app\'s own window are read (TC-3300)', () => {
+  const TEAM = 'https://acme.example'
+  async function look(limits = {}) {
+    const f = fakeFs(home({ Documents: dir({ 'a.pdf': file(10), 'b.pdf': file(20), 'c.pdf': file(30) }), Desktop: dir(), Downloads: dir() }))
+    let clock = 1_000_000
+    const sessions = new WorkFileSessions(f.fs, 'darwin', () => clock, limits)
+    const r = await scanRoots(ROOTS, f.fs, opts())
+    sessions.begin(TEAM, r.found)
+    return { sessions, id: (name: string) => r.files.find((x) => x.name === name)!.id, tick: (ms: number) => { clock += ms } }
+  }
+  test('a file never ticked (never added) is refused, whatever the page asks', async () => {
+    const { sessions, id } = await look()
+    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+    expect(sessions.allow(TEAM, [id('a.pdf')])).toBe(true)
+    expect((await sessions.read(TEAM, id('a.pdf'))).ok).toBe(true)
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+  })
+  test('ticked, then unticked before Add: only what was added is readable', async () => {
+    const { sessions, id } = await look()
+    // the person ticked a and b, unticked b, and said Add to the window that listed a only
+    expect(sessions.toAdd(TEAM, [id('a.pdf')])).toEqual([{ name: 'a.pdf', size: 10 }])
+    sessions.allow(TEAM, [id('a.pdf')])
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+  })
+  test('the window lists only ids of this origin\'s latest look, each once, within the read limits', async () => {
+    const { sessions, id, tick } = await look({ readFiles: 2, readBytes: 40 })
+    expect(sessions.toAdd(TEAM, [id('a.pdf'), id('b.pdf')])).toEqual([{ name: 'a.pdf', size: 10 }, { name: 'b.pdf', size: 20 }])
+    expect(sessions.toAdd(TEAM, [])).toBeNull()
+    expect(sessions.toAdd(TEAM, ['made-up'])).toBeNull()
+    expect(sessions.toAdd(TEAM, [id('a.pdf'), id('a.pdf')])).toBeNull()
+    expect(sessions.toAdd('https://evil.example', [id('a.pdf')])).toBeNull()
+    // 3 files (limit 2); then 50 bytes with what was added before (limit 40)
+    expect(sessions.toAdd(TEAM, [id('a.pdf'), id('b.pdf'), id('c.pdf')])).toBeNull()
+    sessions.allow(TEAM, [id('b.pdf')])
+    expect(sessions.toAdd(TEAM, [id('c.pdf')])).toBeNull()
+    expect(sessions.allow('https://evil.example', [id('a.pdf')])).toBe(false)
+    tick(60 * 60_000 + 1)
+    expect(sessions.toAdd(TEAM, [id('a.pdf')])).toBeNull()
+  })
+  test('a new look forgets what was added', async () => {
+    const { sessions, id } = await look()
+    sessions.allow(TEAM, [id('a.pdf')])
+    const old = id('a.pdf')
+    const again = await look()
+    sessions.begin(TEAM, new Map())
+    expect(await sessions.read(TEAM, old)).toEqual({ ok: false, reason: 'unknown' })
+    expect(await again.sessions.read(TEAM, again.id('a.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+  })
+})
+
 describe('the wiring', () => {
   const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
   const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
   const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
   test('every call is the team page\'s top frame at its origin (fromApp), a read names an id, never a path', () => {
-    for (const ch of ['bridge:work-files-scan', 'bridge:work-files-stop', 'bridge:work-files-read', 'bridge:work-files-settings']) {
+    for (const ch of ['bridge:work-files-scan', 'bridge:work-files-stop', 'bridge:work-files-add', 'bridge:work-files-read', 'bridge:work-files-settings']) {
       const line = main.split('\n').find((l) => l.includes(`'${ch}'`))!
       expect(line, ch).toContain('fromApp(e)')
     }

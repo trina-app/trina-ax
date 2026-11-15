@@ -41,7 +41,7 @@ void (async () => {
   const win = new BrowserWindow({ show: false, width: 400, height: 300 })
   const steps: [number, string][] = []
   let start = 0
-  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => { const k = `${p.root}:${p.place ?? ''}`; if (start && steps.at(-1)?.[1] !== k) steps.push([Math.round(performance.now() - start), k]) }, consent })
+  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => { const k = `${p.root}:${p.place ?? ''}`; if (start && steps.at(-1)?.[1] !== k) steps.push([Math.round(performance.now() - start), k]) }, consent, lastInput: () => Date.now(), memory: { load: () => ({}), save: () => {} }, reading: () => {} })
   ctl.person({ signedIn: true, userId: 'u-alex' })
   const out: Record<string, unknown> = {}
   out.fullDisk = await ctl.fullDisk()
@@ -62,6 +62,8 @@ void (async () => {
   out.leaksPath = JSON.stringify(r).includes(home) || JSON.stringify(r).includes(realpathSync(home))
   out.mail = r.files.some((f) => f.name.includes('MAIL-ONLY'))
   const note = r.files.find((f) => f.name === 'Ideas.md')
+  // the person adds it (TC-3300: only files added are read)
+  if (note) ctl.add('http://127.0.0.1:9', [note.id])
   const x = note ? await ctl.read('http://127.0.0.1:9', note.id) : null
   out.readNote = x && x.ok ? Buffer.from(x.bytes).toString('utf8').slice(0, 5) : x
   console.log('WIDE_RESULT ' + JSON.stringify({ out, asked }))

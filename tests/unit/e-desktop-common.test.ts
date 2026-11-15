@@ -126,7 +126,9 @@ describe('first run: what the team address answered, the help screens, the host 
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
     for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0')
+    expect(win).toContain('return hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })')
+    // the same strip says "Trina is reading N files" while Find work files reads added files (never over the host line)
+    expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')
     // no jump on a signed-in open: the strip waits up to 300 ms for /api/me (a sign-in page shows it at once); a new
     // team page starts the wait again, and an answer (signed in or not) ends it
     expect(win).toContain('const HOSTBAR_WAIT_MS = 300')

@@ -10,7 +10,7 @@ import { realpathSync, renameSync, symlinkSync, utimesSync, writeFileSync, statS
 import { tmpdir, userInfo } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { WorkFilesController } from '../../src/main/work-files'
-import type { ConsentView } from '../../src/common/work-consent'
+import type { ConsentMemory, ConsentView } from '../../src/common/work-consent'
 
 const home = process.env.FOLDER_TEST_HOME ?? ''
 const within = (dir: string, path: string) => {
@@ -48,7 +48,11 @@ void (async () => {
   }
   const win = new BrowserWindow({ show: false, width: 400, height: 300 })
   const progress: unknown[] = []
-  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p), consent })
+  // the person's own presses on the team page (AppWindow: Electron's input events), the remembered yes, the strip
+  let inputAt = 0
+  let memory: ConsentMemory = {}
+  const reading: number[] = []
+  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p), consent, lastInput: () => inputAt, memory: { load: () => memory, save: (m) => { memory = m } }, reading: (n) => reading.push(n) })
   ctl.person({ signedIn: true, userId: 'u-alex' })
   const out: Record<string, unknown> = {}
 
@@ -69,7 +73,14 @@ void (async () => {
     const x = await ctl.read(origin, fid)
     return x.ok ? Buffer.from(x.bytes).toString('utf8') : x.reason
   }
+  // TC-3300: nothing is read before the page adds it, right after the person's own press; then only what was added
+  out.beforeAdd = await text(TEAM, id('Quote template.xlsx'))
+  out.addNoPress = ctl.add(TEAM, [id('Quote template.xlsx')]).state
+  inputAt = Date.now()
+  out.added = ctl.add(TEAM, [id('Quote template.xlsx'), id('proposal.pdf'), id('notes.txt')]).state
+  out.addOtherOrigin = ctl.add(OTHER, [id('Quote template.xlsx')]).state
   out.read = await text(TEAM, id('Quote template.xlsx'))
+  out.notAdded = await text(TEAM, r.files.find((f) => f.root === 'downloads')!.id)
   out.foreignId = await text(TEAM, 'AAAAAAAAAAAAAAAA')
   out.pathAsId = await text(TEAM, join(home, '.aws', 'credentials'))
   out.otherOrigin = await text(OTHER, id('Quote template.xlsx'))
@@ -88,6 +99,16 @@ void (async () => {
   renameSync(notes, `${notes}.old`)
   symlinkSync(join(home, '.aws', 'credentials'), notes)
   out.swappedFile = await text(TEAM, id('notes.txt'))
+
+  out.reading = reading
+
+  // asked once: the yes is remembered for this team and person; with the person's press just now, no window
+  out.remembered = Object.keys(memory)
+  const askedBefore = asked.length
+  await new Promise((r) => setTimeout(r, 3100))
+  inputAt = Date.now()
+  out.secondLook = (await ctl.scan(TEAM)).state
+  out.askedAgain = asked.length - askedBefore
 
   // another person signs in: the look is forgotten
   ctl.person({ signedIn: true, userId: 'u-bo' })

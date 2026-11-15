@@ -29176,3 +29176,43 @@ there may draw, fake or skip the consent).
   (the real window: modal child, early click and Enter after typing ignored, Enter later counts, Escape, a forged answer
   and view request from another window refused, close and forget are a no); `work-files*.spec.ts` record the view.
   Version impact: **patch**.
+
+## Find work files: asked once, reads only what is added (feat/work-files-add-confirm, 2026-11-15, product owner, QA TC-3300)
+
+The security review of #1000 (S6) found that the desktop app read any file of the latest look the team page asked for:
+"contents stay on this computer until you add them" held only by the page's goodwill. A second window "Add N files?"
+was built first and dropped before it shipped: the owner, "창 좀 그만 띄워, 권한만 주다가 일 다 하겠다". Decided instead:
+
+- **Reads only what is added (no window).** `workFiles.add(ids)` (bridge version 2, `WORK_FILES_BRIDGE_VERSION = 2`) names
+  the ticked files as the person presses Add (`web/src/lib/workFiles.ts confirmAdd`, the one Add button of
+  `FindWorkFiles.tsx`, which My files, the member welcome card and the setup's 팀 파일 step all use). The main process
+  takes it only from the team page's top frame (`fromApp`), only within `PERSON_INPUT_MS` (2 s) of the person's own key
+  or mouse press on the team page's view (Electron's `before-input-event` / `before-mouse-event` on that webContents,
+  which no page script can make; `AppWindow.appInputAt`), only for ids of that origin's latest look, each once, within
+  the read limits (100 files, 1 GB, with what was added before). `WorkFileSessions.read` then refuses every id not
+  added (`unknown`); a new look, another person or team forgets what was added.
+- **Asked once.** A yes in the consent window is remembered per team origin and signed-in person
+  (`work-files-consent.json` in the app's data: the time and the places it listed). A later look goes straight to the
+  list when every place of it was in that window, within 90 days, and the person pressed a key or the mouse on the team
+  page within 2 s. A new place (Full Disk Access turned on, a new cloud drive or messenger folder) or 90 days ask again;
+  Not now remembers nothing; another person on the same computer is asked for themselves.
+- **"Trina is reading N files from this computer"** while added files are read: the app's own strip above the team page
+  (the host strip's view, `hostbar.ts`; the team address there wins on sign-in pages), no click, gone when the reads
+  are done or after 15 s without one.
+- **What this does not stop (residual risk, said plainly).** The 2 s check proves that a person is at the team page, not
+  which files they chose: the main process cannot see which element was clicked. A team page that runs a hostile script
+  (a compromised team server, an injected script) can wait for any real click or key press (typing a chat message is
+  enough) and within 2 s name any ids of the latest look: up to 100 files and 1 GB of its places, within the hour after
+  the look. And once a yes is remembered, such a page can start a look without the window, again only right after a real
+  press of the person's. What it does stop: reads and looks with nobody at the page (a background or overnight script),
+  ids never named at an add, ids of another origin, look or person, and anything over the limits. The strip makes
+  reads visible while they happen.
+- Version: an app of version 2 offers nothing to a page of version 1 (whose reads would all be refused); a page of version
+  2 still takes an app of version 1 (no add: the old behaviour), so a newer page works with an older app.
+- Tests: `tests/unit/e-desktop-work-files.test.ts` (only added files are read; ticked then unticked; ids of another
+  origin, twice, over the limits, expired; a new look forgets), `tests/unit/e-desktop-work-consent.test.ts` (asked once:
+  place words, 90 days, new places, per person; wiring of the 2 s check and the strip), `desktop/e2e/work-files.spec.ts`
+  (real Electron: nothing read before add, an add without the person's press or from another origin refused, only added
+  files read, the strip counted down, the second look without the window), `web/test/unit/work-files.test.ts`
+  (`confirmAdd`, versions), `web/test/e2e/find-work-files.spec.ts` (the fake app enforces it; ticked then unticked is
+  never named). Version impact: **minor** (bridge version 2).

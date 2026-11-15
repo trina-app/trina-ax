@@ -7,18 +7,42 @@ import { describe, expect, test } from 'bun:test'
 import { WORK_FILES_BRIDGE_VERSION, folderLabel, FROM_COMPUTER_DIR, type DesktopBridge, type WorkFileMeta, type WorkFileRead } from '@mycel/shared'
 import { FolderUpload, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { personalPath } from '../../src/lib/teamFiles'
-import { docsFromScan, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
+import { confirmAdd, docsFromScan, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
 import { folderWords } from '../../src/lib/folderLabels'
 
 const meta = (name: string, o: Partial<WorkFileMeta> = {}): WorkFileMeta => ({ id: `id-${name}`, root: 'documents', folder: '', name, ext: name.split('.').pop()!, size: 10, modified: Date.UTC(2026, 9, 3, 12), ...o })
 
 describe('which desktop app gets the entry', () => {
-  const w = { version: WORK_FILES_BRIDGE_VERSION, scan: async () => ({ state: 'cancelled' as const }), stop: () => {}, onProgress: () => () => {}, read: async () => ({ ok: false as const, reason: 'unknown' as const }), openSettings: () => {} }
+  const w = { version: WORK_FILES_BRIDGE_VERSION, scan: async () => ({ state: 'cancelled' as const }), stop: () => {}, onProgress: () => () => {}, add: async () => ({ state: 'added' as const }), read: async () => ({ ok: false as const, reason: 'unknown' as const }), openSettings: () => {} }
   test('only one with this version of workFiles (an older app, the Mac App Store build, a browser: none)', () => {
     expect(workFilesBridge(null)).toBeNull()
     expect(workFilesBridge({ bridgeVersion: 1 } as DesktopBridge)).toBeNull()
     expect(workFilesBridge({ bridgeVersion: 1, workFiles: { ...w, version: WORK_FILES_BRIDGE_VERSION + 1 } } as unknown as DesktopBridge)).toBeNull()
     expect(workFilesBridge({ bridgeVersion: 1, workFiles: w } as unknown as DesktopBridge)).toBe(w)
+  })
+  test('version 2 must have add (TC-3300); an app of version 1 (no add) still gets the entry', () => {
+    const { add: _add, ...noAdd } = w
+    expect(workFilesBridge({ bridgeVersion: 1, workFiles: noAdd } as unknown as DesktopBridge)).toBeNull()
+    const v1 = { ...noAdd, version: 1 }
+    expect(workFilesBridge({ bridgeVersion: 1, workFiles: v1 } as unknown as DesktopBridge)).toBe(v1)
+  })
+})
+
+describe('Add names the ticked files to the app before any is read (TC-3300)', () => {
+  const docs = docsFromScan([meta('a.pdf'), meta('b.pdf'), meta('c.pdf')], async () => ({ ok: false, reason: 'unknown' }))
+  test('only the ticked files\' ids, once, as the person presses Add; the answer decides', async () => {
+    const asked: string[][] = []
+    const bridge = (state: 'added' | 'refused') => ({ version: WORK_FILES_BRIDGE_VERSION, add: async (ids: string[]) => { asked.push(ids); return { state } } }) as unknown as Parameters<typeof confirmAdd>[0]
+    // a and c ticked (b ticked, then unticked)
+    expect(await confirmAdd(bridge('added'), [docs[0]!, docs[2]!])).toBe(true)
+    expect(asked).toEqual([['id-a.pdf', 'id-c.pdf']])
+    expect(await confirmAdd(bridge('refused'), [docs[0]!])).toBe(false)
+    // a file not of the look (no id) is never sent
+    expect(await confirmAdd(bridge('added'), [{ ...docs[0]!, workId: undefined }])).toBe(false)
+    expect(await confirmAdd(bridge('added'), [])).toBe(false)
+  })
+  test('an app of version 1 has no add: the old way', async () => {
+    expect(await confirmAdd({ version: 1 } as unknown as Parameters<typeof confirmAdd>[0], [docs[0]!])).toBe(true)
   })
 })
 

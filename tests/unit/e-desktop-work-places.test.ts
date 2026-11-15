@@ -406,11 +406,13 @@ describe('the wide look', () => {
     const r = await filesFromIndex(root, root.path, [idx('C:\\Users\\alex\\OneDrive - Acme\\Cloud.docx', { cloud: true, size: 9000, modified: node.mtimeMs })], fs, { platform: 'win32', newId, now: () => NOW })
     const sessions = new WorkFileSessions(fs, 'win32', () => NOW)
     sessions.begin('http://team', r.found)
+    sessions.allow('http://team', [...r.found.keys()])
     expect((await sessions.read('http://team', r.files[0]!.id)).ok).toBe(true)
     // swapped after the lstat: the open is another file
     const swapped: WorkFs = { ...fs, open: async (p) => { const h = await fs.open(p); return { ...h, stat: async () => ({ ...(await h.stat()), ino: 1n }) } } }
     const s2 = new WorkFileSessions(swapped, 'win32', () => NOW)
     s2.begin('http://team', r.found)
+    s2.allow('http://team', [...r.found.keys()])
     expect(await s2.read('http://team', r.files[0]!.id)).toEqual({ ok: false, reason: 'changed' })
   })
 

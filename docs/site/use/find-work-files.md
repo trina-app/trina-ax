@@ -75,6 +75,12 @@ an Enter you meant for the chat right before the window came up does not answer 
 
 ![The app's own window: Bring your work files into Trina AX. It lists the places with icons, then what it reads and that file names may go to the team's AI, with Not now and Find work files](../images/find-work-files/app-question.webp "The app asks first")
 
+The app asks this once for your team. The next time, the list comes straight away. It asks again after 90 days, or
+when it would look in a place it did not list before (for example after you turn on Full Disk Access).
+
+When you press **Add**, the app reads only the files you ticked. While it does, a strip above the page says
+**Trina AX is reading 3 files from this computer**; it goes away by itself.
+
 On Windows that is the only question: the app looks right away. When OneDrive keeps your Documents or Desktop, the
 list says "Documents (OneDrive)".
 

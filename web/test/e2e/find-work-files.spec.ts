@@ -115,6 +115,10 @@ test('Add: only the ticked files are read, they land in My files › From this c
   const work = page.getByTestId('find-work-work')
   await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
   await work.getByTestId('find-work-row').filter({ hasText: 'Northwind proposal.pptx' }).getByTestId('find-work-check').check()
+  // ticked, then unticked: never named to the app, never read (TC-3300)
+  const brand = work.getByTestId('find-work-row').filter({ hasText: 'Brand guide v3.pdf' }).getByTestId('find-work-check')
+  await brand.check()
+  await brand.uncheck()
   await expect(page.getByTestId('find-work-add')).toHaveText('2개 넣기')
   // slow uploads: the dialog is closed while they go, and the line opens on the same run (its Undo stays reachable)
   await page.request.post('/__test/upload-delay', { data: { ms: 1500 } })
@@ -127,7 +131,8 @@ test('Add: only the ticked files are read, they land in My files › From this c
   expect((await app(page)).scans).toBe(1)
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
   await expect(page.getByTestId('find-work-run-title')).toHaveText('내 파일 › 이 컴퓨터에서에 2개를 넣었어요')
-  // exactly the two ticked files were read, each once
+  // exactly the two ticked files were named to the app at Add (TC-3300) and read, each once
+  expect((await app(page)).adds.map((a) => [...a].sort())).toEqual([['id0', 'id3']])
   expect((await app(page)).reads.sort()).toEqual(['id0', 'id3'])
   expect((await tree(page, 'users/bob/From this computer/Documents')).map((e) => e.name).sort()).toEqual(['Clients', 'Sales'])
   // the older copy is not replaced: the new one gets a name of its own

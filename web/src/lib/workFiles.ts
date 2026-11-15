@@ -20,7 +20,19 @@ export const FIND_WORK_FILES_GUIDE = 'https://ax.trina.app/docs/use/find-work-fi
  * a phone: null, so no entry is shown). */
 export function workFilesBridge(bridge: DesktopBridge | null): WorkFilesBridge | null {
   const w = bridge?.workFiles
-  return w && w.version === WORK_FILES_BRIDGE_VERSION && typeof w.scan === 'function' && typeof w.read === 'function' ? w : null
+  if (!w || typeof w.scan !== 'function' || typeof w.read !== 'function') return null
+  // version 2 asks the person again in the app before any read (add); version 1 (an older app) has no such step
+  if (w.version === WORK_FILES_BRIDGE_VERSION) return typeof w.add === 'function' ? w : null
+  return w.version === 1 ? w : null
+}
+
+/** The ticked files, asked once more in the desktop app's own window (version 2) before any is read: true when the person
+ * said Add there. An app of version 1 has no such window (true). Files that are not of the look (no id) are refused. */
+export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<boolean> {
+  if (typeof bridge.add !== 'function') return true
+  const ids = docs.map((d) => d.workId)
+  if (!ids.length || ids.some((id) => !id)) return false
+  return (await bridge.add(ids as string[]).catch(() => ({ state: 'cancelled' as const }))).state === 'added'
 }
 
 /** The folder in My files the files go to (shared/src/folder-labels.ts: its name on disk, said in the person's words). */
@@ -61,6 +73,7 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
     const rel = joinPath(folder, name)
     return {
       key: `${pick}/${rel}`,
+      workId: f.id,
       pick,
       rel,
       name,

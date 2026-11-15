@@ -425,6 +425,24 @@ body.hostbar {
   margin-left: auto;
   font-size: 13px;
 }
+.hostbar-row.reading .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.hostbar-row.reading .dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: hostbar-pulse 1.4s ease-in-out infinite;
+}
+@keyframes hostbar-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 
 /* ---------------- browser pane toolbar ---------------- */
 /* The view reaches var(--grab) px over the team page's right edge: transparent there (the team page shows through), the

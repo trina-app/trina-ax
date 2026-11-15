@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CONSENT_ARM_MS, CONSENT_URL, ConsentGate, consentSender, consentView } from '../../desktop/src/common/work-consent'
+import { CONSENT_ARM_MS, CONSENT_REMEMBER_MS, CONSENT_URL, ConsentGate, consentSender, consentView, covered, memoryKey, parseMemory, PERSON_INPUT_MS, placeKeys } from '../../desktop/src/common/work-consent'
 import { UI_LOCALES } from '../../desktop/src/common/i18n'
 import type { WorkRoot } from '../../desktop/src/common/work-files'
 import type { Place } from '../../desktop/src/common/work-places'
@@ -161,7 +161,7 @@ describe('the wiring', () => {
     expect(ctl).not.toContain('showMessageBox')
     expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await this.look(roots'))
     // the same roots and places the look then uses
-    expect(ctl).toContain('const yes = await this.consent(win, roots, wide ? places : null)')
+    expect(ctl).toContain('const yes = remembered || (await this.consent(win, roots, wide ? places : null))')
     expect(ctl).toContain('consentView(this.o.locale(), process.platform, roots, places)')
     // another person or team closes it as a no
     expect(ctl).toMatch(/forget\(\) \{\s*this\.asking\?\.close\(\)/)
@@ -182,5 +182,68 @@ describe('the wiring', () => {
     expect(main).not.toContain('consent:')
     expect(consentPreload.match(/ipcRenderer\.\w+\(/g)).toEqual(['ipcRenderer.sendSync(', 'ipcRenderer.send('])
     expect(consentPreload).toContain("ipcRenderer.send('consent:answer', yes === true)")
+  })
+})
+
+describe('asked once per team and person (owner, 2026-11-15)', () => {
+  const now = Date.UTC(2026, 10, 15)
+  test('the places as stable words: folders (OneDrive marked), then each place and the recent files for a wide look', () => {
+    expect(placeKeys(roots, null)).toEqual(['folder:desktop', 'folder:documents', 'folder:downloads'])
+    expect(placeKeys([{ ...roots[0]!, oneDrive: true }], places)).toEqual(['cloud:OneDrive – Acme', 'folder:Acme', 'folder:documents:onedrive', 'messenger:KakaoTalk', 'recent'])
+  })
+  test('a yes covers the same places or fewer, for 90 days; a new place (Full Disk Access on) asks again', () => {
+    const narrow = placeKeys(roots, null)
+    const wide = placeKeys(roots, places)
+    const yes = { at: now, places: narrow }
+    expect(covered(yes, narrow, now + 1000)).toBe(true)
+    expect(covered(yes, narrow.slice(0, 2), now)).toBe(true)
+    expect(covered(yes, wide, now)).toBe(false)
+    expect(covered({ at: now, places: wide }, narrow, now)).toBe(true)
+    expect(covered(yes, narrow, now + CONSENT_REMEMBER_MS + 1)).toBe(false)
+    expect(covered(yes, narrow, now - 1)).toBe(false)
+    expect(covered(undefined, narrow, now)).toBe(false)
+  })
+  test('per team and person; a broken or old file remembers nothing', () => {
+    expect(memoryKey('https://acme.trina.app', 'u-alex')).not.toBe(memoryKey('https://acme.trina.app', 'u-bo'))
+    expect(parseMemory('nope', now)).toEqual({})
+    expect(parseMemory({ a: { at: 'x', places: [] }, b: { at: now - CONSENT_REMEMBER_MS - 1, places: [] }, c: { at: now, places: ['folder:documents'] } }, now)).toEqual({ c: { at: now, places: ['folder:documents'] } })
+    const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`t${i}`, { at: now - i, places: [] }]))
+    expect(Object.keys(parseMemory(many, now))).toHaveLength(50)
+  })
+  test('without the window, the person\'s own press counts for 2 s', () => {
+    expect(PERSON_INPUT_MS).toBe(2000)
+  })
+})
+
+describe('reads only what the person added, right as they press Add (TC-3300)', () => {
+  const read = (p: string) => readFileSync(join(import.meta.dir, '../..', p), 'utf8')
+  const ctl = read('desktop/src/main/work-files.ts')
+  const win = read('desktop/src/main/app-window.ts')
+  const main = read('desktop/src/main/main.ts')
+  const preload = read('desktop/src/preload/app.ts')
+  test('add: the team page\'s top frame only, ids only; the person\'s press within 2 s, then the session\'s own checks', () => {
+    const line = main.split('\n').find((l) => l.includes("'bridge:work-files-add'"))!
+    expect(line).toContain('fromApp(e) && e.senderFrame')
+    expect(line).toContain('win!.workFiles.add(e.senderFrame.origin,')
+    expect(preload).toContain("add: (ids: string[]) => ipcRenderer.invoke('bridge:work-files-add'")
+    const add = ctl.slice(ctl.indexOf('  add(origin: string, ids: string[])'), ctl.indexOf('  /** the files added and not read yet'))
+    expect(add.indexOf('Date.now() - this.o.lastInput() > PERSON_INPUT_MS')).toBeGreaterThan(-1)
+    expect(add.indexOf('Date.now() - this.o.lastInput() > PERSON_INPUT_MS')).toBeLessThan(add.indexOf('this.sessions.allow(origin, ids)'))
+    expect(add).toContain('this.sessions.toAdd(origin, ids)')
+  })
+  test('the person\'s press: Electron\'s key and mouse events on the team page\'s own view (no page script makes them)', () => {
+    expect(win).toContain("if (i.type === 'keyDown' && view === this.app) this.appInputAt = Date.now()")
+    expect(win).toContain('if (view === this.app) this.appInputAt = Date.now()')
+    expect(win).toContain('lastInput: () => this.appInputAt')
+    expect(win).not.toMatch(/appInputAt = Date\.now\(\)[^\n]*ipc/)
+  })
+  test('a remembered yes skips the window only with the person\'s press just now; Not now remembers nothing', () => {
+    expect(ctl).toContain('const remembered = !!key && covered(memory[key], keys, Date.now()) && Date.now() - this.o.lastInput() <= PERSON_INPUT_MS')
+    expect(ctl).toContain('const yes = remembered || (await this.consent(win, roots, wide ? places : null))')
+    expect(ctl).toContain('if (yes && !remembered && key && generation === this.generation)')
+  })
+  test('the reading strip is the app\'s own (the host strip\'s view), never the page\'s', () => {
+    expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')
+    expect(read('desktop/src/ui/hostbar.ts')).toContain("tr('workFiles.reading', { n: String(reading) })")
   })
 })

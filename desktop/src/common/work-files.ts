@@ -576,6 +576,8 @@ interface Session {
   bytes: number
   /** reads in all, a file read again included */
   reads: number
+  /** the files the person said Add to in the app's own window (WorkFilesController.add): only these are read */
+  added: Set<string>
 }
 
 /** The latest look of each team origin, for the person signed in (a sign-out or another person forgets them all). */
@@ -598,7 +600,29 @@ export class WorkFileSessions {
 
   /** A new look for this origin: it replaces the one before (its ids read nothing any more). */
   begin(origin: string, found: Map<string, Found>) {
-    this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0, reads: 0 })
+    this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0, reads: 0, added: new Set() })
+  }
+
+  /** The files these ids name in this origin's latest look, for the app's Add window: null when the look is gone or
+   * expired, an id is not of it, an id is named twice, or they are over the read limits (files, bytes) all together. */
+  toAdd(origin: string, ids: readonly string[]): { name: string; size: number }[] | null {
+    const s = this.sessions.get(origin)
+    if (!s || this.now() - s.at > this.lim.sessionMs || !ids.length || new Set(ids).size !== ids.length) return null
+    const files = ids.map((id) => s.found.get(id))
+    if (files.some((f) => !f)) return null
+    // with what was added before in this look: the same limits the reads keep
+    const all = new Set([...s.added, ...ids])
+    const bytes = [...all].reduce((n, id) => n + (s.found.get(id)?.size ?? 0), 0)
+    if (all.size > this.lim.readFiles || bytes > this.lim.readBytes) return null
+    return files.map((f) => ({ name: f!.parts.at(-1) ?? '', size: f!.size }))
+  }
+
+  /** The person said Add to these files in the app's own window: they (and nothing else of the look) may be read now. */
+  allow(origin: string, ids: readonly string[]): boolean {
+    const s = this.sessions.get(origin)
+    if (!s || this.now() - s.at > this.lim.sessionMs || ids.some((id) => !s.found.has(id))) return false
+    for (const id of ids) s.added.add(id)
+    return true
   }
 
   /** This origin has a look to add to (not expired). */
@@ -631,7 +655,8 @@ export class WorkFileSessions {
       return { ok: false, reason: 'expired' }
     }
     const f = s.found.get(id)
-    if (!f) return { ok: false, reason: 'unknown' }
+    // a file the person did not add in the app's own window is not read, whatever the page asks (TC-3300)
+    if (!f || !s.added.has(id)) return { ok: false, reason: 'unknown' }
     const again = s.read.has(id)
     // a file read again counts once, but reads in all are limited too (a page reading one file over and over)
     if (s.reads >= this.lim.readFiles * 3) return { ok: false, reason: 'limit' }

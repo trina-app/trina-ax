@@ -61,6 +61,15 @@ test('the app asks first, looks without following links, and reads only ids of i
     expect(out.leaksPath).toBe(false)
     expect(out.progress).toBe(true)
     // reads: an id of the look; never a made-up id, a path, or another origin
+    // TC-3300: nothing read before the add; an add without the person's press, or from another origin, is refused;
+    // after the add only what was added is read; the strip counted the reads down to 0
+    expect([out.beforeAdd, out.addNoPress, out.added, out.addOtherOrigin]).toEqual(['unknown', 'refused', 'added', 'refused'])
+    expect(out.notAdded).toBe('unknown')
+    expect(out.reading[0]).toBe(3)
+    expect(out.reading.at(-1)).toBe(0)
+    // asked once: remembered for this team and person, the next look goes without the window
+    expect(out.remembered).toEqual(['http://127.0.0.1:9 u-alex'])
+    expect([out.secondLook, out.askedAgain]).toEqual(['done', 0])
     expect(out.read).toBe('QUOTE')
     expect([out.foreignId, out.pathAsId, out.otherOrigin]).toEqual(['unknown', 'unknown', 'unknown'])
     // swapped for links after the look: refused, the made-up secret stays unread
