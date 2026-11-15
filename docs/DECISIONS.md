@@ -15263,7 +15263,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   `shared_chat_busy` names the runner ("○○님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요."), and
   `Chat.shared.answering` says the same (with `waiting` while their card is open). No queued sends.
 - **What a shared turn has.** `SHARED_TOOLS` = `ROOM_TOOLS` without the room's own tools: no memories, chat title,
-  connections, Drive, schedules, browser, box, dev environment or room reading. The PC runner (not merged yet) must be
+  connections, Drive, schedules, browser, box, dev environment or room reading (amended 2026-11-15: `post_to_room` is
+  in it, "Sending to a person or a room from a shared chat"). The PC runner (not merged yet) must be
   off there too. The instructions come from `SHARED_PROMPT_SECTIONS` (like the room's allowlist, with the project): the
   person lines name only the person's name and id and folders everyone who sees the chat may read; skills, team rules
   and the company profile only what they all read; no memories. A "Shared project chat" section says who sees it,
@@ -26308,7 +26309,8 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   goes (not offered on a card with [파일도 함께 보내기], as before).
 - **Unchanged.** Always one card unless "Always allow" is on;
   every place post_to_room is not offered (scheduled run, confidential chat, shared project chat, Slack, a restricted or
-  template run, a sub-agent). Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
+  template run, a sub-agent). (Amended 2026-11-15: shared chats have it now, "Sending to a person or a room from a
+  shared chat" below.) Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
   `own_words`, and to ask when several match.
 - No migration.
 
@@ -29054,6 +29056,60 @@ address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: *
   already did. box_shell (developer environments) runs its command as given; its shown command is already hidden.
 - Tests: `tests/unit/c-integrations-secret-files.test.ts`, `c-integrations-secret-echo.test.ts`.
 - Version impact: **patch** (a security fix; no new feature or API change).
+
+## Sending to a person or a room from a shared chat (fix/shared-chat-send-to-person, 2026-11-15, the owner, QA TC-3091)
+
+- **Problem.** In a chat shared with people, a member asked "저것들 대현도 볼 수 있게 공유해줘" (send these two photos
+  from my folder to my teammate). The AI refused and blamed Slack: it had no way to send. `post_to_room` was left out of
+  shared chats (`postToRoomOff`, `SHARED_TOOLS`), and the shared prompt listed "posting to a room" as unavailable.
+- **Decision (Option A, the owner: do it now).** `post_to_room` is offered in shared chats (a project's and one shared
+  with people), the same tool with the same card and checks as in the person's own chat, acting as the person who sent
+  the latest message: a turn is its sender's (`spec.userId`, "Shared project chats"). To a teammate by name the message
+  goes to the asker's 1:1 chat with them (made on send when there is none); to a room the asker is in, as before.
+  Amends "post_to_room" and "post_to_room to a person" (not offered in a shared project chat) and "Shared project chats"
+  (`SHARED_TOOLS`). Room reading (`rooms`, `room_read`, `room_file`, `save_room_file`) stays off there.
+- **Why it is safe.** Nothing new is reachable: the "대화방에 보내기" button under an answer of one's own turn already
+  sends from a shared chat with the same checks (`prepareShare` / `sendShare`), and the tool adds only the card.
+  - The card (`ask_user`, origin server) goes to the asker alone: cards of a shared chat are the runner's
+    (`TurnExec.waitForPerson`), and anyone else answering is refused (`shared_chat_runner`). It shows the recipient (a
+    new 1:1 chat says so), all of the text and, for [파일도 함께 보내기], the file names; nothing goes until the asker
+    presses send. An answer the card does not offer is refused.
+  - Other people's messages are information: the shared prompt says to call it only when the asker's own message asks,
+    never for another person's message, a file or a page; and whatever the AI does, the call meets the asker's card.
+  - Files: only links to files the asker may open now are offered as copies, and `RoomFiles.fromTeamFile` checks the
+    asker's read access again when it copies; a file they cannot read is never attached and never named.
+  - The provenance and access lines, hidden answers, the sending budget, the redactor and the audit row
+    (`room.answer_share`, `via: 'ai'`) are the asker's, as in their own chat.
+  - The asker's room names never reach the others (security review of #980). A group chat's title is its members'
+    names, and the AI writes where everyone in the chat reads, so in a shared chat the AI is never given a room's or
+    person's title: its results name the place by the words it gave (`"<room>"`). When several rooms or people match,
+    the AI gets no list: the asker picks on a card only they get ("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?",
+    `postRoomPick`), then the send card follows; [보내지 않기] or no answer posts nothing. Other viewers see a
+    post_to_room step as its verb alone ("대화방에 보내기"), without the room, detail or `posted`, whether it was sent,
+    cancelled or refused (`ChatStore.viewSteps`); live step frames go to the runner only.
+  - Unchanged: a sub-agent never gets it; confidential chats, scheduled runs, Slack questions, restricted and template
+    runs never offer it.
+- **Always allow, narrowed in shared chats** (security review of #980). Other people's messages are in the AI's
+  context there, so the asker's "Always allow" for posts counts only when the asker's own latest message names the
+  recipient as matched (`namesRecipient`: the person's name or username, a 1:1 chat's other person, a room's or its
+  group's name; or the words the AI gave when they are in the message and are that name in full or one word of it, or,
+  for a person's Hangul name only, its end, like "대현" for "남대현"; two letters at least; fails closed). Outside
+  Hangul a name counts only as whole words ("jo" is not in "join", "design" not in "redesign"; a Korean particle after
+  it is fine: "Bob에게"); in Hangul a part counts, so particles match ("대현에게"). Rooms and group names never use the
+  ending rule. A check's refusal in a shared chat gives the AI a generic line, never the server's own message (it could
+  name a room). Otherwise the card shows (without the "Always
+  allow" choice). `own_words` never goes without the card there, and a card that offers files always asks, as
+  everywhere. In the asker's own chat nothing changes.
+- **Prompt.** `sharedSection(…, post)`: with the tool, one line says to use post_to_room for "send/share this with
+  <person>", to link team files and leave `own_words` off so the card offers them, that the files go to that person's
+  1:1 chat with the asker, and to say it was sent only on "sent"; posting leaves the "Not available" list (reading team
+  chat rooms stays in it, with the "Continue in a chat only you see" advice). A sub-agent's instructions keep the old
+  line.
+- **Removed.** `postToRoomOff`'s shared-chat refusal (unreachable now).
+- Tests: `tests/unit/b-post-to-room.test.ts` "a shared chat: …" (offered, the instructions, two photos to a new 1:1
+  chat with the card only to the asker, another member's request still meets the asker's card and only the asker may
+  answer it, a file the asker cannot read never goes).
+- Version impact: **patch** (a missing action restored in shared chats; no API change, no migration).
 
 ## Owner transfer keeps every connection unless asked (fix/owner-transfer-keep-default, 2026-11-15, QA TC-3095)
 

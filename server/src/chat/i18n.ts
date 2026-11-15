@@ -242,6 +242,8 @@ export const TEXT = {
   postRoomSend: t('보내기', 'Send', 'Kirim', '送る', 'Enviar', '发送'),
   postRoomSendFiles: t('파일도 함께 보내기', 'Send with the files', 'Kirim dengan berkasnya', 'ファイルも一緒に送る', 'Enviar con los archivos', '连同文件发送'),
   postRoomDont: t('보내지 않기', "Don't send", 'Jangan kirim', '送らない', 'No enviar', '不发送'),
+  // a shared chat: several rooms or people match the name; the asker picks on this card (the AI never gets the list)
+  postRoomPick: t("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?", "Several rooms or people match '{ref}'. Where should it go?", "Beberapa ruang atau orang cocok dengan '{ref}'. Kirim ke mana?", '「{ref}」に当てはまる送り先が複数あります。どこに送りますか？', "Varias salas o personas coinciden con '{ref}'. ¿Adónde lo envío?", '有多个群聊或人与“{ref}”匹配。要发送到哪里？'),
   postRoomNotSent: t('보내지 않았어요', 'Not sent', 'Tidak dikirim', '送っていません', 'No se envió', '未发送'),
   postRoomEveryone: t('전체', 'Everyone', 'Semua', '全員', 'Todos', '所有人'),
   postRoomTeam: t('팀 대화방', 'team room', 'ruang tim', 'チームルーム', 'sala del equipo', '团队群聊'),
