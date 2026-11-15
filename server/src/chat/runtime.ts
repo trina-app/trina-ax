@@ -33,6 +33,7 @@ import { launcherStatus } from '../native'
 import { MCP_TOOL_TIMEOUT_MS } from '../engine/claude'
 import { maskStoredTitles, placeholderTitle } from './title'
 import { hideKeysInStoredMemories, redactorFor } from '../integrations/connections/redact'
+import { findKeysInOldFiles } from '../integrations/connections/file-scan'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
@@ -340,9 +341,15 @@ export class ChatRuntime {
         const hidden = hideKeysInStoredMemories(ctx)
         if (hidden) this.log.info('stored keys in memories were hidden', { n: hidden })
       } catch (e) { this.log.warn('hiding stored keys in memories failed', { err: e }) }
+      // then files the AI saved earlier with a stored key in them: their person is told, nothing is rewritten
+      // (connections/file-scan.ts); counts only in the log
+      void findKeysInOldFiles(ctx, { stopped: () => stopped }).then((r) => {
+        if (r.found || !r.done) this.log.info('older AI-made files checked for stored keys', { scanned: r.scanned, found: r.found, people: r.people, done: r.done })
+      }, (e) => { if (!stopped) this.log.warn('checking older AI-made files for stored keys failed', { err: e }) })
     }, 5_000)
     ;(memoryScan as { unref?: () => void }).unref?.()
-    ctx.onClose(() => clearTimeout(memoryScan))
+    let stopped = false
+    ctx.onClose(() => { stopped = true; clearTimeout(memoryScan) })
     // engine folders a launcher did not take before the last stop (chat/forget.ts)
     const retry = setTimeout(() => { void retryPendingForgets(ctx) }, 30_000)
     ;(retry as { unref?: () => void }).unref?.()
