@@ -29158,7 +29158,8 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   whole call is refused (KeyRefusal), the AI is told why, and the audit line says "not sent (a stored key in its
   data)". The redactor's patterns do not match across whitespace, so every value is also checked with its whitespace
   taken out: a key that shows only then (base64 wrapped across lines, a key cut by a space or a line break) refuses the
-  call too (security review of #981).
+  call too (security review of #981). The check runs on what would be sent (after hiding), so a whole copy that was
+  hidden does not let a split copy in the same text go out.
 - **Fails closed.** Calls to connected services are checked with `completeRedactorFor` (every stored secret of the
   person, read now); when one cannot be read the call is not sent, the AI is told so in a plain line and the audit
   line says "not sent (stored keys could not be read)". The saving tools of the entry above keep the turn's redactor.

@@ -73,6 +73,14 @@ describe('the arguments of a call to a connected service (hide-args.ts hideAllAr
     expect(() => hideAllArgs({ text: `b64: ${B64.slice(0, 9)}\n${B64.slice(9)}` }, r)).toThrow(KeyRefusal)
   })
 
+  test('a whole copy hidden does not let a split copy of the key in the same text go out', () => {
+    expect(() => hideAllArgs({ text: `${KEY} and again ${KEY.slice(0, 7)}\n${KEY.slice(7)}` }, r)).toThrow(KeyRefusal)
+    expect(() => hideAllArgs({ text: `${KEY}, then ${KEY.slice(0, 5)} ${KEY.slice(5)}.` }, r)).toThrow(KeyRefusal)
+    expect(() => hideAllArgs({ text: `base64 ${B64}\nwrapped ${B64.slice(0, 12)}\n${B64.slice(12)}` }, r)).toThrow(KeyRefusal)
+    // several whole copies with spaces and lines between them: hidden, sent
+    expect(hideAllArgs({ text: `${KEY}\n${KEY} ${B64}` }, r).args).toEqual({ text: `${HIDDEN}\n${HIDDEN} ${HIDDEN}` })
+  })
+
   test('write looks up the file it overwrites at the path it really writes (the hidden one)', () => {
     const asked: string[] = []
     const out = hideKeysInArgs('write', { file_path: `notes/${KEY}.md`, content: `KEY=${KEY}` }, r, (p) => { asked.push(p); return p === `notes/${HIDDEN}.md` ? `KEY=${KEY}` : null })

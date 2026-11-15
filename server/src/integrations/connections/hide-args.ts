@@ -123,10 +123,12 @@ export function hideAllArgs(args: unknown, r: Redactor): HiddenArgs {
   let hidden = false
   const one = (s: string): string => {
     const h = r.hide(s)
-    const flat = s.replace(/\s+/g, '')
-    const split = flat !== s && r.hide(flat) !== flat
-    if (h === s && !split) return s
-    if (h === s || BLOB.test(flat)) throw new KeyRefusal(DATA_REFUSAL)
+    // what would be sent, with its whitespace taken out: a key still there was cut by a space or a line break (also
+    // next to a whole copy that was hidden; HIDDEN itself becomes "[hiddenkey]", which matches nothing)
+    const flat = h.replace(/\s+/g, '')
+    if (flat !== h && r.hide(flat) !== flat) throw new KeyRefusal(DATA_REFUSAL)
+    if (h === s) return s
+    if (BLOB.test(s.replace(/\s+/g, ''))) throw new KeyRefusal(DATA_REFUSAL)
     hidden = true
     return h
   }
