@@ -4260,6 +4260,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.info.nameHintTeam": "留空则使用原始名称。",
   "rooms.info.nameHintGroup": "留空则显示成员姓名。",
   "rooms.info.invite": "添加到群聊",
+  "rooms.info.addPeople": "添加成员",
   "rooms.info.leave": "退出群聊",
   "rooms.info.leaveTitle": "退出此群聊？",
   "rooms.info.leaveBody": "你将无法再看到此群聊的消息和文件。如果再次被添加，你会看到之后的内容。",

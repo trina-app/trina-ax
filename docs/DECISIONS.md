@@ -29867,21 +29867,24 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   active guests' names; it opens `/admin/members?role=guest` (Members reads `?role=guest` as its first Role filter). The
   Members card (and the phone's Admin list value) counts team members only, as the Members page header does. No
   sidebar item: it would open the same page as Members & invites, which is not lean.
-- **Left or removed** (S3): `User.guest.leftThemselves` (optional, `true` only with `placeOut: 'left'`): the last
-  audit row that switched the account off (`user.update` with status disabled) was written by the guest themselves,
-  which is the room service's leave (`afterGuestsLeft` passes the leaver as the actor). No migration: `audit_log` is
-  never swept. Admin's hidden rows read "Left '…' on their own" or "… · Removed", and the toggle names what it holds:
-  "Show guests who left", "Show removed guests", or both. The guest's leave dialog says they can't sign in any more
-  (the account is switched off and Admin still lists it), not that the account goes.
+- **Left or removed** (S3): `User.guest.leftThemselves` (optional, `true` only with `placeOut: 'left'`), from the new
+  column `guests.left_at` (migration 125, reader level 8 like 122): set when the server switches a guest off because
+  they left their place themselves (`disableGuestIfPlaceless` with the guest as the actor: only the room service's
+  leave), cleared by any switch an admin makes by hand. Not read from `audit_log`, which is purged after its retention;
+  the migration fills it from the log for guests who left before. Admin's hidden rows read "Left '…' on their own" or
+  "… · Removed", and the toggle names what it holds: "Show guests who left", "Show removed guests", or both. The
+  guest's leave dialog says they can't sign in any more (the account is switched off and Admin still lists it), not
+  that the account goes.
 - **A trashed project's guest** (S4) is listed with the active ones, with Restore project, not behind the toggle; the
   count beside the title stays the active guests (the plan's count).
-- **N1/N2**: the invite dialog's title follows the tab (팀원 초대 / 게스트 초대); the Guests title's count is "1/3명" /
-  "1 of 3" (no second "Guests").
+- **N1/N2**: Admin's button is 사람 초대 / Invite people (it opens both tabs); the dialog's title follows the tab
+  (팀원 초대 / 게스트 초대); the Guests title's count is "1/3명" / "1 of 3" (no second "Guests").
 - **Names** (owner, 2026-11-15): a group chat is 그룹 대화 / group chat (never 방, 대화방 or chat room); a sentence about
   any conversation (DMs, group chats, team rooms) says 대화 / conversation; the team rooms' section name stays. 게스트,
   never 손님. Someone who is or becomes a full member is 팀원 / team member (counts in headers keep 멤버). The team owner
   is 팀장 (role.owner) in Korean; 소유자 went (a scheduled task's "owner" is "the person who made it"). 초대하기 split
-  into 팀원 초대, 게스트 초대 and 그룹 대화에 추가. A group chat's manager: 대화 관리자 / Chat manager. The guest AI
+  into 팀원 초대, 게스트 초대 and 그룹 대화에 추가 (a DM's menu says 사람 추가 / Add people: there is no group chat
+  yet). A group chat's manager: 대화 관리자 / Chat manager. The guest AI
   notice says "중요한 내용은 확인해 주세요" like every other chat. Same in id, ja, es, zh, the server's messages and
   docs/site (en, zh).
 - **Korean particles**: `format` resolves "을(를)" after a name only when it can tell how the name is read; a name it

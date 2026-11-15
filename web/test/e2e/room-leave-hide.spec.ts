@@ -132,7 +132,7 @@ test('the room header\'s "⋯" by kind; 초대하기 (the add list); 알림 설�
   // a DM: hide; hiding the room on screen goes to the list
   await page.goto(`/rooms/${DM}`)
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['상단에 고정', '그룹 대화에 추가', '알림 설정', '앱 추가', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '사람 추가', '알림 설정', '앱 추가', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
@@ -338,7 +338,7 @@ test.describe('phone', () => {
     await expect(page.getByTestId('room-notify')).toHaveCount(0)
     await page.getByTestId('room-menu').click()
     // the header's "⋯" also has 초대하기 (the add list), after the pin
-    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '그룹 대화에 추가', /^알림 설정\s*· \S/, '앱 추가', '링크 복사', '대화 숨기기'])
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '사람 추가', /^알림 설정\s*· \S/, '앱 추가', '링크 복사', '대화 숨기기'])
   })
 })
 

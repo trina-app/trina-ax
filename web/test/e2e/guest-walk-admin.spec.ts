@@ -47,7 +47,7 @@ async function start(page: Page, locale: 'ko' | 'en') {
 }
 
 const WORDS = {
-  ko: { card: '게스트 1/3명', count: '1/3명', left: "'Quote prep'에서 직접 나갔어요", removed: "'Quote prep'에 이제 없어요 · 내보냄", toggle: '나간·내보낸 게스트 보기 (2)', titleMember: '팀원 초대', titleGuest: '게스트 초대', button: '팀원 초대' },
+  ko: { card: '게스트 1/3명', count: '1/3명', left: "'Quote prep'에서 직접 나갔어요", removed: "'Quote prep'에 이제 없어요 · 내보냄", toggle: '나간·내보낸 게스트 보기 (2)', titleMember: '팀원 초대', titleGuest: '게스트 초대', button: '사람 초대' },
   en: { card: '1 of 3 guests', count: '1 of 3', left: "Left 'Quote prep' on their own", removed: "No longer in 'Quote prep' · Removed", toggle: 'Show guests who left or were removed (2)', titleMember: 'Invite a team member', titleGuest: 'Invite a guest', button: 'Invite people' },
 } as const
 

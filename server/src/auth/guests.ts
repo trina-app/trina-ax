@@ -238,15 +238,6 @@ export function placeName(db: Database, place: GuestPlace): string {
 }
 
 /** Me.guest / User.guest: the guest's one place with its name, and their AI; undefined for anyone else. */
-/** A removed guest out of their place who switched themselves off by leaving it (the last audit row that switched the
- * account off was written by the guest: rooms/service.ts passes the leaver as the actor), not taken out or removed by
- * someone else. audit_log is never swept (system/retention.ts), so the answer stays. */
-function leftThemselves(db: Database, userId: string): boolean {
-  const r = db.query(`SELECT actor_id FROM audit_log WHERE action = 'user.update' AND target = ? AND detail LIKE '%"status":"disabled"%'
-    ORDER BY id DESC LIMIT 1`).get(userId) as { actor_id: string | null } | null
-  return r?.actor_id === userId
-}
-
 export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } | undefined {
   const r = guestRow(db, userId)
   if (!r) return undefined
@@ -261,8 +252,8 @@ export function guestDetail(db: Database, userId: string): { place: GuestPlace &
   const gone = r.ai === 'team' && ai.mode === 'none' && !teamCredentialLive(db, userId)
   // Team AI whose monthly limit is used up now: Admin's row says so (QA TC-2206)
   const usedUp = ai.mode === 'team' && !!budgetBlock(db, userId, 'en')
-  // left it on their own (Admin lists them as "Left", not "Removed")
-  const self = out === 'left' && leftThemselves(db, userId)
+  // left it on their own (guests.left_at, admin/guests.ts): Admin lists them as "Left", not "Removed"
+  const self = out === 'left' && !!(db.query('SELECT left_at FROM guests WHERE user_id = ?').get(userId) as { left_at: string | null } | null)?.left_at
   return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(self ? { leftThemselves: true as const } : {}), ...(gone ? { teamAiGone: true as const } : {}), ...(usedUp ? { aiUsedUp: true as const } : {}),
     ...(ai.mode === 'team' ? { aiUse: guestAiUse(db, userId) } : {}) }
 }

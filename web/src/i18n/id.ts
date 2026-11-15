@@ -4318,6 +4318,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.info.nameHintTeam": "Kosongkan untuk memakai nama semula.",
   "rooms.info.nameHintGroup": "Kosongkan untuk menampilkan nama anggota.",
   "rooms.info.invite": "Tambahkan ke obrolan grup",
+  "rooms.info.addPeople": "Tambah orang",
   "rooms.info.leave": "Keluar dari obrolan grup",
   "rooms.info.leaveTitle": "Keluar dari obrolan grup ini?",
   "rooms.info.leaveBody": "Anda tidak akan melihat pesan dan berkas obrolan grup ini lagi. Jika ditambahkan lagi, Anda melihatnya mulai saat itu.",

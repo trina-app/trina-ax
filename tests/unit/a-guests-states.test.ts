@@ -194,6 +194,9 @@ test('Admin tells a guest who left on their own from one who was taken out (left
   const left = (await guestRow(owner, g.id)).guest
   expect(left?.placeOut).toBe('left')
   expect(left?.leftThemselves).toBe(true)
+  // kept on the guest, not read from the activity log (which is purged after its retention)
+  h.ctx.db.query("DELETE FROM audit_log WHERE target = ?").run(g.id)
+  expect((await guestRow(owner, g.id)).guest?.leftThemselves).toBe(true)
   // taken out by someone else: off and out the same way, but not "left themselves"
   const g2 = await addGuest(h, mia.client, { username: 'gia', place: { kind: 'room', id: room } })
   await owner.call('DELETE', `/api/rooms/${room}/members/${g2.id}`)
@@ -204,6 +207,10 @@ test('Admin tells a guest who left on their own from one who was taken out (left
   const g3 = await addGuest(h, mia.client, { username: 'gwen', place: { kind: 'room', id: room } })
   await owner.call('PATCH', `/api/admin/users/${g3.id}`, { status: 'disabled' })
   expect((await guestRow(owner, g3.id)).guest?.leftThemselves).toBeUndefined()
+  // switched on and off by hand afterwards: an admin decided, so no longer "left on their own"
+  h.ctx.db.query("UPDATE guests SET left_at = '2026-11-15T00:00:00Z' WHERE user_id = ?").run(g3.id)
+  await owner.call('PATCH', `/api/admin/users/${g3.id}`, { status: 'disabled' })
+  expect((h.ctx.db.query('SELECT left_at FROM guests WHERE user_id = ?').get(g3.id) as { left_at: string | null }).left_at).toBeNull()
   // an active guest never carries it
   const g4 = await addGuest(h, mia.client, { username: 'gail', place: { kind: 'room', id: room } })
   expect((await guestRow(owner, g4.id)).guest?.leftThemselves).toBeUndefined()
