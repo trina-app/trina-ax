@@ -17,6 +17,11 @@ import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
 import { emailUsedByOther, isGuest } from '../auth/guests'
 import { msg } from '../auth/messages'
+import type { RouteModule } from './module'
+import { reachedAt } from '../system/connection'
+import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
+import { myUsage } from '../admin/my-usage'
+import { registerAccountDeletionRoutes } from './account-deletion'
 
 /** a guest's e-mail changes (an address, not clearing it) per hour, in this process: enough for typos, too few to probe */
 export const GUEST_EMAIL_TRIES = 10
@@ -28,11 +33,6 @@ function guestEmailTry(userId: string, now: number): boolean {
   guestEmailTries.set(userId, recent)
   return true
 }
-import type { RouteModule } from './module'
-import { reachedAt } from '../system/connection'
-import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
-import { myUsage } from '../admin/my-usage'
-import { registerAccountDeletionRoutes } from './account-deletion'
 
 export const authRoutes: RouteModule = {
   name: 'auth',
