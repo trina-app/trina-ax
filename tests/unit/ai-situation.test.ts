@@ -138,9 +138,11 @@ describe('the block per state', () => {
     expect(t).toContain('App: the Trina AX phone app.')
     for (const no of ['Admin', 'Settings', 'AI providers', 'Usage', 'Connectors', 'Team plan', 'Role:']) expect(t).not.toContain(no)
     expect(say({ role: 'guest', guest: true, app: null })).toBe('')
-    for (const app of ['web', 'desktop'] as const) {
+    expect(say({ role: 'guest', guest: true, app: 'desktop' })).toContain('App: the Trina AX desktop app.')
+    for (const app of ['web', 'desktop', 'desktop-browser'] as const) {
       const g = say({ role: 'guest', guest: true, app, web: false })
       for (const no of ['Admin', 'Settings', 'AI providers', 'web tools', 'Role:']) expect(g).not.toContain(no)
+      if (app !== 'web') expect(g).not.toContain('browser')
     }
   })
 
