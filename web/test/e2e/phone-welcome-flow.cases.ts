@@ -40,7 +40,7 @@ async function toInvite(page: Page) {
   await stepIs(page, 'files')
   await page.getByTestId('welcome-later').click()
   await stepIs(page, 'invite')
-  await expect(page.getByTestId('team-link-message')).toContainText('/join#')
+  await expect(page.getByTestId('team-link-message')).toHaveValue(/\/join#/)
 }
 
 const tall = async (page: Page, testId: string) => expect((await page.getByTestId(testId).first().boundingBox())!.height).toBeGreaterThanOrEqual(44)
@@ -145,15 +145,17 @@ export function welcomeFlowCases() {
     await newOwner(page)
     await toInvite(page)
     // one intro for both since the short invite dialog (ebd5788f4); the share or copy button says the rest
-    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 링크를 보내세요.')
+    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 메시지를 보내세요.')
     const share = page.getByTestId('team-link-share')
     await expect(share).toHaveText('메시지 보내기')
     await tall(page, 'team-link-share')
     await share.click()
     await expect.poll(() => page.evaluate(() => (window as unknown as { shared: unknown[] }).shared.length)).toBe(1)
     const sent = await page.evaluate(() => (window as unknown as { shared: { text: string }[] }).shared[0]!)
-    expect(sent.text).toBe(await page.getByTestId('team-link-message').textContent())
+    expect(sent.text).toBe(await page.getByTestId('team-link-message').inputValue())
     expect(sent.text).toContain('/join#')
+    // sent: "다 했어요" is the one primary now
+    await expect(page.getByTestId('invite-step-done')).toHaveAttribute('data-sent', 'true')
     // copying is still there, one quiet press
     await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
     await tall(page, 'team-link-copy-message')
@@ -165,7 +167,7 @@ export function welcomeFlowCases() {
     await toInvite(page)
     await expect(page.getByTestId('team-link-share')).toHaveCount(0)
     // one intro for both since the short invite dialog (ebd5788f4); the share or copy button says the rest
-    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 링크를 보내세요.')
+    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 메시지를 보내세요.')
     const copy = page.getByTestId('team-link-copy-message')
     await expect(copy).toHaveText('메시지 복사')
     await copy.click()
@@ -194,7 +196,7 @@ export function welcomeFlowCases() {
     const sent = () => page.evaluate(() => (window as unknown as { mobileMessages: MobileMessage[] }).mobileMessages.filter((m) => m.type === 'share-text'))
     await expect.poll(async () => (await sent()).length).toBe(1)
     const [m] = (await sent()) as Extract<MobileMessage, { type: 'share-text' }>[]
-    expect(m!.text).toBe(await page.getByTestId('team-link-message').textContent())
+    expect(m!.text).toBe(await page.getByTestId('team-link-message').inputValue())
     // the app answered: no copy, no note
     await expect(page.getByTestId('toast')).toHaveCount(0)
   })

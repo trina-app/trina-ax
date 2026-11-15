@@ -597,13 +597,15 @@ export function useCopy(timeout = 1500) {
     }, timeout)
   }, [timeout])
   const copy = useCallback(
-    /** `html`: formatted text as well (text/html beside the plain text, lib/clipboard.ts) */
-    async (text: string, html?: string) => {
+    /** `html`: formatted text as well (text/html beside the plain text, lib/clipboard.ts). Resolves true when the text
+     * reached the clipboard; a refused copy command marks nothing ("Copied" would be a lie) */
+    async (text: string, html?: string): Promise<boolean> => {
       if (html !== undefined) {
         await writeRich({ html, plain: text })
         mark()
-        return
+        return true
       }
+      let ok = true
       try {
         await navigator.clipboard.writeText(text)
       } catch {
@@ -613,11 +615,17 @@ export function useCopy(timeout = 1500) {
         ta.style.position = 'fixed'
         ta.style.opacity = '0'
         document.body.appendChild(ta)
-        ta.select()
-        document.execCommand('copy')
-        ta.remove()
+        try {
+          ta.select()
+          ok = document.execCommand('copy')
+        } catch {
+          ok = false
+        } finally {
+          ta.parentNode?.removeChild(ta)
+        }
       }
-      mark()
+      if (ok) mark()
+      return ok
     },
     [mark],
   )
