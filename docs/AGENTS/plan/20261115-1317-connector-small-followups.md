@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 13:17
 - Branch: `fix/connector-small-followups`
-- Status: in progress
+- Status: done
 - Where: server/src/notifications, web/pwa/sw.js, web/src (Inbox, Admin › Activity log), i18n. Why: three small
   follow-ups to connector work (tracking TC-3052, TC-3053, TC-3054)
 - Version impact: patch: wording and where a tap lands; no API removed (one optional field added)
@@ -50,4 +50,7 @@ Activity log.
 
 ## Result
 
-(filled in at the end)
+Built as planned. One difference: a Web Push click for Google Drive's notice stays on the Inbox, because the
+signed-in notice does not say it is Drive's (the native push does open Drive's page). Activity log rows also cover API
+templates. The Scheduled page's own "Needs your own key" reason line for a sign-in template is left for a follow-up.
+PR: see the PR that links this plan.

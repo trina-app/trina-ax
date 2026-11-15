@@ -271,7 +271,8 @@ test('a scheduled run that needed a sign-in template asks the member to sign in 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/activity')
-    const items = await activityRows(page)
+    // a computer: the 활동 panel's rows; a phone: the 활동 page, each notice its whole row
+    const items = width < 1052 ? page.getByTestId('notification-item') : await activityRows(page)
     await expect(items.filter({ hasText: 'Scheduled task "Weekly Wiki" did not run: sign in to Wiki with your own account.' })).toBeVisible()
     await expect(items.filter({ hasText: 'Wiki' })).not.toContainText('key')
     await expect(items.filter({ hasText: 'Scheduled task "Weekly Tasks" did not run: it needs your own key for Tasks.' })).toBeVisible()
