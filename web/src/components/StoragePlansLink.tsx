@@ -25,8 +25,8 @@ export function StoragePlansLink({ url, className = '', phoneLine = false }: { u
   if (!url || !isAdmin(me)) return null
   return (
     <>
-      {phoneLine && <span aria-hidden className="h-0 basis-full sm:hidden" data-testid="storage-plans-break" />}
-      <a href={url} target="_blank" rel="noreferrer" className={`shrink-0 font-medium whitespace-nowrap text-accent-text underline ${phoneLine ? 'max-sm:ml-5' : ''} ${className}`} data-testid="storage-plans">
+      {phoneLine && <span aria-hidden className="-my-0.5 h-0 basis-full sm:hidden" data-testid="storage-plans-break" />}
+      <a href={url} target="_blank" rel="noreferrer" className={`shrink-0 font-medium whitespace-nowrap text-accent-text underline ${phoneLine ? 'max-sm:ml-[21px]' : ''} ${className}`} data-testid="storage-plans">
         {t('storage.choosePlan')}
       </a>
     </>

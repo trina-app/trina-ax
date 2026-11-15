@@ -702,7 +702,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
       {files.items.length > 0 && (
         <ul className="space-y-1 text-sm" aria-label={t('welcome.profile.files')} data-testid="welcome-files-list">
           {files.items.map((x) => (
-            <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-file" data-status={x.status}>
+            <li key={x.id} className={clsx('flex min-w-0 items-center gap-x-2 gap-y-1', x.status === 'failed' && 'flex-wrap')} data-testid="welcome-file" data-status={x.status}>
               {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
               <span className="min-w-0 truncate text-ink">{x.file.name}</span>
               {x.status === 'uploading' && (
@@ -712,7 +712,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
               )}
               {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
               {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
-              {x.status === 'failed' && <StoragePlansLink url={x.plans} className="text-xs" />}
+              {x.status === 'failed' && <StoragePlansLink url={x.plans} className="text-xs" phoneLine />}
             </li>
           ))}
         </ul>
