@@ -7,7 +7,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { en as enWords } from '../../src/i18n/en'
+import { es as esWords } from '../../src/i18n/es'
+import { id as idWords } from '../../src/i18n/id'
+import { ja as jaWords } from '../../src/i18n/ja'
 import { ko as koWords } from '../../src/i18n/ko'
+import { zh as zhWords } from '../../src/i18n/zh'
 import type { DemoScript } from '../../demo/script'
 import { contentFile } from '../../demo/vite'
 import { demoWord } from '../../demo/words'
@@ -20,7 +24,7 @@ const step = (id: string) => script.guide.find((s) => s.id === id)!
 const answer = (id: string) => script.answers.find((a) => a.id === id)!
 // the story's language: the demo's own words, the app's own words (the everyone room's name), the story's messages
 const L = script.locale
-const appWord = (key: 'rooms.all' | 'steps.receipt') => (L === 'ko' ? koWords[key] : enWords[key])
+const appWord = (key: 'rooms.all' | 'steps.receipt') => ({ en: enWords, ko: koWords, id: idWords, ja: jaWords, es: esWords, zh: zhWords }[L] ?? enWords)[key]
 const said = (id: string) => script.events.find((e) => e.id === id)!.text!.slice(0, 12)
 /** a content line with {time} as a pattern (the real elapsed time) */
 const timed = (line: string) => new RegExp(line.split('{time}').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\d+:\\d\\d'))
@@ -128,11 +132,11 @@ for (const { branch, byGuide } of runs) {
     const used = answer(branch).steps?.find((x) => x.tool === 'skill')
     if (used && answer(branch).receipt) {
       const receipt = page.locator('[data-testid="assistant-message"]').last().getByTestId('steps-receipt')
-      await expect(receipt).toContainText(appWord('steps.receipt').split("'")[0]!)
-      // by the skill's title (its metadata title), as the skill list names it
+      // by the skill's title (its metadata title), as the skill list names it, in the app's words ("Team skill 'Brand
+      // guide'", 「…」 in Japanese, “…” in Chinese)
       const asset = script.files.find((f) => f.path === answer(branch).receipt!.skill)!.asset!
       const title = /^\s+title:\s*(.+)$/m.exec(fs.readFileSync(path.join(path.dirname(contentFile()), 'assets', asset), 'utf8'))![1]!.trim()
-      await expect(receipt).toContainText(`'${title}'`)
+      await expect(receipt).toContainText(appWord('steps.receipt').split(' · ')[0]!.replace('{skill}', title))
       await receipt.click()
       await expect(page.locator('[data-testid="assistant-message"]').last().getByText(used.label, { exact: true })).toBeVisible()
       await receipt.click()
@@ -303,7 +307,7 @@ test('a slow phone: Leo\'s prompt still types itself when the visitor arrives', 
 })
 
 // DEMO_OTHER: the other language's demo on the same server (test/demo/serve.ts DEMO_MOUNTS), e.g. /demo/ko/ for /demo/
-test('the other language\'s demo next to this one: its own worker, its link in the guide line', async ({ page, context }) => {
+test('the other language\'s demo next to this one: its own worker, its pick in the guide line\'s language picker', async ({ page, context }) => {
   const other = process.env.DEMO_OTHER
   test.skip(!other, 'one demo served')
   await page.goto(START)
@@ -329,8 +333,12 @@ test('the other language\'s demo next to this one: its own worker, its link in t
   await page.reload()
   await expect(page.getByTestId('member-welcome-title')).toHaveText(script.home.title)
   await own(page, mine)
-  // the guide line's language link goes there
-  await page.locator(`[data-testid="demo-langs"] a[href="${other}"]`).click()
+  // the guide line's language picker goes there: every language, named in its own, this one picked
+  const picker = page.getByTestId('demo-langs')
+  await expect(picker).toHaveValue(L)
+  expect(await picker.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value))).toEqual(['en', 'ko', 'id', 'ja', 'es', 'zh'])
+  const otherLocale = other!.replace(/\/$/, '').split('/').pop()!
+  await picker.selectOption(/^[a-z]{2}$/.test(otherLocale) ? otherLocale : 'en')
   await expect(page).toHaveURL(new RegExp(`${other!.replace(/\//g, '\\/')}$`))
   await expect(page.getByTestId('member-welcome-title')).toBeVisible()
   await own(page, other!)

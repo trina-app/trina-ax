@@ -59,9 +59,16 @@ for (const width of [1440, 390] as const) {
       await expect(page.getByTestId('invite-step-done')).toHaveAttribute('data-sent', 'true')
       await expect(page.getByTestId('invite-step-done')).toHaveClass(/bg-accent /)
       await expect(page.getByTestId('team-link-copy-message')).not.toHaveClass(/bg-accent /)
-      // emptied: nothing to copy
+      // emptied: nothing to copy, and the off button says what it does, not "복사됨" (QA TC-2846)
       await box.fill('')
       await expect(page.getByTestId('team-link-copy-message')).toBeDisabled()
+      await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
+      // copied, then changed: "복사됨" goes at once
+      await box.fill(edited)
+      await page.getByTestId('team-link-copy-message').click()
+      await expect(page.getByTestId('team-link-copy-message')).toContainText('복사됨')
+      await box.fill(edited.replace('다음 주', '이번 주'))
+      await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
       expect(realErrors(errors)).toEqual([])
     })
   })

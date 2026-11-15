@@ -19,7 +19,7 @@
 // open (← 이전 and back, another page and back: no second AI call). The Files screen offers the same steps in a dialog to
 // owners and admins while the team folder holds no file (TeamFilesEntry).
 import clsx from 'clsx'
-import { Check, ChevronDown, CircleAlert, FolderOpen, Loader2, Search, Upload } from 'lucide-react'
+import { Check, CircleAlert, FolderOpen, FolderSearch, Loader2, Upload } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { SHARED_HOME, TEAM_FILES_LIMITS, teamHome, type TeamFileReason, type TreeResponse, type WelcomeProgress } from '@mycel/shared/api'
@@ -40,6 +40,9 @@ import { useWelcome } from '../../store/welcome'
 import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
+import { failedReason, FindWorkFiles } from './FindWorkFiles'
+import { workFilesBridge } from '../../lib/workFiles'
+import { TickFold, TickRow, TickSearch } from './TickList'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
 import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
 import { storagePlansAction } from '../StoragePlansLink'
@@ -70,8 +73,9 @@ export function homePlace(team: WelcomeProgress['teamGroup'] | undefined, teamNa
 
 type Note = 'noAi' | 'zero' | 'allPersonal' | null
 interface Draft {
-  /** what the step shows when it opens: its start, the list, or its upload run */
-  screen: 'start' | 'list' | 'run'
+  /** what the step shows when it opens: its start, the list, its upload run, or Find work files on this computer (the
+   * desktop app's look, FindWorkFiles.tsx) */
+  screen: 'start' | 'list' | 'run' | 'computer'
   /** F2 in progress (kept across pages: a walk or the AI's pick goes on while the person is elsewhere) */
   phase: 'idle' | 'reading' | 'looking' | 'ranking'
   count: number
@@ -304,6 +308,9 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   const narrow = useMediaQuery('(max-width: 767.98px)')
   const how = folderWindow()
   const phone = narrow || how === null
+  // the desktop app (Windows, the Mac app from the website) looks through Documents, Desktop and Downloads itself; the
+  // owner's files still go to the team home (review Q3: no My files first for the owner)
+  const computer = phone ? null : workFilesBridge(desktop())
   const team = progress.teamGroup
   const me = useMeStrict()
   const words = useFolderWords()
@@ -458,6 +465,14 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   else if (resumed) body = <OrganizeView uploaded={org.org.s === 'proposal' ? org.org.plan.rows.length : org.org.s === 'result' ? org.org.applied.moved.length : 0} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
   else if (draft.screen === 'run' && run && organizing) body = <OrganizeView uploaded={run.view.done} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
   else if (draft.screen === 'run' && run) body = <RunView run={run} places={places} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} onMore={phone ? null : () => void pickFolder(false)} />
+  else if (draft.screen === 'computer' && computer && place) {
+    body = (
+      <FindWorkFiles bridge={computer} rank="team" audience={place.who} placeName={t('welcome.files.homeFolder', { team: place.name })} phone={phone}
+        alreadyIn={(docs) => alreadyFor(docs, place.folder)}
+        onAdd={(docs) => { startStepRun({ files: docs.map((d) => ({ rel: `${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }, place.folder) }}
+        onClose={() => patch({ screen: 'start' })} />
+    )
+  }
   else if (draft.screen === 'list' && draft.docs.length) body = <ListView draft={draft} places={places} place={place} phone={phone} busy={stepBusy} later={later} onAddFolder={() => void pickFolder(true)} onOtherFolder={() => void pickFolder(false)} />
   else if (phone) {
     body = (
@@ -483,7 +498,12 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             {done && <Button variant="primary" className="max-sm:w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>}
-            <Button variant={done ? 'secondary' : 'primary'} className="max-sm:w-full" disabled={stepBusy} onClick={() => void pickFolder(false)} data-testid="welcome-team-files-pick">
+            {computer && (
+              <Button variant={done ? 'secondary' : 'primary'} className="max-sm:w-full" disabled={stepBusy} onClick={() => patch({ screen: 'computer', empty: false, blocked: null })} data-testid="welcome-team-files-computer">
+                <FolderSearch size={14} aria-hidden /> {t('files.findWork.entry')}
+              </Button>
+            )}
+            <Button variant={done || computer ? 'secondary' : 'primary'} className="max-sm:w-full" disabled={stepBusy} onClick={() => void pickFolder(false)} data-testid="welcome-team-files-pick">
               <FolderOpen size={14} aria-hidden /> {t(draft.blocked ? 'welcome.teamFiles.otherFolder' : 'welcome.teamFiles.pickFolder')}
             </Button>
           </div>
@@ -599,7 +619,7 @@ function ListView({ draft, places, place, phone, busy, later, onAddFolder, onOth
   const upload = () => {
     if (!place || !ticks.size) return
     const chosen = draft.docs.filter((d) => ticks.has(d.key) && !draft.already.has(d.key))
-    startStepRun({ files: chosen.map((d) => ({ rel: `${d.pick}/${d.rel}`, file: d.file })), folders: [], unreadable: [], skipped: 0 }, place.folder)
+    startStepRun({ files: chosen.map((d) => ({ rel: `${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }, place.folder)
   }
   const same = ticks.size > 0 && ticks.size === draft.baseline.size && [...ticks].every((k) => draft.baseline.has(k))
   const primary = ticks.size === 0 ? t('welcome.teamFiles.otherFolder') : same ? t('welcome.teamFiles.uploadPicked', { n: ticks.size }) : t('welcome.teamFiles.upload', { n: ticks.size })
@@ -613,38 +633,20 @@ function ListView({ draft, places, place, phone, busy, later, onAddFolder, onOth
     return [reason ? t(REASON[reason]) : null, where, formatSize(d.size, locale), date].filter(Boolean).join(' · ')
   }
   const row = (d: LocalDoc, i: number, o: { check?: boolean; personal?: boolean } = {}) => {
-    const id = `${ids}-${d.key}`
     const on = ticks.has(d.key)
     return (
-      <li key={d.key} className={clsx('flex items-start gap-3 border-line py-2.5', pad, i > 0 && 'border-t')} data-testid="team-file-row" data-key={d.key} data-checked={o.check === false ? undefined : String(on)}>
-        {o.check === false ? <Check size={16} className="mt-0.5 shrink-0 text-faint" aria-hidden /> : (
-          <input id={id} type="checkbox" checked={on} onChange={(e) => toggle(d.key, e.target.checked)} disabled={busy} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]" data-testid="team-file-check" />
-        )}
-        <label htmlFor={o.check === false ? undefined : id} className={clsx('min-w-0 flex-1', o.check !== false && 'cursor-pointer')}>
-          <span className="block truncate text-sm font-medium text-ink">{d.name}</span>
-          <span className="mt-0.5 block truncate text-label text-muted">{meta(d)}</span>
-          {o.personal && on && place && <span className="mt-0.5 block text-label text-warn" data-testid="team-file-personal-ticked">{t('welcome.teamFiles.personalTicked', { team: place.who })}</span>}
-        </label>
-      </li>
+      <TickRow key={d.key} id={`${ids}-${d.key}`} rowKey={d.key} name={d.name} meta={meta(d)} first={i === 0} pad={pad} disabled={busy}
+        checked={o.check === false ? undefined : on} onChange={(v) => toggle(d.key, v)}
+        note={o.personal && on && place ? <span className="mt-0.5 block text-label text-warn" data-testid="team-file-personal-ticked">{t('welcome.teamFiles.personalTicked', { team: place.who })}</span> : null} />
     )
   }
   const fold = (key: 'already' | 'personal' | 'more', label: string) => (
-    <button type="button" className={clsx('flex min-h-11 w-full items-center gap-1.5 border-t border-line py-2.5 text-left text-sm', pad, !phone && 'hover:bg-hover')}
-      aria-expanded={open[key]} aria-controls={`${ids}-${key}`} onClick={() => setOpen({ ...open, [key]: !open[key] })} data-testid={`team-files-${key}-toggle`}>
-      <span className="min-w-0 font-medium text-ink">{label}</span>
-      <ChevronDown size={16} className={clsx('ml-auto shrink-0 text-faint transition', open[key] && 'rotate-180')} aria-hidden />
-    </button>
+    <TickFold label={label} open={open[key]} onToggle={() => setOpen({ ...open, [key]: !open[key] })} controls={`${ids}-${key}`} pad={pad} phone={phone} testId={`team-files-${key}-toggle`} />
   )
   const moreRows = findDocs(g.more, q)
   const [qPersonal, setQPersonal] = useState('')
   const personalRows = findDocs(g.personal, qPersonal)
-  const search = (value: string, set: (v: string) => void, testId: string) => (
-    <label className={clsx('flex items-center gap-2 py-2', pad)}>
-      <Search size={14} className="shrink-0 text-faint" aria-hidden />
-      <input type="search" value={value} onChange={(e) => set(e.target.value)} placeholder={t('welcome.teamFiles.search')} aria-label={t('welcome.teamFiles.search')}
-        className="h-8 min-w-0 flex-1 rounded-md border border-field-border bg-surface px-2 text-sm text-ink" data-testid={testId} />
-    </label>
-  )
+  const search = (value: string, set: (v: string) => void, testId: string) => <TickSearch value={value} onChange={set} placeholder={t('welcome.teamFiles.search')} pad={pad} testId={testId} />
   const capRows = (list: LocalDoc[], render: (d: LocalDoc, i: number) => ReactNode) => (
     <>
       {list.slice(0, ROWS_SHOWN).map(render)}
@@ -729,7 +731,7 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
   const reason = (r: (typeof rows)[number]) => {
     if (r.state === 'queued') return t('welcome.teamFiles.notSent')
     if (r.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(L.fileBytes, locale) })
-    if (r.local === 'unreadable') return t('files.folderUpload.unreadable')
+    if (r.local === 'unreadable') return failedReason(r, t, locale)
     if (r.local) return t(`files.name.${r.local}`)
     return errorText(r.error, locale, t('error.network'))
   }
@@ -748,7 +750,9 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
     }
     if (!notSent.length && v.canRetry) return retryFolderUpload(run)
     const files = left.filter((r) => r.file && !r.local).map((r) => ({ rel: r.rel, file: r.file! }))
-    if (files.length) startStepRun({ files, folders: [], unreadable: [], skipped: 0 }, v.base)
+    if (files.length) return void startStepRun({ files, folders: [], unreadable: [], skipped: 0 }, v.base)
+    // files read only when they go (Find work files on this computer): the same run sends what is left
+    if (v.canRetry) retryFolderUpload(run)
   }
   const pct = (r: (typeof rows)[number]) => (r.state === 'done' ? 100 : r.size ? Math.min(99, Math.round((r.loaded / r.size) * 100)) : 0)
   return (

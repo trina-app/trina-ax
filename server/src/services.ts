@@ -22,6 +22,9 @@ export interface RequestInfo {
   port?: number | null
   /** direct: came from the internet through the office public address (config.tunnel, http/tunnel.ts) */
   tunnel?: boolean
+  /** direct: came in on the office Tailscale listener (config.tailnet, office/tailscale.ts): a tailnet device, from
+   * anywhere */
+  tailnet?: boolean
 }
 
 /** Component A (server/src/auth/*). */

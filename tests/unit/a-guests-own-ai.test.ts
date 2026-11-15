@@ -148,3 +148,18 @@ test('the guest dialogs learn when a guest\'s AI cannot work here: GET /api/admi
   const s = await setup({ managed: false })
   expect((await s.owner.call('GET', '/api/admin/credentials')).guestAiUnavailable).toBe('host_sign_in')
 })
+
+test('a member\'s invite dialog learns it too (QA TC-2580): GET /api/guest-invites/limit guestAiUnavailable for every non-guest', async () => {
+  const { owner, mia } = await setup()
+  expect((await owner.call('GET', '/api/guest-invites/limit')).guestAiUnavailable).toBeUndefined()
+  expect((await mia.client.call('GET', '/api/guest-invites/limit')).guestAiUnavailable).toBeUndefined()
+  await h.close()
+  const s = await setup({ managed: false })
+  expect((await s.owner.call('GET', '/api/guest-invites/limit')).guestAiUnavailable).toBe('host_sign_in')
+  // a member cannot read the AI accounts, but reads this: their dialog offers only No AI
+  expect((await s.mia.client.try('GET', '/api/admin/credentials')).status).toBe(403)
+  const lim = await s.mia.client.call('GET', '/api/guest-invites/limit')
+  expect(lim.guestAiUnavailable).toBe('host_sign_in')
+  // and still nothing of the owner's (seats, counts)
+  expect(lim.used).toBeUndefined(); expect(lim.seatsFull).toBeUndefined()
+})

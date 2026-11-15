@@ -33,6 +33,11 @@
 //                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
 //                                  (<label>.tunnel), the server answers https://HOST. The tunnel itself (DNS, ingress)
 //                                  is made on the owner's Mac with scripts/office/public-address.ts
+//   tailscale-address on [--port N] | off | status
+//                                  the Tailscale address https://<machine>.<tailnet>.ts.net:<port> for the devices of
+//                                  the tailnet, from anywhere, with a real certificate (./tailscale.ts, docs/OFFICE.md
+//                                  "Tailscale 주소"). Needs the Tailscale app signed in and HTTPS certificates on for
+//                                  the tailnet. The port must not be one `tailscale serve` / Funnel uses
 //   desktop list | add FILE [--version V] [--keep] | remove FILE
 //           | add-from DIR... [--fallback DIR] [--manifest FILE] [--dry-run]
 //                                  the desktop app installers members download under Settings → Apps (data/downloads,
@@ -64,16 +69,20 @@ import {
   sizeText, versionFromName, type AddPlan, type AddResult, type DownloadItem, type Found, type Signature,
 } from './desktop'
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
-import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficePaths, type OfficeSettings } from './settings'
+import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tailnetOrigin, tunnelLabel, type OfficePaths, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
+import { certCheckDue, daysLeft, findTailscaleBin, readNode, readServePorts, refreshTailnetCert, runner, tailnetCertPaths, type Run, type TailnetNode } from './tailscale'
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
-import { updateView } from './update'
+import { clearStaleFailure, noteRecovery, updateView } from './update'
+import { dbReaderLevel, exit75Decision, type Exit75Decision, extraWaitSeconds, goForward, previousDecision, releaseIn, setAsidePrevious, updateRunning, writeHealMarker } from './forward'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth } from './health'
 import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
 import { PRODUCT } from '@mycel/shared'
 
 const CHECK_MS = 30_000
+/** main.ts EXIT.schemaTooNew (not imported: main.ts is the server's entry point) */
+export const EXIT_SCHEMA_TOO_NEW = 75
 const TLS_RECHECK_MS = 6 * 3600_000
 const STOP_GRACE_MS = 12_000
 
@@ -105,12 +114,47 @@ function webDist(): string | null {
 
 // ---- state shared by `run` and the commands -------------------------------------------------------------------
 
-interface Prepared { settings: OfficeSettings; origins: string[]; helper: HelperState; peers: string[]; changed: boolean; reason: string | null; left: string[]; key: string }
+interface Prepared { settings: OfficeSettings; origins: string[]; helper: HelperState; peers: string[]; changed: boolean; reason: string | null; left: string[]; key: string; tailnet: TailnetNode | null }
+
+/** The Tailscale CLI of these settings as a runner, or null (no Tailscale address, or no CLI found). */
+export function tailscaleRun(s: Pick<OfficeSettings, 'tailscaleHost' | 'tailscaleBin'>): Run | null {
+  if (!s.tailscaleHost) return null
+  const bin = findTailscaleBin({ configured: s.tailscaleBin })
+  return bin ? runner(bin) : null
+}
+
+/** What `tailscale status` says now, when a Tailscale address is set (null: none set). A missing CLI is a problem. */
+export function tailnetNode(s: Pick<OfficeSettings, 'tailscaleHost' | 'tailscaleBin'>, run: Run | null = tailscaleRun(s)): TailnetNode | null {
+  if (!s.tailscaleHost) return null
+  if (!run) return { certName: null, ipv4: null, running: false, problem: `the Tailscale CLI was not found${s.tailscaleBin ? ` at ${s.tailscaleBin}` : ''}: install the Tailscale app (or set TEAMAX_TAILSCALE_BIN)` }
+  const n = readNode(run)
+  if (!n.problem && n.certName && n.certName !== s.tailscaleHost) return { ...n, problem: `this Mac's Tailscale name is now ${n.certName}, not ${s.tailscaleHost}: run teamax tailscale-address on again` }
+  return n
+}
+
+/** The node as server.json should see it: a check that gave no IPv4 (a failed or slow `tailscale status`, a short
+ * reconnect, sleep) keeps the last known one, so server.json and the server do not change for a short gap. Only a
+ * different IPv4 changes it. The listener itself retries a bind that fails while the address is gone. */
+export function stickyTailnet(node: TailnetNode | null, lastIp: string | null): TailnetNode | null {
+  if (!node || node.ipv4 || !lastIp) return node
+  return { ...node, ipv4: lastIp }
+}
+
+/** The supervisor's certificate step: `tailscale cert` when due. Returns a line for the log when something happened
+ * or is wrong ('' = nothing to say). */
+export function tailnetCertStep(s: OfficeSettings, run: Run | null, lastCheck: number, now = new Date()): { line: string; checked: boolean } {
+  if (!s.tailscaleHost || !run) return { line: '', checked: false }
+  const dir = officePaths(s.home).tls
+  if (!certCheckDue(dir, s.tailscaleHost, lastCheck, now)) return { line: '', checked: false }
+  const r = refreshTailnetCert(dir, s.tailscaleHost, run, now)
+  const line = [r.changed ? `Tailscale certificate for ${s.tailscaleHost} written (${Math.floor(r.daysLeft ?? 0)} days left); the server loads it within a minute` : '', r.warning ?? ''].filter(Boolean).join('; ')
+  return { line, checked: true }
+}
 
 /** Certificates for the addresses the Mac has now, config/server.json, ADDRESSES.txt, DESK-CARD.html. `changed` =
  * the running server must restart (a new certificate, or server.json changed: new subnet, settings). Tests pass
  * `addrs` / `subnets` instead of this Mac's interfaces. */
-export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, string][]; host?: string | null } = {}): Prepared {
+export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, string][]; host?: string | null; tailnet?: TailnetNode | null } = {}): Prepared {
   const s = loadSettings(home)
   const p = officePaths(home)
   for (const d of [p.data, p.team, p.tls, p.config]) { fs.mkdirSync(d, { recursive: true, mode: 0o700 }); fs.chmodSync(d, 0o700) }
@@ -118,7 +162,9 @@ export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, 
   const host = o.host === undefined ? localHostName() : o.host
   const lan: LanInfo = o.addrs ? { addrs: o.addrs, subnets: o.subnets ?? [] } : lanInfo({ includeVpn: s.includeVpn })
   const t = ensureOfficeTls(p.tls, { host, addrs: lan.addrs, subnets: lan.subnets, constraints: s.caConstraints })
-  const cfg = serverConfig(s, t.names, lan.subnets)
+  // the Tailscale address: the listener binds to this Mac's Tailscale IPv4 address (a new one rewrites server.json)
+  const node = o.tailnet !== undefined ? o.tailnet : tailnetNode(s)
+  const cfg = serverConfig(s, t.names, lan.subnets, node?.ipv4 ?? null)
   const json = JSON.stringify(cfg, null, 2) + '\n'
   let before = ''
   try { before = fs.readFileSync(p.serverJson, 'utf8') } catch {}
@@ -135,7 +181,7 @@ export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, 
   fs.writeFileSync(p.card, deskCard(helper, { helper: helperOrigins(s, origins)[0] ?? null, caCer: path.join(p.tls, 'ca.cer'), made: new Date().toISOString().slice(0, 16).replace('T', ' '), public: publicOrigin(s) }), { mode: 0o644 })
   const configChanged = !!before && before !== json
   return {
-    settings: s, origins, helper, peers: cfg.allowedPeers, left: t.left, key: JSON.stringify([host, lan]),
+    settings: s, origins, helper, peers: cfg.allowedPeers, left: t.left, key: JSON.stringify([host, lan, node?.ipv4 ?? null]), tailnet: node,
     changed: t.changed || configChanged, reason: t.reason ?? (configChanged ? 'server.json changed (office subnet or settings)' : null),
   }
 }
@@ -149,9 +195,15 @@ export function infoText(s: OfficeSettings, h: HelperState, left: string[] = [])
   const helpers = helperOrigins(s, h.origins)
   const p = officePaths(s.home)
   const pub = publicOrigin(s)
+  const ts = tailnetOrigin(s)
   return [
     `${PRODUCT.displayName} 사무실 모드 / office mode — ${new Date().toISOString()}`,
     '',
+    ...(ts ? [
+      'Tailscale 주소 (같은 tailnet의 기기, 어디서나, 인증서 설치 필요 없음) / Tailscale address (devices on the tailnet, from anywhere, no certificate to install):',
+      `  ${ts}`,
+      '',
+    ] : []),
     ...(pub ? [
       '인터넷 주소 (인증서 설치 필요 없음, 어디서나) / internet address (no certificate to install, from anywhere):',
       `  ${pub}`,
@@ -184,6 +236,23 @@ export async function run(home: string): Promise<never> {
   let st = prepare(home)
   let lastTls = Date.now()
   const s = st.settings
+  const tsRun = tailscaleRun(s)
+  let lastTailnetCert = 0
+  const tailnetStep = () => {
+    try {
+      const r = tailnetCertStep(s, tsRun, lastTailnetCert)
+      if (r.checked) lastTailnetCert = Date.now()
+      if (r.line) say(r.line)
+    } catch (e) { say(`Tailscale certificate check failed: ${(e as Error).message}`) }
+  }
+  let tailnetProblem: string | null | undefined // undefined: nothing said yet (the first state is always logged)
+  const tailnetSay = (n: TailnetNode | null) => {
+    const pr = n?.problem ?? null
+    if (pr !== tailnetProblem) say(pr ? `Tailscale address ${tailnetOrigin(s)}: ${pr}` : `Tailscale address ${tailnetOrigin(s)} on ${n?.ipv4}`)
+    tailnetProblem = pr
+  }
+  let lastTailnetIp = st.tailnet?.ipv4 ?? null
+  if (s.tailscaleHost) { tailnetSay(st.tailnet); tailnetStep() }
   say(`home ${p.home}; desks: ${st.origins.join('  ')}${st.changed ? ` (new server certificate: ${st.reason})` : ''}`)
   if (st.left.length) say(`left out of the certificate (not private addresses): ${st.left.join(', ')}`)
   if (runDirFor(s).length > MAX_RUN_DIR) say(`warning: engine socket folder ${runDirFor(s)} is long; set TEAMAX_RUN_DIR if chats fail with "bind: invalid argument"`)
@@ -227,6 +296,8 @@ export async function run(home: string): Promise<never> {
     say(`server started (pid ${me.pid})`)
     void me.exited.then(async (code) => {
       if (stopping || restarting || child !== me) return
+      // QA TC-335: 75 = the database is newer than this build. Restarting it can never help.
+      if (code === EXIT_SCHEMA_TOO_NEW && schemaTooNew()) return
       failures = Date.now() - startedAt > 60_000 ? 1 : failures + 1
       const wait = Math.min(30_000, 1000 * 2 ** Math.min(failures, 5))
       say(`server exited (${code}); starting it again in ${wait / 1000} s (see ${p.serverLogs})`)
@@ -241,18 +312,50 @@ export async function run(home: string): Promise<never> {
     const done = await Promise.race([c.exited.then(() => true), Bun.sleep(STOP_GRACE_MS).then(() => false)])
     if (!done) { c.kill('SIGKILL'); await c.exited }
   }
+  // exit 75: go forward to a newer kept release that reads the database (launchd starts the supervisor again from the
+  // new app/), or stop starting the server with one message (the check below looks again every 30 s: a restored
+  // backup or a reinstall ends it). true = handled, do not restart.
+  let blocked: string | null = null
+  const schemaTooNew = (): boolean => {
+    let d: Exit75Decision
+    try { d = exit75Decision(home) } catch (e) { say(`exit 75 check failed: ${(e as Error).message}`); return false }
+    if (d.kind === 'restart') { if (blocked) say(`the database can be read again (${d.reason}): starting the server`); blocked = null; return false }
+    if (d.kind === 'forward') {
+      if (updateRunning(home)) { blocked = 'an update run is busy'; return true }
+      let line: string
+      try { line = goForward(home, d.to) } catch (e) { say(`going forward to ${d.to.version} failed: ${(e as Error).message}`); blocked = 'forward failed'; return true }
+      const msg = `the server exited 75: ${d.from?.version ?? 'app/'} cannot read the database (it needs schema level ${d.need}); went forward: ${line}`
+      say(`${msg}; the supervisor starts again from the new app/`)
+      noteRecovery(home, { kind: 'updated', version: d.to.version, message: msg })
+      stopping = true
+      clearInterval(timer)
+      helper?.stop(true)
+      process.exit(0) // KeepAlive: launchd runs app/server/src/office.js run again, now the new version
+    }
+    if (blocked !== d.message) {
+      say(`${d.message} (checked again every ${CHECK_MS / 1000} s)`)
+      noteRecovery(home, { kind: 'failed', version: null, message: d.message })
+    }
+    blocked = d.message
+    return true
+  }
   spawnServer()
 
   const check = async () => {
     if (stopping || restarting) return
+    if (blocked && !schemaTooNew()) spawnServer()
     startHelper()
     try { const r = reloadMarkedUpdateAgent(s); if (r) say(r) } catch (e) { say(`update agent reload failed: ${(e as Error).message}`) }
     const host = localHostName()
     const lan = lanInfo({ includeVpn: s.includeVpn })
-    const key = JSON.stringify([host, lan])
+    const seen = tailnetNode(s, tsRun)
+    if (s.tailscaleHost) { tailnetSay(seen); tailnetStep() }
+    const node = stickyTailnet(seen, lastTailnetIp)
+    if (node?.ipv4) lastTailnetIp = node.ipv4
+    const key = JSON.stringify([host, lan, node?.ipv4 ?? null])
     if (key === st.key && Date.now() - lastTls < TLS_RECHECK_MS) return
     try {
-      const next = prepare(home, { addrs: lan.addrs, subnets: lan.subnets, host })
+      const next = prepare(home, { addrs: lan.addrs, subnets: lan.subnets, host, tailnet: node })
       lastTls = Date.now()
       st = next
       helperState = next.helper
@@ -293,6 +396,7 @@ export function configure(home: string, args: string[], env: Record<string, stri
     ['--run-dir', 'TEAMAX_RUN_DIR'], ['--claude-bin', 'TEAMAX_CLAUDE_BIN'], ['--codex-bin', 'TEAMAX_CODEX_BIN'], ['--ca-constraints', 'TEAMAX_CA_CONSTRAINTS'],
     ['--public-host', 'TEAMAX_PUBLIC_HOST'], ['--public-allow-from', 'TEAMAX_PUBLIC_ALLOW_FROM'], ['--public-countries', 'TEAMAX_PUBLIC_COUNTRIES'],
     ['--proxy-port', 'TEAMAX_PROXY_PORT'], ['--claude-auth', 'TEAMAX_CLAUDE_AUTH'],
+    ['--tailscale-host', 'TEAMAX_TAILSCALE_HOST'], ['--tailscale-port', 'TEAMAX_TAILSCALE_PORT'], ['--tailscale-bin', 'TEAMAX_TAILSCALE_BIN'],
   ]
   const wasAuth = (cur.TEAMAX_CLAUDE_AUTH ?? '').trim() || 'local-login'
   for (const [f, k] of flags) { const v = arg(args, f); if (v !== undefined) cur[k] = v }
@@ -498,17 +602,21 @@ async function listening(port: number): Promise<boolean> {
 
 /** The ports this installation needs that another program holds. office-install.sh runs this after stopping its own
  * agent, so a port held by the previous version of this installation is free again. */
-export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort' | 'helperPort'> & Partial<Pick<OfficeSettings, 'proxyPort'>>): Promise<string[]> {
+export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort' | 'helperPort'> & Partial<Pick<OfficeSettings, 'proxyPort' | 'tailscaleHost' | 'tailscalePort'>>, o: { tailnetIp?: string | null; servePorts?: number[] } = {}): Promise<string[]> {
+  const out: string[] = []
+  // the Tailscale port: tailscaled answers the ports `tailscale serve` / Funnel use, so our listener would get nothing
+  if (s.tailscaleHost && s.tailscalePort && o.servePorts?.includes(s.tailscalePort)) out.push(`port ${s.tailscalePort} is used by \`tailscale serve\` / Funnel on this Mac: choose another with teamax tailscale-address on --port <port>`)
   const want: [number, string, string][] = [
+    ...(s.tailscaleHost && s.tailscalePort && o.tailnetIp ? [[s.tailscalePort, o.tailnetIp, '--tailscale-port'] as [number, string, string]] : []),
     [s.appPort, '127.0.0.1', '--app-port'], [s.lanPort, '0.0.0.0', '--lan-port'],
     ...(s.proxyPort ? [[s.proxyPort, '127.0.0.1', '--proxy-port'] as [number, string, string]] : []),
     ...(s.helperPort ? [[s.helperPort, '0.0.0.0', '--helper-port'] as [number, string, string]] : []),
   ]
-  const out: string[] = []
   for (const [port, hostname, flag] of want) {
-    let busy = await listening(port)
+    let busy = hostname.startsWith('100.') ? false : await listening(port)
     if (!busy) {
-      try { Bun.listen({ hostname, port, socket: { data() {} } }).stop(true) } catch { busy = true }
+      // the Tailscale address: only "in use" counts (an address that is not up yet is the listener's own wait)
+      try { Bun.listen({ hostname, port, socket: { data() {} } }).stop(true) } catch (e) { busy = !hostname.startsWith('100.') || /EADDRINUSE|in use/i.test(`${(e as { code?: string }).code ?? ''} ${(e as Error).message}`) }
     }
     if (busy) out.push(`port ${port} is in use by another program: choose another with ${flag} <port>${flag === '--app-port' ? ' (with an internet address, the owner then runs public-address.ts set <name> --port <that port> so the tunnel points at it)' : ''}`)
   }
@@ -665,6 +773,80 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     return 0
   }
   console.error('usage: teamax public-address set <app.example.com> <token file> | off | status')
+  return 2
+}
+
+/** https://<Tailscale name>[:port]/api/health from this Mac, with the normal certificate check (the Let's Encrypt
+ * certificate must be trusted as it is: that is the point). 'ok', 'cert' (TLS refused the certificate), 'none'. */
+async function probeTailnet(origin: string, timeoutMs = 4000): Promise<'ok' | 'cert' | 'none'> {
+  try { return (await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' })).ok ? 'ok' : 'none' } catch (e) {
+    return /certificate|CERT_|SSL|TLS/i.test(String((e as { code?: string }).code ?? '') + (e as Error).message) ? 'cert' : 'none'
+  }
+}
+const tailnetWord = (r: 'ok' | 'cert' | 'none') => r === 'ok' ? 'answers' : r === 'cert' ? 'certificate refused' : 'no answer'
+
+async function waitTailnet(origin: string, seconds: number): Promise<'ok' | 'cert' | 'none'> {
+  let last: 'ok' | 'cert' | 'none' = 'none'
+  for (let i = 0; i < seconds; i += 2) {
+    last = await probeTailnet(origin)
+    if (last === 'ok') return last
+    await Bun.sleep(2000)
+  }
+  return last
+}
+
+/** teamax tailscale-address on [--port N] | off | status */
+export async function tailscaleAddress(home: string, args: string[], o: { run?: Run; restart?: (s: OfficeSettings) => Promise<void>; probe?: (origin: string) => Promise<'ok' | 'cert' | 'none'>; out?: (l: string) => void } = {}): Promise<number> {
+  const [sub = 'status'] = args.filter((a, i) => !a.startsWith('--') && !args[i - 1]?.startsWith('--'))
+  const out = o.out ?? console.log
+  const before = loadSettings(home)
+  const p = officePaths(home)
+  if (sub === 'on') {
+    const bin = o.run ? (before.tailscaleBin ?? 'tailscale') : findTailscaleBin({ configured: before.tailscaleBin })
+    if (!bin) { out('Tailscale CLI를 찾지 못했어요 / the Tailscale CLI was not found: install the Tailscale app from https://tailscale.com/download/mac and sign in (or pass --bin <path>)'); return 1 }
+    const run = o.run ?? runner(bin)
+    const node = readNode(run)
+    if (node.problem || !node.certName || !node.ipv4) { out(`Tailscale: ${node.problem ?? 'no certificate name'}`); return 1 }
+    const portArg = arg(args, '--port')
+    const next = settingsFrom(home, { ...parseEnvFile(fs.existsSync(p.env) ? fs.readFileSync(p.env, 'utf8') : ''), TEAMAX_TAILSCALE_HOST: node.certName, ...(portArg !== undefined ? { TEAMAX_TAILSCALE_PORT: portArg } : {}) })
+    // a port our own running listener holds is fine; one `tailscale serve` uses or another program holds is not
+    const moved = before.tailscaleHost !== next.tailscaleHost || before.tailscalePort !== next.tailscalePort
+    const bad = await portProblems({ ...next, appPort: 0, lanPort: 0, helperPort: 0, proxyPort: 0 } as OfficeSettings, { tailnetIp: moved ? node.ipv4 : null, servePorts: readServePorts(run) })
+      .then((l) => l.filter((x) => x.includes(String(next.tailscalePort))))
+    if (bad.length) { for (const b of bad) out(b); return 1 }
+    // the certificate first: nothing is written when Tailscale cannot give one
+    fs.mkdirSync(p.tls, { recursive: true, mode: 0o700 })
+    const cert = refreshTailnetCert(p.tls, node.certName, run)
+    if (!cert.ok) { out(`인증서를 받지 못했어요 / no certificate: ${cert.warning ?? 'unknown'}`); return 1 }
+    const s = configure(home, ['--tailscale-host', node.certName, '--tailscale-port', String(next.tailscalePort), ...(o.run ? [] : ['--tailscale-bin', bin])])
+    const origin = tailnetOrigin(s)!
+    out(`Tailscale 주소 / Tailscale address: ${origin}  (${node.ipv4}, 인증서 ${Math.floor(cert.daysLeft ?? 0)}일 남음 / certificate ${Math.floor(cert.daysLeft ?? 0)} days left)`)
+    await (o.restart ?? restartServer)(s)
+    const r = await (o.probe ?? ((x: string) => waitTailnet(x, 30)))(origin)
+    out(r === 'ok' ? `${origin} 답함 / answers. 같은 tailnet의 기기에서 이 주소를 여세요 / open it on any device of the tailnet.` : `${origin}: ${tailnetWord(r)} (see ${p.officeLog})`)
+    out('팀장 계정 만들기(첫 설정)는 이 주소에서 안 돼요: 이 맥이나 사무실 데스크에서 하세요 / the first-run setup is refused on this address: do it on this Mac or an office desk.')
+    return r === 'ok' ? 0 : 1
+  }
+  if (sub === 'off') {
+    const s = configure(home, ['--tailscale-host', '', '--tailscale-port', ''])
+    for (const f of Object.values(tailnetCertPaths(p.tls))) fs.rmSync(f, { force: true })
+    if (before.tailscaleHost) await (o.restart ?? restartServer)(s)
+    out('Tailscale 주소를 껐어요 / Tailscale address off. 사무실 안 주소는 그대로예요 / the office addresses are unchanged.')
+    return 0
+  }
+  if (sub === 'status') {
+    if (!before.tailscaleHost) { out('Tailscale 주소 없음 / no Tailscale address (teamax tailscale-address on)'); return 0 }
+    const origin = tailnetOrigin(before)!
+    const node = tailnetNode(before, o.run ?? tailscaleRun(before))
+    const left = daysLeft(tailnetCertPaths(p.tls).crt)
+    const r = await (o.probe ?? probeTailnet)(origin)
+    out(`Tailscale address  ${origin}  ${tailnetWord(r)}`)
+    out(`  this Mac        ${node?.ipv4 ?? 'no Tailscale IPv4 address'}${node?.problem ? ` (${node.problem})` : ''}`)
+    out(`  certificate     ${left === null ? 'none yet' : `${Math.floor(left)} days left (Tailscale renews it; checked every 12 h)`}`)
+    out(`  log             ${p.officeLog}`)
+    return 0
+  }
+  out('usage: teamax tailscale-address on [--port N] | off | status')
   return 2
 }
 
@@ -858,9 +1040,27 @@ export async function main(argv: string[]): Promise<number> {
       lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
       lines('waiting for the server ...')
       // an updater that knows "migrating" (TEAMAX_UPDATER_WAITS_MIGRATING) waits for it itself: hand it over at once
-      const up = await waitHealthy(s, 90, { migratingIsUp: process.env.TEAMAX_UPDATE_RUN === '1', updaterMs: process.env.TEAMAX_UPDATER_WAITS_MIGRATING === '1' ? 0 : undefined, say: lines })
+      const underUpdater = process.env.TEAMAX_UPDATE_RUN === '1'
+      const waitOpts = { migratingIsUp: underUpdater, updaterMs: process.env.TEAMAX_UPDATER_WAITS_MIGRATING === '1' ? 0 : undefined, say: lines }
+      let up = await waitHealthy(s, 90, waitOpts)
+      // QA TC-335: when this version migrated (or is migrating) the database past what app.previous reads, a rollback
+      // to it can never start, and the updater that runs this install may be an old one that rolls back anyway (and
+      // then loops on exit 75). previousDecision (./forward.ts) decides; app.previous goes to app.unreadable.
+      const prev = releaseIn(home, 'app.previous')
+      if (prev && !up && underUpdater && dbReaderLevel(home) > prev.level) {
+        const extra = extraWaitSeconds(process.env.TEAMAX_INSTALLER_STARTED, Date.now())
+        if (extra > 0) { lines(`the server did not answer within 90 s; ${prev.version} cannot read the database any more, so waiting ${extra} s more`); up = await waitHealthy(s, extra, waitOpts) }
+      }
+      const pd = previousDecision({ up, underUpdater, need: dbReaderLevel(home), newLevel: releaseIn(home, 'app')?.level ?? 1, prevLevel: prev?.level ?? null })
+      if (prev && pd.setAside) {
+        lines(setAsidePrevious(home, prev, pd.why))
+        if (pd.marker) writeHealMarker(home, { at: new Date().toISOString(), version: releaseIn(home, 'app')?.version ?? '?', previous: prev.version, reason: `${prev.version} reads schema level ${prev.level}; ${pd.why}` })
+      }
+      const handOver = pd.exitZero
       if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
-      if (!up) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      if (!up && !handOver) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      if (handOver) lines(`the server does not answer yet; there is nothing to roll back to, so the updater goes on waiting for it (see ${p.officeLog} and ${p.serverLogs})`)
+      if (up === 'up' && !underUpdater) { const c = clearStaleFailure(home); if (c) lines(c) }
       if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)
@@ -900,6 +1100,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'public-address': return await publicAddress(home, args)
+    case 'tailscale-address': return await tailscaleAddress(home, args)
     case 'desktop': return desktopCommand(home, args)
     case 'update': return await updateCommand(home, args, agentPath(s))
     case 'uninstall-agent': {
@@ -922,6 +1123,10 @@ export async function main(argv: string[]): Promise<number> {
         const r = await probePublic(s.publicHost, 6000)
         lines(`  internet  https://${s.publicHost}  ${probeWord(r)}  (cloudflared ${tunnelAgentOf(s).loaded() ? 'running' : 'stopped'}, app port ${s.appPort})`)
         if (r !== 'ok') lines(publicProblem(s, r, p.tunnelLog))
+      }
+      if (s.tailscaleHost) {
+        const o = tailnetOrigin(s)!
+        lines(`  tailnet   ${o}  ${tailnetWord(await probeTailnet(o, 6000))}`)
       }
       let origins: string[] = []
       try { const cfg = JSON.parse(fs.readFileSync(p.serverJson, 'utf8')); origins = (cfg.publicOrigins as string[]).filter((o) => SHOWN.test(o)) } catch {}
@@ -993,7 +1198,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|claude-mcp check|backups|restore FILE|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|tailscale-address on [--port N]|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|claude-mcp check|backups|restore FILE|uninstall-agent')
       return 2
   }
 }

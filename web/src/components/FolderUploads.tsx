@@ -11,7 +11,7 @@ import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
-import { Button, IconButton } from './ui'
+import { Button, IconButton, ProgressBar } from './ui'
 import { StoragePlansLink, storagePlansUrl } from './StoragePlansLink'
 
 /** one failed path per line, at most this many; the rest are counted */
@@ -55,15 +55,18 @@ function settle(run: FolderUpload, ended: Promise<void>) {
 }
 
 /** Start a folder upload into `base`. `tag`: a screen that comes back to it (folderRuns.ts RunTag); `onLanded`: each file
- * the server took, with where it is now (the welcome step records itself done with the first). */
-export function startFolderUpload(plan: FolderPlan, base: string, onRefused: Run['onRefused'], o: { tag?: Run['tag']; onLanded?: (path: string) => void } = {}): Run {
+ * the server took, with where it is now and whether it was a file of the person's that was there already (`kept`: the
+ * server made nothing new; the welcome step records itself done with the first); `onMade`: each folder the run made. */
+export function startFolderUpload(plan: FolderPlan, base: string, onRefused: Run['onRefused'], o: { tag?: Run['tag']; onLanded?: (path: string, kept: boolean) => void; onMade?: (path: string) => void } = {}): Run {
+  // onMade: the folders this run made (Find work files' Undo takes back only what the run made)
+  const withMade: FolderUploadCalls = o.onMade ? { ...calls, onMade: o.onMade } : calls
   const own: FolderUploadCalls = o.onLanded
-    ? { ...calls, upload: async (file, path, signal, onProgress) => {
+    ? { ...withMade, upload: async (file, path, signal, onProgress) => {
       const r = await calls.upload(file, path, signal, onProgress) as Awaited<ReturnType<typeof uploadFile>>
-      if (r.kind === 'path') { try { o.onLanded!(r.entry.path) } catch { /* the upload itself went */ } }
+      if (r.kind === 'path') { try { o.onLanded!(r.entry.path, r.entry.kept === true) } catch { /* the upload itself went */ } }
       return r
     } }
-    : calls
+    : withMade
   const run: FolderUpload = new FolderUpload(plan, base, own, () =>
     useRuns.setState((s) => {
       const tagged = o.tag && s.tagged[o.tag]?.run === run ? { ...s.tagged, [o.tag]: { ...s.tagged[o.tag]!, view: run.view } } : s.tagged
@@ -154,9 +157,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
         </IconButton>
       </div>
       {running && (
-        <div className="h-1 overflow-hidden rounded bg-subtle" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={v.name ?? t('files.folderUpload.label')}>
-          <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
-        </div>
+        <ProgressBar value={pct / 100} label={v.name ?? t('files.folderUpload.label')} />
       )}
       {running && now && (
         <p className="truncate text-faint">

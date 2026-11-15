@@ -67,8 +67,8 @@ describe('desktop app', () => {
     expect(desktopT('id', 'pane.promptsMore', { n: '1' })).toBe('1 pertanyaan lagi menunggu')
   })
   test('no bare count before an English plural noun in the desktop strings', () => {
-    // names, addresses and versions are not counts ("{app} needs", "{host} is")
-    const counts = (v: string) => [...v.matchAll(/\{(\w+)\} (?:more |other )?\w+s\b/g)].filter((m) => !['app', 'domain', 'host', 'version', 'current'].includes(m[1]!))
+    // names, addresses and versions are not counts ("{app} needs", "{host} is", "{name} downloads": a messenger's name)
+    const counts = (v: string) => [...v.matchAll(/\{(\w+)\} (?:more |other )?\w+s\b/g)].filter((m) => !['app', 'domain', 'host', 'version', 'current', 'name'].includes(m[1]!))
     for (const [k, v] of Object.entries(STRINGS.en)) expect({ k, bare: counts(v).length }).toEqual({ k, bare: 0 })
   })
 })

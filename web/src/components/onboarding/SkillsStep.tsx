@@ -7,7 +7,7 @@
 // kept skill in the team already, one line says so and the primary goes on. Own skills (a .claude or .codex folder,
 // Claude Code or Codex) are not brought here: office workers rarely have them, and the hidden folder confused them
 // (owner, 2026-11-11). They go in from Team skills › Bring my skills (components/skills/BringSkillsSheet.tsx).
-// The one primary names what goes in, up to three ("회사 소개서·카드뉴스·홍보 영상 넣기"; from four on "팀에 넣기 · n개"),
+// The one primary names what goes in: one skill by its name, two or more counted ("스킬 3개 넣기"),
 // and hides when nothing is checked (나중에 하기 takes its style). On press: one install per pack (POST
 // …/packs/:id/install; the server runs the brand action first on the owner's press and records the step too). All in:
 // a toast and the next step. When anything failed the step stays: what went in is marked, the rest says why (a name
@@ -22,6 +22,8 @@ import { useWelcome } from '../../store/welcome'
 import { installPacks, outcomeEmpty, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from '../skills/PackRows'
 import { Button, ErrorNote, Skeleton, useMediaQuery } from '../ui'
 
+/** The primary names what it puts in while it covers at most this many skills (a row of names ran together, "A·B·C"). */
+const NAMED_MAX = 1
 
 /** The kept skills checked when the step first shows them: the visual ones when a company profile is saved, none on a
  * revisit of a done step. */
@@ -29,10 +31,11 @@ export function preChecked(rows: readonly Pick<PackCatalogSkill, 'name' | 'visua
   return new Set(o.done || !o.profile ? [] : rows.filter((r) => r.visual).map((r) => r.name))
 }
 
-/** The primary's words (null: nothing to put in): how many go in, "Add 3 skills" (the rows above say which; the names
- * joined made one long label, fix/onboarding-copy). */
+/** The primary's words (null: nothing to put in): up to NAMED_MAX skills it is named; more: "Add 3 skills". */
 export function primaryLabel(t: ReturnType<typeof useT>, kept: readonly string[]): string | null {
-  return kept.length ? t('welcome.skills.put', { n: kept.length }) : null
+  if (!kept.length) return null
+  if (kept.length > NAMED_MAX) return t('welcome.skills.putN', { n: kept.length })
+  return t('welcome.skills.put', { names: kept.join('·') })
 }
 
 export interface SkillsStepProps {

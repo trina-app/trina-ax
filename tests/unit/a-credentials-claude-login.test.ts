@@ -428,13 +428,14 @@ describe('Claude sign-in started by an admin', () => {
   test('a start while one runs: the owner or an admin is told whose it is (and can stop it); a member is not; the owner or an admin stops any, a member\'s own too (and the member is told)', async () => {
     const s = await team('Forgotten', { userId: 'carol' })
     await waiting(carol, s.loginId)
-    // one at a time: the owner starting hears whose it is, its kind and how to stop it; a member hears only that it is busy
+    // one at a time: the owner starting hears whose it is, its kind and how to stop it; a member hears only that it is busy and until when
     const busy = await startOver('dana', 'Owner wants it')
     expect(busy.status).toBe(409)
     expect(((await busy.json()) as { error: { code: string; params?: unknown } }).error).toMatchObject({ code: 'busy', params: { reason: 'login_busy', loginId: s.loginId, personal: false, starter: 'Carol Park' } })
     const own409 = await h.req('alice', '/api/me/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'mine', acknowledgedPlanNotice: true }) })
     expect(own409.status).toBe(409)
-    expect(((await own409.json()) as { error: { params?: unknown } }).error.params).toBeUndefined()
+    // a member hears when it ends at the latest (QA TC-2581), never whose it is or its id
+    expect(((await own409.json()) as { error: { params?: unknown } }).error.params).toEqual({ reason: 'login_busy', expiresAt: s.expiresAt })
     expect((await h.req('alice', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(403)
     expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(204)
     expect((await final(carol, s.loginId)).state).toBe('cancelled')

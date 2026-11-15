@@ -104,6 +104,7 @@ describe('first run: what the team address answered, the help screens, the host 
     // a 404 from something that is not the relay, or a page that is not the health answer
     expect(health(404, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
     expect(health(200, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(t('ko', 'err.short_name')).toContain('macmini.local:8443')
     expect(t('ko', 'err.teamUnknown', { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
   })
   test('a redirect is never followed by the network stack: only a relay rename to another name under the team domain', () => {

@@ -230,7 +230,7 @@ describe('translations', () => {
       // 팀 파일's word lists, matched in file and folder names on the person's computer (not screen text)
       // the city names of the usual time zones in Korean (lib/time-zones.ts: Intl has none; a label table like the cloud console's)
       'lib/time-zones.ts': /^  ko: \{ 'Asia\/Seoul': '서울',/,
-      'lib/teamFiles.ts': /^const (brandFolder|PERSONAL_KO|PERSONAL_KO_WHOLE|KEEP_WORDS) = /,
+      'lib/teamFiles.ts': /^const (brandFolder|PERSONAL_KO|PERSONAL_WHOLE|KEEP_WORDS) = /,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {

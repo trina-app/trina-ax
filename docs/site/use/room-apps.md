@@ -56,9 +56,11 @@ Google Forms has nothing to paste a URL into, so Trina gives you a short script 
 Typeform, Tally, Jotform, Stripe, Shopify, Notion, Zendesk, Jira and HubSpot each have their own guide with the steps
 in that service, named the way it names them. In short:
 
-- **Typeform**: the form's **Connect › Webhooks › Add a webhook**, paste, save and turn it on.
+- **Typeform**: the form's **Connect › Webhooks › Add a webhook**, paste and save, then turn it on (its switch starts
+  off and works only after saving).
 - **Tally**: the form's **Integrations › Webhooks › Connect**, paste into **Endpoint URL**.
-- **Jotform**: the form's **Settings › Integrations**, search **WebHooks**, paste.
+- **Jotform**: the form's **Settings › Integrations**, search **WebHooks**, paste the Webhook URL, then press
+  **Complete Integration** and **Finish** (both buttons work only once the URL is in; don't press **Add New Web Hook**).
 - **Stripe** (Admin or Developer role): **Developers › Workbench › Webhooks › Create an event destination**, tick the
   events the guide lists, choose **Webhook endpoint** and paste into **Endpoint URL**.
 - **Shopify** (store owner or staff with Settings access): **Settings › Notifications › Webhooks › Create webhook** for
@@ -75,12 +77,14 @@ in that service, named the way it names them. In short:
   ([HubSpot workflows](https://knowledge.hubspot.com/workflows/how-do-i-use-webhooks-with-hubspot-workflows)). A
   contact shows its name and company, never its email or phone.
 
-Form answers show in the room as they were given, email addresses too; uploaded files show only their name. Payment
+Form answers show in the room as they were given, email addresses too; uploaded files show only their name (Google
+Forms: only how many, so the script needs no access to your Drive). Payment
 and order cards show a customer's name (and city for Shopify), never their email, phone or card.
 
 Stripe, Shopify, Zendesk, Typeform and Tally can sign what they send. **Optional: make it safer** in the guide takes the
 service's signing secret (or gives you one to paste there); after that only signed messages are shown. A secret Trina
-gives you (Typeform, Tally, GitHub) starts with the first message signed with it: until then, messages without it still
+gives you (Typeform, Tally, GitHub) starts with the first message signed with it (Tally fills in a secret of its own
+under **Add a signing secret**: replace it with Trina's): until then, messages without it still
 show, so nothing is lost before you paste it in the service. Jira and HubSpot
 can't sign: their Webhook URL is the only key, so keep it private.
 

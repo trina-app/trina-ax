@@ -340,9 +340,9 @@ export function systemFollowUps() {
     for (const id of ['claude-code', 'codex']) await expect(list.getByTestId(`ai-app-${id}`)).toContainText(t['admin.onComputer'])
   })
 
-  test('every item\'s page and group names the page ‹ returns to, whole: an engine\'s page under "‹ Team AI accounts" (TC-381)', async ({ page }) => {
+  test('every item\'s page and group names the page ‹ returns to, whole: an engine\'s page under "‹ Providers" (TC-381)', async ({ page }) => {
     await signIn(page)
-    // the row's steps: Team AI accounts › Claude Code
+    // the row's steps: Providers › Claude Code
     await openTab(page, 'me')
     await page.getByTestId('settings-admin').click()
     await page.getByTestId('admin-row-providers').click()

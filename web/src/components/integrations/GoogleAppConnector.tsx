@@ -112,7 +112,7 @@ export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; test
   return (
     <>
       {flow && flow.state !== 'ready' && (
-        <BrowserWait framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
+        <BrowserWait google framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
           onRetry={() => void d.start()} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (

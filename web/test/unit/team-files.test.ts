@@ -21,13 +21,14 @@ const file = (name: string, o: { size?: number; at?: number; rel?: string } = {}
   return f
 }
 type Spec = { [name: string]: Spec | File }
-/** A folder made of names: a nested object is a folder, a File a file. `opened` counts the files whose File was asked for. */
-function dir(name: string, spec: Spec, opened = { n: 0 }): WalkDir {
+/** A folder made of names: a nested object is a folder, a File a file. `opened` counts the files whose size and date were
+ * asked for, `read` those whose content was (the walk never reads one). */
+function dir(name: string, spec: Spec, opened = { n: 0, read: 0 }): WalkDir {
   return {
     name,
     async *entries(): AsyncIterable<WalkEntry> {
       for (const [n, v] of Object.entries(spec)) {
-        if (v instanceof File) yield { kind: 'file', name: n, file: async () => { opened.n++; return v } }
+        if (v instanceof File) yield { kind: 'file', name: n, stat: async () => { opened.n++; return { size: v.size, modified: v.lastModified } }, open: async () => { opened.read++; return v } }
         else yield { kind: 'directory', name: n, dir: () => dir(n, v, opened) }
       }
     },
@@ -36,12 +37,12 @@ function dir(name: string, spec: Spec, opened = { n: 0 }): WalkDir {
 const doc = (rel: string, o: { size?: number; at?: number; pick?: string } = {}): LocalDoc => {
   const name = rel.split('/').pop()!
   const pick = o.pick ?? '회사 자료'
-  return { key: `${pick}/${rel}`, pick, rel, name, folder: rel.split('/').slice(0, -1).join('/'), ext: name.split('.').pop()!, size: o.size ?? 10, modified: o.at ?? T0, file: file(name, o), personal: personalPath(rel) }
+  return { key: `${pick}/${rel}`, pick, rel, name, folder: rel.split('/').slice(0, -1).join('/'), ext: name.split('.').pop()!, size: o.size ?? 10, modified: o.at ?? T0, open: async () => file(name, o), personal: personalPath(rel) }
 }
 
 describe('the walk', () => {
   test('documents only, by type; pictures only in a brand folder; never dot entries, system names, bundles, node_modules, .git, Library', async () => {
-    const opened = { n: 0 }
+    const opened = { n: 0, read: 0 }
     const r = await walkFolder(dir('회사 자료', {
       '2026 견적서 양식.xlsx': file('a'), '회사 소개서.pdf': file('b'), 'notes.md': file('c'), 'photo.png': file('d'), 'setup.exe': file('e'), 'movie.mp4': file('f'),
       '.secret.pdf': file('g'), '~$lock.docx': file('h'), '.DS_Store': file('i'), 'Thumbs.db': file('j'),
@@ -51,8 +52,11 @@ describe('the walk', () => {
       '.hidden': { 'z.pdf': file('r') },
     }, opened), {})
     expect(r.docs.map((d) => d.key).sort()).toEqual(['회사 자료/2026 견적서 양식.xlsx', '회사 자료/Logos/mark.jpg', '회사 자료/notes.md', '회사 자료/브랜드/guide.pdf', '회사 자료/브랜드/logo.png', '회사 자료/회사 소개서.pdf'].sort())
-    // a file that is not a document is never opened
+    // a file that is not a document is never asked about; no content is read by the walk (review MUST: contents load
+    // only at upload time)
     expect(opened.n).toBe(6)
+    expect(opened.read).toBe(0)
+    expect(r.docs.every((d) => !('file' in d))).toBe(true)
     expect(r).toMatchObject({ cut: false, stopped: false, tooBig: 0 })
     expect(r.docs.find((d) => d.name === 'guide.pdf')).toMatchObject({ pick: '회사 자료', rel: '브랜드/guide.pdf', folder: '브랜드', ext: 'pdf', size: 3 })
     for (const n of ['.env', 'node_modules', 'NODE_MODULES', '.git', 'library', 'AppData', 'Photos Library.photoslibrary', 'Xcode.app', '__MACOSX', '~$보고서.docx']) expect(neverListed(n), n).toBe(true)

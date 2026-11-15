@@ -9,7 +9,7 @@ import type { Plugin, UserConfig } from 'vite'
 const here = import.meta.dirname
 const shim = (f: string) => path.join(here, 'shims', f)
 const STORY = path.resolve(here, '../../scripts/demo/mina')
-/** the story's language (DEMO_LOCALE=en|ko|ja|es|id, default en) and its file: scripts/demo/mina/index.<locale>.ts when
+/** the story's language (DEMO_LOCALE=en|ko|id|ja|es|zh, default en) and its file: scripts/demo/mina/index.<locale>.ts when
  * there, else scripts/demo/mina/index.ts (English), else the example. The app shows its own words in that language. */
 export const demoLocale = () => process.env.DEMO_LOCALE ?? 'en'
 export const contentFile = () => {
@@ -35,15 +35,17 @@ export const demoBase = () => {
   return `/${b.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/')
 }
 
-/** The demos of every language on one site, for the guide line's language links: DEMO_LANGS="en=/demo/,ko=/demo/ko/",
- * by default English at the base (a language's own build sits in <English base><locale>/) and Korean next to it */
+/** every language the demo is built in, in the order the app's language pickers list them (shared LOCALE_ORDER) */
+export const DEMO_LOCALES = ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const
+/** The demos of every language on one site, for the guide line's language picker: DEMO_LANGS="en=/demo/,ko=/demo/ko/",
+ * by default English at the base and every other language in its own folder under it (<English base><locale>/) */
 export const demoLangs = (): { locale: string; base: string }[] => {
   const given = process.env.DEMO_LANGS?.trim()
   if (given) return given.split(',').map((x) => { const [locale, base] = x.split('='); return { locale: locale!.trim(), base: base!.trim() } })
   const base = demoBase()
   const locale = demoLocale()
   const en = locale !== 'en' && base.endsWith(`/${locale}/`) ? base.slice(0, -(locale.length + 1)) : base
-  return [{ locale: 'en', base: en }, { locale: 'ko', base: `${en}ko/` }]
+  return DEMO_LOCALES.map((l) => ({ locale: l, base: l === 'en' ? en : `${en}${l}/` }))
 }
 
 /** The app under a base without a change to web/src (web/demo/base.ts says how): on the app's source, in the demo build

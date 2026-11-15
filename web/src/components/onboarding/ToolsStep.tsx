@@ -164,7 +164,7 @@ function DriveRow({ onConnected, back }: { onConnected: (on: boolean) => void; b
           </div>
         ) : flow ? (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="welcome-tools-drive-waiting">
-            <WaitLine className="text-muted" text={d.popupBlocked ? t('welcome.tools.popupBlocked') : t('drive.waitingShort')} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} />
+            <WaitLine className="text-muted" text={d.popupBlocked ? t('welcome.tools.popupBlocked') : t('drive.waitingShort')} hint={t('connect.wait.google', { n: SIGN_IN_WAIT_MINUTES })} />
             {d.authorizationUrl && (
               <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className={quietLink}
                 onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>

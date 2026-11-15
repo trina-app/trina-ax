@@ -569,7 +569,11 @@ function ManageFold({ keepOpen = false, children }: { keepOpen?: boolean; childr
  * points at that press: copying by itself after the sheet's answer would copy nothing in WebKit (the press is spent). */
 function CopyPrimary({ text, label, disabled, onSent, quiet = false }: { text: string; label: string; disabled?: boolean; onSent?: () => void; quiet?: boolean }) {
   const t = useT()
-  const { copied, copy } = useCopy()
+  const { copied: copiedAny, copy: copyText } = useCopy()
+  // "Copied" is for the words that were copied: an edit (or an emptied box) brings the label back (QA TC-2846)
+  const [copiedText, setCopiedText] = useState<string | null>(null)
+  const copied = copiedAny && copiedText === text && !disabled
+  const copy = (s: string) => { setCopiedText(s); return copyText(s) }
   const phone = useMediaQuery(SHARE_PHONE_QUERY)
   const [failed, setFailed] = useState(false)
   if (phone && canShareText()) {
@@ -587,14 +591,14 @@ function CopyPrimary({ text, label, disabled, onSent, quiet = false }: { text: s
         </Button>
         {failed && <p className="text-center text-label text-warn" role="status" data-testid="team-link-share-failed">{t('teamLink.shareFailed')}</p>}
         <Button variant="ghost" className="w-full" disabled={disabled} onClick={() => { setFailed(false); void copy(text).then((ok) => { if (ok) onSent?.() }) }} data-testid="team-link-copy-message">
-          {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+          {copied && !disabled ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied && !disabled ? t('common.copied') : label}
         </Button>
       </div>
     )
   }
   return (
     <Button variant={quiet ? 'secondary' : 'primary'} className="mt-3 max-sm:w-full" disabled={disabled} onClick={() => void copy(text).then((ok) => { if (ok) onSent?.() })} data-testid="team-link-copy-message">
-      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+      {copied && !disabled ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied && !disabled ? t('common.copied') : label}
     </Button>
   )
 }

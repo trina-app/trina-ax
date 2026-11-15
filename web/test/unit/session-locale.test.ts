@@ -152,6 +152,18 @@ describe('session recovery language', () => {
     expect(currentLocale()).toBe('en')
     expect(() => session().signedOut()).not.toThrow()
   })
+
+  test('reset() forgets the team default last seen: the next sign-out is not in the last team\'s language', () => {
+    // the web tests' file start runs it (preload.ts); before, a file that signed in to a Korean team left the next
+    // file's sign-out in Korean (invite-signed-in's guest sentence test, QA TC-2224, failed on CI in that order)
+    session().signedIn(me('en', 'ko'))
+    session().signedOut()
+    expect(currentLocale()).toBe('ko')
+    session().signedIn(me('en', 'ko'))
+    session().reset()
+    session().signedOut()
+    expect(currentLocale()).toBe('en')
+  })
 })
 
 // GET /api/setup carries the setup link's token (TC-194): through the relay only a visitor with it is told that setup

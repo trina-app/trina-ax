@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -55,6 +55,30 @@ const bridge: DesktopBridge = {
   setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
   copyImage: (png) => ipcRenderer.invoke('bridge:copy-image', png instanceof Uint8Array ? png : new Uint8Array(0)),
+  // "Find work files on this computer": only when the app offers it (not the Mac App Store build); the page names no path
+  ...(info?.workFiles
+    ? {
+        workFiles: {
+          version: info.workFiles,
+          ...(info.workFilesWide ? { wide: info.workFilesWide } : {}),
+          scan: (o?: { wide?: boolean; words?: string[] }) => ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {}),
+          stop: () => ipcRenderer.send('bridge:work-files-stop'),
+          onProgress: on('bridge:work-files-progress'),
+          read: (id: string) => ipcRenderer.invoke('bridge:work-files-read', String(id)),
+          openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
+          pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),
+          ...(info.workFilesWide && info.platform === 'darwin'
+            ? {
+                fullDisk: {
+                  state: () => ipcRenderer.invoke('bridge:work-files-full-disk'),
+                  openSettings: () => ipcRenderer.send('bridge:work-files-full-disk-settings'),
+                  relaunch: () => ipcRenderer.send('bridge:work-files-relaunch'),
+                },
+              }
+            : {}),
+        },
+      }
+    : {}),
   browserSettings: {
     get: () => ipcRenderer.invoke('bridge:browser-settings'),
     onChange: on('bridge:browser-settings'),

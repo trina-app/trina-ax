@@ -9,7 +9,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
-import AdminSlack from '../../src/pages/admin/Slack'
+import AdminSlack, { slackFix } from '../../src/pages/admin/Slack'
+import { SlackErrorCode } from '@mycel/shared/api'
+import { DICTS } from '../../src/i18n'
 import AdminIntegrations, { slackAdded, slackRowStatus } from '../../src/pages/admin/Integrations'
 import { slackView } from '../../src/lib/slackState'
 import { redirectOf } from '../../src/pages/admin/AdminLayout'
@@ -180,6 +182,60 @@ describe('Admin › Connected apps › Slack: the official app (the hosting serv
     expect((await m.until(() => m.find('slack-removed'), 'removed')).textContent).toBe('The app was removed from Slack. Add it to Slack again.')
     expect(m.find('slack-add')).not.toBeNull()
     await m.unmount()
+  })
+
+  test('a problem of the official app offers only what an admin can do: Add to Slack again, never tokens or Slack app settings (QA TC-2960)', async () => {
+    for (const role of ['owner', 'admin'] as const) {
+      signedIn(role)
+      for (const [code, words] of [
+        ['invalid_auth', 'Slack no longer accepts the connection. Add to Slack again to fix it.'],
+        ['missing_scope', 'Slack needs a new approval for the app. Add to Slack again and allow it.'],
+      ] as const) {
+        admin = on({ mode: 'official', official: true, state: 'error', lastError: code })
+        assigned = []
+        const m = await page()
+        const line = await m.until(() => m.find('slack-error'), 'the problem')
+        expect(line.textContent).toBe(words)
+        expect(line.querySelector('a')).toBeNull()
+        expect(m.html()).not.toContain('Replace tokens')
+        expect(m.html()).not.toContain('Slack app settings')
+        expect(m.find('slack-replace')).toBeNull()
+        // its "Add to Slack" goes to Slack's own page, as the card's button does
+        await m.click(line.querySelector('button')!)
+        await m.until(() => assigned.length > 0, 'went to Slack')
+        expect(assigned).toEqual(['https://slack.com/oauth/v2/authorize?client_id=1111111111.2222222222&state=s'])
+        expect(m.find('slack-setup')).toBeNull()
+        await m.unmount()
+      }
+    }
+  })
+
+  test('rate limited by Slack: Slack is busy, not "cannot reach Slack", in both modes (QA TC-2960)', async () => {
+    for (const mode of ['official', 'own'] as const) {
+      admin = on({ mode, official: mode === 'official', state: 'error', lastError: 'ratelimited' })
+      const m = await page()
+      expect((await m.until(() => m.find('slack-error'), 'the problem')).textContent).toBe('Slack is busy right now. It tries again by itself in a few minutes.')
+      await m.unmount()
+    }
+  })
+
+  test('the fix of every problem code: the official app never names tokens or a Slack settings page; the own app keeps its fixes', () => {
+    for (const code of SlackErrorCode.options) {
+      const official = slackFix(code, 'official'), own = slackFix(code, 'own')
+      expect(official.page === undefined || official.page === 'add').toBe(true)
+      for (const lang of Object.keys(DICTS) as (keyof typeof DICTS)[]) {
+        const text = DICTS[lang][official.key]
+        expect(text, `${lang} ${code}`).toBeTruthy()
+        expect(/token|OAuth|Socket Mode|App-Level|Install App|Basic Information/i.test(text), `${lang} ${code}: ${text}`).toBe(false)
+      }
+      // the brackets mark the one link: an official "add" line has one, others none
+      expect(/\[[^\]]+\]/.test(DICTS.en[official.key])).toBe(official.page === 'add')
+      if (code === 'ratelimited') expect(own.key).toBe('slack.err.ratelimited')
+    }
+    expect(slackFix('invalid_auth', 'own')).toEqual({ key: 'slack.err.invalid_auth', page: 'replace' })
+    expect(slackFix('missing_scope', 'own')).toEqual({ key: 'slack.err.missing_scope', page: 'oauth' })
+    expect(slackFix('socket_mode_off', 'own')).toEqual({ key: 'slack.err.socket_mode_off', page: 'socket' })
+    expect(slackFix('unreachable', 'own').key).toBe('slack.err.unreachable')
   })
 
   test('removed in Slack: Remove beside Add to Slack clears it, after a confirm', async () => {

@@ -40,6 +40,9 @@ export const APP_TEXT = {
   formsNew: t('{form}에 새 응답', 'New response to {form}', 'Tanggapan baru untuk {form}', '{form} への新しい回答', 'Nueva respuesta a {form}', "{form} 有新回复"),
   formsEdited: t('응답이 수정됨', 'Response edited', 'Tanggapan diubah', '回答が編集されました', 'Respuesta editada', "回复已修改"),
   formsEmail: t('이메일: {email}', 'Email: {email}', 'Email: {email}', 'メール: {email}', 'Correo: {email}', "邮箱：{email}"),
+  // a Google Forms file-upload answer: how many files (the script sends no names, see roomAppFormsScript)
+  formsFiles1: t('파일 1개', '1 file', '1 file', 'ファイル1件', '1 archivo', "1 个文件"),
+  formsFilesN: t('파일 {n}개', '{n} files', '{n} file', 'ファイル{n}件', '{n} archivos', "{n} 个文件"),
   formsMore: t('답변 {n}개 더', '{n} more answers', '{n} jawaban lagi', 'ほか{n}件の回答', '{n} respuestas más', "还有 {n} 个回答"),
   // the names an app gets when it is added, in the team's language (Sentry and GitHub keep theirs)
   nameForms: t('Google 설문지', 'Google Forms', 'Google Formulir', 'Google フォーム', 'Formularios de Google', "Google 表单"),

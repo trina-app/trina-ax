@@ -33,7 +33,9 @@ export const SERVICE_CATALOG = [
   { id: 'mintlify', name: 'Mintlify', url: 'https://mcp.mintlify.com' },
   { id: 'monday', name: 'Monday', url: 'https://mcp.monday.com/mcp', ambiguous: true, aliases: ['먼데이닷컴'] },
   { id: 'neon', name: 'Neon', url: 'https://mcp.neon.tech/mcp', ambiguous: true },
-  { id: 'netlify', name: 'Netlify', url: 'https://netlify-mcp.netlify.app/mcp' },
+  // https://docs.netlify.com/build/build-with-ai/netlify-mcp-server/ (2026-11-13) gives mcp.netlify.com; a connection
+  // saved at the address listed before stays Netlify's
+  { id: 'netlify', name: 'Netlify', url: 'https://mcp.netlify.com/mcp', otherUrls: ['https://netlify-mcp.netlify.app/mcp'] },
   { id: 'openrouter', name: 'OpenRouter', url: 'https://mcp.openrouter.ai/mcp' },
   { id: 'paypal', name: 'PayPal', url: 'https://mcp.paypal.com/mcp', aliases: ['페이팔'] },
   { id: 'planetscale', name: 'PlanetScale', url: 'https://mcp.pscale.dev/mcp/planetscale' },

@@ -93,7 +93,7 @@ export function useDriveParts(s: DriveConnectionState) {
   const steps = (
     <>
       {flow && flow.state !== 'ready' && (
-        <BrowserWait text={t('drive.waitingShort')} testId="drive-waiting" retryTestId="drive-retry-wait" cancelTestId="drive-cancel" busy={d.busy}
+        <BrowserWait google text={t('drive.waitingShort')} testId="drive-waiting" retryTestId="drive-retry-wait" cancelTestId="drive-cancel" busy={d.busy}
           onRetry={s.start} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (

@@ -3,7 +3,7 @@
 // against a scripted backend in the browser and plays this story; nothing here reaches a server or an AI.
 //
 // Where content lives: one story per language, `scripts/demo/mina/<locale>/index.ts` (default export; en first, then
-// ko, id, ja, es with no code change), or `scripts/demo/mina/index.ts` for one language. The build picks the language
+// ko, id, ja, es, zh with no code change), or `scripts/demo/mina/index.ts` for one language. The build picks the language
 // with DEMO_LOCALE (default en). Pictures and files are in `assets/` next to the story file, or in the shared
 // `scripts/demo/mina/assets/` (a language's own file of the same name wins). Without a story the build plays
 // `web/demo/example/index.ts`. The demo's own words around the story ("Start over", the badge) are app i18n keys
@@ -29,7 +29,7 @@ export type Asset = string
 export interface DemoScript {
   /** the format's version; this file describes 1 */
   version: 1
-  /** the story's language (en, ko, ja, es, id): the app shows its own words in it too */
+  /** the story's language (en, ko, id, ja, es, zh): the app shows its own words in it too */
   locale: Locale
   /** the fictional company: the team's name in the app */
   company: { name: string }

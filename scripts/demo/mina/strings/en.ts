@@ -90,6 +90,8 @@ export const en = {
         '**Team skills**: your team shares ready-made skills, like *Brand guide* and *3 social post options*. I use them for you.',
       ].join('\n'),
       /** "people to know", one line each (in the answer's text) */
+      /** one person to know: {name} (bold), {title}, {text} */
+      personLine: '{name}, {title}: {text}',
       peopleTitle: 'People to know',
       people: {
         sara: 'ask her anything.',
