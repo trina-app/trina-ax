@@ -496,11 +496,13 @@ export function OnePlaceNote({ guestId, admin, className }: { guestId?: string; 
 /** Admin › Members at the Guests section (and the guest's row, when known). */
 export const guestAdminPath = (id?: string) => `/admin/members${id ? `?member=${encodeURIComponent(id)}` : ''}#guests`
 
-/** A guest of the add list who is in another place already (Person.guestPlace): their one place, or null for anyone
- * else and for a guest of `here` (already in it). */
-export function guestElsewhere(p: Pick<Person, 'guest' | 'guestPlace'>, here?: { kind: PlaceKind; id: string }): GuestPlaceView | null {
-  if (!p.guest || !p.guestPlace) return null
-  return here && p.guestPlace.kind === here.kind && p.guestPlace.id === here.id ? null : p.guestPlace
+/** A guest of the add list who cannot be added to `here` (a group chat or a project; `id` left out: a new group chat):
+ * they are in another place of the same kind already (Person.guestPlaces: a guest is in at most one group chat and
+ * one project). That place (its name only when the viewer is in it too), or null for anyone else, for a guest of `here`
+ * and for a guest in a place of the other kind only. */
+export function guestElsewhere(p: Pick<Person, 'guest' | 'guestPlaces'>, here: { kind: PlaceKind; id?: string }): GuestPlaceView | null {
+  if (!p.guest) return null
+  return p.guestPlaces?.find((pl) => pl.kind === here.kind && (here.id === undefined || pl.id !== here.id)) ?? null
 }
 
 /** The words of a greyed-out guest's row: "In the 'Quote prep' room" (or project). */

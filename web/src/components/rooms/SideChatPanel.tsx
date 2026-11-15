@@ -239,8 +239,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const guest = isGuestMe(me)
   // ...and only the group chat they were invited to: beside a 1:1 chat it reads nothing of the room, so that panel has no
   // room starters or "Looking at" line and says to quote or paste instead
-  const guestPlace = meGuest(me)?.place
-  const roomUnread = guest && !(guestPlace?.kind === 'room' && guestPlace.id === roomId)
+  const roomUnread = guest && meGuest(me)?.room?.id !== roomId
   // and until it is made (ai-access answers usable), no starters or quick asks: nothing would answer them, so the
   // "Connect my AI" line is the one thing to do here
   const guestWaits = useAiAccess((s) => guestOwn && !(s.loaded && s.usable))

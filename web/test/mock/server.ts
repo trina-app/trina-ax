@@ -394,8 +394,9 @@ export class MockServer {
   /** the team chat rooms the signed-in person is in (empty unless a test sets them: /__test/rooms) */
   rooms: Room[] = []
   /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
-   * one's one place and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
-  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; leftThemselves?: boolean; teamAiGone?: boolean; usedTokens?: number; aiUsedUp?: boolean }>()
+   * one's places (the invite's `place`, and `also` a place of the other kind: at most one group chat and one project)
+   * and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
+  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; also?: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; leftThemselves?: boolean; teamAiGone?: boolean; usedTokens?: number; aiUsedUp?: boolean }>()
   /** the team's tokens per answer (GuestInviteLimit.answerTokens): POST /__test/answer-tokens */
   answerTokens: { tokens: number; from: 'team' | 'default' } = { tokens: 80_000, from: 'default' }
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
@@ -1476,6 +1477,14 @@ export class MockServer {
   }
   makeGuest(u: User, place: { kind: 'room' | 'project'; id: string }, ai: GuestAiChoice, invitedBy: string | null) {
     this.guests.set(u.id, { place, ai, invitedBy })
+    this.putGuestIn(u, place)
+  }
+  /** A guest's places, the group chat first (Me.guest.places). */
+  guestPlacesOf(g: { place: { kind: 'room' | 'project'; id: string }; also?: { kind: 'room' | 'project'; id: string } }): { kind: 'room' | 'project'; id: string }[] {
+    return [g.place, ...(g.also ? [g.also] : [])].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'room' ? -1 : 1))
+  }
+  /** The guest as a member of a group chat or a person of a project. */
+  putGuestIn(u: User, place: { kind: 'room' | 'project'; id: string }) {
     if (place.kind === 'project') {
       const pr = this.projects.find((x) => x.id === place.id)
       const pm = pr && this.projectMembers.get(pr.folderPath)
@@ -1500,33 +1509,52 @@ export class MockServer {
     const r = this.rooms.find((x) => x.id === place.id)
     return r ? { ...place, name: r.name ?? r.peers.map((x) => x.name).join(', ') } : null
   }
-  /** The people a guest shares their place with (them included): the room's people, or the project's members. */
+  /** The people a guest shares their places with (them included): their room's people and their project's members. */
   guestPeers(guestId: string): Set<string> {
     const g = this.guests.get(guestId)
     const out = new Set([guestId])
     if (!g) return out
-    if (g.place.kind === 'room') {
-      const r = this.rooms.find((x) => x.id === g.place.id)
+    for (const pl of this.guestPlacesOf(g)) for (const id of this.guestPeersIn(g, pl)) out.add(id)
+    return out
+  }
+  /** The people of one place of a guest's (them included). */
+  guestPeersIn(g: { invitedBy: string | null }, place: { kind: 'room' | 'project'; id: string }): Set<string> {
+    const out = new Set<string>()
+    if (place.kind === 'room') {
+      const r = this.rooms.find((x) => x.id === place.id)
       for (const p of r?.peers ?? []) out.add(p.id)
       if (g.invitedBy) out.add(g.invitedBy)
       return out
     }
-    const pr = this.projects.find((x) => x.id === g.place.id)
+    const pr = this.projects.find((x) => x.id === place.id)
     for (const u of this.users) if (pr && this.access(pr.folderPath, u) !== 'none') out.add(u.id)
     return out
   }
   /** Me.guest and User.guest: a guest's place by name and AI; for a removed guest why they are not in it (placeOut, as
    * POST /__test/guest {out} sets it; a deleted place keeps no name), and a Team AI whose account was deleted. */
-  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } } {
+  guestDetail(u: User): { guest?: { places: { kind: 'room' | 'project'; id: string; name: string; out?: 'left' | 'trashed' | 'gone' }[]; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } } {
     const g = this.guests.get(u.id)
     if (!g) return {}
     const out = u.status !== 'active' ? g.out : undefined
-    const place = this.guestPlaceNamed(g.place) ?? (out ? { ...g.place, name: out === 'gone' ? '' : String((this.projects.find((x) => x.id === g.place.id) ?? this.rooms.find((x) => x.id === g.place.id))?.name ?? '') } : null)
+    const places = this.guestPlacesOf(g).flatMap((pl) => {
+      const named = this.guestPlaceNamed(pl) ?? (out ? { ...pl, name: out === 'gone' ? '' : String((this.projects.find((x) => x.id === pl.id) ?? this.rooms.find((x) => x.id === pl.id))?.name ?? '') } : null)
+      return named ? [{ ...named, ...(out ? { out } : {}) }] : []
+    })
     // like server/src/auth/guests.ts guestDetail: Team AI's use of this month's limit and when it starts over
     const team = !g.teamAiGone && g.ai.mode === 'team'
     const d = new Date()
     const aiUse = team ? { usedTokens: g.usedTokens ?? 0, usedUsd: 0, resetsAt: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString() } : null
-    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(out === 'left' && g.leftThemselves ? { leftThemselves: true as const } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}), ...(team && g.aiUsedUp ? { aiUsedUp: true as const } : {}), ...(aiUse ? { aiUse } : {}) } } : {}
+    return places.length ? { guest: { places, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(out === 'left' && g.leftThemselves ? { leftThemselves: true as const } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}), ...(team && g.aiUsedUp ? { aiUsedUp: true as const } : {}), ...(aiUse ? { aiUse } : {}) } } : {}
+  }
+  /** Person.guestPlaces for a viewer: a place the viewer is in by id and name, any other by its kind only. */
+  personGuestPlaces(u: User, viewerId: string): { kind: 'room' | 'project'; id?: string; name?: string }[] {
+    const g = this.guests.get(u.id)
+    if (!g) return []
+    return this.guestPlacesOf(g).flatMap((pl) => {
+      const named = this.guestPlaceNamed(pl)
+      if (!named) return []
+      return [this.guestPeersIn(g, pl).has(viewerId) ? named : { kind: pl.kind }]
+    })
   }
   /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
   assertGuestFree() {
@@ -2382,7 +2410,7 @@ export class MockServer {
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     // a guest: their one room and their DMs only (server/src/auth/guests.ts)
     // a guest never renames a room (server/src/rooms/store.ts mayRename): canRename false for them
-    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id).map((r) => ({ ...r, canRename: false })) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
+    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || ((g) => !!g && this.guestPlacesOf(g).some((pl) => pl.id === r.id))(this.guests.get(c.user.id))).map((r) => ({ ...r, canRename: false })) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
@@ -2396,7 +2424,7 @@ export class MockServer {
     listPeople: (c) => {
       const mine = c.user.role === 'guest' ? this.guestPeers(c.user.id) : null
       const reach = (u: User) => (mine ? mine.has(u.id) : u.role !== 'guest' || this.guestPeers(u.id).has(c.user.id))
-      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true, ...((d) => (d.guest ? { guestPlace: d.guest.place } : {}))(this.guestDetail(u)) } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
+      return { people: this.users.filter((u) => u.status === 'active' && reach(u)).map((u) => ({ id: u.id, name: u.name, ...(u.role === 'guest' ? { guest: true, ...((l) => (l.length ? { guestPlaces: l } : {}))(this.personGuestPlaces(u, c.user.id)) } : {}), ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }
     },
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
     setMyStatus: (c) => {
@@ -2844,7 +2872,7 @@ export class MockServer {
       return undefined
     },
     // like server/src/routes/chats.ts: the projects the caller reads; manage=1 also those they manage without reading
-    listProjects: (c) => ({ items: this.projects.filter((p) => (c.user.role === 'guest' ? this.guests.get(c.user.id)?.place.id === p.id && this.projectSees(p, c.user) : this.projectSees(p, c.user)) || (c.query.manage === '1' && (this.projectManages(p, c.user) || this.projectWasMember(p, c.user)))).map((p) => this.projectOut(p, c.user)) }),
+    listProjects: (c) => ({ items: this.projects.filter((p) => (c.user.role === 'guest' ? ((g) => !!g && this.guestPlacesOf(g).some((pl) => pl.id === p.id))(this.guests.get(c.user.id)) && this.projectSees(p, c.user) : this.projectSees(p, c.user)) || (c.query.manage === '1' && (this.projectManages(p, c.user) || this.projectWasMember(p, c.user)))).map((p) => this.projectOut(p, c.user)) }),
     // like server/src/routes/chats.ts (docs/DECISIONS.md "Projects live only in projects/"): a team project is a new
     // projects/<name> (a taken name gets "-2") with its people, a personal one users/<me>/projects/<name>. The app sends
     // no folder. A spec may still name one: that sets up a project as older builds made them on an existing folder (the
@@ -2939,7 +2967,7 @@ export class MockServer {
       p.inTrash = false
       // like admin/guests.ts returnGuestsWithPlace: its guests the trash switched off come back with it
       for (const [id, g] of this.guests) {
-        if (g.place.kind !== 'project' || g.place.id !== p.id || g.out !== 'trashed') continue
+        if (!this.guestPlacesOf(g).some((pl) => pl.kind === 'project' && pl.id === p.id) || g.out !== 'trashed') continue
         const u = this.users.find((x) => x.id === id)
         if (u) u.status = 'active'
         delete g.out
@@ -5958,6 +5986,13 @@ export class MockServer {
       if (body.aiUsedUp === true) g.aiUsedUp = true
       // left their place on their own (User.guest.leftThemselves: Admin says "Left", not "Removed")
       if (body.leftThemselves === true) g.leftThemselves = true
+      // `also`: a place of the other kind besides (a guest in one group chat and one project)
+      const also = body.also as { kind: 'room' | 'project'; id?: string; name?: string } | undefined
+      if (also) {
+        const alsoId = also.kind === 'project' ? (this.projects.find((x) => x.id === also.id || x.name === also.name) ?? fail('validation', 400, 'no such project')).id : String(also.id)
+        g.also = { kind: also.kind, id: alsoId }
+        this.putGuestIn(u, g.also)
+      }
       return Response.json({ id: u.id })
     }
     // the team's tokens per answer the invite's "about N answers" uses ({tokens, from: 'team' | 'default'})

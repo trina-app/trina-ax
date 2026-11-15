@@ -27326,7 +27326,7 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
 - **Ask:** a team brings an outside person (a client, a freelancer) into one conversation or one project without that
   person seeing the rest of the team. Phase 1 is the security core and the server side of the invite; the screens are
   phase 2. Plan: docs/AGENTS/plan/20261114-1016-guest-invites-p1.md.
-- **Exactly one place** (owner, final): one group chat (`rooms.kind 'group'`) or one team project. Never several.
+- **Exactly one place** (owner, 2026-11-14; superseded 2026-11-15 by "Guests: one group chat and one project": now at most one group chat AND one project): one group chat (`rooms.kind 'group'`) or one team project. Never several.
   Putting a guest into a second place (another group chat, a new group chat with them, another project's people, a
   group, a second invite) is 409 `conflict` with `params.reason: 'guest_one_place'` and the message "A guest can be in
   one room or project only. To add them to more, make them a team member." (ko "게스트는 방이나 프로젝트 한 곳에만 들어갈
@@ -29952,3 +29952,46 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   with, decided as the turn decides it (Codex runs on the team's AI connections on an installed server whatever
   engine.authMode says); a limit that hands the answer to the other engine midway changes the next turn's block. No
   card is offered in Slack or a scheduled run, and no web tools are named where the chat has none.
+
+## Guests: one group chat and one project — 게스트는 그룹 대화 하나와 프로젝트 하나 (feat/guest-two-places, 2026-11-15, the owner, final)
+
+- **Rule:** a guest is in at most one group chat AND at most one project at the same time (two places, one of each
+  kind). A second group chat or a second project is 409 `conflict`, `params.reason: 'guest_one_place'`, "A guest can be
+  in one group chat and one project. To add them to more, make them a team member." (ko "게스트는 그룹 대화 하나와
+  프로젝트 하나까지 들어갈 수 있어요. 더 넣으려면 팀원으로 초대해 주세요."). Unchanged: deny by default, the AI choice,
+  the plan's guest cap, no groups, DMs never a place, one place per invite (a second place comes through the place's
+  own add list: a group chat's Invite, a project's Members or a new project's people). Supersedes "Exactly one place".
+- **Storage** (migration `125_a_guest_two_places.sql`, additive, reader level stays 8): `guests.room_id` and
+  `guests.project_id`, one column per kind, so a second place of one kind cannot be stored. Set in the write that puts
+  the guest in (`claimGuestRoom` in createGroup/invite, `claimGuestProject` in `writeFolderAccess`); never cleared, so a
+  slot says where they are or were last, and whether they are in it now is read from the place (member rows, folder
+  rules). `place_kind`/`place_id` now mean only the invite's place (the "joined as a guest" notice). Both slots empty =
+  a row an older build wrote: read as `place_kind`/`place_id`. Level 8 is enough: an older build reads only the invite's
+  place, which narrows a guest's reach (it may switch off a guest who left that place for good), never widens it.
+- **Joining:** a group chat is refused while the guest is a member of any other live group chat (read from the member
+  rows, not the slot). A project person rule is allowed at or below the project the guest holds; holding none, only on
+  a live team project's own folder, which becomes theirs. A project is held while live and they read it, or while it
+  is in the trash with their rule kept there (restoring it brings them back, so no other project meanwhile); taken
+  out (also before it was trashed) or purged, the kind is free. A new project: its row is written before its rules, so
+  a group-chat guest can be among its first people. Sharing a personal project to the team with a guest who has no
+  project: refused as before (rare; least change).
+- **The policy holds it too** (independent plan review must-fix: a folder moved or restored from the trash brings rules
+  with it, no write check runs): `RuleSet.fromDb` loads each guest's live project folder (`guestProjects`); inside
+  `projects/` a guest reads that folder only, whatever rule names them elsewhere. Carried through `replacing`,
+  `excepting`, `relocated` (moved with the folder) and `parkedInPlace`; `fromWorld` without it (tests, the web mock)
+  leaves only the rules. A failed read is an empty map: no guest reads any project (fail closed).
+- **Reach is the union** (`placePeople`): a guest sees, DMs and gets presence of the people of their group chat and
+  of their project, each only while they are in it; a member sees the guest when they share at least one of the two.
+  A guest adds nobody to their group chat (403): its people are there already, and their project's people are not
+  theirs to bring in. Files: like anyone, a guest may share in their group chat a file they can read in their project
+  (they could download and upload it anyway); accepted, not blocked.
+- **What each side learns:** `Person.guestPlaces` names a place (id, name) only when the viewer is in it too; the
+  other comes as its kind only, so an add list can grey the guest out ("A guest can be in one group chat and one
+  project.") without saying where. That they are in some other place is told; its name never.
+- **Out of a place:** out of one (left, taken out, the chat archived, the project trashed) they stay on; out of both
+  they are switched off (`disableGuestIfPlaceless`), `off_with_place` when a place of theirs was closed, and a restored
+  project brings them back while they are in it.
+- **API:** `GuestDetail.place` → `places` (the group chat first; a removed guest's each with `out`), `placeOut` the
+  overall reason; `Person.guestPlace` → `guestPlaces`. Screens: Admin › Guests lists both, add lists grey a guest only
+  for a second place of the same kind, a guest's rail shows 대화 and 프로젝트 when they have both, Settings › Profile and
+  account deletion name both. Version impact: **minor** (contract fields changed).

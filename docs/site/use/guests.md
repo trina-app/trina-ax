@@ -1,15 +1,15 @@
 ---
 title: Guests
-description: Bring someone from outside the team into one group chat or one project, and decide whether they get AI.
+description: Bring someone from outside the team into a group chat and a project, and decide whether they get AI.
 ---
 
-A **guest** is someone from outside your team, such as a client, a partner or a freelancer. A guest joins exactly one
-group chat or one project and sees nothing else in the team: no other chats, no team files, no other projects, no team
-skills. They don't take a seat on your plan.
+A **guest** is someone from outside your team, such as a client, a partner or a freelancer. A guest is in at most one
+group chat and one project, and sees nothing else in the team: no other chats, no team files, no other projects, no
+team skills. They don't take a seat on your plan.
 
 | | A team member | A guest |
 |---|---|---|
-| **Where they can go** | Everything their groups and folder permissions allow | One group chat or one project |
+| **Where they can go** | Everything their groups and folder permissions allow | One group chat and one project, at most |
 | **Team files** | The folders they may open | Only the files of their project (none in a group chat) |
 | **AI** | The team's AI settings | No AI, unless an AI is picked for them |
 | **Seat** | Takes one | Doesn't take one |
@@ -107,17 +107,25 @@ things, such as their profile and notifications.
 
 In a project, the project's members can see the chats a guest has there. A guest who can use AI is told this on the project's page.
 
-## One place only
+## One group chat and one project
 
-A guest can be in one group chat or one project, never more. Trina won't let you add a guest to a second place. In
-an add list, a guest who is already somewhere else shows where they are, and you can't tick them.
+A guest can be in one group chat and one project at the same time, never more. An invite opens one place. To bring a
+guest into their second place, add them like anyone else: from the group chat's **Invite**, or the project's
+**Members**. Trina won't let you add a guest to a second group chat or a second project. In an add list, a guest who
+is already in another place of the same kind can't be ticked and shows where they are (only the name of a place you
+are in too).
+
+A guest in both sees the people of both: they can message anyone in their group chat or their project, and nobody
+else. Each side sees the guest; people who are only in the group chat don't see the project's name, and the other way
+round.
 
 ![A new conversation with a guest and a team member picked: A guest can be in one group chat or project only, and the button is off](../images/guests/one-place.webp "A guest can't join a second place")
 
 If the person needs more than one place, an owner or admin can choose **Make team member** (see below).
 
-If a guest leaves, is taken out, or their group chat or project is closed, they can no longer sign in, the same as when
-they are removed. Moving a project with guests to the trash says so before you confirm. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
+If a guest leaves, is taken out, or their group chat or project is closed, they are out of that place. They can still
+sign in while they are in their other place. Out of every place, they can no longer sign in, the same as when they are
+removed. A project in the trash stays theirs: while it is there they can't join another project. Moving a project with guests to the trash says so before you confirm. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
 admin switched them on or off in the meantime. Renaming the group chat or project changes nothing for them.
 
 ## A guest's AI

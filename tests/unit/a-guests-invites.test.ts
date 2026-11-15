@@ -132,8 +132,9 @@ test('one place: an account never takes a second invite; the reason says to make
   expect((await owner.try('PATCH', `/api/admin/users/${(await addMember(h, owner, { username: 'max' })).id}`, { role: 'guest' })).status).toBe(400)
   // the owner's handover never goes to a guest
   expect((await owner.try('POST', '/api/admin/transfer-ownership', { userId: g.id, password: 'owner horse battery 42' })).status).toBeGreaterThanOrEqual(400)
-  expect(GUEST_ONE_PLACE_MSG.en).toBe('A guest can be in one room or project only. To add them to more, make them a team member.')
-  expect(GUEST_ONE_PLACE_MSG.ko).toBe('게스트는 방이나 프로젝트 한 곳에만 들어갈 수 있어요. 여러 곳에 넣으려면 팀원으로 초대해 주세요.')
+  // (owner, 2026-11-15: one group chat and one project)
+  expect(GUEST_ONE_PLACE_MSG.en).toBe('A guest can be in one group chat and one project. To add them to more, make them a team member.')
+  expect(GUEST_ONE_PLACE_MSG.ko).toBe('게스트는 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요. 더 넣으려면 팀원으로 초대해 주세요.')
 })
 
 test('convert to member: takes a seat (409 seat_limit when none is free), keeps the place, role member', async () => {

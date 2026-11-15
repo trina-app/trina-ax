@@ -550,8 +550,10 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })
     ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(id)
-    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, place!.kind, place!.id, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
+    // place_kind / place_id: the place this invite opened (kept as it is); room_id / project_id: the guest's group chat
+    // and project slots (migration 126), the invite's place taking its own kind's slot
+    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, room_id, project_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, place!.kind, place!.id, place!.kind === 'room' ? place!.id : null, place!.kind === 'project' ? place!.id : null, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
     // Team AI's monthly limit: tokens; a link made before tokens keeps its US dollars (guest-invites.ts parseGuestAi)
     if (ai.mode === 'team') {
       if (ai.limitTokens) insertGuestBudget(ctx.db, id, ai.limitTokens)

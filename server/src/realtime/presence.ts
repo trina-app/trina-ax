@@ -308,7 +308,7 @@ const started = new WeakMap<AppContext, Presence>()
 
 /**
  * Presence frames cut to what each window's person may know (docs/DECISIONS.md "Guests: only what they were invited
- * to"): a guest is told only about the people of their one place, and a member is not told about a guest who shares no
+ * to"): a guest is told only about the people of their places (their group chat and their project), and a member is not told about a guest who shares no
  * place with them. Who is a guest and each guest's place people are worked out once per frame (the same frame object
  * goes to every window of a change), never once per window; with no guest on the team the frame goes as it is.
  */
