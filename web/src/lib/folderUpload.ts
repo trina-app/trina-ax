@@ -348,7 +348,12 @@ export class FolderUpload {
         item.phase = null
         // a file read on demand is not kept in memory after a failure (read again when it goes again); after a stop it
         // stays until cancel() has let the server drop its unfinished upload
-        if (item.open && !signal.aborted) item.file = undefined
+        if (item.open && !signal.aborted && item.file) {
+          // the server drops what it holds of it first (a retry reads the file again and starts a new upload)
+          const f = item.file
+          item.file = undefined
+          void this.calls.discard(f, joinPath(this.base, item.rel)).catch(() => {})
+        }
         if (signal.aborted) item.state = 'queued'
         else if (isStorageRefusal(e)) {
           item.state = 'queued'
