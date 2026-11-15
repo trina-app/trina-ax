@@ -118,6 +118,7 @@ export const ja: Record<MessageKey, string> = {
   "guest.invite.row": "ゲストを招待",
   "guest.invite.rowRoom": "チーム外の人 · このルームだけ見えます",
   "guest.invite.rowProject": "チーム外の人 · このプロジェクトだけ見えます",
+  "guest.invite.rowAny": "チーム外の人 · グループチャットかプロジェクトの1か所だけ見えます",
   "guest.invite.title": "ゲストを招待",
   "guest.invite.whereRoom": "見えるのは「{place}」ルームだけで、チームのほかの場所は見えません。",
   "guest.invite.whereProject": "見えるのは「{place}」プロジェクトだけで、チームのほかの場所は見えません。",

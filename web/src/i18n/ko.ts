@@ -120,6 +120,7 @@ export const ko = {
   "guest.invite.row": "게스트 초대하기",
   "guest.invite.rowRoom": "외부 사람 · 이 방만 봐요",
   "guest.invite.rowProject": "외부 사람 · 이 프로젝트만 봐요",
+  "guest.invite.rowAny": "외부 사람 · 그룹 대화나 프로젝트 한 곳만 봐요",
   "guest.invite.title": "게스트 초대하기",
   "guest.invite.whereRoom": "이분은 '{place}' 방만 볼 수 있고, 팀의 다른 곳은 보지 못해요.",
   "guest.invite.whereProject": "이분은 '{place}' 프로젝트만 볼 수 있고, 팀의 다른 곳은 보지 못해요.",

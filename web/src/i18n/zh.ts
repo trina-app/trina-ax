@@ -118,6 +118,7 @@ export const zh: Record<MessageKey, string> = {
   "guest.invite.row": "邀请访客",
   "guest.invite.rowRoom": "团队外的人 · 只能看到这个聊天室",
   "guest.invite.rowProject": "团队外的人 · 只能看到这个项目",
+  "guest.invite.rowAny": "团队外的人 · 只加入一个群聊或项目",
   "guest.invite.title": "邀请访客",
   "guest.invite.whereRoom": "他们只能看到“{place}”聊天室，看不到团队的其他内容。",
   "guest.invite.whereProject": "他们只能看到“{place}”项目，看不到团队的其他内容。",

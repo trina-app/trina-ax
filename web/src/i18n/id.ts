@@ -121,6 +121,7 @@ export const id: Record<MessageKey, string> = {
   "guest.invite.row": "Undang tamu",
   "guest.invite.rowRoom": "Dari luar tim · hanya melihat ruang ini",
   "guest.invite.rowProject": "Dari luar tim · hanya melihat proyek ini",
+  "guest.invite.rowAny": "Dari luar tim · hanya masuk ke satu obrolan grup atau proyek",
   "guest.invite.title": "Undang tamu",
   "guest.invite.whereRoom": "Mereka hanya melihat ruang '{place}', tidak ada yang lain di tim.",
   "guest.invite.whereProject": "Mereka hanya melihat proyek '{place}', tidak ada yang lain di tim.",

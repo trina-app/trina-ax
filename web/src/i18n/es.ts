@@ -118,6 +118,7 @@ export const es: Record<MessageKey, string> = {
   "guest.invite.row": "Invitar a un invitado",
   "guest.invite.rowRoom": "De fuera del equipo · solo ve esta sala",
   "guest.invite.rowProject": "De fuera del equipo · solo ve este proyecto",
+  "guest.invite.rowAny": "De fuera del equipo · entra solo en un chat de grupo o un proyecto",
   "guest.invite.title": "Invitar a un invitado",
   "guest.invite.whereRoom": "Solo verá la sala '{place}', nada más del equipo.",
   "guest.invite.whereProject": "Solo verá el proyecto '{place}', nada más del equipo.",

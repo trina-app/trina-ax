@@ -337,7 +337,8 @@ test.describe('phone', () => {
     await expect(page.getByTestId('room-menu')).toBeVisible()
     await expect(page.getByTestId('room-notify')).toHaveCount(0)
     await page.getByTestId('room-menu').click()
-    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', /^알림 설정\s*· \S/, '앱 추가', '링크 복사', '대화 숨기기'])
+    // the header's "⋯" also has 초대하기 (the add list), after the pin
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '초대하기', /^알림 설정\s*· \S/, '앱 추가', '링크 복사', '대화 숨기기'])
   })
 })
 
