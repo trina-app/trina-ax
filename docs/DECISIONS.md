@@ -28407,10 +28407,12 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   shared/ is not as expected: a file where the brand or notes folder goes (`not a folder`), shared/ missing on disk, or
   shared/ not writable by the server account (EACCES). In each case `teamGroupFor` had already made the group, so the
   row never recorded it and every retry made another ("Acme 2", "Acme 3"). Fixed here: the folders in shared/ are made
-  before the group (`server/src/onboarding/welcome.ts teamGroupFor`). The route now logs every failure of the team start
-  and the brand action with its error (`routes/onboarding-welcome.ts logged`: a refusal is a warning, anything else an
-  error), so the next hosted case names its cause. To check on the team: the server log line "the team start failed in
-  the welcome steps", the `onboarding.welcome` row (`general` set but no `teamGroup` = it failed in the group step),
-  `groups` / `audit_log` `group.create` rows, and `ls -la` of shared/.
-- Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind"), web/test/unit/team-files.test.ts,
+  before the group (`server/src/onboarding/welcome.ts teamGroupFor`), and a missing shared/ is made again with the
+  team's default folders (`sharedStart` → `admin/folders.ts createDefaultFolders`, which changes nothing that is there;
+  the likeliest hosted cause). An unexpected failure is already logged by the app ("unhandled error" with the path,
+  app.ts); a refusal (HttpError) left no line, so the route logs it as a warning with its code
+  (`routes/onboarding-welcome.ts logged`). To check on the team: those log lines on POST /api/onboarding/welcome/team,
+  the `onboarding.welcome` row (`general` set but no `teamGroup` = it failed in the group step), `groups` /
+  `audit_log` `group.create` rows, and `ls -la` of shared/.
+- Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind", "shared/ missing"), web/test/unit/team-files.test.ts,
   web/test/e2e/welcome-team-files.spec.ts, welcome-organize.spec.ts.

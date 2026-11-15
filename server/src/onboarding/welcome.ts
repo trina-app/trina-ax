@@ -17,6 +17,8 @@
 // from before keeps them in the group's folder groups/<name>/ (its members read and write it): nothing is moved. No
 // skill is installed (docs/DECISIONS.md "W6": a skill goes in only on a press that names it); the general pack's record
 // is written with no paths for older builds.
+import fs from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 import {
   BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, SHARED_HOME, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
@@ -25,6 +27,7 @@ import {
 import type { AppContext } from '../context'
 import { getTeamSettings, setSetting, teamDefaultLocale } from '../admin/settings'
 import { createGroupAs, groupFolder, groupIdByName } from '../admin/groups'
+import { createDefaultFolders } from '../admin/folders'
 import { fail } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
@@ -360,6 +363,9 @@ export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, 
  * there, else new ones named in the team's language, made when missing. */
 function sharedStart(ctx: AppContext, userId: string, recorded: TeamGroupRef | null): Pick<TeamGroupRef, 'notesFolder' | 'brandFolder' | 'home'> {
   const kept = recorded?.home === SHARED_HOME
+  // shared/ missing on disk (a team folder made or restored by hand, a volume mounted empty: the likely hosted cause of a
+  // team start that failed): the team's default folders again, which changes nothing that is there
+  if (!fs.existsSync(path.join(ctx.files.fx.root, SHARED_HOME))) createDefaultFolders(ctx)
   const notesFolder = kept && recorded.notesFolder.startsWith(`${SHARED_HOME}/`) ? recorded.notesFolder : `${SHARED_HOME}/${NOTES_FOLDER[teamDefaultLocale(ctx.db)]}`
   ensureNotesFolder(ctx, userId, notesFolder)
   return { notesFolder, brandFolder: brandFoldersOf(ctx, userId, SHARED_HOME, kept ? recorded.brandFolder : undefined).brandFolder, home: SHARED_HOME }

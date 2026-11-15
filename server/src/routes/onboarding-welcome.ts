@@ -12,14 +12,12 @@ import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 
 /** The team's start and the brand action fail quietly on the welcome steps (the owner is never held there, and the team
- * files step falls back to shared/), so the server says why in its log: the only trace of a team whose start did not go
- * through (QA: a hosted team's team files step had no folder). An answer it refuses (HttpError) is a warning, anything
- * else an error; either is thrown on as before. */
+ * files step falls back to shared/). An unexpected error is logged by the app's error handler ("unhandled error" with
+ * the path, app.ts); a refusal (HttpError) is an ordinary answer there and leaves no line, so it is logged here as a
+ * warning with its code (QA: a hosted team's team files step had no folder). Thrown on as before. */
 function logged<T>(ctx: AppContext, what: string, userId: string, run: () => T): T {
   try { return run() } catch (err) {
-    const fields = { err, userId, ...(err instanceof HttpError ? { code: err.code } : {}) }
-    if (err instanceof HttpError) ctx.log.warn(`${what} failed in the welcome steps`, fields)
-    else ctx.log.error(`${what} failed in the welcome steps`, fields)
+    if (err instanceof HttpError) ctx.log.warn(`${what} was refused in the welcome steps`, { err, userId, code: err.code })
     throw err
   }
 }
