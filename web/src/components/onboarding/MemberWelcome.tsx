@@ -23,7 +23,8 @@
 import clsx from 'clsx'
 import { Check } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { PRODUCT } from '@mycel/shared'
 import { SHARED_HOME, uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { squarePhoto } from '../../lib/avatar'
@@ -40,6 +41,7 @@ import { useWelcome } from '../../store/welcome'
 import { ConnectAiButton } from './ConnectAi'
 import { useMyWorkFiles } from './FindWorkFiles'
 import { runFolder } from '../../lib/workFiles'
+import { hasResume } from '../../lib/workFilesResume'
 import { TeamFilesStep } from './TeamFilesStep'
 
 /** The name to greet: the first word of a name with spaces in a script that writes given names first ("Mina Park" →
@@ -230,7 +232,7 @@ function FilesRow({ done }: { done: boolean }) {
     <>
       {/* a narrow window, as My files' line: no row; the dialog keeps its place in the tree, so one already open stays as it is */}
       {!f.narrow && (
-        <Row id="files" done={done} optional title={t('memberWelcome.files')} hint={t('memberWelcome.filesHint', { place: t('files.findWork.myPlace') })}>
+        <Row id="files" done={done} optional title={t('memberWelcome.files')} hint={t('memberWelcome.filesHint', { app: PRODUCT.displayName, place: t('files.findWork.myPlace') })}>
           {done ? (
             <Link to={`/files?path=${encodeURIComponent(folder)}`} className={openLink} data-testid="member-welcome-files-open">{t('memberWelcome.roomsOpen')}</Link>
           ) : (
@@ -250,7 +252,10 @@ function OrganizeRow() {
   const t = useT()
   const words = useFolderWords()
   const progress = useWelcome((s) => s.progress)
-  const [open, setOpen] = useState(false)
+  const me = useMeStrict()
+  const location = useLocation()
+  // open again after "Restart Trina AX" on the step's Find work files (the step takes the note and shows that screen)
+  const [open, setOpen] = useState(() => hasResume(me.user.id, 'team', location.pathname + location.search))
   useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
   const close = () => { setOpen(false); void useMemberWelcome.getState().load() }
   return (

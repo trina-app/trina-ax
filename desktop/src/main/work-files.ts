@@ -225,9 +225,9 @@ export class WorkFilesController {
   }
   private fullDiskSettingsAt = 0
 
-  /** "Reopen Trina": macOS gives Full Disk Access to an app that was running when it was turned on only after a restart.
-   * Only within 15 minutes of Open Settings, while the app still has no access, and never during a look (a page cannot
-   * restart the app at will). */
+  /** "Restart Trina AX": macOS may give Full Disk Access to an app that was running when it was turned on only after a
+   * restart. Only within 15 minutes of Open Settings, while the app still has no access, and never during a look (a page
+   * cannot restart the app at will). The page notes its step first and opens it again after the start. */
   async relaunch() {
     if (process.platform !== 'darwin' || this.busy || !this.fullDiskSettingsAt || Date.now() - this.fullDiskSettingsAt > 15 * 60_000) return
     if ((await this.fullDisk()) === 'granted') return

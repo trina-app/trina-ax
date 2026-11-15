@@ -17,7 +17,7 @@
 import clsx from 'clsx'
 import { FolderSearch, Loader2, Undo2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse } from '@mycel/shared/api'
 import type { WorkFileScan, WorkFolderId, WorkRootId, WorkRootResult } from '@mycel/shared'
@@ -28,6 +28,7 @@ import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
 import { companyMatch, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { takeResume } from '../../lib/workFilesResume'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
@@ -119,7 +120,7 @@ export function FindWorkFiles(props: FindWorkFilesProps) {
   const [round, setRound] = useState(0)
   const wide = offersWide(props.bridge)
   const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : props.bridge.fullDisk ? null : { wide: true }))
-  if (!mode) return <FullDiskAccess bridge={props.bridge} onGo={(w) => setMode({ wide: w })} phone={props.phone} />
+  if (!mode) return <FullDiskAccess bridge={props.bridge} onGo={(w) => setMode({ wide: w })} from={props.rank} phone={props.phone} />
   return <FindWorkFilesRound key={round} {...props} mode={mode} onAgain={() => setRound((n) => n + 1)} />
 }
 
@@ -469,6 +470,13 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
     setRun(going && going.view.status === 'running' && made.has(going.run) ? going : null)
     setOpen(true)
   }
+  // back from "Restart Trina AX" on the Full Disk Access screen (lib/workFiles.ts saveResume): the same dialog again,
+  // on the page it was opened from (My files' line or the welcome card), which goes on by itself once the app has it
+  const location = useLocation()
+  useEffect(() => {
+    if (available && takeResume(me.user.id, 'own', location.pathname + location.search)) start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [available, me.user.id, location.pathname, location.search])
   const add = (docs: LocalDoc[]) => {
     const record: RunMade = { files: [], folders: [] }
     const plan: FolderPlan = { files: docs.map((d) => ({ rel: `${FROM_COMPUTER}/${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }

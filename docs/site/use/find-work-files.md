@@ -3,9 +3,10 @@ title: Find work files on this computer
 description: Let the desktop app find your recent work files (in Documents, cloud drives like OneDrive and Google Drive, project folders and messenger downloads), pick the ones you want, and add them to My files. On a Mac, how to give Full Disk Access, or allow folder by folder.
 ---
 
-The desktop app for **Windows** and the **Mac app from the website** can find the files you have worked on lately and
-show you the ones that look like work: forms, reports, proposals, brand material and the like. You tick the ones you
-want, and only those are added.
+Your work files are spread over your computer: in OneDrive, in Downloads, in a project folder. The desktop app for
+**Windows** and the **Mac app from the website** finds the ones you have worked on lately and suggests the ones that
+look like work: forms, reports, proposals, brand material and the like. **You choose** which to add. Nothing is added,
+shared or moved without you, and the files on your computer stay as they are.
 
 It looks in these places:
 
@@ -47,18 +48,20 @@ the rest of that step does.
 
 ## On a Mac: give Full Disk Access once
 
-Work files are often outside Documents, in OneDrive, Google Drive or a project folder. Without **Full Disk Access**,
-macOS would ask you about each of those folders, one after the other. So on a Mac the app first shows this screen:
+To look beyond Documents, Desktop and Downloads, the Mac app needs **Full Disk Access**. So on a Mac the app first
+shows this screen. From **My files** it says **Find your work files** (what you add, only you see); in **Getting
+started › Team files** it says **Find files your team should have**.
 
-![Let Trina AX look through your work files: why, a picture of the Trina AX switch under Privacy & Security › Full Disk Access, Not now and Open Settings](../images/find-work-files/full-disk.webp "Full Disk Access first")
+![Find your work files: Trina AX looks through the folders on this Mac and suggests the files you work on; it needs Full Disk Access; a picture of the Trina AX switch under Privacy & Security › Full Disk Access, Not now and Open Settings](../images/find-work-files/full-disk.webp "Full Disk Access first")
 
 1. Click **Open Settings**. System Settings opens at **Privacy & Security › Full Disk Access**.
 2. **Trina AX** is already in the list, with its switch off: it appears there as soon as the app opens this screen,
    so you don't need **+**. Turn its switch on. macOS asks for your Mac's password or Touch ID.
 3. Go back to the app. The screen goes on by itself as soon as the app has access.
 
-If you turned it on and the screen still waits, macOS gives the access only after the app reopens. The screen says
-so: click **Reopen Trina AX**, then **Find work files on this computer** again.
+If you turned it on and the screen still waits, macOS may count the switch only after the app restarts. Click
+**Restart Trina AX**: the app restarts and opens the same screen again by itself, which then goes on. (If you click
+**Quit & Reopen** in System Settings instead, you land there too.)
 
 To take the access back later, turn the switch off in the same place.
 

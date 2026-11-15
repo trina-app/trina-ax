@@ -29059,3 +29059,39 @@ setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Ho
   reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
   (1440 and 390, light and dark).
 - Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).
+
+## Find work files: the Full Disk Access screen says what you get; Restart lands back on the step (fix/work-files-copy, 2026-11-15, QA TC-3098)
+
+Owner, 2026-11-15: "don't explain the mechanics; say what the person gets: Trina finds the files worth sharing with the
+team", and the screen's How link was a 404. Then: "after granting Full Disk Access, do you have to quit and reopen?"; the
+person should never have to work that out. Amends part 5's screen. Plan: `docs/AGENTS/plan/20261115-1436-work-files-copy.md`.
+
+- **The words follow where the files go**, so each claim is true. The setup's 팀 파일 step (rank `team`, files to the
+  team's home, the team's AI picks company documents): **Find files your team should have** / "Trina AX looks through the
+  folders on this Mac and suggests files worth sharing with the team. You pick what to share; nothing is shared or moved
+  without you." My files and the welcome card (rank `own`, files to My files › From this computer, only the person sees
+  them; there is no "share to the team" step yet, part 2's "not here"): **Find your work files** / "… suggests the files
+  you work on. You pick what to add to My files, where only you see them; nothing is moved." Then one short line, "To
+  look, Trina AX needs Full Disk Access on this Mac." The picture, "Mail, Messages and Photos are never looked at · How",
+  Not now and Open Settings stay. The welcome card's hint leads with what Trina AX does ("suggests the ones that look
+  like work and you pick"). The app's own consent dialog keeps its words: it is the consent and names what is read.
+- **Restart only when it is needed, and back on the same step.** Whether macOS counts the switch without a restart is
+  answered by the app's own probe (opening TCC.db in the main process, the process that also does the look), every
+  second while Settings is open and when the window comes back: granted goes on with no word about a restart. Back and
+  still off: one button, **Restart Trina AX** (and a quiet "Open Settings again" for someone who did not switch it on).
+  The page notes the step (`lib/workFilesResume.ts`: the person, the page, `own` or `team`, 15 minutes, the main
+  process's own limit for a restart) when Settings opens and on Restart, so macOS's own **Quit & Reopen** in Settings
+  lands back as well. The restarted app starts on Home; the page opens the noted page (App.tsx, only from a plain `/`),
+  and the dialog there opens again (My files' line, the welcome card, the setup's step, the Files screen's and the
+  welcome card's 팀 파일 dialogs), whose screen goes on by itself. The note is taken once, and dropped when the screen
+  goes on or its dialog closes. Nothing is typed on this screen, so nothing else needs keeping.
+- **The guide was there, the website was not re-synced.** `docs/site/use/find-work-files.md` (and zh) is in nav.json on
+  dev; ax.trina.app/docs is built from the website repository's copy, which had not taken it yet. New unit test
+  `tests/unit/docs-in-app-links.test.ts`: every https://ax.trina.app/docs/... in the apps' code (web, desktop, server,
+  shared, mobile) leads to a page in nav.json, and a #section to one of its headings (the build's own `headingId`).
+- Not verified on a real Mac whether a restart is needed: turning Full Disk Access on needs the Mac's password in System
+  Settings. The screen does not depend on the answer.
+- Tests: `web/test/e2e/find-work-files-wide.spec.ts` (the new words, Restart, the restarted app back on the step and
+  going on with no restart line, the note taken once, a closed screen forgets it), `shots-find-work-files.spec.ts` (the
+  team's words too), `tests/unit/docs-in-app-links.test.ts`.
+- Version impact: **patch** (words and a smoother restart on an existing screen).

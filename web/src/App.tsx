@@ -50,6 +50,7 @@ import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
+import { resumePath } from './lib/workFilesResume'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
 import { useLogoutTo } from './lib/logout'
@@ -281,6 +282,17 @@ function Gate() {
   useEffect(() => {
     document.title = PRODUCT.displayName
   }, [])
+
+  // the desktop app restarted for Full Disk Access ("Restart Trina AX" on Find work files): it starts on Home, so the
+  // page the person was on opens again, where that dialog opens by itself (lib/workFiles.ts saveResume)
+  const navigate = useNavigate()
+  const signedInId = status.kind === 'signed-in' && !status.me.user.mustChangePassword ? status.me.user.id : null
+  useEffect(() => {
+    if (!signedInId || location.pathname !== '/' || location.search) return
+    const back = resumePath(signedInId)
+    if (back && back !== '/') navigate(back, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedInId])
 
   if (status.kind === 'loading') return <Splash />
   if (status.kind === 'error') {
