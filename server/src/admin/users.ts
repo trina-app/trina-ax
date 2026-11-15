@@ -31,7 +31,7 @@ import { syncRoomsNow } from '../rooms/service'
 import { cancelDeletion, closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
 import { recordJoin } from '../onboarding/member-welcome'
-import { runAccountCleanups } from '../auth/account-removal'
+import { noteRemovedSignIns, runAccountCleanups } from '../auth/account-removal'
 import { purgePrivateChatsOf } from '../auth/sweeper'
 import { newId } from '../db'
 import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer, toEndOf } from './handover'
@@ -461,6 +461,8 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   { const cc = existingCredentialsOf(ctx); if (cc && ownAi.length) { for (const k of ownAi) cc.cache.delete(k); connectionsChanged(cc) } }
   afterPrune(ctx, actor, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)
+  // their open windows are told on the sign-in page that the account was removed, not "signed out elsewhere" (TC-1974)
+  noteRemovedSignIns(ctx, id)
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)

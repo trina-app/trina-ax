@@ -50,6 +50,7 @@ import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { Button, ErrorNote, Modal, Skeleton, useMediaQuery } from '../components/ui'
+import { StoragePlansLink, storagePlansUrl } from '../components/StoragePlansLink'
 
 export default function Welcome() {
   const me = useMeStrict()
@@ -607,6 +608,8 @@ interface Picked {
   /** where it went (a name already there gets a new one) */
   path: string | null
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
 }
 
 /** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6", "Team folder basics"): picked files go up at once into the
@@ -632,13 +635,13 @@ function useIntroFiles(progress: WelcomeProgress) {
       const brand = p.teamGroup?.brandFolder
       if (!brand) throw new Error(t('welcome.teamFiles.noFolder'))
       await Promise.allSettled(list.map(async (x) => {
-        patch(x.id, { status: 'uploading', progress: null, error: undefined })
+        patch(x.id, { status: 'uploading', progress: null, error: undefined, plans: undefined })
         try {
           const r = await uploadFile(x.file, { kind: 'path', path: joinPath(brand, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
           if (r.kind !== 'path') throw new Error('unexpected upload result')
           patch(x.id, { status: 'done', path: r.entry.path, progress: null })
         } catch (e) {
-          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
+          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
         }
       }))
     } catch (e) {
@@ -709,6 +712,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
               )}
               {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
               {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
+              {x.status === 'failed' && <StoragePlansLink url={x.plans} className="text-xs" />}
             </li>
           ))}
         </ul>

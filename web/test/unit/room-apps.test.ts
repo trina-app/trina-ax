@@ -99,13 +99,16 @@ test('every service has its words in every language: name, the picker\'s line, t
 })
 
 test('who manages a room\'s apps: owners and admins in team rooms, everyone in 1:1s and group chats', () => {
-  const as = (role: 'owner' | 'admin' | 'member') => ({ user: { role } }) as never
+  const as = (role: 'owner' | 'admin' | 'member' | 'guest') => ({ user: { role } }) as never
   expect(mayManageApps({ kind: 'team' }, as('owner'))).toBe(true)
   expect(mayManageApps({ kind: 'all' }, as('admin'))).toBe(true)
   expect(mayManageApps({ kind: 'team' }, as('member'))).toBe(false)
   expect(mayManageApps({ kind: 'group' }, as('member'))).toBe(true)
   expect(mayManageApps({ kind: 'dm' }, as('member'))).toBe(true)
   expect(mayManageApps(null, as('owner'))).toBe(false)
+  // a guest never (QA TC-1922): no Add an app in the menu, no delete on an app's message; the server refuses them too
+  expect(mayManageApps({ kind: 'group' }, as('guest'))).toBe(false)
+  expect(mayManageApps({ kind: 'dm' }, as('guest'))).toBe(false)
 })
 
 test('the room menu has the apps item after rename, only for those who manage them', () => {

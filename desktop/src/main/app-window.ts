@@ -12,8 +12,8 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
-import { LinkGate } from '@mycel/shared/team-link'
+import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
@@ -51,13 +51,16 @@ export interface WelcomeState {
   link: { id: number; host: string; hosted: boolean } | null
   /** a link from outside that cannot open a team: said once on ① */
   linkError: string | null
+  /** the team being added is a sleeping free trial that is starting (about a minute): the screen says so with a
+   * spinner and the add goes on by itself when it answers (QA wake gap 1) */
+  waking: boolean
 }
 
 /** What adding a team from the first-run screen came to. `confirmOutside`: the address answered but is not run by the
  * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
 export type AddTeamResult =
   | { ok: true; teamId: string }
-  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'confirmOutside' | 'renamed'; message: string; host?: string; next?: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -172,6 +175,10 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** addTeam is waiting for a sleeping trial team to start (WelcomeState.waking) */
+  private waking = false
+  /** that wait, which Cancel stops (cancelWake, or No on ④) */
+  private wakeRun: { stopped: boolean } | null = null
   /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
    * browser's: the window gives the keyboard back there (settleKeys) */
   private keys?: { view: WebContentsView; inPane: boolean }
@@ -290,6 +297,7 @@ export class AppWindow {
       signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
       link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
       linkError: this.linkError,
+      waking: this.waking,
     }
   }
 
@@ -321,6 +329,7 @@ export class AppWindow {
     this.linkError = null
     const offer = this.linkGate.answer(yes, host, Date.now())
     if (!yes) {
+      this.cancelWake()
       this.sendWelcome()
       if (this.team && this.app) this.back()
       return null
@@ -370,26 +379,45 @@ export class AppWindow {
    * suspended team, a rename) are told apart. The first connect to an address the hosted service does not run asks once
    * (`confirmed` is the person's yes).
    */
+  /** Cancel while a sleeping trial team starts (up to 3 minutes): the wait stops and nothing is added. */
+  cancelWake() {
+    if (this.wakeRun) this.wakeRun.stopped = true
+  }
+
   async addTeam(address: string, confirmed = false): Promise<AddTeamResult> {
     this.linkError = null
     const p = parseTeamAddress(address)
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
-    const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
-    let origin = p.origin
-    let v
+    const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
+    let c
+    const run = { stopped: false }
+    this.wakeRun = run
     try {
-      v = healthVerdict(origin, await fetchHealth(origin))
-      // a team renamed at its relay: one hop to its new <name>.<team domain>, and no further
-      if (!v.ok && 'rename' in v) {
-        origin = v.rename
-        v = healthVerdict(origin, await fetchHealth(origin))
-        if (!v.ok && 'rename' in v) return fail('notTeamServer')
-      }
+      c = await checkTeam(p.origin, {
+        health: fetchHealth,
+        wake: fetchWake,
+        onWaking: () => {
+          this.waking = true
+          this.sendWelcome()
+        },
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        now: Date.now,
+        stopped: () => run.stopped,
+      })
     } catch {
       return fail('unreachable')
+    } finally {
+      if (this.wakeRun === run) this.wakeRun = null
+      if (this.waking) {
+        this.waking = false
+        this.sendWelcome()
+      }
     }
-    if (!v.ok) return 'error' in v ? fail(v.error) : fail('notTeamServer')
+    // cancelled while the team started: nothing added, nothing said
+    if (run.stopped) return { ok: false, error: 'cancelled', message: '' }
+    if (!c.ok) return fail(c.error)
+    const origin = c.origin
     const known = this.teams.teams.find((x) => x.origin === origin)
     // the person sees the new address before it is remembered
     if (origin !== p.origin && !known) return { ok: false, error: 'renamed', message: t(L, 'err.renamed', { host: hostOf(origin) }), host: hostOf(origin), next: origin + p.entryPath }
@@ -1428,6 +1456,43 @@ function fetchHealth(origin: string): Promise<HealthAnswer> {
       clearTimeout(timer)
       reject(e)
     })
+    req.end()
+  })
+}
+
+/**
+ * Wake a sleeping free trial team (QA wake gap 1): GET <origin>/ as the page load a browser makes when the person opens
+ * the team (Sec-Fetch-Mode: navigate), the request the relay lets wake a team (relay/src/relay.ts mayWake); the health
+ * check never does. Nothing is followed or kept: only the status, the relay's x-relay-error and its Retry-After. The
+ * relay holds a page load a few seconds; 25 s limit. null: the request failed.
+ */
+function fetchWake(origin: string): Promise<WakeAnswer> {
+  return new Promise((resolve) => {
+    const req = net.request({ url: `${origin}/`, method: 'GET', session: session.fromPartition('mycel-ui'), redirect: 'manual', useSessionCookies: false })
+    req.setHeader('accept', 'text/html')
+    req.setHeader('sec-fetch-mode', 'navigate')
+    const done = (a: WakeAnswer) => {
+      clearTimeout(timer)
+      resolve(a)
+    }
+    const timer = setTimeout(() => {
+      req.abort()
+      resolve(null)
+    }, 25_000)
+    req.on('redirect', (status) => {
+      req.abort()
+      done({ status, relayError: null, retryAfter: null })
+    })
+    req.on('response', (res) => {
+      const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null
+      const after = Number(one(res.headers['retry-after']))
+      // the body is not read: the page is not shown here
+      res.on('data', () => {})
+      res.on('error', () => {})
+      done({ status: res.statusCode, relayError: one(res.headers['x-relay-error']), retryAfter: Number.isFinite(after) && after > 0 ? after : null })
+      req.abort()
+    })
+    req.on('error', () => done(null))
     req.end()
   })
 }

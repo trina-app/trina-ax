@@ -60,6 +60,24 @@ const EMAIL_TRUST_MS = 7 * 86_400_000
 export const SLACK_CALLBACK_PATH = '/api/integrations/slack/oauth/callback'
 const SLACK_AUTHORIZE = 'https://slack.com/openid/connect/authorize'
 const LINK_AGAIN_MS = 60_000
+
+/** Why no new connect link now, from this Slack account's links of the last hour: `n` made, the oldest's time, the
+ * newest one still to be used. The hourly cap is said with the time a link can be had again (QA chatB: the 11th link
+ * of an hour said "in a few minutes"); a link sent within the minute: "use it". null: a new link may be made. */
+export function linkWaitOf(recent: { n: number; first: string | null; last: string | null }, now: number): { key: 'linkWait' } | { key: 'linkHourly'; again: number } | null {
+  // the oldest link of the hour leaves the count an hour after it was made (the next whole minute, so "after 14:05" holds)
+  if (recent.n >= LINK_PER_HOUR) return { key: 'linkHourly', again: Math.ceil(((recent.first ? Date.parse(recent.first) : now) + 3600_000) / 60_000) * 60_000 }
+  if (recent.last && Date.parse(recent.last) > now - LINK_AGAIN_MS) return { key: 'linkWait' }
+  return null
+}
+
+/** linkWaitOf's answer in words, in the asker's language; the time in Slack's date token, so Slack shows it in each
+ * person's own time zone (the text after | is for an app that cannot: UTC) */
+export function linkWaitText(w: NonNullable<ReturnType<typeof linkWaitOf>>, locale: Locale): string {
+  if (w.key === 'linkWait') return say('linkWait', locale)
+  const utc = new Date(w.again).toISOString().slice(11, 16)
+  return say('linkHourly', locale, { n: String(LINK_PER_HOUR), at: `<!date^${Math.floor(w.again / 1000)}^{time}|${utc} UTC>` })
+}
 const ANSWER_WAIT_MS = 2 * 60 * 60_000
 const KEEP_MS = 7 * 86_400_000
 const AAD = 'slack:workspace'
@@ -1117,9 +1135,9 @@ export class SlackConnector {
     this.refresh()
   }
 
-  /** A post Slack refused because the bot token no longer works: with the official app that is the same as Slack's
-   * own "removed" event (the hosting service may not have heard yet). */
-  private tokenRefused(e: unknown, bot?: string) {
+  /** A post (or a read, read.ts) Slack refused because the bot token no longer works: with the official app that is the
+   * same as Slack's own "removed" event (the hosting service may not have heard yet). Any other error: nothing. */
+  tokenRefused(e: unknown, bot?: string) {
     if (!(e instanceof SlackApiError) || !TOKEN_GONE.has(e.code)) return
     const cfg = this.config()
     // only the token saved now: a post made with an older one (the workspace removed and added the official app again
@@ -1279,10 +1297,11 @@ export class SlackConnector {
     const tooSoon = () => {
       const now = this.now()
       // the wait is for a link still to be used: one that was cancelled or used does not hold a new one back
-      const recent = this.db.query('SELECT count(*) n, max(CASE WHEN used_at IS NULL THEN created_at END) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; last: string | null }
-      return recent.n >= LINK_PER_HOUR || (!!recent.last && Date.parse(recent.last) > now - LINK_AGAIN_MS)
+      const recent = this.db.query('SELECT count(*) n, min(created_at) first, max(CASE WHEN used_at IS NULL THEN created_at END) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; first: string | null; last: string | null }
+      return linkWaitOf(recent, now)
     }
-    if (tooSoon()) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
+    const wait = tooSoon()
+    if (wait) { await this.ephemeral(bot, q, linkWaitText(wait, locale)); return }
     // who this Slack account is, as Slack says: shown on the link page next to the person who confirms. No answer from
     // Slack: no link (we could not check the account is of this workspace)
     const m = await this.slackMember(bot, q.user, cfg)
@@ -1290,10 +1309,10 @@ export class SlackConnector {
     if (!m.ours) { await this.ephemeral(bot, q, say('outsider', locale)); return }
     const names = { display: m.name, real: m.realName, handle: m.handle }
     const token = crypto.randomBytes(32).toString('base64url')
-    let made = false
+    let made = false, late: ReturnType<typeof linkWaitOf> = null
     this.db.transaction(() => {
       // two questions at once: the second sees the first's link (the check above ran before the wait for Slack)
-      if (tooSoon()) return
+      if ((late = tooSoon())) return
       const now = this.now()
       // only the newest link of this Slack account works
       this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(iso(now), q.team, q.user)
@@ -1301,7 +1320,7 @@ export class SlackConnector {
         .run(sha(token), q.team, q.enterprise, q.user, names.display ?? names.real ?? names.handle, names.real, names.handle, q.channel, q.threadTs, iso(now + LINK_TTL_MS), iso(now))
       made = true
     })()
-    if (!made) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
+    if (!made) { await this.ephemeral(bot, q, linkWaitText(late ?? { key: 'linkWait' }, locale)); return }
     const url = `${cfg.link_origin}/slack/link?t=${token}`
     await this.ephemeral(bot, q, say('linkPrompt', locale), [
       { type: 'section', text: { type: 'mrkdwn', text: say('linkPrompt', locale) } },

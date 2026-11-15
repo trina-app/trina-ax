@@ -94,6 +94,7 @@ async function submit(confirmed = false) {
     const r = await ui.welcome.add(draft, confirmed)
     if (r && !r.ok && r.error === 'confirmOutside') outside = { kind: 'outside', host: r.host ?? '', address: draft }
     else if (r && !r.ok && r.error === 'renamed' && r.next) outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
+    else if (r && !r.ok && r.error === 'cancelled') error = ''
     else if (r && !r.ok) error = r.message
     else if (r?.ok) draft = ''
   } catch {
@@ -103,6 +104,21 @@ async function submit(confirmed = false) {
     render()
     if (outside) document.getElementById('outside-cancel')?.focus()
   }
+}
+
+/** A sleeping free trial team that is starting (QA wake gap 1): a calm wait with a spinner, not an error. The add
+ * goes on by itself when the team answers (main/app-window.ts addTeam). */
+function waking() {
+  return busy && state.waking
+    ? h(
+        'div',
+        { class: 'waking', role: 'status', 'data-testid': 'team-waking' },
+        h('p', { class: 'waking-title' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), tr('welcome.waking')),
+        h('p', { class: 'waking-detail' }, tr('welcome.wakingDetail')),
+        // the wait lasts up to 3 minutes: it can be stopped (on ④ its own Cancel does it)
+        state.link ? null : h('button', { type: 'button', class: 'waking-cancel', 'data-testid': 'team-waking-cancel', onclick: () => ui.welcome.cancelWake() }, tr('welcome.cancel')),
+      )
+    : null
 }
 
 function welcome() {
@@ -137,6 +153,7 @@ function welcome() {
     },
     h('label', { for: 'address', class: 'sr-only' }, tr('welcome.label')),
     h('div', { class: 'field' }, input, h('button', { class: 'primary', type: 'submit', disabled: busy }, busy ? tr('welcome.checking') : tr('welcome.connect'))),
+    waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
   )
   return h(
@@ -205,6 +222,7 @@ function linkAsk(link: { id: number; host: string; hosted: boolean }) {
     h('h1', { id: 'link-title', class: 'host-title' }, tr('link.title', { host: link.host })),
     h('p', { class: 'sub', id: 'link-body' }, tr('link.body')),
     link.hosted ? null : h('div', { class: 'confirm', 'data-testid': 'link-outside' }, h('p', {}, tr('outside.body'))),
+    waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
     h(
       'div',
@@ -225,6 +243,8 @@ function linkAsk(link: { id: number; host: string; hosted: boolean }) {
             try {
               const r = await ui.welcome.answerLink(true, link.host)
               // the team moved at its relay: its new address is asked on ① before anything is remembered
+              // Cancel on ④ while the team started: ④'s own no already took the screen back
+              if (r && !r.ok && r.error === 'cancelled') return
               if (r && !r.ok && r.error === 'renamed' && r.next) {
                 outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
                 draft = r.next

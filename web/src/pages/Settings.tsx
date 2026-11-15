@@ -19,7 +19,7 @@ import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ACCOUNT_DELETION_GRACE_DAYS, type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
+import { type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -54,7 +54,7 @@ import { squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AiAllowances } from '../components/settings/AiAllowances'
-import { AccountDeletion } from '../components/settings/AccountDeletion'
+import { AccountDeletion, deletionRowText, useMyDeletionRequest } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
@@ -152,6 +152,12 @@ function Profile() {
   const [busy, setBusy] = useState(false)
   const previewUrl = photo && photo !== 'remove' ? photo.url : null
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
+  // the "Delete account" row says the date and offers "Keep my account" while a deletion is pending (TC-1976); a request
+  // that cannot be read leaves the plain link to the page
+  const deletion = useMyDeletionRequest()
+  const setDeletion = deletion.setValue
+  useEffect(() => { api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion])
+  const deletionRow = deletionRowText(t, deletion.value, locale)
   // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
   // changed
   // the one-line status is no longer asked for here (kept on the account, shown nowhere)
@@ -301,10 +307,16 @@ function Profile() {
           </Row>
           {/* a person deletes their own account, 7 days after asking (App Store review 5.1.1(v)); a phone has it as the
               page's last row */}
-          {!phone && <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS })}>
-            <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
-              {t('accountDeletion.request')}
-            </Link>
+          {!phone && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
+            {deletionRow.keep ? (
+              <Button type="button" size="sm" busy={deletion.busy} onClick={() => void deletion.keep()} data-testid="account-deletion-keep">
+                {t('accountDeletion.cancel')}
+              </Button>
+            ) : (
+              <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
+                {t('accountDeletion.request')}
+              </Link>
+            )}
           </Row>}
         </div>
         )}
@@ -363,8 +375,10 @@ function Profile() {
       <TextSizeSetting />
       {phone && (
         <PhoneSection className="-mt-6">
-          <PhoneListGroup title={t('accountDeletion.row')} footer={t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS })}>
-            <PhoneListRow title={t('accountDeletion.request')} to="/settings/account/delete" testId="account-deletion-link" />
+          <PhoneListGroup title={t('accountDeletion.row')} footer={deletionRow.hint}>
+            {deletionRow.keep
+              ? <PhoneListRow title={t('accountDeletion.cancel')} onClick={() => void deletion.keep()} disabled={deletion.busy} testId="account-deletion-keep" />
+              : <PhoneListRow title={t('accountDeletion.request')} to="/settings/account/delete" testId="account-deletion-link" />}
           </PhoneListGroup>
         </PhoneSection>
       )}
