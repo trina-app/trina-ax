@@ -21,10 +21,10 @@ description: 把团队的做事方法写成可重复使用的 SKILL.md 说明，
 
 | 文件夹 | 技能 | 如何加入 |
 |---|---|---|
-| `skills/general/` | Company profile（公司简介）、Promo cards（宣传卡片）、Promo video（宣传视频） | 所有者在设置步骤**选择团队要使用的技能**中选择，或由所有者或管理员之后在**可用技能**中添加 |
+| `skills/general/` | Company slide deck（公司介绍幻灯片）、Promo cards（宣传卡片）、Promo video（宣传视频） | 所有者在设置步骤**选择团队要使用的技能**中选择，或由所有者或管理员之后在**可用技能**中添加 |
 | `skills/work/` | Natural writing（自然写作） | 同上 |
 
-- **在设置步骤中**，每个技能有一行说明和**示例**。如果已保存公司简介，Company profile、Promo cards 和 Promo video 会默认勾选（它们是根据公司简介制作的）；Natural writing 默认不勾选。按钮会写明要加入什么，例如 **添加Company profile·Promo cards·Promo video**。
+- **在设置步骤中**，每个技能有一行说明和**示例**。如果已保存公司简介，Company slide deck、Promo cards 和 Promo video 会默认勾选（它们是根据公司简介制作的）；Natural writing 默认不勾选。按钮会写明要加入几个，例如 **添加 3 个技能**。
 - **在可用技能中**，所有者和管理员会在列表下方看到一行折叠的内容：**Trina AX准备的技能 · 还有2个**，里面是团队还没有的技能。展开它，勾选你想要的（一开始什么都没勾选），然后按 **添加到团队**。搜索时这一行会隐藏，团队拥有全部技能后它就会消失。之后版本新增的技能只会让数字增加：不会有通知。
 - **示例**展示该技能为一家虚构公司 Example Coffee 做出的成果，以及这个技能的来源。
 

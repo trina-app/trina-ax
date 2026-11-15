@@ -44,7 +44,7 @@ test('the setup walk: the skills step offers only the skills Trina prepared; one
   await expect(primary).toHaveCount(0)
   await expect(page.getByTestId('skills-later')).toBeVisible()
   await packs.locator('[data-testid="skill-pack-row"][data-name="humanizer"]').getByTestId('skill-pack-check').check()
-  await expect(primary).toHaveText('자연스러운 글 넣기')
+  await expect(primary).toHaveText('스킬 1개 넣기')
   await primary.click()
   // all in: a toast and on to 3/5 팀 파일; the server recorded the step done
   await expect(page.getByTestId('toast').filter({ hasText: '스킬 1개를 팀에 넣었어요' })).toBeVisible()

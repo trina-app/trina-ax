@@ -22,8 +22,6 @@ import { useWelcome } from '../../store/welcome'
 import { installPacks, outcomeEmpty, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from '../skills/PackRows'
 import { Button, ErrorNote, Skeleton, useMediaQuery } from '../ui'
 
-/** The primary names what it puts in while it covers at most this many skills. */
-const NAMED_MAX = 3
 
 /** The kept skills checked when the step first shows them: the visual ones when a company profile is saved, none on a
  * revisit of a done step. */
@@ -31,11 +29,10 @@ export function preChecked(rows: readonly Pick<PackCatalogSkill, 'name' | 'visua
   return new Set(o.done || !o.profile ? [] : rows.filter((r) => r.visual).map((r) => r.name))
 }
 
-/** The primary's words (null: nothing to put in): up to NAMED_MAX skills each is named; more: "팀에 넣기 · n개". */
+/** The primary's words (null: nothing to put in): how many go in, "Add 3 skills" (the rows above say which; the names
+ * joined made one long label, fix/onboarding-copy). */
 export function primaryLabel(t: ReturnType<typeof useT>, kept: readonly string[]): string | null {
-  if (!kept.length) return null
-  if (kept.length > NAMED_MAX) return t('welcome.skills.putN', { n: kept.length })
-  return t('welcome.skills.put', { names: kept.join('·') })
+  return kept.length ? t('welcome.skills.put', { n: kept.length }) : null
 }
 
 export interface SkillsStepProps {
