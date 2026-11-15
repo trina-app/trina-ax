@@ -12,7 +12,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { nativeBinDir } from '../../server/src/config'
-import { SocketLauncher } from '../../server/src/native'
+import { launcherHeldLogin, SocketLauncher } from '../../server/src/native'
+import { REFRESH_PLACEHOLDER } from '../../server/src/proxy/refresh-terminator'
 import { WORK } from '../lib/env'
 import { ENGINE_PROFILE, sbAvailable } from '../lib/sb-local-login'
 
@@ -113,8 +114,22 @@ describe.skipIf(!bins)('launcher + bridge: the engine\'s `security` reaches only
   test('Claude Code\'s read: the login, without the rest of the item', async () => {
     const r = await engine(['run', 'security', 'find-generic-password', '-a', ME, '-w', '-s', 'Claude Code-credentials'])
     expect(r.code).toBe(0)
-    expect(JSON.parse(r.out)).toEqual({ claudeAiOauth: LOGIN.claudeAiOauth })
+    // office (a model proxy): the real refresh token stays with the broker, the engine gets a placeholder
+    expect(JSON.parse(r.out)).toEqual({ claudeAiOauth: { ...LOGIN.claudeAiOauth, refreshToken: REFRESH_PLACEHOLDER } })
     expect(r.out).not.toContain('xoxp-R4C-OTHER')
+    expect(r.out).not.toContain('sk-ant-ort01-R4C-FAKE')
+  })
+
+  test('the refresh terminator (server side) gets the real refresh token and saves the rotated one', async () => {
+    const held = launcherHeldLogin(sock)
+    expect(await held.refreshToken()).toBe('sk-ant-ort01-R4C-FAKE')
+    expect(await held.rotated({ accessToken: 'sk-ant-oat01-R4C-ROT', refreshToken: 'sk-ant-ort01-R4C-ROT', expiresAt: 2100000000000 })).toBe(true)
+    const item = JSON.parse(JSON.parse(fs.readFileSync(store, 'utf8'))['Claude Code-credentials'])
+    expect(item.claudeAiOauth.refreshToken).toBe('sk-ant-ort01-R4C-ROT')
+    expect(item.mcpOAuth).toEqual(LOGIN.mcpOAuth)
+    const r = await engine(['run', 'security', 'find-generic-password', '-a', ME, '-w', '-s', 'Claude Code-credentials'])
+    expect(r.out).toContain('sk-ant-oat01-R4C-ROT')
+    expect(r.out).not.toContain('sk-ant-ort01-R4C-ROT')
   })
 
   test('other items, other commands and the real tool are refused', async () => {
@@ -128,14 +143,18 @@ describe.skipIf(!bins)('launcher + bridge: the engine\'s `security` reaches only
     expect((await engine(['exec', '/usr/bin/security'])).code).not.toBe(0)
   })
 
-  test('Claude Code\'s save (security -i): only the login part goes into the item', async () => {
-    const fresh = { claudeAiOauth: { ...LOGIN.claudeAiOauth, accessToken: 'sk-ant-oat01-R4C-NEW' }, mcpOAuth: { planted: { accessToken: 'p' } } }
+  test('Claude Code\'s save (security -i) in office mode: answered, nothing changes (the refresh terminator saved the refresh)', async () => {
+    const fresh = { claudeAiOauth: { ...LOGIN.claudeAiOauth, accessToken: 'sk-ant-oat01-R4C-NEW', refreshToken: REFRESH_PLACEHOLDER }, mcpOAuth: { planted: { accessToken: 'p' } } }
     const hex = Buffer.from(JSON.stringify(fresh)).toString('hex')
     const r = await engine(['run', 'security', '-i'], `add-generic-password -U -a "${ME}" -s "Claude Code-credentials" -X "${hex}"\n`)
     expect(r.code).toBe(0)
     const item = JSON.parse(JSON.parse(fs.readFileSync(store, 'utf8'))['Claude Code-credentials'])
-    expect(item.claudeAiOauth.accessToken).toBe('sk-ant-oat01-R4C-NEW')
+    expect(item.claudeAiOauth.accessToken).toBe('sk-ant-oat01-R4C-ROT') // the engine cannot plant an access token
+    expect(item.claudeAiOauth.refreshToken).toBe('sk-ant-ort01-R4C-ROT') // the real one stays
     expect(item.mcpOAuth).toEqual(LOGIN.mcpOAuth)
+    // a turn cannot put a refresh token of its own (or wipe it): only the placeholder is accepted
+    const swap = Buffer.from(JSON.stringify({ claudeAiOauth: { accessToken: 'a', refreshToken: 'sk-ant-ort01-ATTACKER' } })).toString('hex')
+    expect((await engine(['run', 'security', '-i'], `add-generic-password -U -a "${ME}" -s "Claude Code-credentials" -X "${swap}"\n`)).code).not.toBe(0)
     const bad = await engine(['run', 'security', '-i'], `add-generic-password -U -a "${ME}" -s "qa-canary" -w "x"\n`)
     expect(bad.code).not.toBe(0)
     expect(JSON.parse(fs.readFileSync(store, 'utf8'))['qa-canary']).toBe('CANARY-KC')

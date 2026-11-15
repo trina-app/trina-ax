@@ -480,7 +480,8 @@ func main() {
 		if *keychainTestStore != "" {
 			store = fileStore{path: *keychainTestStore}
 		}
-		if err := startKeychainBroker(dir, resolvePath(*bridgePath), store); err != nil {
+		// office mode (a model proxy with its refresh terminator): the engine sees a placeholder refresh token
+		if err := startKeychainBroker(dir, resolvePath(*bridgePath), store, *proxyPort > 0); err != nil {
 			fmt.Fprintln(os.Stderr, "mycel-launcher: Claude login broker:", err)
 			os.Exit(2)
 		}
@@ -568,6 +569,9 @@ func serve(c *net.UnixConn) {
 		return
 	case "codex-status":
 		codexStatus(o)
+		return
+	case "claude-refresh-token", "claude-refresh-rotated": // keychain.go: the proxy's refresh terminator (server only)
+		kcRefreshOp(probe.Op, line, o)
 		return
 	case "codex-logout":
 		codexLogout(o)
@@ -909,7 +913,8 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		wantBaseURL = true
 	}
 	// a Claude turn with the account's own login reads it through the broker (keychain.go), not /usr/bin/security
-	kcTurn := kcDir != "" && !localCodexTurn && req.CodexHome == nil && !req.CodexAuth
+	// (not a Codex turn, not one with a model proxy token: those never use the account's own Claude login)
+	kcTurn := kcDir != "" && !localCodexTurn && req.CodexHome == nil && !req.CodexAuth && tokenRead == nil
 	if kcTurn {
 		env = kcEnv(env)
 	}

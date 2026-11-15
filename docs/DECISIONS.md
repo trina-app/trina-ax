@@ -29087,11 +29087,34 @@ there (their items trust `/usr/bin/security`). Owner: keep the local-login mode,
   never through a link). The broker reads the live item on every request: Claude Code rotates the refresh token on
   every refresh, and another turn or the Mac user's own `claude` may have refreshed a moment ago. Only processes of a
   running Claude turn of that launcher may ask (peer uid and session).
-- **Rejected: the proxy holds the login and the engine gets a stand-in token** (as in subscription mode). It would keep
-  the token itself out of the engine, but the server would have to refresh the Mac user's OAuth login itself (Claude
-  Code's client, rotation shared with the Mac user's own `claude`), which we cannot test without the real login and which
-  broke turns before when it went wrong (401 after eight hours). The setup-token mode is the way to an engine with no
-  real credential; this change keeps everything else of the keychain away from the engine.
+- **Office: the engine never holds the real refresh token** (independent review). With a model proxy (office mode) the
+  broker shows the engine `mycel-refresh-held-by-the-team-server` in place of the refresh token. Claude Code refreshes
+  through the proxy's refresh terminator, which asks the launcher for the real token (launcher socket op
+  `claude-refresh-token`, server uid only), sends the refresh with it, saves the new refresh and access token through
+  the broker (`claude-refresh-rotated`) and hands the engine the access token with the placeholder again. In this mode
+  a save from the engine changes nothing (it is answered as done; one with another refresh token is refused): the
+  terminator saved what the refresh brought, and an engine save could only roll a newer login back, plant another
+  account's access token or pad the item until the next save fails (second review). A refresh that names another token
+  is refused by the terminator, which sends only the fields of a refresh grant (grant_type, the real refresh_token,
+  client_id, scope) and runs one refresh at a time, each with the token the previous one saved. A rotated login the
+  broker cannot write is kept in its memory and written at the next request, never dropped (the old refresh token is
+  used up by then). So a taken-over turn holds at most an access token that runs
+  out within hours, not a token that keeps the subscription. Dev (no proxy, direct HTTPS) keeps the real refresh token
+  in the engine: there Claude Code refreshes at the host itself.
+- **Saving, bounded.** Only the known `claudeAiOauth` fields are kept (accessToken, refreshToken, expiresAt, scopes,
+  subscriptionType, rateLimitTier), each with a size limit. The broker writes the item only on the stdin of
+  `security -i`, never in argv (another process of the account, a turn too, can read argv). `security -i` cuts a line
+  at about 4076 bytes (about 1950 bytes of JSON as hex), which an item with MCP sign-ins passes: such an item goes to
+  `~/.claude/.credentials.json` and the keychain item is removed, as Claude Code's own fallback does, so every reader
+  finds the file. A locked keychain (no GUI session) gets the plaintext file instead,
+  as Claude Code itself does; a link at the file's place is followed only to a file in the same home. Every
+  `security` call has a 10 s limit (a keychain that waits for an unlock dialog must not hold every turn), the socket
+  takes at most 32 requests at once, and only turns without a model proxy token and not Codex get the broker.
+- **Rejected: the proxy holds the whole login and the engine gets a stand-in access token too** (as in subscription
+  mode). It would keep even the access token out of the engine, but the server would have to sign every request and
+  run the whole refresh outside the CLI; with the placeholder refresh token the CLI keeps its own refresh logic and
+  the lasting part of the login still never reaches a turn. The setup-token mode stays the way to an engine with no
+  real credential at all.
 - **Dev with Codex on** (`LOCAL_CODEX=1`, no proxy) keeps read access to the system keychains and the Security server for
   certificate checks of a Rust TLS stack; the login keychain, `/usr/bin/security` and the login file stay closed there too.
 - **The tunnel (TC-359).** Pras's run used build 0.5.2-ts3, made before #800: there office turns tunnelled to
@@ -29099,15 +29122,17 @@ there (their items trust `/usr/bin/security`). Owner: keep the local-login mode,
   path and the only Claude tunnel (`platform.claude.com`) ends at the refresh terminator. Added here: a Claude turn's
   CONNECT is refused when its host has no terminator (`connect.ts`), so a setup that passes `claudeHosts` alone can no
   longer open a byte pipe.
-- **Left open.** The engine still holds the Claude login token itself (it signs and refreshes with it), so a turn whose
-  tool lockdown and sandbox both failed could show it in an answer or put it into a web search query (#800 ①). Writing a
-  bad login breaks the Mac's sign-in (the same as before). `~/.claude.json` stays readable (account e-mail, project
-  list).
+- **Left open.** The engine holds the current access token (it signs with it), so a turn whose tool lockdown and
+  sandbox both failed could show it in an answer or a web search query (#800 ①) until it runs out. In dev (no proxy) the
+  engine keeps the real refresh token and its saves are written. A refresh of the Mac user's own `claude` outside Team
+  AX is not serialized with the terminator's. `~/.claude.json` stays readable (account e-mail, project list). A real
+  refresh through the terminator with the Mac's real login has not been run (it would touch the owner's sign-in): QA row.
 - **Checked.** Real Claude Code 2.1.325 under the new profile through the real launcher and bridge, with a FAKE login in a
   stand-in keychain (`--keychain-test-store`) and HOME in the chat folder: `claude auth status` "loggedIn: true" from the
   broker, and a `-p` turn sent `Authorization: Bearer <the fake token>` to a local stub. The real keychain and the Mac's
   Claude login were never opened. Tests: `native/cmd/mycel-launcher/keychain_test.go` (rules, merge, file login, locked
-  keychain, socket only for turns), `native/cmd/mycel-bridge/security_test.go`, `tests/security/r4c-office-keychain-broker.test.ts`
+  keychain, socket only for turns, placeholder refresh token, rotation), `native/cmd/mycel-bridge/security_test.go`, `tests/security/r4c-office-keychain-broker.test.ts`
   (macOS: profile denies in dev, office and dev + Codex; launcher + bridge end to end), `tests/security/r4-engine-local-login.test.ts`
-  (keychain folder closed), `tests/security/r4b-office-engine-network.test.ts` (no tunnel without a terminator).
+  (keychain folder closed), `tests/security/r4b-office-engine-network.test.ts` (no tunnel without a terminator),
+  `tests/security/r4b-office-body-check.test.ts` (the terminator swaps the placeholder and keeps the new refresh token).
   Version impact: **patch**.

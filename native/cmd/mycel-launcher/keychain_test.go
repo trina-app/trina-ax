@@ -18,6 +18,15 @@ type memStore struct {
 	items  map[string]string
 	locked bool
 	adds   int
+	fail   bool // every add fails (a disk or keychain error)
+}
+
+func (m *memStore) del(s string) int {
+	if _, ok := m.items[s]; !ok {
+		return kcNotFound
+	}
+	delete(m.items, s)
+	return 0
 }
 
 func (m *memStore) find(s string) (string, int) {
@@ -32,6 +41,12 @@ func (m *memStore) find(s string) (string, int) {
 func (m *memStore) add(s, v string) int {
 	if m.locked {
 		return kcLocked
+	}
+	if m.fail {
+		return 1
+	}
+	if len(hex.EncodeToString([]byte(v)))+100 > kcStdinLine {
+		return kcTooLong
 	}
 	m.items[s] = v
 	m.adds++
@@ -175,14 +190,18 @@ func TestKeychainCredentialsFile(t *testing.T) {
 	if r := find(b, kcLoginService); r.Code != 0 {
 		t.Fatalf("locked + file: %+v", r)
 	}
-	// a locked keychain and no file: 36, and nothing is created
+	// a locked keychain and no file: 36; a save then goes to the file, as Claude Code itself does
 	os.Remove(b.credFile)
 	if r := find(b, kcLoginService); r.Code != kcLocked {
 		t.Fatalf("locked: %+v", r)
 	}
-	if r := b.handle(kcRequest{Args: []string{"add-generic-password", "-U", "-a", "office", "-s", kcLoginService, "-w", save}}); r.Code != kcLocked {
+	if r := b.handle(kcRequest{Args: []string{"add-generic-password", "-U", "-a", "office", "-s", kcLoginService, "-w", save}}); r.Code != 0 || st.adds != 0 {
 		t.Fatalf("save while locked: %+v", r)
 	}
+	if raw, _ := os.ReadFile(b.credFile); !strings.Contains(string(raw), "sk-ant-oat01-NEW") {
+		t.Fatalf("locked save: %s", raw)
+	}
+	os.Remove(b.credFile)
 	// nothing anywhere: not found, and a first save creates the item
 	st.locked = false
 	if r := find(b, kcLoginService); r.Code != kcNotFound {
@@ -191,7 +210,10 @@ func TestKeychainCredentialsFile(t *testing.T) {
 	if r := b.handle(kcRequest{Args: []string{"add-generic-password", "-U", "-a", "office", "-s", kcLoginService, "-w", save}}); r.Code != 0 || st.adds != 1 {
 		t.Fatalf("first save: %+v", r)
 	}
-	// a link at the file's place is never written through
+	// a link at the file's place to somewhere outside the home is never written through
+	saveHome := accountHome
+	accountHome = filepath.Dir(b.credFile)
+	defer func() { accountHome = saveHome }()
 	b2, _ := newBroker(t, map[string]string{})
 	target := filepath.Join(t.TempDir(), "target")
 	os.WriteFile(target, []byte(fakeLogin), 0o600)
@@ -213,7 +235,7 @@ func TestKeychainSocketOnlyForRunningTurns(t *testing.T) {
 	saveHome := accountHome
 	accountHome = dir
 	defer func() { accountHome = saveHome }()
-	if err := startKeychainBroker(filepath.Join(dir, "kc"), "/nonexistent/bridge", fileStore{path: store}); err != nil {
+	if err := startKeychainBroker(filepath.Join(dir, "kc"), "/nonexistent/bridge", fileStore{path: store}, false); err != nil {
 		t.Fatal(err)
 	}
 	if l, err := os.Readlink(filepath.Join(dir, "kc", "security")); err != nil || l != "/nonexistent/bridge" {
@@ -262,4 +284,82 @@ func mySid(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return sid
+}
+
+func TestKeychainOfficeHidesTheRefreshToken(t *testing.T) {
+	b, st := newBroker(t, map[string]string{kcLoginService: fakeLogin})
+	b.hideRefresh = true
+	r := find(b, kcLoginService)
+	if r.Code != 0 || strings.Contains(r.Stdout, "sk-ant-ort01-FAKE") || !strings.Contains(r.Stdout, kcRefreshPlaceholder) || !strings.Contains(r.Stdout, "sk-ant-oat01-FAKE") {
+		t.Fatalf("view: %+v", r)
+	}
+	save := func(oauth string) kcResponse {
+		return b.handle(kcRequest{Args: []string{"add-generic-password", "-U", "-a", "office", "-s", kcLoginService, "-w", `{"claudeAiOauth":` + oauth + `}`}})
+	}
+	// office: a save from the engine changes nothing (the terminator saved the refresh); answered as done
+	before := st.items[kcLoginService]
+	for _, ok := range []string{`{"accessToken":"sk-ant-oat01-ATTACKER","refreshToken":"` + kcRefreshPlaceholder + `","expiresAt":9999999999999}`, `{"accessToken":"x"}`,
+		`{"accessToken":"x","scopes":["` + strings.Repeat("s", 60) + `","` + strings.Repeat("t", 60) + `"]}`} {
+		if r := save(ok); r.Code != 0 {
+			t.Errorf("%.60s: %+v", ok, r)
+		}
+	}
+	if st.items[kcLoginService] != before || st.adds != 0 {
+		t.Fatalf("an engine save changed the item: %s", st.items[kcLoginService])
+	}
+	// another refresh token (another account's, or a made-up one) is refused; so is an oversized login
+	for _, bad := range []string{`{"accessToken":"a","refreshToken":"sk-ant-ort01-ATTACKER"}`, `{"accessToken":"` + strings.Repeat("a", 2000) + `"}`, `{"accessToken":""}`} {
+		if r := save(bad); r.Code == 0 {
+			t.Errorf("%.60s: %+v", bad, r)
+		}
+	}
+	// the refresh terminator's side
+	if b.refreshToken() != "sk-ant-ort01-FAKE" {
+		t.Fatal(b.refreshToken())
+	}
+	if err := b.rotated("sk-ant-oat01-ROT", "sk-ant-ort01-ROT", 2100000000000); err != nil {
+		t.Fatal(err)
+	}
+	if b.refreshToken() != "sk-ant-ort01-ROT" || !strings.Contains(st.items[kcLoginService], "sk-ant-oat01-ROT") || !strings.Contains(st.items[kcLoginService], "xoxp-OTHER-SECRET") {
+		t.Fatalf("rotated: %s", st.items[kcLoginService])
+	}
+	if b.rotated("a", "", 0) == nil {
+		t.Fatal("an empty refresh token must be refused")
+	}
+	// a rotated login whose save fails is kept and saved at the next request, never dropped
+	st.fail = true
+	if err := b.rotated("sk-ant-oat01-ROT2", "sk-ant-ort01-ROT2", 2200000000000); err != nil {
+		t.Fatal(err)
+	}
+	if b.refreshToken() != "sk-ant-ort01-ROT2" {
+		t.Fatal("the unsaved rotated refresh token was not used")
+	}
+	st.fail = false
+	if b.refreshToken() != "sk-ant-ort01-ROT2" || !strings.Contains(st.items[kcLoginService], "sk-ant-ort01-ROT2") || b.pending != nil {
+		t.Fatalf("not saved on retry: %s", st.items[kcLoginService])
+	}
+}
+
+func TestKeychainItemTooLongGoesToTheLoginFile(t *testing.T) {
+	// an item with MCP sign-ins too long for one `security -i` line: saved in the login file (never in argv) and the
+	// keychain item removed, so every reader finds the file
+	big := `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-FAKE","refreshToken":"sk-ant-ort01-FAKE","expiresAt":1999999999000},"mcpOAuth":{"a":{"accessToken":"` + strings.Repeat("m", 3000) + `"}}}`
+	b, st := newBroker(t, map[string]string{kcLoginService: big})
+	b.hideRefresh = true
+	if err := b.rotated("sk-ant-oat01-ROT", "sk-ant-ort01-ROT", 2100000000000); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(b.credFile)
+	if !strings.Contains(string(raw), "sk-ant-ort01-ROT") || !strings.Contains(string(raw), strings.Repeat("m", 3000)) {
+		t.Fatalf("file: %.200s", raw)
+	}
+	if _, ok := st.items[kcLoginService]; ok {
+		t.Fatal("the keychain item stayed next to the file")
+	}
+	if b.refreshToken() != "sk-ant-ort01-ROT" {
+		t.Fatal(b.refreshToken())
+	}
+	if r := find(b, kcLoginService); r.Code != 0 || !strings.Contains(r.Stdout, "sk-ant-oat01-ROT") || strings.Contains(r.Stdout, "mmmm") {
+		t.Fatalf("read: %.200s", r.Stdout)
+	}
 }

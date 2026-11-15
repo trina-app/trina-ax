@@ -78,6 +78,36 @@ export function refreshBody(contentType: string, body: string): { type: string; 
   return null
 }
 
+/** The refresh token an office engine holds instead of the Mac's real one (TC-358): the launcher's Claude login broker
+ * (native/cmd/mycel-launcher/keychain.go kcRefreshPlaceholder) shows the engine this, so a taken-over turn never holds a
+ * token that outlives its access token. The terminator puts the real one on the refresh and keeps the new one out of
+ * the answer. */
+export const REFRESH_PLACEHOLDER = 'mycel-refresh-held-by-the-team-server'
+
+/** Where the real refresh token is kept (the launcher's broker, outside the engine sandbox). */
+export interface HeldLogin {
+  refreshToken(): Promise<string | null>
+  rotated(t: { accessToken?: string; refreshToken: string; expiresAt?: number }): Promise<boolean>
+}
+
+/** The refresh body that goes out with the real token: only the fields of a refresh grant (grant_type, refresh_token,
+ * client_id, scope), whatever else the engine put in; null when client_id or scope does not look like Claude Code's. */
+export function withRefreshToken(checked: { type: string; body: string }, token: string): string | null {
+  const src: Record<string, unknown> = checked.type === 'application/json' ? JSON.parse(checked.body) as Record<string, unknown> : Object.fromEntries(new URLSearchParams(checked.body))
+  const out: Record<string, string> = { grant_type: 'refresh_token', refresh_token: token }
+  if (src.client_id !== undefined) {
+    if (typeof src.client_id !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(src.client_id)) return null
+    out.client_id = src.client_id
+  }
+  if (src.scope !== undefined) {
+    if (typeof src.scope !== 'string' || !/^[A-Za-z0-9:_ .-]{0,512}$/.test(src.scope)) return null
+    out.scope = src.scope
+  }
+  return checked.type === 'application/json' ? JSON.stringify(out) : new URLSearchParams(out).toString()
+}
+const refreshTokenOf = (checked: { type: string; body: string }): unknown =>
+  checked.type === 'application/json' ? (JSON.parse(checked.body) as Record<string, unknown>).refresh_token : new URLSearchParams(checked.body).get('refresh_token')
+
 export function startRefreshTerminator(o: {
   db: Database
   /** where the CA and certificate are kept (the server's secrets folder) */
@@ -85,6 +115,8 @@ export function startRefreshTerminator(o: {
   /** where the refresh goes (tests); default https://platform.claude.com */
   upstream?: string
   log?: { warn(msg: string, f?: Record<string, unknown>): void }
+  /** the real refresh token (office: the launcher's broker). Absent = the engine's own token goes through (tests). */
+  login?: HeldLogin
 }): RefreshTerminator {
   const { caPem, key, cert } = refreshCertificates(o.dir)
   const upstream = (o.upstream ?? `https://${REFRESH_HOST}`).replace(/\/$/, '')
@@ -94,6 +126,35 @@ export function startRefreshTerminator(o: {
     audit(o.db, { actor: null, action: 'proxy.refused', target: null, detail: { reason: `login refresh tunnel: ${reason}` } })
     o.log?.warn('model proxy: login refresh tunnel refused a request', { reason })
     return new Response(JSON.stringify({ type: 'error', error: { type: 'permission_error', message: `refused by the team server: ${reason}` } }), { status, headers: { 'content-type': 'application/json' } })
+  }
+  let serial: Promise<void> = Promise.resolve()
+  const jsonAnswer = (status: number, j: unknown) => new Response(JSON.stringify(j), { status, headers: { 'content-type': 'application/json' } })
+  async function heldRefresh(req: Request, checked: { type: string; body: string }): Promise<Response> {
+    const real = await o.login!.refreshToken().catch(() => null)
+    if (!real) return jsonAnswer(400, { error: 'invalid_grant', error_description: 'no Claude login on this Mac' })
+    const body = withRefreshToken(checked, real)
+    if (!body) return refuse('not a Claude Code refresh')
+    let up: Response
+    try {
+      up = await fetch(upstream + REFRESH_PATH, { method: 'POST', body, redirect: 'manual', signal: AbortSignal.timeout(30_000),
+        headers: { 'content-type': checked.type, accept: req.headers.get('accept') ?? 'application/json', ...(req.headers.get('user-agent') ? { 'user-agent': req.headers.get('user-agent')! } : {}) } })
+    } catch { return jsonAnswer(502, { error: 'unreachable' }) }
+    if (up.status >= 300 && up.status < 400) { await up.body?.cancel().catch(() => {}); return new Response('', { status: 502 }) }
+    // the new refresh token stays with the broker; the engine gets the access token and the placeholder
+    const text = await up.text()
+    let j: Record<string, unknown> | null = null
+    try { const v = JSON.parse(text); if (v && typeof v === 'object' && !Array.isArray(v)) j = v } catch {}
+    if (!j || typeof j.refresh_token !== 'string') {
+      // no new token in it (an error answer): never hand back anything that looks like one
+      if (j && 'refresh_token' in j) delete j.refresh_token
+      return new Response(j ? JSON.stringify(j) : text, { status: up.status, headers: { 'content-type': up.headers.get('content-type') ?? 'application/json' } })
+    }
+    const expiresIn = typeof j.expires_in === 'number' ? j.expires_in : 0
+    // the broker keeps it in memory when it cannot write it yet (rotated never drops it); false = no broker answered
+    const saved = await o.login!.rotated({ refreshToken: j.refresh_token, ...(typeof j.access_token === 'string' ? { accessToken: j.access_token } : {}), ...(expiresIn > 0 ? { expiresAt: Date.now() + expiresIn * 1000 } : {}) }).catch(() => false)
+    if (!saved) o.log?.warn('model proxy: the renewed Claude sign-in could not be handed to the launcher')
+    j.refresh_token = REFRESH_PLACEHOLDER
+    return jsonAnswer(up.status, j)
   }
   const srv = Bun.serve({
     hostname: '127.0.0.1', port: 0, reusePort: false, tls: { key, cert },
@@ -105,9 +166,22 @@ export function startRefreshTerminator(o: {
       if (req.method !== 'POST' || url.pathname !== REFRESH_PATH || url.search) return refuse(`${req.method} ${url.pathname.slice(0, 80)} is not the login refresh`)
       const checked = refreshBody(req.headers.get('content-type') ?? '', await req.text())
       if (!checked) return refuse('not a refresh_token grant')
+      if (o.login) {
+        // the engine holds only the placeholder; any other token is not one this server handed out
+        if (refreshTokenOf(checked) !== REFRESH_PLACEHOLDER) return refuse('a refresh token the team server did not hand out')
+        // one refresh at a time: the real refresh token rotates, and two refreshes with the same one (two turns, or a
+        // turn that ignores Claude Code's refresh lock) could cost the Mac its sign-in. The next one reads the token the
+        // previous one saved.
+        const prev = serial
+        let release = () => {}
+        serial = new Promise<void>((r) => { release = r })
+        await prev
+        try { return await heldRefresh(req, checked) } finally { release() }
+      }
+      const body = checked.body
       let up: Response
       try {
-        up = await fetch(upstream + REFRESH_PATH, { method: 'POST', body: checked.body, redirect: 'manual',
+        up = await fetch(upstream + REFRESH_PATH, { method: 'POST', body, redirect: 'manual',
           headers: { 'content-type': checked.type, accept: req.headers.get('accept') ?? 'application/json', ...(req.headers.get('user-agent') ? { 'user-agent': req.headers.get('user-agent')! } : {}) } })
       } catch { return new Response(JSON.stringify({ error: 'unreachable' }), { status: 502, headers: { 'content-type': 'application/json' } }) }
       if (up.status >= 300 && up.status < 400) { await up.body?.cancel().catch(() => {}); return new Response('', { status: 502 }) }

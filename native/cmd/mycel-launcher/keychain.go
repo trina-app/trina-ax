@@ -20,6 +20,10 @@
 //     refreshed it a moment ago).
 //   - show-keychain-info: only the exit code (36 = locked).
 //
+// Office mode (a model proxy, hideRefresh): the engine sees a placeholder refresh token and a save must carry it; the
+// real one goes only to the proxy's refresh terminator over the launcher socket (kcRefreshOp), which also saves the
+// rotated one. A taken-over turn then holds an access token that runs out, never the lasting part of the login.
+//
 // Everything else (other services or accounts, other keychains, -g, dump-keychain, delete-generic-password, export,
 // unlock ...) is refused. Only processes of a running local-login Claude turn of this launcher may connect (peer
 // uid + session).
@@ -27,6 +31,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -61,8 +66,12 @@ const (
 type kcStore interface {
 	find(service string) (string, int)
 	add(service, value string) int
+	del(service string) int
 	info() int
 }
+
+// kcTooLong: add's answer for an item too long for one `security -i` line (written to the login file instead)
+const kcTooLong = -2
 
 // kcBroker answers the requests of the engines' `security` shim.
 type kcBroker struct {
@@ -72,6 +81,10 @@ type kcBroker struct {
 	// ~/.claude/.credentials.json of the Mac user (Claude Code's plaintext login when the keychain cannot hold it)
 	credFile string
 	log      func(string)
+	// office mode (the model proxy and its refresh terminator): the engine sees a placeholder refresh token
+	hideRefresh bool
+	// a rotated login whose save failed: kept here and saved again at the next request, never dropped
+	pending *kcOAuth
 }
 
 type kcRequest struct {
@@ -269,6 +282,21 @@ type kcLogin struct {
 }
 
 func (b *kcBroker) current() kcLogin {
+	cur := b.read()
+	if b.pending != nil && cur.present {
+		// a rotated login that could not be saved yet: it wins over the stored one (whose refresh token is used up) and
+		// is saved again now
+		if r := b.writeOAuth(cur, *b.pending); r.Code == 0 {
+			b.pending = nil
+			return b.read()
+		}
+		oj, _ := json.Marshal(*b.pending)
+		cur.item["claudeAiOauth"] = oj
+	}
+	return cur
+}
+
+func (b *kcBroker) read() kcLogin {
 	v, code := b.store.find(kcLoginService)
 	if code == 0 {
 		if item := kcParse(v); item != nil {
@@ -296,6 +324,50 @@ func kcParse(s string) map[string]json.RawMessage {
 	return m
 }
 
+// kcRefreshPlaceholder is the refresh token a turn sees in office mode (the broker has `hideRefresh`): the real one
+// never reaches the engine, so a taken-over turn cannot keep the Mac user's Claude subscription after its access token
+// runs out. The proxy's refresh terminator (server/src/proxy/refresh-terminator.ts) puts the real one on the refresh
+// and takes the new one out of the answer (op claude-refresh-token / claude-refresh-rotated of the launcher socket).
+const kcRefreshPlaceholder = "mycel-refresh-held-by-the-team-server"
+
+// the claudeAiOauth fields Claude Code writes (2.1.325), each bounded; anything else in a save is dropped
+type kcOAuth struct {
+	AccessToken      string   `json:"accessToken"`
+	RefreshToken     string   `json:"refreshToken,omitempty"`
+	ExpiresAt        *int64   `json:"expiresAt,omitempty"`
+	Scopes           []string `json:"scopes,omitempty"`
+	SubscriptionType *string  `json:"subscriptionType,omitempty"`
+	RateLimitTier    *string  `json:"rateLimitTier,omitempty"`
+}
+
+func kcOAuthParse(raw json.RawMessage) (kcOAuth, bool) {
+	var o kcOAuth
+	if len(raw) > 4096 || json.Unmarshal(raw, &o) != nil || o.AccessToken == "" || len(o.AccessToken) > 1024 ||
+		len(o.RefreshToken) > 1024 || len(o.Scopes) > 16 {
+		return o, false
+	}
+	for _, sc := range o.Scopes {
+		if len(sc) > 64 {
+			return o, false
+		}
+	}
+	for _, p := range []*string{o.SubscriptionType, o.RateLimitTier} {
+		if p != nil && len(*p) > 64 {
+			return o, false
+		}
+	}
+	return o, true
+}
+
+// the real refresh token of an item ("" when there is none)
+func kcRealRefresh(item map[string]json.RawMessage) string {
+	var o struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	_ = json.Unmarshal(item["claudeAiOauth"], &o)
+	return o.RefreshToken
+}
+
 func (b *kcBroker) findLogin() kcResponse {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -307,57 +379,153 @@ func (b *kcBroker) findLogin() kcResponse {
 	if !ok {
 		return kcResponse{Code: kcNotFound}
 	}
+	if b.hideRefresh {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(oauth, &m) != nil || m == nil {
+			return kcResponse{Code: 1}
+		}
+		if _, has := m["refreshToken"]; has {
+			m["refreshToken"], _ = json.Marshal(kcRefreshPlaceholder)
+		}
+		oauth, _ = json.Marshal(m)
+	}
 	view, _ := json.Marshal(map[string]json.RawMessage{"claudeAiOauth": oauth})
 	return kcResponse{Stdout: string(view) + "\n"}
 }
 
-// saveLogin takes the claudeAiOauth part of what the engine saves and writes it into the login where it lives.
+// saveLogin takes the claudeAiOauth part of what the engine saves (known fields only) and writes it into the login
+// where it lives. In office mode (hideRefresh) the engine only ever holds the placeholder: a save must carry it (or
+// none) and the real refresh token of the item stays; any other refresh token is refused, so a turn cannot wipe the
+// login's refresh token or put another account's in its place.
 func (b *kcBroker) saveLogin(value string) kcResponse {
 	in := kcParse(value)
-	oauth, ok := in["claudeAiOauth"]
-	if in == nil || !ok || !kcOAuthOK(oauth) {
+	raw, ok := in["claudeAiOauth"]
+	o, good := kcOAuthParse(raw)
+	if in == nil || !ok || !good {
 		return kcRefused("not a Claude login")
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	cur := b.current()
-	item := cur.item
-	if !cur.present {
-		if cur.code != kcNotFound {
-			// a keychain that answered something else (locked without a file login, an error): do not create a
-			// second login next to one we could not read
-			return kcResponse{Code: cur.code}
+	if !cur.present && cur.code != kcNotFound && cur.code != kcLocked {
+		// a keychain that answered something else (an error): do not create a second login next to one we could not read
+		return kcResponse{Code: cur.code}
+	}
+	if b.hideRefresh {
+		// office: the refresh terminator already saved what the refresh brought (rotated); a save from the engine changes
+		// nothing (it could only roll a newer login back, plant another account's access token or pad the item until
+		// the next save fails). Answered as done, so Claude Code goes on.
+		if o.RefreshToken != "" && o.RefreshToken != kcRefreshPlaceholder {
+			return kcRefused("a refresh token the team server did not hand out")
 		}
+		return kcResponse{}
+	}
+	return b.writeOAuth(cur, o)
+}
+
+// writeOAuth puts o as the item's claudeAiOauth (the rest of the item as it is) where the login lives. A keychain that
+// is locked (no GUI session) gets the plaintext file instead, as Claude Code itself does.
+func (b *kcBroker) writeOAuth(cur kcLogin, o kcOAuth) kcResponse {
+	item := cur.item
+	if item == nil {
 		item = map[string]json.RawMessage{}
 	}
-	item["claudeAiOauth"] = oauth
+	oj, _ := json.Marshal(o)
+	item["claudeAiOauth"] = oj
 	out, err := json.Marshal(item)
 	if err != nil {
 		return kcResponse{Code: 1}
 	}
-	if cur.inFile {
+	toFile := func() kcResponse {
 		if err := writeFileAtomic(b.credFile, out, 0o600); err != nil {
-			if b.log != nil {
-				b.log("keychain broker: could not save the refreshed Claude login file: " + err.Error())
-			}
+			b.warn("could not save the Claude login file: " + err.Error())
 			return kcResponse{Code: 1}
 		}
 		return kcResponse{}
 	}
-	return kcResponse{Code: b.store.add(kcLoginService, string(out))}
+	if cur.inFile || (!cur.present && cur.code == kcLocked) {
+		return toFile()
+	}
+	code := b.store.add(kcLoginService, string(out))
+	if code == kcLocked {
+		return toFile()
+	}
+	if code == kcTooLong {
+		// too long for `security -i` (an item with MCP sign-ins): the login file, as Claude Code's own fallback does, and
+		// the keychain item goes so that the file is what every reader finds (never the item in a command line)
+		if r := toFile(); r.Code != 0 {
+			return r
+		}
+		if d := b.store.del(kcLoginService); d != 0 && d != kcNotFound {
+			b.warn(fmt.Sprintf("the Claude login moved to the login file but the old keychain item stayed (security exited %d)", d))
+		}
+		return kcResponse{}
+	}
+	if code != 0 {
+		b.warn(fmt.Sprintf("could not save the Claude login in the keychain (security exited %d)", code))
+	}
+	return kcResponse{Code: code}
 }
 
-// kcOAuthOK: the shape of Claude Code's claudeAiOauth (an object with a non-empty access token string)
-func kcOAuthOK(raw json.RawMessage) bool {
-	var o map[string]json.RawMessage
-	if json.Unmarshal(raw, &o) != nil || o == nil {
-		return false
+func (b *kcBroker) warn(s string) {
+	if b.log != nil {
+		b.log("keychain broker: " + s)
 	}
-	var tok string
-	return json.Unmarshal(o["accessToken"], &tok) == nil && tok != ""
+}
+
+// refreshToken: the real refresh token, for the refresh terminator (launcher socket, server only)
+func (b *kcBroker) refreshToken() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur := b.current()
+	if !cur.present {
+		return ""
+	}
+	return kcRealRefresh(cur.item)
+}
+
+// rotated: the refresh terminator saw a new refresh token (and access token) come back: keep them, the engine gets
+// the placeholder
+func (b *kcBroker) rotated(access, refresh string, expiresAt int64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur := b.current()
+	if !cur.present {
+		return fmt.Errorf("no Claude login to update")
+	}
+	o, ok := kcOAuthParse(cur.item["claudeAiOauth"])
+	if !ok {
+		return fmt.Errorf("the stored Claude login is not readable")
+	}
+	if refresh == "" || len(refresh) > 1024 || len(access) > 1024 {
+		return fmt.Errorf("bad token")
+	}
+	o.RefreshToken = refresh
+	if access != "" {
+		o.AccessToken = access
+		if expiresAt > 0 {
+			o.ExpiresAt = &expiresAt
+		}
+	}
+	if r := b.writeOAuth(cur, o); r.Code != 0 {
+		b.pending = &o
+		b.warn(fmt.Sprintf("could not save the renewed Claude login (%d); kept in memory and tried again", r.Code))
+	}
+	return nil
 }
 
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	// a link at the file's place (a dotfiles setup) is followed to a regular file in the same home, never elsewhere
+	if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return err
+		}
+		if accountHome == "" || !inside(resolvePath(accountHome), real) {
+			return fmt.Errorf("%s links outside the home folder", path)
+		}
+		path = real
+	}
 	if st, err := os.Lstat(path); err == nil && !st.Mode().IsRegular() {
 		return fmt.Errorf("%s is not a regular file", path)
 	}
@@ -382,48 +550,54 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 }
 
 // securityStore: the Mac user's login keychain through /usr/bin/security, run by the launcher (outside the sandbox).
+// Every call has a time limit: a keychain that waits for an unlock dialog must not hold every turn's login.
 type securityStore struct{ account string }
 
 const securityBin = "/usr/bin/security"
 
-func (s securityStore) find(service string) (string, int) {
-	out, err := exec.Command(securityBin, "find-generic-password", "-a", s.account, "-w", "-s", service).Output()
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return "", ee.ExitCode()
-		}
-		return "", 1
+func securityRun(stdin string, args ...string) ([]byte, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, securityBin, args...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
 	}
-	return strings.TrimRight(string(out), "\n"), 0
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && ctx.Err() == nil {
+			return nil, ee.ExitCode()
+		}
+		return nil, 1
+	}
+	return out, 0
 }
 
+func (s securityStore) find(service string) (string, int) {
+	out, code := securityRun("", "find-generic-password", "-a", s.account, "-w", "-s", service)
+	return strings.TrimRight(string(out), "\n"), code
+}
+
+// add saves the item on the stdin of `security -i`, never in argv (every process of the account can read another's
+// argv, a turn too). An item too long for one `security -i` line is not saved (logged): Claude Code itself would put
+// it in argv.
 func (s securityStore) add(service, value string) int {
 	hx := hex.EncodeToString([]byte(value))
 	line := fmt.Sprintf("add-generic-password -U -a %q -s %q -X %q\n", s.account, service, hx)
-	var cmd *exec.Cmd
-	if len(line) <= kcStdinLine {
-		cmd = exec.Command(securityBin, "-i") // the secret on stdin, not in argv (other processes can read argv)
-		cmd.Stdin = strings.NewReader(line)
-	} else {
-		cmd = exec.Command(securityBin, "add-generic-password", "-U", "-a", s.account, "-s", service, "-X", hx)
+	if len(line) > kcStdinLine {
+		return kcTooLong // never in argv: writeOAuth uses the login file
 	}
-	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return ee.ExitCode()
-		}
-		return 1
-	}
-	return 0
+	_, code := securityRun(line, "-i")
+	return code
+}
+
+func (s securityStore) del(service string) int {
+	_, code := securityRun("", "delete-generic-password", "-a", s.account, "-s", service)
+	return code
 }
 
 func (s securityStore) info() int {
-	if err := exec.Command(securityBin, "show-keychain-info").Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return ee.ExitCode()
-		}
-		return 1
-	}
-	return 0
+	_, code := securityRun("", "show-keychain-info")
+	return code
 }
 
 // fileStore: tests only (--keychain-test-store): a JSON object {service: value} stands in for the login keychain,
@@ -444,8 +618,23 @@ func (f fileStore) find(service string) (string, int) {
 	return "", kcNotFound
 }
 func (f fileStore) add(service, value string) int {
+	if len(hex.EncodeToString([]byte(value)))+100 > kcStdinLine { // as securityStore
+		return kcTooLong
+	}
 	m := f.load()
 	m[service] = value
+	b, _ := json.Marshal(m)
+	if writeFileAtomic(f.path, b, 0o600) != nil {
+		return 1
+	}
+	return 0
+}
+func (f fileStore) del(service string) int {
+	m := f.load()
+	if _, ok := m[service]; !ok {
+		return kcNotFound
+	}
+	delete(m, service)
 	b, _ := json.Marshal(m)
 	if writeFileAtomic(f.path, b, 0o600) != nil {
 		return 1
@@ -472,7 +661,10 @@ func kcAccount() string {
 
 // startKeychainBroker makes <dir>/security (a link to the bridge, which acts as the shim under that name) and
 // listens on <dir>/sock. Called once at start, with --local-login and a sandbox profile.
-func startKeychainBroker(dir, bridge string, store kcStore) error {
+// kcB: the running broker (launcher socket ops claude-refresh-token / claude-refresh-rotated); nil = none
+var kcB *kcBroker
+
+func startKeychainBroker(dir, bridge string, store kcStore, hideRefresh bool) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -494,19 +686,27 @@ func startKeychainBroker(dir, bridge string, store kcStore) error {
 	_ = os.Chmod(sock, 0o600)
 	acct := kcAccount()
 	b := &kcBroker{store: store, account: acct, credFile: filepath.Join(accountHome, ".claude", ".credentials.json"),
-		log: func(s string) { fmt.Fprintln(os.Stderr, "mycel-launcher:", s) }}
+		log: func(s string) { fmt.Fprintln(os.Stderr, "mycel-launcher:", s) }, hideRefresh: hideRefresh}
 	if store == nil {
 		b.store = securityStore{account: acct}
 	}
+	slots := make(chan struct{}, 32) // at most this many requests at once (each waits up to 2 s for its turn)
 	go func() {
 		for {
 			c, err := ln.AcceptUnix()
 			if err != nil {
+				time.Sleep(100 * time.Millisecond) // out of descriptors: no busy loop
 				continue
 			}
-			go b.serve(c)
+			select {
+			case slots <- struct{}{}:
+				go func() { defer func() { <-slots }(); b.serve(c) }()
+			default:
+				_ = c.Close()
+			}
 		}
 	}()
+	kcB = b
 	return nil
 }
 
@@ -554,4 +754,36 @@ func kcEnv(env []string) []string {
 		out = append(out, e)
 	}
 	return append(out, "PATH="+kcDir+":"+path, "MYCEL_KEYCHAIN_SOCK="+filepath.Join(kcDir, "sock"))
+}
+
+// kcRefreshOp answers the refresh terminator on the launcher socket (only the server uid reaches it): the real
+// refresh token for an engine's refresh with the placeholder, and the rotated tokens of the answer.
+func kcRefreshOp(op string, line []byte, o *out) {
+	if kcB == nil || !kcB.hideRefresh {
+		o.send(map[string]any{"ev": "error", "message": "no Claude login broker"})
+		return
+	}
+	if op == "claude-refresh-token" {
+		t := kcB.refreshToken()
+		if t == "" {
+			o.send(map[string]any{"ev": "error", "message": "no Claude login on this Mac"})
+			return
+		}
+		o.send(map[string]any{"ev": "refresh-token", "value": t})
+		return
+	}
+	var m struct {
+		AccessToken  string `json:"accessToken"`
+		RefreshToken string `json:"refreshToken"`
+		ExpiresAt    int64  `json:"expiresAt"`
+	}
+	if json.Unmarshal(line, &m) != nil {
+		o.send(map[string]any{"ev": "error", "message": "bad request"})
+		return
+	}
+	if err := kcB.rotated(m.AccessToken, m.RefreshToken, m.ExpiresAt); err != nil {
+		o.send(map[string]any{"ev": "error", "message": err.Error()})
+		return
+	}
+	o.send(map[string]any{"ev": "ok"})
 }
