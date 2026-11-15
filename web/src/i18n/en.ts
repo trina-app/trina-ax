@@ -2439,9 +2439,11 @@ export const en: Record<MessageKey, string> = {
   'myUsage.updated': "Last updated: {when}",
   'myUsage.refresh': "Refresh",
   'myUsage.teamLink': "Everyone's usage: Admin › Usage",
-  'usage.costNote': 'Amounts are estimates of the equivalent API cost. They are not bills or subscription fees. API key connections use the cost that the provider reports, or else the list price. Managed subscription connections have no per-request price, so they add 0 (tokens still count). Development local-login shows the engine’s estimate of the equivalent API cost, also with a subscription.',
-  'usage.unpriced': 'Price unknown for {n, plural, one {# answer} other {# answers}}: the provider sent no cost and the model is not in the price list. The amount shows only the known part.',
+  "usage.costNote": "Amounts are estimates, not bills. API key connections use the cost the provider reports, or else the list price. Subscription sign-ins (Claude or ChatGPT) have no price per request, so their use is estimated at API list prices. A local login on this computer shows the AI's own estimate at API prices.",
+  "usage.unpriced": "{n, plural, one {# answer has} other {# answers have}} no price. The amount counts only answers with a price.",
   'usage.unpricedMark': 'Price partly unknown',
+  "usage.estimated": "{n, plural, one {# answer} other {# answers}} used a subscription sign-in. That part is estimated at API prices, not a bill.",
+  "usage.noPrice": "No price",
 
   'audit.desc': 'Admin actions, file changes, AI tool use and sign-ins.',
   'audit.kind': 'Kind',

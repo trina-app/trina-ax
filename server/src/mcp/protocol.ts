@@ -10,7 +10,7 @@ import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
 import { safeText } from '../safe-ops/strings'
 import { cardEndShort, endOfText } from '../policy/refusal'
-import { KEYS_HIDDEN_NOTE } from '../integrations/connections/hide-args'
+import { KeyRefusal, KEYS_HIDDEN_NOTE } from '../integrations/connections/hide-args'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as any
@@ -53,19 +53,27 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // person as loaded for it, as when calls ran one at a time, and its agent's state
     const callCtx: ToolCtx = { ...ctx, user, files: call.files }
     const caller = { files: call.files }
-    // a chat turn: the person's stored connection keys in what this tool saves are hidden before any check, card or
-    // write (integrations/connections/hide-args.ts, QA TC-3041); the AI is told after the call
-    let hidden = false
+    // a chat turn: the person's stored connection keys in what this tool saves or sends to a connected service are
+    // hidden before any check, card, write or call (integrations/connections/hide-args.ts, QA TC-3041, TC-3081); the
+    // AI is told after the call
+    // what the AI is told after the call when something was hidden (null: nothing was)
+    let hidden: string | null = null
     if (extra?.hideKeys) {
       try {
         const h = extra.hideKeys(name, params?.arguments ?? {})
-        if (h.hidden) { params = { ...params, arguments: h.args }; hidden = true }
-      } catch {
+        if (h.hidden) { params = { ...params, arguments: h.args }; hidden = h.note ?? KEYS_HIDDEN_NOTE }
+      } catch (e) {
+        // a call to a connected service whose data cannot be sent with the key taken out (a file's base64), or whose
+        // person's stored keys cannot all be read now: not sent
+        if (e instanceof KeyRefusal) {
+          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not sent (${e.short})`, 0)
+          return failed(e.message)
+        }
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not run (the key check failed)`, 0)
-        return failed('What you gave this tool could not be checked for stored keys, so nothing was saved. Try again.')
+        return failed('What you gave this tool could not be checked for stored keys, so nothing was saved or sent. Try again.')
       }
     }
-    const withNote = (r: CallResult): CallResult => (hidden && !r.result.isError ? { ...r, result: { ...r.result, content: [...r.result.content, { type: 'text', text: KEYS_HIDDEN_NOTE }] } } : r)
+    const withNote = (r: CallResult): CallResult => (hidden && !r.result.isError ? { ...r, result: { ...r.result, content: [...r.result.content, { type: 'text', text: hidden }] } } : r)
     if (extra?.has(name)) {
       const out: Awaited<ReturnType<TurnToolSet['call']>> = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)

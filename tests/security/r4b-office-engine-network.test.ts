@@ -74,10 +74,20 @@ describe('2. the proxy\'s CONNECT for Claude turns: the Claude hosts only', () =
     await new Promise<void>((r) => echo.listen(0, '127.0.0.1', () => r()))
     const dial = (host: string, port: number) => { dialed.push(`${host}:${port}`); return net.connect((echo.address() as net.AddressInfo).port, '127.0.0.1') }
     const base = { dial, turnSession: (t: string) => sessions[t] ?? null, peerSession: async () => peer }
-    office = await startModelProxy({ db, broker: null, connect: { ...base, claudeHosts: CLAUDE_CONNECT_HOSTS } })
+    // the refresh host's tunnel ends at a local listener (the refresh terminator in the real setup): the echo here
+    const terminate = { hosts: CLAUDE_CONNECT_HOSTS, dial: () => dial('platform.claude.com', 443) }
+    office = await startModelProxy({ db, broker: null, connect: { ...base, claudeHosts: CLAUDE_CONNECT_HOSTS, terminate } })
+    raw = await startModelProxy({ db, broker: null, connect: { ...base, claudeHosts: CLAUDE_CONNECT_HOSTS } })
     prod = await startModelProxy({ db, broker: null, connect: base })
   })
-  afterAll(async () => { await office?.stop(); await prod?.stop(); echo.close() })
+  let raw: Awaited<ReturnType<typeof startModelProxy>>
+  afterAll(async () => { await office?.stop(); await raw?.stop(); await prod?.stop(); echo.close() })
+
+  test('TC-359: a Claude host without a terminator is refused, never a plain byte pipe', async () => {
+    const n = dialed.length
+    expect(await connect(raw.port, 'platform.claude.com:443', `turn:${issueProxyToken(db, 'cl1', 'alice')}`)).toBe('HTTP/1.1 403 Forbidden')
+    expect(dialed.length).toBe(n)
+  })
 
   test('a running Claude turn reaches platform.claude.com:443 (the login refresh) and no longer api.anthropic.com', async () => {
     const tok = issueProxyToken(db, 'cl1', 'alice')

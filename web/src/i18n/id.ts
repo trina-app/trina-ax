@@ -2438,9 +2438,11 @@ export const id: Record<MessageKey, string> = {
   'myUsage.updated': "Terakhir diperbarui: {when}",
   'myUsage.refresh': "Muat ulang",
   'myUsage.teamLink': "Penggunaan semua orang: Admin › Penggunaan",
-  'usage.costNote': 'Jumlah adalah perkiraan biaya API yang setara. Jumlah ini bukan tagihan atau biaya langganan. Koneksi kunci API memakai biaya yang dilaporkan penyedia, atau harga daftar jika tidak ada. Koneksi langganan terkelola tidak punya harga per permintaan, jadi menambah 0 (token tetap dihitung). Login lokal untuk pengembangan (local-login) menampilkan perkiraan biaya API setara dari mesin, juga dengan langganan.',
-  'usage.unpriced': 'Harga tidak diketahui untuk {n} jawaban: penyedia tidak mengirim biaya dan model tidak ada di daftar harga. Jumlah hanya menunjukkan bagian yang diketahui.',
+  "usage.costNote": "Jumlah adalah perkiraan, bukan tagihan. Koneksi kunci API memakai biaya yang dilaporkan penyedia, atau harga daftar jika tidak ada. Login langganan (Claude atau ChatGPT) tidak punya harga per permintaan, jadi pemakaiannya diperkirakan dengan harga daftar API. Login lokal di komputer ini menampilkan perkiraan AI sendiri dengan harga API.",
+  "usage.unpriced": "{n} jawaban tidak punya harga. Jumlah hanya menghitung jawaban yang punya harga.",
   'usage.unpricedMark': 'Harga sebagian tidak diketahui',
+  "usage.estimated": "{n} jawaban memakai login langganan. Bagian itu diperkirakan dengan harga API, bukan tagihan.",
+  "usage.noPrice": "Tanpa harga",
 
   'audit.desc': 'Aksi admin, perubahan file, pemakaian alat AI, dan login.',
   'audit.kind': 'Jenis',
