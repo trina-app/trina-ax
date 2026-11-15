@@ -11,8 +11,9 @@
 // Where the hosting service serves this server (SlackAdmin.official) and no own app is saved: one "Add to Slack" button
 // instead (the official app: nothing to copy, also on a phone); the four steps stay one link away. Added: the same
 // status line, with Remove (it takes the app off the workspace) in place of "Replace tokens". Removed in Slack: "Add to
-// Slack" again, with Remove beside it (it clears Slack from Connected and everyone's links). How "Add to Slack" went
-// comes back in the address (?slack=…) and is said once.
+// Slack" again, with Remove beside it (it clears Slack from Connected and everyone's links). A problem of the official
+// app never names tokens or Slack's app settings (an admin has neither): "Add to Slack" again, or wait (QA TC-2960).
+// How "Add to Slack" went comes back in the address (?slack=…) and is said once.
 // An admin (docs/DECISIONS.md "Admins manage Slack", 2026-11-13): the same page with "Add to Slack", on/off and Remove
 // of the official app, but never the team's own app: no four steps, no "Replace tokens", no Remove of it; one line says
 // only the team owner can (the server refuses them too).
@@ -49,18 +50,33 @@ const PATHS: Record<Page, string> = { install: 'install-on-team', oauth: 'oauth'
 const slackPage = (appId: string | null, page: Page) => appId ? `${SLACK_APPS}/${encodeURIComponent(appId)}/${PATHS[page]}` : SLACK_APPS
 
 /** A problem of the running connection: the words name the one place to fix it; the part in [ ] links there (a Slack
- * page, or "Replace tokens" here). The connection uses the app-level token only. */
-const FIX: Record<SlackErrorCode, { key: MessageKey; page?: Page | 'replace' }> = {
+ * page, "Replace tokens" here, or "Add to Slack" again). The team's own app (the owner's): its Slack settings or its
+ * tokens. The connection uses the app-level token only. */
+type Fix = { key: MessageKey; page?: Page | 'replace' | 'add' }
+const OWN_FIX: Record<SlackErrorCode, Fix> = {
   invalid_auth: { key: 'slack.err.invalid_auth', page: 'replace' }, token_revoked: { key: 'slack.err.invalid_auth', page: 'replace' },
   bot_refused: { key: 'slack.err.bot_refused', page: 'replace' },
   not_app_token: { key: 'slack.err.invalid_auth', page: 'replace' }, not_bot_token: { key: 'slack.err.invalid_auth', page: 'replace' },
   missing_scope: { key: 'slack.err.missing_scope', page: 'oauth' }, enterprise_install: { key: 'slack.err.enterprise_install', page: 'install' },
   socket_mode_off: { key: 'slack.err.socket_mode_off', page: 'socket' }, app_mismatch: { key: 'slack.err.app_mismatch', page: 'general' },
   workspace_changed: { key: 'slack.err.unknown', page: 'replace' }, unknown: { key: 'slack.err.unknown', page: 'replace' },
-  unreachable: { key: 'slack.err.unreachable' }, ratelimited: { key: 'slack.err.unreachable' }, key_unsafe: { key: 'slack.err.key_unsafe' },
-  // the official app (the hosting service): nothing to fix in Slack's settings
+  unreachable: { key: 'slack.err.unreachable' }, ratelimited: { key: 'slack.err.ratelimited' }, key_unsafe: { key: 'slack.err.key_unsafe' },
   broker_unreachable: { key: 'slack.err.broker_unreachable' }, not_served: { key: 'slack.err.not_served' }, removed: { key: 'slack.err.removed' },
 }
+/** The official app (the hosting service; QA TC-2960): no tokens and no Slack settings of its own, so a problem in
+ * Slack is fixed by adding it to Slack again, which the owner and admins both can; the rest waits or is the server's. */
+const OFFICIAL_FIX: Record<SlackErrorCode, Fix> = {
+  invalid_auth: { key: 'slack.err.officialRefused', page: 'add' }, token_revoked: { key: 'slack.err.officialRefused', page: 'add' },
+  bot_refused: { key: 'slack.err.officialRefused', page: 'add' }, not_app_token: { key: 'slack.err.officialRefused', page: 'add' },
+  not_bot_token: { key: 'slack.err.officialRefused', page: 'add' },
+  missing_scope: { key: 'slack.err.officialScopes', page: 'add' }, enterprise_install: { key: 'slack.err.officialEnterprise', page: 'add' },
+  socket_mode_off: { key: 'slack.err.officialUnknown', page: 'add' }, app_mismatch: { key: 'slack.err.officialUnknown', page: 'add' },
+  workspace_changed: { key: 'slack.err.officialUnknown', page: 'add' }, unknown: { key: 'slack.err.officialUnknown', page: 'add' },
+  unreachable: { key: 'slack.err.unreachable' }, ratelimited: { key: 'slack.err.ratelimited' }, key_unsafe: { key: 'slack.err.key_unsafe' },
+  broker_unreachable: { key: 'slack.err.broker_unreachable' }, not_served: { key: 'slack.err.not_served' }, removed: { key: 'slack.err.removed' },
+}
+/** What the page says for a problem of the running connection, by the app in use */
+export const slackFix = (code: SlackErrorCode, mode: SlackAdmin['mode']): Fix => (mode === 'official' ? OFFICIAL_FIX : OWN_FIX)[code]
 /** A token Slack refused while saving: shown under that token's field (the server names the field) */
 type FieldName = 'bot' | 'app' | 'clientId' | 'clientSecret'
 const SAVE_FIX: Record<FieldName, Partial<Record<string, { key: MessageKey; page: Page }>>> = {
@@ -83,23 +99,18 @@ const SAVE_FIX: Record<FieldName, Partial<Record<string, { key: MessageKey; page
  * with reading off. The team's own app: add them in its OAuth & Permissions page and reinstall (the owner's job), then
  * "I updated them" asks Slack again. The official app: Add to Slack again approves them. */
 function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: boolean; onChange: (v: SlackAdmin | undefined) => void; onBack: () => void }) {
-  const t = useT(), locale = useLocale()
+  const t = useT()
   const act = useAction()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const install = useSlackInstall(onBack), { error, away } = install
+  const [checking, setChecking] = useState(false)
+  const busy = install.busy || checking
   // "I updated them" pressed and Slack still does not list them: said once, under the button
   const [still, setStill] = useState(false)
   const official = s.mode === 'official'
-  const away = useBrowserHandoff(onBack, cancelInstall)
-  const approve = async () => {
-    setBusy(true); setError(null)
-    try { away.go((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
-    catch (e) { setError(errorText(e, locale, t('error.network'))) }
-    finally { setBusy(false) }
-  }
+  const approve = install.add
   const recheck = async () => {
-    setBusy(true); setStill(false)
-    try { const v = await act(() => api.call(SLACK.recheckSlackReadScopes, { body: {} })); onChange(v); setStill(v?.readScopes === 'missing') } finally { setBusy(false) }
+    setChecking(true); setStill(false)
+    try { const v = await act(() => api.call(SLACK.recheckSlackReadScopes, { body: {} })); onChange(v); setStill(v?.readScopes === 'missing') } finally { setChecking(false) }
   }
   return (
     <div className="mt-3 border-l-2 border-warn pl-3 text-sm" data-testid="slack-read-scopes">
@@ -129,6 +140,36 @@ function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: bool
 
 /** "Add to Slack" left (Cancel, or the wait ran out): the waiting install ends on the server (QA TC-1417) */
 const cancelInstall = () => { void api.call(SLACK.cancelSlackInstall).catch(() => { /* it expires there by itself */ }) }
+
+/** "Add to Slack" (the official app): Slack's own page, then back here. The desktop and phone apps open Slack in another
+ * browser and this page waits (lib/browserHandoff.ts); `onBack` reads the state again. */
+function useSlackInstall(onBack: () => void) {
+  const t = useT(), locale = useLocale()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const away = useBrowserHandoff(onBack, cancelInstall)
+  const add = async () => {
+    setBusy(true); setError(null)
+    try { away.go((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
+    catch (e) { setError(errorText(e, locale, t('error.network'))) }
+    finally { setBusy(false) }
+  }
+  return { busy, error, away, add }
+}
+
+/** A problem of the official app fixed by adding it to Slack again: the line with "Add to Slack" in it, then the wait */
+function OfficialFix({ text, onBack }: { text: string; onBack: () => void }) {
+  const t = useT()
+  const { busy, error, away, add } = useSlackInstall(onBack)
+  return (
+    <>
+      <p className="mt-2 text-sm text-danger" data-testid="slack-error"><FixText text={text} onClick={busy ? undefined : () => void add()} /></p>
+      {error && <p role="alert" className="mt-2 text-sm text-danger" data-testid="slack-fix-add-error">{error}</p>}
+      {away.timedOut && <p role="status" className="mt-2 text-sm text-warn" data-testid="slack-fix-add-timeout">{t('connect.wait.timedOut')}</p>}
+      {away.waiting && <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-fix-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} />}
+    </>
+  )
+}
 
 /** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
 function FixText({ text, href, onClick }: { text: string; href?: string; onClick?: () => void }) {
@@ -184,7 +225,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
       <div data-testid="slack-settings">
       <Loadable state={state}>
         {(s) => {
-          const fix = s.enabled && s.lastError ? FIX[s.lastError] : null
+          const fix = s.enabled && s.lastError ? slackFix(s.lastError, s.mode) : null
           // connecting for minutes: a problem with what to do, in place of the wait
           const slow = s.enabled ? slackView(s).slowMinutes : null
           const origin = s.linkOrigin && s.linkOrigin !== window.location.origin ? s.linkOrigin : null
@@ -210,6 +251,9 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   </div>
                   {slow !== null ? (
                     <p className="mt-2 text-sm text-danger" data-testid="slack-slow">{t('slack.err.slow', { n: slow })}</p>
+                  ) : fix?.page === 'add' ? (
+                    // the official app: added to Slack again, by the owner or an admin (QA TC-2960)
+                    <OfficialFix text={t(fix.key)} onBack={() => void state.reload()} />
                   ) : fix ? (
                     <p className="mt-2 text-sm text-danger" data-testid="slack-error">
                       {/* an admin cannot replace the tokens: the words ask the owner instead */}
@@ -294,18 +338,8 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
  * then back here, added and on. Nothing to copy, so also on a phone. Removed in Slack: Remove too, so an owner who
  * does not want it back can clear it (its row in Connected apps, everyone's links) instead of keeping "Reconnect". */
 function OfficialAdd({ removed, onOwnApp, onRemove, onBack }: { removed: boolean; onOwnApp?: () => void; onRemove: () => void; onBack: () => void }) {
-  const t = useT(), locale = useLocale()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // the desktop and phone apps open Slack in another browser and this page waits (lib/browserHandoff.ts)
-  const away = useBrowserHandoff(onBack, cancelInstall)
-  const add = async () => {
-    setBusy(true); setError(null)
-    // this browser goes to Slack and comes back to this page
-    try { away.go((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
-    catch (e) { setError(errorText(e, locale, t('error.network'))) }
-    finally { setBusy(false) }
-  }
+  const t = useT()
+  const { busy, error, away, add } = useSlackInstall(onBack)
   return (
     <Card flat title={t('slack.official.title')} testId="slack-official">
       {removed && <p className="mb-2 text-sm text-warn" data-testid="slack-removed">{t('slack.err.removed')}</p>}
