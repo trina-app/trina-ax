@@ -276,10 +276,12 @@ export function heldProject(db: Database, userId: string, rules?: RuleSet): stri
   const r = db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(id) as { folder_path: string; trashed_with: string | null } | null
   if (!r) return null
   if (r.trashed_with) {
-    // its folder's rules are parked under the trash item's storage path (team-files trash): theirs still there?
-    const kept = db.query(`SELECT 1 FROM trash_items t JOIN folders f ON f.path = t.storage_path || substr(?, length(t.original_path) + 1)
-      JOIN folder_rules x ON x.folder_id = f.id AND x.subject_type = 'user' AND x.subject_id = ? AND x.access <> 'none'
-      WHERE t.id = ? AND t.restored_at IS NULL AND (? = t.original_path OR substr(?, 1, length(t.original_path) + 1) = t.original_path || '/')`).get(r.folder_path, userId, r.trashed_with, r.folder_path, r.folder_path)
+    // its folder's rules are parked under the trash item's storage path (team-files trash): theirs still there? (read
+    // through the rule loader, the one reader of folder_rules: tests/unit/rule-set-construction.test.ts)
+    const t = db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ? AND restored_at IS NULL').get(r.trashed_with) as { original_path: string; storage_path: string } | null
+    const under = !!t && (r.folder_path === t.original_path || r.folder_path.startsWith(t.original_path + '/'))
+    const parked = under ? t!.storage_path + r.folder_path.slice(t!.original_path.length) : null
+    const kept = !!parked && (rules ?? RuleSet.fromDb(db)).storedAt(parked).some((x) => x.subjectType === 'user' && x.subjectId === userId && x.access !== 'none')
     return kept ? id : null
   }
   return inSlotEvenIfOff(db, userId, { kind: 'project', id }, rules) ? id : null

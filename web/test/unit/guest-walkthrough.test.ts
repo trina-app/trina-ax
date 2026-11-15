@@ -125,7 +125,7 @@ describe("a guest's AI switched off while signed in (N7)", () => {
       team: { name: 'Acme', defaultLocale: 'en' }, groups: [],
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: '2030-01-01T00:00:00.000Z' },
       server: { version: 'test', dev: true },
-      guest: { place: { kind: 'room', id: 'r', name: 'Quote prep' }, ai: ai === 'team' ? { mode: 'team', credentialId: 'c', limitUsd: 20 } : { mode: ai }, ...extra },
+      guest: { places: [{ kind: 'room', id: 'r', name: 'Quote prep' }], ai: ai === 'team' ? { mode: 'team', credentialId: 'c', limitUsd: 20 } : { mode: ai }, ...extra },
     }) as unknown as Me
     const toasts = () => useUi.getState().toasts.map((x) => x.text)
     useUi.setState({ toasts: [] })
