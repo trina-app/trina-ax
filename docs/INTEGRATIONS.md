@@ -374,7 +374,10 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   - forms: the value itself (so also `Bearer <value>`); its characters %-escaped (either case, `+` for a space),
     JSON-escaped (`\/`, `\"`, `\\`, `\uXXXX`) or as HTML entities; base64 (standard or URL-safe, padded or not) of
     any text that contains it: the value alone, `user:<value>` for basic auth, `<value>:`. Up to two bytes at either
-    edge of an embedded base64 value share a group with the text around them and stay.
+    edge of an embedded base64 value share a group with the text around them and stay. An encoded form (base64, or
+    the value with every character %-escaped, `\uXXXX`-escaped or as an HTML entity) is found also when white space
+    or a JSON-escaped `\n`, `\r`, `\t` splits it (a blank line around a tool call, base64 wrapped at 76 characters);
+    the value as written is not (QA TC-3096).
   - where: one exit that every connection tool's result goes through (`tools.ts` `hiding`: `api_request` and MCP
     `tools/call` answers including structured content, resource links, error answers, our error texts, the summary for
     `tool_events`, a thrown error); before any cut (the 40,000 characters for the AI, a JSON-RPC error's 300, a tool

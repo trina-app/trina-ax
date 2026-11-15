@@ -29600,3 +29600,23 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
   has counts only (scanned, found, people, done), never a path or a key.
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
+
+## A stored key in base64 is hidden also when line breaks split it (fix/hide-base64-across-breaks, 2026-11-15, QA TC-3096)
+
+- **Problem.** The AI wrote a person's stored connection key in base64 and a tool call fell inside it. Both engines put
+  a blank line around a tool call (`engine/claude-parse.ts`, `engine/codex-parse.ts`), so the saved answer held the
+  base64 in two parts with "\n\n" between them, and `hide.ts`'s base64 patterns, which need the characters side by
+  side, did not hide it. Base64 wrapped at 76 characters had the same gap.
+- **Decision.** Encoded forms match across breaks: the base64 patterns (every alignment, padded or not, URL-safe) and
+  the value with every character %-escaped, JSON `\u`-escaped or as an HTML entity (decimal or hex) allow white space,
+  or a JSON-escaped `\n`, `\r`, `\t`, between their characters (between whole escapes for the escaped forms), never
+  before or after. The whole match, breaks included, becomes `[hidden key]`. The value as written stays strict: letters
+  with spaces between them are ordinary text ("QA FAKE KEY" is not the key), and so is a key split as written.
+- **The live answer.** `redact.ts formCarryLength` also counts line breaks (not spaces) in the run of encoded-form
+  characters it holds back, so text that arrives in pieces with a line break inside a base64 run does not let out its
+  first part. Prose waits for at most the word after a line break; Korean and Japanese text still flow. A part already
+  shown before a tool call (the stream lets out everything before the tool's card) is not taken back while the turn
+  runs; the saved answer has the whole form hidden (open question: hold an encoded run back across a tool call).
+- Tests: `tests/unit/c-integrations-secret-breaks.test.ts` (every cut place, wrapped, JSON-escaped breaks; no change to
+  prose, code, Korean, other values' base64 or the key's base64 parts apart; a 1 MB text in time).
+- Version impact: **patch** (a security fix; no new feature or API change).

@@ -103,9 +103,10 @@ export function carryLength(text: string, values: readonly string[]): number {
 }
 
 /** The characters any written form of these values is made of (hide.ts: the value's own characters, base64, and the
- * %, JSON and HTML escapes), and the longest such form without zero padding. */
+ * %, JSON and HTML escapes, and the line breaks that may split an encoded form: QA TC-3096), and the longest such form
+ * without zero padding. Not spaces: then all prose would wait. */
 function formsOf(values: readonly string[]): { chars: Set<string>; longest: number } {
-  const chars = new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-%&#;\\"\'')
+  const chars = new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-%&#;\\"\'\n\r')
   let longest = 0
   for (const v of values) {
     for (const c of v) chars.add(c)

@@ -8,8 +8,12 @@
 // Forms: the value itself (so also "Bearer <value>"); any of its characters %-escaped (either case, "+" for a space),
 // JSON-escaped (\/, \", \\, \uXXXX) or as an HTML entity; base64 (standard or URL-safe, padded or not) of any text that
 // contains it: the value alone, "user:<value>" for basic auth, "<value>:", at each of the three byte alignments.
+// An encoded form (base64, or the value with every character %-escaped, JSON \u-escaped or as an HTML entity) is also
+// found when line breaks or other white space split it (QA TC-3096: both engines put a blank line around a tool call,
+// so a base64 key the AI wrote across one came out in two parts; base64 is also often wrapped at 76 characters), and
+// when JSON text writes those breaks as \n, \r or \t. The value as written is not: "QA FAKE KEY" is ordinary text.
 // Values shorter than MIN_SECRET are left alone: they would hide ordinary words. Not caught: a service that changes the
-// value in another way (hashes it, hex-encodes it, changes its case, splits or reverses it).
+// value in another way (hashes it, hex-encodes it, changes its case, reverses it, or splits it as written).
 
 export const HIDDEN = '[hidden key]'
 /** shorter values are not hidden (they would match ordinary words) */
@@ -33,7 +37,10 @@ function charPattern(ch: string, base64 = false): string {
   if (base64 && ch === '/') alts.add('_')
   return `(?:${[...alts].join('|')})`
 }
-const textPattern = (s: string, base64 = false) => [...s].map((c) => charPattern(c, base64)).join('')
+/** What may split an encoded form: white space (a line break, a blank line, a space), or a JSON-escaped break. Only
+ * between its characters, never before or after it. */
+const BREAK = '(?:\\s|\\\\[nrt])*'
+const textPattern = (s: string, base64 = false, sep = '') => [...s].map((c) => charPattern(c, base64)).join(sep)
 
 /** base64 of any text that contains the value, one pattern per alignment: the groups made of the value's bytes only,
  * then (when the value ends the encoded text) its last one or two bytes with their padding. Up to two bytes at either
@@ -48,8 +55,19 @@ function base64Patterns(value: string): string[] {
     if (core.length < MIN_SECRET) continue
     const tail = rest.subarray(whole).toString('base64')
     const bare = tail.replace(/=+$/, '')
-    out.push(textPattern(core, true) + (bare ? `(?:${textPattern(bare, true)}(?:${charPattern('=', true)}){0,${tail.length - bare.length}})?` : ''))
+    out.push(textPattern(core, true, BREAK) + (bare ? `(?:${BREAK}${textPattern(bare, true, BREAK)}(?:${BREAK}${charPattern('=', true)}){0,${tail.length - bare.length}})?` : ''))
   }
+  return out
+}
+
+/** The value with every character escaped one way (%-escaped UTF-8 bytes in either case, JSON \\u, an HTML entity in
+ * decimal or hex), split by white space anywhere between the escapes. Unsplit, textPattern finds these already (it
+ * takes each character in any form); these find them split. */
+function escapedPatterns(value: string): string[] {
+  const chars = [...value]
+  const out = [[...Buffer.from(value)].map((b) => '%' + hex(b, 2)).join(BREAK)]
+  out.push(chars.map((c) => { const cp = c.codePointAt(0)!; return `(?:&#0*${cp};|&#[xX]0*${hex(cp, 1)};)` }).join(BREAK))
+  if (chars.every((c) => c.codePointAt(0)! <= 0xffff)) out.push(chars.map((c) => '\\\\u' + hex(c.codePointAt(0)!, 4)).join(BREAK))
   return out
 }
 
@@ -69,6 +87,7 @@ export function secretRegex(values: Iterable<string | null | undefined>): RegExp
   for (const v of secretValuesOf(values)) {
     patterns.add(textPattern(v))
     for (const p of base64Patterns(v)) patterns.add(p)
+    for (const p of escapedPatterns(v)) patterns.add(p)
   }
   if (!patterns.size) return null
   // longer patterns first: a whole base64 text before its core, a value before a shorter one inside it
