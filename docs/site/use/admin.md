@@ -48,6 +48,8 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
+Under the list, **Invite links** shows only the links that still work: the team invite link and invite links nobody
+has used yet. A used or expired link, or a guest link whose room or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
 
 #### Add a first skill
 Copy a starter skill and review its result against the sources. [Read about skills](team-skills.md).
@@ -84,7 +86,8 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 **Admin › Members & invites** ends with **Guests**: people from outside the team, each in one room or one project, who
 do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
-guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)).
+guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)). A team with no guests
+has no **Guests** section; pick **Guests** in the list of roles to check.
 
 ![Admin › Members & invites › Guests on a phone: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
 
