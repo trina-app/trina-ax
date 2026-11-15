@@ -1,6 +1,6 @@
 // The welcome steps' invite (6/6): the ready-made message introduces the team (owner 2026-11-14). It greets from the
 // owner, carries the team's line from "About the company" (the profile's one-line intro; none saved: no line), says
-// what the AI is for in plain words, the skill the link opens, and the link alone on the last line. It is edited in
+// what the AI is for in plain words, the skill set up for the team, and the link alone on the last line. It is edited in
 // place, and "메시지 복사" copies what is in the box; nothing is sent anywhere by itself. At 1440 and 390.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -39,6 +39,9 @@ for (const width of [1440, 390] as const) {
       const box = page.getByTestId('team-link-message')
       await expect(box).toBeEditable()
       const message = await box.inputValue()
+      // the link box and its QR wait under "링크 관리": the message holds the link
+      await expect(page.getByTestId('team-link-url')).toHaveCount(0)
+      await page.getByTestId('team-link-manage').click()
       const url = (await page.getByTestId('team-link-url').getAttribute('title')) ?? ''
       expect(url).toContain('/join#t=')
       const lines = message.split('\n')
@@ -52,6 +55,10 @@ for (const width of [1440, 390] as const) {
       await page.getByTestId('team-link-copy-message').click()
       await expect(page.getByTestId('team-link-copy-message')).toContainText('복사됨')
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(edited)
+      // copied: "다 했어요" is the one primary now
+      await expect(page.getByTestId('invite-step-done')).toHaveAttribute('data-sent', 'true')
+      await expect(page.getByTestId('invite-step-done')).toHaveClass(/bg-accent /)
+      await expect(page.getByTestId('team-link-copy-message')).not.toHaveClass(/bg-accent /)
       // emptied: nothing to copy
       await box.fill('')
       await expect(page.getByTestId('team-link-copy-message')).toBeDisabled()
@@ -66,6 +73,6 @@ test('no team description: no "우리 팀 소개" line and no blank line', async
   const message = await page.getByTestId('team-link-message').inputValue()
   expect(message).not.toContain('우리 팀 소개')
   expect(message).not.toContain('\n\n')
-  expect(message.split('\n')[1]).toBe('우리 팀은 트리나에서 일상 문서 작업을 AI에게 맡겨요.')
+  expect(message.split('\n')[1]).toBe('우리 팀 AI 트리나가 일상 문서 작업을 도와줘요.')
   expect(realErrors(errors)).toEqual([])
 })

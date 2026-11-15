@@ -145,7 +145,7 @@ export function welcomeFlowCases() {
     await newOwner(page)
     await toInvite(page)
     // one intro for both since the short invite dialog (ebd5788f4); the share or copy button says the rest
-    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 링크를 보내세요.')
+    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 메시지를 보내세요.')
     const share = page.getByTestId('team-link-share')
     await expect(share).toHaveText('메시지 보내기')
     await tall(page, 'team-link-share')
@@ -154,6 +154,8 @@ export function welcomeFlowCases() {
     const sent = await page.evaluate(() => (window as unknown as { shared: { text: string }[] }).shared[0]!)
     expect(sent.text).toBe(await page.getByTestId('team-link-message').inputValue())
     expect(sent.text).toContain('/join#')
+    // sent: "다 했어요" is the one primary now
+    await expect(page.getByTestId('invite-step-done')).toHaveAttribute('data-sent', 'true')
     // copying is still there, one quiet press
     await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
     await tall(page, 'team-link-copy-message')
@@ -165,7 +167,7 @@ export function welcomeFlowCases() {
     await toInvite(page)
     await expect(page.getByTestId('team-link-share')).toHaveCount(0)
     // one intro for both since the short invite dialog (ebd5788f4); the share or copy button says the rest
-    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 링크를 보내세요.')
+    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 메시지를 보내세요.')
     const copy = page.getByTestId('team-link-copy-message')
     await expect(copy).toHaveText('메시지 복사')
     await copy.click()

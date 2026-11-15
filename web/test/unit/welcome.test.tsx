@@ -1433,7 +1433,7 @@ describe('the later steps and the end', () => {
       expect(called('POST /api/admin/team-link').map((c) => c.body.skillPath)).toEqual([weekly])
       expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("우리 팀용으로 '주간 업무 보고' 스킬을 준비해 뒀어요")
       expect((m.get('team-link-message') as unknown as { value: string }).value).not.toContain('견적서 초안')
-      expect(m.get('team-link-landing').textContent).toContain("팀 스킬에서 '주간 업무 보고' 스킬을 볼 수 있어요")
+      expect(m.get('team-link-landing').textContent).toContain("메시지에 '주간 업무 보고' 스킬이 들어가요")
       const select = m.get('team-link-landing-change') as any
       await act(async () => { select.value = quote; select.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
       await m.until(() => progress!.shared!.landing === quote, 'the landing changed')

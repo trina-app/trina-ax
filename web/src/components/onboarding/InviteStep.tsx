@@ -1,8 +1,10 @@
 // The onboarding wizard's invite step (after the welcome steps' first result). Standalone: it shows the ready-made
-// message with the team invite link and one "메시지 복사", or makes the link in one press; the link itself, its settings
-// and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). For the owner walking the welcome steps
-// (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2"). Skipping
-// asks once, softly, whether to invite one or two people first, because a team skill is only a team's once others use it.
+// message with the team invite link and one "메시지 복사", or makes the link in one press; the link box with its QR code,
+// its settings and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). For the owner walking the
+// welcome steps (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2").
+// Once the message (or the link) was copied or sent, "다 했어요" is the step's primary: the one thing left to press.
+// Skipping on a computer asks once, softly, whether to invite one or two people first, because a team skill is only a
+// team's once others use it; on a phone "나중에" just skips (a dialog over a bottom sheet is one layer too many).
 // A team with no skills and no documents yet gets one quiet line above the message (docs/DECISIONS.md "W6.3"): "지금
 // 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기"; it never blocks. No "이 사람이 팀장이에요" here: one link
 // invites many people, so the owner hands the role over after people join (Admin › Members, a person's "…").
@@ -68,8 +70,11 @@ export interface InviteStepProps {
 export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare, title, shared, steps }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
+  // copied or sent: "다 했어요" takes over as the primary (the panel's copy button was the one before)
+  const [sent, setSent] = useState(false)
+  const phone = useMediaQuery(SHARE_PHONE_QUERY)
   // a phone with a share sheet sends the message from there (TeamLinkPanel's primary), so the line says send, not paste
-  const sharing = useMediaQuery(SHARE_PHONE_QUERY) && canShareText()
+  const sharing = phone && canShareText()
   return (
     <div className="space-y-4" data-testid="invite-step">
       <div>
@@ -78,15 +83,16 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
       <EmptyTeamLine steps={steps} />
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded onSent={() => setSent(true)} />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
-          <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">
+          <Button variant="ghost" onClick={() => (phone ? onSkip() : setAsking(true))} data-testid="invite-step-skip">
             {t('teamLink.later')}
           </Button>
         )}
-        {/* not primary: the panel's own action (copy the message, or make the link first) is the one primary here */}
-        <Button onClick={onDone} data-testid="invite-step-done">
+        {/* not primary until something was copied or sent: before that the panel's own action (copy the message, or make
+            the link first) is the one primary here */}
+        <Button variant={sent ? 'primary' : 'secondary'} onClick={onDone} data-testid="invite-step-done" data-sent={sent || undefined}>
           {t('teamLink.stepDone')}
         </Button>
       </div>

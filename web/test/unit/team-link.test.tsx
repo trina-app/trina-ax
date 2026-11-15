@@ -50,18 +50,17 @@ describe('the ready-made message', () => {
     expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구', about: '병원 마케팅 콘텐츠를 만드는 팀이에요' })).toBe([
       `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
       '우리 팀 소개: 병원 마케팅 콘텐츠를 만드는 팀이에요',
-      `우리 팀은 ${named('ko')}에서 일상 문서 작업을 AI에게 맡겨요.`,
+      `우리 팀 AI ${named('ko')}가 일상 문서 작업을 도와줘요.`,
       "우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.",
       '아래 링크로 바로 들어오면 돼요.',
       URL_,
     ].join('\n'))
   })
-  test('no team description: no "우리 팀 소개" line and no blank one; no skill: a plain first thing to do', () => {
+  test('no team description: no "우리 팀 소개" line and no blank one; no skill: no skill line (never a made-up first task)', () => {
     const m = teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, about: '  ' })
     expect(m).toBe([
       `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
-      `우리 팀은 ${named('ko')}에서 일상 문서 작업을 AI에게 맡겨요.`,
-      '들어오면 지금 하고 있는 일 하나를 맡겨 보세요.',
+      `우리 팀 AI ${named('ko')}가 일상 문서 작업을 도와줘요.`,
       '아래 링크로 바로 들어오면 돼요.',
       URL_,
     ].join('\n'))
@@ -72,15 +71,14 @@ describe('the ready-made message', () => {
     expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_, skill: 'SEO strategy plan', about: 'We make SEO content\nfor clinics' })).toBe([
       `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
       'About us: We make SEO content for clinics',
-      `${named('en')} is where we ask AI to help with our everyday documents.`,
-      "I set up the 'SEO strategy plan' skill for us.",
+      `${named('en')}, our team's AI, helps us with everyday documents.`,
+      "I set up 'SEO strategy plan' for us.",
       'Join with this link:',
       URL_,
     ].join('\n'))
     expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_ }).split('\n')).toEqual([
       `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
-      `${named('en')} is where we ask AI to help with our everyday documents.`,
-      "Once you're in, give it one thing you're working on today.",
+      `${named('en')}, our team's AI, helps us with everyday documents.`,
       'Join with this link:',
       URL_,
     ])
@@ -129,7 +127,7 @@ describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
     const render = (d: TeamLinkResponse) => renderToStaticMarkup(<TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />)
     const message = (html: string) => /data-testid="team-link-message">([^<]*)</.exec(html)?.[1] ?? ''
     let html = render(data)
-    expect(message(html)).toContain(`I set up the &#x27;Weekly report&#x27; skill for us.\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
+    expect(message(html)).toContain(`I set up &#x27;Weekly report&#x27; for us.\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
     expect(message(html)).not.toContain('Quote draft')
     expect(html).toContain('data-testid="team-link-landing"')
     expect(message(html)).not.toContain('own AI account')
@@ -171,10 +169,10 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('Copy message')
     // a skill without a title: its folder name as words, never the raw 'ad-copy' (also when the title only repeats it)
     expect(html).toContain(`Hi, it&#x27;s Olga. I&#x27;d like you to join Acme on ${named('en')}.`)
-    expect(html).toContain('I set up the &#x27;ad copy&#x27; skill for us.')
+    expect(html).toContain('I set up &#x27;ad copy&#x27; for us.')
     expect(html).not.toContain('&#x27;ad-copy&#x27;')
     const repeated = view({ ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/quote-maker/SKILL.md', name: 'quote-maker', title: 'quote-maker' } } })
-    expect(repeated).toContain('&#x27;quote maker&#x27; skill')
+    expect(repeated).toContain('&#x27;quote maker&#x27; for us')
     expect(repeated).not.toContain('quote-maker&#x27;')
     expect(html).toContain('data-testid="team-link-uses">3 of 10<')
     expect(html).toContain('data-testid="team-link-seats">6<')
@@ -232,8 +230,12 @@ describe('folded (the invite step): the message, one copy button, the rest under
     expect(/<div[^>]*data-testid="team-link-manage-panel"[^>]*>/.exec(html)?.[0]).toContain('hidden=""')
     for (const hidden of ['team-link-facts', 'team-link-uses', 'team-link-replace', 'team-link-revoke'])
       expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
-    // the link and its Copy button show at once, above the message (one line, cut in the middle)
-    for (const shown of ['team-link-url', 'team-link-copy-link', 'team-link-qr']) expect({ shown, there: html.includes(`data-testid="${shown}"`) }).toEqual({ shown, there: true })
+    // the link box, its Copy link and the QR code wait under "링크 관리" too: the message ends with the link
+    for (const hidden of ['team-link-url', 'team-link-copy-link', 'team-link-qr']) expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
+    // the step's copy button is the primary until something was sent
+    expect(/<button[^>]*data-testid="team-link-copy-message"[^>]*>/.exec(html)?.[0]).toContain('bg-accent text-accent-ink')
+    // a link that opens on this computer only still says so outside the fold (QA TC-211)
+    expect(view({ ...LINK, link: { ...LINK.link!, url: 'http://127.0.0.1:47820/join#t=AbCdEfGhIjKlMnOpQrSt' } }, null, true)).toContain('data-testid="local-link-note"')
   })
   test('a link held back by its limit still says so, outside the fold', () => {
     const html = view({ ...LINK, link: { ...LINK.link!, limitedUntil: '2026-11-04T10:00:00.000Z' } }, null, true)
@@ -528,10 +530,12 @@ describe('on screen', () => {
     const made: unknown[] = []
     const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
     try {
-      expect(m.get('team-link-url').textContent).toBe(URL_)
+      expect(m.find('team-link-url')).toBeNull()
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('false')
       await m.click('team-link-manage')
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('true')
+      expect(m.get('team-link-url').textContent).toBe(URL_)
+      expect(m.find('team-link-qr')).not.toBeNull()
       const panel = m.get('team-link-manage-panel')
       expect(panel.hasAttribute('hidden')).toBe(false)
       expect(m.get('team-link-manage').getAttribute('aria-controls')).toBe(panel.id)
@@ -605,8 +609,11 @@ describe('on screen', () => {
     await m.until(() => m.find('team-link-message'), 'the link')
     expect(JSON.parse(calls.find((c) => c.key === 'POST /api/admin/team-link')!.body!)).toEqual({ groupIds: [], expiresInDays: 14 })
     expect((m.get('team-link-message') as unknown as { value: string }).value).toContain(URL_)
-    // the link shows in one line; no "링크 끄기" in this step
+    // the link box waits under "링크 관리" (the message holds the link); no "링크 끄기" in this step
+    expect(m.find('team-link-url')).toBeNull()
+    await m.click('team-link-manage')
     expect(m.find('team-link-url')).not.toBeNull()
+    expect(m.find('team-link-qr')).not.toBeNull()
     expect(m.find('team-link-revoke')).toBeNull()
     // later → the soft dialog; 초대하기 goes back, 나중에 skips
     await m.click('invite-step-skip')
@@ -620,6 +627,42 @@ describe('on screen', () => {
     await m.click('invite-step-done')
     expect(done).toBe(1)
     } finally { await m.unmount() }
+  })
+
+  test('InviteStep: after Copy message, "Done" is the one primary; on a phone "Later" skips with no dialog', async () => {
+    routes = {
+      'GET /api/admin/groups': () => json(200, { items: [] }),
+      'GET /api/admin/team-link': () => json(200, LINK),
+    }
+    const copied: string[] = []
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    const g = globalThis as Record<string, unknown>
+    const media = g.matchMedia
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { ...globalThis.navigator, clipboard: { writeText: async (x: string) => void copied.push(x) } } })
+    const primary = (id: string) => m.get(id).className.includes('bg-accent text-accent-ink')
+    let skipped = 0
+    let m = await mount(<MemoryRouter><InviteStep onDone={noop} onSkip={() => skipped++} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('team-link-message'), 'the message')
+      expect(primary('team-link-copy-message')).toBe(true)
+      expect(primary('invite-step-done')).toBe(false)
+      await m.click('team-link-copy-message')
+      await m.until(() => copied.length === 1, 'copied')
+      await m.until(() => primary('invite-step-done'), 'Done turns primary')
+      expect(primary('team-link-copy-message')).toBe(false)
+      await m.unmount()
+      // a phone (no share sheet in this DOM): "Later" skips at once
+      g.matchMedia = (q: string) => ({ matches: q.includes('767.98'), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+      m = await mount(<MemoryRouter><InviteStep onDone={noop} onSkip={() => skipped++} /></MemoryRouter>)
+      await m.until(() => m.find('team-link-message'), 'the message on a phone')
+      await m.click('invite-step-skip')
+      expect(m.find('invite-step-later')).toBeNull()
+      expect(skipped).toBe(1)
+    } finally {
+      await m.unmount()
+      g.matchMedia = media
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+    }
   })
 })
 

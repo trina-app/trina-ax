@@ -45,7 +45,7 @@ describe('a skill by its title', () => {
     expect(html).not.toContain('ad-copy')
     const older = renderToStaticMarkup(<TeamLinkView data={link({ skill: { path: AD.path, name: 'ad-copy' } })} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     // without a title: the folder name as words (shared skillLabel), never the raw 'ad-copy'
-    expect(older).toContain(esc("'ad copy' skill"))
+    expect(older).toContain(esc("'ad copy' for us"))
   })
 
   test('the link form\'s skill picker lists titles', () => {
@@ -129,10 +129,11 @@ describe('the team link on a phone: one primary action, no boxes', () => {
         // the rest is one quiet "링크 관리" row, folded; opened, still one primary and no "링크 끄기"
         expect(m.get('team-link-manage').getAttribute('class')).toContain('text-muted')
         expect(m.get('team-link-manage').textContent).toContain(ko('teamLink.manage'))
-        // the link is in view at once (one line); the facts wait in the fold
-        expect(m.find('team-link-url')).not.toBeNull()
+        // the link box and the facts wait in the fold (the message ends with the link)
+        expect(m.find('team-link-url')).toBeNull()
         expect(m.find('team-link-facts')).toBeNull()
         await m.click('team-link-manage')
+        expect(m.find('team-link-url')).not.toBeNull()
         expect(m.find('team-link-facts')).not.toBeNull()
         expect(m.find('team-link-revoke')).toBeNull()
         expect([...m.html().matchAll(/<button[^>]*>/g)].map((b) => b[0]).filter((b) => b.includes('bg-accent '))).toHaveLength(1)
