@@ -77,6 +77,19 @@ describe('grouped by day', () => {
     const [day] = groupActivity(items)
     expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['abc', 'd', 'e', 'f', 'g'])
   })
+  test('two quick edits of one connection that changed different things stay two rows; the same change twice folds (QA TC-2953)', () => {
+    const t = now.getTime()
+    const edit = (id: string, ago: number, detail: Record<string, unknown>) =>
+      entry(id, new Date(t - ago * min), { source: 'admin', action: 'integration.update', actor: { id: 'olga', name: 'Olga' }, target: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', detail })
+    const base = { scope: 'team', kind: 'http', auth: 'bearer', name: 'Ledger', host: 'api.ledger.example' }
+    const [day] = groupActivity([
+      edit('a', 0, { ...base, changed: ['url'] }),
+      edit('b', 1, { ...base, name: 'Ledger old', changed: ['name'], secret: 'replaced' }),
+      edit('c', 2, { ...base, changed: ['tools'], enabled: false }),
+      edit('d', 3, { ...base, changed: ['tools'], enabled: false }),
+    ])
+    expect(day!.runs.map((r) => r.entries.map((e) => e.id).join(''))).toEqual(['a', 'b', 'cd'])
+  })
   test('a new day starts a new group, and a run never crosses midnight', () => {
     const late = new Date(2026, 10, 4, 0, 5)
     const early = new Date(2026, 10, 3, 23, 58)

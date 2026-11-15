@@ -390,3 +390,17 @@ test('a sign-in request: the member\'s connection is made to sign in at, and the
   const adminText = JSON.stringify([await adminList(), await ada.call('GET', '/api/admin/audit?limit=200')])
   for (const t of tokens) { expect(adminText).not.toContain(t); expect(everything()).not.toContain(t) }
 })
+
+test('a guest is never asked (QA TC-2948): refused under the person with a plain line; one sent before ends, its notice read', async () => {
+  const d = await addMember(h, olga, { username: 'dina' })
+  const before = await ask(ada, { ...mcpKey(), userId: d.id, url: `${fake.base}/mcp-key?guest=1` })
+  expect(before.status).toBe(201)
+  h.ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(d.id)
+  const r = await ask(ada, { ...mcpKey(), userId: d.id, url: `${fake.base}/mcp-key?guest=2` })
+  expect(r.status).toBe(400)
+  expect(r.body.error.fields['body.userId']).toBe(say('requestGuest', 'ko'))
+  expect(h.ctx.db.query("SELECT count(*) AS n FROM integration_requests WHERE user_id = ? AND state = 'pending'").get(d.id)).toEqual({ n: 1 })
+  // the admin's list ends the one sent before: a guest can never open it
+  expect(await stateOf(before.body.id)).toBe('withdrawn')
+  expect(h.ctx.db.query('SELECT read_at FROM integration_request_notices WHERE source_id = ?').get(before.body.id)).toEqual({ read_at: expect.any(String) })
+})

@@ -83,7 +83,9 @@ export function inSentence(label: string): string {
   return a && a !== a.toLowerCase() && b && b === b.toLowerCase() && b !== b.toUpperCase() ? a.toLowerCase() + label.slice(1) : label
 }
 
-/** Rows of the same event (who, kind, action, item, outcome) close together: one row, "· 5 times". */
+/** Rows of the same event (who, kind, action, item, outcome) close together: one row, "· 5 times". An admin change
+ * folds only with one that says the same (two edits of one connection, name then address, stay two rows: the folded row
+ * shows one entry's details, QA TC-2953). */
 export const RUN_GAP_MS = 30 * 60_000
 export type ActivityRun = { key: string; entries: AuditEntry[] }
 export type ActivityDay = { day: string; runs: ActivityRun[] }
@@ -91,6 +93,7 @@ export type ActivityDay = { day: string; runs: ActivityRun[] }
 const sameEvent = (a: AuditEntry, b: AuditEntry) =>
   a.source === b.source && a.action === b.action && (a.actor?.id ?? null) === (b.actor?.id ?? null) && a.target === b.target
   && (a.detail?.ok ?? null) === (b.detail?.ok ?? null) && (a.detail?.ip ?? null) === (b.detail?.ip ?? null)
+  && (a.source !== 'admin' || JSON.stringify(a.detail ?? null) === JSON.stringify(b.detail ?? null))
 
 /** Newest first, as the API sends them: grouped by the person's calendar day, repeats folded within a day. */
 export function groupActivity(items: AuditEntry[]): ActivityDay[] {

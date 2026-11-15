@@ -69,6 +69,12 @@ export class ConnectionRequests {
     const before = iso(this.now() - KEEP_MS)
     this.db.query("DELETE FROM integration_requests WHERE (state != 'pending' AND ended_at < ?) OR (state = 'pending' AND expires_at < ?)").run(before, before)
   }
+  /** Requests sent to a guest before they were refused (QA TC-2948) end as withdrawn: a guest can never answer one. */
+  private endGuestRequests() {
+    const ended = this.db.query("UPDATE integration_requests SET state = 'withdrawn', ended_at = ? WHERE state = 'pending' AND user_id IN (SELECT id FROM users WHERE guest = 1) RETURNING user_id")
+      .all(iso(this.now())) as { user_id: string }[]
+    for (const id of new Set(ended.map((r) => r.user_id))) settleIntegrationRequestNotice(this.ctx, id)
+  }
   /** the member the request is for; anyone else (admins included) finds nothing */
   private mine(userId: string, id: string): RequestRow {
     const r = getRequest(this.db, id)
@@ -78,6 +84,7 @@ export class ConnectionRequests {
   // ---------------- admins ----------------
   listTeam(base: string): IntegrationRequest[] {
     this.sweep()
+    this.endGuestRequests()
     const rows = this.db.query(`SELECT ${REQUEST_COLUMNS} FROM integration_requests ORDER BY created_at DESC, id DESC`).all() as RequestRow[]
     // waiting ones first, newest first within each
     const now = this.now()
@@ -89,8 +96,10 @@ export class ConnectionRequests {
     if (!isAdmin(viewer.role)) fail('forbidden')
     // the member's connection is made where they add their own: the team must allow that now
     if (!getTeamSettings(this.db).personalIntegrations) fail('conflict', say('requestPersonalOff', L))
-    const member = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(input.userId) as { id: string } | null
+    const member = this.db.query("SELECT id, guest FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(input.userId) as { id: string; guest: number } | null
     if (!member) fieldError(L, 'userId', 'requestNoUser')
+    // a guest never opens Settings › Connectors (http/route.ts GUEST_ENDPOINTS): a request would wait on nobody (QA TC-2948)
+    if (member.guest) fieldError(L, 'userId', 'requestGuest')
     // the member's notice and the admin's list show this name: the schema trims spaces, nothing else that shows as nothing
     const name = oneLine(input.name)
     if (!SHOWS.test(name)) fieldError(L, 'name', 'requestNoName')

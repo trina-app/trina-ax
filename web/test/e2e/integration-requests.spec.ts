@@ -250,3 +250,22 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await axe()).toEqual([])
   })
 }
+
+test('a guest is not offered and the server refuses one (QA TC-2948)', async ({ page }) => {
+  await reset(page)
+  const room = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60'
+  const at = new Date().toISOString()
+  expect((await page.request.post('/__test/rooms', { data: { rooms: [{ id: room, kind: 'group', name: '견적 준비', groupId: null, memberCount: 2, peers: [{ id: 'bob', name: 'Bob' }], createdAt: at, activityAt: at, canRename: true, managerId: 'olga', unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastSeq: 0, lastMessage: null, muted: false }] } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina Guest', place: { kind: 'room', id: room } } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/connectors')
+  await page.getByTestId('integration-add-more').click()
+  await page.getByTestId('integration-request-add').click()
+  await page.getByTestId('integration-request-user-search').fill('gina')
+  await expect(page.getByTestId('edit-add-option')).toHaveCount(0)
+  await page.getByTestId('integration-request-user-search').fill('bo')
+  await expect(page.getByTestId('edit-add-option').filter({ hasText: 'bob' })).toHaveCount(1)
+  const r = await page.request.post('/api/admin/integration-requests', { headers: { [CSRF_HEADER]: '1' }, data: { userId: 'gina', kind: 'mcp', name: 'Board', url: 'https://mcp.board.example/mcp', auth: 'oauth' } })
+  expect(r.status()).toBe(400)
+  expect(JSON.stringify(await r.json())).toContain('게스트에게는 연결을 요청할 수 없어요.')
+})

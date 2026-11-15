@@ -6351,7 +6351,9 @@ on every call as before.
   API. The same field checks as a connection (`service.ts` `headerName`, `normUrl`, `obviouslyPrivate`). The body is
   strict, so a key sent with a request is refused (400), not dropped. No write rule (the member's choice, ask or refuse,
   as for any personal connection) and no access rule. One waiting request per member and address, 20 waiting per
-  member, 200 in all. Refused (409) while the team does not allow personal connections. A member's existing
+  member, 200 in all. Refused (409) while the team does not allow personal connections. Never to a guest (2026-11-15,
+  QA TC-2948): a guest cannot open Settings › Connectors, so the request would wait on nobody; refused (400 under the
+  person), and a waiting one to a guest ends as withdrawn when the admin's list is read. A member's existing
   connections are never looked at: a refusal "already connected" would tell the admin about them.
 - **States.** waiting, connected, declined (member), withdrawn (admin), expired (7 days, `INTEGRATION_REQUEST_DAYS`;
   derived from `expires_at`, nothing rewrites the row). Ended and expired requests leave the admin's list 30 days later.
