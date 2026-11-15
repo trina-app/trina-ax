@@ -321,6 +321,15 @@ describe('calls', () => {
   })
 })
 
+describe('members\' own connections off (Team settings)', () => {
+  test('a person\'s own Gmail keeps its tools, as the switch\'s hint says (QA TC-2931)', async () => {
+    A.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'false') ON CONFLICT(key) DO UPDATE SET value = 'false'").run()
+    try {
+      expect([...turn('alice').tools.keys()].some((n) => n.startsWith('my_gmail__'))).toBe(true)
+    } finally { A.ctx.db.query("UPDATE settings SET value = 'true' WHERE key = 'personalIntegrations'").run() }
+  })
+})
+
 describe('the library down', () => {
   test('a call says the app is not reachable now and nothing about the connection changes', async () => {
     lib.stop()

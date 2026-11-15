@@ -1,4 +1,4 @@
-import { REMOTE_MCP } from '@mycel/shared/api'
+import { REMOTE_CONSENT_EXPIRED, REMOTE_MCP } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import { remoteOAuthOf } from '../connectors/remote-mcp/oauth'
@@ -14,6 +14,8 @@ const EXPIRED_LINK_PAGE = '<!doctype html><html lang="en"><head><meta charset="u
 
 function browser<T>(fn: () => T): T {
   try { return fn() } catch (e) {
+    // an expired consent request, or one another login session opened: still a 404, with a reason the page words
+    if (e instanceof OAuthError && e.code === REMOTE_CONSENT_EXPIRED) return fail('not_found', undefined, { params: { reason: REMOTE_CONSENT_EXPIRED } })
     if (e instanceof OAuthError) return fail(e.status === 404 ? 'not_found' : e.status === 403 ? 'forbidden' : e.status === 503 ? 'unavailable' : e.status === 429 ? 'rate_limited' : 'bad_request')
     throw e
   }

@@ -105,8 +105,17 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   )
 }
 
+/** The connections not in `before`: the first that belongs to `app` (appIdFor; the generic row takes every unnamed
+ * app), and the names of the other apps' new ones. */
+export function newConnections<T extends Pick<RemoteConnectionInfo, 'id' | 'clientName'>>(app: AiApp, before: ReadonlySet<string>, items: readonly T[]): { added: T | undefined; names: string[] } {
+  const fresh = items.filter((x) => !before.has(x.id))
+  const mine = (x: T) => (appIdFor(x.clientName) ?? 'other') === app.id
+  return { added: fresh.find(mine), names: [...new Set(fresh.filter((x) => !mine(x)).map((x) => x.clientName))] }
+}
+
 /** The steps for one app, the waiting line, and Done. `known` is the connected apps when it opened: a new id in the
- * list is the app that just connected. */
+ * list that belongs to this app (appIdFor) is the app that just connected. A new connection of another app (Claude
+ * while this is Claude Code's dialog) gets its own line and the wait goes on (QA TC-3032: it said "Connected: Claude"). */
 export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
   app: AiApp
   resource: string
@@ -117,6 +126,7 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
   const t = useT()
   const name = appName(app, t)
   const [connected, setConnected] = useState<RemoteConnectionInfo | null>(null)
+  const [others, setOthers] = useState<string[]>([])
   // the list was asked for POLL_FOR_MS and the app never appeared: the line says so, with Check again (QA TC-1417: it
   // span on for ever); each Check again asks for another while
   const [round, setRound] = useState(0)
@@ -132,8 +142,11 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
     const tick = async () => {
       try {
         const r = await api.call(REMOTE_MCP.listRemoteConnectors)
-        const added = r.items.find((x) => !before.has(x.id))
-        if (live && added) { setConnected(added); done.current?.() }
+        const { added, names } = newConnections(app, before, r.items)
+        if (!live) return
+        if (added) { setConnected(added); done.current?.(); return }
+        // another app connected meanwhile: the page's list shows it too
+        if (names.length) setOthers((was) => { if (names.every((n) => was.includes(n))) return was; done.current?.(); return [...new Set([...was, ...names])] })
       } catch { /* try again on the next tick */ }
     }
     const id = setInterval(() => { if (Date.now() - started > POLL_FOR_MS) { clearInterval(id); if (live) setStopped(true) } else void tick() }, POLL_MS)
@@ -190,6 +203,7 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
               ? <><span className="min-w-0 flex-1 text-muted">{t('aiApps.notYet')}</span><Button size="sm" variant="secondary" className="shrink-0 max-md:h-11" onClick={() => setRound((n) => n + 1)} data-testid="ai-app-check-again">{t('aiApps.checkAgain')}</Button></>
               : <><Loader2 size={15} className="shrink-0 animate-spin text-muted motion-reduce:animate-none" aria-hidden /><span className="text-muted">{t('aiApps.waiting')}</span></>}
         </p>
+        {!connected && others.length > 0 && <p className="text-sm text-muted" data-testid="ai-app-other-connected">{t('aiApps.otherConnected', { name: others.join(', '), app: name })}</p>}
       </div>
     </Modal>
   )

@@ -20,7 +20,7 @@ import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
-  accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
+  accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
@@ -84,7 +84,7 @@ interface FlowSecret {
  * (cancelled), the person's own connections that work reached MAX_PERSONAL meanwhile (limit: nothing is stored). A
  * sign-in refused before the browser went anywhere (authorize's NetError) is kept as `refused`, so it counts toward
  * FLOWS_PER_HOUR (no answer reads it). */
-export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded' | 'cancelled' | 'limit'
+export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded' | 'cancelled' | 'limit' | 'expired'
 /** The sign-in window's answer: done, or why not (null: not a sign-in this browser may finish, e.g. not signed in to
  * the team here, or the link was used already) */
 export type CallbackResult = { ok: true } | { ok: false; reason: FlowFailure | null }
@@ -981,6 +981,8 @@ export class Integrations {
     const row = this.manageable(viewer, id)
     if (row.auth !== 'oauth') fail('validation', say('notOauth', L))
     this.stillCovered(row, viewer, L)
+    // the team has members' own connections off: a new sign-in would not be used either, so none starts (QA TC-2930)
+    if (offByTeam(this.db, row)) fail('forbidden', say('personalOffSignIn', L))
     this.liveSession(viewer.id, session)
     this.sweep()
     const n = (this.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE user_id=? AND created_at>?').get(viewer.id, iso(this.now() - FLOW_WINDOW_MS)) as { n: number }).n
@@ -1078,6 +1080,9 @@ export class Integrations {
     const f = this.db.query('SELECT * FROM integration_oauth_flows WHERE state_hash=?').get(hash(q.state)) as FlowRow | null
     // cancelled in the app (cancelFlow) by the person whose browser this is: the window says so
     if (f?.state === 'failed' && f.reason === 'cancelled' && browser?.userId === f.user_id) return { ok: false, reason: 'cancelled' }
+    // its 10 minutes ran out (sweep) before the service sent the browser back: said to the person who started it, who is
+    // signed in here, instead of "sign in to the same team account" (QA TC-2936)
+    if (f?.state === 'expired' && browser?.userId === f.user_id) return { ok: false, reason: 'expired' }
     if (!f || f.state !== 'pending') return no
     if (!browser || browser.userId !== f.user_id) return no
     try { this.liveSession(browser.userId, browser.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return no }

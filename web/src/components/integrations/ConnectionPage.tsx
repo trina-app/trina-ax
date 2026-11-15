@@ -129,15 +129,18 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const phone = !!mobileApp()
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
-  const failing = !!i.lastError && i.status !== 'connected'
-  const note = lastCheckNote(i)
+  const failing = !!i.lastError && i.status !== 'connected' && !i.personalOff
+  // off by the team: not used, so a failed check is not news (QA TC-2930)
+  const note = i.personalOff ? null : lastCheckNote(i)
   const short = toolsShortfall(i)
   const off = i.tools.filter((x) => x.enabled === false).length
   const allowed = i.writePolicy === 'allow' || !!i.alwaysAllowedByMe
   // the person's own Always allow (a write card's choice), which "Ask every time" ends (QA TC-130); a team's "Run
   // without asking" is the admin's rule, changed in Edit
   const ownAllow = !!i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')
-  const signInHere = manage && canSignIn(i) && !phone
+  // the team has members' own connections off: kept, not used in chats, not signed in again (QA TC-2930)
+  const teamOff = !!i.personalOff
+  const signInHere = manage && canSignIn(i) && !phone && !teamOff
   const items: CardMenuItem[] = [
     ...(manage ? [{ label: t('integrations.refresh'), onSelect: () => void actions.refresh(i), disabled: checking, testId: 'integration-refresh' }] : []),
     ...(signInHere && i.status !== 'needs_auth' && !flow ? [{ label: t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn'), onSelect: () => void actions.signIn.start(i.id), testId: 'integration-signin-again' }] : []),
@@ -148,6 +151,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const status = checking ? (
     // Check again under way: said where the state is, until the answer comes (a toast then says how it went)
     <span role="status" className="flex items-center gap-1 text-xs text-muted" data-testid="connection-status" data-state="checking"><RefreshCw size={14} className="animate-spin" aria-hidden />{t('connectors.page.checking')}</span>
+  ) : teamOff ? (
+    <span className="text-xs text-muted" data-testid="connection-status" data-state="personal-off">{t('appConnectors.off')}</span>
   ) : i.status === 'connected' ? (
     <span className="flex items-center gap-1 text-xs text-ok" data-testid="connection-status" data-state="connected"><Check size={14} aria-hidden />{t('integrations.status.connected')}</span>
   ) : i.status === 'needs_auth' && signInHere ? (
@@ -198,8 +203,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {items.length > 0 && <div className="max-sm:ml-auto"><CardMenu label={t('appConnectors.more', { name: i.name })} testId="connection-menu" items={items} /></div>}
           </>
         )}
-        status={(flow || failing || note || alert) ? (
+        status={(flow || failing || note || alert || teamOff) ? (
           <>
+            {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
             {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
             {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
