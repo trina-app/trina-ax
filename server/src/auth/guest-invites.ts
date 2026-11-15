@@ -57,11 +57,16 @@ export function inviteMakerOk(db: Database, makerId: string | null, place: Guest
   if (!placeAlive(db, place)) return false
   if (ai.mode === 'team' && (!staff || !teamCredentialOk(db, ai.credentialId))) return false
   if (place.kind === 'room') return !!db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(place.id, makerId)
+  // a personal project (its folder in users/<id>/): nobody else ever reads a personal folder, whatever rule names them
+  // (policy/access.ts), so a guest let in there would land in nothing. The invite picker shares it first, as the
+  // project's own "Add people" does (POST /api/projects/:id/share: it becomes a team project in projects/<name>), and
+  // makes the invite after that (docs/DECISIONS.md "Guests into a personal project")
+  const folder = projectFolder(db, place.id)!
+  if (folder === 'users' || folder.startsWith('users/')) return false
   if (staff) return true
   const p = db.query('SELECT created_by FROM projects WHERE id = ?').get(place.id) as { created_by: string | null } | null
   if (!p || p.created_by !== makerId) return false
   const me = loadPrincipal(db, makerId)
-  const folder = projectFolder(db, place.id)!
   return !!me && atLeast(RuleSet.fromDb(db).access(me, folder.split('/')), 'read')
 }
 

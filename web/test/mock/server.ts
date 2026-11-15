@@ -2694,6 +2694,8 @@ export class MockServer {
       if (place.kind === 'room' && !this.rooms.some((r) => r.id === place.id && r.kind === 'group')) fail('forbidden', 403)
       if (place.kind === 'project') {
         const pr = this.projects.find((x) => x.id === place.id && !x.inTrash) ?? fail('not_found', 404)
+        // a personal project is no guest place until shared (server/src/auth/guest-invites.ts inviteMakerOk)
+        if (pr.folderPath.startsWith('users/')) fail('forbidden', 403)
         if (!staff && pr.createdBy?.id !== c.user.id) fail('forbidden', 403)
       }
       if (c.body.ai.mode === 'team' && !staff) fail('forbidden', 403)
@@ -3018,7 +3020,7 @@ export class MockServer {
     // a personal project becomes a team project: a new projects/<name> with the participants, its files copied there
     shareProject: (c) => {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.')
+      if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.', { 'params.id': 'not a personal project' })
       const people = this.users.filter((u) => u.status === 'active' && (u.role !== 'member' || (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId))))).filter((u) => u.id !== c.user.id)
       // (a member's dry run leaves the owner and admins out, as the server's)
       if (c.body.dryRun) return c.user.role === 'member' ? { viewersAdded: people.filter((u) => (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))).length, adminsApart: true } : { viewersAdded: people.length }
@@ -5958,9 +5960,12 @@ export class MockServer {
     // a team project as another person made it (members only: the owner and admins are not in it unless chosen)
     else if (p === '/__test/project') {
       const by = this.users.find((u) => u.id === String(body.by ?? 'bob')) ?? fail('validation', 400, 'no such person')
-      const folderPath = `projects/${String(body.name)}`
-      for (const d of ['projects', folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
-      this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
+      // `personal`: one of `by`'s personal projects (users/<by>/projects/<name>, no members)
+      const personal = body.personal === true
+      const parent = personal ? `users/${by.id}/projects` : 'projects'
+      const folderPath = `${parent}/${String(body.name)}`
+      for (const d of [...(personal ? [`users/${by.id}`] : []), parent, folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
+      if (!personal) this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
       const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
       this.projects.push(pr)
       // made before the update to members-only projects (the card on Admin › Home, GET /api/projects/update-notice)
