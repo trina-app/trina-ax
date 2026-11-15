@@ -403,6 +403,7 @@ export const ja: Record<MessageKey, string> = {
   'search.attn.error': "動作していません",
   'search.team': "チーム",
   'search.filesHint': "入力するとファイルの内容から検索します。",
+  'search.filesHintGuest': 'ファイル名かフォルダー名を入力してください。',
   'search.openFiles': "ファイルを開く",
   'search.newScheduled': "新しい予約タスク",
   'search.addMcp': "サービスを連携",

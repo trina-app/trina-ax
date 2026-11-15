@@ -24,3 +24,8 @@ test('an in-app address as a guest opens it: /files addresses mapped or dropped,
   expect(guestAppHref('/rooms/r1', f)).toBe('/rooms/r1')
   expect(guestAppHref('/filesystem', f)).toBe('/filesystem')
 })
+
+test('a file a link picks goes along as ?select= (its full path)', () => {
+  expect(guestFolderHref('projects/Quote prep/drafts', projects, 'projects/Quote prep/drafts/a b.docx')).toBe('/projects/p1/files?dir=drafts&select=projects%2FQuote%20prep%2Fdrafts%2Fa%20b.docx')
+  expect(guestFolderHref('projects/Quote prep', projects, 'projects/Quote prep/a.md')).toBe('/projects/p1/files?select=projects%2FQuote%20prep%2Fa.md')
+})

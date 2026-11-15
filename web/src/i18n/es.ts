@@ -403,6 +403,7 @@ export const es: Record<MessageKey, string> = {
   'search.attn.error': "No funciona",
   'search.team': "Equipo",
   'search.filesHint': "Escribe para buscar dentro de los archivos.",
+  'search.filesHintGuest': 'Escribe el nombre de un archivo o una carpeta.',
   'search.openFiles': "Abrir Archivos",
   'search.newScheduled': "Nueva tarea programada",
   'search.addMcp': "Conectar una app",

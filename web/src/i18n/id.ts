@@ -415,6 +415,7 @@ export const id: Record<MessageKey, string> = {
   'search.attn.error': 'Tidak berfungsi',
   'search.team': 'Tim',
   'search.filesHint': 'Ketik untuk mencari di isi file.',
+  'search.filesHintGuest': 'Ketik nama file atau folder.',
   'search.openFiles': 'Buka File',
   'search.newScheduled': 'Tugas terjadwal baru',
   'search.addMcp': "Hubungkan aplikasi",

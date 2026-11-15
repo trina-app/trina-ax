@@ -53,6 +53,8 @@ import { aiName } from '../lib/tabs'
 import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
+import { useGuestFolderHref } from './GuestView'
+import { openTeamFile } from '../lib/sidePanel'
 import { isGuestMe } from '../lib/guests'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap, useMediaQuery } from './ui'
@@ -329,6 +331,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const unread = useInboxUnread()
   const admin = isAdmin(useMe())
   const guest = isGuestMe(useMe())
+  const guestFolder = useGuestFolderHref()
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
   const myRooms = useRooms((s) => s.rooms)
@@ -508,10 +511,16 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: i.scope === 'personal' ? connectionHref(i.id) : CONNECTORS_HOME, match: true,
     sub: attention ?? (i.scope === 'team' ? t('search.team') : undefined), attention: !!attention,
   })
-  const fileNameRow = (f: FileEntry): Row => ({
-    key: `file:${f.path}`, kind: 'file', icon: f.type === 'folder' ? Folder : FileIcon, title: f.name, sub: parentOf(f.path), match: true,
-    href: f.type === 'folder' ? `/files?path=${encodeURIComponent(f.path)}` : skillFileLink(f.path),
-  })
+  // a guest has no 파일 screen (/files goes Home): a folder or file of their project opens its files screen (lib/guests.ts
+  // guestFolderHref); one no screen of theirs lists is not offered
+  const fileNameRow = (f: FileEntry): Row | null => {
+    const href = !guestFolder ? (f.type === 'folder' ? `/files?path=${encodeURIComponent(f.path)}` : skillFileLink(f.path))
+      : f.type === 'folder' ? guestFolder(f.path) : guestFolder(parentOf(f.path), f.path)
+    const row = { key: `file:${f.path}`, kind: 'file' as const, icon: f.type === 'folder' ? Folder : FileIcon, title: f.name, sub: parentOf(f.path), match: true }
+    // a guest's file no screen of theirs lists (their own folder): it opens in the preview, as their AI's links do
+    if (!href && guestFolder && f.type !== 'folder') return { ...row, href: '', after: () => openTeamFile(f.path) }
+    return href ? { ...row, href } : null
+  }
   const filesRow = (): Row => ({ key: 'files', kind: 'file', icon: FileSearch, title: t('search.inFiles', { q: q.trim() }), href: `/files?q=${encodeURIComponent(q.trim())}` })
   const messageRow = (h: RoomSearchHit): Row => ({ key: `message:${h.id}`, kind: 'message', icon: MessageSquare, title: h.snippet, href: hitHref(h), hit: { hit: h, room: hitsNow?.rooms.get(h.roomId) } })
   const moreMessagesRow = (): Row => ({ key: 'messages:more', kind: 'message', icon: ChevronDown, title: t('search.moreMessages'), href: '', run: moreHits })
@@ -627,13 +636,14 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // the team's files by name, then the files sent in my rooms: 4 in all on 전체
     if (tab === 'all' || tab === 'files')
       push('files', typeLabel('files'), [
-        ...[...(namesNow?.items ?? []).slice(0, 30).map(fileNameRow), ...(roomFilesNow?.items ?? []).map(roomFileRow)].slice(0, tab === 'all' ? FILES_FEW : undefined),
-        ...(contentQueryReady(q) ? [filesRow()] : []),
+        ...[...(namesNow?.items ?? []).slice(0, 30).map(fileNameRow).filter((r): r is Row => r !== null), ...(roomFilesNow?.items ?? []).map(roomFileRow)].slice(0, tab === 'all' ? FILES_FEW : undefined),
+        // the 파일 screen's search: not a guest's (/files goes Home for them)
+        ...(contentQueryReady(q) && !guestFolder ? [filesRow()] : []),
       ])
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst])
+  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
@@ -935,7 +945,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             </div>
           ))}
           {!sections.length && !loading && !failed && !errorNow && (
-            <p className="px-3 py-8 text-center text-sm text-faint" data-testid="search-none">{tab === 'files' && !query ? t('search.filesHint') : t('search.none')}</p>
+            <p className="px-3 py-8 text-center text-sm text-faint" data-testid="search-none">{tab === 'files' && !query ? t(guestFolder ? 'search.filesHintGuest' : 'search.filesHint') : t('search.none')}</p>
           )}
           {!sections.length && loading && <p className="px-3 py-8 text-center text-sm text-faint">…</p>}
         </div>

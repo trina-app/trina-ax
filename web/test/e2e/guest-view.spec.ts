@@ -39,6 +39,40 @@ async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind:
 test.describe('computer', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
+  test("⌘K: a guest's project folders and files open the project's files screen, the file picked; nothing goes to Files", async ({ page }) => {
+    await reset(page)
+    expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
+    expect((await page.request.post('/__test/project', { data: { name: '견적 준비', by: 'bob' } })).ok()).toBeTruthy()
+    for (const f of ['estimate-v2.md', 'notes.md']) expect((await page.request.post('/__test/file', { data: { path: `projects/견적 준비/drafts/${f}`, text: 'x\n' } })).ok()).toBeTruthy()
+    expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', name: '견적 준비' }, ai: TEAM_AI } })).ok()).toBeTruthy()
+    await signInGuest(page)
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    const projectUrl = page.url()
+    // a folder of their project: its files screen at that folder (⌘K once the page is ready for it)
+    const palette = page.getByTestId('search-palette')
+    const openPalette = () => expect(async () => {
+      await page.keyboard.press('ControlOrMeta+k')
+      await expect(palette).toBeVisible({ timeout: 1000 })
+    }).toPass()
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await openPalette()
+    await palette.getByRole('combobox').fill('drafts')
+    await palette.getByRole('option').filter({ hasText: /^drafts/ }).click()
+    await expect(page).toHaveURL(`${projectUrl}/files?dir=drafts`)
+    await expect(page.getByTestId('project-file')).toContainText('estimate-v2.md')
+    // a file: that folder with the file picked; no "search in Files" row for a guest
+    await openPalette()
+    await palette.getByRole('combobox').fill('estimate')
+    await expect(palette.getByRole('option').filter({ hasText: 'estimate-v2.md' })).toBeVisible()
+    await expect(palette.getByRole('option').filter({ hasText: /파일에서|in Files/ })).toHaveCount(0)
+    await palette.getByRole('option').filter({ hasText: 'estimate-v2.md' }).click()
+    await expect(page).toHaveURL(/\/files\?dir=drafts&select=/)
+    // picked: the row's fill (ListRow selected)
+    await expect(page.getByTestId('project-file').filter({ hasText: 'estimate-v2.md' })).toHaveClass(/(^|\s)bg-hover(\s|$)/)
+    await expect(page.getByTestId('project-file').filter({ hasText: 'notes.md' })).not.toHaveClass(/(^|\s)bg-hover(\s|$)/)
+    await page.screenshot({ path: process.env.GUEST_SHOTS ? `${process.env.GUEST_SHOTS}/search-file-picked-1440-light.png` : test.info().outputPath('picked.png') })
+  })
+
   test('a guest in a project with AI off lands on the project: no 트리나 or 파일, one quiet line, files and members', async ({ page }) => {
     await guestIn(page, { kind: 'project', name: '견적 준비', instructions: 'Answer briefly and politely.' })
     // AI off: no Ask Trina at all; their one place opens

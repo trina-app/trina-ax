@@ -27405,6 +27405,13 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: 
   purpose); whether a guest's AI may read their own room is the owner's call.
 - Version impact: **patch**.
 
+## Search results and "Open in Files" for guests — 게스트 검색 결과 (fix/guest-search-folders, 2026-11-16, the coordinator)
+
+Builds on the entry below (its leftover). In Search (⌘K) a guest's folder and file results open the project's own files
+screen (`lib/guests.ts guestFolderHref`, now with `select`), a file picked there (`?select=<full path>`: the row's fill,
+scrolled to); a result no screen of theirs lists (their own folder) is left out, and the "search in Files" row is not
+shown to a guest. "Open in Files" in a guest's preview picks the file the same way. Version impact: **patch**.
+
 ## A guest's AI reads their own rooms; file links and the delete card for guests — 게스트 AI의 대화방 읽기·파일 링크·삭제 카드 (fix/guest-ai-rooms-files, 2026-11-16, the coordinator for the owner)
 
 Builds on "The AI tells a guest the truth" (its three open questions).

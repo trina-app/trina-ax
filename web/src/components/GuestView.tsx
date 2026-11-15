@@ -139,12 +139,12 @@ export function useGuestPlacePath(): string | null {
  * undefined for anyone else (the 파일 screen is theirs). Links in answers and the preview's "open in Files" use it, so
  * a guest is never sent to /files (which goes Home for them).
  */
-export function useGuestFolderHref(): ((path: string) => string | null) | undefined {
+export function useGuestFolderHref(): ((path: string, select?: string) => string | null) | undefined {
   const me = useMe()
   const guest = isGuestMe(me)
   const byId = useProjects((s) => (guest ? s.byId : null))
   useEffect(() => { if (guest) void readProjectList({ minAgeMs: 60_000 }).catch(() => {}) }, [guest])
-  return useMemo(() => (guest ? (path: string) => guestFolderHref(path, Object.values(byId ?? {})) : undefined), [guest, byId])
+  return useMemo(() => (guest ? (path: string, select?: string) => guestFolderHref(path, Object.values(byId ?? {}), select) : undefined), [guest, byId])
 }
 
 /** Home for a guest whose invite gives them no AI (useGuestAiOff), and where a guest's sign-in lands: their one place. */
