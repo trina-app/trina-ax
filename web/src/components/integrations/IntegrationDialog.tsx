@@ -257,8 +257,9 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
     const shown = (choices ?? []).filter((c) => !q || c.name.toLowerCase().includes(q))
     const own = (others ?? []).filter((o) => !q || o.name.toLowerCase().includes(q))
     const itemCls = 'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-hover max-md:min-h-11'
+    // the list's own title, also after Back from a picked app (that app's "Add …" belongs to its form; QA TC-2837)
     return (
-      <Modal open onClose={onClose} width={600} title={title}
+      <Modal open onClose={onClose} width={600} title={team ? t('integrations.addTeamTitle') : t('integrations.addTitle')}
         footer={<Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>}>
         <div ref={body} data-testid="integration-pick">
           <div className="relative">

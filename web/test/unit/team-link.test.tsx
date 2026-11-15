@@ -476,6 +476,35 @@ describe('on screen', () => {
     }
   })
 
+  test('"Copied" is for the copied words: an edit or an emptied box brings "Copy message" back (QA TC-2846)', async () => {
+    const g = globalThis as Record<string, unknown>
+    const was = Object.getOwnPropertyDescriptor(g, 'navigator')
+    const copied: string[] = []
+    Object.defineProperty(g, 'navigator', { configurable: true, writable: true, value: { userAgent: 'test', clipboard: { writeText: async (s: string) => { copied.push(s) } } } })
+    const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} />)
+    try {
+      const button = () => m.get('team-link-copy-message')
+      expect(button().textContent).toContain(translate('ko', 'teamLink.copyMessage'))
+      await m.click('team-link-copy-message')
+      await m.until(() => copied.length > 0, 'the copy')
+      await m.until(() => button().textContent?.includes(translate('ko', 'common.copied')), '"Copied"')
+      // an edit: the words on the clipboard are not these any more
+      await m.type('team-link-message', `안녕하세요\n${URL_}`)
+      expect(button().textContent).toContain(translate('ko', 'teamLink.copyMessage'))
+      expect(button().textContent).not.toContain(translate('ko', 'common.copied'))
+      // copied again, then the box emptied: the button is off and says what it does, not "Copied"
+      await m.click('team-link-copy-message')
+      await m.until(() => button().textContent?.includes(translate('ko', 'common.copied')), '"Copied" again')
+      await m.type('team-link-message', '')
+      expect(button().hasAttribute('disabled')).toBe(true)
+      expect(button().textContent).toContain(translate('ko', 'teamLink.copyMessage'))
+      expect(button().textContent).not.toContain(translate('ko', 'common.copied'))
+    } finally {
+      await m.unmount()
+      if (was) Object.defineProperty(g, 'navigator', was); else delete g.navigator
+    }
+  })
+
   test('the groups people join (QA TC-458): "Joins: …", Change groups opens the same checks with "Make a new group"; Save sends the new set', async () => {
     const leads = { id: '01900000-0000-7000-8000-0000000000a1', name: 'Leads', description: '', memberIds: [] }
     const sales = { id: '01900000-0000-7000-8000-0000000000a2', name: 'Sales', description: '', memberIds: [] }

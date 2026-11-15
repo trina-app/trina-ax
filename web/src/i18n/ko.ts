@@ -1997,6 +1997,7 @@ export const ko = {
   "providers.howOrder": "쓰는 순서 보기",
   "providers.addAccount": "계정 추가",
   "providers.noAccounts": "아직 계정이 없어요.",
+  "providers.addBelow": "아래에서 계정을 추가하면 바로 쓸 수 있어요.",
   "providers.memberAccounts": "멤버 개인 계정",
   "admin.group.activity": "활동",
   "admin.privacy": "관리자도 다른 사람의 대화와 메모리는 볼 수 없어요.",

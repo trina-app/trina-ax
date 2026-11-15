@@ -1968,6 +1968,7 @@ export const ja: Record<MessageKey, string> = {
   "providers.howOrder": "使う順番について",
   "providers.addAccount": "アカウントを追加",
   "providers.noAccounts": "まだアカウントがありません。",
+  "providers.addBelow": "下でアカウントを追加すると使えるようになります。",
   "providers.memberAccounts": "メンバー自身のアカウント",
   "admin.group.activity": "アクティビティ",
   "admin.privacy": "管理者も他の人のチャットやメモリーは見られません。",

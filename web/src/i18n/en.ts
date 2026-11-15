@@ -1998,6 +1998,8 @@ export const en: Record<MessageKey, string> = {
   "providers.howOrder": "How order works",
   "providers.addAccount": "Add account",
   "providers.noAccounts": "No account yet.",
+  // Admin › AI accounts: a provider with no account, the line under its name (the Add account button is below it)
+  "providers.addBelow": "Add an account below to start using it.",
   "providers.memberAccounts": "Members' own accounts",
   "admin.group.activity": "Activity",
   "admin.privacy": "Admins can't see other people's chats or memories.",
