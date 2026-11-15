@@ -4978,6 +4978,7 @@ export const ko = {
   "files.findWork.add": "{n}개 넣기",
   "files.findWork.addNone": "파일 넣기",
   "files.findWork.entry": "이 컴퓨터에서 업무 파일 찾기",
+  "files.findWork.entryButton": "업무 파일 찾기",
   "files.findWork.dialogTitle": "이 컴퓨터에서 업무 파일 찾기",
   "files.findWork.myPlace": "내 파일 › 이 컴퓨터에서",
   "files.findWork.added": "{place}에 {n}개를 넣었어요",
