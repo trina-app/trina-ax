@@ -14,14 +14,15 @@ const REPORT_EVERY_MS = 250
 /** Uploads on their way at a time, on the whole page: a small file, or one chunk of a large one. Each holds a copy in memory
  * until its request ends, and the file screen and a chat start all that was picked at once: 20 files of 8 MB took 684 MB in
  * WebKit's network process. A folder upload sends three files at a time by itself and takes its places in the same line.
- * Five: one stream through the tunnel gets 5-8 MB/s and three together about 12 MB/s (2026-11-15), and the server reads
- * three chunks at once in all (server/src/uploads/chunk-gate.ts); 40 MB of copies at most, plus the overtime below. */
-export const COPIES_AT_ONCE = 5
+ * Four: one stream through the tunnel gets 5-8 MB/s and three together about 12 MB/s (2026-11-15), and the server reads
+ * three chunks at once in all (server/src/uploads/chunk-gate.ts): a large file's three chunks and one more. With the
+ * overtime below, never more than six, what a browser opens to one host over HTTP/1.1 (a server on the local network). */
+export const COPIES_AT_ONCE = 4
 /** Chunks of one large file on their way at a time (each in a place of the line above): a single file gets about twice
  * the speed of one chunk after the other, and the line still shares the places with the other files. */
 export const CHUNKS_AT_ONCE = 3
 /** Uploads that gave their place back (PLACE_IDLE_MS) and still run, at most. */
-const OVERTIME_MAX = 3
+const OVERTIME_MAX = 2
 /** No byte out for this long: the upload goes on without its place, and the line moves. There is no time limit on a
  * request, so a stopped one would otherwise hold its place until the person removes it. */
 const PLACE_IDLE_MS = 20_000
@@ -209,7 +210,7 @@ function sparingly(o: UploadOptions) {
 
 let onTheirWay = 0
 /** Uploads that gave their place back and still run. A slow line that reports late can look stopped, so this has a limit
- * too (OVERTIME_MAX): with COPIES_AT_ONCE more, at most eight copies are on their way. */
+ * too (OVERTIME_MAX): with COPIES_AT_ONCE more, at most six copies are on their way. */
 let overtime = 0
 const inLine: (() => void)[] = []
 

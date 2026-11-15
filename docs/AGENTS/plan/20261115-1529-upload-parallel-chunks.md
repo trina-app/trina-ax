@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 15:29
 - Branch: `perf/upload-parallel-chunks`
-- Status: in progress
+- Status: done
 - Where: trina-ax (Team AX core: web upload pipeline `web/src/lib/upload.ts`, `folderUpload.ts`; desktop read path
   `desktop/src/common/work-files.ts`). Why: uploads and Find work files are core features (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, faster uploads and one more status line; an optional field in the desktop bridge's read
@@ -21,7 +21,7 @@ instead, apart from "Uploading", and say clearly when the minute ran out.
 
 In:
 - `upload.ts`: up to 3 chunks of one file at a time (a small scheduler, unit tested), still in the page's one line of
-  uploads; that line goes from 3 to 5 requests at once for the whole page. Ascending chunk order, a retry per chunk, a
+  uploads; that line goes from 3 to 4 requests at once for the whole page (6 at most with stalled ones). Ascending chunk order, a retry per chunk, a
   failed chunk stops the file (the others are stopped too), resume from what the server has, complete after all.
 - Progress counts each chunk on its way.
 - Desktop read: before it reads, the app checks whether the file is in the cloud only (a Mac's SF_DATALESS; on
@@ -45,7 +45,7 @@ layout (other work), a bigger chunk size.
 
 - The server reads 3 chunks at once in all (chunk gate) and queues the rest; more requests in flight only wait there.
 - Out-of-order chunks make the server hash the rest of the file at complete (it already handles that).
-- Memory: at most 5 chunk copies (40 MB) in the page at once, plus the line's overtime (as before).
+- Memory: at most 6 chunk copies (48 MB) in the page at once, as before.
 - No migration, no server API change.
 
 ## Tests
@@ -55,4 +55,12 @@ unit tests for work files.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Changes from the plan: the page's line has 4 places, not 5, and the overtime 2, not 3, so no more
+than 6 requests ever go at once (review: HTTP/1.1 opens 6 per host). A cloud download over the minute stays "not tried
+again" like any unreadable file, with words that say to open it once and add it again (no new retry path).
+
+Measured from Indonesia to qa.trina.app (PR description): with each request on its own connection (the real
+`upload.ts` under Bun) 50 MB went from 7.4 s to 4.2 s (1.75x) and 10 MB from 2.5 s to 1.8 s (1.4x); in Chromium,
+where requests share one HTTP/2 or HTTP/3 connection, 1.0-1.2x. 2x is not reached in the browser, and a 10 MB file is
+one 8 MB chunk plus 2 MB. The server's running checksum stops after chunk 0 when chunks go at once, so complete hashes
+the rest (left for later).

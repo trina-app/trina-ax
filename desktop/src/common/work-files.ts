@@ -91,7 +91,8 @@ export const FIRST_READ_MS = 120_000
 /** A read of one file (at most 50 MB) gives up after this long: the next read waits behind it. */
 export const READ_MS = 60_000
 /** A read of a file in a cloud's folder (cloudProviderOf) that the app could not tell was online only, still going after
- * this long: it is taken to be downloading, and the page says so. */
+ * this long: it is taken to be downloading, and the page says so. A guess: a large file there on a slow disk (or under a
+ * virus scan) says so too, and one that stalls a minute there ends as cloudTimeout. */
 export const CLOUD_HINT_MS = 1500
 /** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
 const CALL_MIN_MS = 1000

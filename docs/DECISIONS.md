@@ -29825,11 +29825,13 @@ Through the Cloudflare tunnel one upload stream to a team server in Seoul gets 5
 about 12 MB/s, and a large file went up one 8 MB chunk after the other. Decided: `web/src/lib/upload.ts` sends up to
 `CHUNKS_AT_ONCE` = 3 chunks of one file at a time (`sendChunks`: they start in ascending order, each with its own
 retries; the first that fails for good stops the others and the file, and complete is sent only when all are in). Each
-chunk still takes a place in the page's one line of uploads, which goes from 3 to `COPIES_AT_ONCE` = 5 places (40 MB of
-copies at most; the overtime of a stalled upload stays at 3), so a folder of large files does not open 9 requests. The
-server needed no change: it writes each chunk at its offset, keeps the received list in a transaction, and hashes the
-rest of the file at complete when chunks came out of order; its chunk gate still reads 3 chunks at once for the whole
-server and queues the rest. Measured on qa.trina.app from Indonesia (numbers in the PR): about 1.75x for 50 MB and
+chunk still takes a place in the page's one line of uploads, which goes from 3 to `COPIES_AT_ONCE` = 4 places (a large
+file's three chunks and one more; the overtime of a stalled upload goes from 3 to 2, so never more than 6 requests, what
+a browser opens to one host over HTTP/1.1), and a folder of large files does not open 9 requests. The server is
+unchanged: it writes each chunk at its offset, keeps the received list in a transaction, and its chunk gate still reads 3
+chunks at once for the whole server. One cost: its running checksum only follows chunks that start after the one before
+was stored, so with chunks sent at once it hashes the file after the first chunk again at complete ("finishing", at
+disk speed: seconds for a GB). Catching the hash up as chunks land was left for later (a server change). Measured on qa.trina.app from Indonesia (numbers in the PR): about 1.75x for 50 MB and
 1.4x for 10 MB when each request has its own connection; in Chromium, where all requests share one HTTP/2 or HTTP/3
 connection, 1.0-1.2x. A 10 MB file is one 8 MB chunk and a 2 MB one, so it cannot reach 2x with 8 MB chunks. Smaller
 chunks or a second host name were left out (a server and infrastructure change).

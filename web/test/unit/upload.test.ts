@@ -514,15 +514,15 @@ describe('uploads', () => {
         await fourth
       })
 
-      test('at most three go on without a place: eight at a time at the very most', async () => {
+      test('at most two go on without a place: six at a time at the very most, as a browser opens to one host', async () => {
         const s = held()
-        const all = upTo(K + 5).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 3 }))
+        const all = upTo(K + 4).map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 3 }))
         await ms(60)
-        expect(s.started).toHaveLength(K + 3)
+        expect(s.started).toHaveLength(6)
         s.open()
         await ms(40)
-        expect(s.started).toHaveLength(K + 4)
-        for (let n = 0; n < K + 4; n++) {
+        expect(s.started).toHaveLength(7)
+        for (let n = 0; n < K + 3; n++) {
           await ms(15)
           if (s.waiting.length) s.open()
         }

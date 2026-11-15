@@ -282,6 +282,40 @@ describe('a large file: several chunks at once', () => {
     expect(storage.size).toBe(0)
   })
 
+  test('chunks waiting in a full line leave it when the file stops or a chunk fails: every place comes back', async () => {
+    const s = chunkServer()
+    const small = (n: number) => uploadFile(new File([new Uint8Array(100)], `${n}.pdf`), target(`docs/${n}.pdf`), { client: s.client, storage: null })
+    // every place taken by small files that wait for their answer
+    const first = Array.from({ length: COPIES_AT_ONCE }, (_, i) => small(i))
+    for (let i = 0; i < 80 && s.waiting.length < COPIES_AT_ONCE; i++) await tick()
+    // a large file whose chunks all wait in line: stopped there
+    const stop = new AbortController()
+    const stopped = uploadFile(bigFile(3), target('x/a.bin'), { ...big, client: s.client, storage: null, retryDelayMs: 0, signal: stop.signal }).catch((e: unknown) => e)
+    for (let i = 0; i < 80 && !s.calls.some((c) => c === 'POST /api/upload-sessions'); i++) await tick()
+    await tick()
+    stop.abort()
+    expect(((await stopped) as DOMException).name).toBe('AbortError')
+    expect(s.puts()).toEqual([])
+    // a large file whose first chunk gets a place and fails for good while the others wait in line
+    const failing = chunkServer({ auto: true, fail: { 0: [400] } })
+    const failed = uploadFile(bigFile(3), target('x/b.bin'), { ...big, client: failing.client, storage: null, retryDelayMs: 0 }).catch((e: unknown) => e)
+    for (let i = 0; i < 80 && !failing.calls.some((c) => c === 'POST /api/upload-sessions'); i++) await tick()
+    await tick()
+    // one small file ends: its place goes to the first chunk in line, which fails; the chunks behind it leave the line
+    s.open()
+    expect(await failed).toBeInstanceOf(ApiError)
+    // (the next chunk may have taken the place the failed one gave back, just before the stop: it is stored, no harm)
+    expect(failing.puts()[0]).toBe(0)
+    expect(failing.calls.some((c) => c.endsWith('/complete'))).toBe(false)
+    await answerAll(s, Promise.all(first))
+    // all places are free again: as many as there are go at once
+    const again = Array.from({ length: COPIES_AT_ONCE + 1 }, (_, i) => small(100 + i))
+    for (let i = 0; i < 80 && s.waiting.length < COPIES_AT_ONCE; i++) await tick()
+    await tick()
+    expect(s.waiting).toHaveLength(COPIES_AT_ONCE)
+    await answerAll(s, Promise.all(again))
+  })
+
   test(`files together never have more than ${COPIES_AT_ONCE} requests on their way, and all arrive`, async () => {
     const s = chunkServer()
     const ups = [
