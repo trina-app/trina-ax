@@ -2,8 +2,8 @@
 // said "Each member connects their own key" (QA tracking TC-2980); it says each member signs in with their own
 // account, and a key template keeps its key line (components/integrations/TemplatesView.tsx TemplateRow).
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import type { IntegrationTemplate } from '@mycel/shared/api'
-import { translate, useLocaleStore, type Locale } from '../../src/i18n'
+import type { IntegrationTemplate, Locale } from '@mycel/shared/api'
+import { translate, useLocaleStore } from '../../src/i18n'
 import { TemplateRow } from '../../src/components/integrations/TemplatesView'
 import { installDom, mount, removeDom } from './dom-host'
 
