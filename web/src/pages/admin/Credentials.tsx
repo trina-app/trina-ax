@@ -127,7 +127,7 @@ export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
 }
 
 /** No team account of this provider yet, and Add account is right below on this page (Admin › Providers): the
- * owner's line says so in the web's words (QA TC-2838); the server's line, which admins read, says "below" too. */
+ * owner's line says so in the web's words (QA TC-2838); the server's line says "below" too (#944). */
 export function addAccountBelow(tc: TeamCredentials, fam: Family): boolean {
   const d = tc.state.data
   return !!d && tc.owner && !d.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind)) && d.allowedKinds.some((k) => FAMILY[fam].includes(k))
