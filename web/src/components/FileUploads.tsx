@@ -37,7 +37,7 @@ export default function FileUploads({ here }: { here: string }) {
         // connection
         const pct = uploadBar(u.progress)
         return (
-          <li key={u.id} className="flex items-center gap-2 text-xs" data-status={u.status}>
+          <li key={u.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-status={u.status}>
             {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok" aria-hidden>✓</span> : <span className="text-danger" aria-hidden>!</span>}
             <span className="min-w-0 flex-1 truncate">
               {/* dropped on a folder row: where it goes */}
@@ -69,7 +69,7 @@ export default function FileUploads({ here }: { here: string }) {
                 <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
               </div>
             )}
-            {u.status === 'failed' && <StoragePlansLink url={u.plans} />}
+            {u.status === 'failed' && <StoragePlansLink url={u.plans} phoneLine />}
             {u.status === 'failed' && u.retry && (
               <Button size="sm" onClick={u.retry} data-testid="file-upload-retry">
                 {t('common.retry')}
