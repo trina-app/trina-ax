@@ -6,5 +6,5 @@
 -- database, so its encrypted bytes may stay in free pages until SQLite reuses them (they decrypt only with this
 -- server's credentials key file). Turns it answered keep turns.credential_id 'hosted-trial' (usage history).
 -- Data only (reader 1): an older build finds no key and answers as a team that never had one.
--- Numbered 124: 122 (guests) is the highest on dev and 123 is taken by an open PR (a_guest_place_return).
+-- Numbered 124: 123 (a_guest_place_return) is the highest on dev.
 DELETE FROM settings WHERE key IN ('ai.hostedChatKey', 'ai.hostedChatUsage');

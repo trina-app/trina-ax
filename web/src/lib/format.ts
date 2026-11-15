@@ -37,6 +37,12 @@ export function formatShortDateTime(iso: string | null | undefined, locale: Loca
 }
 
 /** A day without its year: "11월 8일", "November 8". */
+/** The day a usage limit starts again ("Dec 1"): `iso` is the start of the next period in the team's time zone
+ * (server/src/admin/budgets.ts periodEnd), so the day is read in that zone, never the browser's. */
+export function formatResetDay(iso: string, locale: Locale, timeZone?: string): string {
+  try { return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric', ...(timeZone ? { timeZone } : {}) }).format(new Date(iso)) } catch { return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric' }).format(new Date(iso)) }
+}
+
 export function formatMonthDay(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return ''
   return new Intl.DateTimeFormat(TAG[locale], { month: 'long', day: 'numeric' }).format(new Date(iso))

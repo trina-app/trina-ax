@@ -48,11 +48,14 @@ export function useGuestAiOff(): boolean {
 export function GuestNoAi({ className }: { className?: string }) {
   const t = useT()
   // Team AI that cannot answer here yet: not "isn't on" (their 트리나 place is there)
-  const team = meGuest(useMe())?.ai === 'team'
+  const me = useMe()
+  const team = meGuest(me)?.ai === 'team'
+  // its team AI account was deleted: not "yet" (Me.guest.teamAiGone)
+  const gone = me?.guest?.teamAiGone === true
   return (
     <p role="status" className={['flex items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2.5 text-sm leading-6 break-keep text-ink', className].filter(Boolean).join(' ')} data-testid="guest-no-ai">
       <Info size={16} className="mt-1 shrink-0 text-muted" aria-hidden />
-      {t(team ? 'guest.noAiTeam' : 'guest.noAi')}
+      {t(gone ? 'guest.noAiTeamGone' : team ? 'guest.noAiTeam' : 'guest.noAi')}
     </p>
   )
 }

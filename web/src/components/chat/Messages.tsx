@@ -24,7 +24,7 @@ import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api
 import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
-import { formatSize } from '../../lib/format'
+import { formatResetDay, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -676,10 +676,13 @@ export function AssistantMessage({
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
-  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? 'guest.aiLimit' as const : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
+  // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
+  const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
+  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
+    ? guestKey === 'guest.aiLimitUntil' ? t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+      : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
@@ -691,7 +694,12 @@ export function AssistantMessage({
   const press = usePhonePress(pressMenu && !streaming)
   const { copy } = useCopy()
   const answeredBy = useAnsweredBy(m)
-  const canRetry = !(m.status === 'error' && isLast) && canRegenerate
+  // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
+  // again (it would be refused until then; owner rule: never an error's look for a known state)
+  const atLimit = m.status === 'error' && m.error?.code === 'budget_exceeded'
+  // (an older limit answer may be asked again once the limit has started again)
+  const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
+  const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
   const finished = !!m.content && m.status === 'done'
   const sendHereOn = !!sendHere && shareable && finished
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
@@ -761,7 +769,13 @@ export function AssistantMessage({
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
-        {m.status === 'error' && (
+        {atLimit && (
+          <div role="status" className="mt-3 flex items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2 text-sm" data-testid="answer-limit">
+            <CirclePause size={16} className="mt-1.5 shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-1 py-1 leading-6 break-keep text-ink">{errText}</span>
+          </div>
+        )}
+        {m.status === 'error' && !atLimit && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
