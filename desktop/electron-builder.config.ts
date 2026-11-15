@@ -59,7 +59,23 @@ export default {
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },
-  dmg: { sign: false, title: `${PRODUCT.displayName} \${version}`, artifactName: `${A}-\${version}-mac-\${arch}.\${ext}` },
+  dmg: {
+    sign: false,
+    title: `${PRODUCT.displayName} \${version}`,
+    artifactName: `${A}-\${version}-mac-\${arch}.\${ext}`,
+    // the window it opens on: scripts/dmg-background.svg rendered at 660×440 and 1320×880 (background@2x.png, which
+    // electron-builder joins with this file into one retina TIFF). Finder takes the height with the title bar (32 points
+    // on macOS 26), so 452 shows the art's 420; the art runs 20 lower for the shorter title bar of older systems. The icon
+    // centres (points from the top left of the art) sit over the art's two spots.
+    background: 'build-resources/background.png',
+    window: { width: 660, height: 452 },
+    iconSize: 128,
+    iconTextSize: 12,
+    contents: [
+      { x: 180, y: 190, type: 'file' },
+      { x: 480, y: 190, type: 'link', path: '/Applications' },
+    ],
+  },
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     signAndEditExecutable: true,
