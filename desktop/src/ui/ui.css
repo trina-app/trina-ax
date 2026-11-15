@@ -241,7 +241,7 @@ h1 {
   font-size: 13px;
   color: var(--faint);
 }
-/* the row's "···": at its right, seen on hover or keyboard focus (always on a touch screen) */
+/* the row's "···": at its right, faint until the row is hovered or focused (full on a touch screen) */
 .teams .more {
   position: absolute;
   right: 8px;
@@ -256,8 +256,8 @@ h1 {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--muted);
-  opacity: 0;
+  color: var(--faint);
+  opacity: 0.45;
 }
 .teams li:hover .more,
 .teams li:focus-within .more,

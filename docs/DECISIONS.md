@@ -29051,8 +29051,8 @@ teams the screen leads with "Your teams", one row per team (an initial tile, the
 as 13px meta), the web app's list row look (List.tsx ListRow: 15px name, 13px `--faint` meta, 8px rounded hover fill,
 the row's inset outside the text column). The whole row opens the team; the open team's row ends in a quiet check and
 "Current" and a click on it goes back to it. "Remove from list" moved from a red-outlined button into the row's "···"
-menu (shown on hover or keyboard focus, always on a touch screen); its question puts Cancel first and focuses it. The
-address box comes under the list as "Join another team" (no hint paragraph there); with no saved team the screen is
+menu (faint until the row is hovered or focused, full on a touch screen); its question puts Cancel first and focuses it. The
+address box comes under the list as "Add another team" (no hint paragraph there); with no saved team the screen is
 unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
-row or Esc does the same); the first team row has the focus when the screen opens. Desktop only: the phone app keeps
+row does the same; Esc does not, so a half-typed address is never lost); the first team row has the focus when the screen opens. Desktop only: the phone app keeps
 one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.

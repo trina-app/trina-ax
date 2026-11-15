@@ -57,11 +57,16 @@ addEventListener('keydown', (e: KeyboardEvent) => {
     document.getElementById('address')?.focus()
   } else if (view !== 'main') show('main')
   else if (menuFor) closeMenu(true)
-  else if (confirming) {
-    confirming = null
-    render()
-  } else if (state.mode === 'welcome' && state.canGoBack) ui.welcome.back()
+  else if (confirming) closeConfirm()
 })
+
+/** the remove question closes without removing: the keyboard goes back to that row's "···" */
+function closeConfirm() {
+  const id = confirming
+  confirming = null
+  render()
+  if (id) document.getElementById(`team-more-${id}`)?.focus()
+}
 
 function offline() {
   return h(
@@ -179,7 +184,7 @@ function welcome() {
   if (state.teams.length) {
     return h(
       'section',
-      { class: 'card', 'aria-labelledby': 'teams-title' },
+      { class: 'card', 'aria-label': tr('app.name') },
       h('div', { class: 'brand' }, tr('app.name')),
       teamList(),
       h('h2', { class: 'another', id: 'another-title' }, tr('welcome.another')),
@@ -356,7 +361,7 @@ function closeMenu(focusButton: boolean) {
   const id = menuFor
   menuFor = null
   render()
-  if (focusButton && id) document.querySelector<HTMLElement>(`[data-team-id="${CSS.escape(id)}"] .more`)?.focus()
+  if (focusButton && id) document.getElementById(`team-more-${id}`)?.focus()
 }
 addEventListener('mousedown', (e) => {
   if (menuFor && !(e.target as Element).closest?.('.row-menu, .more')) closeMenu(false)
@@ -385,8 +390,8 @@ function teamList() {
             {
               class: 'team-row',
               type: 'button',
+              id: `team-row-${t.id}`,
               'data-testid': 'team-open',
-              'aria-label': `${tr('welcome.open')}: ${t.label}`,
               'aria-current': t.current ? 'true' : undefined,
               title: t.origin,
               onclick: () => ui.welcome.open(t.id),
@@ -400,6 +405,7 @@ function teamList() {
             {
               type: 'button',
               class: 'more',
+              id: `team-more-${t.id}`,
               'aria-label': tr('welcome.more', { team: t.label }),
               title: tr('welcome.more', { team: t.label }),
               'aria-haspopup': 'menu',
@@ -422,10 +428,18 @@ function teamList() {
                   'aria-label': tr('welcome.more', { team: t.label }),
                   onkeydown: (e: Event) => {
                     const k = (e as KeyboardEvent).key
-                    if (k === 'Escape' || k === 'Tab') {
+                    if (k === 'Escape') {
                       e.preventDefault()
                       e.stopPropagation()
                       closeMenu(true)
+                    } else if (k === 'Tab') {
+                      // focus moves on as usual; the menu closes after it
+                      menuFor = null
+                      setTimeout(() => {
+                        const at = document.activeElement?.id
+                        render()
+                        if (at) document.getElementById(at)?.focus()
+                      })
                     }
                   },
                 },
@@ -458,8 +472,8 @@ function confirmBox(id: string) {
   if (!team) return null
   return h(
     'div',
-    { class: 'confirm', role: 'alertdialog', 'aria-label': tr('welcome.remove'), 'data-testid': 'remove-confirm' },
-    h('p', {}, tr('welcome.removeConfirm', { team: team.label })),
+    { class: 'confirm', role: 'alertdialog', 'aria-label': tr('welcome.remove'), 'aria-describedby': 'remove-body', 'data-testid': 'remove-confirm' },
+    h('p', { id: 'remove-body' }, tr('welcome.removeConfirm', { team: team.label })),
     h(
       'div',
       { class: 'row' },
@@ -468,10 +482,7 @@ function confirmBox(id: string) {
         {
           type: 'button',
           id: 'remove-cancel',
-          onclick: () => {
-            confirming = null
-            render()
-          },
+          onclick: closeConfirm,
         },
         tr('welcome.cancel'),
       ),
@@ -483,6 +494,8 @@ function confirmBox(id: string) {
           onclick: async () => {
             confirming = null
             await ui.welcome.remove(id)
+            // the list comes back without it: the keyboard goes to the first team left, or the box
+            ;(document.querySelector<HTMLElement>('.team-row') ?? document.getElementById('address'))?.focus()
           },
         },
         tr('welcome.removeYes'),
