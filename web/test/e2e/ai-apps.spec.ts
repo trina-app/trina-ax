@@ -78,13 +78,14 @@ test('the dialog says Connected when the app appears, and the list then shows it
   await page.getByTestId('ai-app-connect-claude').click()
   const status = page.getByRole('dialog').getByTestId('ai-app-status')
   await expect(status).toHaveAttribute('data-state', 'waiting')
-  state.items = [app]
+  // the dialog's own app (by its client name, appIdFor)
+  state.items = [{ ...app, clientName: 'Claude' }]
   await expect(status).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
-  await expect(status).toContainText('Synthetic Claude')
+  await expect(status).toContainText('Claude')
   await page.getByTestId('ai-app-done').click()
   const connected = page.getByTestId('connected-apps')
   await expect(connected.getByTestId('connector-item')).toHaveCount(1)
-  await expect(connected.getByTestId('connector-item')).toContainText('Synthetic Claude')
+  await expect(connected.getByTestId('connector-item')).toContainText('Claude')
   await expect(connected.getByRole('button', { name: '연결 해제', exact: true })).toBeVisible()
   // closed: no more asking
   const after = state.calls

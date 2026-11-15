@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:16
 - Branch: `fix/mcp-consent-plain-lines`
-- Status: in progress
+- Status: done
 - Where: server/src/connectors/remote-mcp, server/src/routes/remote-mcp.ts, web/src/pages (ConnectorConsent, AiApps),
   web/src/components/integrations/AiAppConnect.tsx. Why: core connector code and its web pages (docs/REPOSITORY-RULES.md)
 - Version impact: patch, three wording and display fixes on existing pages; the API keeps its codes and only adds
@@ -52,4 +52,6 @@ No migration. The 404 keeps its status and code, so older apps behave the same. 
 
 ## Result
 
-(filled in at the end)
+Built as planned. The server keeps 404 / `not_found` and adds `params.reason = 'request_expired'`; the page hides the
+request on that reason. One existing e2e check changed: the Claude dialog now waits for an app named Claude, so its
+fake connection is called "Claude" instead of "Synthetic Claude" (which belongs to the Other apps row).
