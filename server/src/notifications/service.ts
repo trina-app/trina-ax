@@ -70,7 +70,7 @@ export type ServiceRequestEvent = Extract<NotificationEventType, 'service.reques
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -83,7 +83,7 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -241,6 +241,11 @@ export class Notifications {
    * Inbox only, never an OS push. */
   serviceReady(userId: string, requestId: string, at = new Date().toISOString()) {
     this.record(userId, 'service.ready', requestId, at, true)
+  }
+  /** A member's ask closed without the app (an admin's Dismiss, or the 30 days): one quiet notice for them that they may
+   * ask again (the source is the request's id; QA TC-2946). Inbox only, never an OS push. */
+  serviceClosed(userId: string, requestId: string, at = new Date().toISOString()) {
+    this.record(userId, 'service.closed', requestId, at, true)
   }
   /** Who handles the asks changed (the 30-second check): someone no longer an active owner or admin loses the notices
    * (nothing there is theirs to do), and an owner or admin made since gets the notice of each app asked for now. */
@@ -599,7 +604,7 @@ export class Notifications {
     // a member's ask to add an app: for an owner or admin, who asks (the newest asker by name, and how many others)
     // while any request waits, else who asked in the round that ended; the app only for someone who is neither now.
     // The asker's answer: the app, to connect (never who set it up)
-    if (isServiceRequestEvent(row.event_type)) return serviceRequestOut(this.ctx.db, row)
+    if (isServiceRequestEvent(row.event_type) || row.event_type === 'service.closed') return serviceRequestOut(this.ctx.db, row)
     // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
     if (row.event_type === 'onboarding.ai_request') {
       const notReady = row.source_id.startsWith(NOT_READY_SOURCE)
@@ -744,6 +749,14 @@ export class Notifications {
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
+    }
+    // a person's own connection other than Google Drive (connections/service.ts tellSignInAgain, source "<id>_<ms>"): its
+    // name and its page while it is still theirs (QA TC-2945); Google Drive's and a removed one's: the generic line
+    if (row.event_type === 'connection.reconnect') {
+      const id = /^(.+)_\d+$/.exec(row.source_id)?.[1]
+      const c = id ? this.ctx.db.query("SELECT id, name, google_app FROM integrations WHERE id=? AND scope='personal' AND owner_user_id=?").get(id, row.user_id) as { id: string; name: string; google_app: string | null } | null : null
+      if (c) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'connections', outcome: null,
+        connection: { id: c.id, name: plainLabel(c.name), googleApp: c.google_app } }
     }
     let schedule: Pick<InboxNotification, 'schedule'> = {}
     if (row.event_type !== 'connection.reconnect') {
@@ -982,6 +995,10 @@ export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string
 export function notifyServiceReady(ctx: AppContext, userId: string, requestId: string) {
   try { notificationsOf(ctx).serviceReady(userId, requestId) }
   catch { ctx.log.warn('app ready notice deferred') }
+}
+export function notifyServiceClosed(ctx: AppContext, userId: string, requestId: string) {
+  try { notificationsOf(ctx).serviceClosed(userId, requestId) }
+  catch { ctx.log.warn('app request closed notice deferred') }
 }
 export function syncServiceRequestNotices(ctx: AppContext) {
   try { notificationsOf(ctx).syncServiceRequests() }

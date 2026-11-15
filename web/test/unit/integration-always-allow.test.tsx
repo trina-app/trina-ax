@@ -5,12 +5,13 @@
 // /api/integrations/:id/always-allow, never the team's rule); on their own connection it sets the write rule back to
 // "ask". A team connection set to "Run without asking" by an admin says so in its own words and offers no such item.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import type { Integration } from '@mycel/shared/api'
+import type { Integration, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { MemoryRouter } from 'react-router-dom'
 import { useIntegrationActions } from '../../src/components/integrations/IntegrationRow'
 import { ConnectionPage } from '../../src/components/integrations/ConnectionPage'
 import { useUi } from '../../src/store/ui'
+import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
 const realFetch = globalThis.fetch
@@ -82,6 +83,47 @@ describe('Always allow on a connection\'s page', () => {
       expect(m.find('connection-menu')).toBeNull()
       expect(m.find('integration-always-allow-stop')).toBeNull()
     } finally { await m.unmount() }
+  })
+})
+
+// QA TC-2944: with the team's Always-allow switch off (Admin › Team settings), the server asks again after something
+// from outside (connections/tools.ts gate: freely = live && teamOn) and ignores a member's own Always allow at a team
+// connection. The page follows the switch (Me.team.alwaysAllowOff) and never promises "even in a chat that read
+// something from outside" there.
+describe('the team turned Always allow off', () => {
+  const status = useSession.getState().status
+  const signIn = (off: boolean) => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'alice', username: 'alice', name: 'Alice', role: 'member', prefs: {} }, team: { name: 'Acme', defaultLocale: 'en', ...(off ? { alwaysAllowOff: true } : {}) }, groups: [], session: { id: 's', client: 'web' }, server: { version: '0', dev: true } } as unknown as Me } })
+  afterEach(() => { useSession.setState({ status }) })
+  const line = async (i: Integration, readOnly: boolean) => {
+    const { m } = await row(i, readOnly)
+    try { return m.get('app-abilities').textContent } finally { await m.unmount() }
+  }
+  const mine: Integration = { ...base, id: '01900000-0000-7000-8000-0000000000b3', scope: 'personal', name: 'Tasks', writePolicy: 'allow', canManage: true, tools: [writeTool] }
+  test('my own Always allow: asks after something from outside; switch on: also there, except a question from Slack', async () => {
+    signIn(true)
+    expect(await line(mine, false)).toBe(translate('en', 'gapps.changeAllowLineOff'))
+    signIn(false)
+    expect(await line(mine, false)).toBe(translate('en', 'gapps.changeAllowLine'))
+  })
+  test('a team connection set to run without asking: the team\'s line for the switch', async () => {
+    signIn(true)
+    expect(await line({ ...base, tools: [writeTool], writePolicy: 'allow' }, true)).toBe(translate('en', 'connectors.page.teamAllowLineOff'))
+    signIn(false)
+    expect(await line({ ...base, tools: [writeTool], writePolicy: 'allow' }, true)).toBe(translate('en', 'connectors.page.teamAllowLine'))
+  })
+  test('my own Always allow at a team connection does not count while the switch is off: it asks', async () => {
+    signIn(true)
+    expect(await line({ ...base, tools: [writeTool], alwaysAllowedByMe: true }, true)).toBe(translate('en', 'gapps.changeAskLine'))
+  })
+  test('the switch-off lines say it asks there, in every language; the switch-on lines name Slack', () => {
+    for (const loc of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      for (const k of ['gapps.changeAllowLine', 'gapps.policy.allowLine', 'connectors.page.teamAllowLine'] as const) expect(translate(loc, k, { name: 'Gmail' }), `${loc} ${k}`).toContain('Slack')
+      for (const k of ['gapps.changeAllowLineOff', 'gapps.policy.allowLineOff', 'connectors.page.teamAllowLineOff'] as const) {
+        const s = translate(loc, k, { name: 'Gmail' })
+        expect(s, `${loc} ${k}`).not.toMatch(/\beven\b|también después|juga setelah|でも、確認なし|대화에서도 묻지 않고|即使/)
+      }
+    }
+    expect(translate('en', 'gapps.policy.allowLineOff', { name: 'Gmail' })).toContain('asks first')
   })
 })
 

@@ -222,8 +222,9 @@ the page says "Request sent" (also when opened again while the request is open),
   own only; audited `service_request.withdraw`). It still counts toward the 10 a day.
 - **Admin › Connectors, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
   Google one: its page; a listed service: "Connect for the team") and **Dismiss** (`POST
-  /api/admin/service-requests/:service/dismiss`: closes them, nobody is told, they may ask again; audited
-  `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
+  /api/admin/service-requests/:service/dismiss`: closes them; each member who asked gets one quiet notice
+  (`service.closed`, never an admin's name) that it was closed and that they may ask again, as after the 30 days (QA
+  TC-2946, migration 353); audited `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
   with no reason (`closed_reason` NULL), so no migration. The notice of a listed service opens its page in Admin ›
   Connectors.
 - Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,

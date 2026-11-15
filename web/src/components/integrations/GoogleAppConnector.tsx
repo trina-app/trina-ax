@@ -239,9 +239,11 @@ export function Note({ children, tone, testId, reason }: { children: React.React
 function GoogleAppSettings({ v, busy, onPolicy, onClose }: { v: GoogleAppView; busy: boolean; onPolicy: (p: 'ask' | 'allow') => void; onClose: () => void }) {
   const t = useT()
   const name = builtInName(v.id)
+  // the team turned Always allow off: it asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
   const opts = [
     { id: 'ask' as const, label: t('gapps.policy.ask'), line: t('gapps.policy.askLine') },
-    { id: 'allow' as const, label: t('gapps.policy.allow'), line: t('gapps.policy.allowLine', { name }) },
+    { id: 'allow' as const, label: t('gapps.policy.allow'), line: t(alwaysOff ? 'gapps.policy.allowLineOff' : 'gapps.policy.allowLine', { name }) },
   ]
   return (
     <Modal open title={t('gapps.settingsTitle', { name })} onClose={onClose} width={440}

@@ -28932,3 +28932,36 @@ QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
   shows, and a member's search lists the listed services with "Ask admin to add it" (their page has the button); without
   a search they stay out of Discover.
 - Version impact: **patch** (words, one list entry kept, one optional field on two answers).
+
+## Connector lines and notices keep their word (fix/connector-notices-truth, 2026-11-15, QA TC-2939, TC-2944, TC-2945, TC-2946)
+
+- **An address that answered says so** (TC-2939). The page's own words for a check's reason (ConnectionPage.tsx
+  REASON_KIND) had `not_mcp` and `redirect` under "Couldn't reach the service at its address". They have their own
+  lines now ("The address answered, but not like a connector." / "The address sent us on to another address."), with
+  the same next step (check the address in Edit; ask an admin; on a computer).
+- **Always allow lines follow the team's switch** (TC-2944). The server rule stays (it is the safer one): with the
+  team's Always allow switch off, a person's Always allow and a team connection set to run without asking ask again in
+  a chat that read something from outside, and a member's own Always allow at a team connection does not count; with
+  it on, a question sent from Slack still asks there (connections/tools.ts gate). The page could not know the switch,
+  so the session tells it (`Me.team.alwaysAllowOff`, absent while on), and the page, the Google apps' policy dialog and
+  a team connection's line pick the line for it. Owner rule "Always allow means done" kept: no caps added, only the
+  words made true.
+- **Every own connection says when it needs a sign-in again** (TC-2945). Only Google Drive called
+  notifyConnectionReconnect, while Settings › Notifications promised it "when a connected service needs you to sign in
+  again". Now connections/service.ts setStatus tells the owner of a personal connection (an MCP or HTTP API one, one
+  from a template, Gmail and the other Google apps) when it moves from connected into needs sign-in: the same
+  `connection.reconnect` notice and push (the lock screen stays generic), source `<id>_<ms>`, none while the last one
+  for that connection is unread, none for one that never worked or was just edited (the person is at it). The Inbox
+  names it and opens its page (`InboxNotification.connection`); Google Drive's keeps the generic line. A team
+  connection tells nobody yet (who: open question).
+- **A member's ask that closes without the app is answered** (TC-2946). Reverses "A member asks for any listed
+  connector, and can take it back": "Dismissing tells nobody". The page told the member "We'll tell you when Notion is
+  ready", so an admin's Dismiss and the 30 days now give each asker one quiet notice (`service.closed`, Activity only,
+  never a push, never an admin's name: "An admin closed your request for Notion. You can ask again." / "…ended after
+  30 days with no answer…") that opens the app's page. A member's own Cancel request tells nobody. Data: migration 353,
+  `service_request_closed_notices` (the 343 table's event CHECK is fixed); how it closed is the request's
+  `closed_reason` ('expired', NULL for a dismissed one), so no change to `service_requests`.
+- Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-service-requests.test.ts`,
+  `c-service-requests-catalog.test.ts`, `a-auth.test.ts` (the session flag); web unit `connector-detail-tools`,
+  `integration-always-allow`, `service-requests`.
+- Version impact: **patch** (wrong lines fixed and missing notices sent; one additive migration, no API removed).

@@ -18,6 +18,7 @@ import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../../lib/connectors'
 import { useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { Tooltip } from '../Tooltip'
 import { LogoTile } from './ConnectorsView'
 
@@ -67,6 +68,8 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
   children?: ReactNode
 }) {
   const t = useT()
+  // the team turned Always allow off: an Always allow asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
   const titleId = useId()
   const toolsId = useId()
   const Title = inSettings ? 'h2' : 'h1'
@@ -98,7 +101,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           <div className="space-y-2">
             <p className="text-sm leading-relaxed text-ink/90" data-testid="app-about">{about}</p>
             <p className="text-sm text-muted" data-testid="app-abilities" data-can-change={canChange ? 'yes' : 'no'}>
-              {abilities ?? (!canChange ? t('gapps.readOnlyLine') : asks === 'allow' ? t('gapps.changeAllowLine') : t('gapps.changeAskLine'))}
+              {abilities ?? (!canChange ? t('gapps.readOnlyLine') : asks === 'allow' ? t(alwaysOff ? 'gapps.changeAllowLineOff' : 'gapps.changeAllowLine') : t('gapps.changeAskLine'))}
             </p>
           </div>
         )}
