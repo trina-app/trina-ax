@@ -46,6 +46,7 @@ import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
+import { dbReaderLevel, healFile, recoveryAdvice, releaseIn, unreadablePrevious, UNREADABLE } from './forward'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -144,6 +145,30 @@ export function patchUpdateState(home: string, f: (s: UpdateState) => void): Upd
   f(s)
   writeJson(updatePaths(home).state, s)
   return s
+}
+
+/** A recovery outside an update run (the supervisor going forward, a heal, a reinstall by hand) as the last result,
+ * so `teamax update status` and Admin > System no longer show the failed run's advice (QA TC-335). */
+export function noteRecovery(home: string, r: { kind: ResultKind; version: string | null; message: string }, now = new Date()) {
+  patchUpdateState(home, (x) => {
+    x.last = { kind: r.kind, at: now.toISOString(), version: r.version, message: r.message }
+    if (r.kind === 'updated' && r.version) {
+      delete x.failed[r.version]
+      if (x.lastUpdate && x.lastUpdate.to === r.version && x.lastUpdate.result !== 'updated') x.lastUpdate = { ...x.lastUpdate, result: 'updated', error: null, at: now.toISOString() }
+    }
+  })
+}
+
+/** After this version started well outside an update run (office-install.sh by hand): a failed update to this version
+ * or an older one is over, so its advice goes. Returns a line for the log ('' = nothing to clear). */
+export function clearStaleFailure(home: string, now = new Date()): string {
+  const st = readUpdateState(home)
+  const current = installedVersion(home)
+  const lu = st.lastUpdate
+  if (!current || !lu || lu.result === 'updated' || compareVersions(current, lu.to) < 0) return ''
+  noteRecovery(home, { kind: 'updated', version: current, message: `${current} installed with office-install.sh; the failed update to ${lu.to} (${lu.at.slice(0, 16)}) is over` }, now)
+  fs.rmSync(healFile(home), { force: true })
+  return `update status: the failed update to ${lu.to} is cleared (${current} runs)`
 }
 
 function pidAlive(pid: number): boolean {
@@ -393,6 +418,8 @@ export const defaultDeps = (): UpdateDeps => ({
 })
 
 export class UpdateFailure extends Error { name = 'UpdateFailure' }
+/** the old version cannot read the database any more: rolling back would only make it exit 75 forever */
+export class NoRollback extends UpdateFailure { name = 'NoRollback' }
 /** the channel has no release yet (404): nothing to install, not a failure */
 export class NotPublished extends UpdateFailure { name = 'NotPublished' }
 
@@ -576,6 +603,12 @@ function toolEnv(home: string): Record<string, string> {
 /** Put the old app back and start it (after a failed install). Returns the version that answers, or null. */
 export async function rollBack(home: string, from: string, to: string, d: UpdateDeps, healthWaitMs: number): Promise<string | null> {
   const s = loadSettings(home)
+  // QA TC-335: a build that cannot read the database (the new version migrated it) would only exit 75 forever
+  if (installedVersion(home) !== from) {
+    const prev = unreadablePrevious(home) ?? releaseIn(home, UNREADABLE)
+    const need = dbReaderLevel(home)
+    if (prev && prev.version === from && prev.level < need) throw new NoRollback(`${from} reads schema level ${prev.level} and ${to} updated the database to level ${need}: not rolled back (${from} cannot start on it)`)
+  }
   d.log(`rolling back to ${from}`)
   await d.stopAgents(s)
   const app = path.join(home, 'app'), prev = path.join(home, 'app.previous'), failed = path.join(home, 'app.failed')
@@ -1083,9 +1116,23 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   if (problem) {
     phase('rollback', `${problem}: rolling back to ${current}`, target)
     let back: string | null = null
-    try { back = await rollBack(home, current, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS) } catch (e) { d.log(`rollback: ${(e as Error).message}`) }
-    if (back !== current) return fail(`${problem}; the rollback to ${current} did not answer either: run ${path.join(home, 'teamax')} status and office-install.sh from the ${PRODUCT.officeBundle}-${current} zip`)
-    return fail(`${problem}; rolled back to ${current}`, 'rolled-back')
+    let refused: string | null = null
+    try { back = await rollBack(home, current, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS) } catch (e) {
+      d.log(`rollback: ${(e as Error).message}`)
+      if (e instanceof NoRollback) refused = e.message
+    }
+    if (refused) {
+      // the new version stays: start it once more (its own install) and give it the usual time
+      phase('verify', `${refused}; starting ${target} again`, target)
+      const r2 = await d.exec([path.join(home, 'app', 'bin', 'bun'), path.join(home, 'app', 'server', 'src', 'office.js'), 'install', '--no-open', '--home', home], { cwd: home, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, timeoutMs: 5 * 60_000 })
+      if (r2.code !== 0) d.log(`${target}'s install exited ${r2.code}`)
+      const w2 = await waitVersion(s.appPort, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS, o.migrateWaitMs ?? MIGRATE_WAIT_MS)
+      if (w2.version !== target) return fail(`${problem}; ${refused}; ${target} still does not answer: run ${path.join(home, 'teamax')} status, then ${recoveryAdvice(home, target)}`)
+      d.log(`${problem}; ${refused}; ${target} answers after a second start`)
+    } else {
+      if (back !== current) return fail(`${problem}; the rollback to ${current} did not answer either: run ${path.join(home, 'teamax')} status, then ${recoveryAdvice(home, target)}`)
+      return fail(`${problem}; rolled back to ${current}`, 'rolled-back')
+    }
   }
   patchUpdateState(home, (x) => {
     x.lastUpdate = { from: current, to: target, at: d.now().toISOString(), result: 'updated', error: null }
@@ -1097,6 +1144,8 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   fs.rmSync(up.staging, { recursive: true, force: true })
   fs.rmSync(up.download, { recursive: true, force: true })
   fs.rmSync(path.join(home, 'app.failed'), { recursive: true, force: true })
+  fs.rmSync(path.join(home, UNREADABLE), { recursive: true, force: true })
+  fs.rmSync(healFile(home), { force: true })
   await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
   await deliverMac(home, r, d).catch((e) => d.log(`Mac app update not offered: ${(e as Error).message}`))
   return { kind: 'updated', version: target, message: `${current} → ${target}` }

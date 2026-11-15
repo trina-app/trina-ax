@@ -9,7 +9,8 @@
 //                                   the team's time zone
 //   teamax update run               what the agent runs (every 15 minutes: only inside the window; or a request
 //                                   from `now` / the web)
-import { MIGRATE_WAIT_MS } from './health'
+import { MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
+import { healDecision, healFile, readHealMarker, recoveryAdvice, updateRunning } from './forward'
 import fs from 'node:fs'
 import path from 'node:path'
 import { launchAgent } from '../../../scripts/dev-service'
@@ -18,7 +19,7 @@ import { openDb } from '../db'
 import { CHANNELS, type Channel } from './release'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import {
-  officeSchedule, readUpdateSettings, readUpdateState, requestUpdate, runUpdate, scheduledRun, takeRequest, updateLabel, updatePaths, updatePlist,
+  installedVersion, noteRecovery, officeSchedule, readUpdateSettings, readUpdateState, requestUpdate, runUpdate, scheduledRun, takeRequest, updateLabel, updatePaths, updatePlist,
   updateView, writeUpdateSettings, type OfficeUpdateView, type RunResult,
 } from './update'
 
@@ -64,6 +65,44 @@ export function reloadMarkedUpdateAgent(s: OfficeSettings): string {
   if (ua.loaded()) ua.stop()
   ua.start()
   return `update agent reloaded (${label})`
+}
+
+export interface HealDeps {
+  loaded(): boolean
+  health(port: number): Promise<HealthAnswer>
+  /** runs app/'s office.js install; the exit code */
+  install(): Promise<number>
+  log(line: string): void
+}
+
+/** QA TC-335. An old updater (0.4.0 and the like) that tried to roll back to a build that cannot read the database
+ * found no app.previous (the new install set it aside), so the new app/ stayed, but the old updater had stopped the
+ * server first. This agent runs from app/, so it is the new version: start the server again with app/'s own install.
+ * Only with the marker the new install wrote (update/heal.json) and only after an update that failed: a server the
+ * owner stopped (`teamax stop`) after a good update stays stopped. Returns what it did ('' = nothing). */
+export async function healAfterRefusedRollback(s: OfficeSettings, deps: HealDeps): Promise<string> {
+  const home = s.home
+  const marker = readHealMarker(home)
+  if (!marker) return ''
+  const st = readUpdateState(home)
+  const h = await deps.health(s.appPort)
+  const d = healDecision({
+    marker, installed: installedVersion(home), plist: fs.existsSync(officePaths(home).plist(s.label)), loaded: deps.loaded(),
+    answer: typeof h === 'string' ? h : null, updateRunning: !!st.running || updateRunning(home), lastUpdate: st.lastUpdate,
+  })
+  if (d.kind === 'none') { if (d.drop) fs.rmSync(healFile(home), { force: true }); return '' }
+  deps.log(`heal: ${d.why}: starting ${marker.version} again (office.js install)`)
+  const code = await deps.install()
+  const after = await deps.health(s.appPort)
+  if (code !== 0 && after !== marker.version) {
+    const msg = `${marker.version} was started again after a refused rollback, but it does not answer: run ${path.join(home, 'teamax')} status, then ${recoveryAdvice(home, marker.version)}`
+    noteRecovery(home, { kind: 'failed', version: marker.version, message: msg })
+    return msg
+  }
+  fs.rmSync(healFile(home), { force: true })
+  const msg = `${marker.version} runs again: the old updater's rollback to ${marker.previous || 'the old version'} was refused (it cannot read the database)`
+  noteRecovery(home, { kind: 'updated', version: marker.version, message: msg })
+  return msg
 }
 
 export function removeUpdateAgent(s: OfficeSettings): string {
@@ -128,6 +167,17 @@ export async function updateCommand(home: string, args: string[], envPath: strin
   const s = loadSettings(home)
   switch (sub) {
     case 'run': {
+      // before the update window's check: a server an old updater stopped must not wait for the window
+      try {
+        const ua = launchAgent(s.label, officePaths(home).plist(s.label))
+        const app = officePaths(home).app
+        const r = await healAfterRefusedRollback(s, {
+          loaded: () => ua.loaded(), health: (port) => probeHealth(port),
+          install: async () => Bun.spawn([path.join(app, 'bin', 'bun'), path.join(app, 'server', 'src', 'office.js'), 'install', '--no-open', '--home', home], { cwd: home, env: { ...(process.env as Record<string, string>), TEAMAX_UPDATE_RUN: '1' }, stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' }).exited,
+          log: (l) => console.log(`${new Date().toISOString()} [update] ${l}`),
+        })
+        if (r) console.log(`${new Date().toISOString()} [update] heal: ${r}`)
+      } catch (e) { console.log(`${new Date().toISOString()} [update] heal failed: ${(e as Error).message}`) }
       const req = takeRequest(home)
       if (req) { await runUpdate(home, { reason: 'now' }); return 0 }
       // launchd starts this every 15 minutes: outside the team's update window it ends here (no network, no log line)
