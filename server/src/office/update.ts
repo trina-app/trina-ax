@@ -23,7 +23,8 @@
 //      version; that version is not tried again by the nightly run (`teamax update now` tries again)
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
 //      (electron-updater, generic provider) updates from the office's own Mac (offerWindows; a Linux team server does
-//      the same after each of its updates, system/windows-app.ts)
+//      the same after each of its updates, system/windows-app.ts); and the release's Mac update zip + latest-mac.yml
+//      (offerMac), so the desks' Developer ID signed Mac app updates the same way
 //
 // data/, team/, tls/ and config/ are never touched by an update (the installer keeps them; the rollback moves only
 // app folders). The updater's own files live in <home>/update/: settings.json (channel, time, paused), state.json
@@ -40,7 +41,7 @@ import { compareVersions } from '../system/update'
 import { DEFAULT_UPDATE_WINDOW, inWindow } from '../system/update-job'
 import { newerHeadSeen, rolloutTurn, type RolloutTurn } from '../system/rollout'
 import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
-import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
+import { addInstaller, ensureDir, MAC_ZIP_RE, macOfferedIn, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
@@ -456,6 +457,18 @@ const SIGNED = new WeakMap<OfficeRelease, SignedText>()
 export interface SignedText { channel: Channel; text: string }
 export const signedTextOf = (r: OfficeRelease): SignedText | undefined => SIGNED.get(r)
 
+/** The signed manifest of `r` for the downloads folder `dir`, or undefined when the folder offers a desktop app newer than
+ * the one `r` names for that platform (put there by hand, or by the other channel before a switch): the manifest that
+ * names that app stays, else its desks could not check it (offerWindows / offerMac place what this returns). */
+export function manifestForFolder(dir: string, r: OfficeRelease): SignedText | undefined {
+  const s = signedTextOf(r)
+  if (!s) return undefined
+  const win = readIndex(dir).some((i) => i.platform === 'windows' && compareVersions(i.version, r.windows?.version ?? r.version) > 0)
+  const m = macOfferedIn(dir)
+  const mac = !!m && compareVersions(m.version, r.mac?.version ?? r.version) > 0
+  return win || mac ? undefined : s
+}
+
 /** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
  * file's SHA-512 (base64, electron-updater's latest.yml), computed on the way too. */
 export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 'fetch'>, o: { sha512?: (b64: string) => void } = {}): Promise<string> {
@@ -623,7 +636,7 @@ export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<Upd
   const w = r.windows
   if (!w) return null
   let res: Awaited<ReturnType<typeof offerWindows>>
-  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, { ...o, signed: signedTextOf(r) }) }
+  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, { ...o, signed: manifestForFolder(path.join(officePaths(home).data, 'downloads'), r) }) }
   finally {
     // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update; a failed
     // download too). rmdir removes only an empty folder: a deferred release's zip stays
@@ -763,6 +776,130 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
   return { kind: 'offered', version: w.version }
 }
 
+/** Offer the release's Mac app update to the desks: data/downloads/<zip> and latest-mac.yml. */
+export async function deliverMac(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<string | null> {
+  const m = r.mac
+  if (!m) { try { dropUnnamedMac(path.join(officePaths(home).data, 'downloads'), r, d.log) } catch {} ; return null }
+  let res: MacOffer
+  try { res = await offerMac(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'mac'), m, d, { ...o, signed: manifestForFolder(path.join(officePaths(home).data, 'downloads'), r) }) }
+  finally { try { fs.rmdirSync(updatePaths(home).download) } catch {} }
+  if (res.kind === 'no-room') throw new UpdateFailure(res.message)
+  if (res.kind === 'offered') d.log(`Mac app ${m.version} update offered to the desks (${m.zip.file}, latest-mac.yml)`)
+  return res.kind === 'offered' ? m.version : null
+}
+
+export type MacRelease = NonNullable<OfficeRelease['mac']>
+export type MacOffer = { kind: 'offered' | 'current' | 'newer'; version: string } | { kind: 'no-room'; message: string }
+
+/**
+ * Put a verified release's Mac update zip and its latest-mac.yml into the downloads folder `dir`, so the desks'
+ * Developer ID signed Mac app (electron-updater's Mac updater, generic provider = <team address>/downloads/) updates
+ * from its own team server, like the Windows app (offerWindows). Both files are downloaded into `tmp` with size and
+ * SHA-256 checked against the signed manifest, latest-mac.yml must name exactly that zip (version, sha512, size), the
+ * zip is moved in under its own name, the signed manifest is placed, latest-mac.yml comes last (it never names a file
+ * that is not there), then older update zips go. index.json is not changed: the zip is no installer for Settings ›
+ * Apps; routes/downloads.ts serves it only while latest-mac.yml names it. The Mac app installs it only after the
+ * signed release names its SHA-256 (desktop/src/common/update-verify.ts), and Squirrel.Mac only when it is signed by
+ * the same Developer ID team.
+ */
+export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike; signed?: SignedText } = {}): Promise<MacOffer> {
+  const now = macOfferedIn(dir)
+  if (now && compareVersions(now.version, m.version) > 0) return { kind: 'newer', version: now.version }
+  // the zip in place is the release's: its SHA-256, read again only when its size or time changed since it was last read
+  // (.mac-zip.json, never served), so the 200 MB file is not read every run and a damaged copy is still replaced
+  const inPlace = macZipMatches(dir, m.zip)
+  if (now && now.zip === m.zip.file && inPlace && (() => { try { return sha256File(path.join(dir, 'latest-mac.yml')) === m.latestYml.sha256 } catch { return false } })()) {
+    placeSignedManifest(dir, o.signed)
+    return { kind: 'current', version: m.version }
+  }
+  const room = roomFor(tmp, (inPlace ? 0 : m.zip.size) + m.latestYml.size, o.statfs)
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Mac app ${m.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  if (!MAC_ZIP_RE.test(m.zip.file)) throw new UpdateFailure(`${m.zip.file} is not a Mac app update zip name`)
+  fs.rmSync(tmp, { recursive: true, force: true })
+  try {
+    let zip512 = ''
+    const zip = inPlace ? null : await download(m.zip, tmp, d, { sha512: (b) => { zip512 = b } })
+    if (inPlace) zip512 = sha256File(path.join(dir, m.zip.file), 'sha512', 'base64')
+    const yml = await download(m.latestYml, tmp, d)
+    checkLatestMacYml(fs.readFileSync(yml, 'utf8'), m.version, { file: m.zip.file, sha512: zip512, size: m.zip.size }, { file: m.dmg.file, size: m.dmg.size })
+    ensureDir(dir)
+    const t = path.join(dir, `.latest-mac.yml.tmp-${process.pid}`)
+    const tz = path.join(dir, `.${m.zip.file}.tmp-${process.pid}`)
+    try {
+      fs.copyFileSync(yml, t)
+      fs.chmodSync(t, 0o600)
+      if (zip) {
+        try { fs.renameSync(zip, tz) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e; fs.copyFileSync(zip, tz) }
+        fs.chmodSync(tz, 0o600)
+        if (fs.statSync(tz).size !== m.zip.size) throw new UpdateFailure(`${m.zip.file} changed while it was offered`)
+        fs.renameSync(tz, path.join(dir, m.zip.file))
+        rememberMacZip(dir, m.zip.file, m.zip.sha256)
+      }
+      placeSignedManifest(dir, o.signed)
+      fs.renameSync(t, path.join(dir, 'latest-mac.yml'))
+    } finally { fs.rmSync(t, { force: true }); fs.rmSync(tz, { force: true }) }
+    // the update zips of older releases (only names of that form; never what latest-mac.yml names now)
+    for (const f of fs.readdirSync(dir)) if (f !== m.zip.file && MAC_ZIP_RE.test(f)) fs.rmSync(path.join(dir, f), { force: true })
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+  return { kind: 'offered', version: m.version }
+}
+
+const MAC_ZIP_SEEN = '.mac-zip.json'
+
+/** `dir/<zip>` has the release's bytes: by the remembered SHA-256 while size and time are unchanged, else read again */
+export function macZipMatches(dir: string, zip: ReleaseFile): boolean {
+  const f = path.join(dir, zip.file)
+  let st: fs.Stats
+  try { st = fs.statSync(f) } catch { return false }
+  if (st.size !== zip.size) return false
+  let seen: { file?: string; size?: number; mtimeMs?: number; sha256?: string } = {}
+  try { seen = JSON.parse(fs.readFileSync(path.join(dir, MAC_ZIP_SEEN), 'utf8')) } catch {}
+  if (seen.file === zip.file && seen.size === st.size && seen.mtimeMs === st.mtimeMs) return seen.sha256 === zip.sha256
+  const sha = sha256File(f)
+  rememberMacZip(dir, zip.file, sha)
+  return sha === zip.sha256
+}
+
+function rememberMacZip(dir: string, file: string, sha256: string) {
+  try {
+    const st = fs.statSync(path.join(dir, file))
+    fs.writeFileSync(path.join(dir, MAC_ZIP_SEEN), JSON.stringify({ file, size: st.size, mtimeMs: st.mtimeMs, sha256 }), { mode: 0o600 })
+  } catch {}
+}
+
+/** A release without a Mac app (its Mac build failed) after one with it: the folder stops offering the older Mac update
+ * (latest-mac.yml, its zip), because the manifest placed next to it no longer names it and the desks could not check it.
+ * Not when the folder offers a newer Mac app than the release (manifestForFolder keeps that one's manifest). */
+export function dropUnnamedMac(dir: string, r: OfficeRelease, log: (s: string) => void = () => {}) {
+  if (r.mac) return
+  const m = macOfferedIn(dir)
+  if (!m || compareVersions(m.version, r.version) > 0) return
+  fs.rmSync(path.join(dir, 'latest-mac.yml'), { force: true })
+  fs.rmSync(path.join(dir, m.zip), { force: true })
+  fs.rmSync(path.join(dir, MAC_ZIP_SEEN), { force: true })
+  log(`Mac app ${m.version} update no longer offered: release ${r.version} has no Mac app`)
+}
+
+/** electron-updater's latest-mac.yml of the Mac app: the version, `path` = the update zip with its sha512, and file
+ * entries that are only the zip (its sha512 and size) and the dmg (its size; its sha512 when `dmg.sha512` is given) */
+export function checkLatestMacYml(text: string, version: string, zip: { file: string; sha512: string; size: number }, dmg: { file: string; sha512?: string; size: number }) {
+  const val = (k: string) => ymlValue(text, k)
+  if (val('version') !== version) throw new UpdateFailure(`latest-mac.yml names version ${val('version')}, not ${version}`)
+  if (val('path') !== zip.file) throw new UpdateFailure(`latest-mac.yml names ${val('path')}, not ${zip.file}`)
+  if (val('sha512') !== zip.sha512) throw new UpdateFailure('latest-mac.yml sha512 does not match the update zip')
+  const entries = text.split(/^\s*-\s*url:/m).slice(1).map((b) => ({
+    url: /^\s*'?([^'\n]*?)'?\s*$/m.exec(b)?.[1] ?? '',
+    sha512: /^\s*sha512:\s*'?([^'\n]*?)'?\s*$/m.exec(b)?.[1] ?? '',
+    size: Number(/^\s*size:\s*(\d+)\s*$/m.exec(b)?.[1] ?? NaN),
+  }))
+  if (!entries.some((e) => e.url === zip.file)) throw new UpdateFailure(`latest-mac.yml lists no ${zip.file}`)
+  for (const e of entries) {
+    if (e.url === zip.file) { if (e.sha512 !== zip.sha512 || e.size !== zip.size) throw new UpdateFailure(`latest-mac.yml: ${zip.file} sha512 or size does not match`) }
+    else if (e.url === dmg.file) { if (e.size !== dmg.size || (dmg.sha512 !== undefined && e.sha512 !== dmg.sha512)) throw new UpdateFailure(`latest-mac.yml: ${dmg.file} sha512 or size does not match`) }
+    else throw new UpdateFailure(`latest-mac.yml file urls must be just ${zip.file} and ${dmg.file}`)
+  }
+}
+
 /** a top-level `key: value` of latest.yml (quotes off) */
 export const ymlValue = (text: string, k: string): string | null => new RegExp(`^${k}:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
 
@@ -839,6 +976,7 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
     if (dec.kind === 'current') {
       if (o.reason !== 'check') patchUpdateState(home, (s) => { s.deferred = null })
       if (o.reason !== 'check') await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
+      if (o.reason !== 'check') await deliverMac(home, r, d).catch((e) => d.log(`Mac app update not offered: ${(e as Error).message}`))
       return finish({ kind: 'up-to-date', version: current, message: null })
     }
     if (o.reason === 'check') return finish({ kind: 'available', version: r.version, message: null })
@@ -960,6 +1098,7 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   fs.rmSync(up.download, { recursive: true, force: true })
   fs.rmSync(path.join(home, 'app.failed'), { recursive: true, force: true })
   await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
+  await deliverMac(home, r, d).catch((e) => d.log(`Mac app update not offered: ${(e as Error).message}`))
   return { kind: 'updated', version: target, message: `${current} → ${target}` }
 }
 

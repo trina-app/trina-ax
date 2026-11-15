@@ -9,8 +9,9 @@ Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on 
 ## Historical validation notes (2026-10-21)
 
 The table below records the original Mac validation session, not current release availability. Published kits and
-installers are listed in [GitHub Releases](https://github.com/trina-app/trina-ax/releases); the Mac desktop DMG is
-still pending Apple signing and notarization. Later feature and test records are in [DECISIONS.md](DECISIONS.md).
+installers are listed in [GitHub Releases](https://github.com/trina-app/trina-ax/releases). Since 0.5.5 the Mac desktop
+DMG is signed with a Developer ID certificate and notarized by Apple, so it opens without a warning and updates itself
+from the team server. Later feature and test records are in [DECISIONS.md](DECISIONS.md).
 
 | | Status |
 |---|---|
@@ -19,7 +20,7 @@ still pending Apple signing and notarization. Later feature and test records are
 | Production install (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf, Claude chats on the owner's `claude setup-token` token | **Not verified on a real install.** Done in code and tests (as the current user), but never run as the real role accounts and no Anthropic answer through the proxy has been seen; run the role-account test first (2.0) |
 | Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, an open owner task) |
 | Public team address `<team>.trina.app` | Not available: the production relay is not running |
-| Signed and notarized apps (Mac, menubar, Windows) | Not available yet: apps are unsigned, so the OS warns on first launch. The release workflow can sign the Windows installer with Microsoft Artifact Signing; it turns on once the company's identity validation is finished ([RELEASE-CI.md](RELEASE-CI.md) 11) |
+| Signed and notarized apps (Mac, menubar, Windows) | Mac desktop app: signed and notarized since 0.5.5 (no warning on first launch). The menubar app and the Windows app are still unsigned, so the OS warns on first launch. The release workflow can sign the Windows installer with Microsoft Artifact Signing; it turns on once the company's identity validation is finished ([RELEASE-CI.md](RELEASE-CI.md) 11) |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |
 | Phones | Production office address only; not tested |
