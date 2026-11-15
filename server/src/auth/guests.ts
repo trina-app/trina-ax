@@ -238,7 +238,7 @@ export function placeName(db: Database, place: GuestPlace): string {
 }
 
 /** Me.guest / User.guest: the guest's one place with its name, and their AI; undefined for anyone else. */
-export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } | undefined {
+export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } | undefined {
   const r = guestRow(db, userId)
   if (!r) return undefined
   const place: GuestPlace = { kind: r.place_kind, id: r.place_id }
@@ -252,7 +252,9 @@ export function guestDetail(db: Database, userId: string): { place: GuestPlace &
   const gone = r.ai === 'team' && ai.mode === 'none' && !teamCredentialLive(db, userId)
   // Team AI whose monthly limit is used up now: Admin's row says so (QA TC-2206)
   const usedUp = ai.mode === 'team' && !!budgetBlock(db, userId, 'en')
-  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(gone ? { teamAiGone: true as const } : {}), ...(usedUp ? { aiUsedUp: true as const } : {}),
+  // left it on their own (guests.left_at, admin/guests.ts): Admin lists them as "Left", not "Removed"
+  const self = out === 'left' && !!(db.query('SELECT left_at FROM guests WHERE user_id = ?').get(userId) as { left_at: string | null } | null)?.left_at
+  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(self ? { leftThemselves: true as const } : {}), ...(gone ? { teamAiGone: true as const } : {}), ...(usedUp ? { aiUsedUp: true as const } : {}),
     ...(ai.mode === 'team' ? { aiUse: guestAiUse(db, userId) } : {}) }
 }
 /** The guest's team AI account is still there and still a team one. */

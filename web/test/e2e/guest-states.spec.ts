@@ -83,7 +83,7 @@ test.describe('computer', () => {
       ['expired', 'This invite link has expired. Ask the person who invited you for a new one.'],
       ['revoked', 'This invite link was turned off. Ask the person who invited you for a new one.'],
       ['inviter_gone', 'The person who made this link can no longer invite you. Ask them or someone else on the team for a new link.'],
-      ['place_gone', 'The room or project this link was for is no longer there. Ask the person who invited you.'],
+      ['place_gone', 'The group chat or project this link was for is no longer there. Ask the person who invited you.'],
     ]
     // a guest's page speaks the guest's browser language (guest walkthrough S10): an English browser here
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul', locale: 'en-US' })
@@ -118,20 +118,20 @@ test.describe('computer', () => {
     await signIn(page)
     // no cap (self-hosted): "2 guests"
     await page.goto('/admin/members')
-    await expect(page.getByTestId('guests-count')).toHaveText('2 guests')
+    await expect(page.getByTestId('guests-count')).toHaveText('2')
     expect((await page.request.post('/__test/guest-limit', { data: { guests: 10 } })).ok()).toBeTruthy()
     await page.reload()
-    await expect(page.getByTestId('guests-count')).toHaveText('2 of 10 guests')
+    await expect(page.getByTestId('guests-count')).toHaveText('2 of 10')
     await expect(page.getByTestId('guests-over')).toHaveCount(0)
     // the plan lowered to one guest: both stay, the count in the warning colour, one plain line
     expect((await page.request.post('/__test/guest-limit', { data: { guests: 1 } })).ok()).toBeTruthy()
     await page.reload()
-    await expect(page.getByTestId('guests-count')).toHaveText('2 of 1 guest')
+    await expect(page.getByTestId('guests-count')).toHaveText('2 of 1')
     await expect(page.getByTestId('guests-count')).toHaveAttribute('data-over', 'true')
     await expect(page.getByTestId('guests-over')).toHaveText("This plan allows 1 guest. Everyone here keeps working, but you can't invite more until you remove guests or change the plan.")
     await expect(page.getByTestId('guest-row-gina')).toBeVisible()
     await expect(page.getByTestId('guest-row-rhea')).toBeVisible()
-    await shoot(page, 'admin-guests-over', async () => { await page.goto('/admin/members#guests'); await expect(page.getByTestId('guests-over')).toBeVisible(); await expect(page.getByTestId('guests-count')).toHaveText('2 of 1 guest'); await page.getByTestId('guest-row-rhea').scrollIntoViewIfNeeded() })
+    await shoot(page, 'admin-guests-over', async () => { await page.goto('/admin/members#guests'); await expect(page.getByTestId('guests-over')).toBeVisible(); await expect(page.getByTestId('guests-count')).toHaveText('2 of 1'); await page.getByTestId('guest-row-rhea').scrollIntoViewIfNeeded() })
   })
 
   test('removed guests: switched back on while their place is there; the row says why not otherwise; a refused switch-on says why, with Make team member', async ({ page }) => {
@@ -148,7 +148,7 @@ test.describe('computer', () => {
     await page.getByTestId('guests-show-removed').click()
     await expect(page.getByTestId('guest-row-lena')).toContainText("No longer in 'Quote prep'")
     await expect(page.getByTestId('guest-row-tara')).toContainText('Project · Launch plan · in the trash')
-    await expect(page.getByTestId('guest-row-gwen')).toContainText('Their room or project is gone')
+    await expect(page.getByTestId('guest-row-gwen')).toContainText('Their group chat or project is gone')
     // a Team AI whose account was deleted: said, with Change AI in its menu
     await expect(page.getByTestId('guest-row-abel')).toContainText('Team AI · account removed')
     await shoot(page, 'admin-guests-removed', async () => { await page.goto('/admin/members'); await page.getByTestId('guests-show-removed').click(); await page.getByTestId('guests-section').scrollIntoViewIfNeeded() })
@@ -173,7 +173,7 @@ test.describe('computer', () => {
     const openRefused = async () => {
       await menu(page, 'mona').click()
       await page.getByTestId('guest-on-mona').click()
-      await expect(page.getByTestId('guest-no-place')).toHaveText("Their room or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
+      await expect(page.getByTestId('guest-no-place')).toHaveText("Their group chat or project is gone, so there's nothing to bring them back to. Invite them again or make them a team member.")
     }
     await openRefused()
     await shoot(page, 'admin-guest-no-place', async () => { await page.goto('/admin/members'); await page.getByTestId('guests-show-removed').click(); await openRefused() })
@@ -232,7 +232,10 @@ test.describe('admin rows', () => {
       const cut = await page.getByTestId(`guest-meta-${who}`).evaluate((x) => x.scrollWidth > x.clientWidth + 1 || x.scrollHeight > x.clientHeight + 1)
       expect(cut, who).toBe(false)
     }
-    await expect(page.getByTestId('guest-row-tara')).toContainText('Disabled')
+    // with the active ones (walkthrough S4): in the trash, not "Disabled"; Gwen (place gone) reads Removed
+    await expect(page.getByTestId('guest-row-tara')).toContainText('in the trash')
+    await expect(page.getByTestId('guest-row-tara')).not.toContainText('Disabled')
+    await expect(page.getByTestId('guest-row-gwen')).toContainText('Removed')
     await expect(page.getByTestId('guest-row-tara')).not.toContainText('No AI')
     await shoot(page, 'admin-guests-rows', open)
     await page.setViewportSize({ width: 390, height: 844 })

@@ -45,7 +45,7 @@ test('the owner invites a guest into a group chat from Admin › Invite to team'
   // the group chat, never the DM
   await expect(page.getByTestId('guest-place-room')).toHaveCount(1)
   await page.getByTestId('guest-place-room').filter({ hasText: '견적 준비' }).click()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // the owner gets all three AI choices; the 7-day, one-use line
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()
   await expect(page.getByTestId('guest-invite-expiry')).toBeVisible()

@@ -31,11 +31,11 @@ async function openRoomAdd(page: Page) {
 test('owner invites a guest into a group chat: name, AI with all three choices, a one-time link with Copy', async ({ page }) => {
   await start(page)
   await openRoomAdd(page)
-  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대하기')
+  await expect(page.getByTestId('invite-guest-row')).toContainText('게스트 초대')
   await page.getByTestId('invite-guest-row').click()
   const dialog = page.getByTestId('guest-invite-dialog')
   await expect(dialog).toBeVisible()
-  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 방만")
+  await expect(page.getByTestId('guest-invite-where')).toContainText("'견적 준비' 그룹 대화만")
   // AI is off by default; the owner sees all three. Without a team AI account, Team AI is off and says where to add one
   await expect(page.getByTestId('guest-ai-none')).toBeChecked()
   await expect(page.getByTestId('guest-ai-team')).toBeVisible()
@@ -222,7 +222,7 @@ test('a new chat: a guest can be in a 1:1 chat, not a new group', async ({ page 
   await page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick').uncheck()
   // with someone else ticked first, Gina is greyed out
   await page.getByTestId('people-row').filter({ hasText: 'Olga' }).getByTestId('picker-tick').check()
-  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 방에 있어요")
+  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 그룹 대화에 있어요")
 })
 
 test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
@@ -250,7 +250,7 @@ test("a project's members dialog: a guest of a room shows greyed out in the sear
   await page.getByTestId('project-members-manage').click()
   await page.getByTestId('project-participants-search').fill('Gina')
   const row = page.getByTestId('participant-elsewhere-user-gina')
-  await expect(row).toContainText("'견적 준비' 방에 있어요")
+  await expect(row).toContainText("'견적 준비' 그룹 대화에 있어요")
   await expect(row.getByText('추가', { exact: true })).toHaveCount(0)
   await expect(row.getByTestId('guest-elsewhere-convert')).toHaveCount(0)
 })

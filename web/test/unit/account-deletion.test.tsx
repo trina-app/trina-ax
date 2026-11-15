@@ -59,7 +59,7 @@ describe('the page', () => {
       expect(page).toContain('7일 뒤인')
       expect(page).toContain('팀장과 관리자에게 알림이 가요')
       expect(page).toContain('팀장만 읽을 수 있는 보관 폴더로 옮겨져요')
-      expect(page).toContain('대화방에 보낸 메시지와 파일(내 이름으로 남아요)')
+      expect(page).toContain('1:1·그룹 대화에 보낸 메시지와 파일(내 이름으로 남아요)')
       // TC-1920: a chat shared with people by name goes with the account (auth/sweeper.ts purges every chat with no
       // shared_at); only a shared project chat stays
       expect(page).toContain('사람이나 그룹에게 공유한 대화')

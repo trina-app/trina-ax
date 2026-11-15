@@ -10,7 +10,7 @@ import { setNavigator } from '../../src/lib/nav'
 import { installDom, mount, removeDom } from './dom-host'
 
 const ROOM = '019a6f00-0000-7000-8000-000000000001', MSG = '019a6f00-0000-7000-8000-000000000002', ROOT = '019a6f00-0000-7000-8000-000000000003'
-const step = (o: Partial<Step>): Step => ({ id: 's1', kind: 'tool', tool: 'post_to_room', label: '대화방에 보내기 · #영업팀', status: 'ok', startedAt: '2026-11-10T10:00:00.000Z', endedAt: '2026-11-10T10:00:05.000Z', ...o })
+const step = (o: Partial<Step>): Step => ({ id: 's1', kind: 'tool', tool: 'post_to_room', label: '대화에 보내기 · #영업팀', status: 'ok', startedAt: '2026-11-10T10:00:00.000Z', endedAt: '2026-11-10T10:00:05.000Z', ...o })
 const setLocale = (l: Locale) => Object.assign(useLocaleStore.getInitialState(), { locale: l })
 const before = useLocaleStore.getInitialState().locale
 
