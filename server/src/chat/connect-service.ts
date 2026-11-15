@@ -25,7 +25,7 @@ import { fail } from '../http/errors'
 import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
-import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine, personalFull } from '../integrations/connections/service'
+import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_PERSONAL_WAITING, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
 import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
 import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
@@ -286,9 +286,11 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
           return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
         }
-        const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-        // the same limits Settings applies (service.ts personalFull): a sign-in connection also has the waiting cap
-        if (scope === 'personal' ? personalFull(db, viewer.id, input.data.auth) : count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        // the same limits Settings applies (service.ts personalRoom): waiting ones never fill the limit, and at their own
+        // cap the card's Connect replaces the oldest one that may go (only when none may go is there no card)
+        const room = scope === 'personal' ? svc.personalRoom(viewer.id, input.data.auth) : count >= MAX_TEAM ? 'working' : 'ok'
+        if (room === 'working') return early(`There are already ${scope === 'personal' ? `${MAX_PERSONAL} working personal` : `${MAX_TEAM} team`} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        if (room === 'waiting') return early(`${MAX_PERSONAL_WAITING} of this person's connections are still waiting for their first sign-in, and none of them can make room now (each was tried in the last hour, or has its own app). The person can sign in to one or remove one in ${SCREEN.connectors(L)}, or ask again in an hour. No card was shown.`, 'limit')
         // one that does not work and is not this person's to fix (a team connection): an admin fixes it
         const dup = same[0]
         if (dup) {

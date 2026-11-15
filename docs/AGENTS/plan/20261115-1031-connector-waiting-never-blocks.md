@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 10:31
 - Branch: `fix/connector-waiting-never-blocks`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections, server/src/chat/connect-service.ts. Why: a connection limit bug in the open core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a bug fix, no new feature or API
 - QA: TC-3048
@@ -51,4 +51,10 @@ New: 25 refused tries over time then a normal Connect works; the oldest is the o
 sign-in, key, template or own app is never removed; the chat card the same; 20 working still block the 21st.
 
 ## Result
+
+Built as planned. The audit entry of a replaced connection carries `replaced: "waiting"` (no name or address, as for
+any member's own connection). The callback's `limit` check and FLOWS_PER_HOUR are unchanged. Tests: 25 tries over
+100 minutes then a 26th Connect signs in; the oldest goes and its left-open sign-in cannot finish; one tried in the
+last hour stays and still signs in; stored sign-in, key, template and own-app rows stay; a key changed to sign-in;
+the chat card (connect-service.test.ts); 20 working still block the 21st with the "working connections" text.
 
