@@ -606,7 +606,7 @@ export class MockServer {
    * {ai: 'none' | 'failed' | 'timeout', delayMs} answers otherwise until the next reset; GET /__test/file-rank lists
    * the entries each pick was sent (names and metadata only) */
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
-  fileRankCalls: { entries: unknown[] }[] = []
+  fileRankCalls: { entries: unknown[]; own?: boolean }[] = []
   /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
    * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
   organize: { ai: 'done' | 'none' | 'failed' | 'timeout'; project: { name: string; match: string } | null } = { ai: 'done', project: null }
@@ -3920,6 +3920,16 @@ export class MockServer {
       if (this.fileRank.delayMs) await new Promise((done) => setTimeout(done, this.fileRank.delayMs))
       if (this.fileRank.ai !== 'done') return { ai: this.fileRank.ai, picks: [] }
       const WORDS: [RegExp, string][] = [[/양식|서식|템플릿|template/i, 'form'], [/소개/, 'intro'], [/회의록/, 'minutes'], [/보고/, 'report'], [/규정|정책/, 'policy'], [/로고|브랜드/, 'brand'], [/매뉴얼|교육|가이드/, 'training'], [/제안/, 'proposal']]
+      const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
+      return { ai: 'done', picks }
+    },
+    // Find work files on this computer: the same pick for the caller's own folder, anyone but guests (English names too)
+    rankOwnFiles: async (c) => {
+      const entries = c.body.entries as { id: string; name: string; path: string }[]
+      this.fileRankCalls.push({ entries, own: true })
+      if (this.fileRank.delayMs) await new Promise((done) => setTimeout(done, this.fileRank.delayMs))
+      if (this.fileRank.ai !== 'done') return { ai: this.fileRank.ai, picks: [] }
+      const WORDS: [RegExp, string][] = [[/양식|template|form/i, 'form'], [/소개|intro/i, 'intro'], [/회의록|minutes/i, 'minutes'], [/보고|report/i, 'report'], [/policy|규정/i, 'policy'], [/brand|logo/i, 'brand'], [/proposal|제안/i, 'proposal']]
       const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
       return { ai: 'done', picks }
     },

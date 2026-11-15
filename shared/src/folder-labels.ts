@@ -51,6 +51,11 @@ export const ARCHIVE_FOLDER = { ko: '보관', en: 'Archive', id: 'Arsip', ja: '�
  * the team's language (one under any of these names is used again; server/src/uploads/shared-chat.ts). */
 export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', id: 'Lampiran obrolan', ja: 'チャット添付', es: 'Adjuntos del chat', zh: '对话附件' } as const satisfies T
 
+/** Find work files on this computer (docs/DECISIONS.md): users/<id>/<this>/, its name on disk in every language, shown in
+ * the person's words. One name on disk, so a second run in another language adds to the same folder. */
+export const FROM_COMPUTER_DIR = 'From this computer'
+export const FROM_COMPUTER_LABEL = { ko: '이 컴퓨터에서', en: 'From this computer', id: 'Dari komputer ini', ja: 'このコンピューターから', es: 'De este equipo', zh: '来自这台电脑' } as const satisfies T
+
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 
 /** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 파일"
@@ -59,6 +64,7 @@ const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).
 export function folderLabel(path: string, locale: Locale, me?: string | null): string | null {
   if (isTop(path)) return TOP_FOLDER_LABELS[path][locale] ?? TOP_FOLDER_LABELS[path].en
   if (me && path === `users/${me}`) return ownFolderLabel(locale)
+  if (me && path === `users/${me}/${FROM_COMPUTER_DIR}`) return FROM_COMPUTER_LABEL[locale] ?? FROM_COMPUTER_LABEL.en
   return null
 }
 
