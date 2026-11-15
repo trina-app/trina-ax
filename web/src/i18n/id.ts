@@ -132,7 +132,7 @@ export const id: Record<MessageKey, string> = {
   "guest.ai.team": "AI tim",
   "guest.ai.teamHint": "Memakai salah satu akun AI tim, sampai batas bulanan.",
   "guest.ai.own": "Masuk dengan akun sendiri",
-  "guest.ai.ownHint": "Mereka masuk dengan akun Claude atau ChatGPT sendiri.",
+  "guest.ai.ownHint": "Mereka masuk dengan akun Claude atau ChatGPT sendiri. Memakai paket mereka sendiri, jadi tim tidak membayar apa pun.",
   "guest.ai.account": "Akun AI",
   "guest.ai.limit": "Batas bulanan (USD)",
   "guest.ai.noAccount": "Tim belum punya akun AI.",
@@ -154,6 +154,7 @@ export const id: Record<MessageKey, string> = {
   "guest.join.room": "Kamu hanya bergabung ke ruang obrolan '{place}'. Kamu tidak melihat bagian tim lainnya.",
   "guest.join.project": "Kamu hanya bergabung ke proyek '{place}'. Kamu tidak melihat bagian tim lainnya.",
   "guest.join.some": "Kamu hanya bergabung ke ruang atau proyek tempat kamu diundang. Kamu tidak melihat bagian tim lainnya.",
+  "guest.join.ownAi": "Untuk memakai AI di sini, kamu masuk dengan akun Claude atau ChatGPT milikmu sendiri. Memakai paketmu sendiri, jadi tim tidak membayar apa pun.",
   "guest.projectNote": "Anggota proyek ini bisa melihat obrolanmu di sini.",
   "guest.noAi": "AI belum aktif untukmu. Tanyakan ke orang yang mengundangmu.",
   "guest.noAiTeam": "AI belum bisa menjawabmu di sini. Tanyakan ke orang yang mengundangmu.",
@@ -269,6 +270,7 @@ export const id: Record<MessageKey, string> = {
   'invite.signedInTitle': 'Anda sudah masuk',
 
   'invite.signedInBody': 'Anda masuk sebagai {name}. Undangan ini untuk orang yang akan bergabung ke tim. Untuk menerimanya, keluar dulu.',
+  'invite.signedInBodyGuest': "Anda masuk sebagai {name}. Tautan ini untuk tamu dari luar tim. Untuk memakainya, keluar dulu.",
 
   'invite.signOutAccept': 'Keluar dan terima undangan',
 
@@ -2114,6 +2116,9 @@ export const id: Record<MessageKey, string> = {
   'members.usedBy': 'Dipakai oleh {name}',
   'members.expired': 'Kedaluwarsa',
   'members.expires': 'Sampai {date}',
+  'members.stoppedInviter': "Tidak berlaku lagi: pembuatnya tidak bisa mengundang lagi",
+  'members.stoppedPlace': "Tidak berlaku lagi: ruang obrolan atau proyeknya sudah tidak ada",
+  'members.stoppedAi': "Tidak berlaku lagi: akun AI tim sudah dihapus",
   'members.revoke': 'Batalkan',
   'members.createLink': 'Buat link',
   'members.validDays': 'Berlaku selama',

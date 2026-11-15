@@ -163,6 +163,9 @@ export const InviteInfo = z.object({
   guestPlace: z.object({ kind: z.enum(['room', 'project']), name: z.string() }).optional(),
   /** a guest invite: who the link is for, as the inviter typed it (the form's Name starts with it); absent without one */
   guestName: z.string().optional(),
+  /** a guest invite: the AI choice the inviter made (none, the team's, or the guest's own sign-in), only while the link works:
+   * the page tells a guest who must connect their own account before they open it. Absent from an older server */
+  guestAi: z.enum(['none', 'team', 'own']).optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

@@ -31,8 +31,8 @@ export function guestPlacePath(me: Me | null | undefined): string | null {
 }
 
 /** A guest invite's place (InviteInfo.guestPlace); null for a member invite. */
-export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null } | null {
-  return info.role === 'guest' ? { place: info.guestPlace ?? null } : null
+export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null; ai: NonNullable<InviteInfo['guestAi']> | null } | null {
+  return info.role === 'guest' ? { place: info.guestPlace ?? null, ai: info.guestAi ?? null } : null
 }
 
 /** Why a removed guest is not in their place (User.guest.placeOut): left it, its project in the trash, or gone. */

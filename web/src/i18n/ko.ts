@@ -131,7 +131,7 @@ export const ko = {
   "guest.ai.team": "팀 AI",
   "guest.ai.teamHint": "팀의 AI 계정을 한 달에 정한 금액까지 써요.",
   "guest.ai.own": "본인 계정으로 로그인",
-  "guest.ai.ownHint": "본인의 Claude나 ChatGPT 계정으로 로그인해요.",
+  "guest.ai.ownHint": "본인의 Claude나 ChatGPT 계정으로 로그인해요. 본인 요금제로 쓰니 팀에는 비용이 들지 않아요.",
   "guest.ai.account": "AI 계정",
   "guest.ai.limit": "한 달 한도 (USD)",
   "guest.ai.noAccount": "팀에 AI 계정이 아직 없어요.",
@@ -153,6 +153,7 @@ export const ko = {
   "guest.join.room": "'{place}' 방에만 들어가요. 팀의 다른 곳은 보이지 않아요.",
   "guest.join.project": "'{place}' 프로젝트에만 들어가요. 팀의 다른 곳은 보이지 않아요.",
   "guest.join.some": "초대받은 방이나 프로젝트 한 곳에만 들어가요. 팀의 다른 곳은 보이지 않아요.",
+  "guest.join.ownAi": "여기서 AI를 쓰려면 본인의 Claude나 ChatGPT 계정으로 로그인해야 해요. 본인 요금제로 쓰니 팀에는 비용이 들지 않아요.",
   "guest.projectNote": "이 프로젝트의 멤버는 여기서 나눈 대화를 볼 수 있어요.",
   "guest.noAi": "아직 AI를 쓸 수 없어요. 초대한 분께 물어봐 주세요.",
   "guest.noAiTeam": "아직 여기서는 AI가 답할 수 없어요. 초대한 분께 물어봐 주세요.",
@@ -268,6 +269,7 @@ export const ko = {
   'invite.signedInTitle': '이미 로그인되어 있어요',
 
   'invite.signedInBody': '지금 {name}(으)로 로그인되어 있어요. 이 초대는 팀에 새로 들어올 사람을 위한 거예요. 초대를 받으려면 먼저 로그아웃해 주세요.',
+  'invite.signedInBodyGuest': "지금 {name}(으)로 로그인되어 있어요. 이 링크는 팀 밖에서 오는 게스트를 위한 거예요. 쓰려면 먼저 로그아웃해 주세요.",
 
   'invite.signOutAccept': '로그아웃하고 초대 받기',
 
@@ -2113,6 +2115,9 @@ export const ko = {
   'members.usedBy': '{name}님이 사용함',
   'members.expired': '만료됨',
   'members.expires': '{date}까지',
+  'members.stoppedInviter': "더는 쓸 수 없어요: 만든 사람이 더 이상 초대할 수 없어요",
+  'members.stoppedPlace': "더는 쓸 수 없어요: 채팅방이나 프로젝트가 없어졌어요",
+  'members.stoppedAi': "더는 쓸 수 없어요: 팀 AI 계정이 삭제됐어요",
   'members.revoke': '취소',
   'members.createLink': '링크 만들기',
   'members.validDays': '유효 기간',

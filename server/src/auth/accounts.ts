@@ -293,6 +293,8 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     // a project's name too (the list names it; whoever reads the list may manage every project); never a room's name
     ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => (pl.kind === 'project' ? { ...pl, name: placeName(db, pl) } : pl))(guestPlaceOf(r)!) } : {}),
     ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
+    // an open link whose maker or place is gone (a member who left the room: nothing revokes the link then, accept refuses it)
+    ...((s) => (s ? { stopped: s } : {}))(!r.used_at && !r.revoked_at && Date.parse(r.expires_at) > Date.now() ? ((w) => (w === 'revoked' ? 'ai_gone' : w))(makerReason(db, r)) as Invite['stopped'] | null : null),
   }
 }
 const inviteById = (db: Database, id: string) => db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(id) as InviteRow
@@ -416,7 +418,7 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}) }
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}), ...(gp ? { guestAi: parseGuestAi(r!.guest_ai).mode } : {}) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {

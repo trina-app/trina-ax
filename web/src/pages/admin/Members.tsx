@@ -498,7 +498,7 @@ export default function Members() {
                     <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
                       <Badge>{t(`role.${i.role}`)}</Badge>
                       <span className="min-w-0 flex-1 text-xs text-muted" data-testid={i.leadFor ? 'invite-lead' : undefined}>
-                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
+                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.guestPlace ? [inviteGuestName(i), guestWhere(i.guestPlace)].filter(Boolean).join(' · ') : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : i.stopped ? t(i.stopped === 'place_gone' ? 'members.stoppedPlace' : i.stopped === 'ai_gone' ? 'members.stoppedAi' : 'members.stoppedInviter') : t('members.expires', { date: formatDateTime(i.expiresAt, locale, me.server.timeZone) })}
                       </span>
                       {/* a lead link is the owner's to revoke (the server refuses anyone else) */}
                       {!i.usedAt && !expired && (!i.leadFor || isOwner(me)) && (

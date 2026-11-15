@@ -28273,6 +28273,18 @@ words and components.
 - **Restore project** on the row of a guest whose project is in the trash (Admin is the owner's and admins'; `POST /api/projects/:id/restore`, which switches the guest back on within the plan's guests: "Guest states" above). Beside the "…" on a computer, under the words on a phone.
 - Version impact: **patch** (no API change).
 
+## Guest states, round 3: what an own sign-in costs, and links that stopped by themselves — 게스트 상태 3차 (fix/guest-states-s2, 2026-11-15, QA TC-2207..2230)
+
+넣을 곳: Team AX core (`server/src/auth/accounts.ts`, `web/src/pages/Auth.tsx`, `web/src/pages/admin/Members.tsx`, `web/src/components/GuestInvite.tsx`), 이유: hands-on QA of the own-sign-in, Office Mac and invite-link states found five small gaps; none changes who can do what.
+
+- **Their own sign-in is said to cost the team nothing** (TC-2210): the invite dialog's hint, the guest's invite page (`InviteInfo.guestAi`, sent only while the link works: 'none', 'team' or 'own'; the page adds one line only for 'own') and the Guests docs say the guest uses their own Claude or ChatGPT account on their own plan. Before, nobody told the inviter or the guest who pays.
+- **A link whose maker left the room is marked as stopped in Admin's invite list** (TC-2229): `Invite.stopped` ('inviter_gone', 'place_gone', 'ai_gone' = its Team AI account was removed), computed from the same `makerReason` the page and the accept use, only for a link nobody used, revoked or let expire. The row says "No longer works: …" in place of "Until …" and keeps Revoke so it can be cleared. Before, a link whose maker had left the room still read "Until Nov 22" (demoting an admin already revoked their links; leaving a room did not).
+- **Admin's invite list shows the end of a link in the team's time zone** (TC-2223), as the invite dialog does (`Me.server.timeZone`). Before, the list used the browser's zone, so the two differed for an admin working from another zone.
+- **A signed-in member who opens a guest link** (TC-2224) reads "This link is for a guest from outside the team", not "for someone who joins the team" (the page reads `InviteInfo.role`); they are still asked to sign out first and are never turned into a guest.
+- **The Guests docs say when a link stops** (TC-2228): while the person who made it can still invite; for Team AI, while they are an admin.
+- Checked and left as is: the sign-in one person leaves open (closing the tab during "Connect my AI") holds the server's one sign-in slot for 16 minutes for everyone and a non-admin has no Stop button (not guest-specific); on an Office Mac a member's invite dialog still offers Their own sign-in (the server answers the guest's turn with the plain "AI isn't on for you" line).
+- Version impact: **minor** (new optional API fields `InviteInfo.guestAi`, `Invite.stopped`).
+
 ## Free plan removed (owner 2026-11-14): trial with a card only
 
 - **Owner decision (2026-11-14): the hosted Free plan is gone.** Trina Cloud has only the 14-day trial, which starts
