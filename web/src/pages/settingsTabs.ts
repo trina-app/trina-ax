@@ -42,7 +42,7 @@ const TABS: SettingsTab[] = [
   // the person's own connections (Google Drive, Gmail, Slack, MCP services): everyone's, with its pages under it
   { id: 'connectors', label: 'integrations.title', find: 'settings.find.services', icon: Cable, group: 'connections', keywords: ['Google', 'Drive', 'Gmail', 'Slack', 'Notion', 'MCP'] },
   { id: 'providers', label: 'settings.providers', find: 'settings.find.credentials', icon: KeyRound, group: 'connections', keywords: ['Claude', 'Codex', 'ChatGPT', 'AI'] },
-  { id: 'ai-apps', label: 'aiApps.title', find: 'settings.find.connectors', icon: Bot, group: 'connections', keywords: ['Claude', 'Claude Code'] },
+  { id: 'ai-apps', label: 'aiApps.title', find: 'settings.find.connectors', icon: Bot, group: 'connections', keywords: ['MCP', 'Claude', 'Claude Code'] },
   { id: 'dev-env-sites', label: 'settings.devEnvSites', find: 'settings.find.devEnvSites', icon: Network, group: 'connections' },
   { id: 'notifications', label: 'notifications.title', find: 'settings.find.notifications', icon: Bell, group: 'app' },
   { id: 'apps', label: 'settings.apps', find: 'settings.find.apps', icon: Download, group: 'app' },

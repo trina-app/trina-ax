@@ -19,7 +19,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | AI accounts, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), Use from other AI apps, Plugins |
+| **Connections** | AI accounts, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), Trina AX MCP, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 

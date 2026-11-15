@@ -15,7 +15,7 @@ apps this server's AI uses with a person's own account (`web/src/lib/connectors.
 Admin › App connectors shows whether the server has a Google client and how many members are connected, and an admin
 can set the client up there. These connections are the other direction from the "connectors" of
 `server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › AI
-apps and Admin › Use from other AI apps.
+apps and Admin › Trina AX MCP.
 
 Gmail, Google Calendar, Google Docs and Google Sheets are built-in connectors too
 ([GOOGLE-APPS.md](GOOGLE-APPS.md)): a card each, one Google sign-in per app, the tools of the Google Workspace MCP
@@ -46,7 +46,7 @@ team app changes them only after its own confirmation, which an outside model ca
   (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
   with every new connection of an active owner or admin (no
   box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
-  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › Use from other AI apps says so).
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › Trina AX MCP says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
