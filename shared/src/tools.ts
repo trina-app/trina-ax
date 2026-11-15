@@ -311,7 +311,7 @@ export const ToolError = z.object({ error: z.object({ code: z.string(), message:
 export const TextOutput = z.object({ text: z.string() })
 
 export const FILE_TOOLS = {
-  list: { input: ListInput, description: 'List a folder in the team drive. Only things you are allowed to see are shown. Folders end with "/".' },
+  list: { input: ListInput, description: 'List a folder of the team files. Only things you are allowed to see are shown. Folders end with "/".' },
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
   read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound.' },

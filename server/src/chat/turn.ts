@@ -85,6 +85,7 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
+import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
@@ -768,6 +769,7 @@ export class TurnExec {
     const confidential = confidentialChat(rt.db, spec.chatId)
     // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
     const guestTurn = isGuestUser(rt.db, spec.userId)
+    const guestPrompt = guestTurn ? guestPromptOf(rt.db, spec.userId) ?? { places: [], inviter: null } : null
     const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
     const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
@@ -798,6 +800,8 @@ export class TurnExec {
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
+      // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
+      guest: guestPrompt,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]

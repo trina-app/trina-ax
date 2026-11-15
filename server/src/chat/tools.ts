@@ -56,7 +56,7 @@ import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
-import { GUEST_TURN_TOOLS } from './guest-tools'
+import { GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
 import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
 import { completeRedactorFor } from '../integrations/connections/redact'
 
@@ -154,6 +154,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
     if (guest && !GUEST_TURN_TOOLS.has(t.name)) return false
+    // ...and none of its words about what only team members have (Admin, plugins, skills, the browser)
+    if (guest) t = { ...t, description: guestToolDescription(t.description) }
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts)
     if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }

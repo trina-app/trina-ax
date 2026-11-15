@@ -716,7 +716,8 @@ export function AssistantMessage({
     }, testId: 'side-answer-copy' }] : []),
     // (not while an answer runs: the icon is disabled then, and a sheet item cannot be)
     ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
-    ...(canSuggest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
+    // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
+    ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
   ] : []
 
   if (m.withheld) {
@@ -854,7 +855,7 @@ export function AssistantMessage({
                   <RotateCcw size={13} />
                 </IconButton>
               )}
-              {canSuggest && m.content && m.status === 'done' && (
+              {canSuggest && !guest && m.content && m.status === 'done' && (
                 <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                   <BookmarkPlus size={13} />
                 </IconButton>

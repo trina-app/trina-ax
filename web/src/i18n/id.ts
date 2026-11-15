@@ -4185,6 +4185,7 @@ export const id: Record<MessageKey, string> = {
   "sideChat.new": "Chat baru",
   "sideChat.openFull": "Buka sebagai chat penuh",
   "sideChat.empty": "Tanya {name} tentang ruang ini. Hanya kamu yang melihat chat ini. Bagikan jawaban ke ruang kapan pun kamu mau.",
+  "sideChat.emptyGuest": "Kutip atau tempel pesan dari ruang ini untuk bertanya kepada {name}. Hanya kamu yang melihat chat ini.",
   "sideChat.placeholder": "Tanya {name} tentang ruang ini…",
   "sideChat.send": "Kirim",
   "sideChat.sendElsewhere": "Kirim ke tempat lain",
