@@ -30100,16 +30100,21 @@ Builds on "Guests: only what they were invited to" and the Slack connector's e-m
 
 - **Ask:** a guest (an outside person in one group chat and one project) must never use the team's Slack connection
   and never be linked to a Slack user through a matching e-mail. The Slack routes were already closed to guests by the
-  guest endpoint list (403), but the connector itself had no guest check: a Slack question from a linked guest would
-  have run a turn as them, and an unlinked Slack account with a guest's e-mail got a connect link.
+  guest endpoint list (403), but the connector itself had no guest check: a Slack question from a Slack account linked
+  to a guest (a row made by hand or by an older build) would have run a turn as them.
 - **One check in the connector** (`integrations/slack/service.ts`): `person()` (every link page, Sign in with Slack, a
   turn, a delivery, "Post to channel") no longer returns a guest, `bindable()` refuses to link one (the same
   `link_expired` 404 as a gone link), and `linkOf()` counts no link of a guest (so the AI never reads Slack for them).
-- **In Slack:** a question (@mention or DM) from a Slack account linked to a guest, or unlinked with Slack's e-mail equal
-  to a guest's (NFC, trimmed, lower case, as the e-mail proof): no turn, no connect link, one plain line "This {product}
-  team can't answer you here." in the team's language, without blocks or a button. Nothing in it says a guest account
-  exists. A link row of a guest is deleted at that question (audited `slack.unlinked`, reason `guest`), and the Slack
-  account's open link tokens are used up. The guest check comes before the "link sent a moment ago" wait.
+- **A linked guest asks in Slack** (@mention or DM): no turn, the link row deleted (audited `slack.unlinked`, reason
+  `guest`), one plain line "This {product} team can't answer you here." in the team's language, no blocks or button.
+- **An unlinked Slack account is never matched by e-mail** (independent security review, must-fix): a guest's gets the
+  same connect prompt as anyone unlinked, and its link page refuses the guest. A first version answered a Slack account
+  whose e-mail was a guest's with the plain line instead. Rejected: a guest sets their own e-mail (Settings › Profile),
+  so copying a member's address silently blocked that member's link, and the different answer told anyone who can set a
+  Slack e-mail whether that address is a guest's here. So "one plain line" holds for a linked guest; an unlinked one sees
+  the generic prompt, which leads nowhere for them.
+- **The e-mail proof leaves guests out of "the same e-mail on another active account"**: a guest who copies a member's
+  e-mail no longer makes that member's link fail.
 - **Other connectors:** no other connector maps an outside identity to an account here by e-mail. Google Drive, the
   Google apps and personal MCP connections are signed in by the person through endpoints closed to guests, and the
   connection store refuses guests (`mayUse`, `shareCovers`); room apps post as the app, never as a person.

@@ -638,13 +638,6 @@ export class SlackConnector {
     return !!this.db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(userId)
   }
 
-  /** a Slack e-mail that is a guest account's here (not deleted): that Slack account gets no connect link */
-  private guestEmail(email: string | null): boolean {
-    if (!email) return false
-    const rows = this.db.query('SELECT email FROM users WHERE guest = 1 AND deleted_at IS NULL AND email IS NOT NULL').all() as { email: string }[]
-    return rows.some((r) => normEmail(r.email) === email)
-  }
-
   /** The Slack account as Slack says it now (users.info): of this workspace, a person (no bot, not deactivated), and its
    * e-mail (scope users:read.email; null when Slack has none or hides it). null: Slack did not answer. */
   private async slackMember(bot: string, slackUserId: string, cfg: ConfigRow): Promise<SlackPerson | null> {
@@ -663,8 +656,9 @@ export class SlackConnector {
     if (!slack.email || !mine) return 'missing'
     if (slack.email !== mine) return 'mismatch'
     if (this.emailSetByOther(userId)) return 'recent'
-    // an address another active account also gives: it proves nobody in particular
-    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL").all(userId) as { email: string }[]
+    // an address another active account also gives: it proves nobody in particular. A guest's is left out: a guest is
+    // never linked, and sets their own e-mail, so a copied one must not block the member it belongs to
+    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL AND guest = 0").all(userId) as { email: string }[]
     return others.some((o) => normEmail(o.email) === mine) ? 'shared' : 'match'
   }
 
@@ -1324,20 +1318,15 @@ export class SlackConnector {
       const recent = this.db.query('SELECT count(*) n, min(created_at) first, max(CASE WHEN used_at IS NULL THEN created_at END) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; first: string | null; last: string | null }
       return linkWaitOf(recent, now)
     }
+    const wait = tooSoon()
+    if (wait) { await this.ephemeral(bot, q, linkWaitText(wait, locale)); return }
     // who this Slack account is, as Slack says: shown on the link page next to the person who confirms. No answer from
-    // Slack: no link (we could not check the account is of this workspace)
+    // Slack: no link (we could not check the account is of this workspace). An unlinked Slack account is never matched
+    // to an account here by its e-mail: a guest's gets the same prompt as anyone's, and its link page refuses a guest
+    // (person(), bindable()); a guest sets their own e-mail, so it can neither block nor reveal anything
     const m = await this.slackMember(bot, q.user, cfg)
     if (!m) { await this.ephemeral(bot, q, say('queueFull', locale)); return }
     if (!m.ours) { await this.ephemeral(bot, q, say('outsider', locale)); return }
-    // Slack's e-mail of this account is a guest's here: no connect link, the same plain line as a linked guest's (before
-    // the wait for a link sent earlier: one made before they were a guest is no use to them, and is used up here)
-    if (this.guestEmail(m.email)) {
-      this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(iso(this.now()), q.team, q.user)
-      await this.ephemeral(bot, q, say('notHere', locale))
-      return
-    }
-    const wait = tooSoon()
-    if (wait) { await this.ephemeral(bot, q, linkWaitText(wait, locale)); return }
     const names = { display: m.name, real: m.realName, handle: m.handle }
     const token = crypto.randomBytes(32).toString('base64url')
     let made = false, late: ReturnType<typeof linkWaitOf> = null

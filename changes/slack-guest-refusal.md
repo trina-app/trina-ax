@@ -1,3 +1,3 @@
-- **Slack** never answers a guest. A guest who asks Trina in Slack (an @mention or a DM) gets one short line, "This
-  Trina team can't answer you here.", and no connect link, even when their Slack e-mail matches their guest account.
-  A guest's Slack account is never linked, and a link made before they became a guest is removed.
+- **Slack** never answers a guest and never links a guest's Slack account, even when the Slack e-mail matches. A Slack
+  account linked to a guest earlier gets one short line, "This Trina team can't answer you here.", and the link is removed.
+- A guest who uses a member's e-mail no longer stops that member from connecting Slack.

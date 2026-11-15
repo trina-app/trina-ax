@@ -1,8 +1,9 @@
 // A guest never uses the team's Slack connection (docs/DECISIONS.md "Guests never use Slack", QA TC-2950), against
-// the fake Slack (tests/lib/fake-slack.ts): a guest whose e-mail is a Slack member's gets no connect link, no turn and
-// one plain line that says nothing about the account, in a channel and in a DM; a link page or a Sign in with Slack
-// started before they were a guest links nothing; a link row made by hand is dropped at the next question. A member
-// with a matching e-mail still gets the link prompt. This harness signs people in with test sessions, so the guest is
+// the fake Slack (tests/lib/fake-slack.ts): a guest whose e-mail is a Slack member's is never linked by it and no turn
+// runs as them. Unlinked, their Slack account is never matched by e-mail: it gets the same connect prompt as anyone's
+// (so nothing tells whether an address is a guest's), and the link page and Sign in with Slack refuse the guest. A link
+// row of a guest (made by hand) counts for nothing and the next question, in a channel or a DM, gets one plain line that
+// says nothing about the account. A guest who copies a member's e-mail does not block that member's link. This harness signs people in with test sessions, so the guest is
 // marked as the invite accept marks one: users.guest = 1 and its guests row. No real Slack is contacted.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { sealSecret } from '../../web/src/lib/seal'
@@ -67,9 +68,10 @@ beforeAll(async () => {
     U0ALICE: { name: 'alice.slack', team_id: 'T0ACME', email: 'alice@acme.example' },
     // Slack's address in another case: still the guest's
     U0ERIN: { name: 'erin.slack', team_id: 'T0ACME', email: ' Erin@ACME.example ' },
+    U0BOB: { name: 'bob.slack', team_id: 'T0ACME', email: 'bob@acme.example' },
   }
   h = await startHarness({ name: 'c-slack-guest' })
-  for (const [id, email] of [['alice', 'alice@acme.example'], ['erin', 'erin@acme.example']]) h.ctx.db.query('UPDATE users SET email = ? WHERE id = ?').run(email, id)
+  for (const [id, email] of [['alice', 'alice@acme.example'], ['erin', 'erin@acme.example'], ['bob', 'bob@acme.example']]) h.ctx.db.query('UPDATE users SET email = ? WHERE id = ?').run(email, id)
   slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, timeoutMs: 2000 })
   const saved = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken), clientId: fake.clientId, clientSecret: await seal(fake.clientSecret) })
   expect(saved.status).toBe(200)
@@ -111,22 +113,23 @@ test('Sign in with Slack: a new one is refused; the one started before they were
   expect(linkOfErin()).toBeNull()
 })
 
-test('an @mention from the guest\'s Slack account (its e-mail matches): one plain line, no link, no turn', async () => {
-  const n = ephemeralsTo('U0ERIN').length, tokens = linkTokens('U0ERIN'), turns = slackTurns()
-  mention('U0ERIN', 'what is in the project?')
-  expect(await nextEphemeral('U0ERIN', n)).toBeTruthy()
-  plainLine('U0ERIN', n)
-  expect(linkTokens('U0ERIN')).toBe(tokens)
-  expect(slackTurns()).toBe(turns)
-  expect(fake.of('chat.postMessage')).toEqual([])
-})
-
-test('a DM from the guest\'s Slack account: the same one plain line, no link, no turn', async () => {
-  const n = ephemeralsTo('U0ERIN').length, tokens = linkTokens('U0ERIN'), turns = slackTurns()
-  dm('U0ERIN', 'hello')
-  expect(await nextEphemeral('U0ERIN', n)).toBeTruthy()
-  plainLine('U0ERIN', n)
-  expect(linkTokens('U0ERIN')).toBe(tokens)
+test('an @mention and a DM from the guest\'s unlinked Slack account: the same prompt anyone unlinked gets, no turn, nothing linked', async () => {
+  const turns = slackTurns()
+  for (const ask of [mention, dm]) {
+    // past the "link sent a moment ago" wait: each question makes a fresh link
+    h.ctx.db.query("UPDATE slack_link_tokens SET used_at = created_at, created_at = '2000-01-01T00:00:00.000Z' WHERE slack_user_id = 'U0ERIN'").run()
+    const n = ephemeralsTo('U0ERIN').length
+    ask('U0ERIN', 'what is in the project?')
+    const c = await nextEphemeral('U0ERIN', n)
+    expect(ephemeralsTo('U0ERIN').length).toBe(n + 1)
+    expect(c!.args.text).toBe(sayText('linkPrompt', 'en'))
+    const token = linkTokenFrom(c!)!
+    expect(token).toBeTruthy()
+    // the guest cannot use it
+    await expect(slackOf(h.ctx).confirm('erin', token)).rejects.toMatchObject({ reason: 'link_expired' })
+    expect((await call('erin', 'POST', '/api/slack/link/confirm', { token })).status).toBeGreaterThanOrEqual(400)
+  }
+  expect(linkOfErin()).toBeNull()
   expect(slackTurns()).toBe(turns)
   expect(fake.of('chat.postMessage')).toEqual([])
 })
@@ -136,13 +139,30 @@ test('a link row for the guest (made by hand or before): it counts for nothing, 
   const s = slackOf(h.ctx)
   expect(s.linkOf('erin')).toBeNull()
   expect(s.readsSlack('erin')).toBe(false)
-  const n = ephemeralsTo('U0ERIN').length, turns = slackTurns()
-  mention('U0ERIN', 'answer as me')
-  expect(await nextEphemeral('U0ERIN', n)).toBeTruthy()
-  plainLine('U0ERIN', n)
+  const turns = slackTurns()
+  for (const ask of [mention, dm]) {
+    h.ctx.db.query("INSERT OR IGNORE INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES ('l-erin', 'erin', 'T0ACME', '', 'U0ERIN', 'erin.slack', ?)").run(new Date().toISOString())
+    const n = ephemeralsTo('U0ERIN').length, tokens = linkTokens('U0ERIN')
+    ask('U0ERIN', 'answer as me')
+    expect(await nextEphemeral('U0ERIN', n)).toBeTruthy()
+    plainLine('U0ERIN', n)
+    expect(linkTokens('U0ERIN')).toBe(tokens)
+    expect(linkOfErin()).toBeNull()
+  }
   expect(slackTurns()).toBe(turns)
-  expect(linkOfErin()).toBeNull()
+  expect(fake.of('chat.postMessage')).toEqual([])
   expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.unlinked' AND target = 'erin'").get()).toMatchObject({ detail: expect.stringContaining('"reason":"guest"') })
+})
+
+test('a guest who copies a member\'s e-mail does not block that member\'s link', async () => {
+  h.ctx.db.query("UPDATE users SET email = 'bob@acme.example' WHERE id = 'erin'").run()
+  try {
+    mention('U0BOB', 'hi')
+    const token = linkTokenFrom((await waitFor(() => ephemeralsTo('U0BOB').find((c) => linkTokenFrom(c))))!)!
+    expect((await call('bob', 'POST', '/api/slack/link/preview', { token })).json.emailCheck).toBe('match')
+    expect((await call('bob', 'POST', '/api/slack/link/confirm', { token })).status).toBe(200)
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'bob'").get()).toEqual({ slack_user_id: 'U0BOB' })
+  } finally { h.ctx.db.query("UPDATE users SET email = 'erin@acme.example' WHERE id = 'erin'").run() }
 })
 
 test('a member whose e-mail matches still gets the connect link (only guests are refused)', async () => {
