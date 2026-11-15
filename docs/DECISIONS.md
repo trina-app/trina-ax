@@ -29578,6 +29578,188 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
 - Tests: `tests/unit/c-integrations-secret-sends.test.ts` (a fake MCP connection and a fake HTTP API through net.ts
   testAllow). Version impact: **patch** (a security fix; no new feature or API change).
 
+## Find work files, part 6: fewer, better (fix/find-work-files-quality, 2026-11-15)
+
+Owner, 2026-11-15, on 0.5.7 (Full Disk Access on, so the wide look) against qa.trina.app: "they're work files, but it
+only brought really useless ones". The list showed one real plan and eleven `f(N).txt` pieces of a saved web page
+(`…_files`) downloaded from `aif.notion.so`. Cause: a work app's shared host (`notion.so`, `docs.google.com`,
+`slack-files`, …) counted as the company's on its own, and "Looks like work = recent AND (the company's OR the AI's
+pick)" let that weak match through whatever the AI said.
+
+- **Never work** (`shared/src/file-scan.ts`, the app's look and the page's list alike, so a list from an older app is
+  held to it):
+  - a browser's saved page: the walk never enters a folder named like one (`_files`, `_파일`, `-Dateien`, `_fichiers`,
+    …) when its page (`.html`, `.htm`, `.mhtml`, …) is beside it (`savedPage`); anywhere else, a text file or picture
+    inside a folder named like that is the page's (a PDF there is kept: "Client_files" can be a person's folder);
+  - a tool's or runtime's folder by its name (`node-v26.13.0-win-x64`, `ffmpeg-7.1-darwin-arm64`, `python-3.12.1`:
+    a platform suffix, or a runtime with a dotted version and nothing after it; never "Go-2026 plan");
+    `bower_components`, `__pycache__`, `site-packages`, `dist-packages`; a folder whose entries say it is a program or
+    a code project (`.dll`/`.so`/`.dylib`, a package manifest, `bin` beside `lib`: `softwareFolder`; the walk does not
+    enter it and the recent lists' files inside it are left out);
+  - names a program gave (`autoNamed`): `f(8).txt`, `image001.png`, "Untitled" / "New Text Document" with no more
+    words (six languages), a hash or UUID, a random id (16+ letters and digits, digits in four places or more; never a
+    CamelCase name), a messenger's chat export, README/CHANGELOG/LICENSE/CONTRIBUTING as bare names in text;
+  - documents under 1 KB and text files (txt, md, csv, rtf) under 2 KB (`tooSmall`).
+- **Copies and series** (page, `workCandidates`, recent files only): "X (1)", "Copy of X", "X - 복사본", "X copy 2"
+  are dropped when a recent X is in the same folder (a copy downloaded again lately stays when its original is old);
+  four or more names that differ only in their numbers, in one folder, of one type, show the newest only, and none when
+  the names hold fewer than three letters (`2026-10-01.pdf`).
+- **The company must be real** (`companyHost`). A host counts when it is the company's domain, a host of its own name
+  (`acme.com`, `files.acme.co.kr`, even with no registered domain), or a work app's shared host that carries the
+  company's label left of the app's name (`acme.slack.com`, `acme-my.sharepoint.com`, `acme.notion.site`). The shared
+  hosts alone (`docs.google.com`, `drive.google.com`, `www.notion.so`, `aif.notion.so`, `files.slack.com`, Dropbox, …)
+  are just "from the web"; host words (`files`, `docs`, `drive`, …) never count as the company's name.
+- **The AI can veto.** The page sends the best 80 candidates; once the AI picked, its answer decides for those: a file
+  it was shown and did not pick is not listed (a ticked one stays in view). An answer with no pick at all is no
+  judgement (a small model that said nothing): the rules decide. Files it was not shown, and every file when no AI
+  answered, are listed only on a strong sign (`strongWork`): the company's (name, own host, a team member as author)
+  for a document, or with that sign a text file; or a document with a real name (three letters or more, not a
+  program's) that was opened lately (the index's last-opened, a recent list's entry: `WorkFileMeta.listed`, used ≥ 2)
+  or lives in a work folder or the company's cloud drive. A plain download is not enough. Plain text and CSV are neither
+  sent nor listed without the company's sign. Recency by last change unless an opened date comes from the index or a
+  recent list (Windows' last-accessed is not trusted: a separate change there). The own-folder prompt now also says to
+  leave out program-named files, saved pages, chat exports and short notes, that a download from a shared work app is
+  not work for that reason alone, and that five sure picks beat twenty doubtful ones.
+- **Types.** Office, PDF, Hangul and iWork documents first; Markdown with a real name of two words or more; txt and
+  csv weigh 0.3; a name without letters weighs half.
+- **Coverage.** Why it walked: a Mac's look always walks Documents, Desktop and Downloads (part 4: listing through
+  Spotlight was slower than the walk), with or without Full Disk Access (the wide look uses Spotlight for the places
+  beyond them), and asks Spotlight (mdls) about the newest 1,000 walked files; "is big" is the walk's 20,000 entries,
+  10 s, or a folder deeper than four levels. Before, the recent lists' files inside a cut folder were dropped ("left as
+  the look left it"). Now (1) the walk takes the most lately changed folder next (a heap on each folder's date, each
+  level down counted two weeks older so one fresh deep tree does not use up the walk), so a cut keeps recent folders;
+  (2) each walked folder also gets the files opened lately inside it (`LookOptions.recentIn`): a Mac without the wide
+  look asks Spotlight (`mdfind -onlyin <folder> kMDItemLastUsedDate >= 180 days`, after that folder's own question,
+  4 s at most, so no new question) and mdls for the newest 300; the wide look gives each folder its part of the recent
+  lists it already reads (Spotlight's last-opened across home, the shared file lists `*.sfl2/3/4`, Office's lists).
+  Those files join the list even when the walk was cut or they are too deep (checked as the index's: folder realpath,
+  lstat, never a never-listed part); a walked file in a recent list gets its opened date and `listed`. The shared file
+  lists and Office's lists are read only with Full Disk Access, as before: Office's lists are inside other apps'
+  containers, which macOS guards with its own question.
+- **Bench** (`scripts/bench/find-work-files/run.ts`: a made-up home of 8,818 files, 35 recent work files; the
+  Downloads walk cut at a fifth of the real limit; Spotlight simulated from the fixture). No AI: before 50 shown,
+  precision 0.28, recall 0.40; after 27 shown, precision 1.0, recall 0.77. An AI that picks every name it is shown (the
+  worst case: only the rules hold): before 0.58 / 0.83, after 0.85 / 1.0 (only plain personal downloads it picked get
+  through: tickets, a menu). An AI that judges each name right: before 0.62 / 0.89 (the rules' junk stayed beside its
+  picks), after 1.0 / 1.0. The look stays around 0.1 s and the list under 15 ms on the bench.
+- **Independent review** (one MUST-FIX set, all fixed): the saved-page and install-folder name rules hid "Client_files"
+  and "Go-2026 plan" (now the page beside it, and a dotted version only); `autoNamed` hid "License Agreement Acme.pdf",
+  CamelCase names and "Chat with investors.docx" (now bare names only); a recent copy of an old original vanished (now
+  recent files only). SHOULD-FIX fixed: the company's own site without a registered domain, an empty AI answer, recent
+  files inside a skipped code project, one fresh deep tree using up the walk, the extra waits per folder (1.5 s + 2 s).
+
+## Find work files: the app's own consent window (feat/work-files-consent-window, 2026-11-15, product owner)
+
+Owner, 2026-11-15, on the native alert of "Find work files on this computer": "this doesn't even catch the eye… did
+anyone design this UI?" The question was a grey `dialog.showMessageBox` (a bullet list and two paragraphs). It is now
+a designed window, still owned by the main process (the review of #923: the team page is remote content, so no script
+there may draw, fake or skip the consent).
+
+- **The window.** `desktop/src/main/work-consent-window.ts` opens a small modal `BrowserWindow` with the app window as its
+  parent (a sheet on macOS), in the `mycel-ui` session, sandboxed, loading `mycel-ui://app/consent.html` (a file of the
+  app, `desktop/src/ui/consent.html` + `consent.ts`, served by `serveUi` with the app screens' CSP), never the team
+  server; `guardUiView` stops any navigation or new window. Its preload (`desktop/src/preload/consent.ts`) has two calls:
+  read the finished view (`consent:view`, sync) and give back yes or no (`consent:answer`). Both channels answer only a
+  window this file opened, in its top frame at that address (`consentSender`); the team page's preload has no consent
+  channel and the page still gets only the scan's result. Closing the window, Escape (handled in the main process,
+  whatever the page does), Not now, the page's renderer going away, another person or team (`forget()`) are a no.
+- **What it says comes from the look itself.** `consentView` (`desktop/src/common/work-consent.ts`) is built from the same
+  roots and places `scan()` then looks through: the three folders (OneDrive named under the folder), each wide place by
+  kind (messenger, work folder, cloud drive), and "Recently opened files" with where they are. Three lines under it: two
+  promises with a check ("Only file details are read (name, date, size, author, where it came from), not what's inside"; "Nothing is ticked for you. Contents
+  stay on this Mac until you add them") and, with its own sparkle icon so it does not read as a promise, "To help you
+  pick, file names may go to your team's AI". The rest (macOS asks per folder; Full Disk Access; Mail, Messages, Photos
+  and Safari never read; cloud-only files not downloaded; nothing moved or changed) is one small line. Buttons: Not now
+  (secondary) and Find work files (primary, focused). All six languages; Korean wraps by word only (`:lang(ko)`).
+- **Enter now means yes, but only when the person could mean it (changes the earlier review MUST).** Part 1 made Cancel
+  the default so that a page that asks while the person types gets no yes from their next Enter. The owner wanted Enter
+  to press the primary button. `ConsentGate` keeps the protection in the main process: a yes counts only 800 ms after the
+  window is shown and 800 ms after the last key typed into it (any key but Tab, Shift, Enter, Space, Escape and the
+  arrows; a held key counts as typing), and only once. An early yes is ignored, starts the wait again (a stream of
+  clicks or Enters never gets through; security review) and the window stays; a no is never held back. The first line
+  says what is read as it is: name, date, size, author and where a file came from (Spotlight's fields), never contents.
+- Tests: `tests/unit/e-desktop-work-consent.test.ts` (view, gate, sender check, wiring), `desktop/e2e/work-consent.spec.ts`
+  (the real window: modal child, early click and Enter after typing ignored, Enter later counts, Escape, a forged answer
+  and view request from another window refused, close and forget are a no); `work-files*.spec.ts` record the view.
+  Version impact: **patch**.
+
+## Find work files: asked once, reads only what is added (feat/work-files-add-confirm, 2026-11-15, product owner, QA TC-3300)
+
+The security review of #1000 (S6) found that the desktop app read any file of the latest look the team page asked for:
+"contents stay on this computer until you add them" held only by the page's goodwill. A second window "Add N files?"
+was built first and dropped before it shipped: the owner, "창 좀 그만 띄워, 권한만 주다가 일 다 하겠다". Decided instead:
+
+- **Reads only what is added (no window).** `workFiles.add(ids)` (bridge version 2, `WORK_FILES_BRIDGE_VERSION = 2`) names
+  the ticked files as the person presses Add (`web/src/lib/workFiles.ts confirmAdd`, the one Add button of
+  `FindWorkFiles.tsx`, which My files, the member welcome card and the setup's 팀 파일 step all use). The main process
+  takes it only from the team page's top frame (`fromApp`), only within `PERSON_INPUT_MS` (2 s) of the person's own key
+  or mouse press on the team page's view (Electron's `before-input-event` / `before-mouse-event` on that webContents,
+  which no page script can make; `AppWindow.appInputAt`), only for ids of that origin's latest look, each once, within
+  the read limits (100 files, 1 GB, with what was added before). `WorkFileSessions.read` then refuses every id not
+  added (`unknown`); a new look, another person or team forgets what was added.
+- **Asked once.** A yes in the consent window is remembered per team origin and signed-in person
+  (`work-files-consent.json` in the app's data: the time and the places it listed). A later look goes straight to the
+  list when every place of it was in that window, within 90 days, and the person pressed a key or the mouse on the team
+  page within 2 s. A new place (Full Disk Access turned on, a new cloud drive or messenger folder) or 90 days ask again;
+  Not now remembers nothing; another person on the same computer is asked for themselves.
+- **"Trina is reading N files from this computer"** while added files are read: the app's own strip above the team page
+  (the host strip's view, `hostbar.ts`; the team address there wins on sign-in pages), no click. It shows from the
+  add, and again during every read of an added file however late; it hides when nothing is waiting or after 15 s with
+  no read running. When the app does not take an add (the press did not reach it in time, the list is over an hour
+  old), the list says so under the Add button (`files.findWork.addRefused`) instead of doing nothing.
+- **What this does not stop (residual risk, said plainly).** The 2 s check proves that a person is at the team page, not
+  which files they chose: the main process cannot see which element was clicked. A team page that runs a hostile script
+  (a compromised team server, an injected script) can wait for any real click or key press (typing a chat message is
+  enough) and within 2 s name any ids of the latest look: up to 100 files and 1 GB of its places, within the hour after
+  the look. And once a yes is remembered, such a page can start a look without the window, again only right after a real
+  press of the person's. What it does stop: reads and looks with nobody at the page (a background or overnight script),
+  ids never named at an add, ids of another origin, look or person, and anything over the limits. The strip shows
+  every read of an added file while it runs (security review: it no longer goes quiet after 15 s). Known limit: a
+  VoiceOver or Voice Control "press" sends no key or mouse event, so Add is refused there (the line under Add says so);
+  a keyboard Enter or Space works.
+- Version: an app of version 2 offers nothing to a page of version 1 (whose reads would all be refused); a page of version
+  2 still takes an app of version 1 (no add: the old behaviour), so a newer page works with an older app.
+- Tests: `tests/unit/e-desktop-work-files.test.ts` (only added files are read; ticked then unticked; ids of another
+  origin, twice, over the limits, expired; a new look forgets), `tests/unit/e-desktop-work-consent.test.ts` (asked once:
+  place words, 90 days, new places, per person; wiring of the 2 s check and the strip), `desktop/e2e/work-files.spec.ts`
+  (real Electron: nothing read before add, an add without the person's press or from another origin refused, only added
+  files read, the strip counted down, the second look without the window), `web/test/unit/work-files.test.ts`
+  (`confirmAdd`, versions), `web/test/e2e/find-work-files.spec.ts` (the fake app enforces it; ticked then unticked is
+  never named). Version impact: **minor** (bridge version 2).
+
+## Find work files: Not now kept 30 days; VoiceOver and Voice Control get the Add window (feat/work-files-later-a11y, 2026-11-15, product owner)
+
+Two follow-ups to "asked once, reads only what is added":
+
+- **"Not now" on the Full Disk Access screen is kept 30 days** for this team (the page's own storage, per origin) and this
+  person (`mycel.findWork.fullDiskLater:<user id>`, `web/src/lib/workFiles.ts fullDiskLater`). The next looks go straight
+  to the three folders (the app is asked first whether it has Full Disk Access by now: then the wide look, no screen),
+  with a quiet link in the list's header, "Look in more places (Full Disk Access)", which forgets the Not now and shows
+  the screen again. A private window or blocked storage remembers nothing (the screen comes as before).
+- **Assistive technology is not locked out.** A VoiceOver or Voice Control "press" makes no key or mouse event, so the
+  2 s rule refused their Add. Now, when an add comes with no press and Electron's `app.accessibilitySupportEnabled` is on
+  (macOS turns it on for VoiceOver, Voice Control and other assistive apps; a screen reader on Windows), and only then,
+  the main process asks in the consent window's style: "Add N files from this computer?" with the files by name (8
+  shown, "and N more files"), Cancel / Add N files, the same 800 ms gate and one answer (`addView`,
+  `WorkFilesController.askAdd`). Cancel adds nothing (the page says nothing: the person chose it). Everyone else keeps
+  the way with no window. One window at a time, never right after another: 3 s after any answer, a minute after two
+  Cancels in a row (security review: a page asking again in a loop). VoiceOver reads the files' names with the
+  question (the list is part of the window's description).
+- **What this path does not stop (said plainly, security review).** A page cannot turn assistive support on itself,
+  but Chromium turns it on when any app on the computer reads the window's accessibility tree, not only a screen
+  reader: on a Mac, Grammarly, window managers (Rectangle, Magnet), text expanders, launchers and some password managers
+  do; on Windows, any automation client. It then stays on until the app restarts. On such a computer an add with no
+  press is asked in this window instead of refused: a hostile page can make the window come (at most once every 3 s,
+  once a minute after two Cancels), and files are read only after the person's Add there. Only the forced setting was
+  tested on this Mac; that VoiceOver and Voice Control turn it on is Chromium's documented behaviour, checked by hand in
+  QA (TC-3401).
+- Tests: `desktop/e2e/work-files.spec.ts` (real Electron, `app.setAccessibilitySupportEnabled(true)` forced: refused with
+  it off; with it on the window lists the file, No adds nothing and reads nothing, Add adds it and it reads),
+  `tests/unit/e-desktop-work-consent.test.ts` (`addView`, the fallback only after the press check and only with
+  `assistive()`), `web/test/unit/work-files.test.ts` (30 days, per person, forgotten by the link, nonsense stored),
+  `web/test/e2e/find-work-files-wide.spec.ts` (Not now, then the next open goes straight to the three folders; the
+  link brings the screen back; granted by then: wide). Version impact: **patch**.
+
 ## Connector follow-ups: the sign-in push opens its connection, API rows in the log, sign-in words on a skipped run (fix/connector-small-followups, 2026-11-15, tracking TC-3052, TC-3053, TC-3054)
 
 - **A sign-in push opens its connection** (TC-3053). The `connection.reconnect` phone push opened the Inbox

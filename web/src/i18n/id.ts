@@ -5012,6 +5012,8 @@ export const id: Record<MessageKey, string> = {
   "files.findWork.byAi": "Dipilih oleh AI tim Anda dari nama file",
   "files.findWork.byNames": "Diurutkan menurut nama file",
   "files.findWork.bytes": "Paling banyak 1 GB sekaligus · Hapus centang beberapa file",
+  "files.findWork.morePlaces": "Cari di lebih banyak tempat (Akses Disk Penuh)",
+  "files.findWork.addRefused": "Aplikasi tidak menerima file ini. Tekan Tambahkan lagi, atau cari lagi jika daftar ini sudah lebih dari satu jam.",
   "files.findWork.add": "Tambahkan {n} file",
   "files.findWork.addNone": "Tambahkan file",
   "files.findWork.entry": "Cari file kerja di komputer ini",

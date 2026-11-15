@@ -73,8 +73,8 @@ export interface MycelUi {
   }
   /** the team address above the team's sign-in pages */
   hostbar: {
-    state(): Promise<{ host: string } | null>
-    onState(cb: (s: { host: string } | null) => void): () => void
+    state(): Promise<{ host: string; reading?: number } | null>
+    onState(cb: (s: { host: string; reading?: number } | null) => void): () => void
     teams(): void
   }
   pane: {

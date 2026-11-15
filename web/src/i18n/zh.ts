@@ -4946,6 +4946,8 @@ export const zh: Record<MessageKey, string> = {
   "files.findWork.byAi": "由团队的 AI 根据文件名挑选",
   "files.findWork.byNames": "按文件名排序",
   "files.findWork.bytes": "每次最多 1 GB · 请取消勾选一些文件",
+  "files.findWork.morePlaces": "在更多位置查找（完全磁盘访问权限）",
+  "files.findWork.addRefused": "应用没有接收这些文件。请再次点击添加；如果列表已超过一小时，请重新查找。",
   "files.findWork.add": "添加{n, plural, one {#个文件} other {#个文件}}",
   "files.findWork.addNone": "添加文件",
   "files.findWork.entry": "在这台电脑上查找工作文件",

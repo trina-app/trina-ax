@@ -5012,6 +5012,8 @@ export const ko = {
   "files.findWork.byAi": "팀의 AI가 파일 이름을 보고 골랐어요",
   "files.findWork.byNames": "파일 이름으로 정렬했어요",
   "files.findWork.bytes": "한 번에 1GB까지 · 체크를 몇 개 풀어 주세요",
+  "files.findWork.morePlaces": "더 많은 곳에서 찾기 (전체 디스크 접근)",
+  "files.findWork.addRefused": "앱이 파일을 받지 못했어요. 넣기를 다시 누르거나, 목록이 1시간이 넘었으면 다시 찾아 주세요.",
   "files.findWork.add": "{n}개 넣기",
   "files.findWork.addNone": "파일 넣기",
   "files.findWork.entry": "이 컴퓨터에서 업무 파일 찾기",
