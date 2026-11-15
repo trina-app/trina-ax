@@ -29182,8 +29182,10 @@ Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,wi
   switched off), a save that writes a rule nobody chose here (the floor rule, the creator's rule back), and "Add me"
   (its members are told). A dry run that says more than the lines shown brings the confirm back.
 - **How it reads (coordinator, after the screenshots).** One finding per line in the box (a short list when there are
-  several), "Show answers ›" after them. Korean names take 님 instead of particle marks: "Bob 님이 열 수 없는 파일", "Bob 님은
-  열 수 없는 곳" (`share.who.picked`; the other share strings too: widening list, "Shared with", "keeps access").
+  several), "Show answers ›" after them. In Korean a person takes 님 ("Bob 님이 열 수 없는 파일", "Bob 님은 열 수 없는 곳"); a group never
+  does: it reads as its people ("Sales 그룹 사람들이 열 수 없는 파일", "Sales 그룹 사람들은 열 수 없는 곳";
+  `share.who.person` / `share.who.group`, `whoNames`), and the lines' particle marks read right after either. Names the
+  server sends without saying person or group need no particle: "열 수 없는 사람: …", "공유 대상: …".
 - **My earlier files always show (security review).** When a first share copies my earlier computer uploads, their line
   is always on screen, a line of its own, never folded into the "couldn't be checked" line. The Members dialog compares the
   whole lines it showed with the save's dry run, not only counts.

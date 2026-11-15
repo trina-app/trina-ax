@@ -44,7 +44,7 @@ import { answerHref, WideningList } from '../WideningList'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
 import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
-import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines } from '../ShareWarning'
+import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines, whoNames } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
 
 /** The check for one list of picks (`for`: its audienceKey): asking, answered (with the key a save carries), or failed.
@@ -136,7 +136,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const savedKeys = useMemo(() => new Set(saved.map(participantKey)), [saved])
   const adding = useMemo(() => picks.filter((x) => !savedKeys.has(participantKey(x))), [picks, savedKeys])
   const nameOf = useCallback((x: ProjectParticipant) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '', [options])
-  const addedNames = useMemo(() => adding.map(nameOf).filter(Boolean).join(t('rooms.nameSep')), [adding, nameOf, t])
+  // as the share lines name them: a person "Bob 님", a group "Sales 그룹 사람들" (components/ShareWarning.tsx whoNames)
+  const addedNames = useMemo(() => whoNames(t, adding.map((x) => ({ subjectType: x.subjectType, name: nameOf(x) }))), [adding, nameOf, t])
   const groupAdded = adding.some((x) => x.subjectType === 'group')
   const removesAll = saved.length > 0 && picks.length === 0
   // someone taken out by name who stays in a group still picked keeps the chat through it (QA TC-2264): the server says
@@ -249,8 +250,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
 
   const check = current?.state === 'ready' ? current.check : null
   const stake = !!check && shareAtStake(check)
-  // who is being added, as the warning names them (with the honorific: "Bob 님")
-  const warnNames = t('share.who.picked', { names: addedNames })
+  const warnNames = addedNames
   const warningText = check ? shareWarningLines(t, check, warnNames).join(' ') : ''
   // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
   const grey = checking ? (slow ? t('share.grey.checking') : null)

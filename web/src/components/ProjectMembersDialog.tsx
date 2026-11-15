@@ -37,6 +37,7 @@ import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMediaQuery } from './ui'
 import { answerHref, WideningList } from './WideningList'
+import { whoNames } from './ShareWarning'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../store/wideningDraft'
 import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
@@ -213,7 +214,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const checking = changed && !shownPreview
   // the people and groups being added, as picked ("Sales and Sam"): the widening line and the list's title
   const adding = useMemo(() => { const keys = new Set(current.map(participantKey)); return participants.filter((x) => !keys.has(participantKey(x))) }, [participants, current])
-  const addedNames = useMemo(() => adding.map((x) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '').filter(Boolean).join(t('rooms.nameSep')), [adding, options, t])
+  // as the share lines name them: a person "Bob 님", a group "Sales 그룹 사람들" (components/ShareWarning.tsx whoNames)
+  const addedNames = useMemo(() => whoNames(t, adding.map((x) => ({ subjectType: x.subjectType, name: options.find((o) => participantKey(o) === participantKey(x))?.name ?? '' }))), [adding, options, t])
   const widen = editable && !!count?.hiddenAnswers && !!addedNames
   // nothing to list any more (the picks changed): back to them (not while the names are still being read)
   useEffect(() => { if (listing && access && !adding.length) setListing(false) }, [listing, access, adding.length])
