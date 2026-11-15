@@ -29881,7 +29881,11 @@ stay as they are.
   checked once: a different size makes the row dead, else the hash decides (files up to 32 MB, dead above; a match
   re-pins, a mismatch makes the row dead), never per request. An inode number alone proves nothing (Linux reuses a
   freed one for the next file at once: CI found it), nor do an equal size and mtime on another inode (re-review of
-  #979). A move's rename takes the times again for rows on the same inode.
+  #979). A move's rename never re-pins: up to 32 MB the next open hashes once; above, the times are taken again only
+  while the size and mtime are still the recorded ones. **Known limit:** on a team folder on a network filesystem
+  (SMB, NFS, AFP) the times may not be kept or may be coarse; the no-hash path still trusts an unchanged inode, size,
+  mtime and ctime there (always hashing on such a mount was not cheap to detect: statfs gives a type number that
+  differs by system).
 - **Who it opens for** (`FileShares.open`): whoever the folder rules let read it (`RuleSet.access`, unchanged), and the
   people and groups on it (groups read live) while the owner can still edit the file. Guests never, through a link.
   `RuleSet.decide` is not changed: grants are read only by the id endpoints, which serve the current bytes

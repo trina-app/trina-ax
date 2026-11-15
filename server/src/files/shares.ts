@@ -342,12 +342,18 @@ export class FileShares {
     // a file event recorded just before its file lands (the rename is the step's last): once more after it
     queueMicrotask(set)
   }
+  /** After a move's rename: the rows at or under `rel` are not re-pinned (the inode alone proves nothing: a file replaced
+   * outside the app on the same inode must not pass as checked; review of #979). Up to 32 MB the next open hashes
+   * once (ctime_ms cleared); above, the times are taken again only while the size and mtime are still the recorded
+   * ones (the rename changes the ctime alone), else the row is left and the next open makes it dead. */
   private afterRename(rel: string) {
-    const rows = this.db.query(`SELECT id, path, ino, dev FROM file_shares WHERE state = 'live' AND ${UNDER('path')}`).all(rel, rel, rel) as { id: string; path: string; ino: number | null; dev: number | null }[]
+    const rows = this.db.query(`SELECT id, path, ino, dev, size, mtime_ms FROM file_shares WHERE state = 'live' AND ${UNDER('path')}`).all(rel, rel, rel) as { id: string; path: string; ino: number | null; dev: number | null; size: number | null; mtime_ms: number | null }[]
     for (const r of rows) {
       let st: fs.Stats
       try { st = fs.lstatSync(this.absOf(r.path)) } catch { continue }
-      if (st.isFile() && st.ino === r.ino && st.dev === r.dev) this.db.query('UPDATE file_shares SET mtime_ms = ?, ctime_ms = ? WHERE id = ?').run(st.mtimeMs, st.ctimeMs, r.id)
+      if (!st.isFile()) continue
+      if (st.size <= HASH_MAX) { this.db.query('UPDATE file_shares SET ctime_ms = NULL WHERE id = ?').run(r.id); continue }
+      if (st.ino === r.ino && st.dev === r.dev && st.size === r.size && st.mtimeMs === r.mtime_ms) this.db.query('UPDATE file_shares SET ctime_ms = ? WHERE id = ?').run(st.ctimeMs, r.id)
     }
   }
   private absOf(rel: string) { return [this.ctx.files.fx.root, ...segsOf(rel)].join('/') }

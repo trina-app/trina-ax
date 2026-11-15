@@ -277,6 +277,32 @@ describe('the link follows its file', () => {
     expect(h.ctx.db.query('SELECT state FROM file_shares WHERE id = ?').get(l.id)).toEqual({ state: 'dead' })
   })
 
+  test('a file replaced outside the app (same size), then its folder renamed in the app: the link answers no access', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'users', ids.alice, 'ren-box'), { recursive: true })
+    const p = `users/${ids.alice}/ren-box/f.txt`
+    await put(alice, p, 'original!')
+    const { link: l } = await share(alice, p, [user(ids.bob)])
+    const abs = path.join(h.ctx.files.fx.root, ...p.split('/'))
+    // deleted and written again outside the app, the same size (Linux gives it the same inode)
+    fs.unlinkSync(abs)
+    fs.writeFileSync(abs, 'replaced!')
+    await alice.call('POST', '/api/files/move', { from: `users/${ids.alice}/ren-box`, to: `users/${ids.alice}/ren-box-2` })
+    await Bun.sleep(5)
+    expect((await page(bob, l.id)).status).toBe('no_access')
+    expect((await bob.raw('GET', `/api/files/shared/${l.id}/download`)).status).toBe(404)
+  })
+
+  test('an unchanged file in a renamed folder keeps its link (one hash after the rename)', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'users', ids.alice, 'keep-box'), { recursive: true })
+    const p = `users/${ids.alice}/keep-box/f.txt`
+    await put(alice, p, 'kept as is')
+    const { link: l } = await share(alice, p, [user(ids.bob)])
+    await alice.call('POST', '/api/files/move', { from: `users/${ids.alice}/keep-box`, to: `users/${ids.alice}/keep-box-2` })
+    await Bun.sleep(5)
+    expect(await page(bob, l.id)).toMatchObject({ status: 'open', name: 'f.txt' })
+    expect(await (await bob.raw('GET', `/api/files/shared/${l.id}/download`)).text()).toBe('kept as is')
+  })
+
   test('a changed file outside the app: the size says so at once (no hash), and the row stays dead', async () => {
     const p = `users/${ids.alice}/size.txt`
     await put(alice, p, 'same size?')
