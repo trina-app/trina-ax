@@ -1451,4 +1451,28 @@ describe('the own app\'s bot token is refused by Slack', () => {
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
     expect(await waitFor(async () => { const v = (await call('dana', 'GET', '/api/admin/slack')).json; return v.state === 'connected' && v.lastError === null })).toBe(true)
   })
+
+  test('revoked in Slack (auth.revoke): the scopes check at start and every 10 minutes says so too; a rate limit or a Slack error does not (QA TC-2140)', async () => {
+    const admin = async () => (await call('dana', 'GET', '/api/admin/slack')).json
+    expect(await admin()).toMatchObject({ state: 'connected', lastError: null })
+    const before = (h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n
+    // not about the token: nothing changes
+    for (const error of ['ratelimited', 'internal_error', 'fatal_error']) {
+      fake.failNext['auth.test'] = { error }
+      await slackOf(h.ctx).checkBotScopes()
+      expect(await admin()).toMatchObject({ state: 'connected', lastError: null })
+    }
+    // Slack's answers for a revoked token: the state of its own, with "Replace tokens"
+    for (const error of ['account_inactive', 'token_revoked', 'invalid_auth', 'not_authed']) {
+      fake.failNext['auth.test'] = { error }
+      await slackOf(h.ctx).checkBotScopes()
+      expect({ error, v: await admin() }).toMatchObject({ error, v: { mode: 'own', state: 'error', lastError: 'bot_refused', tokens: true } })
+      expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+      expect(await waitFor(async () => { const v = await admin(); return v.state === 'connected' && v.lastError === null })).toBe(true)
+    }
+    expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n).toBe(before + 4)
+    // another token checked before it is saved (a wrong one pasted, Slack: invalid_auth) says nothing about the saved one
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens('xoxb-999-888-' + 'w'.repeat(24)))).status).toBe(400)
+    expect(await admin()).toMatchObject({ state: 'connected', lastError: null })
+  })
 })
