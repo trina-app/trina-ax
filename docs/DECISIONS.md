@@ -29421,3 +29421,31 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   `schedule-notifications`.
 - Version impact: **minor** (three new optional API fields, `needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`,
   and a new push tap target; nothing removed).
+
+## Older AI-made files with a stored key: the person is told, nothing is rewritten (feat/old-files-key-scan, 2026-11-15, QA TC-3082)
+
+- **Problem.** fix/files-hide-keys (above, TC-3041) stopped the saving tools from writing a stored connection key, but
+  "files saved before this fix … are not rewritten": a file the AI made earlier, and its search text (the text cache of
+  docx, pdf, hwpx, which grep and the content search read), can still hold the key.
+- **Decision: find them once and tell the person whose key it is; never rewrite.** A file the AI made is the person's
+  (or their team's) work, a key in it may be on purpose, and a rewrite of a docx or hwpx could break it. Once, a moment
+  after a server start (after the memory clean-up of #953; `integrations/connections/file-scan.ts`, settings key
+  `files.storedKeyScan`), each file whose newest AI save (`file_events` with a `turn_id`, create or update) is by a
+  person with stored keys is read as that person (it must still be there and theirs to read) together with its text
+  cache, and checked for any form of that person's keys (`allSecretsFor`, the answer's redactor: as written, base64,
+  escaped). Files found are kept by path (`stored_key_files`, migration 354) and the person gets one Activity notice
+  (`files.stored_key`, `stored_key_file_notices`, never a push, shown whatever the switches say): "N files the AI made
+  for you have a saved key of a connected service in them. Open each one and remove the key, or delete the file.", with
+  the files listed under it as links (name and place in the Files sidebar's words). The row itself opens nothing and
+  keeps Mark as read.
+- **Who is told, and access.** The person whose key it is (whose AI turn saved the file), not the team owner: the owner
+  may not be allowed to open a member's files, and the key is the member's. The list is read when the notice is shown,
+  as that person: a file that is gone or that they may no longer open drops off (no access is widened); none left says
+  the files were moved or deleted. Uploaded files and files a person saved are not looked at. A file the AI saved in a
+  folder its person can no longer read is not reported to anyone (open question).
+- **Done, and cost.** Marked done only when every person's keys could be read; otherwise the keys that can be read are
+  looked for and it runs again at the next start (as #953). At most the newest 20,000 such files and 4 MB of text per
+  file and per text cache in one run, a pause every 50 files, nothing written when the server stops meanwhile; the log
+  has counts only (scanned, found, people, done), never a path or a key.
+- Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
+- Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).

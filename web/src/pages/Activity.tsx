@@ -35,6 +35,7 @@ import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '.
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { LeaverNoticeExtras, PausedNoticeExtras } from '../components/rooms/apps/PausedNotice'
+import { KeyFilesNoticeExtras } from '../components/settings/KeyFilesNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
@@ -505,10 +506,12 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const ask = sr?.open
     ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: requestableName(sr.service) })}</span>
     : sr?.added ? <span className="flex items-center gap-1 text-ok" data-testid="notification-service-added"><Check size={13} aria-hidden />{t('notifications.serviceRequest.added')}</span> : null
-  const below = item.handover || d?.job?.tail || item.roomApp?.roomId || item.roomAppLeaver?.roomId ? <>
+  const below = item.handover || d?.job?.tail || item.roomApp?.roomId || item.roomAppLeaver?.roomId || item.keyFiles?.files.length ? <>
     {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.code === 'room_app.paused' && <PausedNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.code === 'room_app.leaver' && <LeaverNoticeExtras item={item} onRead={onRead} />}
+    {/* older AI-made files with a saved key in them: each one to open (the row itself opens nothing) */}
+    {item.code === 'files.stored_key' && <KeyFilesNoticeExtras item={item} onRead={onRead} />}
     {d?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto font-mono text-xs break-words whitespace-pre-wrap text-faint" data-testid="notification-job-tail">{d.job.tail}</pre>}
   </> : null
   const body = <RowBody

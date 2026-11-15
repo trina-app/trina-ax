@@ -80,7 +80,9 @@ export type PushEventType = z.infer<typeof PushEventType>
  * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
  * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
  * admins (one per app), service.ready to the member once they can connect it, service.closed to the member when the ask
- * closed without the app (an admin's Dismiss, or the 30 days; service_request_closed_notices), and account.reset_link to a person when a password reset link
+ * closed without the app (an admin's Dismiss, or the 30 days; service_request_closed_notices), files.stored_key to a
+ * person when files the AI saved for them earlier still hold one of their stored connection keys (stored_key_file_notices,
+ * migration 354; server/src/integrations/connections/file-scan.ts), and account.reset_link to a person when a password reset link
  * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
@@ -90,7 +92,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -175,6 +177,9 @@ export const InboxNotification = z.object({
     /** 'service.closed' only: how the ask closed without the app (an admin's Dismiss, or the 30 days) */
     closed: z.enum(['dismissed', 'expired']).optional(),
   }).optional(),
+  /** 'files.stored_key' only: how many of the files the AI saved earlier with one of my stored connection keys in them I
+   * may open now, and the first of them (team paths), read when shown. Never the key. */
+  keyFiles: z.object({ n: z.number().int().nonnegative(), files: z.array(z.object({ path: z.string() })) }).optional(),
   /** 'connection.reconnect' for a person's own connection other than Google Drive, while it is theirs: its id, its name (a
    * plain line) and its Google app (gmail, …; null for one added by its address or from the list), so the Inbox names it
    * and opens its page. Google Drive's notice and older servers omit it. */
