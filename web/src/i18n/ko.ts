@@ -5497,7 +5497,7 @@ export const ko = {
   "notifications.event.service.readyNamed": "{service} 준비가 끝났어요. 지금 연결할 수 있어요.",
   "notifications.event.service.closed": "앱 요청이 닫혔어요. 다시 요청할 수 있어요.",
   "notifications.event.service.dismissedNamed": "관리자가 {service} 요청을 닫았어요. 다시 요청할 수 있어요.",
-  "notifications.event.service.expiredNamed": "{service} 요청이 30일 동안 답이 없어 끝났어요. 다시 요청할 수 있어요.",
+  "notifications.event.service.expiredNamed": "{service} 요청이 30일이 지나 끝났어요. 다시 요청할 수 있어요.",
   "audit.act.service_request.ask": "관리자에게 앱 추가 요청",
   "audit.act.service_request.withdraw": "앱 추가 요청 취소",
   "audit.act.service_request.dismiss": "멤버의 앱 추가 요청 넘김",

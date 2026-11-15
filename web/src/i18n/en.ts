@@ -5498,7 +5498,7 @@ export const en: Record<MessageKey, string> = {
   "notifications.event.service.readyNamed": "{service} is ready. You can connect it now.",
   "notifications.event.service.closed": "A request for an app was closed. You can ask again.",
   "notifications.event.service.dismissedNamed": "An admin closed your request for {service}. You can ask again.",
-  "notifications.event.service.expiredNamed": "Your request for {service} ended after 30 days with no answer. You can ask again.",
+  "notifications.event.service.expiredNamed": "Your request for {service} ended after 30 days. You can ask again.",
   "audit.act.service_request.ask": "Asked an admin to add an app",
   "audit.act.service_request.withdraw": "Cancelled a request to add an app",
   "audit.act.service_request.dismiss": "Dismissed members' requests to add an app",

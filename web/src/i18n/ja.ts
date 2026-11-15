@@ -5453,7 +5453,7 @@ export const ja: Record<MessageKey, string> = {
   "notifications.event.service.readyNamed": "{service}の準備ができました。今すぐ接続できます。",
   "notifications.event.service.closed": "アプリのリクエストが閉じられました。もう一度リクエストできます。",
   "notifications.event.service.dismissedNamed": "管理者が{service}のリクエストを閉じました。もう一度リクエストできます。",
-  "notifications.event.service.expiredNamed": "{service}のリクエストは30日間返答がなく終了しました。もう一度リクエストできます。",
+  "notifications.event.service.expiredNamed": "{service}のリクエストは30日が過ぎて終了しました。もう一度リクエストできます。",
   "audit.act.service_request.ask": "管理者にアプリの追加をリクエスト",
   "audit.act.service_request.withdraw": "アプリ追加のリクエストを取り消し",
   "audit.act.service_request.dismiss": "メンバーのアプリ追加リクエストを見送り",

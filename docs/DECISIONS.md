@@ -28958,7 +28958,7 @@ QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
   connector, and can take it back": "Dismissing tells nobody". The page told the member "We'll tell you when Notion is
   ready", so an admin's Dismiss and the 30 days now give each asker one quiet notice (`service.closed`, Activity only,
   never a push, never an admin's name: "An admin closed your request for Notion. You can ask again." / "…ended after
-  30 days with no answer…") that opens the app's page. A member's own Cancel request tells nobody. Data: migration 353,
+  30 days…") that opens the app's page. A member's own Cancel request tells nobody. Data: migration 353,
   `service_request_closed_notices` (the 343 table's event CHECK is fixed); how it closed is the request's
   `closed_reason` ('expired', NULL for a dismissed one), so no change to `service_requests`.
 - Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-service-requests.test.ts`,

@@ -5453,7 +5453,7 @@ export const es: Record<MessageKey, string> = {
   "notifications.event.service.readyNamed": "{service} ya está listo. Puede conectarlo ahora.",
   "notifications.event.service.closed": "Se cerró una solicitud de app. Puede pedirla de nuevo.",
   "notifications.event.service.dismissedNamed": "Un administrador cerró su solicitud de {service}. Puede pedirla de nuevo.",
-  "notifications.event.service.expiredNamed": "Su solicitud de {service} terminó tras 30 días sin respuesta. Puede pedirla de nuevo.",
+  "notifications.event.service.expiredNamed": "Su solicitud de {service} terminó a los 30 días. Puede pedirla de nuevo.",
   "audit.act.service_request.ask": "Pidió a un administrador añadir una aplicación",
   "audit.act.service_request.withdraw": "Canceló una solicitud para añadir una app",
   "audit.act.service_request.dismiss": "Descartó las solicitudes de miembros para añadir una app",

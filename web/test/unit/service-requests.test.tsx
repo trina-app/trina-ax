@@ -39,7 +39,7 @@ describe('the notices', () => {
   test('closed without the app (QA TC-2946): an admin\'s Dismiss or the 30 days, they may ask again; opens its page; names nobody', () => {
     const closed = (how: 'dismissed' | 'expired') => notice({ eventType: 'service.closed', code: 'service.closed', sourceId: uuidv7(), serviceRequest: { service: 'notion', closed: how } })
     expect(text(closed('dismissed'))).toBe('An admin closed your request for Notion. You can ask again.')
-    expect(text(closed('expired'))).toBe('Your request for Notion ended after 30 days with no answer. You can ask again.')
+    expect(text(closed('expired'))).toBe('Your request for Notion ended after 30 days. You can ask again.')
     expect(text(notice({ eventType: 'service.closed', code: 'service.closed', sourceId: uuidv7() }))).toBe(en('notifications.event.service.closed'))
     expect(noticeLink(closed('dismissed'))).toEqual({ to: '/settings/connectors/notion', testId: 'notification-service-closed-link' })
     for (const [locale, d] of Object.entries(DICTS)) for (const k of ['notifications.event.service.closed', 'notifications.event.service.dismissedNamed', 'notifications.event.service.expiredNamed'] as const) {

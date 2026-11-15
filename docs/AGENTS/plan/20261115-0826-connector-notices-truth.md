@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:26
 - Branch: `fix/connector-notices-truth`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations, server/src/notifications, web/src/components/integrations, i18n. Why: four QA
   findings where the connector pages or the notification setting promise something the server does not do.
 - Version impact: patch: fixes wrong lines and adds missing notices; no new feature, no API removed.
@@ -54,4 +54,7 @@ typecheck, check:i18n, check:docs, unit tests of c-*/notifications, web unit tes
 
 ## Result
 
-(filled in at the end)
+Built as planned. Differences: a reconnect notice comes only on the move from connected (not from an error, an edit or
+a connection that never worked), so a person fixing a key is not told what they are looking at. Team connections tell
+nobody (open question). The expired line was shortened after the screenshots. "Dismissing tells nobody" (DECISIONS,
+2026-11-12) is reversed on purpose (QA TC-2946). PR: see the branch's pull request.

@@ -5425,7 +5425,7 @@ export const zh: Record<MessageKey, string> = {
   "notifications.event.service.readyNamed": "{service}已准备好。你现在就可以连接。",
   "notifications.event.service.closed": "一个应用请求已关闭。你可以再次请求。",
   "notifications.event.service.dismissedNamed": "管理员关闭了你对{service}的请求。你可以再次请求。",
-  "notifications.event.service.expiredNamed": "你对{service}的请求30天内没有回复，已结束。你可以再次请求。",
+  "notifications.event.service.expiredNamed": "你对{service}的请求已过 30 天，已结束。你可以再次请求。",
   "audit.act.service_request.ask": "请管理员添加应用",
   "audit.act.service_request.withdraw": "取消了添加应用的请求",
   "audit.act.service_request.dismiss": "忽略了成员添加应用的请求",

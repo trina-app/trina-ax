@@ -5497,7 +5497,7 @@ export const id: Record<MessageKey, string> = {
   "notifications.event.service.readyNamed": "{service} sudah siap. Anda bisa menghubungkannya sekarang.",
   "notifications.event.service.closed": "Permintaan aplikasi ditutup. Anda bisa meminta lagi.",
   "notifications.event.service.dismissedNamed": "Admin menutup permintaan Anda untuk {service}. Anda bisa meminta lagi.",
-  "notifications.event.service.expiredNamed": "Permintaan Anda untuk {service} berakhir setelah 30 hari tanpa jawaban. Anda bisa meminta lagi.",
+  "notifications.event.service.expiredNamed": "Permintaan Anda untuk {service} berakhir setelah 30 hari. Anda bisa meminta lagi.",
   "audit.act.service_request.ask": "Meminta admin menambahkan aplikasi",
   "audit.act.service_request.withdraw": "Membatalkan permintaan menambahkan aplikasi",
   "audit.act.service_request.dismiss": "Mengabaikan permintaan anggota untuk menambahkan aplikasi",
