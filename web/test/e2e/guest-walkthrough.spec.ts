@@ -102,7 +102,7 @@ test.describe('the cap and the link', () => {
     await page.getByTestId('room-members-button').click()
     await page.getByTestId('room-invite').click()
     await page.getByTestId('invite-guest-row').click()
-    await expect(page.getByTestId('guest-invite-full')).toContainText(ko('guest.full', { n: 1 }))
+    await expect(page.getByTestId('guest-invite-full')).toContainText(ko('guest.fullLinks', { n: 1 }))
     await expect(page.getByTestId('guest-invite-full-pending')).toHaveText(ko('guest.fullPending', { n: 1 }))
     await expect(page.getByTestId('guest-invite-full-next')).toContainText('관리자 › 멤버·초대에서 필요 없는 링크를 취소')
     await expect(page.getByTestId('guest-invite-name')).toHaveCount(0)

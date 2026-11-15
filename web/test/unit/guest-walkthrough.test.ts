@@ -88,7 +88,7 @@ describe('a guest link and the cap (S7, M4)', () => {
     const refused = new ApiError(409, { code: 'plan_limit', message: 'full', params: { reason: 'guest_limit', limit: 3, pending: 1 } })
     expect(guestCap(refused)).toEqual({ n: 3, pending: 1 })
     expect(guestCap(new ApiError(409, { code: 'plan_limit', message: 'full', params: { reason: 'guest_limit', limit: 3 } }))).toEqual({ n: 3 })
-    expect(t('guest.fullPending', { n: 2 })).toBe('That counts 2 invite links nobody has used yet.')
+    expect(t('guest.fullPending', { n: 2 })).toBe('This includes 2 invite links nobody has used yet.')
   })
 })
 

@@ -85,7 +85,8 @@ test.describe('computer', () => {
       ['inviter_gone', 'The person who made this link can no longer invite you. Ask them or someone else on the team for a new link.'],
       ['place_gone', 'The room or project this link was for is no longer there. Ask the person who invited you.'],
     ]
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul' })
+    // a guest's page speaks the guest's browser language (guest walkthrough S10): an English browser here
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul', locale: 'en-US' })
     const g = await ctx.newPage()
     for (const [reason, words] of cases) {
       const t = await token()
