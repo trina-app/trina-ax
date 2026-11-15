@@ -30,7 +30,9 @@ What stays on your computer:
 
 - The app reads only the **names, types, sizes and dates** of the files. It never moves, renames or changes them.
 - A file that is **only in the cloud** (OneDrive's "online only", for example) is not downloaded while the app looks. The
-  list says **In the cloud**; if you add it, it is downloaded then.
+  list says **In the cloud**; if you add it, it is downloaded then, and the upload says **Getting report.docx from
+  iCloud…** (or OneDrive, Google Drive) while it does. A file that has not come down within a minute is not added; open
+  it once on your computer so it downloads, then add it again.
 - **Mail, Messages, Photos, Safari and other apps' data are never looked at.** The only app data the app reads are the
   lists of recently opened documents that macOS, Windows and Office keep.
 - To help pick the work files, the **file names**, the names of the folders they are in, and their type, size and date

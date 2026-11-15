@@ -29818,3 +29818,27 @@ Two follow-ups to "asked once, reads only what is added":
   has counts only (scanned, found, people, done), never a path or a key.
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
+
+## Large uploads send three chunks at once; a cloud file says where it comes from (perf/upload-parallel-chunks, 2026-11-15, QA TC-3245..3248)
+
+Through the Cloudflare tunnel one upload stream to a team server in Seoul gets 5-8 MB/s from Jakarta, three together
+about 12 MB/s, and a large file went up one 8 MB chunk after the other. Decided: `web/src/lib/upload.ts` sends up to
+`CHUNKS_AT_ONCE` = 3 chunks of one file at a time (`sendChunks`: they start in ascending order, each with its own
+retries; the first that fails for good stops the others and the file, and complete is sent only when all are in). Each
+chunk still takes a place in the page's one line of uploads, which goes from 3 to `COPIES_AT_ONCE` = 5 places (40 MB of
+copies at most; the overtime of a stalled upload stays at 3), so a folder of large files does not open 9 requests. The
+server needed no change: it writes each chunk at its offset, keeps the received list in a transaction, and hashes the
+rest of the file at complete when chunks came out of order; its chunk gate still reads 3 chunks at once for the whole
+server and queues the rest. Measured on qa.trina.app from Indonesia (numbers in the PR): about 1.75x for 50 MB and
+1.4x for 10 MB when each request has its own connection; in Chromium, where all requests share one HTTP/2 or HTTP/3
+connection, 1.0-1.2x. A 10 MB file is one 8 MB chunk and a 2 MB one, so it cannot reach 2x with 8 MB chunks. Smaller
+chunks or a second host name were left out (a server and infrastructure change).
+
+Find work files: when the desktop app reads a file whose content is only in the cloud (a Mac's SF_DATALESS, checked with
+`/usr/bin/stat` just before the open; on Windows the look's index attributes, Found.late), or a read in a cloud's folder
+still going after 1.5 s, it tells the page which cloud (`workFiles.read(id, { onCloud })`, the event
+`bridge:work-files-reading` to the asking frame; older apps never call it). The run, the upload row and the welcome
+step's row say "Getting <name> from iCloud…" (OneDrive, Google Drive, Dropbox, Box, or "the cloud") instead of
+"Preparing"/"Uploading". The 60 s read limit stays; a cloud read that runs out answers `cloudTimeout` with the cloud,
+and the file's reason says it did not come down within a minute and to open it once, then add it again (it stays "not
+tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id. Version impact: **patch**.
