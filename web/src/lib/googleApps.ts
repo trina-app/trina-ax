@@ -57,6 +57,25 @@ export function unavailableKeys(reason: GoogleAppView['reason'], admin: boolean)
   }
 }
 
+/** A Google sign-in that did not finish, in words (Drive and the Google apps, the person's own and the team's): cancelled
+ * at Google, Google refused it (the hosting service's app: Cancel, or only some accounts for now), a permission not
+ * ticked, too many sign-ins started this hour (QA TC-3034), else the general line. "timeout" is worded by the caller. */
+export function signInFailedKey(reason: string | null | undefined): MessageKey {
+  // 20 sign-ins started in an hour (the server's limit; its refusal is "drive_rate_limited" / "google_app_rate_limited")
+  if (reason && /(^|_)rate_limited$/.test(reason)) return 'gapps.tooManySignIns'
+  switch (reason) {
+    case 'consent_denied': return 'gapps.cancelled'
+    case 'consent_denied_service': return 'gapps.deniedService'
+    case 'scope_denied': return 'gapps.scopeDenied'
+    default: return 'drive.failed'
+  }
+}
+
+/** Before Google opens: the line that Google may call the app unverified, only where Trina's shared Google app (the
+ * hosting service's) signs in, never a company's own. While Google's review is pending (QA TC-2957); once it is
+ * verified, delete this, its key `google.unverifiedHint` and GoogleUnverifiedNote. */
+export const showUnverifiedHint = (v: { hostedApp?: boolean } | null | undefined) => !!v?.hostedApp
+
 /** Google Drive's card state, from its connection (DriveConnector.tsx keeps the details of its own flow). Once it is
  * set up everyone may connect their own (docs/DECISIONS.md "No members' switch for connectors"). */
 export function driveCardState(c: DriveConnection | null): CardState {

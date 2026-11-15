@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:11
 - Branch: `fix/google-signin-pages-1115`
-- Status: in progress
+- Status: done
 - Where: server routes and Google sign-in services, web Connectors and the Google connector pages. Why: QA TC-2956,
   TC-2957, TC-2958, TC-2978, TC-2979 (see docs/REPOSITORY-RULES.md: components C and the web app)
 - Version impact: patch: fixes words and one hidden list entry; one optional field added to two answers (older apps ignore it)
@@ -28,6 +28,7 @@ In:
 - Drive and Google apps callbacks report the reason (`callbackOutcome`); `callback()` keeps returning a boolean.
 - `hostedApp` on `DriveConnection` and `GoogleAppView` (true in broker mode only) and one i18n key `google.unverifiedHint`.
 - Web: cancelled wording for `consent_denied`, the unverified line, Discover keeps service_limited / unsupported apps.
+Also (added): TC-2932 and TC-3034 on the same files.
 Out: the connector catalog and URL validation (another session), the hosting service's own start page, the waiting
 line under Google (#938), Drive in the onboarding Tools step (#843).
 
@@ -55,4 +56,8 @@ c-google-*, `bun run test:web`, `bun run build:web`, e2e connectors specs.
 
 ## Result
 
-(at the end)
+Built as planned, plus two items added on the same files: TC-2932 (members' own connections off: the line always
+shows; a member's search lists listed services with "Ask admin to add it") and TC-3034 (20 sign-ins an hour: "try again
+in about an hour"). The unverified line is on the Drive and Google app pages, not on the Discover card's + or the
+team-account dialog. Return pages: c-google-return-page.test.ts; web: connectors-page.test.tsx and
+web/test/e2e/google-signin-words.spec.ts. PR: see the branch's pull request.

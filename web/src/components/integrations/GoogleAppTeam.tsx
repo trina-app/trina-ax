@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react'
 import { API, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppTeam, type IntegrationAccess } from '@mycel/shared/api'
 import { api } from '../../lib/api'
-import { builtInLogo, builtInName } from '../../lib/googleApps'
+import { builtInLogo, builtInName, signInFailedKey } from '../../lib/googleApps'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -128,7 +128,7 @@ function TeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
         {step === 'connect' && <>
           <p className="text-sm text-muted">{t('gapps.team.intro')}</p>
           {!f.inProgress && <Button variant="primary" busy={f.busy} onClick={() => void f.start()} data-testid="gapp-team-google">{t('drive.openGoogle')}</Button>}
-          <SignInSteps d={f} testId="gapp-team" failed={t(f.reason === 'scope_denied' ? 'gapps.scopeDenied' : 'drive.failed')} />
+          <SignInSteps d={f} testId="gapp-team" failed={t(signInFailedKey(f.reason))} />
         </>}
         {step === 'people' && made && <>
           <p className="text-xs text-muted" data-testid="gapp-team-signed-in">{t('driveShare.account', { email: accountLine(made.account) })}</p>

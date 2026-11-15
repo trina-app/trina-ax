@@ -28,6 +28,8 @@ import { AppConnectorCard, CardMenu } from './AppConnectorCard'
 import { connectionLogo } from './ConnectionRow'
 import { BrowserWait } from './BrowserWait'
 import { googleLink } from './googleLink'
+import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
+import { showUnverifiedHint, signInFailedKey } from '../../lib/googleApps'
 import { Tooltip } from '../Tooltip'
 import { dropOverCls } from '../FileDropZone'
 import { useFileDrop } from '../chat/ComposerFiles'
@@ -59,6 +61,7 @@ export function useDriveParts(s: DriveConnectionState) {
   const unavailable = !!c && !c.configured
   const shares = c?.teamShares ?? []
   const flow = d.inProgress ? d.flow : null
+  const unverified = showUnverifiedHint(c) && !!c?.configured && !flow && (!linked || reconnect)
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
@@ -100,12 +103,14 @@ export function useDriveParts(s: DriveConnectionState) {
           <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
         </div>
       )}
-      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t(d.reason === 'timeout' ? 'connect.wait.timedOut' : 'drive.failed')}</p>}
+      {/* before Google opens: Google may call Trina's shared app unverified (QA TC-2957) */}
+      {unverified && <GoogleUnverifiedNote />}
+      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t(d.reason === 'timeout' ? 'connect.wait.timedOut' : signInFailedKey(d.reason))}</p>}
       {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
     </>
   )
   const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status
-  return { line, action, steps, state, linked, reconnect, unavailable, shares, busy: !!flow }
+  return { line, action, steps, state, linked, reconnect, unavailable, shares, busy: !!flow, unverified }
 }
 
 /** The Drives the team shares with this person: nothing to connect, the AI can use them in their chats. */
