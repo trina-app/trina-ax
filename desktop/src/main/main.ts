@@ -41,6 +41,7 @@ import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
+import { SignInReturn } from '../common/sign-in-return'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -136,6 +137,8 @@ if (primary) app.on('open-url', (e, url) => {
 })
 
 let win: AppWindow | undefined
+/** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
+const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -346,6 +349,10 @@ function registerIpc() {
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
   // only a request, committed by the person's click on the app's own dialog (AppWindow.requestAllowAll).
+  // a connector sign-in's return address: only for the team page's top frame at the team's own address (not its pinned
+  // direct one), and it goes only there (common/sign-in-return.ts)
+  ipcMain.handle('bridge:sign-in-return-open', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? signInReturn.open(e.senderFrame.origin) : null))
+  ipcMain.on('bridge:sign-in-return-close', (e, port: unknown) => fromApp(e) && typeof port === 'number' && signInReturn.close(port))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
     if (!fromApp(e) || !win?.pane) return 'unavailable'
@@ -445,6 +452,7 @@ async function createWindow() {
     // quitting closes the window before will-quit: keep which team it showed (its cookies are written on quit)
     lastTeam = win?.team?.id ?? lastTeam
     win = undefined
+    signInReturn.close()
   })
   buildMenu()
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
