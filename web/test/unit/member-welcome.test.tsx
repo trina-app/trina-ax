@@ -426,7 +426,7 @@ describe('the ✦ line in a room', () => {
     const m = await mount(<Hint />)
     try {
       await m.until(() => m.find('room-ask-hint'), 'the line')
-      expect(text(m, 'room-ask-hint')).toContain('✦ Ask Trina about this room. Only you see it.')
+      expect(text(m, 'room-ask-hint')).toContain('✦ Ask Trina about this conversation. Only you see it.')
       await m.click('room-ask-hint-close')
       expect(m.find('room-ask-hint')).toBeNull()
       await m.until(() => called('PATCH /api/me').length > 0 || null, 'saved')

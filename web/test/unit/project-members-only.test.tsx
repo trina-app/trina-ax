@@ -291,7 +291,7 @@ describe('in the trash', () => {
       expect(m.container.ownerDocument!.body.querySelector('[data-testid="project-delete-shared"]')?.textContent).toBe('Its shared chats go to their creators\' "Deleted history" for 7 days.')
       expect(translate('ko', 'projects.deleteForGoodShared', { days: 7, trash: translate('ko', 'sidebar.trash') })).toBe('공유 채팅은 만든 사람의 "삭제한 기록"에 7일 동안 있어요.')
       expect(translate('ko', 'projects.deleteForGoodBody')).toBe('파일도 함께 지워지고 되돌릴 수 없어요.')
-      expect(translate('ko', 'projects.deleteForGoodTitle', { name: '주간 보고' })).toBe("'주간 보고'를 완전히 삭제할까요?")
+      expect(translate('ko', 'projects.deleteForGoodTitle', { name: '주간 보고' })).toBe("'주간 보고' 프로젝트를 완전히 삭제할까요?")
       await m.click('dialog-confirm')
       await m.until(() => m.find('elsewhere'), 'the list', 2000)
       expect(calls(`DELETE /api/projects/${P1}`)).toHaveLength(1)

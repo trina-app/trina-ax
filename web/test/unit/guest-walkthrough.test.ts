@@ -97,14 +97,14 @@ describe('a guest link and the cap (S7, M4)', () => {
   test('the message names who sends it, the one place, their own AI when it is theirs, and the link with its end', () => {
     const place = { kind: 'room' as const, id: 'r', name: 'Quote prep' }
     const m = guestLinkMessage(t, { name: 'Mia', place, url: 'https://acme.example/invite/abc', until: 'Nov 22', ownAi: false })
-    expect(m.split('\n')[0]).toContain("Hi, it's Mia. I'm inviting you to our 'Quote prep' room on ")
-    expect(m).toContain("You'll see only this room.")
+    expect(m.split('\n')[0]).toContain("Hi, it's Mia. I'm inviting you to our 'Quote prep' group chat on ")
+    expect(m).toContain("You'll see only this group chat.")
     expect(m.endsWith('until Nov 22:\nhttps://acme.example/invite/abc')).toBe(true)
     const own = guestLinkMessage(t, { name: '', place: { ...place, kind: 'project' }, url: 'u', until: 'd', ownAi: true })
     expect(own.startsWith("Hi! I'm inviting you to our 'Quote prep' project on ")).toBe(true)
     expect(own).toContain(t('teamLink.msg.ownAi'))
     const ko = guestLinkMessage((k, p) => translate('ko', k, p), { name: '미아', place, url: 'u', until: '11월 22일', ownAi: false })
-    expect(ko).toContain("'Quote prep' 방에 초대할게요. 이 방만 보여요.")
+    expect(ko).toContain("'Quote prep' 그룹 대화에 초대할게요. 이 그룹 대화만 보여요.")
   })
 
   test('the links that hold a place come with a full cap, from the read and from a refused Create link', () => {

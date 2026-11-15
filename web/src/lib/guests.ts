@@ -41,8 +41,19 @@ export type GuestPlaceOut = NonNullable<NonNullable<User['guest']>['placeOut']>
 /** A guest's place and AI choice as Admin › Members shows them (User.guest), with why a removed one is not in their place
  * (`out`), whether their Team AI's account was deleted (`aiGone`), whether this month's limit is used up (`aiUsedUp`) and
  * how much of it is used (`aiUse`, Team AI only). */
-export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; aiGone: boolean; aiUsedUp: boolean; aiUse: NonNullable<User['guest']>['aiUse'] | null } | null {
-  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true, aiUse: u.guest?.aiUse ?? null } : null
+export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; leftThemselves: boolean; aiGone: boolean; aiUsedUp: boolean; aiUse: NonNullable<User['guest']>['aiUse'] | null } | null {
+  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, leftThemselves: u.guest?.leftThemselves === true, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true, aiUse: u.guest?.aiUse ?? null } : null
+}
+
+/** Where a guest's row goes in Admin (walkthrough S3/S4): 'active'; 'trashed' (switched off with their project in the
+ * trash: listed with the active ones, with Restore project, since restoring brings them back); 'left' (left their place
+ * on their own); 'removed' (taken out, removed by an admin, or their place gone). The last two stay behind a toggle. */
+export type GuestRowState = 'active' | 'trashed' | 'left' | 'removed'
+export function guestRowState(u: User): GuestRowState {
+  if (u.status === 'active') return 'active'
+  const g = userGuest(u)
+  if (g?.out === 'trashed' && g.place?.id) return 'trashed'
+  return g?.leftThemselves ? 'left' : 'removed'
 }
 
 /** Why an invite link does not work (InviteInfo.reason), or null while it works or when an older server does not say. */

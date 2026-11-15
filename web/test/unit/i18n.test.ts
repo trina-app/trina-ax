@@ -193,9 +193,12 @@ describe('translations', () => {
     expect(translate('ko', 'notifications.event.integration.templateNamed', { name: 'Linear' })).toMatch(/^Linear가 준비됐어요/)
     expect(translate('ko', 'connectors.mcp.about', { name: 'Acmewidget' })).toMatch(/^Acmewidget을\(를\) 연결하면/)
     // a closing quote between the placeholder and the particle: the value decides, the quote stays
-    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: '마케팅' })).toBe("Acme의 모든 사용자가 '마케팅'을 볼 수 있음")
-    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: '자료' })).toBe("Acme의 모든 사용자가 '자료'를 볼 수 있음")
-    expect(translate('ko', 'picker.noResults', { q: 'Canva' })).toBe('"Canva"와 맞는 파일이 없어요.')
+    // (texts with a name people type put the particle after a fixed word instead: "'{folder}' 폴더를")
+    expect(format("'{folder}'을(를) 볼 수 있음", { folder: '마케팅' }, 'ko')).toBe("'마케팅'을 볼 수 있음")
+    expect(format("'{folder}'을(를) 볼 수 있음", { folder: '자료' }, 'ko')).toBe("'자료'를 볼 수 있음")
+    expect(format('"{q}"와(과) 맞는 파일', { q: 'Canva' }, 'ko')).toBe('"Canva"와 맞는 파일')
+    expect(translate('ko', 'folderAccess.teamViewsAbove', { team: 'Acme', folder: 'Budget Review' })).toBe("Acme의 모든 사용자가 'Budget Review' 폴더를 볼 수 있음")
+    expect(translate('ko', 'projects.trashTitle', { name: 'QA-Budget Review' })).toBe("'QA-Budget Review' 프로젝트를 휴지통으로 옮길까요?")
     // other languages carry no marks; a quote after an unfilled placeholder stays as written
     expect(translate('en', 'connectors.mcp.about', { name: 'Canva' })).toBe('Connect Canva so the AI can use it in your chats with your own account.')
     expect(format("'{x}'을(를)", {}, 'ko')).toBe("'{x}'을(를)")

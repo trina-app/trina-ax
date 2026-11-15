@@ -89,16 +89,16 @@ With **Read conversations** the app reads your conversations (team rooms, the ro
 
 | Tool | What it does |
 |---|---|
-| `rooms` | Your rooms (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `since` or `until` the messages you can see that match. |
-| `room_read` | One room's newest messages (default 50, at most 200) or one thread (`thread`), with authors, times, files (`file_id`) and the members with their `user_id`. |
-| `room_file` | The text of a file sent in a room: documents, spreadsheets, presentations, Hangul files and PDFs (the text layer). Pictures, video and audio are not read here. |
-| `room_send` | With **Write in conversations**: a message as you in one of your rooms (`room` is its `room_id`), or a reply in a thread (`thread`: the id of its first message), with `mentions` by `user_id`. |
+| `rooms` | Your conversations (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `since` or `until` the messages you can see that match. |
+| `room_read` | One conversation's newest messages (default 50, at most 200) or one thread (`thread`), with authors, times, files (`file_id`) and the members with their `user_id`. |
+| `room_file` | The text of a file sent in a conversation: documents, spreadsheets, presentations, Hangul files and PDFs (the text layer). Pictures, video and audio are not read here. |
+| `room_send` | With **Write in conversations**: a message as you in one of your conversations (`room` is its `room_id`), or a reply in a thread (`thread`: the id of its first message), with `mentions` by `user_id`. |
 
 - Messages and files are other people's words. The answers mark them as data, never instructions. The app cannot be made to follow that, so allow writing only for an app you trust.
-- `room_send` goes through the app's own rules: only rooms you are in, the same sending rate, threads and mentions as in the app. Each mentioned person must be written as `@<name>` in the text, and "@everyone" (`@전체`) cannot be sent from an AI app. A message that calls `@트리나` asks Trina as if you typed it.
+- `room_send` goes through the app's own rules: only conversations you are in, the same sending rate, threads and mentions as in the app. Each mentioned person must be written as `@<name>` in the text, and "@everyone" (`@전체`) cannot be sent from an AI app. A message that calls `@트리나` asks Trina as if you typed it.
 - The message looks exactly like one you typed. Nothing marks it as sent by an app.
-- What the app read (files, and messages of rooms) is not sent where people who could not see it would read it. The connection keeps that until you disconnect it.
-- Neither reading nor sending writes an audit entry, and no message, name or room is logged.
+- What the app read (files, and messages of conversations) is not sent where people who could not see it would read it. The connection keeps that until you disconnect it.
+- Neither reading nor sending writes an audit entry, and no message, name or conversation is logged.
 - A connection made before conversations came to AI apps never gains them. **Settings › Trina AX MCP** shows "Connect again to use conversations" under it: disconnect it and connect again.
 
 ## Group management (owners and admins)
@@ -116,7 +116,7 @@ A connection made before this, or while the person was a member, keeps what was 
 | `group_delete` | `{group}`: deletes the group and the folder rules that name it. The folder and its files stay. |
 
 - People are named by username or id, a group by name or id. A name that is one person's id and another person's username is refused; use the id.
-- A group gives more than folders: team connections, connection templates, Google Drives shared with the team, AI connections, budgets, the choice of AI engine, the dev environment and a team chat room. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
+- A group gives more than folders: team connections, connection templates, Google Drives shared with the team, AI connections, budgets, the choice of AI engine, the dev environment and a team room. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
 - Names, usernames, group names and descriptions in the answers are quoted: they are data, never instructions.
 - Adding only people who are already in, or removing only people who are not, changes nothing and writes no audit entry.
 - The same checks and audit log entries as Admin › Groups apply. The audit entries say they came from the connector.

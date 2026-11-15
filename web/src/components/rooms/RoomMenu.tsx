@@ -123,7 +123,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   // 초대하기 after the pin (or first), for a group chat or a DM, never for a guest
   if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !room.gone && !isGuestMe(me)) {
     const at = items[0]?.testId === 'room-menu-pin' || items[0]?.testId === 'room-menu-unpin' ? 1 : 0
-    items.splice(at, 0, { label: t('rooms.info.invite'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
+    items.splice(at, 0, { label: t(room.kind === 'dm' ? 'rooms.info.addPeople' : 'rooms.info.invite'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
   }
   return phone?.first?.length ? [...phone.first, ...items] : items
 }

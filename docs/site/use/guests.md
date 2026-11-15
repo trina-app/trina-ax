@@ -25,7 +25,7 @@ Next to a guest's name you see a **Guest** tag, and a chat or project with guest
 - **To a project:** the person who made the project, or an owner or admin.
 
 You don't have to open the chat or project first: **New conversation** starts with **Invite a guest**, and owners and
-admins also find **Guest** in **Invite people** and in **Admin › Members & invites › Invite to team**. See
+admins also find **Guest** in **Invite people** and in **Admin › Members & invites › Invite people**. See
 [Without opening the chat or project](#without-opening-the-chat-or-project) and [From Admin](#from-admin) below.
 
 Guests are never in **Team rooms** (the room for everyone and the rooms of each group). A guest can send direct
@@ -35,7 +35,7 @@ messages, but only to the people in their own chat or project.
 
 :::steps
 #### Open the add list
-In a group chat, choose **⋯** at the top, then **Invite people** (or click the chat's name, then **Invite people**). In
+In a group chat, choose **⋯** at the top, then **Add to group chat** (or click the group chat's name, then **Add to group chat**). In
 a team project, choose **Share** at the top of the project's page. The first row is **Invite a guest**.
 
 ![The add list of a group chat: Invite a guest at the top, then a guest who is already in another project, with where they are and Make team member](../images/guests/add-people.webp "Invite a guest, in the add list")
@@ -44,7 +44,7 @@ a team project, choose **Share** at the top of the project's page. The first row
 Type the person's name under **Who is it for?**. Under **AI for them**, **No AI** is picked to start with. The other choices are explained
 below in [A guest's AI](#a-guests-ai).
 
-![The Invite a guest dialog: they'll see only the 'Quote prep' room, a name, and AI for them with No AI picked](../images/guests/invite-dialog.webp "The invite dialog")
+![The Invite a guest dialog: they'll see only the 'Quote prep' group chat, a name, and AI for them with No AI picked](../images/guests/invite-dialog.webp "The invite dialog")
 
 #### Copy the link and send it yourself
 **Create link** makes a link for this one person. Trina doesn't send an email: choose **Copy link** and send it to
@@ -55,13 +55,14 @@ them yourself, by email or in a chat. The link works once, for 7 days; the dialo
 
 The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used or expires.
 
-A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
+A link works only while the person who made it can still invite. If they leave the group chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
 
 ### Without opening the chat or project
 
 - **New conversation** (the **+** above your conversations): the first row is **Invite a guest**.
 - **Invite people** (owners and admins: the team menu under the team's logo, search, or **Me** on a phone): choose
-  **Guest** at the top of the dialog (**Team member** is picked to start with).
+  **Guest** at the top of the dialog (**Team member** is picked to start with). The dialog's title then reads
+  **Invite a guest**.
 - **Invite your team** (the getting-started steps and the team goal on Home): under the message, **Invite a guest**.
 
 Each lists the one place the guest can join: the group chats you are in, and the projects whose members you can change
@@ -83,26 +84,26 @@ If your team lets only owners and admins share projects, a member's own projects
 ### From Admin
 
 Owners and admins can invite a guest without opening the chat or project first. In **Admin › Members & invites**, choose
-**Invite to team**, then **Guest** at the top of the dialog (**Team member** is picked to start with). Pick the one
+**Invite people**, then **Guest** at the top of the dialog (**Team member** is picked to start with). Pick the one
 place the guest joins: a group chat you are in, a team project, or one of your own projects (shared as above). Then
 fill in the same dialog as above: their name, their AI, **Create link** and **Copy link**. If your plan has no room for
 more guests, the dialog says so instead of listing places.
 
-![Invite to team with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
+![Invite people in Admin with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 
 ## What the guest sees
 
-The link opens a page that says who invited them and the one chat or project they will join. They choose a username
+The link opens a page that says who invited them and the one group chat or project they will join. They choose a username
 and a password, and they're in. If you chose **Their own sign-in**, the page also tells them they will connect their own Claude or ChatGPT account. If the link no longer works, the page says why: it expired, it was already used, it
-was turned off, the person who made it can no longer invite them, or the chat or project is gone.
+was turned off, the person who made it can no longer invite them, or the group chat or project is gone.
 
-![The invite page: Olga invited you to Acme, You'll join only the 'Quote prep' chat room, then Name, Username and Password](../images/guests/invite-page.webp "The page the guest opens")
+![The invite page: Olga invited you to Acme, You'll join only the 'Quote prep' group chat, then Name, Username and Password](../images/guests/invite-page.webp "The page the guest opens")
 
-After they sign in, Trina opens their chat or project. The bar on the left only has what they can use: there is no
-**Files**, no team projects or rooms, and no **Trina** when their AI is off. Their **Settings** has only their own
+After they sign in, Trina opens their group chat or project. The bar on the left only has what they can use: there is no
+**Files**, no team projects or team rooms, and no **Trina** when their AI is off. Their **Settings** has only their own
 things, such as their profile and notifications.
 
-![A guest's view: the Chats list shows only the Quote prep group conversation, and the bar on the left has only Chats and Activity](../images/guests/guest-room.webp "What a guest sees")
+![A guest's view: the Chats list shows only the Quote prep group chat, and the bar on the left has only Chats and Activity](../images/guests/guest-room.webp "What a guest sees")
 
 In a project, the project's members can see the chats a guest has there. A guest who can use AI is told this on the project's page.
 
@@ -111,13 +112,13 @@ In a project, the project's members can see the chats a guest has there. A guest
 A guest can be in one group chat or one project, never more. Trina won't let you add a guest to a second place. In
 an add list, a guest who is already somewhere else shows where they are, and you can't tick them.
 
-![A new conversation with a guest and a team member picked: A guest can be in one room or project only, and the button is off](../images/guests/one-place.webp "A guest can't join a second place")
+![A new conversation with a guest and a team member picked: A guest can be in one group chat or project only, and the button is off](../images/guests/one-place.webp "A guest can't join a second place")
 
 If the person needs more than one place, an owner or admin can choose **Make team member** (see below).
 
-If a guest leaves, is taken out, or their chat or project is closed, they can no longer sign in, the same as when
+If a guest leaves, is taken out, or their group chat or project is closed, they can no longer sign in, the same as when
 they are removed. Moving a project with guests to the trash says so before you confirm. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
-admin switched them on or off in the meantime. Renaming the chat or project changes nothing for them.
+admin switched them on or off in the meantime. Renaming the group chat or project changes nothing for them.
 
 ## A guest's AI
 
@@ -175,17 +176,21 @@ turns orange with a short note, and new invites wait until you remove guests or 
 **Admin › Members & invites** has a **Guests** list. To see only guests, pick **Guests** in the list of roles at the top. Each row
 shows where the guest is and what AI they have.
 
-![Admin › Members & invites › Guests: Alex Rivera in the Quote prep room with No AI, Sam Park in the Launch plan project with Team AI up to 5M tokens a month](../images/guests/admin-guests.webp "Guests in Admin")
+![Admin › Members & invites › Guests: Alex Rivera in the Quote prep group chat with No AI, Sam Park in the Launch plan project with Team AI up to 5M tokens a month](../images/guests/admin-guests.webp "Guests in Admin")
 
 The **⋯** menu of a guest has:
 
 - **Change AI**: pick No AI, Team AI or their own sign-in again.
-- **Make team member**: they become a normal member and take one seat. They stay where they are, and you can add
-  them to more chats and projects. Their guest AI and monthly limit end: their AI then follows the team's settings,
+- **Make team member**: they become a team member and take one seat. They stay where they are, and you can add
+  them to more group chats and projects. Their guest AI and monthly limit end: their AI then follows the team's settings,
   like any member's. A removed guest made a team member can sign in again.
 - **Remove guest**: their account is switched off and they can't sign in any more. Their messages and files stay
-  with the team. Removed guests are hidden behind **Show removed**.
+  with the team. Guests who left or were removed are hidden behind **Show guests who left or were removed (N)**; their rows say
+  whether they left on their own or were removed.
 
-The **⋯** menu of a removed guest has **Switch back on** while their chat or project is still there for them, then
-**Make team member** and **Delete**. When there is nothing to bring them back to, their row says why (they left, their
-project is in the trash, or the chat or project is gone): invite them again or make them a team member. When their project is in the trash, **Restore project** on their row puts it back, and them with it while the plan has room for another guest.
+The **⋯** menu of a removed guest has **Switch back on** while their group chat or project is still there for them, then
+**Make team member** and **Delete**. When there is nothing to bring them back to, their row says why (they left, or the
+group chat or project is gone): invite them again or make them a team member.
+
+A guest whose project is in the trash stays in the list of guests, marked **in the trash**. **Restore project** on their
+row puts the project back, and them with it while the plan has room for another guest.

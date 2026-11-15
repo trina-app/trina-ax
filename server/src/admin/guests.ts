@@ -65,6 +65,9 @@ export function disableGuestIfPlaceless(ctx: AppContext, userId: string, actorId
   const closed = !!place && !placeAlive(ctx.db, place)
   const off = disableAccount(ctx, userId, actorId, 'guest_no_place')
   if (off && closed) ctx.db.query('UPDATE guests SET off_with_place = ? WHERE user_id = ?').run(new Date().toISOString(), userId)
+  // they left it on their own (the room service's leave passes the leaver as the actor): Admin says "Left", not
+  // "Removed" (User.guest.leftThemselves)
+  else if (off && actorId === userId) ctx.db.query('UPDATE guests SET left_at = ? WHERE user_id = ?').run(new Date().toISOString(), userId)
   return off
 }
 

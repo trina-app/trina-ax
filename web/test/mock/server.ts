@@ -395,7 +395,7 @@ export class MockServer {
   rooms: Room[] = []
   /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
    * one's one place and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
-  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean; usedTokens?: number; aiUsedUp?: boolean }>()
+  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; leftThemselves?: boolean; teamAiGone?: boolean; usedTokens?: number; aiUsedUp?: boolean }>()
   /** the team's tokens per answer (GuestInviteLimit.answerTokens): POST /__test/answer-tokens */
   answerTokens: { tokens: number; from: 'team' | 'default' } = { tokens: 80_000, from: 'default' }
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
@@ -1517,7 +1517,7 @@ export class MockServer {
   }
   /** Me.guest and User.guest: a guest's place by name and AI; for a removed guest why they are not in it (placeOut, as
    * POST /__test/guest {out} sets it; a deleted place keeps no name), and a Team AI whose account was deleted. */
-  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } } {
+  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; leftThemselves?: true; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } } {
     const g = this.guests.get(u.id)
     if (!g) return {}
     const out = u.status !== 'active' ? g.out : undefined
@@ -1526,7 +1526,7 @@ export class MockServer {
     const team = !g.teamAiGone && g.ai.mode === 'team'
     const d = new Date()
     const aiUse = team ? { usedTokens: g.usedTokens ?? 0, usedUsd: 0, resetsAt: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString() } : null
-    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}), ...(team && g.aiUsedUp ? { aiUsedUp: true as const } : {}), ...(aiUse ? { aiUse } : {}) } } : {}
+    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(out === 'left' && g.leftThemselves ? { leftThemselves: true as const } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}), ...(team && g.aiUsedUp ? { aiUsedUp: true as const } : {}), ...(aiUse ? { aiUse } : {}) } } : {}
   }
   /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
   assertGuestFree() {
@@ -1928,7 +1928,7 @@ export class MockServer {
         ],
       }
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
-      put(step({ id: 'P1', kind: 'tool', tool: 'post_to_room', label: '대화방에 보내기' }))
+      put(step({ id: 'P1', kind: 'tool', tool: 'post_to_room', label: '대화에 보내기' }))
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
@@ -1936,7 +1936,7 @@ export class MockServer {
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       const sent = answer === 'send' || answer === 'send_files'
       const room = thread || !files ? '#영업팀' : '#전체'
-      put(step({ id: 'P1', kind: 'tool', tool: 'post_to_room', label: `대화방에 보내기 · ${room}`, status: 'ok', endedAt: now(),
+      put(step({ id: 'P1', kind: 'tool', tool: 'post_to_room', label: `대화에 보내기 · ${room}`, status: 'ok', endedAt: now(),
         ...(sent ? { posted: { roomId: '019a5f00-0000-7000-8000-00000000a001', messageId: '019a5f00-0000-7000-8000-00000000a002', ...(thread ? { threadRootId: '019a5f00-0000-7000-8000-00000000a003' } : {}) } } : { detail: '보내지 않았어요' }) }))
       prompt += ` answered:${JSON.stringify(answer)}`
     }
@@ -2370,7 +2370,7 @@ export class MockServer {
       // like the server: a switched-off account with its right password hears the truth (who can switch it back on)
       if (u!.status !== 'active') fail('unauthorized', 401, (u!.role === 'guest'
         ? { ko: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', en: 'This account was turned off. Ask the person who invited you.', id: 'Akun ini sudah dimatikan. Tanyakan kepada orang yang mengundang Anda.', ja: 'このアカウントはオフになっています。招待した人に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte a la persona que le invitó.', zh: '此账号已被关闭。请询问邀请你的人。' }
-        : { ko: '이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.', en: 'This account was turned off. Ask the team owner or an admin.', id: 'Akun ini sudah dimatikan. Tanyakan kepada pemilik tim atau admin.', ja: 'このアカウントはオフになっています。チームのオーナーか管理者に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte al propietario del equipo o a un administrador.', zh: '此账号已被关闭。请询问团队所有者或管理员。' })[loc], undefined, { reason: 'account_off' })
+        : { ko: '이 계정은 꺼져 있어요. 팀장이나 관리자에게 물어봐 주세요.', en: 'This account was turned off. Ask the team owner or an admin.', id: 'Akun ini sudah dimatikan. Tanyakan kepada owner tim atau admin.', ja: 'このアカウントはオフになっています。チームのオーナーか管理者に聞いてください。', es: 'Esta cuenta se desactivó. Pregunte al propietario del equipo o a un administrador.', zh: '此账号已被关闭。请询问团队所有者或管理员。' })[loc], undefined, { reason: 'account_off' })
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
       u!.lastSeenAt = now()
@@ -2641,7 +2641,7 @@ export class MockServer {
     shareAnswerToRoom: (c) => {
       const m = this.messages.find((x) => x.id === c.params.messageId && x.chatId === c.params.id && x.role === 'assistant') ?? fail('not_found', 404)
       const room = this.rooms.find((r) => r.id === c.body.roomId) ?? fail('not_found', 404)
-      if (m.status !== 'done' || !m.content.trim()) fail('conflict', 409, '끝난 답변만 대화방에 보낼 수 있어요. 답변이 끝난 뒤 다시 보내 주세요.')
+      if (m.status !== 'done' || !m.content.trim()) fail('conflict', 409, '끝난 답변만 대화에 보낼 수 있어요. 답변이 끝난 뒤 다시 보내 주세요.')
       const list = this.roomMessages.get(room.id) ?? []
       const again = this.sharedByClientId.get(c.body.clientMessageId)
       if (again) return { status: 'sent', message: again, cut: !!again.sharedAnswer?.cut }
@@ -3580,7 +3580,7 @@ export class MockServer {
     updateUser: (c) => {
       // a removed guest switched on with nothing to bring them back to (admin/users.ts: 409 guest_no_place, placeOut)
       const gOut = c.body.status === 'active' ? this.guests.get(c.params.id)?.out : undefined
-      if (gOut) throw new Fail('conflict', 409, "Their room or project is gone, so there's nothing to bring them back to.", undefined, { reason: 'guest_no_place', placeOut: gOut })
+      if (gOut) throw new Fail('conflict', 409, "Their group chat or project is gone, so there's nothing to bring them back to.", undefined, { reason: 'guest_no_place', placeOut: gOut })
       const { locale, ...rest } = c.body
       const u = Object.assign(this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
       if (locale !== undefined) u.localeChoice = locale
@@ -5956,6 +5956,8 @@ export class MockServer {
       // Team AI's use this month (tokens) and whether the limit is used up
       if (typeof body.usedTokens === 'number') g.usedTokens = body.usedTokens
       if (body.aiUsedUp === true) g.aiUsedUp = true
+      // left their place on their own (User.guest.leftThemselves: Admin says "Left", not "Removed")
+      if (body.leftThemselves === true) g.leftThemselves = true
       return Response.json({ id: u.id })
     }
     // the team's tokens per answer the invite's "about N answers" uses ({tokens, from: 'team' | 'default'})

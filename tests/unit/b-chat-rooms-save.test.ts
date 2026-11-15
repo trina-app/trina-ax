@@ -1,5 +1,5 @@
 // A person's own AI chat saves a file sent in one of their rooms into the team folder (docs/DECISIONS.md "내 AI 채팅에서
-// 대화방 파일 저장"): save_room_file with the room's and the file's ids, through the fake engine, the real launcher and
+// 대화 파일 저장"): save_room_file with the room's and the file's ids, through the fake engine, the real launcher and
 // gate. Covered: a member's PDF from a team room into shared/ with one card (the wider-audience card naming the room,
 // with the rooms-seen line and what the call saves), the same bytes saved, the step, the audit line and the file
 // event; a "no" saves nothing; a new file in the person's own folder goes without a card (docs/DECISIONS.md "대화방을
@@ -178,7 +178,7 @@ describe('saving a room file from my own chat', () => {
     const c = r.cards[0]!
     expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
     expect(c.question).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first. ')
-    expect(c.question).toContain(`messages of the room '${name}'`)
+    expect(c.question).toContain(`messages of the conversation '${name}'`)
     expect(c.question).toContain(W(`shared/company/${file.name}`))
     const fields = c.details?.[0]?.fields ?? []
     expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])

@@ -184,7 +184,7 @@ test('an app\'s paused notice: generic words (never the app\'s or the room\'s na
   await w.push({ ...payload, code: 'room_app.paused', roomId: 'evil' })
   expect(w.shown).toHaveLength(1)
   expect(w.shown[0]!.title).toBe(pushMessages('en').title)
-  expect(w.shown[0]!.options).toMatchObject({ body: 'An app in a room was paused for today.', data: { notificationId: 'event-1', roomId } })
+  expect(w.shown[0]!.options).toMatchObject({ body: 'An app in a conversation was paused for today.', data: { notificationId: 'event-1', roomId } })
   expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
   await w.clickShown()
   expect(w.navigated).toEqual([`https://team.example/rooms/${roomId}`])
