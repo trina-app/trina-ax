@@ -29153,9 +29153,15 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
   through the turn's redactor. So the room card, the connection's card and the call all see the same arguments, and
   the service gets [hidden key] where the AI wrote the key. The AI is told it was sent as [hidden key]
   (KEYS_SENT_HIDDEN_NOTE). An api_request path that would hold [hidden key] is refused as before (spaces are not allowed).
-- **Data that must arrive as it is.** A changed value that is base64 data (64+ base64 characters, no spaces: a Gmail
-  attachment's `content`, an upload) is not sent with a hole in it: the whole call is refused (KeyRefusal), the AI is
-  told why, and the audit line says "not sent (a stored key in its data)".
+- **Data that must arrive as it is.** A changed value that is base64 data (64+ base64 characters once its whitespace
+  is taken out: a Gmail attachment's `content`, an upload, wrapped at any width) is not sent with a hole in it: the
+  whole call is refused (KeyRefusal), the AI is told why, and the audit line says "not sent (a stored key in its
+  data)". The redactor's patterns do not match across whitespace, so every value is also checked with its whitespace
+  taken out: a key that shows only then (base64 wrapped across lines, a key cut by a space or a line break) refuses the
+  call too (security review of #981).
+- **Fails closed.** Calls to connected services are checked with `completeRedactorFor` (every stored secret of the
+  person, read now); when one cannot be read the call is not sent, the AI is told so in a plain line and the audit
+  line says "not sent (stored keys could not be read)". The saving tools of the entry above keep the turn's redactor.
 - **Sign-in is not an argument.** A connection's own key or token goes in a header (service.ts authHeaders), an admin's
   query in the connection address; neither passes through the arguments, so both keep working. Checked: no connection
   tool, Google app tool or api_request takes a stored key in its arguments.

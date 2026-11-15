@@ -63,9 +63,10 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         const h = extra.hideKeys(name, params?.arguments ?? {})
         if (h.hidden) { params = { ...params, arguments: h.args }; hidden = h.note ?? KEYS_HIDDEN_NOTE }
       } catch (e) {
-        // a call to a connected service whose data cannot be sent with the key taken out (a file's base64): not sent
+        // a call to a connected service whose data cannot be sent with the key taken out (a file's base64), or whose
+        // person's stored keys cannot all be read now: not sent
         if (e instanceof KeyRefusal) {
-          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not sent (a stored key in its data)`, 0)
+          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not sent (${e.short})`, 0)
           return failed(e.message)
         }
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not run (the key check failed)`, 0)

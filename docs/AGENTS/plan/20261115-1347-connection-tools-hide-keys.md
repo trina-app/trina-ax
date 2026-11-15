@@ -4,7 +4,7 @@
 - Branch: `fix/connection-tools-hide-keys`
 - Status: done
 - Where: server/src/integrations/connections/hide-args.ts, server/src/chat/tools.ts (the turn's tool set, the hook
-  #971 added in mcp/protocol.ts), server/src/chat/turn.ts (the live answer at a tool call). Why: the calls to outside
+  #971 added in mcp/protocol.ts). Why: the calls to outside
   services are server work (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no new feature or API change
 
@@ -35,7 +35,7 @@ Out:
 ## Steps
 
 1. Plan (this commit).
-2. hide-args.ts `hideAllArgs`, the hook in chat/tools.ts for provider tools; turn.ts tool_start; write's lookup path.
+2. hide-args.ts `hideAllArgs`, the hook in chat/tools.ts for provider tools; write's lookup path.
 3. Unit tests that fail without the fix: a fake MCP connection and a fake HTTP API (tests/lib/fake-services.ts through
    net.ts testAllow), key `sk-RK1115-FAKE`: the card and what the service got hold [hidden key], auth still works.
 4. DECISIONS entry, changes/ fragment.

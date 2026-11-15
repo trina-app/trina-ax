@@ -42,8 +42,9 @@ export const MEMORY_SCAN_KEY = 'memory.storedKeyScan'
 export const MEMORY_SCAN_VERSION = 1
 
 /** This person's redactor only when every stored secret of theirs can be read now; null otherwise (a failure, or a
- * secret that cannot be opened): redactorFor would quietly leave such a secret out. */
-function completeRedactorFor(ctx: AppContext, userId: string): Redactor | null {
+ * secret that cannot be opened): redactorFor would quietly leave such a secret out. Also what a call to a connected
+ * service is checked with (chat/tools.ts hideKeys): it is not sent when a secret cannot be read. */
+export function completeRedactorFor(ctx: AppContext, userId: string): Redactor | null {
   try {
     const has = ctx.db.query('SELECT 1 FROM integrations WHERE secret_enc IS NOT NULL LIMIT 1').get()
     if (!has) return NONE

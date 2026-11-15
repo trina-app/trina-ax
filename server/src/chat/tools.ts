@@ -57,7 +57,8 @@ import { readRooms } from './read-rooms'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
 import { GUEST_TURN_TOOLS } from './guest-tools'
-import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS } from '../integrations/connections/hide-args'
+import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
+import { completeRedactorFor } from '../integrations/connections/redact'
 
 export interface Tool {
   name: string
@@ -259,7 +260,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     hideKeys: (name, args) => {
       // a call to a connected service (an MCP tool, Gmail, Drive, Notion, api_request, Slack): every value, so the
       // card shows exactly what is sent and the service never gets the key (QA TC-3081)
-      if (outside.has(name)) return hideAllArgs(args, exec.redactor())
+      // Fails closed: a stored secret that cannot be read now stops the call (completeRedactorFor)
+      if (outside.has(name)) {
+        const r = completeRedactorFor(exec.rt.ctx, exec.spec.userId)
+        if (!r) throw new KeyRefusal(UNCHECKED_REFUSAL, 'stored keys could not be read')
+        return hideAllArgs(args, r)
+      }
       if (!KEY_HIDING_TOOLS.includes(name)) return { args, hidden: false }
       return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
     },

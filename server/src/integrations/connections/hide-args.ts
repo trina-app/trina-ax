@@ -94,27 +94,39 @@ export const KEYS_HIDDEN_NOTE = `A stored connection key in what you gave this t
 /** what the AI is told after a call to a connected service whose arguments had a key hidden */
 export const KEYS_SENT_HIDDEN_NOTE = `A stored connection key in what you gave this tool was sent as ${HIDDEN}: the service did not get the key. Say so if you tell the user what was sent; never write the key out another way.`
 
-/** A call that is not sent at all: hiding the key would change data that must arrive byte for byte (a file's base64). */
-export class KeyRefusal extends Error {}
+/** A call that is not sent at all: hiding the key would change data that must arrive byte for byte (a file's base64),
+ * or the keys could not all be read to check it. */
+export class KeyRefusal extends Error {
+  /** for the audit line: why it was not sent */
+  constructor(message: string, readonly short = 'a stored key in its data') { super(message) }
+}
 
-/** base64 data (a file, an attachment), not words: long and made of base64 characters only (lines allowed, no spaces) */
-const BLOB = /^[A-Za-z0-9+/_\-\r\n]{64,}={0,2}\s*$/
+/** base64 data (a file, an attachment), not words: long and made of base64 characters only, once its whitespace (a
+ * wrap at any width) is taken out */
+const BLOB = /^[A-Za-z0-9+/_-]{64,}={0,2}$/
+
+const DATA_REFUSAL = `Nothing was sent: data in what you gave this tool (a file or an attachment) holds one of the user's stored connection keys, and it cannot be sent with the key taken out. Tell the user; do not try it another way.`
+/** a stored secret could not be read now: nothing is sent unchecked */
+export const UNCHECKED_REFUSAL = `Nothing was sent: one of the user's stored connection keys could not be read just now, so what you gave this tool could not be checked for it. Try again in a moment; if it keeps failing, tell the user.`
 
 /**
  * The arguments of a call to a connected service (a tool a connection provider adds to the turn: an MCP tool, Gmail,
  * Drive, Notion, api_request, call_tool; QA TC-3081) with every stored key hidden, in every value and field name. It
  * runs before the room card, the connection's card and the call, so the card shows exactly what is sent and the service
  * never gets the key. The connection's own credentials are never arguments (service.ts authHeaders, the connection
- * address), so they are not touched. A changed value that is base64 data throws KeyRefusal: a file with a hole in it
- * would be sent otherwise.
+ * address), so they are not touched. KeyRefusal (the call is not sent) for a value that holds a key only once its
+ * whitespace is taken out (base64 wrapped across lines, a key cut by a space or a line break: the redactor's patterns
+ * do not match across them), and for base64 data that holds one (a file with a hole in it would be sent otherwise).
  */
 export function hideAllArgs(args: unknown, r: Redactor): HiddenArgs {
   if (!r.re) return { args, hidden: false }
   let hidden = false
   const one = (s: string): string => {
     const h = r.hide(s)
-    if (h === s) return s
-    if (BLOB.test(s)) throw new KeyRefusal(`Nothing was sent: data in what you gave this tool (a file or an attachment) holds one of the user's stored connection keys, and it cannot be sent with the key taken out. Tell the user; do not try it another way.`)
+    const flat = s.replace(/\s+/g, '')
+    const split = flat !== s && r.hide(flat) !== flat
+    if (h === s && !split) return s
+    if (h === s || BLOB.test(flat)) throw new KeyRefusal(DATA_REFUSAL)
     hidden = true
     return h
   }

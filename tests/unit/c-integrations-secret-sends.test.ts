@@ -49,7 +49,28 @@ describe('the arguments of a call to a connected service (hide-args.ts hideAllAr
     // the same data without the key goes as it is; long words with spaces are words, not data
     const clean = Buffer.from('x'.repeat(120)).toString('base64')
     expect(hideAllArgs({ attachments: [{ content: clean }] }, r).hidden).toBe(false)
-    expect(hideAllArgs({ text: `please put ${KEY} in the notes field of the new page for me thanks a lot` }, r).hidden).toBe(true)
+    expect(hideAllArgs({ text: `please put ${KEY} in the notes field of the new page, for me. Thanks a lot!` }, r).hidden).toBe(true)
+  })
+
+  test('base64 wrapped across lines at any width, with the key across a wrap: refused, never sent unchanged', () => {
+    const wrap = (b: string, w: number, eol = '\n') => b.match(new RegExp(`.{1,${w}}`, 'g'))!.join(eol)
+    for (const lead of ['', 'a', 'ab', 'notes\n', 'x'.repeat(13)]) {
+      const file = Buffer.from(`${lead}KEY=${KEY}\n${'y'.repeat(90)}`).toString('base64')
+      for (const w of [16, 20, 24, 28, 64, 76]) {
+        for (const eol of ['\n', '\r\n']) {
+          expect(() => hideAllArgs({ attachments: [{ content: wrap(file, w, eol) }] }, r), `lead ${lead.length}, width ${w}`).toThrow(KeyRefusal)
+        }
+      }
+    }
+    // a wrapped file without the key goes as it is
+    const clean = Buffer.from('z'.repeat(200)).toString('base64')
+    expect(hideAllArgs({ attachments: [{ content: wrap(clean, 76) }] }, r).hidden).toBe(false)
+  })
+
+  test('a key cut by a space or a line break in ordinary text is refused, not sent', () => {
+    expect(() => hideAllArgs({ text: `the key is ${KEY.slice(0, 6)} ${KEY.slice(6)}.` }, r)).toThrow(KeyRefusal)
+    expect(() => hideAllArgs({ text: `the key is ${KEY.slice(0, 6)}\n${KEY.slice(6)}.` }, r)).toThrow(KeyRefusal)
+    expect(() => hideAllArgs({ text: `b64: ${B64.slice(0, 9)}\n${B64.slice(9)}` }, r)).toThrow(KeyRefusal)
   })
 
   test('write looks up the file it overwrites at the path it really writes (the hidden one)', () => {
@@ -146,5 +167,26 @@ describe('a turn that puts the stored key into a call to a connected service', (
     expect(svc.calls.slice(before).filter((c) => c.name === 'create_task')).toHaveLength(0)
     expect(t.cards).toHaveLength(0)
     expect(t.done.content).toContain('Nothing was sent')
+  })
+
+  test.skipIf(!native)('a stored key that cannot be read now: nothing is sent unchecked', async () => {
+    const db = h.ctx.db
+    const own = db.query("SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = 'alice' AND secret_enc IS NOT NULL LIMIT 1").get() as { id: string }
+    // a connection of alice's whose stored secret cannot be opened (a damaged row, a changed server key)
+    db.run('CREATE TEMP TABLE broken AS SELECT * FROM integrations WHERE id = ?', [own.id])
+    db.run("UPDATE broken SET id = 'int-broken', name = 'Broken API', slug = 'brokenapi', secret_enc = 'not-a-sealed-secret'")
+    db.run('INSERT INTO integrations SELECT * FROM broken')
+    db.run('DROP TABLE broken')
+    try {
+      const before = svc.calls.length
+      const t = await turn(fake({ tool: 'my_tasks__create_task', args: { title: `Rotate ${KEY}` }, sayResult: true }))
+      expect(svc.calls.slice(before).filter((c) => c.name === 'create_task')).toHaveLength(0)
+      expect(t.cards).toHaveLength(0)
+      expect(t.done.content).toContain('could not be read just now')
+      const audit = db.query("SELECT summary FROM tool_events WHERE tool = 'my_tasks__create_task' ORDER BY id DESC LIMIT 1").get() as { summary: string }
+      expect(audit.summary).toBe('my_tasks__create_task -> not sent (stored keys could not be read)')
+    } finally {
+      db.run("DELETE FROM integrations WHERE id = 'int-broken'")
+    }
   })
 })
