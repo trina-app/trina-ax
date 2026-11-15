@@ -656,9 +656,8 @@ export class SlackConnector {
     if (!slack.email || !mine) return 'missing'
     if (slack.email !== mine) return 'mismatch'
     if (this.emailSetByOther(userId)) return 'recent'
-    // an address another active account also gives: it proves nobody in particular. A guest's is left out: a guest is
-    // never linked, and sets their own e-mail, so a copied one must not block the member it belongs to
-    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL AND guest = 0").all(userId) as { email: string }[]
+    // an address another active account also gives: it proves nobody in particular
+    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL").all(userId) as { email: string }[]
     return others.some((o) => normEmail(o.email) === mine) ? 'shared' : 'match'
   }
 

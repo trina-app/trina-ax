@@ -30113,8 +30113,10 @@ Builds on "Guests: only what they were invited to" and the Slack connector's e-m
   so copying a member's address silently blocked that member's link, and the different answer told anyone who can set a
   Slack e-mail whether that address is a guest's here. So "one plain line" holds for a linked guest; an unlinked one sees
   the generic prompt, which leads nowhere for them.
-- **The e-mail proof leaves guests out of "the same e-mail on another active account"**: a guest who copies a member's
-  e-mail no longer makes that member's link fail.
+- **The e-mail proof still counts a guest's e-mail as "the same e-mail on another active account"** (unchanged): leaving
+  guests out would let a member pass the proof with an address that only a guest also gives, so a guest's Slack account
+  could be linked to a member who confirms the guest's forwarded link. The cost: a guest who copies a member's e-mail
+  blocks that member's link until one of them changes it (open question for the owner).
 - **Other connectors:** no other connector maps an outside identity to an account here by e-mail. Google Drive, the
   Google apps and personal MCP connections are signed in by the person through endpoints closed to guests, and the
   connection store refuses guests (`mayUse`, `shareCovers`); room apps post as the app, never as a person.
