@@ -55,6 +55,7 @@ export function welcomeFlowCases() {
     await expect(page.getByTestId('phone-topbar')).toHaveCount(0)
     await expect(page.getByTestId('topbar-back')).toHaveCount(0)
     await expect(page.getByTestId('welcome-bar-later')).toHaveText('닫기')
+    await expect(page.getByTestId('welcome-bar-later')).toHaveAccessibleName(/닫기/)
     await tall(page, 'welcome-bar-back')
     await tall(page, 'welcome-bar-later')
     // no second, small "← 이전": the bar's ‹ is the way back

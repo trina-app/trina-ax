@@ -169,8 +169,8 @@ const VISUAL = new Set(CATALOG.filter((c) => c.visual).map((c) => c.name))
 /** One line per kept skill in the caller's language: what it makes (the SKILL.md's description is written for the AI). */
 const SUMMARY: Record<string, Record<Locale, string>> = {
   'intro-deck': {
-    ko: '회사 소개로 6~10장짜리 소개서를 만들어요', en: 'Makes a 6–10 slide company profile from the company intro',
-    id: 'Membuat profil perusahaan 6–10 slide dari info perusahaan', ja: '会社紹介から6〜10枚の会社紹介資料を作ります',
+    ko: '회사 소개로 6~10장짜리 소개서를 만들어요', en: 'Makes a 6–10 slide company slide deck from the company intro',
+    id: 'Membuat slide perusahaan 6–10 halaman dari info perusahaan', ja: '会社紹介から6〜10枚の会社紹介資料を作ります',
     es: 'Crea un dosier de empresa de 6 a 10 diapositivas con la información de la empresa',
     zh: '根据公司介绍制作6–10页的公司介绍资料',
   },

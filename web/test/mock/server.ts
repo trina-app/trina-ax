@@ -257,7 +257,7 @@ const DECK_TEXT = '---\nname: intro-deck\ndescription: 회사 소개서 — 회�
 
 /** the kept skills (server/src/onboarding/skill-packs.ts CATALOG, short): their titles and one lines in Korean and English */
 const PACK_CATALOG = [
-  { pack: 'general', name: 'intro-deck', visual: true, ko: '회사 소개서', en: 'Company slide deck', lineKo: '회사 소개로 6~10장짜리 소개서를 만들어요', lineEn: 'Makes a 6–10 slide company profile from the company intro' },
+  { pack: 'general', name: 'intro-deck', visual: true, ko: '회사 소개서', en: 'Company slide deck', lineKo: '회사 소개로 6~10장짜리 소개서를 만들어요', lineEn: 'Makes a 6–10 slide company slide deck from the company intro' },
   { pack: 'general', name: 'card-news', visual: true, ko: '카드뉴스', en: 'Promo cards', lineKo: '회사 소개로 정사각형 카드 5장을 만들어요', lineEn: 'Makes 5 square promo cards from the company intro' },
   { pack: 'general', name: 'promo-video', visual: true, ko: '홍보 영상', en: 'Promo video', lineKo: '회사 소개로 18초짜리 세로 영상을 만들어요', lineEn: 'Makes an 18-second vertical video from the company intro' },
   { pack: 'work', name: 'humanizer', visual: false, ko: '자연스러운 글', en: 'Natural writing', lineKo: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', lineEn: 'Rewrites text that reads as AI-written so a person seems to have written it' },

@@ -77,7 +77,7 @@ Make a company profile (6–10 slides, 16:9) that looks like a design studio mad
 - When the person says "make it lighter" or "make it dark", make it again in that look. Name looks by the words in brackets (no English ids, no colour codes).
 
 ## 8. The answer
-- The deck opens beside the chat by itself. So after it is made, write one line: "I made the (company name) company profile. Tell me any slide or wording you'd like changed."
+- The deck opens beside the chat by itself. So after it is made, write one line: "I made the (company name) company slide deck. Tell me any slide or wording you'd like changed."
 - Add one more sentence only when the tool's answer asks for it (a slide that could have had a picture was made without one).
 - Nothing else: no skill or tool names, slot names, look ids, colour codes, file paths, a description of each slide, or where numbers came from. No HTML or tool slots.
 - Do nothing else besides making the deck (no posting, sending or sharing), and never say you did.
