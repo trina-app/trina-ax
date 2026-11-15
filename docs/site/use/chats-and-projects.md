@@ -103,7 +103,7 @@ were added, and can ask the AI in it themselves.
 
 :::steps
 #### Open Share
-In the chat's title menu, or in **···** on its row in your list, choose **Share**.
+Choose **Share** at the top right of the chat (on a phone, the share icon in the top bar), or **Share** in **···** on its row in your list.
 
 #### Add people and groups
 Type a name in **Add people and groups**. You are in the list as **Started this chat**. **✕** takes someone out again
@@ -205,7 +205,7 @@ and click **✕** (or choose **Remove preview** in the message's menu).
 
 Someone from outside the team, such as an agency or a client, can join **one** group chat or **one** project as
 a guest. In a group chat open its members (the name at the top), **Add to group chat**, then **Invite a guest**; in
-a project, **Add people** in **Members**. Say who the link is for and whether they get AI, then **Create link**. The link
+a project, **Share** at the top of its page. Say who the link is for and whether they get AI, then **Create link**. The link
 works once: send it to them yourself.
 
 ![Invite a guest: they'll see only the 'Launch email' group chat, a box for who it is for, and AI for them: No AI or Their own sign-in](../images/chats/invite-guest.webp "Invite a guest")
@@ -226,7 +226,8 @@ A project keeps the chats, files and instructions of one piece of work together,
 :::steps
 #### Make a project
 Open **Projects** on the bar on the left (on a phone, the **Projects** tab) and choose **New project**. Give it a name.
-A new project is **Only me**: only you see it until you add people.
+To work on it with others, add them under **People (optional)** right there. Without people it is **Only me**: only
+you see it until you share it.
 
 #### Write the instructions
 Say what the work is and how the AI should help. The first paragraph shows under the project's title.
@@ -234,17 +235,17 @@ Say what the work is and how the AI should help. The first paragraph shows under
 #### Chat in the project
 Start a chat from the project's page, or move a chat in with **Move to project** in the chat title's menu. The AI then gets the project's files and instructions.
 
-![A project page: the members' faces, the message box with + and the 3 people chip, Bring in chats, a line about 1 chat only you see with Choose chats to share, the Trina history with a chat Sam Ortiz also wrote in, and Instructions, Files and Members on the side](../images/chats/project.webp "A project's page")
+![A project page: the members' faces, the message box with + and the 3 people chip, Bring in chats, a line about 1 chat only you see with Choose chats to share, the Trina history with a chat Sam Ortiz also wrote in, and Instructions and Files on the side](../images/chats/project.webp "A project's page")
 :::
 
 - Your projects are under **Projects**, on the bar on the left and on the phone's **Projects** tab: **Team projects**
   (others see them too) and **My projects** (only you). A project's name opens its page. A chat you open from a project
   goes back to that project; its chats are in **Trina history** in your Trina list too. The team folder and its trash are
   under **Files**.
-- A project has members. On the project's page, **Members** shows who they are, and **Add people** shares a project
-  that is only yours. Before it saves, it tells you that they can see and edit its files and instructions, that your
-  chats so far stay yours, and that it cannot go back to only you. In some teams only the owner and admins share
-  projects.
+- A project has members. At the top right of the project's page you see who they are (**Only me**, or their faces), and
+  **Share** adds people. The faces open the list of everyone in it. When you share a project that is only yours, the
+  dialog tells you that they can see and edit its files and instructions, that your chats so far stay yours, and that it
+  cannot go back to only you. In some teams only the owner and admins share projects; you then see no **Share**.
 - A project can also have one or more guests: people from outside the team who see only this project. Its members can see the chats a guest has there. [Read about guests](guests.md).
 - Only a project's members see what is in it. The owner and admins can change its members, but they do not see its
   chats, files and instructions unless they are members.

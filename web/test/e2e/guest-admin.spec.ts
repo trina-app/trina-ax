@@ -116,7 +116,7 @@ test('invite links: a used guest link is gone, a project link names its project'
   await page.goto(`/projects/${id}`)
   const urls: string[] = []
   for (const name of ['Used Kim', 'Open Lee']) {
-    await page.getByTestId('project-members-manage').click()
+    await page.getByTestId('project-share').click()
     await page.getByTestId('invite-guest-row').click()
     await page.getByTestId('guest-invite-name').fill(name)
     await page.getByTestId('guest-invite-create').click()

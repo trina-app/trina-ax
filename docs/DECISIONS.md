@@ -29853,6 +29853,42 @@ Two follow-ups to "asked once, reads only what is added":
 - Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
 - Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
 
+## Share in the title row — 공유 버튼은 제목 줄 오른쪽에 (feat/project-share-button, 2026-11-15, the owner, QA TC-3283 and the next row)
+
+넣을 곳: `web/src/components/HeaderShare.tsx`, `web/src/pages/Projects.tsx` (`ProjectShareRow`), `web/src/pages/Chat.tsx`,
+`web/src/components/NewProjectDialog.tsx`, `web/src/components/ProjectPeopleField.tsx`. 이유: a user could not find how to
+share a project (a small "Members · Add people" line at the bottom of the side column) or a chat (only in its title
+menu). Plan: `docs/AGENTS/plan/20261115-1549-project-share-button.md`, with one independent review. Amends "Making a
+project: a name, only me, people later" (People in New project) and "Project members in one panel" (no Members line).
+
+- **One place, top right.** `HeaderShare` puts who can see it ("Only me", a count, or the faces of who is in it) and
+  **Share** at the right of a title row, as Drive, Notion and Claude projects do. The project page's title row and the
+  chat's header use it; on a phone the project has it as the row under the bar, a chat as the Share icon in the top bar
+  (beside ✦; the line under the box says who sees a chat).
+- **What Share opens is what was there before**, no logic of its own: a personal project's share dialog, a team
+  project's members dialog (#976 reworks that dialog; this entry point inherits it), a chat's title-menu Share
+  (`shareKindOf`: the Share dialog, the members' share of a private team-project chat, the personal-project
+  explanation), a shared project chat's members dialog for whoever may change them.
+- **Decision: can't share → hidden, not read-only.** A Share that opens a dialog where nothing can be shared is a dead
+  end; the faces or words beside it open the read-only list and say who changes the members. The rules did not change:
+  a personal project for its creator when they may make team projects (`projectCreators`, admins always), a team project
+  with `Project.membersEditable`, a chat as `shareKindOf` says, nothing in the trash. A personal project in a team where
+  only admins share says so in one faint line under the row (a tooltip cannot be found by touch).
+- **Removed:** the side column's Members line (`MembersRow`) and "Only me · Add people", the separate faces line under
+  the name, and Share in a chat's title menu. The admin's link to Admin › Folder permissions for a project made outside
+  `projects/` moved into the members dialog's note. The list rows' ⋯ Members / Share stay (shortcuts on a list).
+- **New project: People (optional)** for whoever may share, from the Projects panel, the Projects page and Search (not
+  from Move to project, whose Undo deletes only a project still mine alone). Nobody picked: a personal project, as
+  before. People picked: the count, what sharing does ("can't go back to only you"), and Create makes a team project
+  (`POST /api/projects` scope team: `assertMayCreateTeamProject`, `checkParticipants`, `newProjectRules`,
+  `validateRules`, the same as a later share; no folder move since it is empty). Create is the yes (one press). The field
+  is outside the name's form (Enter in the search never creates). Every guest is greyed out there and in the share
+  dialog with where they are: a guest is in one place already. One component, `ProjectPeopleField`, for both.
+- The AI's "change members" card says "Projects › {name} › Share".
+- Tests: web unit `project-new-people`, `who-sees` (the title row), `project-members-only`, `chat-title-pin`; e2e
+  `project-share-button` (1440 and 390, light and dark) and the specs that used the old line or menu item.
+- Version impact: **minor** (where sharing is, a new optional field; no API or data change).
+
 ## Find work files: a cloud-only file says where it comes from (perf/upload-parallel-chunks, 2026-11-15, QA TC-3247, TC-3248)
 
 When the desktop app reads a file of Find work files whose content is only in the cloud (a Mac's SF_DATALESS, checked with

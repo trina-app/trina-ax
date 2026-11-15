@@ -777,14 +777,18 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // a project in place keeps its folder (docs/DECISIONS.md "Projects live only in projects/"): no folder to choose;
-      // an admin reads on its 멤버 line that this older project is outside projects/ (where its members are changed)
+      // an admin reads in the members dialog (who sees it, in the title row) that this older project is outside
+      // projects/, with the way to where its members are changed
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(page.getByTestId('project-folder-choose')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
-      await expect(page.getByTestId('project-members-manage')).toHaveCount(0)
-      await page.getByTestId('project-members-toggle').click()
-      await expect(page.getByTestId('project-members-hint')).toContainText('관리자 › 폴더 권한')
+      await expect(page.getByTestId('project-share')).toHaveCount(0)
+      await page.getByTestId('project-who-sees').click()
+      await expect(page.getByRole('dialog').getByTestId('project-members-locked')).toContainText('관리자 › 폴더 권한')
+      await expect(page.getByRole('dialog').getByTestId('project-members-locked').getByRole('link')).toHaveAttribute('href', /^\/admin\/folders\?folder=/)
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog')).toHaveCount(0)
 
       // safe operations (1A): a shared chat is read-only, and says where to ask instead
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
@@ -893,15 +897,15 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
       await expect(boxLine(page)).toHaveAccessibleDescription('새 채팅은 나만 볼 수 있어요.')
-      // the 멤버 line says the same words
-      await expect(page.getByTestId('project-members')).toContainText('나만 봐요')
+      // the title row says the same words
+      await expect(page.getByTestId('project-who-sees')).toHaveText('나만 봐요')
       // one quiet chip in the box's row (QA TC-1401), on a phone too: no taller than the row's other buttons
       await expect(page.getByTestId('composer-tools').getByTestId('only-me-toggle')).toBeVisible()
       expect((await boxLine(page).boundingBox())!.height).toBeLessThanOrEqual(36)
       await audit(page, 'project box, only me')
       await shots(page, 'project-only-me')
-      // Olga may change the members: the 멤버 line's 관리 opens the dialog; Bob added (one press)
-      await page.getByTestId('project-members-manage').click()
+      // Olga may change the members: Share in the title row opens the dialog; Bob added (one press)
+      await page.getByTestId('project-share').click()
       await expect(page.getByTestId('project-members-dialog')).toBeVisible()
       await page.getByTestId('project-participants-search').fill('Bob')
       await page.getByTestId('participant-add-user-bob').click()
@@ -910,8 +914,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('project-members-save').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(boxLine(page)).toHaveAccessibleDescription('지금 시작하는 채팅은 이 프로젝트의 2명이 보고 이어 쓸 수 있어요.')
-      // the 멤버 line: its members (Olga and Bob)
-      await expect(page.getByTestId('project-members')).toContainText('멤버2명')
+      // the title row: its members' faces (Olga and Bob)
+      await expect(page.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
 
       // the open chat says it in the same place, and its line opens the same dialog: Bob out again, only me
       await page.getByTestId('composer-input').fill('주간 보고 정리해 줘')
@@ -946,14 +950,15 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
       await b.goto(`/projects/${own}`)
       await expect(boxLine(b)).toHaveAccessibleDescription('새 채팅은 나만 볼 수 있어요.')
-      await expect(b.getByTestId('project-members')).toContainText('나만 봐요')
+      await expect(b.getByTestId('project-who-sees')).toHaveText('나만 봐요')
       await shots(b, 'project-member-alone')
-      // Bob in Olga's project (Olga changes its members): the count, nothing to open
+      // Bob in Olga's project (Olga changes its members): the faces, no Share
       const theirs = ((await (await post(page, '/api/projects', { name: 'With Bob', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }] })).json()) as { id: string }).id
       expect((await patch(page, `/api/projects/${theirs}`, { shareChats: true })).ok()).toBeTruthy()
       await b.goto(`/projects/${theirs}`)
       await expect(boxLine(b)).toHaveAccessibleDescription('지금 시작하는 채팅은 이 프로젝트의 2명이 보고 이어 쓸 수 있어요.')
-      await expect(b.getByTestId('project-members')).toContainText('2명')
+      await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
+      await expect(b.getByTestId('project-share')).toHaveCount(0)
       await audit(b, 'project box, a member who cannot change the members')
       await b.context().close()
     })

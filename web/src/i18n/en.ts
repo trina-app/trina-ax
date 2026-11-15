@@ -5691,6 +5691,8 @@ export const en: Record<MessageKey, string> = {
   "projects.page.uploadFiles": "Upload files",
   "projects.members.onlyMe": "Only me",
   "projects.members.add": "Add people",
+  "projects.share": "Share",
+  "projects.newPeople": "People (optional)",
   "projects.shareAdminsOnly": "In this team only the owner and admins share projects with others.",
   "projects.deletePersonal": "Only the project goes. Its files stay in My files › Projects.",
   "projects.sharedNow": "'{name}' is shared now.",

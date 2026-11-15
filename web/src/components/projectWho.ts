@@ -6,7 +6,7 @@ import { isProjectsFolder } from '../lib/projectFolders'
 import { whoSees } from '../lib/sharedChat'
 import { whoSeesText } from './chat/WhoSees'
 
-/** Who sees a project, by the rule of its page's 멤버 line (MembersRow below), for that line and for its card on the list,
+/** Who sees a project, by one rule, for its page's title row (pages/Projects.tsx ProjectShareRow) and for its card on the list,
  * so the two never differ. `own` words the count of its own people (the owner and admins): beside the 멤버 label just the
  * number ("3명"), on a card with the word ("멤버 3명"). Nothing from a server without the count. */
 export function whoSeesProject(t: ReturnType<typeof useT>, p: Project, own: 'projects.membersN' | 'projects.whoMembers'): string | undefined {

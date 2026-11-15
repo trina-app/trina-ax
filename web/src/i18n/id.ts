@@ -5690,6 +5690,8 @@ export const id: Record<MessageKey, string> = {
   "projects.page.uploadFiles": "Unggah file",
   "projects.members.onlyMe": "Hanya saya",
   "projects.members.add": "Tambah orang",
+  "projects.share": "Bagikan",
+  "projects.newPeople": "Orang (opsional)",
   "projects.shareAdminsOnly": "Di tim ini hanya owner dan admin yang dapat berbagi proyek dengan orang lain.",
   "projects.deletePersonal": "Hanya proyeknya yang dihapus. File-nya tetap di File saya › Proyek.",
   "projects.sharedNow": "'{name}' kini dibagikan.",
