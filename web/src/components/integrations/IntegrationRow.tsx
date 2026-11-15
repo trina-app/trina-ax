@@ -5,15 +5,17 @@
 // and the panel of a sign-in under way (SignInPanel). The connection's own line in a list was ConnectorsView.tsx
 // ConnectorRow; its page with these actions is ConnectionPage.tsx (until 2026-11-13 an expandable row here).
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
-import { api, API, errorText, isApiError } from '../../lib/api'
+import { api, API, ApiError, errorText, isApiError } from '../../lib/api'
+import { closeSignInReturn, openSignInReturn } from '../../lib/desktop'
 import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { toast } from '../../store/ui'
-import { Badge, Button, LinkButton, WaitLine, confirmDialog } from '../ui'
+import { Badge, Button, LinkButton, WaitLine, buttonClass, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
@@ -33,6 +35,9 @@ export interface SignInState {
    * it has not finished, with 다시 시도 and 취소, instead of "finish in the new window" (QA TC-205). Not from
    * window.closed: a sign-in page with a Cross-Origin-Opener-Policy makes an open window read as closed. */
   away?: boolean
+  /** the service lets people sign in only from an app on their computer, and this is the web or the phone app
+   * (oauth_desktop_only): the panel links the desktop app's download instead of Try again */
+  desktopOnly?: boolean
 }
 
 const WAITING = new Set<SignInState['state']>(['starting', 'pending', 'exchanging'])
@@ -45,6 +50,12 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
   const locale = useLocale()
   const [s, setS] = useState<SignInState | null>(null)
   const popup = useRef<Window | null>(null)
+  // the desktop app's one-time return address of the sign-in under way (lib/desktop.ts openSignInReturn), if it uses one
+  const returnPort = useRef<number | null>(null)
+  const dropReturn = () => {
+    closeSignInReturn(returnPort.current)
+    returnPort.current = null
+  }
   const generation = useRef(0)
   const done = useRef(onCompleted)
   done.current = onCompleted
@@ -53,6 +64,8 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
   useEffect(() => () => {
     generation.current++
     popup.current?.close()
+    dropReturn()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const waiting = !!s?.flowId && (s.state === 'pending' || s.state === 'exchanging')
   useEffect(() => {
@@ -67,6 +80,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
         if (f.state === 'completed') {
           popup.current?.close()
           popup.current = null
+          dropReturn()
           setS(null)
           done.current(id)
           return
@@ -74,6 +88,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
         if (f.state === 'failed' || f.state === 'expired') {
           popup.current?.close()
           popup.current = null
+          dropReturn()
           // the server's reason is a code: shown in words (never the code itself)
           setS((x) => (x && x.flowId === flowId ? { ...x, state: f.state, reason: f.state === 'failed' ? t(flowReasonKey(f.reason)) : null } : x))
           return
@@ -104,9 +119,16 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     if (popup.current && popup.current !== reserved) popup.current.close()
     popup.current = reserved !== undefined ? reserved : reserveSignInWindow()
     setS({ id, flowId: null, url: null, state: 'starting', reason: null })
+    dropReturn()
     try {
-      const r = await api.call(API.authorizeIntegration, { params: { id }, body: {} })
+      // in the desktop app: a return address on this computer, for a service that takes only that (Canva, Intercom,
+      // Square); the server uses it only when the service refuses the team's own address, and says so (loopback)
+      const port = await openSignInReturn()
+      if (g !== generation.current) return closeSignInReturn(port)
+      returnPort.current = port
+      const r = await api.call(API.authorizeIntegration, { params: { id }, body: port ? { loopbackPort: port } : {} })
       if (g !== generation.current) return
+      if (!r.loopback) dropReturn()
       let url: string
       try {
         url = authorizationUrl(r.authorizationUrl)
@@ -122,12 +144,14 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
       if (g !== generation.current) return
       popup.current?.close()
       popup.current = null
+      dropReturn()
       if (isApiError(e, 'not_found') && goneRef.current) {
         setS(null)
         goneRef.current()
         return
       }
-      setS({ id, flowId: null, url: null, state: 'failed', reason: errorText(e, locale, t('error.network')) })
+      const desktopOnly = e instanceof ApiError && e.body.params?.reason === 'oauth_desktop_only'
+      setS({ id, flowId: null, url: null, state: 'failed', reason: errorText(e, locale, t('error.network')), ...(desktopOnly ? { desktopOnly } : {}) })
     }
   }
 
@@ -148,6 +172,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     generation.current++
     popup.current?.close()
     popup.current = null
+    dropReturn()
     if (s && WAITING.has(s.state)) drop(s.flowId, s.id)
     setS(null)
   }
@@ -157,6 +182,7 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     generation.current++
     popup.current?.close()
     popup.current = null
+    dropReturn()
     drop(s.flowId, s.id)
     setS((x) => (x && x.flowId === s.flowId ? { ...x, state: 'expired', reason: null } : x))
   })
@@ -308,10 +334,17 @@ export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; on
             {t('integrations.signIn.open')}
           </LinkButton>
         )}
-        {/* always: a window closed before it finished needs a way back (QA TC-1417) */}
-        <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
-          {t('common.retry')}
-        </Button>
+        {/* a service that takes only an app on the computer: the way there is the desktop app, not another try here */}
+        {failed && flow.desktopOnly ? (
+          <Link to="/settings/apps" className={buttonClass({ variant: 'primary', size: 'sm' })} data-testid="integration-signin-desktop">
+            {t('integrations.signIn.getDesktop')}
+          </Link>
+        ) : (
+          // always: a window closed before it finished needs a way back (QA TC-1417)
+          <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
+            {t('common.retry')}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={onCancel} data-testid="integration-signin-cancel">
           {failed ? t('common.close') : t('common.cancel')}
         </Button>

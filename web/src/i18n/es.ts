@@ -3215,6 +3215,7 @@ export const es: Record<MessageKey, string> = {
   'integrations.signIn.reason.limit': "Ya tiene el máximo de conexiones propias que funcionan. Elimine una y vuelva a iniciar sesión.",
   'integrations.signIn.expired': "Se agotó el tiempo para iniciar sesión. Vuelva a intentarlo.",
   'integrations.signIn.badUrl': "La dirección de inicio de sesión enviada por el servicio no es segura, por lo que no se abrió.",
+  'integrations.signIn.getDesktop': "Obtener la aplicación de escritorio",
   'integrations.signIn.phone': "Inicie sesión desde una computadora, en un navegador o en la aplicación de escritorio.",
   "integrations.onComputer": "Conecte {name} desde un ordenador.",
   "integrations.reconnectOnComputer": "Vuelva a conectar {name} desde un ordenador.",
