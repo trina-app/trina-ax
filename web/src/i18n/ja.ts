@@ -5152,7 +5152,7 @@ export const ja: Record<MessageKey, string> = {
   "share.warn.accounts": "以前の{n, plural, one {#件の回答} other {#件の回答}}があなたの個人アカウントを使った可能性があります。",
   "share.warn.files": "{n, plural, one {#件の回答} other {#件の回答}}が、{names}が開けないファイルを使っています。",
   "share.warn.places": "このチャットは{places}も使っています。{names}は開けません。",
-  "share.warn.rooms": "このチャットは、{names}が参加していない可能性のあるチームのチャットルームを読みました。",
+  "share.warn.rooms": "このチャットは、{names}が参加していない可能性のあるチームトークを読みました。",
   "share.grey.unchecked": "以前の{n, plural, one {#件の回答} other {#件の回答}}は確認できませんでした。",
   "share.grey.checking": "見られる内容を確認しています…",
   "share.grey.failed": "まだこのチャットを確認できていません。共有する前に、何が見えるようになるかを表示します。",

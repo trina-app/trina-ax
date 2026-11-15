@@ -5196,7 +5196,7 @@ export const id: Record<MessageKey, string> = {
   "share.warn.accounts": "{n} jawaban lama mungkin memakai akun pribadi Anda.",
   "share.warn.files": "{n} jawaban memakai berkas yang tidak bisa dibuka {names}.",
   "share.warn.places": "Chat ini juga memakai {places}, yang tidak bisa dibuka {names}.",
-  "share.warn.rooms": "Chat ini membaca ruang obrolan tim yang mungkin tidak diikuti {names}.",
+  "share.warn.rooms": "Chat ini membaca ruang tim yang mungkin tidak diikuti {names}.",
   "share.grey.unchecked": "{n} jawaban lama tidak bisa diperiksa.",
   "share.grey.checking": "Memeriksa apa yang akan mereka lihat…",
   "share.grey.failed": "Chat ini belum bisa diperiksa. Anda akan melihat apa yang dipertaruhkan sebelum dibagikan.",

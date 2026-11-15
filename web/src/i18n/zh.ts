@@ -5127,7 +5127,7 @@ export const zh: Record<MessageKey, string> = {
   "share.warn.accounts": "之前的{n, plural, one {#个回答} other {#个回答}}可能用到了你的个人账号。",
   "share.warn.files": "{n, plural, one {#个回答} other {#个回答}}用到了{names}打不开的文件。",
   "share.warn.places": "这个对话还用到了{places}，{names}打不开。",
-  "share.warn.rooms": "这个对话读取了{names}可能不在的团队聊天室。",
+  "share.warn.rooms": "这个对话读取了{names}可能不在的团队群聊。",
   "share.grey.unchecked": "之前的{n, plural, one {#个回答} other {#个回答}}无法检查。",
   "share.grey.checking": "正在检查他们会看到什么…",
   "share.grey.failed": "暂时无法检查这个对话。共享前会先显示哪些内容会被看到。",

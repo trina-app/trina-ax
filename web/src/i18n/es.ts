@@ -5152,7 +5152,7 @@ export const es: Record<MessageKey, string> = {
   "share.warn.accounts": "{n, plural, one {# respuesta anterior puede haber usado} other {# respuestas anteriores pueden haber usado}} tus cuentas personales.",
   "share.warn.files": "{n, plural, one {# respuesta usó} other {# respuestas usaron}} archivos que {names} no pueden abrir.",
   "share.warn.places": "Este chat también usó {places}, que {names} no pueden abrir.",
-  "share.warn.rooms": "Este chat leyó salas de chat del equipo en las que {names} puede que no estén.",
+  "share.warn.rooms": "Este chat leyó salas del equipo en las que {names} puede que no estén.",
   "share.grey.unchecked": "No se {n, plural, one {pudo revisar # respuesta anterior} other {pudieron revisar # respuestas anteriores}}.",
   "share.grey.checking": "Revisando lo que verán…",
   "share.grey.failed": "Aún no se pudo revisar este chat. Verás lo que está en juego antes de compartirlo.",

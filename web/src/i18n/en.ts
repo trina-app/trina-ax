@@ -5197,7 +5197,7 @@ export const en: Record<MessageKey, string> = {
   "share.warn.accounts": "{n, plural, one {# older answer} other {# older answers}} may have used your personal accounts.",
   "share.warn.files": "{n, plural, one {# answer} other {# answers}} used files {names} can't open.",
   "share.warn.places": "This chat also used {places}, which {names} can't open.",
-  "share.warn.rooms": "This chat read team chat rooms {names} may not be in.",
+  "share.warn.rooms": "This chat read team rooms {names} may not be in.",
   "share.grey.unchecked": "{n, plural, one {# older answer} other {# older answers}} couldn't be checked.",
   "share.grey.checking": "Checking what they'll see…",
   "share.grey.failed": "Couldn't check this chat yet. You'll see what's at stake before it's shared.",
