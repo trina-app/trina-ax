@@ -4194,6 +4194,7 @@ export const ko = {
   "rooms.deleteTitle": "메시지를 삭제할까요?",
   "rooms.deleteBody": "대화방의 모두에게서 이 메시지와 파일이 지워져요. 되돌릴 수 없어요.",
   "rooms.editLabel": "메시지 수정",
+  "rooms.editingNow": "메시지 수정 중",
   "rooms.placeholder": "메시지 보내기",
   "rooms.placeholderEmptySide": "메시지 · ✦로 따로 묻기",
   "rooms.removeFile": "{name} 빼기",

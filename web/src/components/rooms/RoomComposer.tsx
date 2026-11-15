@@ -22,12 +22,17 @@
 // While the person writes, the others in the room (in a thread: those who see it) are told "typing" (lib/roomTyping.ts,
 // at most every 3 s; "stopped" on send, an emptied box, blur, leaving), and one quiet line over the box names who else
 // is writing here (RoomTypingLine, docs/DECISIONS.md "입력 중 표시").
+// Editing my own message on a phone happens here (store/roomEdit.ts; RoomMessages.tsx marks the message): the box says
+// "Editing message" and holds the message's whole text with its mentions, the caret at its end; ✕ and ✓ take the send
+// button's place, and the clip, the mic, the files, "Also send to the room" and the "@전체" question step aside. ✓ saves
+// (not while the text is empty or unchanged), ✕ or Esc cancels; either way the reply that was being written comes back.
+// Return makes a new line on a touch screen, Enter saves with a keyboard, as sending does.
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
 import { composerInset, composerRadius } from '../chat/composerBox'
 import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
-import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip } from 'lucide-react'
+import { ArrowUp, Check, FileText, FolderOpen, Loader2, Paperclip, Pencil, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
@@ -38,7 +43,11 @@ import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
+import { usePeople } from '../../store/people'
+import { fitHeight } from '../../lib/autoGrow'
+import { allMentionNames, lineBreaks, type PickedMention } from '../../lib/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
@@ -47,7 +56,7 @@ import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThu
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
-import { useEveryone, useMentionMenu } from './useMentionMenu'
+import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
@@ -113,8 +122,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // below 768px: the attach sheet (and its team-file picker) instead of the clip's file input
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [teamPicker, setTeamPicker] = useState(false)
+  // editing a message here (a phone): the reply being written waits in `held` and stays the place's draft
+  const editingNow = useRef(false)
   const setText = (s: string) => {
     setTextState(s)
+    if (editingNow.current) return
     if (s) drafts.set(key, s)
     else drafts.delete(key)
     keepRoomDraft(key)
@@ -127,6 +139,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     if (text === typedBefore.current) return
     typedBefore.current = text
+    // an edit tells nobody "typing"
+    if (editingNow.current) return
     if (!text.trim()) typing.stop()
     else if (typeof document !== 'undefined' && document.activeElement === input.current) typing.input(text)
   }, [text, typing])
@@ -137,7 +151,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
-  const mention = useMentionMenu({ text, setText, input, members, meId, initial: roomDraftMentions.get(key), everyone })
+  // my message being edited in this box (a phone: RoomMessages.tsx puts it in store/roomEdit.ts when this place has a box)
+  const editId = useRoomEdit((s) => s.editing[key] ?? null)
+  const editMsg = useRooms((s) => (editId ? findMessage(s, roomId, editId) ?? null : null))
+  const editing = phone && !!editMsg && !editMsg.deletedAt
+  // an edit keeps "@전체" or takes it out, never adds one: it notifies nobody (the server refuses it)
+  const mention = useMentionMenu({ text, setText, input, members, meId, initial: roomDraftMentions.get(key), everyone: editing ? (editMsg!.mentionsAll ? { count: others } : null) : everyone })
   const [asking, setAsking] = useState(false)
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
@@ -164,6 +183,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   })
   // the draft keeps its mentions too
   useEffect(() => {
+    if (editingNow.current) return
     if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
     else roomDraftMentions.delete(key)
     keepRoomDraft(key)
@@ -174,6 +194,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     const reread = () => {
       const d = drafts.get(key) ?? ''
+      // while an edit is open the draft waits; it comes back as the other box left it
+      if (editingNow.current) return void (held.current = { text: d, picked: roomDraftMentions.get(key) ?? [] })
       if (d !== latest.current) mentionNow.current.restore(d, roomDraftMentions.get(key) ?? [])
     }
     const set = boxesOf.get(key) ?? new Set<() => void>()
@@ -188,15 +210,67 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
   // (into one box: the first to take it)
   const back = useRooms((s) => s.returned[key])
+  // an edit that just closed puts the reply back on the next render: a returned send waits for it (then goes before it)
+  const [backAgain, setBackAgain] = useState(0)
   useEffect(() => {
-    if (!back || useRooms.getState().returned[key] !== back) return
+    if (editing || !back || useRooms.getState().returned[key] !== back) return
+    if (justHeld.current) return void setTimeout(() => setBackAgain((n) => n + 1))
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
     if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
     input.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [back])
+  }, [back, editing, backAgain])
+
+  // this place has a box on screen: a phone's edit comes here (the last box to go ends it)
+  useEffect(() => registerRoomBox(key, () => input.current?.focus({ preventScroll: true })), [key])
+  // an edit this box cannot take (a computer's width now, the message gone) ends
+  useEffect(() => {
+    if (editId && !editing) useRoomEdit.getState().end(key)
+  }, [editId, editing, key])
+  /** the reply being written while an edit is open, with its mentions */
+  const held = useRef<{ text: string; picked: PickedMention[] } | null>(null)
+  /** the reply an edit that just closed put back (another message's edit opening in the same commit keeps it waiting) */
+  const justHeld = useRef<{ text: string; picked: PickedMention[] } | null>(null)
+  // an edit opens: the reply waits, the box takes the message's text (or the words of an edit that failed) with the
+  // people it mentions, the caret at the end; it closes: the reply comes back
+  useLayoutEffect(() => {
+    if (!editing || !editMsg) return
+    held.current = justHeld.current ?? { text: latest.current, picked: mentionNow.current.picked }
+    justHeld.current = null
+    editingNow.current = true
+    typing.stop()
+    const kept = failedEdits.get(editMsg.id) ?? null
+    failedEdits.delete(editMsg.id)
+    const body0 = lineBreaks(editMsg.body)
+    const start = kept?.text ?? body0
+    const byId = usePeople.getState().byId
+    // a mention is the name as it was typed: the person's name now and as the member list has it
+    const people = editMsg.mentions.flatMap((id) => [...new Set([byId[id]?.name ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name })))
+    const keptPeople = kept ? members.filter((x) => kept.mentions.includes(x.id)) : []
+    mentionNow.current.restore(start, pickedInMessage(start, [...people, ...keptPeople, ...allMentionNames(editMsg, MENTION_ALL_WORDS)]))
+    // after the menu that opened it gives its focus back
+    const caret = setTimeout(() => {
+      const ta = input.current
+      if (!ta) return
+      ta.focus({ preventScroll: true })
+      ta.setSelectionRange(ta.value.length, ta.value.length)
+      ta.scrollTop = ta.scrollHeight
+    })
+    return () => {
+      clearTimeout(caret)
+      editingNow.current = false
+      const h = held.current
+      held.current = null
+      justHeld.current = h
+      queueMicrotask(() => void (justHeld.current = null))
+      // the reply coming back is no "typing"
+      typedBefore.current = h?.text ?? ''
+      mentionNow.current.restore(h?.text ?? '', h?.picked ?? [])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, editMsg?.id])
 
   // the box grows with its text (an empty box with its placeholder: a transcription job's long label; any other hint
   // stays on one line, index.css), and is measured
@@ -206,12 +280,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const behindPanel = usePanelExpanded()
   const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty && !guestNoAi ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
-    const ta = input.current
-    if (!ta) return
-    const was = ta.style.height
-    ta.style.height = 'auto'
-    ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 200) + 'px' : was
-  }, [text, textSize, placeholder, voice.recording, behindPanel])
+    if (input.current) fitHeight(input.current, 200)
+  }, [text, textSize, placeholder, voice.recording, behindPanel, editing])
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
@@ -321,6 +391,28 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     input.current?.focus()
   }
 
+  // the edit: ✕ / Esc leaves it (the reply comes back: the layout effect above); ✓ saves what changed. The new text shows
+  // at once; a failure puts the old text back with its own toast (store/rooms.ts edit) and opens the edit again with
+  // the words typed
+  const editBody = editMsg ? lineBreaks(editMsg.body) : ''
+  const canSave = editing && body.length > 0 && body !== editBody && text.length <= ROOM_MESSAGE_MAX
+  const cancelEdit = () => useRoomEdit.getState().end(key)
+  const saveEdit = () => {
+    if (!editMsg || !body) return
+    if (body === editBody) return cancelEdit()
+    const m = editMsg, typed = text
+    const mentions = mention.mentions(), all = mention.mentionsAll()
+    cancelEdit()
+    input.current?.focus()
+    void useRooms.getState().edit(roomId, m.id, body, mentions, all).then((ok) => {
+      if (ok) return
+      failedEdits.set(m.id, { text: typed, mentions })
+      // (this place's box still on screen: else the message keeps its old text, with the toast)
+      if (!useRoomEdit.getState().editing[key] && hasRoomBox(key)) useRoomEdit.getState().start(key, m.id)
+      setTimeout(() => failedEdits.delete(m.id), 1000)
+    })
+  }
+
   // the clip: the attach sheet on a phone, the file input on a computer
   const attach = (
     <>
@@ -351,7 +443,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       ref={input}
       rows={1}
       value={text}
-      aria-label={t('composer.label')}
+      aria-label={editing ? t('rooms.editLabel') : t('composer.label')}
       placeholder={placeholder}
       // not disabled: the focus stays in the box while the words are on their way
       readOnly={voice.busy}
@@ -360,6 +452,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       {...mention.inputProps}
       onBlur={() => typing.stop()}
       onPaste={(e) => {
+        // an edit takes words only
+        if (editing) return
         const pasted = pastedFiles(e.clipboardData)
         if (pasted.length) {
           e.preventDefault()
@@ -368,6 +462,19 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       }}
       onKeyDown={(e) => {
         if (mention.onKeyDown(e)) return
+        if (editing) {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            cancelEdit()
+          } else if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia?.('(pointer: coarse)').matches) {
+            // a keyboard: Enter saves, as it sends (a touch screen: a new line)
+            e.preventDefault()
+            if (canSave) saveEdit()
+          }
+          return
+        }
         if (voice.onKeyDown(e)) return
         // the question about "@전체": Esc puts it away, Enter answers it as 보내기
         if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
@@ -417,6 +524,23 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     </>
   )
 
+  // ✕ and ✓ where send was (round, as send); a press keeps the focus in the box, so the keyboard stays up
+  const keep = (e: React.PointerEvent) => e.preventDefault()
+  const editControls = (
+    <>
+      <Tooltip label={t('common.cancel')}>
+        <button type="button" onPointerDown={keep} onClick={cancelEdit} aria-label={t('common.cancel')} className="touch-hit flex size-9 shrink-0 items-center justify-center rounded-full bg-subtle text-muted transition hover:bg-hover hover:text-ink max-sm:size-10" data-testid="room-edit-cancel">
+          <X size={18} aria-hidden />
+        </button>
+      </Tooltip>
+      <Tooltip label={t('common.save')}>
+        <button type="button" onPointerDown={keep} onClick={saveEdit} disabled={!canSave} aria-label={t('common.save')} className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSave ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')} data-testid="room-edit-save">
+          <Check size={18} aria-hidden />
+        </button>
+      </Tooltip>
+    </>
+  )
+
   return (
     <div ref={root} className={clsx('relative shrink-0 pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
       <VoiceLive voice={voice} />
@@ -425,14 +549,21 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       {above}
       <div
         className={clsx('relative mx-auto max-w-[780px]', composerRadius, 'border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
-        {...dropProps}
+        {...(editing ? {} : dropProps)}
         data-testid="room-composer"
+        data-editing={editing ? '' : undefined}
       >
+        {editing && (
+          <p className="flex items-center gap-1.5 px-4 pt-2 text-xs font-medium text-muted" data-testid="room-editing-label">
+            <Pencil size={12} aria-hidden />
+            {t('rooms.editingNow')}
+          </p>
+        )}
         {/* a phone: the "@" list floats over the newest messages, right above the box, instead of pushing the box (and,
             with the keyboard up, the messages) out of sight */}
         {!voice.recording && mention.list && <div className="max-md:absolute max-md:inset-x-0 max-md:bottom-full max-md:z-10 max-md:border-t max-md:border-line max-md:bg-canvas max-md:pb-1 max-md:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]">{mention.list}</div>}
         {/* the question about "@전체" (hidden while recording, like the "@" list) */}
-        {ask && !voice.recording && (
+        {ask && !voice.recording && !editing && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pt-2.5 max-md:px-4" data-testid="room-mention-all-confirm">
             <p role="status" className="min-w-0 flex-1 text-sm text-ink">
               {t('rooms.mentionAllConfirm', { n: others })}
@@ -447,8 +578,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             </div>
           </div>
         )}
-        {!voice.recording && <MessageLinkChoice choice={linkChoice} />}
-        {files.length > 0 && (
+        {!voice.recording && !editing && <MessageLinkChoice choice={linkChoice} />}
+        {files.length > 0 && !editing && (
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
           // pictures are one pane of the image viewer (← →)
           <ImageGroup>
@@ -491,7 +622,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </ul>
           </ImageGroup>
         )}
-        {widens > 0 && (
+        {widens > 0 && !editing && (
           <p className="px-3 pt-1.5 text-xs text-muted max-md:px-4" data-testid="room-team-file-widen">
             {t(widening.length > 1 ? 'rooms.teamFileWidenAtLeast' : 'rooms.teamFileWiden', { n: widens })}
           </p>
@@ -517,7 +648,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last; 8 px on the
                 left, so the box keeps its width with the 4 px between the mic and send (VoiceMic). A computer: the text
                 on top and the box's row under it inside the frame (ComposerToolbar, as every message box: QA TC-1400) */}
-            {phone ? (
+            {editing ? (
+              // the text and ✕ ✓ on one line, the buttons on its last line as send is
+              <div className="flex items-end gap-1 py-1.5 pr-3 pl-2.5">
+                {field}
+                <div className="flex h-composer-line shrink-0 items-center gap-1.5">{editControls}</div>
+              </div>
+            ) : phone ? (
               <div className="flex items-end gap-1 py-1.5 pr-3 pl-2">
                 <div className="flex h-composer-line shrink-0 items-center">{attach}</div>
                 {field}
@@ -552,7 +689,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         />
       )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
-      {threadRootId && (
+      {threadRootId && !editing && (
         <label className="mx-auto flex max-w-[780px] cursor-pointer items-center gap-2 px-1 pt-1.5 text-xs text-muted select-none max-sm:px-4 max-sm:pt-0.5 max-sm:pb-1" data-testid="room-also-in-room">
           <input type="checkbox" checked={alsoInRoom} onChange={(e) => setAlsoInRoom(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
           {t('rooms.alsoToRoom')}

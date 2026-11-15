@@ -4195,6 +4195,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.deleteTitle": "Hapus pesan ini?",
   "rooms.deleteBody": "Pesan dan filenya dihapus untuk semua orang di ruang ini. Ini tidak bisa dibatalkan.",
   "rooms.editLabel": "Edit pesan",
+  "rooms.editingNow": "Mengedit pesan",
   "rooms.placeholder": "Tulis pesan",
   "rooms.placeholderEmptySide": "Pesan · ✦ tanya pribadi",
   "rooms.removeFile": "Hapus {name}",
