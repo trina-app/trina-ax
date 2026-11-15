@@ -29912,4 +29912,7 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
 - **Kept out.** Anything about other people (no admin names, as in "Refusals say why, who and what next"), connection
   or account names, secrets, and numbers that change every answer (usage left): the block stays the same from turn to
   turn. A shared chat leaves it out (the person's role is not the chat's people's to know). A guest gets only the app
-  line: what a guest can do is the guest part of the instructions.
+  line: what a guest can do is the guest part of the instructions. Whose AI answers follows the engine the turn starts
+  with, decided as the turn decides it (Codex runs on the team's AI connections on an installed server whatever
+  engine.authMode says); a limit that hands the answer to the other engine midway changes the next turn's block. No
+  card is offered in Slack or a scheduled run, and no web tools are named where the chat has none.

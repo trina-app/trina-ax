@@ -19,6 +19,7 @@ import { resolveCredential, type CredEngine } from '../credentials/resolve'
 import { isGuestUser } from '../credentials/guest-ai'
 import type { RunKind } from '../system/deployment'
 import { currentPlan } from '../system/limits'
+import { guestLimit } from '../auth/guests'
 import { SCREEN } from '../policy/refusal'
 import type { Role } from '../policy/access'
 
@@ -36,8 +37,11 @@ export interface Situation {
   ownAi: boolean
   /** may they add their own connected services (Settings › Connectors) */
   ownConnectors: boolean
-  /** the team's plan, for the owner and admins only (a hosted team's plan file) */
-  plan: { name: string; people: number | null; guests: number | null } | null
+  /** the team's plan, for the owner and admins only (a hosted team's plan file); name null: the file has no display
+   * name (the plan's id, such as "basic", is not what people see) */
+  plan: { name: string | null; people: number | null; guests: number | null } | null
+  /** this answer can read public web pages (web search is off for guests, confidential and restricted chats) */
+  web: boolean
 }
 
 /** The app from the session's client kind and whether this answer has the desktop browser. */
@@ -47,12 +51,16 @@ export function appOf(clientKind: string | null, browser: boolean): SituationApp
 }
 
 /** The situation of a turn, from the database and the server's config. Never throws: a part it cannot read is left out. */
-export function situationOf(ctx: { db: Database; config: AppConfig }, p: { userId: string; role: Role; clientKind: string | null; browser: boolean; engine: string; locale: Locale }): Situation {
+/** `managed`: this turn's engine answers through the team's AI connections behind the model proxy (chat/engines.ts:
+ * Claude in managed mode, Codex on an installed server), as the turn decides it (turn.ts); absent: engine.authMode says.
+ * The engine is the one the turn starts with: a limit that hands the answer to the other engine midway does not
+ * change the block (the next turn's does). */
+export function situationOf(ctx: { db: Database; config: AppConfig }, p: { userId: string; role: Role; clientKind: string | null; browser: boolean; engine: string; locale: Locale; managed?: boolean; webSearch?: boolean }): Situation {
   const guest = p.role === 'guest' || safe(() => isGuestUser(ctx.db, p.userId), true)
   const staff = !guest && (p.role === 'owner' || p.role === 'admin')
   let ai: Situation['ai'] = null
-  if (!isManaged(ctx.config)) ai = p.engine === 'api' ? 'team' : 'host'
-  else if (p.engine === 'api') ai = 'team'
+  if (p.engine === 'api') ai = 'team'
+  else if (!(p.managed ?? isManaged(ctx.config))) ai = 'host'
   else if (p.engine === 'claude-code' || p.engine === 'codex') {
     const r = safe(() => resolveCredential(ctx.db, { userId: p.userId, engine: p.engine as CredEngine, allowedKinds: allowedCredentialKinds(ctx.config) }), null)
     ai = r?.ok ? (r.tier === 'own' ? 'own' : 'team') : null
@@ -62,7 +70,9 @@ export function situationOf(ctx: { db: Database; config: AppConfig }, p: { userI
     role: p.role, guest, app: appOf(p.clientKind, p.browser), ai,
     ownAi: safe(() => personalConnectionsAllowed(ctx.db, p.userId), false),
     ownConnectors: !guest && safe(() => getTeamSettings(ctx.db).personalIntegrations !== false, false),
-    plan: plan ? { name: plan.display?.name?.[p.locale] ?? plan.display?.name?.en ?? plan.plan, people: plan.maxActiveMembers ?? null, guests: plan.maxGuests ?? null } : null,
+    // guests: the cap the server applies (auth/guests.ts guestLimit: 3 while the plan file has none)
+    plan: plan ? { name: plan.display?.name?.[p.locale] ?? plan.display?.name?.en ?? null, people: plan.maxActiveMembers ?? null, guests: safe(() => guestLimit(), null) } : null,
+    web: p.webSearch ?? true,
   }
 }
 
@@ -70,11 +80,11 @@ function safe<T>(f: () => T, fallback: T): T { try { return f() } catch { return
 
 /** The app line: where the person reads the answer, and what that means for where things are. */
 function appLine(s: Situation, L: Locale): string {
-  const settingsWhere = (phone: boolean) => phone ? `${SCREEN.settings(L)} is under ${SCREEN.meTab(L)} at the bottom of the phone app` : ''
   switch (s.app) {
-    case 'mobile': return `- App: the ${PRODUCT.displayName} phone app.${s.guest ? '' : ` ${settingsWhere(true)}${s.role === 'owner' || s.role === 'admin' ? ', and Admin is in that list too' : ''}.`}`
+    // the phone's Me tab is Settings: its list holds the same pages (SettingsDialog.tsx PhoneSettingsList), Admin too
+    case 'mobile': return `- App: the ${PRODUCT.displayName} phone app.${s.guest ? '' : ` There ${SCREEN.settings(L)} is ${SCREEN.meTab(L)} at the bottom: its list has the same pages${s.role === 'owner' || s.role === 'admin' ? ', and Admin is in that list too' : ''}.`}`
     case 'web': return `- App: ${PRODUCT.displayName} in a web browser.`
-    case 'desktop': return `- App: the ${PRODUCT.displayName} desktop app, but its browser is not connected to this answer: if they need a website opened or used, read public pages with your web tools and say they can ask again with this chat open in the desktop app.`
+    case 'desktop': return `- App: the ${PRODUCT.displayName} desktop app, but its browser is not connected to this answer${s.web ? ': if they need a website opened or used, read public pages with your web tools and say they can ask again in a moment, when the app\'s browser can join' : ''}.`
     case 'desktop-browser': return `- App: the ${PRODUCT.displayName} desktop app, with its browser next to the chat.`
     case 'slack': return '- App: they asked from Slack, and your answer goes back to them there: no cards or buttons of the app show in Slack, so name any file you save by its team path.'
     case 'schedule': return '- App: none. This is a scheduled task\'s run; nobody is watching.'
@@ -99,18 +109,20 @@ export function situationSection(s: Situation, L: Locale): string {
   else if (s.ai === 'host') lines.push(`- AI: your answers use the AI sign-in of the computer this server runs on${staff ? ` (${SCREEN.adminProviders(L)})` : ', set up by the owner'}.`)
   else lines.push(`- AI: ${ownAi}`)
   lines.push(`- Their own AI usage and limits are in ${SCREEN.usage(L)}.`)
+  // a card needs someone in the app: never in Slack or a scheduled run
+  const card = s.app !== 'slack' && s.app !== 'schedule'
   lines.push(s.ownConnectors
-    ? `- Their own connected services (their accounts at other services) are in ${SCREEN.connectors(L)}, or connect one with a card in this chat.`
+    ? `- Their own connected services (their accounts at other services) are in ${SCREEN.connectors(L)}${card ? ', or connect one with a card in this chat' : ''}.`
     : `- Adding their own connected services is turned off for this team by an admin${staff ? '' : ': do not offer to connect one for them; the team\'s connected apps are an admin\'s'}.`)
   if (s.plan) {
     const caps = [s.plan.people !== null ? `up to ${s.plan.people} active people including the owner` : '', s.plan.guests !== null ? `${s.plan.guests} guests` : ''].filter(Boolean).join(', and ')
-    lines.push(`- Team plan: ${oneLine(s.plan.name)}${caps ? ` (${caps})` : ''}; ${SCREEN.adminSystem(L)} shows it.`)
+    lines.push(`- Team plan: ${s.plan.name ? `${oneLine(s.plan.name)}${caps ? ` (${caps})` : ''}` : caps || 'set by the hosting service'}; ${SCREEN.adminSystem(L)} shows it.`)
   }
   return plainNames(['## About this person and place', ...lines].join('\n'))
 }
 
 /** `Admin › System ("Admin › System")` in English is just `Admin › System`: the quoted name only when it differs. */
-export const plainNames = (t: string) => t.replace(/([A-Z][\w&]*(?: [\w&]+)*(?: › [\w&]+(?: [\w&]+)*)*) \("\1"\)/g, '$1')
+export const plainNames = (t: string) => t.replace(/([A-Z][\w&]*(?: [\w&]+)*(?: › [\w&]+(?: [\w&]+)*)*) \("\1"\)/g, '$1').replace(/the Me tab \("Me"\)/g, 'the Me tab')
 
 const oneLine = (x: string) => x.replace(/[\r\n<>]+/g, ' ').slice(0, 60)
 

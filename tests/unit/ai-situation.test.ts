@@ -12,7 +12,7 @@ import { DICTS } from '../../web/src/i18n'
 
 setDefaultTimeout(30_000)
 const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
-const base: Situation = { role: 'member', guest: false, app: 'web', ai: 'team', ownAi: true, ownConnectors: true, plan: null }
+const base: Situation = { role: 'member', guest: false, app: 'web', ai: 'team', ownAi: true, ownConnectors: true, plan: null, web: true }
 const say = (s: Partial<Situation>, L: (typeof LOCALES)[number] = 'en') => situationSection({ ...base, ...s }, L)
 
 describe('screen names the AI is told match the app', () => {
@@ -104,16 +104,22 @@ describe('the block per state', () => {
   test('the app: web, phone (Settings under Me; Admin there for staff), desktop with and without the browser, Slack, a scheduled run', () => {
     expect(say({ app: 'web' })).toContain('App: Trina AX in a web browser.')
     const phone = say({ app: 'mobile' }, 'ko')
-    expect(phone).toContain('App: the Trina AX phone app. Settings ("설정") is under the Me tab ("나")')
+    expect(phone).toContain('App: the Trina AX phone app. There Settings ("설정") is the Me tab ("나") at the bottom: its list has the same pages.')
+    expect(say({ app: 'mobile' })).toContain('There Settings is the Me tab at the bottom')
     expect(phone).not.toContain('Admin is in that list')
     expect(say({ app: 'mobile', role: 'admin' })).toContain('and Admin is in that list too')
     const desktop = say({ app: 'desktop' })
-    expect(desktop).toContain('desktop app, but its browser is not connected to this answer')
+    expect(desktop).toContain('desktop app, but its browser is not connected to this answer: if they need a website')
+    // no web reading in this chat: no web tools named
+    expect(say({ app: 'desktop', web: false })).not.toContain('web tools')
     expect(say({ app: 'desktop-browser' })).toContain('desktop app, with its browser next to the chat')
     const slack = say({ app: 'slack' })
     expect(slack).toContain('they asked from Slack')
     expect(slack).toContain('name any file you save by its team path')
     expect(say({ app: 'schedule' })).toContain('scheduled task\'s run; nobody is watching')
+    // nobody can answer a card in Slack or a scheduled run: none is offered there
+    for (const app of ['slack', 'schedule'] as const) expect(say({ app })).not.toContain('card in this chat')
+    expect(say({ app: 'web' })).toContain('or connect one with a card in this chat')
     expect(say({ app: null })).not.toContain('App:')
   })
 
@@ -123,6 +129,8 @@ describe('the block per state', () => {
     expect(owner).toContain('Team plan: Trial (up to 5 active people including the owner, and 10 guests); Admin › System shows it.')
     // situationOf never gives a member the plan; the section leaves it out when there is none
     expect(say({ role: 'member' })).not.toContain('Team plan')
+    // a plan file without a display name: the caps, never the plan's id
+    expect(say({ role: 'owner', plan: { name: null, people: 15, guests: 3 } })).toContain('Team plan: up to 15 active people including the owner, and 3 guests; Admin › System')
   })
 
   test('a guest: only the app line (what a guest can do is the guest part\'s), nothing about Admin, AI accounts or plans', () => {
@@ -130,6 +138,10 @@ describe('the block per state', () => {
     expect(t).toContain('App: the Trina AX phone app.')
     for (const no of ['Admin', 'Settings', 'AI providers', 'Usage', 'Connectors', 'Team plan', 'Role:']) expect(t).not.toContain(no)
     expect(say({ role: 'guest', guest: true, app: null })).toBe('')
+    for (const app of ['web', 'desktop'] as const) {
+      const g = say({ role: 'guest', guest: true, app, web: false })
+      for (const no of ['Admin', 'Settings', 'AI providers', 'web tools', 'Role:']) expect(g).not.toContain(no)
+    }
   })
 
   test('appOf: the session\'s client, the desktop browser first', () => {
@@ -161,13 +173,13 @@ describe('built from real state', () => {
   beforeAll(async () => {
     h = await startHarness({ name: 'ai-situation' })
     alice = await h.ws('alice', { windowId: 'win-alice-sit' })
-    dana = await h.ws('dana', { windowId: 'win-dana-sit' })
+    dana = await h.ws('dana', { windowId: 'win-dana-sit', client: 'mobile' })
     await alice.next('hello'); await dana.next('hello')
   })
   afterAll(async () => { setPlanForTests(undefined); await h.close() })
-  const of = (userId: string, role: 'owner' | 'admin' | 'member', extra: { engine?: string; managed?: boolean } = {}) =>
+  const of = (userId: string, role: 'owner' | 'admin' | 'member', extra: { engine?: string; managed?: boolean; turnManaged?: boolean } = {}) =>
     situationOf({ db: h.ctx.db, config: { ...h.ctx.config, engine: { ...h.ctx.config.engine, authMode: extra.managed ? 'managed' : 'local-login' } } as never },
-      { userId, role, clientKind: 'web', browser: false, engine: extra.engine ?? 'claude-code', locale: 'en' })
+      { userId, role, clientKind: 'web', browser: false, engine: extra.engine ?? 'claude-code', locale: 'en', ...(extra.turnManaged !== undefined ? { managed: extra.turnManaged } : {}) })
   const setting = (key: string, value: unknown) => h.ctx.db.query('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, JSON.stringify(value))
 
   test('the switches an admin turns: own AI sign-ins and own connected services', () => {
@@ -175,6 +187,15 @@ describe('built from real state', () => {
     setting('credentials.memberOwn', false)
     try { expect(of('alice', 'member').ownAi).toBe(false) } finally { setting('credentials.memberOwn', true) }
     expect(of('alice', 'member').ownConnectors).toBe(true)
+    setting('personalIntegrations', false)
+    try { expect(of('alice', 'member').ownConnectors).toBe(false) } finally { setting('personalIntegrations', true) }
+  })
+
+  test('the turn decides whether its engine runs on AI connections: Codex on an installed local-login server does, a dev-mode one does not', () => {
+    // engine.authMode local-login, but the turn's Codex runs behind the model proxy (chat/engines.ts mode prod)
+    expect(of('alice', 'member', { engine: 'codex', turnManaged: true }).ai).not.toBe('host')
+    // engine.authMode managed, but the turn's engine signs in on its own
+    expect(of('alice', 'member', { engine: 'codex', managed: true, turnManaged: false }).ai).toBe('host')
   })
 
   test('whose AI: the server\'s own sign-in without AI connections, the team\'s connection, nothing once that is gone, the API key', () => {
