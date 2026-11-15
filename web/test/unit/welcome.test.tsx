@@ -28,7 +28,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, firstResultSkill, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, phoneSkips, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepPosition, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, firstResultSkill, setupReturnState, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, phoneSkips, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepPosition, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -418,10 +418,10 @@ describe('where the steps go', () => {
     const humanizer = s('skills/work/humanizer/SKILL.md', 'humanizer')
     expect(firstResultSkill([])).toBeNull()
     expect(firstResultSkill([s(QUOTE_SKILL, 'quote-maker')])).toBeNull()
-    expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video'), s(GENERAL_DECK_SKILL, 'intro-deck'), s(GENERAL_CARDNEWS_SKILL, 'card-news')])).toEqual({ skill: s(GENERAL_CARDNEWS_SKILL, 'card-news'), write: false })
+    expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video'), s(GENERAL_DECK_SKILL, 'intro-deck'), s(GENERAL_CARDNEWS_SKILL, 'card-news')])).toEqual({ skill: s(GENERAL_CARDNEWS_SKILL, 'card-news'), write: false, verb: 'welcome.done.makeCardNews' })
     expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video'), s(GENERAL_DECK_SKILL, 'intro-deck')])!.skill.path).toBe(GENERAL_DECK_SKILL)
     expect(firstResultSkill([humanizer, s(GENERAL_PROMO_SKILL, 'promo-video')])!.skill.path).toBe(GENERAL_PROMO_SKILL)
-    expect(firstResultSkill([humanizer])).toEqual({ skill: humanizer, write: true })
+    expect(firstResultSkill([humanizer])).toEqual({ skill: humanizer, write: true, verb: null })
     // the same skill elsewhere in the team's skills (moved, or made before the pack): by its name
     expect(firstResultSkill([s('skills/marketing/card-news/SKILL.md', 'card-news')])!.skill.path).toBe('skills/marketing/card-news/SKILL.md')
   })
@@ -462,6 +462,26 @@ describe('where the steps go', () => {
     const later = { ...p, skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'done', tools: 'skipped', invite: 'done' } } as WelcomeProgress
     expect(at('/c/abc', true, false, later)).toBe('hidden')
     expect(at('/c/abc', true, true, later)).toBe('resume')
+    // finished with steps put off (fix/onboarding-after-setup): "Still to do" stays until each is done or ✕; a phone never
+    // names 도구 연결, and not on its Home; without AI Home's card comes first
+    const off = { ...p, finishedAt: 'x', steps: { profile: 'done', result: null, skills: 'done', files: 'skipped', tools: 'skipped', invite: 'done' } } as WelcomeProgress
+    expect(at('/c/abc', true, true, off)).toBe('left')
+    expect(at('/', true, true, off)).toBe('left')
+    expect(at('/c/abc', true, false, off)).toBe('left')
+    expect(at('/new', true, false, off)).toBe('left')
+    expect(setupRowState(off, { path: '/new', aiReady: true, computer: false, home: true })).toBe('hidden')
+    expect(at('/c/abc', false, true, off)).toBe('hidden')
+    expect(at('/c/abc', true, true, { ...off, dismissedAt: 'y' })).toBe('hidden')
+    expect(at('/welcome', true, true, off)).toBe('hidden')
+    const words = (computer: boolean) => setupRowWords((k, prm) => translate('en', k, prm), off, true, computer).text
+    expect(words(true)).toBe('Still to do: 2 steps')
+    expect(words(false)).toBe('Still to do: 1 step')
+    const many = { ...off, steps: { ...off.steps, profile: 'skipped', skills: 'skipped' } } as WelcomeProgress
+    expect(setupRowWords((k, prm) => translate('en', k, prm), many, true, true).text).toBe('Still to do: 4 steps')
+    // only 도구 연결 left: nothing on a phone
+    const toolsOnly = { ...off, steps: { ...off.steps, files: 'done' } } as WelcomeProgress
+    expect(at('/c/abc', true, false, toolsOnly)).toBe('hidden')
+    expect(at('/c/abc', true, true, toolsOnly)).toBe('left')
   })
 
   test('who sees the team folder: its group and the owners and admins, active ones; members outside it can be added', () => {
@@ -1226,12 +1246,28 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
-  test('준비 끝\'s first result (docs/DECISIONS.md "W6"): "\'카드뉴스\' 만들어 보기" for the first kept skill the team has; it opens that skill\'s form only (nothing runs); 자연스러운 글 "써 보기"; a row whose deck started keeps its line', async () => {
+  test('after the end, the setup row\'s ask opens a step put off as itself (fix/onboarding-after-setup); a step done is not asked back', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'skipped', tools: 'done', invite: 'done' }, finishedAt: '2026-11-04T00:03:00.000Z', doneShownAt: '2026-11-04T00:03:00.000Z' })
+    withGroup()
+    let m = await app({ pathname: '/welcome', state: setupReturnState('files') })
+    try {
+      await m.until(() => stepOf(m) === 'files' || null, 'the team files step')
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+    m = await app({ pathname: '/welcome', state: setupReturnState('tools') })
+    try {
+      await m.until(() => at(m) === '/' || null, 'Home: tools was done')
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+  })
+
+  test('준비 끝\'s first result (docs/DECISIONS.md "W6"): "카드뉴스 만들어 보기" for the first kept skill the team has; it opens that skill\'s form only (nothing runs); 자연스러운 글 "써 보기"; a row whose deck started keeps its line', async () => {
     signIn('owner')
     const kept = (path: string, name: string, title: string): SkillInfo => ({ path, name, title, description: title })
     for (const [list, label, path, deck] of [
-      [[quote, kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서'), kept(GENERAL_CARDNEWS_SKILL, 'card-news', '카드뉴스')], "'카드뉴스' 만들어 보기", GENERAL_CARDNEWS_SKILL, false],
-      [[kept(GENERAL_PROMO_SKILL, 'promo-video', '홍보 영상'), kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서')], "'회사 소개서' 만들어 보기", GENERAL_DECK_SKILL, true],
+      [[quote, kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서'), kept(GENERAL_CARDNEWS_SKILL, 'card-news', '카드뉴스')], '카드뉴스 만들어 보기', GENERAL_CARDNEWS_SKILL, false],
+      [[kept(GENERAL_PROMO_SKILL, 'promo-video', '홍보 영상'), kept(GENERAL_DECK_SKILL, 'intro-deck', '회사 소개서')], '회사 소개서 만들어 보기', GENERAL_DECK_SKILL, true],
       [[kept('skills/work/humanizer/SKILL.md', 'humanizer', '자연스러운 글')], "'자연스러운 글' 써 보기", 'skills/work/humanizer/SKILL.md', false],
     ] as const) {
       skills = [...list]
@@ -1257,6 +1293,8 @@ describe('the later steps and the end', () => {
         await n.click('welcome-done-make')
         // the form on 팀 스킬 (closing it stays there: Skills.tsx), nothing sent or run from here
         await n.until(() => at(n) === `/skills?run=${encodeURIComponent(path)}`, 'the skill form')
+        // closing the form goes Home (Skills.tsx closeRun reads state.back, PR #909), not Team skills
+        expect(JSON.parse(n.get('where').getAttribute('data-state')!)).toMatchObject({ back: '/' })
         expect(calls.filter((c) => /\/messages$|\/chats$/.test(c.key))).toEqual([])
       } finally { await n.unmount() }
       useWelcome.getState().reset()

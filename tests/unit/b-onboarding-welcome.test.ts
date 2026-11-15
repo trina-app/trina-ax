@@ -202,7 +202,8 @@ test('the AI step (docs/DECISIONS.md "W2"): absent until shown, skipped while ne
   expect(p.steps.ai).toBe('done')
   // finishing without files ("자료 없이 해 볼게요" of an older row) puts off the open steps, never the AI step
   const fresh = await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
-  expect(fresh.progress.steps).toMatchObject({ ai: 'done', profile: 'skipped', result: 'skipped', invite: 'skipped' })
+  // (the invite reads done: this team has members already, fix/onboarding-after-setup settlePutOff)
+  expect(fresh.progress.steps).toMatchObject({ ai: 'done', profile: 'skipped', result: 'skipped', invite: 'done' })
   expect(fresh.progress.finishedAt).not.toBeNull()
   expect(WelcomeProgress.safeParse(fresh.progress).success).toBe(true)
 })
@@ -289,4 +290,22 @@ test('a team start with shared/ missing on disk makes it again (the likely hoste
   const r = await owner.call('POST', '/api/onboarding/welcome/team')
   expect(r.progress.teamGroup?.brandFolder).toBe(`shared/${BRAND_FOLDER[teamDefaultLocale(h.ctx.db)]}`)
   expect(fs.statSync(path.join(h.ctx.files.fx.root, 'shared')).isDirectory()).toBe(true)
+})
+
+test('after the end, a step put off that got done elsewhere is recorded done on a read (the setup row stops naming it)', async () => {
+  h = await harness('b-onboarding-welcome')
+  const owner = await withOwner(h)
+  setSetting(h.ctx.db, WELCOME_SETTING, {
+    startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', finishedAt: '2026-11-04T00:03:00.000Z',
+    steps: { profile: 'skipped', result: null, skills: 'done', files: 'skipped', tools: 'skipped', invite: 'skipped' },
+  })
+  // nothing done elsewhere: all stay put off
+  let p = (await owner.call('GET', '/api/onboarding/welcome')).progress
+  expect([p.steps.profile, p.steps.files, p.steps.tools, p.steps.invite]).toEqual(['skipped', 'skipped', 'skipped', 'skipped'])
+  // someone joined (an invite from the team menu); the profile saved in Admin
+  await addMember(h, owner, { username: 'mia' })
+  await owner.call('PUT', '/api/onboarding/profile', { website: '', name: 'Acme', oneLine: 'Acme makes fans.', products: 'Fans', audience: '', tone: [], avoid: '', sources: [] })
+  p = (await owner.call('GET', '/api/onboarding/welcome')).progress
+  expect([p.steps.profile, p.steps.files, p.steps.tools, p.steps.invite]).toEqual(['done', 'skipped', 'skipped', 'done'])
+  expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).steps.invite).toBe('done')
 })

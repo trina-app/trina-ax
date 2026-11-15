@@ -28624,3 +28624,32 @@ W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is
     progress (no API change), not in Admin › Team settings. No schema change.
 - Tests: tests/unit/b-onboarding-draft.test.ts ("always filled"), web/test/unit/profile-step.test.tsx (typed answers
   with and without AI, keep), web/test/unit/welcome.test.tsx (the reading comes back in the same tab).
+
+## W6 follow-up: after the setup (fix/onboarding-after-setup, 2026-11-15, review of the onboarding re-check §7 lane A 4)
+
+- **Removed.** The AI step's and Home's no-AI card's line "Other AI services such as OpenRouter: Admin › AI accounts"
+  (`welcome.ai.enginesLine`, all languages): an expert page on a non-developer's first screen. Other providers stay in
+  Admin › AI accounts; the way back from a page a step links to (SetupReturn, the W6 follow-up above) stays for the
+  team files step's project and any later link. Not built: an OpenRouter choice in the key dialog (no credential kind
+  for it, the API engine needs a password; the MIT cloud contract would change).
+- **End screen.** The first-result button is the skill's own verb title, per kept skill (`FIRST_RESULT_SKILLS.verb`:
+  "Make promo cards", "Make a company slide deck", "Make a promo video"; 자연스러운 글 keeps "Try '{skill}'");
+  `welcome.done.make` ("Make a '{skill}'") is gone. The path list under the put-off steps (`welcome.done.laterHint`,
+  "Admin › Team settings › Company profile, Skills, …") is removed: the setup row is the way back now.
+- **Setup row after the end.** Supersedes "W6 follow-up: never brings back the setup row after finish" (it was a "Not
+  done", not an owner rejection). While the steps are finished and counted steps were put off (`lib/welcome.ts
+  putOffSteps`: answered as skipped; never the AI step, never 도구 연결 on a phone nor 내 스킬 put off for a computer),
+  the row reads "Still to do: 2 steps" (how many, never the names: they were cut at 1440 in en, ko and es) and opens the first of them as itself (the
+  `setupReturnState` ask; `Welcome.tsx` opens a step asked back after the end only when it was put off, and ending it
+  says nothing again). ✕ hides it as before (`dismissedAt`, with its undo). A put-off step done elsewhere is recorded
+  done on the next read (server `welcome.ts settlePutOff`): the company profile saved in Admin, someone other than a
+  guest in the team (the team menu's invites), a connection connected in Connectors. Without AI it stays out (Home's no-AI card
+  first); on a phone not on Home, as the unfinished row.
+- **Home: one thing.** The owner's "Ready in your team" (TeamPrepared) stays out while the goal card shows (HomeGoal
+  `onShown`; it waits for that answer, so nothing flashes). Admins and members unchanged.
+- **Goal title.** The counting word only: "3 people using 'Promo cards', 'Promo video', and 'Natural writing' this
+  week" (`goal.titleSkills` with `target`; "3 people using a team skill this week" without a skill). "People", never
+  "teammates": the leader is one of the three. The owner's 2026-11-11 choice stays: up to three of the team's own
+  skills named, the goal's one first (`GOAL_TITLE_SKILLS` 3).
+- Tests: web/test/unit/setup-row.test.tsx, welcome.test.tsx, goal-card.test.tsx, setup-return.test.tsx,
+  connect-ai.test.tsx; web/test/e2e/welcome-exits.spec.ts, no-ai.spec.ts.

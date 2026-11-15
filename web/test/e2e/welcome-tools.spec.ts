@@ -5,7 +5,7 @@
 //   row where the server has no Drive), Notion, and the one "다른 도구 연결하기" line (Settings › Connectors over the step:
 //   its close, Esc and Back come back to the step; one connected there counts), 나중에 하기 / 다음 and ← 이전;
 // - after the setup the one way back is Settings › 커넥터: the Drive card's owner/admin button names both effects;
-// - 준비 끝: "'카드뉴스' 만들어 보기" for the first kept skill the team has, which opens that skill's form on 팀 스킬 only.
+// - 준비 끝: "카드뉴스 만들어 보기" (the skill's own verb) for the first kept skill the team has, which opens that skill's form on 팀 스킬 only.
 // Google is answered by the page's own routes (the mock has no Google client), as in drive.spec.ts.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -270,7 +270,7 @@ test('준비 끝: "\'카드뉴스\' 만들어 보기" for the first kept skill i
   await page.getByTestId('welcome-later').click()
   await page.getByTestId('invite-step-done').click()
   const make = page.getByTestId('welcome-done-make')
-  await expect(make).toHaveText("'카드뉴스' 만들어 보기")
+  await expect(make).toHaveText('카드뉴스 만들어 보기')
   await expect(page.getByTestId('welcome-done-home')).toHaveText('홈으로')
   const chats = ((await (await page.request.get('/api/chats')).json()).items as unknown[]).length
   await make.click()
