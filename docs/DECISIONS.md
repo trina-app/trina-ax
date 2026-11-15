@@ -29141,3 +29141,36 @@ Canva, Intercom and Square refuse the team's https sign-in return address (not o
 - Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
   (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
   additive API and bridge fields).
+
+## Find work files: the app's own consent window (feat/work-files-consent-window, 2026-11-15, product owner)
+
+Owner, 2026-11-15, on the native alert of "Find work files on this computer": "this doesn't even catch the eye… did
+anyone design this UI?" The question was a grey `dialog.showMessageBox` (a bullet list and two paragraphs). It is now
+a designed window, still owned by the main process (the review of #923: the team page is remote content, so no script
+there may draw, fake or skip the consent).
+
+- **The window.** `desktop/src/main/work-consent-window.ts` opens a small modal `BrowserWindow` with the app window as its
+  parent (a sheet on macOS), in the `mycel-ui` session, sandboxed, loading `mycel-ui://app/consent.html` (a file of the
+  app, `desktop/src/ui/consent.html` + `consent.ts`, served by `serveUi` with the app screens' CSP), never the team
+  server; `guardUiView` stops any navigation or new window. Its preload (`desktop/src/preload/consent.ts`) has two calls:
+  read the finished view (`consent:view`, sync) and give back yes or no (`consent:answer`). Both channels answer only a
+  window this file opened, in its top frame at that address (`consentSender`); the team page's preload has no consent
+  channel and the page still gets only the scan's result. Closing the window, Escape (handled in the main process,
+  whatever the page does), Not now, the page's renderer going away, another person or team (`forget()`) are a no.
+- **What it says comes from the look itself.** `consentView` (`desktop/src/common/work-consent.ts`) is built from the same
+  roots and places `scan()` then looks through: the three folders (OneDrive named under the folder), each wide place by
+  kind (messenger, work folder, cloud drive), and "Recently opened files" with where they are. Three lines under it: two
+  promises with a check ("Only names, types and dates are read, not what's inside"; "Nothing is ticked for you. Contents
+  stay on this Mac until you add them") and, with its own sparkle icon so it does not read as a promise, "To help you
+  pick, file names may go to your team's AI". The rest (macOS asks per folder; Full Disk Access; Mail, Messages, Photos
+  and Safari never read; cloud-only files not downloaded; nothing moved or changed) is one small line. Buttons: Not now
+  (secondary) and Find work files (primary, focused). All six languages; Korean wraps by word only (`:lang(ko)`).
+- **Enter now means yes, but only when the person could mean it (changes the earlier review MUST).** Part 1 made Cancel
+  the default so that a page that asks while the person types gets no yes from their next Enter. The owner wanted Enter
+  to press the primary button. `ConsentGate` keeps the protection in the main process: a yes counts only 800 ms after the
+  window is shown and 800 ms after the last key typed into it (any key but Tab, Shift, Enter, Escape and the arrows; a
+  held key counts as typing), and only once. An early yes is ignored and the window stays; a no is never held back.
+- Tests: `tests/unit/e-desktop-work-consent.test.ts` (view, gate, sender check, wiring), `desktop/e2e/work-consent.spec.ts`
+  (the real window: modal child, early click and Enter after typing ignored, Enter later counts, Escape, a forged answer
+  and view request from another window refused, close and forget are a no); `work-files*.spec.ts` record the view.
+  Version impact: **patch**.

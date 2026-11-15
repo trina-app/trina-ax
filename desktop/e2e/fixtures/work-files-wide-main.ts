@@ -1,13 +1,14 @@
 // Find work files, part 5, in the real Electron (src/main/work-files.ts lookWide): a made-up home with Full Disk Access
 // (a made-up privacy database the probe opens), a cloud drive's folder, a work folder named like the company, a
 // messenger's downloads inside Downloads, a recent-documents list pointing at a note and at Mail, and many files. The
-// app's dialog is answered by the test (dialog.showMessageBox replaced). Everything is in a made-up home folder in a
+// app's consent window is answered by the test (a recording stand-in). Everything is in a made-up home folder in a
 // temporary folder that work-files-wide.spec.ts creates; this file refuses to run against the computer's real home.
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { realpathSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { WorkFilesController } from '../../src/main/work-files'
+import type { ConsentView } from '../../src/common/work-consent'
 
 const home = process.env.FOLDER_TEST_HOME ?? ''
 const within = (dir: string, path: string) => {
@@ -32,15 +33,15 @@ void (async () => {
   for (const name of ['home', 'appData', 'desktop', 'documents', 'downloads'] as const) {
     if (!within(home, app.getPath(name))) throw new Error(`${name} is outside the made-up home`)
   }
-  const asked: { detail: string; buttons: string[] }[] = []
-  ;(dialog as unknown as { showMessageBox: unknown }).showMessageBox = async (_w: unknown, o: { detail: string; buttons: string[] }) => {
-    asked.push({ detail: o.detail, buttons: o.buttons })
-    return { response: 0, checkboxChecked: false }
+  const asked: ConsentView[] = []
+  const consent = (_w: unknown, view: ConsentView) => {
+    asked.push(view)
+    return { result: Promise.resolve(true), close: () => {} }
   }
   const win = new BrowserWindow({ show: false, width: 400, height: 300 })
   const steps: [number, string][] = []
   let start = 0
-  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => { const k = `${p.root}:${p.place ?? ''}`; if (start && steps.at(-1)?.[1] !== k) steps.push([Math.round(performance.now() - start), k]) } })
+  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => { const k = `${p.root}:${p.place ?? ''}`; if (start && steps.at(-1)?.[1] !== k) steps.push([Math.round(performance.now() - start), k]) }, consent })
   ctl.person({ signedIn: true, userId: 'u-alex' })
   const out: Record<string, unknown> = {}
   out.fullDisk = await ctl.fullDisk()

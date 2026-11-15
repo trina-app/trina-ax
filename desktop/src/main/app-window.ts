@@ -20,6 +20,7 @@ import { SitePermissions, type SiteSettings } from '../common/site-permissions'
 import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
+import { askConsent } from './work-consent-window'
 import { openDialogChoice } from '../common/file-chooser'
 import { makeNotifier, platformNotifyDeps, type NotifyInput } from '../common/notify'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
@@ -134,6 +135,7 @@ export class AppWindow {
     win: () => (this.win.isDestroyed() ? null : this.win),
     locale: () => this.o.locale(),
     progress: (p) => this.send(this.app, 'bridge:work-files-progress', p),
+    consent: (parent, view) => askConsent({ parent, preload: join(this.o.distDir, 'preload-consent.cjs'), view }),
   })
   /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
    * address; a team switch closes them all */

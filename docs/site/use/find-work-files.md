@@ -67,11 +67,13 @@ them (see below).
 
 ## The app asks first
 
-Before anything is looked at, the app asks in its own window. It lists every place it will look through and says what
-it reads. Click **Look through these places** (after **Not now**: **Look through these folders**) to go on, or
-**Cancel** to stop.
+Before anything is looked at, the app asks in its own window, on top of the app. It lists every place it will look
+through and says what it reads: only names, types and dates; nothing is ticked for you; contents stay on this computer
+until you add them; and file names may go to your team's AI to help you pick. Click **Find work files** to go on, or
+**Not now** (or press Esc) to stop. Enter works too, once the window has been on screen for a moment without typing:
+an Enter you meant for the chat right before the window came up does not answer it.
 
-![The app's own question: Find work files on this computer? It lists the places, says what it reads, and has a button to go on and Cancel](../images/find-work-files/app-question.webp "The app asks first")
+![The app's own window: Bring your work files into Trina AX. It lists the places with icons, then what it reads and that file names may go to the team's AI, with Not now and Find work files](../images/find-work-files/app-question.webp "The app asks first")
 
 On Windows that is the only question: the app looks right away. When OneDrive keeps your Documents or Desktop, the
 list says "Documents (OneDrive)".

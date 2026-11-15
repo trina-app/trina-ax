@@ -1,6 +1,6 @@
 // "Find work files on this computer" in the app (docs/DECISIONS.md "Find work files on this computer"): the team page's
-// bridge calls (main.ts bridge:work-files-*) reach this, one controller per window. scan() shows the app's own dialog
-// (dialog.showMessageBox, which no web page draws or answers) and only after the person agrees looks through Documents,
+// bridge calls (main.ts bridge:work-files-*) reach this, one controller per window. scan() shows the app's own consent
+// window (main/work-consent-window.ts, which no web page draws or answers) and only after the person agrees looks through Documents,
 // Desktop and Downloads (common/work-files.ts scanRoots) in this process: macOS's privacy questions then name the app,
 // one folder after the other. read() gives one listed file's bytes, by id, from the latest look (WorkFileSessions).
 // Not offered in the Mac App Store build (its sandbox reads only what the person picks) nor on Linux.
@@ -9,6 +9,8 @@ import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
+import { consentView, type ConsentView } from '../common/work-consent'
+import type { ConsentAsk } from './work-consent-window'
 import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
@@ -98,6 +100,8 @@ export class WorkFilesController {
       locale: () => UiLocale
       /** the page's progress event (bridge:work-files-progress) */
       progress: (p: { root: WorkRootId; place?: string; checked: number; docs: number; done: number }) => void
+      /** the app's own consent window (main/work-consent-window.ts askConsent); a test gives its own */
+      consent: (win: BaseWindow, view: ConsentView) => ConsentAsk
     },
   ) {}
 
@@ -268,27 +272,21 @@ export class WorkFilesController {
     }
   }
 
-  /** The app's own question (no web page draws it). Cancel is the default: Enter, Escape and closing it answer no, so a
-   * page that asks while the person types gets no yes from their next Enter (as the allow-all dialog). */
+  /** The app's own question: its own window (main/work-consent-window.ts; no web page draws or answers it), listing the
+   * same roots and places the look then goes through. Closing it, Escape and Not now answer no; a yes counts only once
+   * the window has been seen without typing (ConsentGate), so a page that asks while the person types gets no yes from
+   * their next Enter. */
   private async consent(win: BaseWindow, roots: WorkRoot[], places: Place[] | null): Promise<boolean> {
-    const L = this.o.locale()
-    const folder = (r: WorkRoot) => { const k = ROOT_KEY[r.id as WorkFolderId]; return r.oneDrive ? t(L, 'workFiles.oneDrive', { folder: t(L, k) }) : t(L, k) }
-    // a wide look lists every place by name, and the recent files anywhere in the home folder last
-    const names = places
-      ? [...roots.map(folder), ...places.map((x) => (x.kind === 'messenger' ? t(L, 'workFiles.messenger', { name: x.label }) : x.label)), t(L, process.platform === 'win32' ? 'workFiles.recentWin' : 'workFiles.recentMac')]
-      : roots.map(folder)
-    const detail = places ? (process.platform === 'darwin' ? 'workFiles.detailWideMac' : 'workFiles.detailWide') : process.platform === 'darwin' ? 'workFiles.detailMac' : 'workFiles.detail'
-    const r = await dialog.showMessageBox(win, {
-      type: 'question',
-      message: t(L, 'workFiles.title'),
-      detail: `${names.map((n) => `· ${n}`).join('\n')}\n\n${t(L, detail)}`,
-      buttons: [t(L, places ? 'workFiles.lookWide' : 'workFiles.look'), t(L, 'workFiles.cancel')],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    })
-    return r.response === 0 && !win.isDestroyed()
+    const ask = this.o.consent(win, consentView(this.o.locale(), process.platform, roots, places))
+    this.asking = ask
+    try {
+      return (await ask.result) === true && !win.isDestroyed()
+    } finally {
+      if (this.asking === ask) this.asking = null
+    }
   }
+  /** the consent window open now (forget() closes it as a no) */
+  private asking: ConsentAsk | null = null
 
   stop() {
     if (this.busy) this.stopped = true
@@ -311,6 +309,7 @@ export class WorkFilesController {
 
   /** Another team, the team page gone: nothing of the look stays readable, one running gives nothing. */
   forget() {
+    this.asking?.close()
     this.generation++
     this.stopped = true
     this.sessions.forget()
