@@ -28816,11 +28816,14 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
   any card shows it and before it is saved: `remember` (the memory text) and `schedule_create` (the task's title and
   prompt; a run uses the stored connection, never a key written in its prompt). Once at server start
   (`hideKeysInStoredMemories`, settings key `memory.storedKeyScan`), memories the AI saved earlier (`created_turn_id`
-  set) get `[hidden key]` in place of their person's stored keys; a key that cannot be read then is not looked for.
+  set) get `[hidden key]` in place of their person's stored keys, also when the person edited such a memory later
+  (hiding there is the safe direction). When a stored key cannot be read at that start, the memories are cleaned of
+  the keys that can be read and the clean-up is not marked done, so it runs again at the next start.
 - **Checked, not changed.** File-list lines (a nightly team reader, not a person's turn; a line shows only to people who
   can open the file itself), skill suggestions (sent by the person from an answer that is already hidden, or from their
   own file, and edited by them first), "often asked" lines (already masked), room posts, answer shares and chat titles
-  (already hidden). The person's own typed messages, memories they type in Settings › Memory and a task they edit there
-  stay as typed.
+  (already hidden). The person's own typed messages, memories they add themselves in Settings › Memory (no
+  `created_turn_id`) and a task they edit there stay as typed. An AI-made memory the person edited later is still
+  cleaned by the start-up pass.
 - Tests: `tests/unit/c-integrations-secret-echo.test.ts`.
 - Version impact: **patch** (a security fix; no new feature or API change).

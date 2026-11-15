@@ -41,11 +41,26 @@ export function redactorFor(ctx: AppContext, userId: string): Redactor {
 export const MEMORY_SCAN_KEY = 'memory.storedKeyScan'
 export const MEMORY_SCAN_VERSION = 1
 
+/** This person's redactor only when every stored secret of theirs can be read now; null otherwise (a failure, or a
+ * secret that cannot be opened): redactorFor would quietly leave such a secret out. */
+function completeRedactorFor(ctx: AppContext, userId: string): Redactor | null {
+  try {
+    const has = ctx.db.query('SELECT 1 FROM integrations WHERE secret_enc IS NOT NULL LIMIT 1').get()
+    if (!has) return NONE
+    const values = integrationsOf(ctx).allSecretsFor(userId)
+    return values ? redactorOf(values) : null
+  } catch (e) {
+    ctx.log?.warn('reading connection secrets for the memory clean-up failed', { err: e })
+    return null
+  }
+}
+
 /**
  * Once, at server start (QA TC-2981): memories the AI saved before the remember tool hid stored keys
- * (created_turn_id set) get HIDDEN in place of each of their person's stored connection secrets. Memories the person
- * typed in Settings › Memory stay as typed. A secret that cannot be read now is not looked for. Returns the number of
- * memories changed.
+ * (created_turn_id set, also when the person edited them later) get HIDDEN in place of each of their person's stored
+ * connection secrets. Memories the person added in Settings › Memory stay as typed. When a person's secrets cannot all
+ * be read, the memories that can be cleaned are, and the clean-up is not marked done: it runs again at the next start.
+ * Returns the number of memories changed.
  */
 export function hideKeysInStoredMemories(ctx: AppContext): number {
   const db = ctx.db
@@ -54,7 +69,13 @@ export function hideKeysInStoredMemories(ctx: AppContext): number {
   let n = 0
   const users = db.query('SELECT DISTINCT user_id FROM memories WHERE created_turn_id IS NOT NULL').all() as { user_id: string }[]
   // the secrets are read before the write transaction (decrypting may log, and must not hold the database)
-  const hiders = users.map((u) => ({ userId: u.user_id, r: redactorFor(ctx, u.user_id) })).filter((x) => x.r.re)
+  let complete = true
+  const hiders: { userId: string; r: Redactor }[] = []
+  for (const u of users) {
+    let r = completeRedactorFor(ctx, u.user_id)
+    if (!r) { complete = false; r = redactorFor(ctx, u.user_id) }
+    if (r.re) hiders.push({ userId: u.user_id, r })
+  }
   db.transaction(() => {
     for (const { userId, r } of hiders) {
       for (const m of db.query('SELECT id, text FROM memories WHERE user_id = ? AND created_turn_id IS NOT NULL').all(userId) as { id: string; text: string }[]) {
@@ -64,7 +85,7 @@ export function hideKeysInStoredMemories(ctx: AppContext): number {
         n++
       }
     }
-    db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(MEMORY_SCAN_KEY, JSON.stringify(MEMORY_SCAN_VERSION))
+    if (complete) db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(MEMORY_SCAN_KEY, JSON.stringify(MEMORY_SCAN_VERSION))
   })()
   return n
 }

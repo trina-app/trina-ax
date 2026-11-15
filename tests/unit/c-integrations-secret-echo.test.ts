@@ -230,6 +230,34 @@ describe('a turn that repeats the stored key', () => {
     db.query("DELETE FROM memories WHERE id IN ('m-old-ai', 'm-old-typed', 'm-old-bob')").run()
   })
 
+  test('the start-up clean-up is not marked done while a stored key cannot be read; it runs again at the next start', () => {
+    const db = h.ctx.db
+    const at = new Date().toISOString()
+    const own = db.query("SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = 'alice' AND secret_enc IS NOT NULL LIMIT 1").get() as { id: string }
+    // a second connection of alice's whose stored secret cannot be opened (a damaged row, a changed server key)
+    db.run('CREATE TEMP TABLE broken AS SELECT * FROM integrations WHERE id = ?', [own.id])
+    db.run("UPDATE broken SET id = 'int-broken', name = 'Broken API', slug = 'brokenapi', secret_enc = 'not-a-sealed-secret'")
+    db.run('INSERT INTO integrations SELECT * FROM broken')
+    db.run('DROP TABLE broken')
+    try {
+      db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-scan-1', 'alice', ?, NULL, 'ai', 'turn-old', ?)").run(`My key is ${KEY}`, at)
+      db.query('DELETE FROM settings WHERE key = ?').run(MEMORY_SCAN_KEY)
+      // the keys that can be read are hidden now; the mark waits
+      expect(hideKeysInStoredMemories(h.ctx)).toBe(1)
+      expect((db.query("SELECT text FROM memories WHERE id = 'm-scan-1'").get() as { text: string }).text).toBe(`My key is ${HIDDEN}`)
+      expect(db.query('SELECT value FROM settings WHERE key = ?').get(MEMORY_SCAN_KEY)).toBeNull()
+      // the next start reads every key: it runs again and is marked done
+      db.run("DELETE FROM integrations WHERE id = 'int-broken'")
+      db.query("UPDATE memories SET text = ? WHERE id = 'm-scan-1'").run(`again ${KEY}`)
+      expect(hideKeysInStoredMemories(h.ctx)).toBe(1)
+      expect((db.query("SELECT text FROM memories WHERE id = 'm-scan-1'").get() as { text: string }).text).toBe(`again ${HIDDEN}`)
+      expect(db.query('SELECT value FROM settings WHERE key = ?').get(MEMORY_SCAN_KEY)).toEqual({ value: '1' })
+    } finally {
+      db.run("DELETE FROM integrations WHERE id = 'int-broken'")
+      db.run("DELETE FROM memories WHERE id = 'm-scan-1'")
+    }
+  })
+
   test('a title that holds the key (made before the key was saved, or a rename) is hidden in the list, search, one chat and chat.updated', async () => {
     const api = h.api('alice')
     const old = await api.call(API.createChat, { body: {} })

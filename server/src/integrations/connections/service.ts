@@ -715,10 +715,24 @@ export class Integrations {
    * server started. A secret that cannot be read now is left out. For the turn's own outgoing text: the answer, the
    * steps, the audit lines and the chat title (redact.ts) never repeat one. */
   secretsFor(userId: string): string[] {
+    return this.secretsOf(userId, true)!
+  }
+
+  /** The same, or null when one of them cannot be read now (a one-time clean-up waits for a start that reads all,
+   * redact.ts hideKeysInStoredMemories). */
+  allSecretsFor(userId: string): string[] | null {
+    return this.secretsOf(userId, false)
+  }
+
+  private secretsOf(userId: string, partial: boolean): string[] | null {
     const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND secret_enc IS NOT NULL`).all(userId) as Row[]
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND secret_enc IS NOT NULL`).all() as Row[]).filter((r) => mayUse(this.db, r, userId))
     const out: string[] = []
-    for (const r of [...personal, ...team]) out.push(...(this.secretValues(r, true) ?? []))
+    for (const r of [...personal, ...team]) {
+      const v = this.secretValues(r, partial)
+      if (!v) return null
+      out.push(...v)
+    }
     return out
   }
 
