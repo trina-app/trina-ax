@@ -5144,6 +5144,7 @@ export const id: Record<MessageKey, string> = {
   "share.grey.failed": "Chat ini belum bisa diperiksa. Anda akan melihat apa yang dipertaruhkan sebelum dibagikan.",
   "share.again": "Periksa ini, lalu tekan Bagikan sekali lagi.",
   "share.who.project": "sebagian anggota proyek",
+  "share.who.picked": "{names}",
   "chat.share.filesNotCopied": "{n} berkas yang Anda lampirkan sebelumnya tidak dibagikan (terlalu besar, ruang penyimpanan habis, atau sudah berubah). Hanya Anda yang bisa membukanya.",
   "share.widenList.show": "Lihat jawaban",
   "share.widenList.title": "Jawaban yang akan dilihat {names}",

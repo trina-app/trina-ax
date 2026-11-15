@@ -313,7 +313,8 @@ describe('the save model and every exit', () => {
     const m = await open(() => closed++)
     await addBob(m)
     await ready(m)
-    expect(m.get('chat-share-grey').textContent).toBe(en('chat.share.earlierFiles', { n: 2 }))
+    expect(m.get('chat-share-files').textContent).toBe(en('chat.share.earlierFiles', { n: 2 }))
+    expect(m.find('chat-share-grey')).toBeNull()
     expect(en('chat.share.earlierFiles', { n: 2 })).toBe('2 files you attached will be visible to them.')
     expect(m.find('chat-share-warning')).toBeNull()
     expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
@@ -324,6 +325,48 @@ describe('the save model and every exit', () => {
     expect(en('chat.share.filesNotCopied', { n: 1 })).toMatch(/^1 file you attached earlier wasn't shared .*Only you can open it\.$/)
     expect(en('chat.share.filesNotCopied', { n: 2 })).toMatch(/^2 files .*Only you can open them\.$/)
     useUi.setState({ toasts: [] })
+    await m.unmount()
+  })
+
+  test('my earlier files always have a line of their own: beside the unchecked grey line and under a warning (security review)', async () => {
+    let closed = 0
+    routesWith(audience(), undefined, () => ({ ...NOTHING, earlierFiles: 3, unchecked: 2, memoryAnswers: 1 }))
+    const m = await open(() => closed++)
+    await addBob(m)
+    await ready(m)
+    expect(m.get('chat-share-warning').textContent).toContain(en('share.warn.memories', { n: 1 }))
+    expect(m.get('chat-share-grey').textContent).toBe(en('share.grey.unchecked', { n: 2 }))
+    expect(m.get('chat-share-files').textContent).toBe(en('chat.share.earlierFiles', { n: 3 }))
+    // read out too
+    expect(m.get('chat-share-live').textContent).toContain(en('chat.share.earlierFiles', { n: 3 }))
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    await m.unmount()
+  })
+
+  test('one finding per line, "Show answers" after them; names with the language\'s honorific', async () => {
+    routesWith(audience(), undefined, () => ({ ...NOTHING, memoryAnswers: 2, fileAnswers: 1, places: [{ kind: 'mine' }] }))
+    const m = await open()
+    await addBob(m)
+    await ready(m)
+    const items = [...m.get('chat-share-warning-lines').querySelectorAll('li')].map((li) => li.textContent)
+    expect(items).toEqual([en('share.warn.memories', { n: 2 }), en('share.warn.files', { n: 1, names: 'Bob' }), en('share.warn.places', { places: en('shareRoom.placeMineFiles'), names: 'Bob' })])
+    // "Show answers" comes after the lines, inside the box
+    const html = m.html()
+    expect(html.indexOf('data-testid="chat-share-warning-show"')).toBeGreaterThan(html.indexOf('data-testid="chat-share-warning-lines"'))
+    expect(m.get('chat-share-warning').querySelector('[data-testid="chat-share-warning-show"]')).toBeTruthy()
+    // Korean: "Bob 님이", "Bob 님은" (no 이(가) / 은(는)); the project's members read "일부 프로젝트 멤버가"
+    const ko = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('ko', key, vars)
+    const bob = ko('share.who.picked', { names: 'Bob' })
+    expect(ko('share.warn.files', { n: 1, names: bob })).toBe('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
+    expect(ko('share.warn.places', { places: '내 파일', names: bob })).toBe('이 채팅은 내 파일도 참고했어요. Bob 님은 열 수 없는 곳이에요.')
+    expect(ko('share.warn.rooms', { names: bob })).toBe('이 채팅은 Bob 님이 없을 수도 있는 팀 대화방을 읽었어요.')
+    expect(ko('share.warn.files', { n: 1, names: ko('share.who.project') })).toBe('답 1개가 일부 프로젝트 멤버가 열 수 없는 파일을 참고했어요.')
+    // a name with its own 님 does not get a second one
+    expect(ko('share.who.picked', { names: '김대표님' })).toBe('김대표님')
+    for (const k of ['share.widenList.title', 'share.widenList.sub', 'share.widenList.whoMisses', 'chat.share.widen', 'chat.share.sharedWith'] as const) {
+      expect(ko(k, { names: 'Bob', n: 1 })).not.toMatch(/\(가\)|\(는\)|\(과\)/)
+    }
     await m.unmount()
   })
 

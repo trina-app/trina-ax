@@ -44,7 +44,7 @@ import { answerHref, WideningList } from '../WideningList'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
 import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
-import { GreyLine, ShareWarning, shareAtStake, shareGreyLine, shareWarningLines } from '../ShareWarning'
+import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
 
 /** The check for one list of picks (`for`: its audienceKey): asking, answered (with the key a save carries), or failed.
@@ -249,11 +249,15 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
 
   const check = current?.state === 'ready' ? current.check : null
   const stake = !!check && shareAtStake(check)
-  const warningText = check ? shareWarningLines(t, check, addedNames).join(' ') : ''
+  // who is being added, as the warning names them (with the honorific: "Bob 님")
+  const warnNames = t('share.who.picked', { names: addedNames })
+  const warningText = check ? shareWarningLines(t, check, warnNames).join(' ') : ''
   // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
   const grey = checking ? (slow ? t('share.grey.checking') : null)
     : current?.state === 'failed' ? t('share.grey.failed')
       : shareGreyLine(t, check, groupAdded ? t('chat.share.futureGroup') : null)
+  // my earlier files from the computer a first share copies: a line of its own whenever there are any
+  const filesLine = shareFilesLine(t, check)
   const label = saved.length ? t('common.save') : t('chat.share.share')
   return (
     <Modal
@@ -296,7 +300,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       ) : (
         <div className="space-y-3" data-testid="chat-share-dialog">
           {/* what the check found and who keeps access, read out when it appears (the lines below are shown; QA TC-2271) */}
-          <p className="sr-only" role="status" aria-live="polite" data-testid="chat-share-live">{editable ? [warningText, grey, ...keepsThrough.map((k) => k.text)].filter(Boolean).join(' ') : ''}</p>
+          <p className="sr-only" role="status" aria-live="polite" data-testid="chat-share-live">{editable ? [warningText, filesLine, grey, ...keepsThrough.map((k) => k.text)].filter(Boolean).join(' ') : ''}</p>
           {loadError ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
           {!audience && !loadError && <Skeleton lines={3} />}
           {audience && (
@@ -318,7 +322,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
                   {current.again === 'changed' ? t('chat.shareChat.changed') : t('share.again')}
                 </p>
               )}
-              {check && stake && <ShareWarning check={check} names={addedNames} onShow={() => setListing(true)} grey={false} testId="chat-share-warning" />}
+              {check && stake && <ShareWarning check={check} names={warnNames} onShow={() => setListing(true)} grey={false} testId="chat-share-warning" />}
+              {filesLine && <GreyLine text={filesLine} testId="chat-share-files" />}
               {grey && <GreyLine text={grey} testId="chat-share-grey" />}
               {keepsThrough.map((k) => (
                 <p key={k.id} className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-keeps-through">

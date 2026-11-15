@@ -5075,6 +5075,7 @@ export const zh: Record<MessageKey, string> = {
   "share.grey.failed": "暂时无法检查这个对话。共享前会先显示哪些内容会被看到。",
   "share.again": "请确认后再按一次“共享”。",
   "share.who.project": "项目的部分成员",
+  "share.who.picked": "{names}",
   "chat.share.filesNotCopied": "之前附加的{n, plural, one {#个文件} other {#个文件}}没有共享（太大、存储空间不足或之后已更改）。只有你能打开。",
   "share.widenList.show": "查看回答",
   "share.widenList.title": "{names}将看到的回答",

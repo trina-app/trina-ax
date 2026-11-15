@@ -222,11 +222,10 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       // in place, before any press: specific, the button as it always is
       const warning = dialog.getByTestId('chat-share-warning')
       await expect(warning).toContainText('답 2개가 내 개인 메모리를 참고했을 수 있어요.')
-      await expect(warning).toContainText('답 1개가 Bob')
-      await expect(warning).toContainText('열 수 없는 파일을 참고했어요.')
+      await expect(warning).toContainText('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
       await expect(warning).toContainText('내 파일')
       // a first share: the files I attached from my computer go with it (S6, TC-1413), one grey line
-      await expect(dialog.getByTestId('chat-share-grey')).toHaveText('내가 첨부한 파일 2개도 이 사람들이 볼 수 있게 돼요.')
+      await expect(dialog.getByTestId('chat-share-files')).toHaveText('내가 첨부한 파일 2개도 이 사람들이 볼 수 있게 돼요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
       await audit(page, 'share dialog, warning in place')
@@ -283,7 +282,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(dialog.getByTestId('chat-share-grey')).toHaveText('아직 이 채팅을 확인하지 못했어요. 공유하기 전에 무엇이 공개되는지 보여 드릴게요.')
       await dialog.getByTestId('chat-share-save').click()
       await expect(dialog.getByTestId('chat-share-warning')).toContainText('이전 답 1개가 내 개인 계정을 참고했을 수 있어요.')
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('없을 수도 있는 팀 대화방을 읽었어요.')
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 팀 대화방을 읽었어요.')
       await expect(dialog.getByTestId('chat-share-changed')).toHaveText('내용을 확인하고 공유를 한 번 더 눌러 주세요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
@@ -493,6 +492,12 @@ test.describe('the Share dialog\'s buttons at 390 in every language', () => {
         expect({ locale, id, fits }).toEqual({ locale, id, fits: true })
       }
       if (process.env.SHOTS_DIR) await shots(page, `3092-${locale}-390-share`)
+      // English and Korean at 1440 too (QA screenshots by hand)
+      if (process.env.SHOTS_DIR && (locale === 'en' || locale === 'ko')) {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await expect(dialog.getByTestId('chat-share-warning')).toBeVisible()
+        await shots(page, `3092-${locale}-1440-share`)
+      }
     })
   }
 })

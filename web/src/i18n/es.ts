@@ -5100,6 +5100,7 @@ export const es: Record<MessageKey, string> = {
   "share.grey.failed": "Aún no se pudo revisar este chat. Verás lo que está en juego antes de compartirlo.",
   "share.again": "Revisa esto y vuelve a pulsar Compartir.",
   "share.who.project": "algunos miembros del proyecto",
+  "share.who.picked": "{names}",
   "chat.share.filesNotCopied": "{n, plural, one {# archivo que adjuntaste antes no se compartió (demasiado grande, sin espacio o cambiado desde entonces). Solo tú puedes abrirlo.} other {# archivos que adjuntaste antes no se compartieron (demasiado grandes, sin espacio o cambiados desde entonces). Solo tú puedes abrirlos.}}",
   "share.widenList.show": "Ver respuestas",
   "share.widenList.title": "Respuestas que verá {names}",

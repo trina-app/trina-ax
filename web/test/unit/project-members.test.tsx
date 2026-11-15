@@ -507,6 +507,28 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     await m.unmount()
   })
 
+  test('only people added, the same counts but another line (a skill renamed): the confirm comes back (the whole lines are compared)', async () => {
+    signedIn('member')
+    let names = ['견적서']
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 4, added: 1, skills: 1, skillNames: names })),
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
+      [`GET /api/projects/${P1}`]: () => json(200, project({ audience: 4 })),
+    }
+    const m = await dialog()
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await addBob(m)
+    await m.until(() => m.find('project-widen-inline')?.textContent?.includes('견적서'), 'the lines in place', 3000)
+    names = ['견적-현장']
+    await save(m)
+    const box = await m.until(() => m.find('project-widen-confirm'), 'the confirm', 2000)
+    expect(box.textContent).toContain('견적-현장')
+    expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
+    await m.unmount()
+  })
+
   test('only people added, but the save\'s own dry run says more than the lines in place: the confirm comes back (never past what was shown)', async () => {
     signedIn('member')
     let files = 2

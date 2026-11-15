@@ -5,10 +5,12 @@
 //
 // Only what is really at stake gets the yellow box: answers that may have used my memories or my personal accounts,
 // answers that used files they can't open, other places they can't open, team chat rooms they may not be in. Each is
-// one specific sentence ("3 answers used files Mina can't open"), and "Show answers ›" opens the list of those answers.
+// one specific sentence ("3 answers used files Mina can't open") on a line of its own, and "Show answers ›" after them
+// opens the list of those answers. Names come in as picked, with the language's honorific (share.who.picked: "Bob 님").
 // Nothing at stake, or only answers nobody could check: no box, at most one grey line. The button never changes:
 // pressing Share is the confirmation.
 import { AlertTriangle, ChevronRight, Info } from 'lucide-react'
+import clsx from 'clsx'
 import type { ShareCheck } from '@mycel/shared/api'
 import { useT } from '../i18n'
 import { placeName } from './chat/ShareToRoom'
@@ -31,11 +33,16 @@ export function shareWarningLines(t: T, c: ShareCheck, names: string): string[] 
   ]
 }
 
-/** The one grey line when nothing else needs saying first: answers nobody could check, my earlier files, `fallback`. */
+/** The one grey line when nothing else needs saying first: answers nobody could check, else `fallback`. */
 export function shareGreyLine(t: T, c: ShareCheck | null, fallback: string | null = null): string | null {
   if (c?.unchecked) return t('share.grey.unchecked', { n: c.unchecked })
-  if (c?.earlierFiles) return t('chat.share.earlierFiles', { n: c.earlierFiles })
   return fallback
+}
+
+/** My files from the computer a first share copies to them: always a line of its own whenever there are any (security
+ * review of #976: a one-press save never copies them without this line on screen), never folded into another line. */
+export function shareFilesLine(t: T, c: ShareCheck | null): string | null {
+  return c?.earlierFiles ? t('chat.share.earlierFiles', { n: c.earlierFiles }) : null
 }
 
 /** A grey line of the dialog (checking, failed, unchecked, earlier files, a group's later members). */
@@ -62,25 +69,27 @@ export function ShareWarning({ check, names, onShow, grey = null, testId = 'shar
   const lines = shareWarningLines(t, check, names)
   const answers = check.memoryAnswers + check.fileAnswers + check.accountAnswers
   const line = grey === false ? null : shareGreyLine(t, check, grey)
+  const files = grey === false ? null : shareFilesLine(t, check)
   return (
     <>
       {lines.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep [overflow-wrap:anywhere] text-warn" data-testid={testId}>
           <AlertTriangle size={16} className="mt-1 shrink-0" aria-hidden />
-          <span className="min-w-0">
-            {lines.join(' ')}
+          <div className="min-w-0 flex-1">
+            {/* one finding per line (a short list when there are several), "Show answers ›" after them */}
+            <ul className={clsx(lines.length > 1 && 'list-disc space-y-0.5 pl-4')} data-testid={`${testId}-lines`}>
+              {lines.map((l) => <li key={l}>{l}</li>)}
+            </ul>
             {onShow && answers > 0 && (
-              <>
-                {' '}
-                <button type="button" onClick={onShow} className="touch-hit inline-flex items-center font-medium text-accent-text hover:underline" data-testid={`${testId}-show`}>
-                  {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />
-                </button>
-              </>
+              <button type="button" onClick={onShow} className="touch-hit mt-1 inline-flex items-center font-medium text-accent-text hover:underline" data-testid={`${testId}-show`}>
+                {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />
+              </button>
             )}
-          </span>
+          </div>
         </div>
       )}
       {line && <GreyLine text={line} testId={`${testId}-grey`} />}
+      {files && <GreyLine text={files} testId={`${testId}-files`} />}
     </>
   )
 }

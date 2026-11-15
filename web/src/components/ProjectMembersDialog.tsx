@@ -53,8 +53,9 @@ export const asksFirst = (p: ProjectAccessPreview) => p.added > 0 || p.removed >
 /** Only people added: nobody loses it and no rule is written that nobody chose (one press, its lines shown in place). */
 export const onlyAdds = (p: ProjectAccessPreview) => p.added > 0 && p.removed === 0 && !p.addsFloor && !p.restoresCreator
 
-/** What the people added would see, as the lines in place say it: the same dry run again means the same lines. */
-const seenOf = (p: ProjectAccessPreview) => JSON.stringify([p.added, p.contentsHidden ?? false, p.files, p.othersFiles, p.sharedChats, p.skills, p.skillNames ?? [], p.hiddenAnswers ?? 0])
+/** What the people added would see, as the lines in place say it (the whole lines, so a new kind of line can't drift):
+ * the same dry run again means the same lines. */
+const seenOf = (t: ReturnType<typeof useT>, p: ProjectAccessPreview) => JSON.stringify([p.added, widenLines(t, p), p.hiddenAnswers ?? 0])
 
 /** "Kim, Lee, Park and 2 more": up to three names the server sent, then how many more of `total`. */
 export function namesLine(t: ReturnType<typeof useT>, names: readonly string[], total: number): string {
@@ -242,7 +243,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
       const removedGuests = current.filter((x) => x.subjectType === 'user' && !keptKeys.has(participantKey(x)) && isGuestNow(x.subjectId)).length
       const addsOnlyMe = !!me && adds.length === 1 && adds[0]!.subjectType === 'user' && adds[0]!.subjectId === me.user.id && p.added <= 1
       // only people added, and the same as the lines in place: Save was the confirmation
-      const oneP = !addsOnlyMe && onlyAdds(p) && removedGuests === 0 && !!shownPreview && seenOf(shownPreview) === seenOf(p)
+      const oneP = !addsOnlyMe && onlyAdds(p) && removedGuests === 0 && !!shownPreview && seenOf(t, shownPreview) === seenOf(t, p)
       if (!oneP && (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests)))) return
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash, ...removeRules } })
       shown(a)
