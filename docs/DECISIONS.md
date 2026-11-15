@@ -30093,3 +30093,31 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   overall reason; `Person.guestPlace` → `guestPlaces`. Screens: Admin › Guests lists both, add lists grey a guest only
   for a second place of the same kind, a guest's rail shows 대화 and 프로젝트 when they have both, Settings › Profile and
   account deletion name both. Version impact: **minor** (contract fields changed).
+
+## Guests never use Slack — 게스트는 Slack을 못 쓴다 (fix/slack-guest-refusal, 2026-11-16, QA TC-2950)
+
+Builds on "Guests: only what they were invited to" and the Slack connector's e-mail proof ("Send the victim my link").
+
+- **Ask:** a guest (an outside person in one group chat and one project) must never use the team's Slack connection
+  and never be linked to a Slack user through a matching e-mail. The Slack routes were already closed to guests by the
+  guest endpoint list (403), but the connector itself had no guest check: a Slack question from a Slack account linked
+  to a guest (a row made by hand or by an older build) would have run a turn as them.
+- **One check in the connector** (`integrations/slack/service.ts`): `person()` (every link page, Sign in with Slack, a
+  turn, a delivery, "Post to channel") no longer returns a guest, `bindable()` refuses to link one (the same
+  `link_expired` 404 as a gone link), and `linkOf()` counts no link of a guest (so the AI never reads Slack for them).
+- **A linked guest asks in Slack** (@mention or DM): no turn, the link row deleted (audited `slack.unlinked`, reason
+  `guest`), one plain line "This {product} team can't answer you here." in the team's language, no blocks or button.
+- **An unlinked Slack account is never matched by e-mail** (independent security review, must-fix): a guest's gets the
+  same connect prompt as anyone unlinked, and its link page refuses the guest. A first version answered a Slack account
+  whose e-mail was a guest's with the plain line instead. Rejected: a guest sets their own e-mail (Settings › Profile),
+  so copying a member's address silently blocked that member's link, and the different answer told anyone who can set a
+  Slack e-mail whether that address is a guest's here. So "one plain line" holds for a linked guest; an unlinked one sees
+  the generic prompt, which leads nowhere for them.
+- **The e-mail proof still counts a guest's e-mail as "the same e-mail on another active account"** (unchanged): leaving
+  guests out would let a member pass the proof with an address that only a guest also gives, so a guest's Slack account
+  could be linked to a member who confirms the guest's forwarded link. The cost: a guest who copies a member's e-mail
+  blocks that member's link until one of them changes it (open question for the owner).
+- **Other connectors:** no other connector maps an outside identity to an account here by e-mail. Google Drive, the
+  Google apps and personal MCP connections are signed in by the person through endpoints closed to guests, and the
+  connection store refuses guests (`mayUse`, `shareCovers`); room apps post as the app, never as a person.
+- Slash commands are acknowledged and do nothing (unchanged). Tests: `tests/unit/c-slack-guest.test.ts`.
