@@ -1,5 +1,6 @@
 // Every word of the demo story in Spanish (strings/en.ts, adapted, not word for word). Register: neutral Spanish that
-// reads well in Spain and Latin America, tú throughout (as the app's "Pulsa…"), warm and relaxed between colleagues,
+// reads well in Spain and Latin America. Trina and the guide line say usted, as the app does (web/src/i18n/es.ts);
+// colleagues say tú to each other, warm and relaxed, and so do the visitor's own prompts and the social captions;
 // a properly formal email in `mail.formal`. People's names stay as in English; the product is "Yuzu y Jengibre".
 // Pictures and team files are the `.es.` files in ../assets; banner words in ../source/banners/copy.es.json.
 //
@@ -50,7 +51,7 @@ export const es: Strings = {
 
   home: {
     title: '¡Bienvenida a bordo, Mina! Feliz primer día.',
-    subtitle: 'Te invitó Sara · Aquí ya están 7 personas',
+    subtitle: 'Invitación de Sara · Aquí ya están 7 personas',
   },
 
   rooms: {
@@ -76,16 +77,17 @@ export const es: Strings = {
     company: {
       prompt: '¿A qué se dedica nuestra empresa?',
       text: [
-        '**Steepling** hace bolsitas de té para preparar en frío. Echas una en agua fría y listo. Somos 12 y vendemos online y a cafeterías.',
+        '**Steepling** hace bolsitas de té para preparar en frío. Una bolsita en agua fría y listo. Somos 12 y vendemos online y a cafeterías.',
         '',
-        '**Tu trabajo**: banners de lanzamiento y redes sociales, en el equipo de Marketing de Sara.',
+        '**Su trabajo**: banners de lanzamiento y redes sociales, en el equipo de Marketing de Sara.',
         '',
         '**Esta semana**: Yuzu y Jengibre sale el **lunes**. El banner de lanzamiento es lo más urgente.',
       ].join('\n'),
+      personLine: '{name}, {title}: {text}',
       peopleTitle: 'Personas clave',
       people: {
-        sara: 'pregúntale lo que sea.',
-        leo: 'hizo el primer banner y te lo pasa a ti.',
+        sara: 'pregúntele lo que necesite.',
+        leo: 'hizo el primer banner y ahora se lo pasa a usted.',
         daniel: 'da el visto bueno al lanzamiento.',
       },
     },
@@ -103,7 +105,7 @@ export const es: Strings = {
     captions: [
       'Novedad de invierno: Yuzu y Jengibre 🍋 Deja una bolsita en agua fría antes de dormir y despierta con algo que te alegra la mañana. 20% de descuento hasta el 6 de diciembre.',
       'yuzu + jengibre. y ya. ese es el post. (ok, también tiene un 20% de descuento esta semana)',
-      'Nuestro equipo lleva tomándolo a escondidas desde agosto. A partir del lunes, es todo tuyo.',
+      'Confesión: en el equipo lo bebemos a escondidas desde agosto. Desde el lunes, es todo tuyo.',
     ],
     captionsTitle: 'Textos: lanzamiento de Yuzu y Jengibre',
     deliverables: {
@@ -118,7 +120,7 @@ export const es: Strings = {
     sendTo: 'Enviar a #Marketing',
     mail: {
       prompt: 'Envíale el banner a Chris por correo',
-      intro: 'Aquí tienes un borrador. Encontré la dirección de Chris en correos anteriores de tu equipo.',
+      intro: 'Aquí tiene un borrador. Encontré la dirección de Chris en correos anteriores de su equipo.',
     },
   },
 
@@ -175,17 +177,17 @@ export const es: Strings = {
   },
 
   guide: {
-    ask: { text: 'Pregúntale a Trina por la empresa →', away: 'Tu primera pregunta está en Inicio →' },
-    dm: { text: 'Sara te envió un mensaje →', away: 'Sara te espera en tus mensajes directos →' },
-    project: { text: 'Abre el proyecto del mensaje de Sara →', away: 'Sara te espera en tus mensajes directos →' },
-    banner: { text: 'Pídele a Trina que lo rehaga con Higgsfield →', away: 'El banner de Leo te espera en el proyecto →' },
-    share: { text: 'Envíalo a #Marketing →', away: 'Tu banner nuevo está listo para compartir →' },
-    room: { text: 'Abre #Marketing: el equipo está reaccionando →', away: 'Abre #Marketing: el equipo está reaccionando →' },
-    mail: { text: 'Pídele a ✦ Trina que le escriba a Chris →', away: 'Chris todavía necesita el banner →' },
-    everyone: { text: 'Mira lo que publicó Daniel en #Todos →', away: 'Mira lo que publicó Daniel en #Todos →' },
+    ask: { text: 'Pregúntele a Trina por la empresa →', away: 'Su primera pregunta está en Inicio →' },
+    dm: { text: 'Sara le envió un mensaje →', away: 'Sara le espera en sus mensajes directos →' },
+    project: { text: 'Abra el proyecto del mensaje de Sara →', away: 'Sara le espera en sus mensajes directos →' },
+    banner: { text: 'Pídale a Trina que lo rehaga con Higgsfield →', away: 'El banner de Leo le espera en el proyecto →' },
+    share: { text: 'Envíelo a #Marketing →', away: 'Su banner nuevo está listo para compartir →' },
+    room: { text: 'Abra #Marketing: el equipo está reaccionando →', away: 'Abra #Marketing: el equipo está reaccionando →' },
+    mail: { text: 'Pídale a ✦ Trina que le escriba a Chris →', away: 'Chris todavía necesita el banner →' },
+    everyone: { text: 'Vea lo que publicó Daniel en #Todos →', away: 'Vea lo que publicó Daniel en #Todos →' },
   },
 
-  fallback: { text: 'Esta demo sigue las preguntas sugeridas. Prueba con esta:', question: 'Siguiente paso' },
+  fallback: { text: 'Esta demo sigue las preguntas sugeridas. Pruebe con esta:', question: 'Siguiente paso' },
 
   end: {
     title: 'El primer día de Mina: campaña de lanzamiento lista en {time}',

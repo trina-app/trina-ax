@@ -57,7 +57,7 @@ export const id: Strings = {
   rooms: {
     everyone: [
       { from: 'daniel', text: 'Hari ini Mina Lee gabung di tim Marketing. Yuk sapa dulu! 🎉' },
-      { from: 'tom', text: 'Welcome Mina! Soal order atau pengiriman, langsung colek Ops aja ya.' },
+      { from: 'tom', text: 'Selamat datang, Mina! Soal order atau pengiriman, langsung colek Ops aja ya.' },
       { from: 'aiko', text: 'Halo Mina ☺️ ngopi bareng minggu ini yuk?' },
       { from: 'omar', text: 'Selamat datang! Kabari aku ya kalau ada banner yang perlu dipasang di toko.' },
     ],
@@ -83,6 +83,7 @@ export const id: Strings = {
         '',
         '**Minggu ini**: Yuzu Jahe meluncur hari **Senin**. Banner peluncuran adalah pekerjaan terbesar yang belum selesai.',
       ].join('\n'),
+      personLine: '{name}, {title}: {text}',
       peopleTitle: 'Orang yang perlu Anda kenal',
       people: {
         sara: 'tanyakan apa saja kepadanya.',
@@ -93,13 +94,13 @@ export const id: Strings = {
     banner: {
       prompt: 'Ikuti panduan brand kita dan buat latar baru dengan Higgsfield',
       text: [
-        'Sudah saya buat dengan Higgsfield: pouch hijau kita dan Yuzu Jahe dingin di dekat jendela berembun. Square dan story diambil dari adegan yang sama, jadi pouch-nya terlihat sama di mana-mana.',
+        'Sudah aku buat dengan Higgsfield: pouch hijau kita dan Yuzu Jahe dingin di dekat jendela berembun. Square dan story diambil dari adegan yang sama, jadi pouch-nya terlihat sama di mana-mana.',
         '',
         'Judul pakai Fraunces, sisanya Pretendard, kuning yuzu hanya di badge 20%.',
         '',
         'Caption:',
       ].join('\n'),
-      after: 'Draft Leo tidak saya ubah.',
+      after: 'Draft Leo tidak aku ubah.',
     },
     captions: [
       'Baru, edisi musim dingin: Yuzu Jahe 🍋 Celupkan satu kantong ke air dingin sebelum tidur, paginya tinggal nikmati yang segar. Diskon 20% sampai 6 Desember.',
@@ -119,7 +120,7 @@ export const id: Strings = {
     sendTo: 'Kirim ke #Marketing',
     mail: {
       prompt: 'Kirim banner-nya ke Chris lewat email',
-      intro: 'Ini draft-nya. Alamat Chris saya temukan di email tim sebelumnya.',
+      intro: 'Ini draft-nya. Alamat Chris aku temukan di email tim sebelumnya.',
     },
   },
 

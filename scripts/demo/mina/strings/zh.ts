@@ -83,6 +83,7 @@ export const zh: Strings = {
         '',
         '**这周**：柚子姜**周一**上市，上新 banner 是眼下最要紧的事。',
       ].join('\n'),
+      personLine: '{name}，{title}：{text}',
       peopleTitle: '先认识这几位',
       people: {
         sara: '有什么都可以问她。',

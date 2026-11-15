@@ -62,7 +62,7 @@
   background: transparent;
   color: var(--c-muted, #8a8178);
 }
-/* the language picker, next to Start over and as quiet: this language's name, with the native select laid over it */
+/* the language picker, next to Start over and as quiet: this language's code, with the native select laid over it */
 .demo-langs {
   position: relative;
   flex: 0 0 auto;

@@ -417,10 +417,10 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           <button type="button" className="demo-restart" onClick={() => location.assign(BASE)} data-testid="demo-restart">{demoWord('restart', locale)}</button>
           {LANGS.length > 1 && (
             // the other languages' demos (each its own build on the site), as the app's own language switcher (a native
-            // select, pages/Auth.tsx) laid over this language's name, so it takes no more room than the name: picking
-            // one opens that demo, a new story
-            <span className="demo-langs">
-              <span aria-hidden>{langName(server.script.locale)} ▾</span>
+            // select, pages/Auth.tsx, each language named in its own) laid over this language's short code, so it takes
+            // no more room than "EN ▾": picking one opens that demo, a new story
+            <span className="demo-langs" title={langName(server.script.locale)}>
+              <span aria-hidden>{server.script.locale.toUpperCase()} ▾</span>
               <select
                 value={server.script.locale}
                 aria-label={t('settings.language')}
