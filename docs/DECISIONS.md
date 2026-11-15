@@ -28451,6 +28451,24 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).
 
+## Guests from Admin › Invite to team (feat/admin-invite-guest, owner 2026-11-15)
+
+- **Asked:** admins coming from Slack start at **Admin › Members & invites › Invite to team**, which had no guest
+  option, so they could not find guest invites (they live in a room's or project's add list).
+- The dialog starts with a two-choice switch (the shared segmented `Tabs`): **Team member** (picked first, today's form
+  unchanged) or **Guest**. Guest shows one plain line and the one place the guest joins
+  (`pages/admin/GuestPlacePicker.tsx`, shared `ListRow` rows and the admin `SearchBox` once there are more than six
+  places): group chats the caller is in, then team projects whose members they may change (`Project.membersEditable`
+  on the manage=1 list, not in the trash). That is what `POST /api/guest-invites` accepts from the owner or an admin
+  (`inviteMakerOk`: a group chat only for its members, any live project for staff), narrowed to the places whose own
+  add list offers "Invite a guest": no personal projects, no projects from before `projects/<name>`.
+- Picking a place opens the existing guest form (`GuestInviteDialog`, unchanged: name, AI, 7 days / one use, Create
+  link, Copy link); its Cancel comes back to the places with Guest still picked; Done closes and reads the invite list
+  again. No second form, no new endpoint.
+- The guest cap is read (`useGuestLimit(enabled)`) only once Guest is picked; a full plan shows the existing limit
+  words (`GuestsFull`) with **See plans** in place of the places.
+- Version impact: **minor** (a new way in to an existing feature).
+
 ## The invite message introduces the team; the invite step keeps only the message (feat/onboarding-invite-message, 2026-11-15, the owner)
 
 Owner 2026-11-14: the colleague should see who invites them, what the team is and what to do; owner 2026-11-15 (Q1, Q2):

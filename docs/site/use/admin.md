@@ -86,7 +86,8 @@ was last used. The **⋯** menu of an account has Check again, Move up / down, r
 **Admin › Members & invites** ends with **Guests**: people from outside the team, each in one room or one project, who
 do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
-guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)). A team with no guests
+guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)). Owners and admins can
+also choose **Invite to team** › **Guest** here and pick the one group chat or project ([Guests: From Admin](guests.md#from-admin)). A team with no guests
 has no **Guests** section; pick **Guests** in the list of roles to check.
 
 ![Admin › Members & invites › Guests on a phone: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
