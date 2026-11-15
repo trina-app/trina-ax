@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 13:25
 - Branch: `feat/connector-desktop-loopback-signin`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections, server/src/routes/integrations.ts, shared/src/api, shared/src/desktop-bridge.ts,
   desktop/src (main process and preload), web/src/components/integrations. Why: connector sign-in is open core, and the
   desktop shell is component E (see docs/REPOSITORY-RULES.md)
@@ -119,4 +119,15 @@ after use and after the timeout.
 
 ## Result
 
-Filled in at the end.
+Built as planned (PR link: added when the PR is opened). Differences and notes:
+- The listener's place is `desktop/src/common/sign-in-return.ts` (pure apart from node:http, so it is unit-tested with
+  real sockets); `main/main.ts` only wires it to the bridge. A request on the right path without a `state`, or with
+  bytes a header cannot carry, gets 404 and does not use the address up (a stray hit cannot burn it); 20 wrong
+  requests close it.
+- Korean: the server's words now take a particle after a filled-in name as the web app's do ("Canva는", "Intercom은").
+- The Mac App Store build is expected to be refused the listener by its App Sandbox (no `network.server`), so it keeps
+  the old words; not tried on a store build. Adding the entitlement is the release owner's store-review decision.
+- Proven offline: the services' answers as recorded by probes (Square checked again 2026-11-15: https 400 "domain not
+  in allowlist", 127.0.0.1 201 and sign-in page 200). Not proven: a real sign-in to the end at Canva, Intercom or
+  Square (no test accounts), the IPC wiring inside a running Electron app, and Windows (firewall prompts are not
+  expected for 127.0.0.1).

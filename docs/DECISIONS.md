@@ -28975,3 +28975,23 @@ the list of times, so two quick edits of one connection (name, then address) sho
 entries fold only when their whole details are the same, for every kind (admin changes, AI tools, files, sign-ins).
 Two AI reads of different files and two saves of a file with other contents are now two rows; sign-ins from one
 address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: **patch**.
+
+## Connectors that take only an app on the computer sign in from the desktop app (feat/connector-desktop-loopback-signin, 2026-11-15)
+
+Canva, Intercom and Square refuse the team's https sign-in return address (not on their list) but take
+`http://127.0.0.1:<port>/callback`, the address apps on a computer use (RFC 8252); Figma refuses both. Decided:
+- The desktop app signs in at them through a one-time listener on 127.0.0.1 that sends the browser on to the team's own
+  return page (`desktop/src/common/sign-in-return.ts`); the server finishes the sign-in exactly as for any other (state,
+  PKCE, the same person's browser session). The order stays: registered app for https → metadata document → 127.0.0.1,
+  only when both were refused.
+- The port counts only from a desktop session. A forged session kind gains nothing: the code goes only to the person's
+  own computer, is useless without the verifier the server keeps, and finishes only that person's own sign-in.
+- The web and the phone app say "<service> only lets you sign in from an app on your computer. Open the Trina desktop
+  app and connect it there." (`oauth_desktop_only`) with Get the desktop app, when one probe registration for 127.0.0.1
+  shows it would work. What a service answered is remembered 6 hours, so repeated tries do not pile up registrations.
+- Not now: passing the return through the app's own session (the system browser must be signed in, as for every desktop
+  sign-in), `localhost`, the Mac App Store build (its sandbox has no `network.server`; adding it is a store-review
+  decision for the release owner).
+- Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
+  (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
+  additive API and bridge fields).
