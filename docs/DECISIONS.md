@@ -28573,3 +28573,29 @@ W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is
 - **Slack** is not in the step: its hosted one-click path is not verified end to end yet (entry above).
 - Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/unit/drive-not-set-up.test.tsx,
   web/test/e2e/welcome-tools.spec.ts (close/Esc/Back, Linear, a Google app or Slack, "Set up" → Admin → back).
+
+## W6 follow-up: the team files step without a team group (fix/onboarding-team-files-no-folder, 2026-11-15, QA TC-1613, TC-1614)
+
+- **Problem.** On a hosted team (0.5.3/0.5.4) the Team files step showed only "The team folder is not there yet" and
+  Do this later: `progress.teamGroup` was null because the team start (POST /api/onboarding/welcome/team, called when
+  the company step is left) did not go through, its failure is swallowed there (the owner is never held), and nothing
+  asked again.
+- **Decision.** The step's place falls back to shared/ (every team has it) and the step tries the team start again once
+  for the owner; the `welcome.teamFiles.noFolder` sentence is deleted in all languages (the intro files' upload says
+  `welcome.teamFiles.failed` when the brand folder is still missing). The organize line ("We sort them into folders in
+  {shared}…") is part of the step's description now (`welcome.teamFiles.descShared`, `phoneDescShared`, only while an
+  AI answers, as before), one grey line less under the buttons.
+- **Cause, as far as it is known.** Not confirmed on that server (no access). A fresh hosted-style Linux team under Bun
+  1.3.12 starts fine (team languages ko/en, odd team names, non-root with umask 027). The start fails with a 500 when
+  shared/ is not as expected: a file where the brand or notes folder goes (`not a folder`), shared/ missing on disk, or
+  shared/ not writable by the server account (EACCES). In each case `teamGroupFor` had already made the group, so the
+  row never recorded it and every retry made another ("Acme 2", "Acme 3"). Fixed here: the folders in shared/ are made
+  before the group (`server/src/onboarding/welcome.ts teamGroupFor`), and a missing shared/ is made again with the
+  team's default folders (`sharedStart` → `admin/folders.ts createDefaultFolders`, which changes nothing that is there;
+  the likeliest hosted cause). An unexpected failure is already logged by the app ("unhandled error" with the path,
+  app.ts); a refusal (HttpError) left no line, so the route logs it as a warning with its code
+  (`routes/onboarding-welcome.ts logged`). To check on the team: those log lines on POST /api/onboarding/welcome/team,
+  the `onboarding.welcome` row (`general` set but no `teamGroup` = it failed in the group step), `groups` /
+  `audit_log` `group.create` rows, and `ls -la` of shared/.
+- Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind", "shared/ missing"), web/test/unit/team-files.test.ts,
+  web/test/e2e/welcome-team-files.spec.ts, welcome-organize.spec.ts.

@@ -1,0 +1,3 @@
+- **Getting started › Team files** always offers **Choose a folder** and **Upload files yourself**. When the team's own group could not be set up while leaving the company step, the step showed only "The team folder is not there yet" and **Do this later**; now it tries the setup again and puts the files in the company-wide shared folder meanwhile. That sentence is gone.
+- A team setup that fails in the shared folder (for example a file where the Brand folder goes) no longer leaves an extra group behind each time it is tried again; a missing shared folder is made again.
+- The Team files step has one grey line less: where the files go and that AI sorts them is now part of the step's description.
