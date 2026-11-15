@@ -162,18 +162,46 @@ const boxNow = (go: DemoGo) => [...document.querySelectorAll<HTMLTextAreaElement
 /** A suggested prompt typed into the place's real message box, as a person types (25–40 ms a letter, a short pause at
  * some spaces; at once with reduced motion or `instant`), and left there: the visitor presses send. Never over the
  * visitor's own text, and it stops when they type in between (what they typed stays). */
-async function typePrompt(server: DemoServer, go: DemoGo, a: DemoAnswer, instant: boolean) {
+/** what one try of typing came to: the prompt is in the box, the box holds the visitor's own words, or the box was not
+ * ready or went away under it (the app still mounting or putting its chat back: try again) */
+type Typed = 'done' | 'theirs' | 'gone'
+async function typePromptOnce(server: DemoServer, go: DemoGo, a: DemoAnswer, instant: boolean): Promise<Typed> {
   if (!atPlace(server, go, appPathNow())) await goTo(server, go)
   const box = await waitFor<HTMLTextAreaElement>(boxOf(go))
-  if (!box || box.value === a.prompt) return
-  if (box.value.trim()) return
-  if (instant || reducedMotion()) { setBox(box, a.prompt); return }
+  if (!box || box.disabled || box.readOnly) return 'gone'
   const text = a.prompt
+  const mine = (v: string) => text.startsWith(v)
+  if (box.value === text) return 'done'
+  // the visitor's own words stay; a part of the prompt from an earlier try is carried on
+  if (box.value.trim() && !mine(box.value)) return 'theirs'
+  if (instant || reducedMotion()) { setBox(box, text); return box.value === text ? 'done' : 'gone' }
   const per = Math.min(40, Math.max(25, 1700 / text.length))
-  for (let i = 1; i <= text.length; i++) {
-    if (!box.isConnected || box.value !== text.slice(0, i - 1)) return
+  let setBack = 0
+  for (let i = box.value.length + 1; i <= text.length; i++) {
+    if (!box.isConnected) return 'gone'
+    if (box.value !== text.slice(0, i - 1)) {
+      if (box.value && !mine(box.value)) return 'theirs'
+      // the app set the box back (its own render under load): go on from what is there, a few times
+      if (++setBack > 5) return 'gone'
+      i = box.value.length + 1
+    }
     setBox(box, text.slice(0, i))
     await sleep(per + Math.random() * 10 - 5 + (text[i - 1] === ' ' && Math.random() < 0.2 ? 60 + Math.random() * 70 : 0))
+  }
+  // (the app's render after the last letter)
+  await sleep(60)
+  if (!box.isConnected) return 'gone'
+  return box.value === text ? 'done' : box.value && !mine(box.value) ? 'theirs' : 'gone'
+}
+
+/** A suggested prompt typed into the place's real message box (typePromptOnce), tried again until the box is there and
+ * keeps the text (a slow phone mounts the chat late, or renders it again while the letters go in), while `still` holds */
+async function typePrompt(server: DemoServer, go: DemoGo, a: DemoAnswer, instant: boolean, still: () => boolean): Promise<Typed> {
+  const until = Date.now() + 30_000
+  for (let n = 0; ; n++) {
+    const r = await typePromptOnce(server, go, a, instant || n > 0)
+    if (r !== 'gone' || !still() || Date.now() > until) return r
+    await sleep(300)
   }
 }
 
@@ -289,7 +317,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     const instant = typedFor === step.id
     setTyping(true)
     setTypedFor(step.id)
-    try { await typePrompt(server, step.go, a, instant) } finally { setTyping(false) }
+    const id = step.id
+    try { await typePrompt(server, step.go, a, instant, () => server.engine.guide()?.id === id && atPlace(server, step.go, appPathNow())) } finally { setTyping(false) }
   }
   // arriving at a step with one prompt (Leo's chat, the side chat opened by hand or by the guide line): it types itself
   const single = here && !chatRow && !cardOpen && !working && !typing && step?.suggest?.length === 1 && typedFor !== step.id && !box?.value.trim()
@@ -306,6 +335,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
    * the step's first prompt, or goes there */
   const act = async () => {
     if (!step) return
+    const ringed = target
     // (read again now: the page may have changed since the last render)
     const row = projectChat ? [...document.querySelectorAll(`a[href^="/c/${server.idOf('chat', projectChat.id)}"]`)].find(visible) : undefined
     if (row) { navigate(inAppLink(row) ?? `/c/${server.idOf('chat', projectChat!.id)}`); return }
@@ -320,21 +350,23 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     }
     const firstPrompt = hereNow && noCard ? server.script.answers.find((a) => a.id === step.suggest?.[0]) : undefined
     if (firstPrompt) { void pick(firstPrompt); return }
+    // the ringed control as the page is now (the last render may have had none yet: a message still coming in)
+    const now: Element | null = ringed ?? (step.highlight ? [...document.querySelectorAll(step.highlight)].reverse().find(visible) ?? null : null)
     // elsewhere: straight there (the ring shows the way for a visitor who clicks by hand), unless the step's own
     // control is on screen (a link in a message)
-    if (!hereNow && !(step.highlight && target?.matches(step.highlight))) { await goTo(server, step.go); return }
-    if (target) {
-      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      if (target.matches('[data-testid="ask-card"]')) {
-        const send = target.querySelector<HTMLButtonElement>('[data-testid="ask-send"]')
+    if (!hereNow && !(step.highlight && now?.matches(step.highlight))) { await goTo(server, step.go); return }
+    if (now) {
+      now.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (now.matches('[data-testid="ask-card"]')) {
+        const send = now.querySelector<HTMLButtonElement>('[data-testid="ask-send"]')
         if (send) {
-          target.querySelector<HTMLElement>('label, [role="radio"], input[type="radio"]')?.click()
+          now.querySelector<HTMLElement>('label, [role="radio"], input[type="radio"]')?.click()
           await sleep(150)
           send.click()
-        } else [...target.querySelectorAll<HTMLButtonElement>('button')].filter(visible).pop()?.click()
+        } else [...now.querySelectorAll<HTMLButtonElement>('button')].filter(visible).pop()?.click()
         return
       }
-      const el = target as HTMLElement
+      const el = now as HTMLElement
       const href = inAppLink(el)
       if (href) { navigate(href); return }
       const button = el.matches('button, a, [role="button"], [role="option"]') ? el : el.querySelector<HTMLElement>('button, a, [role="button"]') ?? el
