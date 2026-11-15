@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 12:58
 - Branch: `fix/template-oauth-admin-line`
-- Status: in progress
+- Status: done
 - Where: trina-ax/web. Why: wording on the template row and dialogs only (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a wording fix with no API or data change
 
@@ -36,3 +36,9 @@ type). Unknown names keeping the Korean form particle (by design, PR #964).
 ## Risks
 
 None beyond wording. Specs asserting the old string are updated.
+
+## Result
+
+Done. Admin row line, template dialog note and skill share tools lines follow the sign-in type; 5 new strings in 6
+languages. Unit test web/test/unit/template-admin-line.test.tsx and skill-share.test.tsx; e2e in
+integration-templates.spec (TC-205 test).
