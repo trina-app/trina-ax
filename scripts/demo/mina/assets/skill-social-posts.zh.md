@@ -1,11 +1,11 @@
 ---
 name: social-posts
-description: 3 版社媒文案。为一个产品或一条消息写三版 Instagram 文案（走心、俏皮、优惠优先）。适用于“写个 Instagram 文案”“社媒文案”之类的请求。
+description: 三版社媒文案。为一个产品或一条消息写三版 Instagram 文案（走心、俏皮、优惠优先）。适用于“写个 Instagram 文案”“社媒文案”之类的请求。
 metadata:
-  title: 3 版社媒文案
+  title: 三版社媒文案
 ---
 
-# 3 版社媒文案
+# 三版社媒文案
 
 ## 资料来源
 - 语气参照团队技能 **品牌手册**。
