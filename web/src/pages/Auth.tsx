@@ -670,6 +670,13 @@ export function InviteWhileSignedIn() {
   const signedOut = useSession((s) => s.signedOut)
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  // a guest link is for someone from outside the team, so a member is not told it is for "someone who joins the team"
+  const [forGuest, setForGuest] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.inviteInfo, { params: { token: token ?? '' } }).then((i) => { if (live) setForGuest(i?.role === 'guest') }, () => { if (live) setForGuest(false) })
+    return () => { live = false }
+  }, [token])
   const leave = async () => {
     setBusy(true)
     await api.call(API.logout).catch(() => {})
@@ -678,7 +685,7 @@ export function InviteWhileSignedIn() {
     navigate(`/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
   }
   return (
-    <AuthFrame title={t('invite.signedInTitle')} sub={t('invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
+    <AuthFrame title={t('invite.signedInTitle')} sub={forGuest === null ? undefined : t(forGuest ? 'invite.signedInBodyGuest' : 'invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
       <div className="flex flex-col gap-2" data-testid="invite-signed-in">
         <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t('invite.signOutAccept')}</Button>
         <Button disabled={busy} onClick={() => navigate('/', { replace: true })} data-testid="invite-keep">{t('invite.keepAccount')}</Button>
@@ -762,7 +769,7 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} ai={guest.ai} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
       {!guest && <BrowserLanguageOffer />}
       <JoinChoices path={`/invite/${token}`} lean={!!guest}>
@@ -774,12 +781,16 @@ export function AcceptInvite() {
 
 /** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." (the general
  * words while the server does not name the place) */
-function GuestJoinLine({ place }: { place: GuestPlaceView | null }) {
+function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none' | 'team' | 'own' | null }) {
   const t = useT()
   return (
-    <p className="text-ink" data-testid="invite-guest-place">
-      {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
-    </p>
+    <>
+      <p className="text-ink" data-testid="invite-guest-place">
+        {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
+      </p>
+      {/* their own sign-in: said before they join, so "connect your own" inside is no surprise */}
+      {ai === 'own' && <p className="mt-2 text-muted" data-testid="invite-guest-own-ai">{t('guest.join.ownAi')}</p>}
+    </>
   )
 }
 

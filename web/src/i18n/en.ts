@@ -132,7 +132,7 @@ export const en: Record<MessageKey, string> = {
   "guest.ai.team": "Team AI",
   "guest.ai.teamHint": "Uses one of the team's AI accounts, up to a monthly amount.",
   "guest.ai.own": "Their own sign-in",
-  "guest.ai.ownHint": "They sign in with their own Claude or ChatGPT account.",
+  "guest.ai.ownHint": "They sign in with their own Claude or ChatGPT account. It's their own plan, so the team pays nothing.",
   "guest.ai.account": "AI account",
   "guest.ai.limit": "Monthly limit (USD)",
   "guest.ai.limitHint": "Starts over on the 1st of every month.",
@@ -155,6 +155,7 @@ export const en: Record<MessageKey, string> = {
   "guest.join.room": "You'll join only the '{place}' chat room. You won't see the rest of the team.",
   "guest.join.project": "You'll join only the '{place}' project. You won't see the rest of the team.",
   "guest.join.some": "You'll join only the room or project you were invited to. You won't see the rest of the team.",
+  "guest.join.ownAi": "To use AI here, you'll sign in with your own Claude or ChatGPT account. It's your own plan, so the team pays nothing.",
   "guest.projectNote": "Members of this project can see your chats here.",
   "guest.noAi": "AI isn't on for you. Ask the person who invited you.",
   "guest.noAiTeam": "AI can't answer you here yet. Ask the person who invited you.",
@@ -272,6 +273,7 @@ export const en: Record<MessageKey, string> = {
   'invite.signedInTitle': 'You are signed in',
 
   'invite.signedInBody': 'You are signed in as {name}. This invite is for someone who joins the team. To accept it, sign out first.',
+  'invite.signedInBodyGuest': "You are signed in as {name}. This link is for a guest from outside the team. To accept it, sign out first.",
 
   'invite.signOutAccept': 'Sign out and accept the invite',
 
@@ -2117,6 +2119,9 @@ export const en: Record<MessageKey, string> = {
   'members.usedBy': 'Used by {name}',
   'members.expired': 'Expired',
   'members.expires': 'Until {date}',
+  'members.stoppedInviter': "No longer works: the person who made it can't invite any more",
+  'members.stoppedPlace': "No longer works: the chat or project is gone",
+  'members.stoppedAi': "No longer works: the Team AI account was removed",
   'members.revoke': 'Revoke',
   'members.createLink': 'Create link',
   'members.validDays': 'Valid for',
