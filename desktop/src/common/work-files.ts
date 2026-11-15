@@ -208,6 +208,9 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         files.push({ name, parts: [...dir.parts, e.name] })
         docs++
       }
+      let halt = false
+      // the documents found in this folder are all checked, even when a limit ended the folder's listing (end): only Stop,
+      // the time and a drive that stops answering end the checks themselves
       for (let i = 0; i < files.length; i += 16) {
         // Stop and the time count between batches too (a folder of thousands of documents on a slow drive)
         if (o.stopped?.()) { out.stopped = true; end = true; break }
@@ -219,7 +222,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           return null
         })))
         // a drive that stops answering ends this folder's look (cut), as a folder that does not answer does
-        if (late) { r.cut = true; end = true }
+        if (late) { r.cut = true; end = true; halt = true }
         batch.forEach((f, j) => {
           const st = stats[j]
           if (!st || st.kind !== 'file') return
@@ -232,7 +235,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           out.found.set(id, { root: real, parts: f.parts, size: st.size, mtimeMs: st.mtimeMs, dev: st.dev, ino: st.ino })
           out.files.push({ id, root: root.id, folder: dir.parts.map((x) => x.normalize('NFC')).join('/'), name: f.name, ext: fileExt(f.name), size: st.size, modified: Math.round(st.mtimeMs) })
         })
-        if (end) break
+        if (halt) break
       }
     }
     spent += now() - start
