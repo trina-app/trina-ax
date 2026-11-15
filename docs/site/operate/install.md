@@ -86,7 +86,7 @@ No sudo is needed. It installs into `~/TeamAX`. An AI coding agent can do this f
 Use the local setup link the installer prints. Office computers then use `https://<Mac-IP>:8443` after trusting the office certificate (`~/TeamAX/teamax card` shows its fingerprint).
 
 #### Reach it from anywhere (optional)
-With the Tailscale app signed in on the Mac and HTTPS Certificates on for the tailnet, run `~/TeamAX/teamax tailscale-address on`. Devices on the same tailnet then open `https://<machine>.<tailnet>.ts.net:<port>` from anywhere, with no certificate to install. Create the owner before this: the first-run setup is refused on that address.
+With the Tailscale app signed in on the Mac and HTTPS Certificates on for the tailnet, run `~/TeamAX/teamax tailscale-address on`. Devices on the same tailnet then open the Mac's Tailscale name (MagicDNS) on the port the command prints, from anywhere, with no certificate to install. Create the owner before this: the first-run setup is refused on that address.
 :::
 
 Guests (people from outside the team) can't use AI on an office Mac installed this way, without an administrator password. Installing with the admin installer (.pkg) makes it possible. See [Guests](../use/guests.md).
