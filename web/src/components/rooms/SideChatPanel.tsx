@@ -507,7 +507,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
   const name = aiName(t)
   // what the box asks: the answer to the AI's question, or about the file or message quoted, or about the room
-  const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })
+  const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t(guest ? 'sideChat.placeholderGuest' : 'sideChat.placeholder', { name })
 
   const body = (
     // files dropped anywhere on the panel go with the next question (the overlay over the panel shows the drop)

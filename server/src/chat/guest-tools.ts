@@ -38,18 +38,28 @@ export function guestPromptOf(db: Database, userId: string): GuestPrompt | null 
   return { places, inviter: inviter?.trim() || null }
 }
 
-/** Words in a tool's description that are about the team, not a guest's one place: Admin and plugins, team skills and
- * the skills/ folder, connecting apps, the desktop app and its browser, the team-wide folders, the web. */
-const MEMBER_ONLY = /\badmin|plugin|\bskills?\b|skills\/|connect(ed|ion)? (a |an )?(service|app)|desktop app|browser|\bshared\/|\bgroups\/|team drive|web search/i
+/** Member-only parts of tool descriptions and what a guest's turn reads instead (exact pieces of the source texts in
+ * tools/index.ts, chat/delete-files.ts, tools/file-moves.ts; tests/unit/b-guests-prompt.test.ts checks every guest
+ * description). */
+const GUEST_REWRITES: [RegExp, string][] = [
+  // make_file with Hangul writing off: "an admin can turn on the Hangul plugin (Admin > Plugins, …) … ask an admin"
+  [/Hangul \(\.hwp\/\.hwpx\) documents cannot be made or filled here: [^]*?offer a Word file meanwhile\. /, 'Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say so in one plain sentence and offer a Word file. '],
+  // make_file's templates live under skills/, which a guest cannot open
+  [/`template`: a [^ ]+ under skills\/ for styles\. /, ''],
+  [/\bthe team drive\b/g, 'the team files'],
+]
+/** A sentence still about what only team members have after GUEST_REWRITES (fail closed: a new member-only sentence in
+ * a description a guest gets is left out rather than read to them). */
+const MEMBER_ONLY = /Admin\s*[>›]|\bplugin|connect_service|desktop app|save_url|team drive/i
 
 /**
- * A tool's description for a guest's turn: every sentence that talks about what only team members have (MEMBER_ONLY)
- * is left out, so the AI is never told "an admin can turn on the Hangul plugin (Admin > Plugins)" or "a template under
- * skills/" for a person who has neither (QA: a guest asked "can I connect apps?" and was sent to Admin > Plugins).
- * Fails closed: a sentence it cannot tell apart from its neighbours goes with them.
+ * A tool's description for a guest's turn: the member-only parts rewritten (QA: a guest asked "can I connect apps?" and
+ * was sent to Admin > Plugins), then any sentence still about Admin, plugins, connecting services, the desktop app or a
+ * tool a guest does not have left out. Sentences split at ". " before a capital, a backtick or a quote.
  */
 export function guestToolDescription(description: string): string {
-  // sentences end with ". " (or "? ", "! ") before a capital, a backtick or a quote; "e.g. " and ".docx" are not ends
-  const parts = description.split(/(?<=[.!?])\s+(?=[A-Z`"'(])/)
-  return parts.filter((s) => !MEMBER_ONLY.test(s)).join(' ').trim()
+  let d = description
+  for (const [re, to] of GUEST_REWRITES) d = d.replace(re, to)
+  if (!MEMBER_ONLY.test(d)) return d.trim()
+  return d.split(/(?<=[.!?])\s+(?=[A-Z`"'(])/).filter((x) => !MEMBER_ONLY.test(x)).join(' ').trim()
 }

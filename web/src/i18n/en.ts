@@ -4188,6 +4188,7 @@ export const en: Record<MessageKey, string> = {
   "sideChat.empty": "Ask {name} about this room. Only you see this chat. Share an answer with the room when you want.",
   "sideChat.emptyGuest": "Quote or paste a message from this room to ask {name} about it. Only you see this chat.",
   "sideChat.placeholder": "Ask {name} about this room…",
+  "sideChat.placeholderGuest": "Ask {name}…",
   "sideChat.send": "Send",
   "sideChat.sendElsewhere": "Send elsewhere",
   "sideChat.sentThread": "Sent to thread",

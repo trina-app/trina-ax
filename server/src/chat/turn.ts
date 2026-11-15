@@ -837,7 +837,8 @@ export class TurnExec {
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
     // the sender's own skill of that name (in a shared chat, one some of its people cannot read asks first, below)
-    let invoked = this.restricted ? null : invokedSkill(allSkills, userMsg.content)
+    // a guest uses no skills (docs/DECISIONS.md "Guests: only what they were invited to"), a project's own included
+    let invoked = this.restricted || guestTurn ? null : invokedSkill(allSkills, userMsg.content)
     // a shared project chat: a skill some of its people cannot read goes in only after the person's yes
     let skillNotShared = ''
     const skillNo = invoked && this.shared ? await this.sharedReadRefusal('skill', { path: skillFolder(invoked.skill.path) }, { step: false }) : null
@@ -869,7 +870,7 @@ export class TurnExec {
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
-    const hints = !invoked && !this.restricted && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
+    const hints = !invoked && !this.restricted && !guestTurn && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
     // rooms the person picked with "#" (#[name](room:<id>), shared/src/api/rooms.ts): the AI is told their ids, so it
     // reads exactly those (room_read checks membership when it reads). A title is a room's name, which any member of a
     // group chat sets: it reaches the AI only inside the data block, the message says "[#room N]"
@@ -892,7 +893,7 @@ export class TurnExec {
       if (!resumed || this.restricted) return message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)

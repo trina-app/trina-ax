@@ -52,6 +52,11 @@ test("a guest's turn: the guest section with their place and inviter, and no tea
   // the tool list is the guest list, and no description talks about what only members have
   expect(Object.keys(tools)).toContain('make_file')
   for (const no of ['find_skills', 'skill', 'connect_service', 'web_fetch', 'post_to_room', 'room_read']) expect(Object.keys(tools)).not.toContain(no)
+  // ...while what each tool does stays (review: a sentence filter once dropped these with the member-only words)
+  expect(tools.make_file).toContain('pptx: ')
+  expect(tools.make_file).not.toContain('under skills/')
+  expect(tools.list).toContain('List a folder of the team files.')
+  expect(tools.move_files).toMatch(/^Move /)
   for (const [name, d] of Object.entries(tools)) for (const w of MEMBER_WORDS) expect({ name, w: String(w), hit: w.test(d) }).toEqual({ name, w: String(w), hit: false })
 })
 
@@ -82,7 +87,7 @@ test("a member's turn is unchanged: no guest section, the team's words and tools
   expect(tools.make_file).toContain('Admin > Plugins')
 })
 
-test('guestToolDescription leaves out the member-only sentences and keeps the rest', () => {
-  const d = 'Create a Word file. Hangul documents cannot be made here: an admin can turn on the plugin (Admin > Plugins). `template`: a .docx under skills/ for styles. Limits: 30 slides.'
-  expect(guestToolDescription(d)).toBe('Create a Word file. Limits: 30 slides.')
+test('guestToolDescription rewrites the member-only parts and keeps the rest', () => {
+  const d = 'Create a Word file. Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say in one plain sentence that an admin can turn on the Hangul plugin (Admin > Plugins, "HWP Preview"), and to a person who is not an admin say to ask an admin; offer a Word file meanwhile. pptx: each slide starts with ##. `template`: a .docx/.pptx under skills/ for styles. Move files of the team drive. A future line about Admin > Plugins. Limits: 30 slides.'
+  expect(guestToolDescription(d)).toBe('Create a Word file. Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say so in one plain sentence and offer a Word file. pptx: each slide starts with ##. Move files of the team files. Limits: 30 slides.')
 })
