@@ -103,6 +103,7 @@ test('its page: Connect goes to Google, and Cancel while waiting puts Connect ba
   await detail(page).getByTestId('drive-connect').click()
   await popup
   await expect(detail(page).getByTestId('drive-waiting')).toBeVisible()
+  await expect(detail(page).getByTestId('drive-waiting-line-hint')).toContainText(/회사 계정|work account/)
   await detail(page).getByTestId('drive-cancel').click()
   await expect(detail(page).getByTestId('drive-connect')).toBeVisible()
   await page.getByTestId('app-breadcrumb-connectors').click()

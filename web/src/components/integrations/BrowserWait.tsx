@@ -10,7 +10,7 @@ import { useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { Button, WaitLine } from '../ui'
 
-export function BrowserWait({ text, onRetry, onCancel, busy, link, testId, retryTestId, cancelTestId, framed, className }: {
+export function BrowserWait({ text, onRetry, onCancel, busy, link, testId, retryTestId, cancelTestId, framed, className, google }: {
   text: string
   onRetry: () => void
   onCancel: () => void
@@ -22,11 +22,13 @@ export function BrowserWait({ text, onRetry, onCancel, busy, link, testId, retry
   /** in a box of its own (a page's steps), not a row's line */
   framed?: boolean
   className?: string
+  /** Google's own sign-in page may refuse (a company app only for its own accounts) without coming back here: say what to do */
+  google?: boolean
 }) {
   const t = useT()
   return (
     <div className={clsx('flex flex-wrap items-center gap-2 text-sm', framed && 'rounded-xl border border-line px-3 py-2', className)} data-testid={testId} data-waiting="">
-      <WaitLine className="flex-[1_1_12rem] text-muted" text={text} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId={testId ? `${testId}-line` : undefined} />
+      <WaitLine className="flex-[1_1_12rem] text-muted" text={text} hint={t(google ? 'connect.wait.google' : 'connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId={testId ? `${testId}-line` : undefined} />
       {link && (
         <a href={link.href} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={link.onClick} data-testid={testId ? `${testId}-link` : undefined}>
           {link.label}
