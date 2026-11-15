@@ -12,7 +12,7 @@ After you make a team, the app takes you, the owner, through a few short steps. 
 Connect a Claude or ChatGPT subscription, or an API key. Without AI the company profile cannot be read, so this step comes first. **Later** leaves the steps; the setup row then says **Connect AI**.
 
 #### Company profile
-Type the company website. The AI reads it and writes one line about the company ("What we understood: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**.
+Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**.
 
 **Save and continue** saves the profile and starts your company profile deck, once per team. The line under the button says how long it takes (the team's deck time, Admin › Team settings) and where it will be: **Our company profile** in your list of Trina chats. Saving again later only saves. **Later** skips the deck.
 

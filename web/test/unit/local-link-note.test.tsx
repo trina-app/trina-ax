@@ -21,5 +21,5 @@ test('the note names where to set the team address; nothing for a team address',
   expect(en).toContain('role="note"')
   expect(renderToStaticMarkup(<LocalLinkNote url="https://acme.trina.app/invite/abc" />)).toBe('')
   const path = `${translate('ko', 'admin.title')} › ${translate('ko', 'admin.system')} › ${translate('ko', 'system.connection')}`
-  expect(translate('ko', 'links.thisComputerOnly', { path })).toBe(`이 링크는 이 컴퓨터의 주소라서 다른 컴퓨터에서는 열리지 않아요. 팀원에게 보내려면 ${path}에서 팀 주소를 정하고, 그 주소로 들어와 링크를 다시 만들어 주세요.`)
+  expect(translate('ko', 'links.thisComputerOnly', { path })).toBe(`이 링크는 이 컴퓨터의 주소라서 다른 컴퓨터에서는 열리지 않아요. 다른 사람에게 보내려면 ${path}에서 팀 주소를 정하고, 그 주소로 들어와 링크를 다시 만들어 주세요.`)
 })

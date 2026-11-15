@@ -22,8 +22,8 @@ in a picture.
 
 | What you want | Who does it | Where in Trina AX | Guide |
 |---|---|---|---|
-| Let the AI answer at all | The owner or an admin | **Admin › Providers** | [AI accounts](ai-accounts.md) |
-| Use your own Claude or ChatGPT account for your own questions | You (when the team allows it) | **Settings › AI accounts** | [AI accounts](ai-accounts.md#your-own-account) |
+| Let the AI answer at all | The owner or an admin | **Admin › AI providers** | [AI providers](ai-accounts.md) |
+| Use your own Claude or ChatGPT account for your own questions | You (when the team allows it) | **Settings › AI providers** | [AI providers](ai-accounts.md#your-own-account) |
 | Let the AI read your Google Drive, Gmail, Calendar, Docs or Sheets | You | **Settings › Connectors** | [Google apps](google-apps.md) |
 | Show your company's name on Google's sign-in screen | An admin of a company on Google Workspace | **Admin › Connected apps** › a Google app | [Your company's own Google app](google-own-app.md) |
 | Ask Trina AX from Slack | An admin once, then each person once | **Admin › Connected apps › Slack** | [Slack](slack.md) |
@@ -63,7 +63,7 @@ You never need all of these. Find the app you are connecting; the rest of the ro
 
 | | Personal | Team |
 |---|---|---|
-| Made in | **Settings › Connectors** or **Settings › AI accounts** | **Admin › Connected apps** or **Admin › Providers** |
+| Made in | **Settings › Connectors** or **Settings › AI providers** | **Admin › Connected apps** or **Admin › AI providers** |
 | Who uses it | Only you, in your own chats | The people the admin picks: everyone, groups or people |
 | Who sees the key | Nobody, not even admins | Nobody: an admin sees that a key is saved, never the key |
 

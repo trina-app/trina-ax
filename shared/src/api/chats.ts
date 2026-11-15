@@ -5,7 +5,7 @@ import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from '
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
 import { AudienceSplit, Chat, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
-import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerShareProvenance, ROOM_FILES_MAX, RoomMessage } from './rooms'
+import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
@@ -48,18 +48,37 @@ export const ShareChatBody = z.object({
    * share); without it a chat with nothing to ask about is shared at once (the move dialog's switch) */
   ask: z.boolean().optional(),
 }).strict()
+/** What the people who would start to see a chat would see that they could not before (docs/DECISIONS.md "Share in one
+ * press", QA TC-3092): counts of answers and places, never who. `added`: how many people start to see it;
+ * `memoryAnswers`: answers that may have used my personal memories; `fileAnswers`: answers that used files (or recorded
+ * places) some of them can't open; `accountAnswers`: older answers that may have used my personal accounts (a personal
+ * connection or the in-app browser was on then); `places`: other places the chat used that some of them can't open, by
+ * name only where I may look (`otherPlaces`: others too); `roomsUnseen`: it read team chat rooms some of them may not be
+ * in; `unchecked`: older answers nothing could be checked about (no warning); `earlierFiles`: at a first share, my files
+ * from the computer they will see. */
+export const ShareCheck = z.object({
+  added: z.number().int().nonnegative(),
+  memoryAnswers: z.number().int().nonnegative(),
+  fileAnswers: z.number().int().nonnegative(),
+  accountAnswers: z.number().int().nonnegative(),
+  places: z.array(AnswerSharePlace),
+  otherPlaces: z.boolean(),
+  roomsUnseen: z.boolean(),
+  unchecked: z.number().int().nonnegative(),
+  earlierFiles: z.number().int().positive().optional(),
+})
+export type ShareCheck = z.infer<typeof ShareCheck>
+
 export const ShareChatResult = z.discriminatedUnion('status', [
   /** shared now: the chat as I see it (with `shared`) */
   z.object({ status: z.literal('shared'), chat: Chat }),
-  /** nothing changed yet. `audience`: the project's people (not me) who would see it; `provenance`: its answers carry
-   * content from material some of them cannot see (null: none; `unknown`: not all of what it used is known);
-   * `memories`: an answer may have used my personal memories; `confirmKey`: send it back to share. `reason` 'changed':
-   * asked again after a key, something changed meanwhile */
+  /** nothing changed yet. `audience`: the project's people (not me) who would see it; `check`: what they would see that
+   * they could not before; `confirmKey`: send it back to share. `reason` 'changed': asked again after a key, something
+   * changed meanwhile */
   z.object({
     status: z.literal('confirm'),
     audience: z.number().int().nonnegative(),
-    provenance: AnswerShareProvenance.nullable(),
-    memories: z.boolean(),
+    check: ShareCheck,
     confirmKey: z.string(),
     reason: z.literal('changed').optional(),
   }),
@@ -345,23 +364,22 @@ export const PutChatAudienceResult = z.discriminatedUnion('status', [
      * Only through groups I am in (admins any); someone kept only through other groups is not listed */
     keptThrough: z.array(z.object({ name: z.string(), groups: z.array(z.string()).min(1) })).optional(),
   }),
-  /** nothing changed yet: the check for the people who would start to see it. `added`: how many people (never who);
-   * `provenance`: its answers carry content from places some of them cannot open (null: none); `memories`: an answer
-   * may have used my personal memories; `hiddenAnswers`: answers whose recorded places some of them cannot open;
-   * `earlierFiles`: at a first share, how many files I attached from my computer will be visible to them;
-   * `confirmKey`: send it back to save. `reason` 'changed': asked again after a key, something changed meanwhile */
+  /** nothing changed yet: the save brings in new people and did not carry the key of what they would see now (no key:
+   * `reason` 'unchecked'; a key of another state: 'changed'). `check`: what they would see; `confirmKey`: send it back
+   * to save */
   z.object({
     status: z.literal('confirm'),
-    added: z.number().int().nonnegative(),
-    provenance: AnswerShareProvenance.nullable(),
-    memories: z.boolean(),
-    hiddenAnswers: z.number().int().nonnegative(),
-    earlierFiles: z.number().int().positive().optional(),
+    check: ShareCheck,
     confirmKey: z.string(),
-    reason: z.literal('changed').optional(),
+    reason: z.enum(['changed', 'unchecked']).optional(),
   }),
 ])
 export type PutChatAudienceResult = z.infer<typeof PutChatAudienceResult>
+/** The Share dialog's check while picking (docs/DECISIONS.md "Share in one press"): the whole list as a save would send it. */
+export const ChatAudiencePreviewBody = z.object({ subjects: z.array(ProjectParticipant).max(CHAT_AUDIENCE_MAX + 1) }).strict()
+/** What the people the list brings in would see (`check`), and `previewKey`: the save's `confirmKey` for exactly this */
+export const ChatAudiencePreview = z.object({ check: ShareCheck, previewKey: z.string() })
+export type ChatAudiencePreview = z.infer<typeof ChatAudiencePreview>
 
 /**
  * Two kinds (docs/DECISIONS.md "Projects live only in projects/"):
@@ -582,6 +600,7 @@ export const CHATS = {
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
   shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
   getChatAudience: endpoint({ method: 'GET', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', response: ChatAudience, summary: 'Who a chat I can see is shared with: for a chat outside projects shared with people and groups, the people and groups by name (a group\'s size and the count only for its creator and admins when a group is in it); a shared project chat or my private chat lists nobody. Anyone who cannot see the chat gets the 404 of a missing chat.' }),
+  previewChatAudience: endpoint({ method: 'POST', path: '/api/chats/:id/audience/preview', auth: 'user', owner: 'B', body: ChatAudiencePreviewBody, response: ChatAudiencePreview, summary: 'Dry run of a save of who sees a chat outside projects (its creator only, the same refusals as a save, chat_busy while a turn runs): what the people the list brings in would see that they could not before (counts of answers and places I may look myself, never who), and the key a save must carry. Nothing is saved. At most 60 a minute per person (429); the same list and chat state answers from a 60-second cache.' }),
   putChatAudience: endpoint({ method: 'PUT', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', body: PutChatAudienceBody, response: PutChatAudienceResult, summary: 'Its creator saves who sees a chat outside projects (the whole list, at most 100 people and groups; [] makes it theirs alone again). Adds that bring in new people first answer "confirm" when its answers carry content from places some of them cannot open, may have used my memories, used recorded places they cannot open, or (a first share) will show them my earlier computer uploads (counts and places I may look myself, never who), with a confirmKey; sent again with that key it saves. Removed people\'s turns there stop first. A first share copies my earlier computer uploads into the chat (each at most 50 MB, metadata of photos cut out); filesNotCopied says how many could not be. 403 chat_share_creator_only to others who see it, the 404 of a missing chat to everyone else; 409 share_people_in_project, project_personal, safe_ops (adds), scheduled_run, side_chat, chat_busy (adds); 400 audience_full, unknown_subject (newly added only), needs_people. Rate-limited like a room message; audited (counts only); people added by name and through a group get an Inbox notice (at most one per chat and person a day).' }),
   userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups hold other people\'s messages. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),

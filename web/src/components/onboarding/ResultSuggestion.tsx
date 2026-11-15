@@ -80,7 +80,7 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   const cardDialog = card && (
     <Modal open onClose={closeCard} width={520} title={shared ? t('teamLink.stepTitle') : t('resultTip.teamSkill.act')}>
       {shared
-        ? <InviteStep title={null} skillPath={shared.path} made onDone={closeCard} />
+        ? <InviteStep title={null} skillPath={shared.path} made onDone={closeCard} guestLine={false} />
         : <SkillShareCard chatId={chatId} answerId={card} onShared={setShared} onLater={closeCard} />}
     </Modal>
   )

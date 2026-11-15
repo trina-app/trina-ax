@@ -48,6 +48,8 @@ import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
+import { useRooms } from '../store/rooms'
+import { isGuestMe } from '../lib/guests'
 import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
@@ -131,6 +133,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
+  const guestHere = isGuestMe(me)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -138,7 +141,10 @@ function ChatView({ chatId }: { chatId: string }) {
   // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
   const choose = canChooseEngine(me)
   // "대화방에 보내기" only from a chat known not to be confidential (Safe operations 1A: every chat while the server says so)
-  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential
+  // a guest with no conversation to send to (a project's guest, usually): no button that opens an empty list (guest
+  // walkthrough S1). A member always has the everyone room
+  const guestNowhere = useRooms((s) => isGuestMe(me) && s.loaded && !s.failed && s.rooms.length === 0)
+  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential && !guestNowhere
   const actions = useChatActions()
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
@@ -605,7 +611,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
           {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
-          <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
+          {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
+          {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
           {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer

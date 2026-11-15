@@ -77,8 +77,8 @@ test('a project invite stops when the project goes to the trash; AI team needs a
   expect(await status(accept(h.client(), tokenOf(inv), 'gus'))).toBe(410)
   const p2 = await mia.client.call('POST', '/api/projects', { name: 'Second', scope: 'team' })
   // a member cannot give a guest the team's AI; an admin cannot with a connection that does not exist
-  expect(await status(invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitUsd: 5 }))).toBe(403)
-  expect(await status(invite(ada.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitUsd: 5 }))).toBe(403)
+  expect(await status(invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitTokens: 5000 }))).toBe(403)
+  expect(await status(invite(ada.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitTokens: 5000 }))).toBe(403)
   // their own sign-in is fine from a member
   expect((await invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'own' })).invite.role).toBe('guest')
 })
@@ -86,10 +86,11 @@ test('a project invite stops when the project goes to the trash; AI team needs a
 test('the plan caps guests (409 plan_limit, reason guest_limit) at create and at accept; guests take no seat', async () => {
   const { owner, mia, room } = await setup()
   const seatsBefore = (await owner.call('GET', '/api/admin/users')).items.length
-  setPlanForTests(plan({ maxGuests: 1, maxActiveMembers: seatsBefore }))
-  // two links while one guest place is free; the second accept hits the cap
+  // two links made before the plan's cap came down to one guest; the second accept hits the cap (an open link holds a
+  // place, so with the cap already there the second link is refused when it is made: a-guests-walkthrough.test.ts)
   const i1 = await invite(mia.client, { kind: 'room', id: room })
   const i2 = await invite(mia.client, { kind: 'room', id: room })
+  setPlanForTests(plan({ maxGuests: 1, maxActiveMembers: seatsBefore }))
   // every seat is taken, yet a guest joins: guests take no seat
   await accept(h.client(), tokenOf(i1), 'gus')
   let err: ApiFail | null = null

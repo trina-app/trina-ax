@@ -47,8 +47,8 @@ afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.clo
 const db = () => h.ctx.db
 const errOf = async (p: Promise<unknown>) => { try { await p } catch (e) { return e as ApiError } throw new Error('expected an error') }
 const reason = async (p: Promise<unknown>) => { const e = await errOf(p); return [e.status, e.body.params?.reason] }
-const share = (user: string, chatId: string, confirmKey?: string): Promise<ShareChatResult> =>
-  h.api(user).call(API.shareChat, { params: { id: chatId }, body: confirmKey ? { confirmKey } : {} })
+const share = (user: string, chatId: string, confirmKey?: string, ask?: boolean): Promise<ShareChatResult> =>
+  h.api(user).call(API.shareChat, { params: { id: chatId }, body: confirmKey ? { confirmKey } : ask ? { ask: true } : {} })
 const confirmOf = (r: ShareChatResult) => { if (r.status !== 'confirm') throw new Error(`expected a confirm, got ${r.status}`); return r }
 const send = (user: string, chatId: string, content: string, parentId?: string | null) =>
   h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [], ...(parentId !== undefined ? { parentId } : {}) } })
@@ -191,8 +191,8 @@ describe('the check', () => {
     expect(active[0]!.id).toBe(first.started.userMessage!.id)
     const r = confirmOf(await share('alice', id))
     // bob cannot read groups/marketing; carol and dana, who could, are not members and are not counted
-    expect(r).toMatchObject({ audience: 1, memories: false, provenance: { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false } })
-    expect(r.provenance!.unknown).toBeUndefined()
+    // the answer that read it (on the branch left behind) is counted; its place is that answer's, not the chat's
+    expect(r).toMatchObject({ audience: 1, check: { added: 1, memoryAnswers: 0, fileAnswers: 1, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 } })
     expect(NAMES.filter((n) => JSON.stringify(r).includes(n))).toEqual([])
     expect(sharedAt(id)).toBeNull()
     // the key: shared
@@ -200,7 +200,7 @@ describe('the check', () => {
     expect(ok.status).toBe('shared')
     // the dialog's number is the one the line under the box and the copy-link toast say (QA TC-070: 3 vs 4)
     if (ok.status === 'shared') expect(seenOnceShared(r.audience)).toBe(ok.chat.shared!.audience)
-    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, people: 1, unknown: false, memories: false, confirmed: true }])
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, answers: 1, unchecked: 0, memories: false, confirmed: true }])
   })
 
   test('my own folder is named as mine; a place I cannot look myself is not named', async () => {
@@ -209,7 +209,7 @@ describe('the check', () => {
     const r = confirmOf(await share('alice', id))
     // users/alice: bob misses it (carol and dana are not members, so not counted); salaries: bob misses it, and alice
     // cannot read it now
-    expect(r.provenance).toEqual({ people: 1, places: [{ kind: 'mine' }], otherPlaces: true })
+    expect(r.check).toMatchObject({ fileAnswers: 0, places: [{ kind: 'mine' }], otherPlaces: true })
     expect(JSON.stringify(r)).not.toContain('salaries')
     expect(NAMES.filter((n) => JSON.stringify(r).includes(n))).toEqual([])
   })
@@ -224,19 +224,51 @@ describe('the check', () => {
     // the copy changed since: it counts again
     put('projects/falcon/quote.md', text + 'edited\n')
     const r = confirmOf(await share('alice', id))
-    expect(r.provenance).toMatchObject({ people: 1, places: [{ kind: 'mine' }] })
+    expect(r.check).toMatchObject({ fileAnswers: 1, places: [] })
     put('projects/falcon/quote.md', text)
     expect((await share('alice', id)).status).toBe('shared')
-    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, people: 0, unknown: false, memories: false, confirmed: false }])
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, answers: 0, unchecked: 0, memories: false, confirmed: false }])
   })
 
-  test('a scope that does not describe every answer (the first message edited since): "not all known", everyone else counted', async () => {
+  test('a scope that does not describe every answer (the first message edited since): the older answers are a grey "couldn\'t be checked", no warning', async () => {
     const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
     dbAnswer(id, 'alice', null, 'old start')
     dbAnswer(id, 'alice', null, 'new start', { read: ['shared/glossary.md'] })
+    const r = confirmOf(await share('alice', id, undefined, true))
+    expect(r.check).toMatchObject({ unchecked: 1, accountAnswers: 0, fileAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false })
+    // nothing at stake: without the menu's question it shares at once
+    const quiet = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    dbAnswer(quiet, 'alice', null, 'old start')
+    dbAnswer(quiet, 'alice', null, 'new start', { read: ['shared/glossary.md'] })
+    expect((await share('alice', quiet)).status).toBe('shared')
+  })
+
+  test('it read team chat rooms without saying which: a warning that someone may not be in them, not an unknown', async () => {
+    const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    dbAnswer(id, 'alice', null, 'from the room', { read: ['shared/glossary.md'] })
+    db().query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(id)
     const r = confirmOf(await share('alice', id))
-    // everyone else who sees it: bob (the owner and the admin are not members)
-    expect(r.provenance).toMatchObject({ people: 1, unknown: true, otherPlaces: true })
+    expect(r.check).toMatchObject({ roomsUnseen: true, unchecked: 0, fileAnswers: 0 })
+  })
+
+  test('older answers the scope does not describe while a personal connection or the in-app browser was on: "may have used your personal accounts"', async () => {
+    // the in-app browser in one of them
+    const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    dbAnswer(id, 'alice', null, 'looked it up', { steps: [{ id: 'n1', kind: 'tool', tool: 'navigate', label: 'Open page', status: 'ok', startedAt: at(), endedAt: at() }] })
+    dbAnswer(id, 'alice', null, 'new start', { read: ['shared/glossary.md'] })
+    expect(confirmOf(await share('alice', id)).check).toMatchObject({ accountAnswers: 1, unchecked: 0 })
+    // a personal Google Drive connected before them (the browser not used)
+    const other = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    dbAnswer(other, 'alice', null, 'old start', { when: '2030-01-01T00:00:00.000Z' })
+    dbAnswer(other, 'alice', null, 'new start', { read: ['shared/glossary.md'] })
+    expect(confirmOf(await share('alice', other, undefined, true)).check).toMatchObject({ accountAnswers: 0, unchecked: 1 })
+    db().query(`INSERT INTO drive_connections (id, user_id, config_key, account, scopes, secret_enc, key_version, status, expires_at, created_at, updated_at)
+      VALUES ('dc-test', 'alice', 'k', 'alice@example.com', 'drive', 'x', 1, 'connected', '2099-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')`).run()
+    try {
+      const r = confirmOf(await share('alice', other))
+      expect(r.check).toMatchObject({ accountAnswers: 1, unchecked: 0 })
+      expect(JSON.stringify(r)).not.toContain('alice@example.com')
+    } finally { db().query("DELETE FROM drive_connections WHERE id = 'dc-test'").run() }
   })
 
   test('personal memories in play: the memory note (and only that)', async () => {
@@ -246,14 +278,14 @@ describe('the check', () => {
     try {
       dbAnswer(id, 'alice', null, 'tea it is')
       const r = confirmOf(await share('alice', id))
-      expect(r).toMatchObject({ memories: true, provenance: null, audience: 1 })
+      expect(r).toMatchObject({ audience: 1, check: { memoryAnswers: 1, fileAnswers: 0, places: [], otherPlaces: false } })
       expect(JSON.stringify(r)).not.toContain('MEMORY-CANARY')
     } finally { db().query('DELETE FROM memories WHERE id = ?').run(memory) }
     // a memory deleted since the chat's first answer counts as one they had
     const later = dbChat('alice', { scope: [] })
     dbAnswer(later, 'alice', null, 'x')
     db().query("INSERT INTO audit_log (actor_id, action, target, at) VALUES ('alice', 'memory.delete', 'm-gone', ?)").run('2099-01-01T00:00:00.000Z')
-    try { expect(confirmOf(await share('alice', later)).memories).toBe(true) } finally { db().query("DELETE FROM audit_log WHERE target = 'm-gone'").run() }
+    try { expect(confirmOf(await share('alice', later)).check.memoryAnswers).toBe(1) } finally { db().query("DELETE FROM audit_log WHERE target = 'm-gone'").run() }
     // no memory and no deletion: shared at once
     expect((await share('alice', later)).status).toBe('shared')
   })
@@ -268,7 +300,7 @@ describe('the check', () => {
     db().query("INSERT INTO group_members VALUES ('finance', 'erin')").run()
     try {
       const again = confirmOf(await share('alice', id, first.confirmKey))
-      expect(again).toMatchObject({ reason: 'changed', audience: 2, provenance: { people: 2 } })
+      expect(again).toMatchObject({ reason: 'changed', audience: 2, check: { added: 2, places: [{ kind: 'mine' }] } })
       expect(again.confirmKey).not.toBe(first.confirmKey)
       expect(sharedAt(id)).toBeNull()
       // a made-up key, and a key of another chat: the same
@@ -316,7 +348,7 @@ describe('after sharing', () => {
       expect((await ask('alice', id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
       expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'sessions', id))).toBe(true)
       const r = confirmOf(await share('alice', id))
-      expect(r).toMatchObject({ memories: true, provenance: null })
+      expect(r).toMatchObject({ check: { memoryAnswers: 2, fileAnswers: 0, places: [] } })
       expect((await share('alice', id, r.confirmKey)).status).toBe('shared')
       // the private session is forgotten: her next turn starts from the visible transcript, without her memories
       expect(db().query('SELECT engine_session_id AS s FROM chats WHERE id = ?').get(id)).toEqual({ s: null })
@@ -376,12 +408,12 @@ describe('after sharing', () => {
   test('answers that ran dev environment commands are not all known', async () => {
     const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
     dbAnswer(id, 'alice', null, 'ran it', { read: ['shared/glossary.md'], steps: [{ id: 'b1', kind: 'tool', tool: 'box_shell', label: 'Dev environment command · cat groups/finance/budget.md', status: 'ok', startedAt: at(), endedAt: at() }] })
-    expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ people: 1, unknown: true })
+    expect(confirmOf(await share('alice', id, undefined, true)).check).toMatchObject({ unchecked: 1, fileAnswers: 0 })
     // a crash lost the step, the command's audit line is there
     const lost = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
     const a = dbAnswer(lost, 'alice', null, 'ran it', { read: ['shared/glossary.md'] })
     db().query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('alice', 'dev_env.command', ?, ?, ?)").run(projectId, JSON.stringify({ turnId: a.turnId, command: 'cat x' }), at())
-    expect(confirmOf(await share('alice', lost)).provenance).toMatchObject({ unknown: true })
+    expect(confirmOf(await share('alice', lost, undefined, true)).check).toMatchObject({ unchecked: 1 })
   })
 
   test('an answer without a turn row (older data) counts as before the share: its steps are the words alone for others', async () => {
@@ -397,17 +429,17 @@ describe('after sharing', () => {
     // the first start was written first but dated later; the second start (whose session emptied the scope) dated earlier
     dbAnswer(id, 'alice', null, 'old start', { when: '2099-01-01T00:00:00.000Z' })
     dbAnswer(id, 'alice', null, 'new start', { read: ['shared/glossary.md'], when: '2020-01-01T00:00:00.000Z' })
-    expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ unknown: true })
+    expect(confirmOf(await share('alice', id, undefined, true)).check).toMatchObject({ unchecked: 1 })
   })
 
   test('ask: the question first even when nothing applies; the key shares (and the audit says it was confirmed)', async () => {
     const id = dbChat('alice', { scope: [] })
     dbAnswer(id, 'alice', null, 'nothing narrow', { read: ['shared/glossary.md'] })
     const r = confirmOf(await h.api('alice').call(API.shareChat, { params: { id }, body: { ask: true } }))
-    expect(r).toMatchObject({ audience: 1, provenance: null, memories: false })
+    expect(r).toMatchObject({ audience: 1, check: { memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], unchecked: 0 } })
     expect(sharedAt(id)).toBeNull()
     expect((await share('alice', id, r.confirmKey)).status).toBe('shared')
-    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, people: 0, unknown: false, memories: false, confirmed: true }])
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, answers: 0, unchecked: 0, memories: false, confirmed: true }])
     // a key that is sent must be this state's, also when nothing applies: stale or made up, it asks again
     const other = dbChat('alice', { scope: [] })
     dbAnswer(other, 'alice', null, 'nothing narrow', { read: ['shared/glossary.md'] })
@@ -416,7 +448,7 @@ describe('after sharing', () => {
     db().query("INSERT INTO group_members VALUES ('finance', 'erin')").run()
     try {
       const again = confirmOf(await share('alice', other, k1))
-      expect(again).toMatchObject({ reason: 'changed', audience: 2, provenance: null })
+      expect(again).toMatchObject({ reason: 'changed', audience: 2, check: { added: 2, fileAnswers: 0, memoryAnswers: 0, places: [] } })
       expect(sharedAt(other)).toBeNull()
       expect((await share('alice', other, again.confirmKey)).status).toBe('shared')
     } finally { db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run() }
@@ -440,7 +472,7 @@ describe('after sharing', () => {
     }
     try {
       const r = confirmOf(await share('alice', id))
-      expect(r).toMatchObject({ audience: 3, provenance: { people: 3, places: [{ kind: 'folder', path: 'projects/falcon' }] } })
+      expect(r).toMatchObject({ audience: 3, check: { added: 3, fileAnswers: 1 } })
       expect(sharedAt(id)).toBeNull()
     } finally {
       store.chatRow = chatRow

@@ -377,7 +377,10 @@ export const ACCESS_COUNT_DEBOUNCE_MS = 400
 
 /** The server's count for the line under the picker; `hiddenAnswers`: the answers of its shared chats the people who
  * gain it would start seeing although they used places some of them can't open (the widening warning) */
-export interface AccessCount { n: number; hiddenAnswers?: number }
+export interface AccessCount { n: number; hiddenAnswers?: number
+  /** the whole dry run these counts came from, and the participants it was for (`for`: their key): the Members dialog
+   * shows what the people added would see in place and saves in one press when its own check still says the same */
+  preview?: ProjectAccessPreview; for?: string }
 
 /** How many people would see the project with these participants (the server's dry run; `removeRules`: other settings
  * of its folder taken out too), asked again 400 ms after the last change (QA TC-1408: the dry run also counts the
@@ -399,7 +402,7 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
     const h = setTimeout(() => {
       api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.removeRules?.length ? { removeRules: [...o.removeRules] } : {}) } }).then((r) => {
         if (!live) return
-        last.current = { n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}) }
+        last.current = { n: r.people, ...(r.hiddenAnswers ? { hiddenAnswers: r.hiddenAnswers } : {}), preview: r, for: `${key}|${removing}` }
         setN(last.current)
       }, (e) => {
         if (!live) return

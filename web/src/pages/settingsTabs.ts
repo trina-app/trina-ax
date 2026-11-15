@@ -3,13 +3,13 @@
 // what the AI remembers about you, what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
 // components/settings/AiAllowances.tsx); the whole team's usage is Admin › Usage) · Connections (Connectors: the AI
 // using other services with your accounts, pages/Connectors.tsx, for everyone, its pages under it at
-// /settings/connectors/<id>; Providers: your own AI accounts, while the team lets members add their own or one is still
+// /settings/connectors/<id>; AI providers: your own AI accounts, while the team lets members add their own or one is still
 // there; AI apps: outside AI apps such as Claude using this server) · App (notices, the apps to install, about).
 // The same groups as Admin's menu, which has no AI group either. Every section is just for you (Admin is the team's).
 // "Browser" is there inside a desktop app that offers it (the AI has the browser only there, server/src/chat/turn.ts);
 // on the web and phones only while the person's own "Allow all websites" for the AI's web reads is on, so it can be
 // turned off again (Me.user.webAllowAll, while the team allows it: Me.team.webAllowAll). Old addresses: /settings/integrations
-// and /connectors (Connectors), /settings/drive (Connectors › Google Drive), /settings/credentials (Providers,
+// and /connectors (Connectors), /settings/drive (Connectors › Google Drive), /settings/credentials (AI providers,
 // /settings/providers), SettingsDialog.tsx and App.tsx. "Dev
 // environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
 // is there while the dev environment on srt is on for her.

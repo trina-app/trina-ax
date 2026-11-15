@@ -26,7 +26,7 @@ async function signInGuest(page: Page, id = 'gina') {
   await expect(page.getByTestId('login-submit')).toHaveCount(0)
 }
 
-const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
+const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitTokens: 5_000_000 }
 
 async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind: 'project'; name: string; instructions?: string }, ai: GuestAiChoice = { mode: 'none' }) {
   await reset(page)
@@ -109,7 +109,7 @@ test.describe('computer', () => {
     // nothing answers yet: no starters (Catch up …), only the line that connects their AI
     await expect(side.getByTestId('side-chat-empty')).toBeVisible()
     await expect(side.getByTestId('side-chat-starters')).toHaveCount(0)
-    // Settings › AI accounts: their own Claude sign-in, in place
+    // Settings › AI providers: their own Claude sign-in, in place
     await page.goto('/settings/providers')
     // only their own account answers them: no word of team or company accounts
     await expect(page.getByText('내 질문에는 내 계정만 써요. 여기서 Claude나 ChatGPT 계정을 연결해 주세요.')).toBeVisible()
@@ -131,10 +131,15 @@ test.describe('computer', () => {
     await page.goto('/')
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
-    // and their room's ✦ side chat has its starters
+    // and their room's ✦ side chat opens with its box, but no room starters and no "Looking at" line: a guest's AI
+    // cannot read the room (docs/DECISIONS.md "The AI tells a guest the truth"); the line says to quote or paste
     await page.goto(`/rooms/${GROUP}`)
     await page.getByTestId('room-side-chat-button').click()
-    await expect(page.getByTestId('side-chat-panel').getByTestId('side-chat-starters')).toBeVisible()
+    const panel = page.getByTestId('side-chat-panel')
+    await expect(panel.getByTestId('side-chat-empty')).toBeVisible()
+    await expect(panel.getByTestId('side-chat-starters')).toHaveCount(0)
+    await expect(panel.getByTestId('side-chat-context')).toHaveCount(0)
+    await expect(panel.getByTestId('side-chat-empty')).toContainText('인용하거나 붙여 넣고')
   })
 
   test('a guest with their own sign-in connects it from the line above the box', async ({ page }) => {

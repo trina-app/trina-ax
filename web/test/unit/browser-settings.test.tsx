@@ -69,7 +69,7 @@ describe('where Settings > Browser shows', () => {
     expect(ids).toContain('connectors')
     expect(ids.indexOf('dev-env-sites')).toBe(ids.indexOf('ai-apps') + 1)
   })
-  test('Connectors leads the Connections group, then Providers, after Account ends with what the AI remembers and what I allowed it, with or without the Browser tab', () => {
+  test('Connectors leads the Connections group, then AI providers, after Account ends with what the AI remembers and what I allowed it, with or without the Browser tab', () => {
     expect(settingsTabs(true, true).map((x) => x.id).slice(0, 9)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'allowances', 'connectors', 'providers', 'ai-apps'])
     expect(settingsTabs(false, true).map((x) => x.id).slice(0, 8)).toEqual(['profile', 'security', 'usage', 'memory', 'allowances', 'connectors', 'providers', 'ai-apps'])
   })

@@ -1,7 +1,7 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
 // address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, a picture put on the clipboard (이미지 복사), team list and the teams menu, and
-// Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
+// a connector sign-in's one-time return address (its port only), Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
@@ -51,6 +51,7 @@ const bridge: DesktopBridge = {
   systemActivity: { onChange: on('bridge:system-activity') },
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   teamMenu: () => ipcRenderer.send('bridge:team-menu'),
+  hostLine: (drawn) => ipcRenderer.send('bridge:host-line', drawn === true),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
   setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
@@ -64,6 +65,7 @@ const bridge: DesktopBridge = {
           scan: (o?: { wide?: boolean; words?: string[] }) => ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {}),
           stop: () => ipcRenderer.send('bridge:work-files-stop'),
           onProgress: on('bridge:work-files-progress'),
+          add: (ids: string[]) => ipcRenderer.invoke('bridge:work-files-add', Array.isArray(ids) ? ids.slice(0, 101).map(String) : []),
           read: (id: string) => ipcRenderer.invoke('bridge:work-files-read', String(id)),
           openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
           pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),
@@ -79,6 +81,11 @@ const bridge: DesktopBridge = {
         },
       }
     : {}),
+  // a connector sign-in's one-time return address on 127.0.0.1 (common/sign-in-return.ts): its port, never its requests
+  signInReturn: {
+    open: () => ipcRenderer.invoke('bridge:sign-in-return-open'),
+    close: (port) => ipcRenderer.send('bridge:sign-in-return-close', Number(port)),
+  },
   browserSettings: {
     get: () => ipcRenderer.invoke('bridge:browser-settings'),
     onChange: on('bridge:browser-settings'),

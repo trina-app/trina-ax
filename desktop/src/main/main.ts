@@ -25,7 +25,7 @@ import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { LINK_SCHEME, linkFromArgv } from '../common/address'
-import { partitionFor } from '../common/teams'
+import { dataDirName, partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
@@ -41,6 +41,7 @@ import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
+import { SignInReturn } from '../common/sign-in-return'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -64,8 +65,9 @@ app.setName(PRODUCT.displayName)
 const aumid = windowsAppUserModelId({ platform: process.platform, windowsStore: process.windowsStore })
 if (aumid) app.setAppUserModelId(aumid)
 // the settings folder keeps its first name (PRODUCT.desktopDataDir) when the product is renamed: Electron would
-// otherwise take the new name and every desk would forget its teams, window and language
-app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), PRODUCT.desktopDataDir))
+// otherwise take the new name and every desk would forget its teams, window and language. A development run keeps its
+// own folder next to it (common/teams.ts dataDirName): its dev teams never reach the installed app.
+app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), dataDirName(PRODUCT.desktopDataDir, app.isPackaged)))
 
 // Sandboxed srcdoc frames (artifacts, previews) stay in the team page's renderer process, so the page-level
 // document-start script that removes RTCPeerConnection reaches them before their own scripts run. Electron's
@@ -136,6 +138,8 @@ if (primary) app.on('open-url', (e, url) => {
 })
 
 let win: AppWindow | undefined
+/** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
+const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -300,11 +304,12 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
-  // the team page's "다른 팀으로 전환": the OS menu's own team list as a menu under the pointer (the page never sees it)
-  ipcMain.on('bridge:team-menu', (e) => {
-    if (!fromApp(e) || !win) return
-    Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
-  })
+  // the team page's "다른 팀으로 전환" from a page that still asks for the menu under the pointer (team servers before
+  // 2026-11-15): the app's own team screen as well. The floating menu over the rail is gone (owner 2026-11-15); the OS
+  // menu's 팀 keeps every team and ⌘1–9.
+  ipcMain.on('bridge:team-menu', (e) => fromApp(e) && win!.showWelcome())
+  // the team page draws the address and "Switch team" under its sign-in card: no strip above it there
+  ipcMain.on('bridge:host-line', (e, drawn: unknown) => fromApp(e) && win?.setPageHostLine(drawn === true))
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
   // 이미지 복사 (the image viewer, a picture's right-click menu): the PNG the page read through its own file routes goes on
   // the computer's clipboard as a picture; nothing is fetched here. Bytes that are no PNG the system can draw: false
@@ -338,6 +343,8 @@ function registerIpc() {
   ipcMain.on('bridge:work-files-full-disk-settings', (e) => fromApp(e) && win!.workFiles.openFullDiskSettings())
   ipcMain.on('bridge:work-files-relaunch', (e) => { if (fromApp(e)) void win!.workFiles.relaunch() })
   ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
+  // TC-3300: the files the person ticked, asked again in the app's own window before any is read (ids only, never a path)
+  ipcMain.handle('bridge:work-files-add', (e, ids: unknown) => (fromApp(e) && e.senderFrame && Array.isArray(ids) && ids.length <= 100 && ids.every((id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id)) ? win!.workFiles.add(e.senderFrame.origin, ids as string[]) : { state: 'refused' }))
   ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
   ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())
   // "Choose it yourself": a folder macOS kept the app out of, picked in the system's folder window (only a root's id)
@@ -346,6 +353,10 @@ function registerIpc() {
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
   // only a request, committed by the person's click on the app's own dialog (AppWindow.requestAllowAll).
+  // a connector sign-in's return address: only for the team page's top frame at the team's own address (not its pinned
+  // direct one), and it goes only there (common/sign-in-return.ts)
+  ipcMain.handle('bridge:sign-in-return-open', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? signInReturn.open(e.senderFrame.origin) : null))
+  ipcMain.on('bridge:sign-in-return-close', (e, port: unknown) => fromApp(e) && typeof port === 'number' && signInReturn.close(port))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
     if (!fromApp(e) || !win?.pane) return 'unavailable'
@@ -369,8 +380,7 @@ function registerIpc() {
 
 // ------------------------------------------------------------------ menu
 
-/** The 팀 menu's items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). One list for the OS menu
- * and the team page's "다른 팀으로 전환" (bridge:team-menu). */
+/** The OS menu's 팀 items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). */
 function teamMenuItems(): MenuItemConstructorOptions[] {
   const tr = (k: UiKey) => t(locale(), k)
   const teamItems: MenuItemConstructorOptions[] = (win?.teamList() ?? []).map((x, i) => ({
@@ -445,6 +455,7 @@ async function createWindow() {
     // quitting closes the window before will-quit: keep which team it showed (its cookies are written on quit)
     lastTeam = win?.team?.id ?? lastTeam
     win = undefined
+    signInReturn.close()
   })
   buildMenu()
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined

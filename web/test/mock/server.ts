@@ -97,7 +97,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, CHAT_FILES_FOLDER, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
 import { say as connectionSay } from '../../../server/src/integrations/connections/text'
@@ -395,7 +395,9 @@ export class MockServer {
   rooms: Room[] = []
   /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
    * one's one place and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
-  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean }>()
+  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean; usedTokens?: number; aiUsedUp?: boolean }>()
+  /** the team's tokens per answer (GuestInviteLimit.answerTokens): POST /__test/answer-tokens */
+  answerTokens: { tokens: number; from: 'team' | 'default' } = { tokens: 80_000, from: 'default' }
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
    * server) and whether every seat is taken (making a guest a member is then refused, 409 seat_limit) */
   guestCap: number | null = null
@@ -771,6 +773,7 @@ export class MockServer {
     this.guests.clear()
     this.guestCap = null
     this.hostSignIn = false
+    this.answerTokens = { tokens: 80_000, from: 'default' }
     this.seatsFull = false
     this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
@@ -989,6 +992,13 @@ export class MockServer {
     return RuleSet.fromWorld({ rows: [...this.folders.flatMap((f) => f.rules.filter((r) => r.access !== 'none').map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))), ...projectRules], limited })
   }
   explainPrincipal(u: User) { return { id: u.id, name: u.name, role: u.role, groups: u.groupIds } }
+  memberWelcomeFor(userId: string): MemberWelcome | null {
+    const w = this.memberWelcome
+    if (!w) return null
+    const from = `users/${userId}/${FROM_COMPUTER_DIR}/`
+    const files = [...this.files].some(([p, n]) => n.type === 'file' && p.startsWith(from))
+    return { ...w, steps: { ...w.steps, files }, ...(w.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) }
+  }
   isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
   explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
     const input = folderInput(q.path)
@@ -1507,17 +1517,33 @@ export class MockServer {
   }
   /** Me.guest and User.guest: a guest's place by name and AI; for a removed guest why they are not in it (placeOut, as
    * POST /__test/guest {out} sets it; a deleted place keeps no name), and a Team AI whose account was deleted. */
-  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true } } {
+  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true; aiUsedUp?: true; aiUse?: { usedTokens: number; usedUsd: number; resetsAt: string } } } {
     const g = this.guests.get(u.id)
     if (!g) return {}
     const out = u.status !== 'active' ? g.out : undefined
     const place = this.guestPlaceNamed(g.place) ?? (out ? { ...g.place, name: out === 'gone' ? '' : String((this.projects.find((x) => x.id === g.place.id) ?? this.rooms.find((x) => x.id === g.place.id))?.name ?? '') } : null)
-    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}) } } : {}
+    // like server/src/auth/guests.ts guestDetail: Team AI's use of this month's limit and when it starts over
+    const team = !g.teamAiGone && g.ai.mode === 'team'
+    const d = new Date()
+    const aiUse = team ? { usedTokens: g.usedTokens ?? 0, usedUsd: 0, resetsAt: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString() } : null
+    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}), ...(team && g.aiUsedUp ? { aiUsedUp: true as const } : {}), ...(aiUse ? { aiUse } : {}) } } : {}
   }
   /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
   assertGuestFree() {
     const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
     if (this.guestCap !== null && used >= this.guestCap) throw new Fail('plan_limit', 409, `The plan's guest limit (${this.guestCap}) is reached.`, undefined, { reason: 'guest_limit', limit: this.guestCap, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
+  }
+  /** guest links nobody used, turned off or let run out: each holds a guest place (server/src/auth/guest-invites.ts
+   * openGuestLinks; guest walkthrough M4) */
+  openGuestLinks(): number {
+    return this.invites.filter((i) => i.role === 'guest' && !i.usedAt && !(i as { deadReason?: string }).deadReason && Date.parse(i.expiresAt) > Date.now()).length
+  }
+  /** a new guest link needs a place no open link holds (assertGuestLinkFree) */
+  assertGuestLinkFree() {
+    this.assertGuestFree()
+    const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
+    const pending = this.openGuestLinks()
+    if (this.guestCap !== null && used + pending + 1 > this.guestCap) throw new Fail('plan_limit', 409, `Guests are limited to ${this.guestCap}, and counting invite links not used yet, every place is taken.`, undefined, { reason: 'guest_limit', limit: this.guestCap, pending, changePlan: true, manageUrl: 'https://plans.example.com/acme' })
   }
 
   me(u: User, sid: string): Me {
@@ -2213,7 +2239,7 @@ export class MockServer {
       } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
       else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
       // the monthly limit used up (server/src/admin/budgets.ts budgetBlock): when it resets, 00:00 KST on Dec 1
-      else if (fixture?.[2] === 'budget') assistant.error = { code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요. 12월 1일 0시부터 다시 쓸 수 있어요.', params: { resetsAt: '2026-11-30T15:00:00.000Z' } }
+      else if (fixture?.[2] === 'budget') assistant.error = { code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요. 12월 1일 0시부터 다시 쓸 수 있어요.', params: { resetsAt: '2026-11-30T15:00:00.000Z', own: true } }
     }
     if (/sources/i.test(prompt)) {
       // like server/src/files/sources.ts: what the answer read or saw passages of, a sub-agent's read marked; one file
@@ -2355,7 +2381,8 @@ export class MockServer {
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     // a guest: their one room and their DMs only (server/src/auth/guests.ts)
-    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
+    // a guest never renames a room (server/src/rooms/store.ts mayRename): canRename false for them
+    listRooms: (c) => ({ items: c.user.role === 'guest' ? this.rooms.filter((r) => r.kind === 'dm' || r.id === this.guests.get(c.user.id)?.place.id).map((r) => ({ ...r, canRename: false })) : this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
@@ -2483,7 +2510,9 @@ export class MockServer {
       // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
       const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
       if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
+      // a guest link while the guests are full keeps its inviter (guest walkthrough M3)
+      const guestsFull = i!.role === 'guest' && this.guestCap !== null && this.users.filter((u) => u.role === 'guest' && u.status === 'active').length >= this.guestCap
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(guestsFull ? { full: true } : {}), ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -2654,7 +2683,7 @@ export class MockServer {
       return { status: 'sent', message, cut }
     },
     // the rooms' own reads: what was sent here, the room's people, no AI at work
-    getRoom: (c) => this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404),
+    getRoom: (c) => ((r) => (c.user.role === 'guest' ? { ...r, canRename: false } : r))(this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)),
     listRoomMessages: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
@@ -2687,10 +2716,12 @@ export class MockServer {
       if (place.kind === 'room' && !this.rooms.some((r) => r.id === place.id && r.kind === 'group')) fail('forbidden', 403)
       if (place.kind === 'project') {
         const pr = this.projects.find((x) => x.id === place.id && !x.inTrash) ?? fail('not_found', 404)
+        // a personal project is no guest place until shared (server/src/auth/guest-invites.ts inviteMakerOk)
+        if (pr.folderPath.startsWith('users/')) fail('forbidden', 403)
         if (!staff && pr.createdBy?.id !== c.user.id) fail('forbidden', 403)
       }
       if (c.body.ai.mode === 'team' && !staff) fail('forbidden', 403)
-      this.assertGuestFree()
+      this.assertGuestLinkFree()
       const token = 'inv' + uuidv7().replace(/-/g, '')
       const i = { id: uuidv7(), role: 'guest' as const, groupIds: [] as string[], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInHours ?? 168) * 3600_000).toISOString(), usedAt: null, usedBy: null, leadFor: null, guestPlace: place, guestAi: c.body.ai as GuestAiChoice, ...(c.body.name ? { guestName: c.body.name as string } : {}), token }
       this.invites.push(i)
@@ -2701,7 +2732,9 @@ export class MockServer {
     guestInviteLimit: (c) => {
       const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
-      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}),
+      const pending = this.guestCap === null ? 0 : this.openGuestLinks()
+      const full = this.guestCap !== null && used + pending >= this.guestCap
+      return { full, limit: this.guestCap, ...(full && pending && staff && this.guestCap !== null && used < this.guestCap ? { pending } : {}), ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme', answerTokens: this.answerTokens } : {}),
         ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }
     },
     updateGuestAi: (c) => {
@@ -3011,7 +3044,7 @@ export class MockServer {
     // a personal project becomes a team project: a new projects/<name> with the participants, its files copied there
     shareProject: (c) => {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.')
+      if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.', { 'params.id': 'not a personal project' })
       const people = this.users.filter((u) => u.status === 'active' && (u.role !== 'member' || (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId))))).filter((u) => u.id !== c.user.id)
       // (a member's dry run leaves the owner and admins out, as the server's)
       if (c.body.dryRun) return c.user.role === 'member' ? { viewersAdded: people.filter((u) => (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))).length, adminsApart: true } : { viewersAdded: people.length }
@@ -3637,7 +3670,8 @@ export class MockServer {
       return { token, url: `/reset-password/${token}`, expiresAt }
     },
     // a guest link's project by name (server/src/auth/accounts.ts toInvite; never a room's)
-    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl?.kind === 'project' ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
+    // a guest link names its project or room (server/src/auth/accounts.ts toInvite)
+    listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => ((pl) => (pl ? { ...i, guestPlace: { ...pl, name: this.guestPlaceNamed(pl)?.name ?? '' } } : i))((i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace)) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
       // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
@@ -3840,11 +3874,12 @@ export class MockServer {
     getWelcome: () => ({ progress: this.welcome }),
     // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
     // an admin's "팀 파일 정리하기" row goes once a folder plan was applied (server/src/onboarding/member-welcome.ts)
-    getMemberWelcome: () => ({ welcome: this.memberWelcome && { ...this.memberWelcome, ...(this.memberWelcome.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) } }),
+    // the desktop app's optional files row: a file in the caller's My files › From this computer (looked at on every read)
+    getMemberWelcome: (c) => ({ welcome: this.memberWelcomeFor(c.user.id) }),
     updateMemberWelcome: (c) => {
       if (c.body.hide) this.memberWelcome = null
       else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
-      return { welcome: this.memberWelcome }
+      return { welcome: this.memberWelcomeFor(c.user.id) }
     },
     updateWelcome: (c) => {
       const at = now()
@@ -5916,7 +5951,15 @@ export class MockServer {
       const g = this.guests.get(u.id)!
       if (body.out === 'left' || body.out === 'trashed' || body.out === 'gone') g.out = body.out
       if (body.teamAiGone === true) g.teamAiGone = true
+      // Team AI's use this month (tokens) and whether the limit is used up
+      if (typeof body.usedTokens === 'number') g.usedTokens = body.usedTokens
+      if (body.aiUsedUp === true) g.aiUsedUp = true
       return Response.json({ id: u.id })
+    }
+    // the team's tokens per answer the invite's "about N answers" uses ({tokens, from: 'team' | 'default'})
+    else if (p === '/__test/answer-tokens') {
+      this.answerTokens = { tokens: Number(body.tokens), from: body.from === 'team' ? 'team' : 'default' }
+      return Response.json({ ok: true })
     }
     // a team AI account (an API key, checked), for the guest invite's Team AI choice
     else if (p === '/__test/team-credential') {
@@ -5950,9 +5993,12 @@ export class MockServer {
     // a team project as another person made it (members only: the owner and admins are not in it unless chosen)
     else if (p === '/__test/project') {
       const by = this.users.find((u) => u.id === String(body.by ?? 'bob')) ?? fail('validation', 400, 'no such person')
-      const folderPath = `projects/${String(body.name)}`
-      for (const d of ['projects', folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
-      this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
+      // `personal`: one of `by`'s personal projects (users/<by>/projects/<name>, no members)
+      const personal = body.personal === true
+      const parent = personal ? `users/${by.id}/projects` : 'projects'
+      const folderPath = `${parent}/${String(body.name)}`
+      for (const d of [...(personal ? [`users/${by.id}`] : []), parent, folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
+      if (!personal) this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
       const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
       this.projects.push(pr)
       // made before the update to members-only projects (the card on Admin › Home, GET /api/projects/update-notice)
@@ -6023,16 +6069,18 @@ export class MockServer {
   // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
   // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
   // (sharedChats with no project, so turns, authors and the 404 of everyone else work as there), with who it is shared
-  // with here. Test-only: POST /__test/chat-share {confirm?: {hiddenAnswers?, memories?, people?, places?} | null (adds
-  // that bring in new people answer "confirm" with these until the next reset; the key is "ok:<the picks>"), fail?: n
-  // (the next n saves answer 500)}. A saved add leaves a "chat.shared" notice for each person who starts to see it.
+  // with here. Test-only: POST /__test/chat-share {confirm?: {memoryAnswers?, fileAnswers?, accountAnswers?, places?,
+  // roomsUnseen?, unchecked?, earlierFiles?} | null (what the preview and a save's check say for adds that bring in new
+  // people until the next reset; a save of new people needs the key "ok:<the picks>", the preview's), fail?: n (the
+  // next n saves answer 500), previewFail?: n (the next n previews answer 503)}. A saved add leaves a "chat.shared" notice for each person who starts to see it.
   peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
   /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
   peopleHidden = new Set<string>()
   /** who was one of a chat's people (chat_audience_past): their link says "no longer shared with you" (QA TC-2009) */
   peoplePast = new Map<string, Set<string>>()
-  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[]; earlierFiles?: number } | null = null
+  peopleConfirm: { memoryAnswers?: number; fileAnswers?: number; accountAnswers?: number; places?: AnswerSharePlace[]; roomsUnseen?: boolean; unchecked?: number; earlierFiles?: number } | null = null
   peopleFail = 0
+  peoplePreviewFail = 0
   /** POST /__test/chat-share {filesNotCopied}: the next first share says this many earlier files could not go with it */
   peopleNotCopied = 0
   readonly peopleSharedInstalled = this.installPeopleShared()
@@ -6108,7 +6156,8 @@ export class MockServer {
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
       if (p !== '/__test/chat-share') return baseControl(p, req)
-      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number; filesNotCopied?: number }
+      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number; filesNotCopied?: number; previewFail?: number }
+      if (body.previewFail !== undefined) this.peoplePreviewFail = body.previewFail
       if (body.confirm !== undefined) this.peopleConfirm = body.confirm
       if (body.filesNotCopied !== undefined) this.peopleNotCopied = body.filesNotCopied
       if (body.fail !== undefined) this.peopleFail = body.fail
@@ -6191,7 +6240,8 @@ export class MockServer {
         }
       })
     }
-    h.putChatAudience = (c) => {
+    // the save and its dry run (the Share dialog's preview, QA TC-3092): one body, `dry` returns the check and its key
+    const putOrPreview = (c: Ctx & { body: { subjects: unknown[]; confirmKey?: string } }, dry: boolean): unknown => {
       const chat = sees(c.params.id!, c.user)
       const no = (status: number, reason: string, message: string): never => fail(status === 400 ? 'validation' : 'conflict', status, message, undefined, { reason })
       const s = this.sharedChats.get(chat.id)
@@ -6209,6 +6259,7 @@ export class MockServer {
       const before = ps?.subjects ?? []
       const added = wanted.filter((x) => !before.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
       const removed = before.filter((x) => !wanted.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId))
+      if (dry && !added.length && !removed.length) return { check: { added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }, previewKey: '' }
       if (!added.length && !removed.length) {
         if (!ps) no(400, 'needs_people', '이 채팅을 공유할 사람이나 그룹을 한 명 이상 골라 주세요.')
         return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
@@ -6219,7 +6270,8 @@ export class MockServer {
         const ok = x.subjectType === 'user' ? this.users.some((u) => u.id === x.subjectId && u.status === 'active') : this.groups.some((g) => g.id === x.subjectId && (c.user.role !== 'member' || g.memberIds.includes(c.user.id)))
         if (!ok) no(400, 'unknown_subject', '고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 그룹이 있어요. 다시 골라 주세요.')
       }
-      if (this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
+      if (dry && this.peoplePreviewFail > 0) { this.peoplePreviewFail--; fail('unavailable', 503, 'preview failed on purpose') }
+      if (!dry && this.peopleFail > 0) { this.peopleFail--; fail('internal', 500, 'save failed on purpose') }
       const was = new Set(ps ? this.peopleAudience(chat.id) : [c.user.id])
       const resolve = (subjects: typeof wanted) => {
         const out = new Set([c.user.id])
@@ -6239,11 +6291,11 @@ export class MockServer {
         groups: afterGroups.filter((g) => g.memberIds.includes(x.subjectId) && (c.user.role !== 'member' || g.memberIds.includes(c.user.id))).map((g) => g.name),
       })).filter((k) => k.groups.length)
       const k = `ok:${key(wanted)}`
-      const ask = this.peopleConfirm
-      if (gained.length && ask && c.body.confirmKey !== k) {
-        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}), confirmKey: k,
-          provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
-      }
+      const ask = this.peopleConfirm ?? {}
+      const check = { added: gained.length, memoryAnswers: ask.memoryAnswers ?? 0, fileAnswers: ask.fileAnswers ?? 0, accountAnswers: ask.accountAnswers ?? 0, places: ask.places ?? [], otherPlaces: false, roomsUnseen: !!ask.roomsUnseen, unchecked: ask.unchecked ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}) }
+      if (dry) return { check, previewKey: gained.length ? k : '' }
+      // a save that brings anyone in carries the key of the check (the preview's): else the check, nothing saved
+      if (gained.length && c.body.confirmKey !== k) return { status: 'confirm', check, confirmKey: k, reason: c.body.confirmKey === undefined ? 'unchecked' as const : 'changed' as const }
       // who saw it, before or after (never its creator)
       const past = this.peoplePast.get(chat.id) ?? new Set<string>()
       for (const id of [...was, ...after]) if (id !== c.user.id) past.add(id)
@@ -6267,6 +6319,8 @@ export class MockServer {
       if (!ps) this.peopleNotCopied = 0
       return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user), ...(notCopied ? { filesNotCopied: notCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
     }
+    h.putChatAudience = (c) => putOrPreview(c, false) as never
+    h.previewChatAudience = (c) => putOrPreview(c, true) as never
     const hide = (c: Ctx, on: boolean) => {
       const chat = sees(c.params.id!, c.user)
       const s = this.sharedChats.get(chat.id)
@@ -6929,23 +6983,18 @@ export class MockServer {
       const others = this.sharedAudience(p).filter((u) => u.id !== c.user.id)
       const msgs = this.messages.filter((m) => m.chatId === chat.id)
       const blind = new Set<string>()
-      const places = new Map<string, AnswerSharePlace>()
-      let otherPlaces = false
       for (const f of msgs.filter((m) => m.role === 'assistant').flatMap((m) => this.sources.get(m.id) ?? [])) {
-        const miss = others.filter((u) => this.access(f.path, u) === 'none')
-        if (!miss.length) continue
-        for (const u of miss) blind.add(u.id)
-        const place: AnswerSharePlace | null = f.path.startsWith(`users/${c.user.id}/`) ? { kind: 'mine' } : this.access(f.path, c.user) !== 'none' ? { kind: 'folder', path: f.path.split('/').slice(0, -1).join('/') } : null
-        if (place) places.set(JSON.stringify(place), place)
-        else otherPlaces = true
+        for (const u of others.filter((x) => this.access(f.path, x) === 'none')) blind.add(u.id)
       }
       const memories = msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
       const confirmKey = `mock-share-${chat.id}-${this.shareEpoch}-${others.length}`
       // `ask` (the title menu): the question first even when nothing applies
       if ((blind.size || memories || c.body.ask || c.body.confirmKey !== undefined) && c.body.confirmKey !== confirmKey) {
+        // (each answer's own files: counted by answer, as the server's check: chat/audience-check.ts)
+        const fileAnswers = msgs.filter((m) => m.role === 'assistant' && (this.sources.get(m.id) ?? []).some((f) => others.some((u) => this.access(f.path, u) === 'none'))).length
         return {
-          status: 'confirm', audience: others.length, memories, confirmKey,
-          provenance: blind.size ? { people: blind.size, places: [...places.values()], otherPlaces } : null,
+          status: 'confirm', audience: others.length, confirmKey,
+          check: { added: others.length, memoryAnswers: memories ? msgs.filter((m) => m.role === 'assistant').length : 0, fileAnswers, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 },
           ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
         }
       }

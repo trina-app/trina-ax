@@ -1,5 +1,5 @@
 // "Trina isn't ready yet" (chat error engine_missing, owner decision 2026-11-11): one button by who reads it
-// (components/chat/NotReadyButton.tsx). The owner and an admin get [Connect AI] (to Admin › AI accounts); a member gets
+// (components/chat/NotReadyButton.tsx). The owner and an admin get [Connect AI] (to Admin › AI providers); a member gets
 // [Tell an admin], which turns into "Told" once sent; nobody gets both.
 import { afterEach, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'

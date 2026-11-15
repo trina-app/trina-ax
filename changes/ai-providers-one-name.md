@@ -1,0 +1,1 @@
+- Admin and Settings now use one name, **AI providers** (Korean AI 제공사). Settings called it "AI accounts" and Admin "Providers". On a phone, Admin's list inside Settings says **Team AI providers** so the two rows differ. Searching Settings for "AI accounts" or "providers" still finds it.

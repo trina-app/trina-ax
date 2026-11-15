@@ -10,6 +10,11 @@
 //   d. "Ask {AI} what you can do here" (one tap starts a normal chat with a fixed question, which opens; done once it
 //   ran). While no AI answers them, row d is the no-AI way out instead (components/onboarding/ConnectAi.tsx): connect
 //   their own AI (or the team's, for an admin), or "Tell {owner}" once ("Told them" after); it goes back to the question once AI answers.
+// - The desktop app only (useMyWorkFiles: not in a browser, a phone's app, the Mac App Store build or an app without the
+//   bridge's version; hidden on a narrow window like My files' line): "Bring work files from this computer" (optional,
+//   not counted, like the photo): My files' own "Find work files on this computer" dialog, the files to My files › From
+//   this computer, the person's own AI picks, nothing ticked. Done once a file is there (the server looks; Undo makes it
+//   not done again). Every way out of the dialog comes back to the card.
 // - An admin also gets "팀 파일 정리하기" (not counted) while nobody applied the setup's folder plan: the 팀 파일 step in a
 //   dialog (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders").
 // - Every counted row done: "You're all set" with Close, then gone for good.
@@ -18,7 +23,8 @@
 import clsx from 'clsx'
 import { Check } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { PRODUCT } from '@mycel/shared'
 import { SHARED_HOME, uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { squarePhoto } from '../../lib/avatar'
@@ -33,6 +39,9 @@ import { toast } from '../../store/ui'
 import { Button, Modal } from '../ui'
 import { useWelcome } from '../../store/welcome'
 import { ConnectAiButton } from './ConnectAi'
+import { useMyWorkFiles } from './FindWorkFiles'
+import { runFolder } from '../../lib/workFiles'
+import { hasResume } from '../../lib/workFilesResume'
 import { TeamFilesStep } from './TeamFilesStep'
 
 /** The name to greet: the first word of a name with spaces in a script that writes given names first ("Mina Park" →
@@ -49,10 +58,12 @@ export function roomList(rooms: Welcome['rooms'], everyone: string, locale: stri
   try { return new Intl.ListFormat(locale, { type: 'conjunction' }).format(names) } catch { return names.join(', ') }
 }
 
-/** The rows that count toward "{done} of {total}" (the photo is optional). */
+/** The rows that count toward "{done} of {total}" (the photo and the desktop app's files row are optional). */
 export const countedSteps = (s: Welcome['steps']) => ({ done: [s.rooms, s.hi, s.asked].filter(Boolean).length, total: 3 })
 
 const tap = 'max-md:min-h-11'
+/** a row's quiet Open link (the rooms, hi and files rows) */
+const openLink = clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)
 
 export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const t = useT()
@@ -97,6 +108,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         <HiRow welcome={welcome} name={name} />
         <PhotoRow done={welcome.steps.photo} />
         <AskRow welcome={welcome} />
+        <FilesRow done={!!welcome.steps.files} />
         {welcome.organizeFiles && <OrganizeRow />}
       </ul>
     </section>
@@ -130,7 +142,7 @@ function RoomsRow({ welcome }: { welcome: Welcome }) {
   const locale = useLocale()
   return (
     <Row id="rooms" done title={t('memberWelcome.rooms', { rooms: roomList(welcome.rooms, t('rooms.all'), locale) })} hint={t('memberWelcome.roomsHint', { place: t('tabs.chats') })}>
-      <Link to="/rooms" className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-rooms-open">
+      <Link to="/rooms" className={openLink} data-testid="member-welcome-rooms-open">
         {t('memberWelcome.roomsOpen')}
       </Link>
     </Row>
@@ -163,7 +175,7 @@ function HiRow({ welcome, name }: { welcome: Welcome; name: string }) {
   return (
     <Row id="hi" done={welcome.steps.hi} title={t('memberWelcome.hi')} hint={t('memberWelcome.hiHint', { room })}>
       {welcome.steps.hi ? (
-        everyone && <Link to={`/rooms/${everyone.id}`} className={clsx('inline-flex h-8 items-center rounded-lg px-2.5 text-label font-medium text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-hi-open">{t('memberWelcome.roomsOpen')}</Link>
+        everyone && <Link to={`/rooms/${everyone.id}`} className={openLink} data-testid="member-welcome-hi-open">{t('memberWelcome.roomsOpen')}</Link>
       ) : (
         everyone && <Button size="sm" className={tap} busy={busy} onClick={() => void say()} data-testid="member-welcome-hi-button">{text}</Button>
       )}
@@ -207,6 +219,32 @@ function PhotoRow({ done }: { done: boolean }) {
   )
 }
 
+/** "Bring work files from this computer" on the desktop app (optional, not counted): My files' own dialog (useMyWorkFiles),
+ * the files to My files › From this computer. A new file up marks it at once; closing the dialog, and Undo, read the card
+ * again (the server looks in the folder, so Undo makes it not done). Nothing on the web, a phone or an older app. */
+function FilesRow({ done }: { done: boolean }) {
+  const t = useT()
+  const mark = useMemberWelcome((s) => s.mark)
+  const f = useMyWorkFiles({ onChange: () => void useMemberWelcome.getState().load(), onLanded: () => mark('files') })
+  if (!f.available) return null
+  const folder = runFolder(f.own)
+  return (
+    <>
+      {/* a narrow window, as My files' line: no row; the dialog keeps its place in the tree, so one already open stays as it is */}
+      {!f.narrow && (
+        <Row id="files" done={done} optional title={t('memberWelcome.files')} hint={t('memberWelcome.filesHint', { app: PRODUCT.displayName, place: t('files.findWork.myPlace') })}>
+          {done ? (
+            <Link to={`/files?path=${encodeURIComponent(folder)}`} className={openLink} data-testid="member-welcome-files-open">{t('memberWelcome.roomsOpen')}</Link>
+          ) : (
+            <Button size="sm" className={tap} onClick={f.start} data-testid="member-welcome-files-button">{t('memberWelcome.filesButton')}</Button>
+          )}
+        </Row>
+      )}
+      {f.dialog}
+    </>
+  )
+}
+
 /** An admin's "팀 파일 정리하기" while nobody applied the setup's folder plan (docs/DECISIONS.md "Setup 팀 파일: the AI
  * proposes folders"; not counted): the 팀 파일 step in a dialog, as on the Files screen; its plan applied, the card is
  * read again and the row goes. */
@@ -214,7 +252,10 @@ function OrganizeRow() {
   const t = useT()
   const words = useFolderWords()
   const progress = useWelcome((s) => s.progress)
-  const [open, setOpen] = useState(false)
+  const me = useMeStrict()
+  const location = useLocation()
+  // open again after "Restart <product>" on the step's Find work files (the step takes the note and shows that screen)
+  const [open, setOpen] = useState(() => hasResume(me.user.id, 'team', location.pathname + location.search))
   useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
   const close = () => { setOpen(false); void useMemberWelcome.getState().load() }
   return (

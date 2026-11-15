@@ -16,7 +16,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  // the old address opens Providers, at Claude Code: each provider row lists its own accounts (none yet)
+  // the old address opens AI providers, at Claude Code: each provider row lists its own accounts (none yet)
   await page.goto('/admin/credentials')
   await expect(page).toHaveURL(/\/admin\/providers\?engine=claude-code$/)
   await expect(page.getByRole('heading', { level: 2, name: 'AI 제공사', exact: true })).toBeVisible()
@@ -194,10 +194,10 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.goto('/admin/settings#ai')
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).toBeChecked()
   await page.goto('/settings')
-  // Settings › Connections: Connectors first (everyone has it), then Providers (one's own accounts, by provider)
+  // Settings › Connections: Connectors first (everyone has it), then AI providers (one's own accounts, by provider)
   await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toContainText('커넥터')
-  await expect(page.getByTestId('settings-group-connections').getByRole('link').nth(1)).toHaveText('AI 계정')
-  await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 계정', exact: true }).click()
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').nth(1)).toHaveText('AI 제공사')
+  await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 제공사', exact: true }).click()
   await page.getByTestId('my-credential-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
@@ -251,7 +251,7 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.reload()
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).not.toBeChecked()
   await page.goto('/settings')
-  await expect(page.getByTestId('settings-menu').getByRole('link', { name: 'AI 계정', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('settings-menu').getByRole('link', { name: 'AI 제공사', exact: true })).toHaveCount(0)
   // the old address goes to the profile, like any section not shown
   await page.goto('/settings/credentials')
   await expect(page).toHaveURL(/\/settings$/)
@@ -309,7 +309,7 @@ test('where the browser cannot seal (no crypto.subtle: http on a LAN address), a
 
 // An admin who is not the owner connects the team's AI like the owner does (docs/DECISIONS.md "Admins connect the team's
 // AI too"): the same Add account, the menu (switch off, remove) and the API engine form, (the API engine form still asks for their own password).
-test('an admin sees and uses the Providers buttons: adds a key with no password, switches it off, removes it, saves the API engine with their password', async ({ page }) => {
+test('an admin sees and uses the AI providers buttons: adds a key with no password, switches it off, removes it, saves the API engine with their password', async ({ page }) => {
   await reset(page)
   await signIn(page)
   expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
@@ -441,7 +441,7 @@ test('the one sign-in slot: a member reads a true wait, stops their own leftover
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })
 
-// A member's own ChatGPT sign-in (Settings › AI accounts) asked them to sign in "with the account the team will use":
+// A member's own ChatGPT sign-in (Settings › AI providers) asked them to sign in "with the account the team will use":
 // it is their own account, so the step says so; the team's sign-in in Admin keeps the team wording (test above).
 test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({ page }) => {
   await reset(page)
@@ -456,7 +456,7 @@ test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({
   await expect(page.getByTestId('chatgpt-code')).not.toContainText(DICTS.ko['credentials.chatgpt.step3'])
 })
 
-// A member's own API key (Settings › AI accounts; QA TC-519): the advice is about their own key, not "a key just for
+// A member's own API key (Settings › AI providers; QA TC-519): the advice is about their own key, not "a key just for
 // this team in the company's console"; a key the provider refused, then edited, shows only the new key's problem.
 test('my own API key: advice for my own key; the provider\'s refusal goes when I change the key', async ({ page }) => {
   await reset(page)

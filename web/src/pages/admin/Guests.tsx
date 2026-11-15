@@ -18,7 +18,7 @@ import { ArrowUpCircle, Bot, KeyRound, RotateCcw, Trash2, UserRoundX } from 'luc
 import clsx from 'clsx'
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Credential, GuestAiChoice, User } from '@mycel/shared/api'
+import type { Credential, GuestAiChoice, Locale, User } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
 import { GUEST_NO_PLACE, userGuest, type GuestPlaceOut } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
@@ -26,8 +26,8 @@ import { isAdmin, useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Avatar } from '../../components/Avatar'
 import { ListRow } from '../../components/list/List'
-import { Button, Modal, confirmDialog } from '../../components/ui'
-import { formatMonthDay } from '../../lib/format'
+import { Button, Modal, Skeleton, confirmDialog } from '../../components/ui'
+import { formatMonthDay, formatNumber, formatUsd } from '../../lib/format'
 import { aiChoiceReady, ConvertGuestDialog, GuestAiChoices, guestErrorText, useGuestLimit, useTeamConnections } from '../../components/GuestInvite'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { OneLine, useAction } from './common'
@@ -36,13 +36,22 @@ import { OneLine, useAction } from './common'
  * it: a dimmed row is a stacking context of its own, which the next row's covered the menu with. */
 const REMOVED_ROW = 'opacity-60 focus-within:relative focus-within:z-10 focus-within:opacity-100'
 
-/** "Team AI · Main Claude · up to $20 a month", "No AI", "Their own sign-in"; Team AI whose account was deleted says so */
-function aiWords(t: ReturnType<typeof useT>, ai: GuestAiChoice | null, connections: readonly Credential[] | null | undefined, aiGone = false): string | null {
-  if (aiGone) return t('guest.admin.aiGone')
+/** "Team AI · up to 5M tokens a month · 3.2M left · Main Claude", "No AI", "Their own sign-in"; Team AI whose account was
+ * deleted says so. A guest given Team AI before tokens: "up to $20 a month", as it is until an admin changes it. Used up:
+ * the row says "AI limit used up" right after where they are (never cut on a phone), and no "left". */
+function aiWords(t: ReturnType<typeof useT>, locale: Locale, g: NonNullable<ReturnType<typeof userGuest>>, connections: readonly Credential[] | null | undefined): string | null {
+  const ai = g.ai
+  if (g.aiGone) return t('guest.admin.aiGone')
   if (!ai) return null
   if (ai.mode !== 'team') return t(`guest.ai.${ai.mode}`)
   const label = connections?.find((c) => c.id === ai.credentialId)?.label
-  return [t('guest.ai.team'), label, t('guest.admin.upTo', { n: ai.limitUsd })].filter(Boolean).join(' · ')
+  // rounded down: 4.96M left never reads "5M left" next to "up to 5M"
+  const compact = (n: number) => formatNumber(n, locale, { notation: 'compact', maximumFractionDigits: 1, roundingMode: 'floor' })
+  const limit = ai.limitTokens ? t('guest.admin.upTo', { amount: compact(ai.limitTokens) }) : ai.limitUsd ? t('guest.admin.upToUsd', { amount: formatUsd(ai.limitUsd, locale) }) : null
+  const left = g.aiUsedUp ? null : ai.limitTokens && g.aiUse ? t('guest.admin.left', { n: compact(Math.max(0, ai.limitTokens - g.aiUse.usedTokens)) }) : null
+  // the limit and what is left before the account's name: a phone's row shows two lines, and the account is the part
+  // that may be cut (QA TC-3310)
+  return [t('guest.ai.team'), limit, left, label].filter(Boolean).join(' · ')
 }
 
 export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, onResetPassword, deletionRequested = [], deletionDue = {} }: {
@@ -156,7 +165,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
             const restoreBtn = g?.out === 'trashed' && g.place?.id
               ? (suffix: string) => <Button size="sm" variant="secondary" onClick={() => void restore(g.place!.id!, g.place!.name ?? '')} data-testid={`guest-restore-${u.username}${suffix}`}>{t('guest.admin.restoreProject')}</Button>
               : null
-            const meta = [where, !removed && g?.aiUsedUp ? t('guest.admin.aiUsedUp') : null, removed ? null : aiWords(t, g?.ai ?? null, connections, g?.aiGone), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
+            const meta = [where, !removed && g?.aiUsedUp ? t('guest.admin.aiUsedUp') : null, removed || !g ? null : aiWords(t, locale, g, connections), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
             return (
               <ListRow
                 key={u.id}
@@ -248,6 +257,11 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
   const [ai, setAi] = useState<GuestAiChoice>(() => userGuest(user)?.ai ?? { mode: 'none' })
   // read at once: without a team AI account, Team AI is off before anyone picks it
   const { list: connections, noGuestAi } = useTeamConnections(true)
+  // the team's tokens per answer, for the limit's "about N answers"
+  // read before the choices show, as the invite dialog does: "about N answers" never starts from the default and then
+  // jumps to the team's own number (QA TC-3310)
+  const limit = useGuestLimit()
+  const answerTokens = limit?.answerTokens
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const save = async () => {
@@ -270,7 +284,7 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
       footer={<><Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" busy={busy} disabled={!aiChoiceReady(ai)} onClick={() => void save()} data-testid="guest-ai-save">{t('common.save')}</Button></>}>
       <div className="space-y-3" data-testid="guest-ai-dialog">
         {/* the dialog's title says "AI for Alex": no second heading over the choices */}
-        <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} noGuestAi={noGuestAi} legend={false} />
+        {limit === undefined ? <Skeleton lines={4} /> : <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} noGuestAi={noGuestAi} legend={false} answerTokens={answerTokens} />}
         <p className="text-xs leading-5 break-keep text-muted" data-testid="guest-ai-now">{t('guest.admin.aiNow', { name: user.name })}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>

@@ -155,13 +155,16 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
   if ((item.code === 'service.request' || item.code === 'service.ready' || item.code === 'service.closed') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
+  // older AI-made files with a saved key in them (QA TC-3082): how many I may open now; none: they moved or went
+  if (item.code === 'files.stored_key' && item.keyFiles) return item.keyFiles.n ? t('notifications.event.files.stored_keyN', { n: item.keyFiles.n }) : t('notifications.event.files.stored_keyGone')
   // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
   if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
   if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
   const title = item.schedule?.title
+  // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
-    ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
-    : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+    ? isolate(locale, item.needsKey.signIn ? 'notifications.event.schedule.needsSignInNamed' : 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
+    : t(item.needsKey.signIn ? 'notifications.event.schedule.needsSignIn' : 'notifications.event.schedule.needsKey', { name: item.needsKey.name })
   // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
   // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
   if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title

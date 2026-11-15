@@ -148,6 +148,8 @@ describe('the Projects list', () => {
       await m.until(() => m.find('participant-user-sora'), 'the members dialog')
       expect(m.html()).toContain(ko('projects.membersTitle', { name: 'Acme sales' }))
       await m.click('participant-remove-user-sora')
+      // Save waits for the dry run of these picks (QA TC-3092)
+      await m.until(() => !m.get('project-members-save').hasAttribute('disabled'), 'Save on', 3000)
       await m.click('project-members-save')
       // taking someone out asks first, by name (QA TC-1067)
       await m.until(() => m.find('project-narrow-line'), 'who loses access')

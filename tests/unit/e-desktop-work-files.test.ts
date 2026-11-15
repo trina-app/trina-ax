@@ -6,12 +6,12 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { inOneDrive, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
+import { inOneDrive, lookRoots, scanRoots, WorkFileSessions, type WorkDirent, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
 
-type Node = { kind: 'dir'; children: Record<string, Node> } | { kind: 'file'; size: number; mtimeMs: number; ino: bigint; bytes?: Uint8Array } | { kind: 'link'; to: string }
+type Node = { kind: 'dir'; children: Record<string, Node>; mtimeMs?: number } | { kind: 'file'; size: number; mtimeMs: number; ino: bigint; bytes?: Uint8Array } | { kind: 'link'; to: string }
 let ino = 100n
 const file = (size = 1000, mtimeMs = Date.UTC(2026, 9, 3)): Node => ({ kind: 'file', size, mtimeMs, ino: ino++ })
-const dir = (children: Record<string, Node> = {}): Node => ({ kind: 'dir', children })
+const dir = (children: Record<string, Node> = {}, mtimeMs?: number): Node => ({ kind: 'dir', children, ...(mtimeMs !== undefined ? { mtimeMs } : {}) })
 const link = (to: string): Node => ({ kind: 'link', to })
 
 /** A made-up posix file system rooted at `/`. `calls` records every call, so a test can tell nothing was opened. */
@@ -57,7 +57,7 @@ function fakeFs(tree: Record<string, Node>, o: { platform?: string; denied?: Set
     return out || '/'
   }
   const err = (code: string) => Object.assign(new Error(code), { code })
-  const statOf = (n: Node): WorkStat => n.kind === 'file' ? { kind: 'file', size: n.size, mtimeMs: n.mtimeMs, dev: 1n, ino: n.ino } : { kind: n.kind === 'dir' ? 'dir' : 'link', size: 0, mtimeMs: 0, dev: 1n, ino: 1n }
+  const statOf = (n: Node): WorkStat => n.kind === 'file' ? { kind: 'file', size: n.size, mtimeMs: n.mtimeMs, dev: 1n, ino: n.ino } : { kind: n.kind === 'dir' ? 'dir' : 'link', size: 0, mtimeMs: n.kind === 'dir' ? (n.mtimeMs ?? 0) : 0, dev: 1n, ino: 1n }
   const fs: WorkFs = {
     async readdir(p, max) {
       p = p.replace(/\\/g, '/')
@@ -254,6 +254,8 @@ describe('reading a listed file afterwards', () => {
     const sessions = new WorkFileSessions(f.fs, 'darwin', () => clock, limits)
     const r = await scanRoots(ROOTS, f.fs, opts())
     sessions.begin(TEAM, r.found)
+    // these tests read: every file of the look was added in the app's window (e-desktop-work-consent.test.ts: only those)
+    sessions.allow(TEAM, [...r.found.keys()])
     const id = (name: string) => r.files.find((x) => x.name === name)!.id
     return { f, sessions, r, id, tick: (ms: number) => { clock += ms } }
   }
@@ -336,6 +338,7 @@ describe('reading a listed file afterwards', () => {
     for (const [platform, ok] of [['win32', false], ['darwin', true]] as const) {
       const s2 = new WorkFileSessions(w.fs, platform)
       s2.begin(TEAM, scanned.found)
+      s2.allow(TEAM, [...scanned.found.keys()])
       expect((await s2.read(TEAM, scanned.files[0]!.id)).ok, platform).toBe(ok)
     }
   })
@@ -384,12 +387,62 @@ describe('reading a listed file afterwards', () => {
   })
 })
 
+describe('only the files added in the app\'s own window are read (TC-3300)', () => {
+  const TEAM = 'https://acme.example'
+  async function look(limits = {}) {
+    const f = fakeFs(home({ Documents: dir({ 'a.pdf': file(10), 'b.pdf': file(20), 'c.pdf': file(30) }), Desktop: dir(), Downloads: dir() }))
+    let clock = 1_000_000
+    const sessions = new WorkFileSessions(f.fs, 'darwin', () => clock, limits)
+    const r = await scanRoots(ROOTS, f.fs, opts())
+    sessions.begin(TEAM, r.found)
+    return { sessions, id: (name: string) => r.files.find((x) => x.name === name)!.id, tick: (ms: number) => { clock += ms } }
+  }
+  test('a file never ticked (never added) is refused, whatever the page asks', async () => {
+    const { sessions, id } = await look()
+    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+    expect(sessions.allow(TEAM, [id('a.pdf')])).toBe(true)
+    expect((await sessions.read(TEAM, id('a.pdf'))).ok).toBe(true)
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+  })
+  test('ticked, then unticked before Add: only what was added is readable', async () => {
+    const { sessions, id } = await look()
+    // the person ticked a and b, unticked b, and said Add to the window that listed a only
+    expect(sessions.toAdd(TEAM, [id('a.pdf')])).toEqual([{ name: 'a.pdf', size: 10 }])
+    sessions.allow(TEAM, [id('a.pdf')])
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+  })
+  test('the window lists only ids of this origin\'s latest look, each once, within the read limits', async () => {
+    const { sessions, id, tick } = await look({ readFiles: 2, readBytes: 40 })
+    expect(sessions.toAdd(TEAM, [id('a.pdf'), id('b.pdf')])).toEqual([{ name: 'a.pdf', size: 10 }, { name: 'b.pdf', size: 20 }])
+    expect(sessions.toAdd(TEAM, [])).toBeNull()
+    expect(sessions.toAdd(TEAM, ['made-up'])).toBeNull()
+    expect(sessions.toAdd(TEAM, [id('a.pdf'), id('a.pdf')])).toBeNull()
+    expect(sessions.toAdd('https://evil.example', [id('a.pdf')])).toBeNull()
+    // 3 files (limit 2); then 50 bytes with what was added before (limit 40)
+    expect(sessions.toAdd(TEAM, [id('a.pdf'), id('b.pdf'), id('c.pdf')])).toBeNull()
+    sessions.allow(TEAM, [id('b.pdf')])
+    expect(sessions.toAdd(TEAM, [id('c.pdf')])).toBeNull()
+    expect(sessions.allow('https://evil.example', [id('a.pdf')])).toBe(false)
+    tick(60 * 60_000 + 1)
+    expect(sessions.toAdd(TEAM, [id('a.pdf')])).toBeNull()
+  })
+  test('a new look forgets what was added', async () => {
+    const { sessions, id } = await look()
+    sessions.allow(TEAM, [id('a.pdf')])
+    const old = id('a.pdf')
+    const again = await look()
+    sessions.begin(TEAM, new Map())
+    expect(await sessions.read(TEAM, old)).toEqual({ ok: false, reason: 'unknown' })
+    expect(await again.sessions.read(TEAM, again.id('a.pdf'))).toEqual({ ok: false, reason: 'unknown' })
+  })
+})
+
 describe('the wiring', () => {
   const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
   const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
   const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
   test('every call is the team page\'s top frame at its origin (fromApp), a read names an id, never a path', () => {
-    for (const ch of ['bridge:work-files-scan', 'bridge:work-files-stop', 'bridge:work-files-read', 'bridge:work-files-settings']) {
+    for (const ch of ['bridge:work-files-scan', 'bridge:work-files-stop', 'bridge:work-files-add', 'bridge:work-files-read', 'bridge:work-files-settings']) {
       const line = main.split('\n').find((l) => l.includes(`'${ch}'`))!
       expect(line, ch).toContain('fromApp(e)')
     }
@@ -401,11 +454,55 @@ describe('the wiring', () => {
     expect(preload).toContain("ipcRenderer.invoke('bridge:work-files-scan', o && typeof o === 'object' ? { wide: o.wide === true, words: Array.isArray(o.words) ? o.words.slice(0, 20).map(String) : [] } : {})")
     expect(main).toContain('win!.workFiles.scan(e.senderFrame.origin, scanAsk(ask))')
   })
-  test('the look waits for the app\'s own dialog (Cancel is its default); the Mac App Store build and Linux have none', () => {
-    expect(ctl).toContain('dialog.showMessageBox(win')
-    expect(ctl).toMatch(/defaultId: 1,\s*cancelId: 1,/)
+  test('the look waits for the app\'s own consent window (e-desktop-work-consent.test.ts); the Mac App Store build and Linux have none', () => {
     expect(ctl.indexOf('await this.consent(')).toBeLessThan(ctl.indexOf('await this.look(roots'))
     expect(ctl).toContain("if (p.platform === 'darwin' && p.mas !== true) return WORK_FILES_BRIDGE_VERSION")
     expect(ctl).not.toContain("'linux'")
+  })
+})
+
+describe('owner 2026-11-15: "they\'re work files, but it only brought really useless ones"', () => {
+  test('a saved page\'s folder, a tool\'s or a code project\'s folder and a program\'s names are never listed', async () => {
+    const f = fakeFs(home({
+      Documents: dir({ 'Plan.docx': file(), Tools: dir({ 'ffmpeg-7.1-darwin-arm64': dir({ 'README.md': file(5000) }), 'myapp': dir({ 'package.json': file(), 'Guide.pdf': file(5000) }), lib: dir({ 'x.pdf': file() }) }) }),
+      Desktop: dir({ 'Untitled 2.docx': file(5000), 'f(3).txt': file(5000), 'image001.png': file(), 'LICENSE.txt': file(5000) }),
+      Downloads: dir({ '261009 점검 _ 피드백_files': dir(Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`f(${i}).txt`, file(5000)]))), 'Bericht-Dateien': dir({ 'a.pdf': file() }), '261009 점검 _ 피드백.html': file(), 'Quote.pdf': file() }),
+    }))
+    const r = await scanRoots(ROOTS, f.fs, opts())
+    // Bericht-Dateien has no page beside it: a folder of a person's, entered (its PDF listed)
+    expect(r.files.map((x) => x.name).sort()).toEqual(['Plan.docx', 'Quote.pdf', 'a.pdf', 'x.pdf'])
+    // never entered: no readdir of the saved page's or the tool's folders
+    expect(f.calls.filter((c) => c.startsWith('readdir') && /_files|ffmpeg/.test(c))).toEqual([])
+  })
+
+  test('a recent file inside a code project\'s folder the walk skipped is not added back', async () => {
+    const NOW = Date.UTC(2026, 10, 15)
+    const f = fakeFs(home({ Documents: dir(), Desktop: dir({ repo: dir({ 'package.json': file(), docs: dir({ 'architecture.md': file(9000, NOW) }) }), 'Plan.docx': file(9000, NOW) }), Downloads: dir() }))
+    const r = await lookRoots([ROOTS[1]!], f.fs, {
+      platform: 'darwin', newId: () => `id${n++}`, now: () => NOW, index: async () => null,
+      recentIn: async () => [{ path: '/Users/alex/Desktop/repo/docs/architecture.md', used: NOW, modified: null, useCount: 2, size: null, origins: [], authors: [], org: null }],
+    })
+    expect(r.files.map((x) => x.name)).toEqual(['Plan.docx'])
+  })
+
+  test('the walk goes newest first: a walk cut by its limits keeps the folder changed lately', async () => {
+    const old = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`Old ${i}`, dir({ [`Old doc ${i}.pdf`]: file(5000) }, Date.UTC(2024, 0, 1 + i))]))
+    const f = fakeFs(home({ Documents: dir(), Desktop: dir({ ...old, 'This week': dir({ 'Board deck.pptx': file(5000) }, Date.UTC(2026, 10, 10)) }), Downloads: dir() }))
+    const r = await scanRoots([ROOTS[1]!], f.fs, opts({ limits: { walkFiles: 40 } }))
+    expect(r.roots[0]!.cut).toBe(true)
+    expect(r.files.map((x) => x.name)).toContain('Board deck.pptx')
+  })
+
+  test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; tiny notes are left out', async () => {
+    const NOW = Date.UTC(2026, 10, 15)
+    const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}.mp4`, file()]))
+    const f = fakeFs(home({ Documents: dir(), Desktop: dir({ ...many, Deep: dir({ Deeper: dir({ 'Opened plan.pdf': file(9000, NOW - 86_400_000) }) }), 'todo.txt': file(300, NOW) }), Downloads: dir() }))
+    const r = await lookRoots([ROOTS[1]!], f.fs, {
+      platform: 'darwin', newId: () => `id${n++}`, now: () => NOW, index: async () => null, limits: { depth: 1 },
+      recentIn: async () => [{ path: '/Users/alex/Desktop/Deep/Deeper/Opened plan.pdf', used: NOW - 3600_000, modified: null, useCount: 3, size: null, origins: [], authors: [], org: null, listed: true }],
+    })
+    expect(r.roots[0]!.cut).toBe(true)
+    expect(r.files.map((x) => x.name)).toEqual(['Opened plan.pdf'])
+    expect(r.files[0]).toMatchObject({ folder: 'Deep/Deeper', used: NOW - 3600_000, listed: true })
   })
 })

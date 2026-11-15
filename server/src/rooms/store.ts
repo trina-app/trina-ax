@@ -497,7 +497,8 @@ export const groupName = (db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>
 /** May this person rename the room: a group chat's members; a team room's and the everyone room's members who are owner
  * or admin; nobody in a DM (its name is the other person). Membership is checked by the caller. */
 export function mayRename(db: Database, room: Pick<RoomRow, 'kind'>, userId: string): boolean {
-  if (room.kind === 'group') return true
+  // a guest never renames their one place (Room.canRename false, so the room info shows no pencil: guest walkthrough M2)
+  if (room.kind === 'group') return !db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(userId)
   if (room.kind === 'dm') return false
   return isOwnerOrAdmin(db, userId)
 }

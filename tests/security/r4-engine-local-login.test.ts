@@ -6,13 +6,12 @@
 //    a turn could plant for the next interactive `claude` of the Mac user (outside every sandbox). The rule is now the
 //    file and its real siblings only, and office mode removes MCP servers from it at start and after every Claude turn
 //    (server/src/engine/claude-json-guard.ts).
-//  - ~/Library/Keychains was writable as a whole (new files, folders, moving the keychain away): now only
-//    login.keychain-db and its atomic-write companions (a CLI token refresh still works: checked with a fake keychain,
-//    docs/DECISIONS.md).
+//  - ~/Library/Keychains was writable as a whole (new files, folders, moving the keychain away): round 4 narrowed it
+//    to login.keychain-db and its atomic-write companions; since TC-358 the keychain is closed to engines.
 //  - ~/.codex/auth.json (the Mac user's Codex login) was open although office mode turns Codex off: it opens only with
 //    LOCAL_CODEX=1, which the launcher sets only with --local-codex (a Codex binary is configured).
-// Still open with the Mac user's login (documented residuals, security audit round 4): reading the login keychain
-// item through /usr/bin/security, ~/.claude.json itself, and direct HTTPS to any host on :443.
+// Still open with the Mac user's login (documented residuals, security audit round 4): ~/.claude.json itself and, in
+// dev, direct HTTPS to any host on :443. The keychain closed in TC-358 (r4c-office-keychain-broker.test.ts).
 // Port of scratchpad engine-local/repro-fakehome.sh. Probe: tests/lib/g-sbprobe.c.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
@@ -68,12 +67,15 @@ describe.skipIf(!mac)('engine.sb LOCAL_LOGIN=1 (office engines)', () => {
     expect(turn('c_me', {}, 'write', path.join(H, '.claude.json.backup'))).toBe(0)
   })
 
-  test('keychain folder: only the login keychain and its atomic-write companions', () => {
+  test('keychain folder: closed (TC-358: the Claude login goes through the launcher\'s broker)', () => {
     expect(turn('c_me', {}, 'write', path.join(K, 'r4-canary'))).not.toBe(0) // was 0
     expect(turn('c_me', {}, 'write', path.join(K, 'other.keychain-db'))).not.toBe(0)
-    expect(turn('c_me', {}, 'write', path.join(K, 'login.keychain-db-wal'))).toBe(0)
-    expect(turn('c_me', {}, 'write', path.join(K, 'login.keychain-db.sb-1a2b3c-XyZ09'))).toBe(0)
-    expect(turn('c_me', {}, 'write', path.join(K, '.fl34AC2A0A'))).toBe(0)
+    // round 4 left login.keychain-db and its atomic-write companions writable for the CLI's own refresh; the broker
+    // writes the login now (tests/security/r4c-office-keychain-broker.test.ts)
+    expect(turn('c_me', {}, 'write', path.join(K, 'login.keychain-db-wal'))).not.toBe(0)
+    expect(turn('c_me', {}, 'write', path.join(K, 'login.keychain-db.sb-1a2b3c-XyZ09'))).not.toBe(0)
+    expect(turn('c_me', {}, 'write', path.join(K, '.fl34AC2A0A'))).not.toBe(0)
+    expect(turn('c_me', {}, 'read', path.join(K, 'login.keychain-db'))).not.toBe(0)
   })
 
   test('Codex login: closed unless Codex is on', () => {

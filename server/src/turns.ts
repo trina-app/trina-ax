@@ -28,9 +28,10 @@ export interface TurnToolSet {
   /** a tool call starts (any tools/call of the turn); the function returned is called when it ends. The chat turn's
    * stall guard waits while one of our tools runs (chat/turn.ts ownCallStarted) */
   callStarted?(): () => void
-  /** a tool call's arguments with the person's stored connection keys hidden in what the tool saves
-   * (integrations/connections/hide-args.ts); `hidden`: something was replaced. Runs before every other check */
-  hideKeys?(name: string, args: unknown): { args: unknown; hidden: boolean }
+  /** a tool call's arguments with the person's stored connection keys hidden in what the tool saves or sends to a
+   * connected service (integrations/connections/hide-args.ts); `hidden`: something was replaced, `note`: what the AI
+   * is told then. Runs before every other check; throws KeyRefusal for a call that is not sent at all */
+  hideKeys?(name: string, args: unknown): { args: unknown; hidden: boolean; note?: string }
   /** before a batch tool's first file (edit_files): a refusal stops the whole batch */
   beforeBatch?(name: string, args: unknown, caller?: ToolCaller): Promise<{ refusal: string; summary: string } | null>
 }

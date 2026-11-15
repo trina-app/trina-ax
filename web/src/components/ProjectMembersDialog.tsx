@@ -10,6 +10,11 @@
 // or when the save also writes a rule nobody chose here (the floor rule an older folder lacks, the creator's rule taken
 // out in Admin): the server's dry run says what; when the only one it adds is the caller, the "Add me" confirm instead.
 // Taking people out asks too: "2 people lose access: Kim and Lee" (names, three and "and N more"; QA TC-1067).
+// One press when people are only added (docs/DECISIONS.md "Share in one press", QA TC-3092): what they would see is in
+// place under the count (the dry run after every change; Save waits for the one of these picks), and Save saves when
+// the save's own dry run still says the same. The confirm stays only where it guards something else: people taken out
+// (they lose access, a guest's account is switched off), a rule the save writes that nobody chose here, and "Add me"
+// (its members are told).
 // Who is in it (docs/DECISIONS.md "Who is in a project, by face"): whoever changes the members reads the picker (each
 // group row opens to its people) and one count under it, "5 people", me included (QA TC-1065: no second list of the same
 // people). Its members open it too (the faces on the project page): for them the list of everyone in it, each once
@@ -32,6 +37,7 @@ import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMediaQuery } from './ui'
 import { answerHref, WideningList } from './WideningList'
+import { whoNames } from './ShareWarning'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../store/wideningDraft'
 import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
@@ -44,6 +50,13 @@ export const chosenOf = (a: ProjectAccess): ProjectParticipant[] => a.participan
 
 /** The dry run asks first: someone gains or loses it, or the save writes a rule nobody chose here. */
 export const asksFirst = (p: ProjectAccessPreview) => p.added > 0 || p.removed > 0 || !!p.addsFloor || !!p.restoresCreator
+
+/** Only people added: nobody loses it and no rule is written that nobody chose (one press, its lines shown in place). */
+export const onlyAdds = (p: ProjectAccessPreview) => p.added > 0 && p.removed === 0 && !p.addsFloor && !p.restoresCreator
+
+/** What the people added would see, as the lines in place say it (the whole lines, so a new kind of line can't drift):
+ * the same dry run again means the same lines. */
+const seenOf = (t: ReturnType<typeof useT>, p: ProjectAccessPreview) => JSON.stringify([p.added, widenLines(t, p), p.hiddenAnswers ?? 0])
 
 /** "Kim, Lee, Park and 2 more": up to three names the server sent, then how many more of `total`. */
 export function namesLine(t: ReturnType<typeof useT>, names: readonly string[], total: number): string {
@@ -195,9 +208,14 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const editable = !!access?.editable
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
+  // the dry run of exactly these picks, shown in place; Save waits for it
+  const countFor = `${participants.map(participantKey).sort().join(',')}|${removing.map(ruleKey).sort().join(',')}`
+  const shownPreview = count?.for === countFor ? count.preview : undefined
+  const checking = changed && !shownPreview
   // the people and groups being added, as picked ("Sales and Sam"): the widening line and the list's title
   const adding = useMemo(() => { const keys = new Set(current.map(participantKey)); return participants.filter((x) => !keys.has(participantKey(x))) }, [participants, current])
-  const addedNames = useMemo(() => adding.map((x) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '').filter(Boolean).join(t('rooms.nameSep')), [adding, options, t])
+  // as the share lines name them: a person "Bob 님", a group "Sales 그룹 사람들" (components/ShareWarning.tsx whoNames)
+  const addedNames = useMemo(() => whoNames(t, adding.map((x) => ({ subjectType: x.subjectType, name: options.find((o) => participantKey(o) === participantKey(x))?.name ?? '' }))), [adding, options, t])
   const widen = editable && !!count?.hiddenAnswers && !!addedNames
   // nothing to list any more (the picks changed): back to them (not while the names are still being read)
   useEffect(() => { if (listing && access && !adding.length) setListing(false) }, [listing, access, adding.length])
@@ -226,7 +244,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
       const keptKeys = new Set(participants.map(participantKey))
       const removedGuests = current.filter((x) => x.subjectType === 'user' && !keptKeys.has(participantKey(x)) && isGuestNow(x.subjectId)).length
       const addsOnlyMe = !!me && adds.length === 1 && adds[0]!.subjectType === 'user' && adds[0]!.subjectId === me.user.id && p.added <= 1
-      if (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests))) return
+      // only people added, and the same as the lines in place: Save was the confirmation
+      const oneP = !addsOnlyMe && onlyAdds(p) && removedGuests === 0 && !!shownPreview && seenOf(t, shownPreview) === seenOf(t, p)
+      if (!oneP && (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests)))) return
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash, ...removeRules } })
       shown(a)
       // the project as the server sees it now: how many see it, and whether anyone else does by a rule (Project.alone:
@@ -274,7 +294,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
         <>
           {/* read only (a member who does not manage it, or members changed elsewhere): 닫기 */}
           <Button variant="ghost" onClick={onClose}>{editable ? t('common.cancel') : t('common.close')}</Button>
-          {editable && <Button variant="primary" busy={busy} disabled={!changed} onClick={() => void save()} data-testid="project-members-save">{t('common.save')}</Button>}
+          {editable && <Button variant="primary" busy={busy} disabled={!changed || checking} onClick={() => void save()} data-testid="project-members-save">{t('common.save')}</Button>}
         </>
       }
     >
@@ -297,6 +317,14 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} unavailable={elsewhere} />
             {/* the one count of this dialog: everyone who sees it, me included (after the change while one is pending) */}
             <AccessSummary count={count} />
+            {/* what the people added would see, in place (one press: docs/DECISIONS.md "Share in one press") */}
+            {shownPreview && shownPreview.added > 0 && (
+              <div className="space-y-1 text-sm leading-6 break-keep text-muted" data-testid="project-widen-inline">
+                <p>{t('projects.widenBody', { n: shownPreview.added })}</p>
+                {widenLines(t, shownPreview).length > 0 && <ul className="list-disc space-y-0.5 pl-5">{widenLines(t, shownPreview).map((l) => <li key={l}>{l}</li>)}</ul>}
+                <p className="text-faint">{t('projects.widenNotice')}</p>
+              </div>
+            )}
             {/* the widening warning: answers the people being added would start seeing that used places they miss */}
             {widen && (
               <p className="text-sm leading-6 break-keep text-ink" data-testid="project-widen-answers">

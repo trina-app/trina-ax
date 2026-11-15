@@ -251,6 +251,14 @@ export const SPECS: Record<string, Spec> = {
       // (her chat is in her personal project: refused for that before the empty list is looked at)
       if (who === 'memberIn' && !['needs_people', 'project_personal'].includes(r.json?.error?.params?.reason)) throw new Error(`alice was refused for another reason: ${r.text}`)
     } },
+  // the Share dialog's check while picking (QA TC-3092): never a probe for anyone but the chat's creator
+  previewChatAudience: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/audience/preview`, { subjects: [{ subjectType: 'user', subjectId: 'bob' }] }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} previewed alice's chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      // (her chat is in her personal project: refused for that, as a save)
+      if (who === 'memberIn' && r.json?.error?.params?.reason !== 'project_personal') throw new Error(`alice was refused for another reason: ${r.text}`)
+    } },
   hideChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
     check: (r, _w, who) => {
       if (r.status < 300) throw new Error(`${who} hid alice's own chat`)
