@@ -4954,6 +4954,7 @@ export const en: Record<MessageKey, string> = {
   // ── W5: setup v5 (the setup row, the company profile starts the deck, the end screen, the merge notice) ──
   "setupRow.resume": "Continue setup",
   "setupRow.left": "Still to do: {step}",
+  "setupRow.leftN": "Still to do: {n, plural, one {# step} other {# steps}}",
   "setupRow.hide": "Hide setup",
   "setupRow.hidden": "Setup hidden · you can show it again from Admin home",
   "setupRow.show": "Show setup again",

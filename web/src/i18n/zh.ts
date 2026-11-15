@@ -4886,6 +4886,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.knowledge_graph.documents_off": "关闭了文档搜索",
   "setupRow.resume": "继续设置",
   "setupRow.left": "待完成：{step}",
+  "setupRow.leftN": "待完成 {n, plural, one {# 步} other {# 步}}",
   "setupRow.hide": "隐藏设置",
   "setupRow.hidden": "设置已隐藏 · 可以在管理首页重新显示",
   "setupRow.show": "重新显示设置",

@@ -4910,6 +4910,7 @@ export const es: Record<MessageKey, string> = {
   // ── W5: configuración v5 (la fila de configuración, el perfil empieza la presentación, la pantalla final, el aviso de combinar) ──
   "setupRow.resume": "Seguir con la configuración",
   "setupRow.left": "Falta: {step}",
+  "setupRow.leftN": "{n, plural, one {Falta # paso} other {Faltan # pasos}}",
   "setupRow.hide": "Ocultar la configuración inicial",
   "setupRow.hidden": "Configuración inicial oculta · puede volver a verla desde el inicio de Administración",
   "setupRow.show": "Ver la configuración inicial otra vez",

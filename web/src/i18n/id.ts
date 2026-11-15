@@ -4954,6 +4954,7 @@ export const id: Record<MessageKey, string> = {
   // ── W5: penyiapan v5 (baris penyiapan, profil perusahaan memulai deck, layar akhir, pemberitahuan gabung) ──
   "setupRow.resume": "Lanjutkan penyiapan",
   "setupRow.left": "Tersisa: {step}",
+  "setupRow.leftN": "Tersisa {n} langkah",
   "setupRow.hide": "Sembunyikan penyiapan",
   "setupRow.hidden": "Penyiapan disembunyikan · bisa ditampilkan lagi dari beranda Admin",
   "setupRow.show": "Tampilkan penyiapan lagi",

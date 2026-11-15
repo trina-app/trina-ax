@@ -4954,6 +4954,7 @@ export const ko = {
   // ── W5: 시작 설정 v5 (the setup row, 회사 소개 starts the deck, the end screen, the merge notice) ──
   "setupRow.resume": "설정 이어서 하기",
   "setupRow.left": "남은 일: {step}",
+  "setupRow.leftN": "남은 일 {n}개",
   "setupRow.hide": "시작 설정 숨기기",
   "setupRow.hidden": "시작 설정을 숨겼어요 · 관리자 홈에서 다시 볼 수 있어요",
   "setupRow.show": "시작 설정 다시 보기",

@@ -76,7 +76,7 @@ test('the setup walk: the skills step offers only the skills Trina prepared; one
   // opens the first
   const left = page.getByTestId('setup-row')
   await expect(left).toHaveAttribute('data-state', 'left')
-  await expect(left.getByTestId('setup-row-link')).toHaveText('남은 일: 회사 소개 +2')
+  await expect(left.getByTestId('setup-row-link')).toHaveText('남은 일 3개')
   // the skill form closed first (it covers the page)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('skill-form')).toHaveCount(0)

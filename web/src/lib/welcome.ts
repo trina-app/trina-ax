@@ -144,9 +144,9 @@ const STEP_NAME: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progr
 export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p: WelcomeProgress | null, aiReady = true, computer = true): { text: string; count: string | null } {
   // after the end: the steps put off, all named, no count (the setup is over; these are what is left of it)
   const off = putOffSteps(p, aiReady, computer)
-  // one is named; more: the first and how many besides ("Still to do: Team files +1"), which fits the row's width in every
-  // language (two names were cut at 1440 in en, ko and es)
-  if (off.length) return { text: t('setupRow.left', { step: off.length === 1 ? t(STEP_NAME[off[0]!]!) : `${t(STEP_NAME[off[0]!]!)} +${off.length - 1}` }), count: null }
+  // how many, never the names: names were cut at 1440 in en, ko and es ("Still to do: About the co…"); the row opens the
+  // first of them, which names itself
+  if (off.length) return { text: t('setupRow.leftN', { n: off.length }), count: null }
   const left = stepsLeft(p, aiReady, computer)
   const name = left.length === 1 ? STEP_NAME[left[0]!] : undefined
   if (name) return { text: t('setupRow.left', { step: t(name) }), count: null }

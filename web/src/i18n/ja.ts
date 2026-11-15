@@ -4910,6 +4910,7 @@ export const ja: Record<MessageKey, string> = {
   // ── W5: 初期設定 v5 (設定の行、会社紹介で資料づくりを開始、最後の画面、まとめる通知) ──
   "setupRow.resume": "設定を続ける",
   "setupRow.left": "残り: {step}",
+  "setupRow.leftN": "残り{n, plural, one {#件} other {#件}}",
   "setupRow.hide": "初期設定を隠す",
   "setupRow.hidden": "初期設定を隠しました · 管理ホームからまた表示できます",
   "setupRow.show": "初期設定をもう一度表示",

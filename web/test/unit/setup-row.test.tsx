@@ -150,7 +150,7 @@ describe('the setup row', () => {
     const m = await row('/c/abc')
     try {
       expect(await stateAt(m)).toBe('left')
-      expect(m.get('setup-row-link').textContent).toContain('팀 파일')
+      expect(m.get('setup-row-link').textContent).toContain('남은 일 2개')
       expect(m.find('setup-row-count')).toBeNull()
       expect(m.find('setup-row-hide')).not.toBeNull()
     } finally { await m.unmount() }
