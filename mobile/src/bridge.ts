@@ -198,7 +198,7 @@ export class MobileReceiver {
         if (!validPushToken(token)) throw new PushRefused('push_unavailable')
         reply.push = { platform: token.platform, token: token.token, environment: token.environment }
         // push-label-v1: the page registers the label key's hash with the token (the key stays in the keychain)
-        if (token.platform === 'ios' && this.push.labelHash && current.capabilities.includes(PUSH_LABEL_CAPABILITY)) {
+        if (this.push.labelHash && current.capabilities.includes(PUSH_LABEL_CAPABILITY)) {
           const labelHash = await this.push.labelHash().catch(() => null)
           if (labelHash && /^[0-9a-f]{64}$/.test(labelHash)) reply.labelHash = labelHash
         }

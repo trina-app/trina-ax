@@ -1,7 +1,8 @@
-// Who and where in a room push on the iPhone (docs/DECISIONS.md "아이폰 알림의 이름"). The app's notification service
-// extension (plugins/notification-service/) asks the current team for a room push's title. What it needs is one keychain
-// item, in a keychain group only the app and the extension share: the team's origin, this phone's device id there and a
-// label key. The app makes the key (it never leaves the phone: the page registers only its sha256), adds the device id
+// Who and where in a room push (docs/DECISIONS.md "아이폰 알림의 이름", "Android notifications name who and where").
+// The iPhone app's notification service extension (plugins/notification-service/) and the Android app's messaging
+// service (modules/push-label) ask the current team for a room push's title. What they need is one item: on the iPhone a
+// keychain item in a group only the app and the extension share, on Android the app's own Keystore-encrypted item
+// (modules/push-label LabelStore). It holds the team's origin, this phone's device id there and a label key. The app makes the key (it never leaves the phone: the page registers only its sha256), adds the device id
 // once the team registered the phone, and deletes the item when the team changes, the person signs out, at a reinstall
 // and at a launch that finds it belongs to another team or device. One operation at a time (a sign-out's delete never
 // lands after the next sign-in's key). Pure (storage and crypto are passed in), so tests can drive it.

@@ -7,6 +7,12 @@
 // (the team's device id) therefore travels as `device`. `badge` is not sent: Android launchers count the notifications in
 // the tray and add up their `notification_count`, so the total on every push would show 1+2+3 = 6 for three pushes.
 // Each notification counts as one there; the open app sets its own number (badge-v1).
+//
+// `label` (an app that names who and where, room codes and chat.shared only): the message is data-only, so Android
+// starts the app's messaging service even when the app is closed, and the app shows the notification itself. `data`
+// then also has the generic `title` and `message` and `channelId` 'default': expo-notifications shows those when the app
+// cannot ask its team (shared/src/cloud-protocol/push-gateway.ts "Label"). Every other message keeps the `notification`
+// block, which Android shows without the app (apps from before the label).
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importRs256, signJwt, type FetchLike } from './crypto.ts'
 
@@ -29,6 +35,18 @@ export function appData(msg: PushGatewaySend): Record<string, string> {
   if (msg.path !== undefined) data.path = msg.path
   if (msg.tag !== undefined) data.device = msg.tag
   return data
+}
+
+/** A room notice or a chat shared by name: the codes an app may name (as apns.ts mutableCode). */
+export const labelCode = (code: string) => code.startsWith('room.') || code === 'chat.shared'
+
+/** The FCM v1 `message` for one send. */
+export function fcmMessage(msg: PushGatewaySend, alert: { title: string; body: string }): Record<string, unknown> {
+  const android = { priority: 'HIGH', ttl: `${msg.ttlSeconds ?? 0}s`, collapse_key: msg.notificationId }
+  if (msg.label === true && labelCode(msg.code)) {
+    return { token: msg.token, data: { ...appData(msg), title: alert.title, message: alert.body, channelId: 'default' }, android }
+  }
+  return { token: msg.token, notification: alert, data: appData(msg), android: { ...android, notification: { channel_id: 'default', tag: msg.notificationId } } }
 }
 
 export interface FcmConfig { projectId: string; clientEmail: string; privateKeyPem: string; tokenUri: string }
@@ -117,19 +135,7 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
           method: 'POST',
           signal,
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            message: {
-              token: msg.token,
-              notification: alert,
-              data: appData(msg),
-              android: {
-                priority: 'HIGH',
-                ttl: `${msg.ttlSeconds ?? 0}s`,
-                collapse_key: msg.notificationId,
-                notification: { channel_id: 'default', tag: msg.notificationId },
-              },
-            },
-          }),
+          body: JSON.stringify({ message: fcmMessage(msg, alert) }),
         })
         if (res.status === 200) {
           await res.body?.cancel()

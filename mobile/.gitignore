@@ -12,3 +12,4 @@ credentials.json
 build/
 # the app's own Expo modules keep their native sources
 !/modules/*/ios/
+!/modules/*/android/

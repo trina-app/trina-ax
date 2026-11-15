@@ -1,0 +1,25 @@
+// The app's own Expo module for Android (mobile/modules/push-label, linked by Expo's autolinking from mobile/modules):
+// who and where in a room push (docs/DECISIONS.md "Android notifications name who and where"). LabelMessagingService
+// replaces expo-notifications' FCM service (plugins/push-label.js removes that one from the app's manifest).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.teamax'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.pushlabel"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // the service extends expo-notifications' own FCM service and delegate (plugins/push-label.js checks their shape)
+  implementation project(':expo-notifications')
+  // the same version expo-notifications 58 declares (as `implementation`, so it is not on this module's classpath)
+  implementation 'com.google.firebase:firebase-messaging:25.0.1'
+}

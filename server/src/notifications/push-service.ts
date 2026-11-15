@@ -24,14 +24,14 @@ import { bounded, createPushTransport, pushFailure, validatePushSubscription, ty
 import { pushBadge } from './push-badge'
 import { readNativePushConfig } from './push-gateway-setting'
 import { phoneDecision, type PhoneDecision } from './away'
-import { createNativeTransport, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
+import { createNativeTransport, labelCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null
 /** away.ts: a push to this person's phone app now goes, is cancelled (they are at Trina) or waits for the warm-up */
 phoneDecision:(userId:string)=>PhoneDecision}
 /** kind 'native': a phone app device token (migration 243), delivered through the push gateway, not Web Push. */
-type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native'}
+type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native';label_hash?:string|null}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
 const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
 /** A phone's notification extension asks for at most this many room push titles a minute (the gateway sends a phone at
@@ -145,10 +145,11 @@ export class PushService {
     const device=validNativeDevice(input);this.safeSecrets(true)
     const tokenHash=crypto.createHash('sha256').update(`native|${device.platform}|${device.token}`).digest('hex'),configKey=nativeConfigKey(config)
     const removeKey=crypto.randomBytes(32).toString('base64url'),removeHash=crypto.createHash('sha256').update(removeKey).digest('hex')
-    // a second key, only for an iPhone app that shows who and where (push-label-v1): the app made it and keeps it for its
-    // notification extension, and sends only its hash. It reads a room push's title and nothing else (it cannot remove the
-    // device); the same key again changes nothing, so a lost answer never leaves the phone with a key the server forgot
-    const labelHash=device.platform==='ios'&&input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
+    // a second key, only for a phone app that shows who and where (push-label-v1): the iPhone app keeps it for its
+    // notification extension, the Android app for its messaging service, and each sends only its hash. It reads a room
+    // push's title and nothing else (it cannot remove the device); the same key again changes nothing, so a lost answer
+    // never leaves the phone with a key the server forgot. On Android it also makes the push data-only (label below)
+    const labelHash=input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
       if(other&&other.user_id!==userId&&this.live(other.user_id,other.session_id))throw new HttpError('conflict',PHONE_TAKEN[getUser(this.ctx.db,userId)?.locale??teamDefaultLocale(this.ctx.db)])
@@ -169,7 +170,7 @@ export class PushService {
     if(result.moved)cancelPushUser(this.ctx,result.moved)
     return{id:result.id,removeKey}
   }
-  /** The iPhone app's notification extension asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
+  /** The iPhone app's notification extension (and the Android app's messaging service, which shows only the title) asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
    * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
    * the message's first line while the person's messagePreview is on (else the generic line). No session: the label key from registration is the proof. Only for a
    * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and
@@ -316,7 +317,10 @@ export class PushService {
             // badge: the person's count now (what the page would show on the icon), a number only; an iPhone's only (the
             // gateway sends none to Android: launchers count the notifications there)
             const badge=device.platform==='ios'?this.o.badge(allowed.sub.user_id):null
-            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
+            // label: an Android app that registered a label key builds a room push itself (data-only FCM) and names who
+            // and where (docs/DECISIONS.md "Android notifications name who and where"); an older app gets the gateway's line
+            const label=device.platform==='android'&&!!allowed.sub.label_hash&&labelCode(allowed.event)
+            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{}),...(label?{label:true as const}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{
             const config=this.o.config();if(!config)throw new Error('push_web_off')
             const sub=this.vault.decrypt(aad,'web-push',allowed.sub.secret_enc,allowed.sub.key_version) as PushSubscription
