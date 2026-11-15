@@ -3700,6 +3700,8 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.activity.skipped": "読めませんでした · {page}（{why}）",
   "onboarding.profile.activity.writing": "会社紹介をまとめています",
   "onboarding.profile.activity.text": "貼り付けた文章をまとめています",
+  "onboarding.profile.activity.answers": "回答からひとことの紹介を書いています",
+  "onboarding.profile.skipToReview": "スキップして回答を確認",
   "onboarding.profile.activity.why.off_site": "このサイトの外なので省略",
   "onboarding.profile.activity.why.limit": "{max}ページまでなので省略",
   "onboarding.profile.activity.why.not_linked": "ページにないアドレスなので省略",

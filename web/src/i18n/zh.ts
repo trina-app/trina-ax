@@ -3691,6 +3691,8 @@ export const zh: Record<MessageKey, string> = {
   "onboarding.profile.activity.skipped": "未读取 · {page}（{why}）",
   "onboarding.profile.activity.writing": "正在撰写公司简介",
   "onboarding.profile.activity.text": "正在查看粘贴的文字",
+  "onboarding.profile.activity.answers": "正在根据你的回答写一句话介绍",
+  "onboarding.profile.skipToReview": "跳过，查看我的回答",
   "onboarding.profile.activity.why.off_site": "不在此网站内，已跳过",
   "onboarding.profile.activity.why.limit": "仅限{max}个页面，已跳过",
   "onboarding.profile.activity.why.not_linked": "没有页面链接到它，已跳过",

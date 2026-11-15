@@ -384,7 +384,7 @@ describe('colours and images, clicked', () => {
     const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
     calls = []
     // the answers go to the AI as a text: it writes the name and the one-line intro, the answers stay as typed
-    draftState = { status: 'done', website: '', error: null, steps: [], draft: { website: '', name: 'Acme', oneLine: 'Acme makes quiet desk fans for small offices.', products: 'Fans (rewritten)', audience: '', tone: [], avoid: '', sources: [
+    draftState = { status: 'done', website: '', error: null, steps: [], draft: { website: '', name: 'Acme', oneLine: 'Acme makes quiet desk fans for small offices.', products: 'Fans (rewritten)', audience: '', tone: [], avoid: 'AI-made avoid', sources: [
       { field: 'oneLine', url: '', excerpt: 'Desk fans' }, { field: 'products', url: '', excerpt: 'Desk fans' }] } }
     let m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
     try {
@@ -405,6 +405,9 @@ describe('colours and images, clicked', () => {
       const areas = [...review.querySelectorAll('textarea')].map((i: any) => i.value)
       expect(inputs).toContain('Acme makes quiet desk fans for small offices.')
       expect(areas.slice(0, 2)).toEqual(['Desk fans', 'Small offices'])
+      // only the name and the intro came from the AI: its avoid and its products source did not
+      expect(areas).not.toContain('AI-made avoid')
+      expect(review.textContent).not.toContain('AI-made avoid')
     } finally { await m.unmount() }
     // a saved profile (and a draft the AI read) keeps the title
     m = await mount(<MemoryRouter><ProfileStep initial={PROFILE} onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
@@ -441,6 +444,40 @@ describe('colours and images, clicked', () => {
         expect(calls.some((c) => c.key === 'POST /api/onboarding/profile/draft')).toBe(how === 'failed')
       } finally { await m.unmount(); routes['GET /api/me/ai-access'] = aiRoute; useAiAccess.getState().reset() }
     }
+  })
+
+  test('the three answers while the AI writes: its own line, "Skip, check my answers" opens the review at once', async () => {
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    calls = []
+    draftState = { status: 'running', website: '', draft: null, error: null, steps: [], writing: true }
+    const m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-site'), 'the website form')
+      await m.click(button('홈페이지가 없어요'))
+      await m.click(await m.until(() => m.find('profile-step-to-questions'), 'the fallback'))
+      const form = await m.until(() => m.find('profile-step-questions'), 'the questions')
+      await m.type(form.querySelectorAll('textarea')[0]!, 'Desk fans')
+      await m.click(form.querySelector('button[type="submit"]')!)
+      const reading = await m.until(() => m.find('profile-step-reading'), 'the reading')
+      expect(reading.textContent).toContain('답한 내용으로 한 줄 소개를 쓰는 중')
+      await m.click(m.get('profile-step-skip-to-review'))
+      const review = await m.until(() => m.find('profile-step-review'), 'the review')
+      expect([...review.querySelectorAll('input')].map((i: any) => i.value)).toContain('Desk fans')
+    } finally { await m.unmount() }
+  })
+
+  test('a kept reading whose chat is gone (not found): no endless reading after a reload; the fallback, and nothing kept', async () => {
+    const store = (globalThis as any).sessionStorage as Storage
+    store.clear()
+    const gone = '01900000-0000-7000-8000-0000000000ee'
+    store.setItem('mycel.profileDraft.olga', JSON.stringify({ phase: { kind: 'reading', chatId: gone, source: 'website', site: 'acme.example', website: 'https://acme.example/', input: { website: 'https://acme.example/' } }, draft: {} }))
+    const m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" keep /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-reading'), 'the kept reading')
+      chatActivity.emit(gone)
+      await m.until(() => m.find('profile-step-fallback'), 'the fallback')
+      expect(store.getItem('mycel.profileDraft.olga')).toBeNull()
+    } finally { await m.unmount(); store.clear() }
   })
 
   test('keep (the welcome steps): the review and its edits come back after a reload of the tab; a save clears them; without keep nothing is kept', async () => {

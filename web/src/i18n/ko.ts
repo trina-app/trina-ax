@@ -3743,6 +3743,8 @@ export const ko = {
   "onboarding.profile.activity.skipped": "못 읽음 · {page} ({why})",
   "onboarding.profile.activity.writing": "회사 소개 정리 중",
   "onboarding.profile.activity.text": "붙여 넣은 글을 정리 중",
+  "onboarding.profile.activity.answers": "답한 내용으로 한 줄 소개를 쓰는 중",
+  "onboarding.profile.skipToReview": "건너뛰고 답한 내용 확인하기",
   "onboarding.profile.activity.why.off_site": "이 사이트 밖이라 건너뜀",
   "onboarding.profile.activity.why.limit": "{max}개까지만 읽어서 건너뜀",
   "onboarding.profile.activity.why.not_linked": "페이지에 없는 주소라 건너뜀",

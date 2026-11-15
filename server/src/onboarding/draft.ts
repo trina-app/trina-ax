@@ -13,7 +13,7 @@
 // contract. The person edits it and saves it with PUT: the AI never writes the profile.
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
-import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_DRAFT_STEPS_MAX, PROFILE_LIMITS, type CompanyProfileInput, type Locale, type ProfileDraftPage, type ProfileDraftPageReason, type ProfileDraftStarted, type ProfileDraftState, type StartProfileDraft } from '@mycel/shared/api'
+import { normalizeWebsite, profileLineFrom, PROFILE_DRAFT_PAGES_MAX, PROFILE_DRAFT_STEPS_MAX, PROFILE_LIMITS, type CompanyProfileInput, type Locale, type ProfileDraftPage, type ProfileDraftPageReason, type ProfileDraftStarted, type ProfileDraftState, type StartProfileDraft } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Logger } from '../log'
 import type { AuthInfo } from '../services'
@@ -316,9 +316,8 @@ export function parseDraftAnswer(text: string, s: DraftScope): CompanyProfileInp
  * instructions, gets the first line of its products, with the products' excerpt as its source. */
 export function withOneLine(p: CompanyProfileInput): CompanyProfileInput {
   if (p.oneLine.trim()) return p
-  const first = p.products.split('\n').map((l) => l.replace(/^\s*(?:[-*•·]|\d+[.)])\s+/, '').trim()).find(Boolean)
-  if (!first) return p
-  const oneLine = [...first].slice(0, PROFILE_LIMITS.oneLine).join('')
+  const oneLine = profileLineFrom(p.products)
+  if (!oneLine) return p
   const from = p.sources.find((x) => x.field === 'products')
   const rest = p.sources.filter((x) => x.field !== 'oneLine')
   return { ...p, oneLine, sources: from && rest.length < PROFILE_LIMITS.sources ? [...rest, { ...from, field: 'oneLine' }] : rest }

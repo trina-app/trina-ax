@@ -3744,6 +3744,8 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.activity.skipped": "Not read · {page} ({why})",
   "onboarding.profile.activity.writing": "Writing the company profile",
   "onboarding.profile.activity.text": "Going through the pasted text",
+  "onboarding.profile.activity.answers": "Writing a one-line intro from your answers",
+  "onboarding.profile.skipToReview": "Skip, check my answers",
   "onboarding.profile.activity.why.off_site": "outside this site, skipped",
   "onboarding.profile.activity.why.limit": "only {max} pages, skipped",
   "onboarding.profile.activity.why.not_linked": "not linked from a page, skipped",
