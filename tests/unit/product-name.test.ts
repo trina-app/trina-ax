@@ -102,6 +102,13 @@ describe('files built from PRODUCT', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'desktop/package.json'), 'utf8')) as Record<string, unknown> & { scripts: Record<string, string> }
     expect(pkg.build).toBeUndefined()
     expect(pkg.productName).toBeUndefined()
-    for (const [k, v] of Object.entries(pkg.scripts)) if (v.includes('electron-builder')) expect({ k, v: v.includes('--config electron-builder.config.ts') }).toEqual({ k, v: true })
+    // the signed Mac build (dist:mac:release) uses electron-builder.devid.config.ts, which spreads this config and
+    // changes only the Mac signing, so the name, the file names and the appId stay the ones above
+    const configs = /--config electron-builder(\.devid)?\.config\.ts(\s|$)/
+    for (const [k, v] of Object.entries(pkg.scripts)) if (v.includes('electron-builder')) expect({ k, v: configs.test(v) }).toEqual({ k, v: true })
+    const devid = fs.readFileSync(path.join(ROOT, 'desktop/electron-builder.devid.config.ts'), 'utf8')
+    expect(devid).toContain("import base from './electron-builder.config'")
+    expect(devid).toContain('...base,')
+    expect(devid).not.toMatch(/\b(productName|appId|artifactName)\s*:/)
   })
 })
