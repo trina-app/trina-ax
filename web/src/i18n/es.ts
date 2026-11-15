@@ -731,7 +731,7 @@ export const es: Record<MessageKey, string> = {
   'connect.signInWhere': "Al iniciar sesión se abre una página de inicio de sesión en una ventana nueva. Compruebe que es el servicio que espera. La IA nunca ve su contraseña.",
   "connect.wait.timedOut": "El inicio de sesión no terminó, así que se dejó de esperar. Vuelve a conectar cuando quieras.",
   "connect.wait.limit": "Esto se detiene solo después de {n, plural, one {# minuto} other {# minutos}}.",
-  "connect.wait.google": "Si Google dice que no puedes usar esta app (por ejemplo, es solo para las cuentas de tu empresa), cierra la ventana de Google, pulsa «Volver a intentar» y elige tu cuenta de trabajo. Esto se detiene solo después de {n, plural, one {# minuto} other {# minutos}}.",
+  "connect.wait.google": "Si Google indica que no puede usar esta app (por ejemplo, es solo para las cuentas de su empresa), cierre la ventana de Google, pulse «Volver a intentar» y elija su cuenta de trabajo. Esto se detiene solo después de {n, plural, one {# minuto} other {# minutos}}.",
   'connect.noKey': "No hace falta una clave. Se conecta a {host}.",
   'connect.kindMcp': "Servidor MCP",
   'connect.kindHttp': "API HTTP",

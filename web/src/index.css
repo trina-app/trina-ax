@@ -204,7 +204,7 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 :root:lang(zh) { --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Segoe UI", Roboto, system-ui, sans-serif; }
 /* Japanese takes a Japanese face first: in Apple SD Gothic Neo / Noto Sans KR the full-width marks （）：？ get Korean
    metrics and ・ is drawn as a narrow middle dot (QA TC-2525) */
-:root:lang(ja) { --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, "Noto Sans JP", "Noto Sans CJK JP", "Segoe UI", Roboto, system-ui, sans-serif; }
+:root:lang(ja) { --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", "Noto Sans CJK JP", "Segoe UI", Roboto, system-ui, sans-serif; }
 ::selection { background: var(--c-accent-soft); }
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
