@@ -1,6 +1,6 @@
 // How long the app waits for a team that is starting (QA wake gap 2). A free trial's server turns off when nobody uses
 // it; the relay then answers every request with a retryable 503 team_waking while it starts (about a minute, #861), and
-// the app shows "Starting your team…" and asks again by itself. If the start fails, the relay keeps answering
+// the app shows "Resuming your team…" and asks again by itself. If the start fails, the relay keeps answering
 // team_waking and the spinner would turn for ever: after 3 minutes of nothing but "starting" the app says the team did
 // not start, with [Try again], which starts the wait over (the app keeps asking meanwhile, so a late start still opens).
 import { useEffect, useRef, useState } from 'react'

@@ -269,7 +269,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
     const mine = stop.current = new AbortController()
     try {
       // the name is checked only here, on the button, and only under the team domain
-      // a sleeping trial team: "Starting your team…" while it starts, then on by itself (QA wake gap 1)
+      // a sleeping trial team: "Resuming your team…" while it starts, then on by itself (QA wake gap 1)
       const c = await checkTeam(r.origin, service.teamDomain, () => setWaking(true), mine.signal)
       // cancelled meanwhile: nothing more (a later try has its own)
       if (mine.signal.aborted) return

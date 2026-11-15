@@ -224,7 +224,7 @@ export interface WakeSteps {
   /** the person's own page load of the team (GET / with Sec-Fetch-Mode: navigate, as a browser opening the link):
    * the request the relay lets wake a sleeping team, never the health check */
   wake: () => Promise<WakeAnswer>
-  /** told once, at the first "the team is starting" answer: the app shows "Starting your team… about a minute" */
+  /** told once, at the first "the team is starting" answer: the app shows "Resuming your team… about a minute" */
   onWaking: () => void
   sleep: (ms: number) => Promise<void>
   now: () => number

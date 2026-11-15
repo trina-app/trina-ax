@@ -83,7 +83,7 @@ export interface TeamCheckIo extends Omit<WakeSteps, 'wake'> {
 }
 /**
  * The add-team check (main/app-window.ts addTeam): GET /api/health, one relay rename hop, and a sleeping trial team
- * woken and waited for ("Starting your team…", about a minute) instead of "cannot reach" (QA wake gap 1). Throws
+ * woken and waited for ("Resuming your team…", about a minute) instead of "cannot reach" (QA wake gap 1). Throws
  * when the address cannot be fetched at all.
  */
 export async function checkTeam(origin: string, io: TeamCheckIo): Promise<TeamCheck> {

@@ -1,7 +1,7 @@
 // QA wake gap 1: adding a sleeping free trial team in the desktop or phone app. The address check (GET /api/health)
 // never wakes a team (relay/src/relay.ts mayWake: no cookie, no token, not a page load), so the relay answered "offline"
 // (team_offline_cloud) and the app said "can't reach". Now the check sees a team that may be asleep, wakes it with the
-// person's page load (GET / with Sec-Fetch-Mode: navigate), says "Starting your team…" and goes on when it answers.
+// person's page load (GET / with Sec-Fetch-Mode: navigate), says "Resuming your team…" and goes on when it answers.
 import { describe, expect, test } from 'bun:test'
 import * as shared from '../../shared/src/team-link'
 import * as phone from '../../mobile/src/team-link'
@@ -100,7 +100,7 @@ describe('desktop: the add-team check', () => {
     expect(woke).toBe(0)
   })
   test('the words, in every language', () => {
-    expect(t('en', 'welcome.waking')).toBe('Starting your team…')
+    expect(t('en', 'welcome.waking')).toBe('Resuming your team…')
     expect(t('en', 'welcome.wakingDetail')).toBe('This takes about a minute. It opens by itself when it is ready.')
     expect(t('en', 'err.wakeTimeout')).toBe("Your team didn't start. Try again in a minute, or contact support.")
     for (const l of ['ko', 'id', 'ja', 'es', 'zh'] as const) expect(t(l, 'welcome.waking')).not.toBe(t('en', 'welcome.waking'))
@@ -156,9 +156,9 @@ describe('phone: the add-team check', () => {
     expect(f.seen.filter((x) => x.path === '/').length).toBe(2)
   })
   test('the words, in the phone\'s three languages', () => {
-    expect(stringsFor('en').waking).toBe('Starting your team…')
+    expect(stringsFor('en').waking).toBe('Resuming your team…')
     expect(stringsFor('en').wakeTimeout).toBe("Your team didn't start. Try again in a minute, or contact support.")
-    expect(stringsFor('ko').waking).toBe('팀을 시작하고 있어요…')
+    expect(stringsFor('ko').waking).toBe('팀을 다시 켜고 있어요…')
     expect(stringsFor('zh').wakingDetail).toBe('大约需要一分钟。准备好后会自动打开。')
   })
 })

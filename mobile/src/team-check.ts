@@ -9,7 +9,7 @@ type Fetch = (url: string, init: { headers: Record<string, string>; redirect: 'm
 }>
 export interface CheckIo {
   fetch: Fetch
-  /** told once when the team turns out to be starting: the screen says "Starting your team…" with a spinner */
+  /** told once when the team turns out to be starting: the screen says "Resuming your team…" with a spinner */
   onWaking?: () => void
   sleep?: (ms: number) => Promise<void>
   now?: () => number
