@@ -1,0 +1,1 @@
+- On a phone, the line that tells you someone else is connecting an AI (or that your own earlier sign-in is still running) now scrolls into view in the **Connect my AI** dialog. It used to appear under the fold, behind the buttons, so you only saw the connect button turn grey.
