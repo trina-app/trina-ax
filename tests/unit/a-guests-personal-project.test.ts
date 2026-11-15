@@ -19,7 +19,7 @@ test('a personal project: refused as a guest place until shared; shared with nob
   expect(p.folderPath.startsWith(`users/${mia.id}/`)).toBe(true)
   await mia.client.call('PUT', '/api/files/content', { path: `${p.folderPath}/price.txt`, content: 'banana price', baseSha256: null })
   const before = await mia.client.call('POST', '/api/chats', { projectId: p.id, title: 'before the guest' })
-  const place = { kind: 'project', id: p.id }
+  const place = { kind: 'project' as const, id: p.id }
 
   // a personal project is no guest place: not for its creator, not for the owner (403, the same answer as a place one
   // may not open a guest into)
