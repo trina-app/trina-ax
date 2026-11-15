@@ -482,7 +482,7 @@ describe('review of part 5', () => {
   test('Reopen only after Open Settings, while the app still has no access, never during a look; the index asks for documents only', () => {
     const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
     expect(ctl).toMatch(/async relaunch\(\) \{\s*if \(process\.platform !== 'darwin' \|\| this\.busy \|\| !this\.fullDiskSettingsAt \|\| Date\.now\(\) - this\.fullDiskSettingsAt > 15 \* 60_000\) return\s*if \(\(await this\.fullDisk\(\)\) === 'granted'\) return/)
-    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("System.FileExtension IN (''.pdf'',")
+    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("(System.FileExtension = ''.pdf'' OR")
   })
 })
 

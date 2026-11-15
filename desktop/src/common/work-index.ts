@@ -145,8 +145,18 @@ export function parseZoneIdentifier(text: string): string[] {
  * (U+2018–U+201B). The script also goes as -EncodedCommand (powershellArgs), never through a command line's quoting. */
 export const psQuote = (s: string) => s.replace(/['\u2018-\u201B]/g, (c) => c + c)
 
-/** powershell.exe's arguments for a script: UTF-16LE base64 (-EncodedCommand), so nothing in it is read by a shell. */
-export const powershellArgs = (script: string) => ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
+/** A Windows Search SQL string's quotes doubled: only ASCII ' (the SQL reads a curly quote as a letter). The SQL then goes
+ * into a PowerShell string through psQuote, so a folder named "Alex’s" stays "Alex’s" (review of the 0x80040E14 fix). */
+export const sqlQuote = (s: string) => s.replace(/'/g, "''")
+
+/** Windows PowerShell writes to a pipe in the console's code page (437, 949 …), and execFile reads UTF-8: a Korean or
+ * accented path came back as "?" and its file was never found (measured on a Windows 11 PC, 2026-11-15). Every script
+ * starts with this, so its output is UTF-8. */
+export const PS_UTF8 = '[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false'
+
+/** powershell.exe's arguments for a script: UTF-16LE base64 (-EncodedCommand), so nothing in it is read by a shell;
+ * its output UTF-8 (PS_UTF8). */
+export const powershellArgs = (script: string) => ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(`${PS_UTF8};${script}`, 'utf16le').toString('base64')]
 
 /** One PowerShell run: Windows Search's SystemIndex for documents changed or opened in the last `days` days under the
  * roots, as one JSON array. ADO through the Search.CollatorDSO provider; nothing is opened. `drives` (part 5): the other
@@ -154,12 +164,14 @@ export const powershellArgs = (script: string) => ['-NoProfile', '-NonInteractiv
  * the file's attributes, so an online-only file is told apart without touching it. */
 /** The index is asked for documents only (and pictures, for brand folders): code trees, caches and media on a busy
  * drive never push the documents out of its first 2,000 rows (review of part 5). */
-const EXTS = [...DOC_TYPES, 'png', 'jpg', 'jpeg'].map((x) => `'.${x}'`).join(',')
+/** Windows Search's SQL has no IN: `System.FileExtension IN (…)` fails the whole query (0x80040E14, measured on a
+ * Windows 11 PC, 2026-11-15), so each type is its own comparison. */
+const EXT_FILTER = `(${[...DOC_TYPES, 'png', 'jpg', 'jpeg'].map((x) => `System.FileExtension = '.${x}'`).join(' OR ')})`
 
 export function windowsSearchScript(roots: readonly string[], days: number = RECENT_DAYS, now = Date.now(), o: { drives?: boolean } = {}): string {
   const since = new Date(now - days * 86_400_000).toISOString().slice(0, 19).replace('T', ' ')
-  const scope = roots.map((r) => `SCOPE='file:${psQuote(r.replace(/\\/g, '/'))}'`).join(' OR ')
-  const sql = (sc: string) => `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company, System.FileAttributes FROM SystemIndex WHERE (${sc}) AND System.FileExtension IN (${EXTS}) AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
+  const scope = roots.map((r) => `SCOPE='file:${sqlQuote(r.replace(/\\/g, '/'))}'`).join(' OR ')
+  const sql = (sc: string) => `SELECT TOP 2000 System.ItemPathDisplay, System.DateAccessed, System.DateModified, System.Size, System.Author, System.Company, System.FileAttributes FROM SystemIndex WHERE (${sc}) AND ${EXT_FILTER} AND System.FileAttributes <> 0 AND (System.DateModified >= '${since}' OR System.DateAccessed >= '${since}') ORDER BY System.DateModified DESC`
   return [
     "$ErrorActionPreference='Stop'",
     "$c=New-Object -ComObject ADODB.Connection",
@@ -172,13 +184,18 @@ export function windowsSearchScript(roots: readonly string[], days: number = REC
       `if($ds){$q='${psQuote(sql('__SCOPES__'))}'.Replace('__SCOPES__',((@('${psQuote(scope)}')+$ds) -join ' OR '))}`,
     ] : []),
     '$r=$c.Execute($q)',
+    // the index's dates are UTC with no kind; ConvertTo-Json would take them as local time (9 h early in Seoul), so
+    // they go as milliseconds since 1970, read as UTC
+    "function T($v){if($v -is [datetime]){[DateTimeOffset]::new([DateTime]::SpecifyKind($v,[DateTimeKind]::Utc)).ToUnixTimeMilliseconds()}else{$null}}",
     '$o=@()',
-    'while(-not $r.EOF){$o+=[pscustomobject]@{p=$r.Fields.Item(0).Value;a=$r.Fields.Item(1).Value;m=$r.Fields.Item(2).Value;s=$r.Fields.Item(3).Value;au=$r.Fields.Item(4).Value;co=$r.Fields.Item(5).Value;fa=$r.Fields.Item(6).Value};$r.MoveNext()}',
+    'while(-not $r.EOF){$o+=[pscustomobject]@{p=$r.Fields.Item(0).Value;a=(T $r.Fields.Item(1).Value);m=(T $r.Fields.Item(2).Value);s=$r.Fields.Item(3).Value;au=$r.Fields.Item(4).Value;co=$r.Fields.Item(5).Value;fa=$r.Fields.Item(6).Value};$r.MoveNext()}',
     '$o|ConvertTo-Json -Compress -Depth 3',
   ].join(';')
 }
 
+/** A date of the script's JSON: milliseconds since 1970 (UTC), or as older scripts wrote it (/Date()/, text). */
 const winDate = (v: unknown) => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
   if (typeof v === 'string') {
     const m = v.match(/\/Date\((\d+)\)\//)
     const t = m ? Number(m[1]) : Date.parse(v)
