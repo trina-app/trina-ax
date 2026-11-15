@@ -5,7 +5,7 @@
 // list's "Select all" (never a personal-looking file, at most 100) and Undo, which takes back only what the run made.
 // No API calls here: the screens give them, so the tests need no server.
 import { TEAM_FILES_LIMITS } from '@mycel/shared/api'
-import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type DesktopBridge, type WorkFileMeta, type WorkFileRead, type WorkFolderId, type WorkRootResult } from '@mycel/shared'
+import { FROM_COMPUTER_DIR, WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type DesktopBridge, type WorkCloudProvider, type WorkFileMeta, type WorkFileRead, type WorkFolderId, type WorkRootResult } from '@mycel/shared'
 import { autoNamed, considered, copyOf, neverListed, tooSmall, WORK_FILES_LIMITS } from '@mycel/shared/file-scan'
 import { hasPhrase, latinWords, personalPath, type LocalDoc } from './teamFiles'
 import { joinPath } from './paths'
@@ -92,14 +92,22 @@ export function placeFolder(f: Pick<WorkFileMeta, 'root' | 'place'>): string {
 
 /** Why a read gave nothing, as an Error the upload counts as "could not be read" (the file is not tried again). */
 export class WorkFileReadError extends Error {
-  constructor(readonly reason: Extract<WorkFileRead, { ok: false }>['reason']) {
+  constructor(
+    readonly reason: Extract<WorkFileRead, { ok: false }>['reason'],
+    /** cloudTimeout: the cloud it did not come from in time */
+    readonly cloud?: WorkCloudProvider,
+  ) {
     super(`work file not read: ${reason}`)
   }
 }
 
+/** A cloud's name as the person knows it ("the cloud" when the app could not tell which). */
+export const CLOUD_NAMES: Record<Exclude<WorkCloudProvider, 'cloud'>, string> = { icloud: 'iCloud', onedrive: 'OneDrive', googleDrive: 'Google Drive', dropbox: 'Dropbox', box: 'Box' }
+export const cloudName = (c: WorkCloudProvider, t: (key: 'files.findWork.cloudGeneric') => string) => (c === 'cloud' ? t('files.findWork.cloudGeneric') : CLOUD_NAMES[c])
+
 /** The look's files as the step's documents: `pick` the root's folder name, `rel` the path inside it. Nothing is read:
  * `open` asks the app for the bytes, by id, when the file goes up. */
-export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) => Promise<WorkFileRead>): LocalDoc[] {
+export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string, o?: { onCloud?: (cloud: WorkCloudProvider) => void }) => Promise<WorkFileRead>): LocalDoc[] {
   return files.map((f) => {
     const pick = placeFolder(f)
     const folder = f.folder.normalize('NFC')
@@ -121,9 +129,9 @@ export function docsFromScan(files: readonly WorkFileMeta[], read: (id: string) 
       ...(f.used || f.useCount || f.origins?.length || f.authors?.length || f.org || f.listed
         ? { hints: { ...(f.used ? { used: f.used } : {}), ...(f.useCount ? { useCount: f.useCount } : {}), ...(f.origins?.length ? { origins: f.origins } : {}), ...(f.authors?.length ? { authors: f.authors } : {}), ...(f.org ? { org: f.org } : {}), ...(f.listed ? { listed: true } : {}) } }
         : {}),
-      open: async () => {
-        const r = await read(f.id)
-        if (!r.ok) throw new WorkFileReadError(r.reason)
+      open: async (o) => {
+        const r = await (o?.onCloud ? read(f.id, { onCloud: o.onCloud }) : read(f.id))
+        if (!r.ok) throw new WorkFileReadError(r.reason, r.reason === 'cloudTimeout' ? r.cloud : undefined)
         return new File([r.bytes as BlobPart], name, { lastModified: f.modified })
       },
     }

@@ -27,7 +27,7 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { cloudName, companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { takeResume } from '../../lib/workFilesResume'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -37,6 +37,7 @@ import { isGuestMe } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { startFolderUpload, stopFolderUpload } from '../FolderUploads'
 import { Tooltip } from '../Tooltip'
+import { FromCloudLine } from '../FromCloud'
 import { Button, ErrorNote, Modal, ProgressBar, useMediaQuery } from '../ui'
 import { storagePlansAction } from '../StoragePlansLink'
 import { TickFold, TickRow, TickSearch } from './TickList'
@@ -459,6 +460,7 @@ export function failedReason(r: { local?: string; error?: unknown }, t: ReturnTy
   if (r.error instanceof WorkFileReadError) {
     if (r.error.reason === 'changed') return t('files.findWork.why.changed')
     if (r.error.reason === 'limit') return t('files.findWork.why.limit')
+    if (r.error.reason === 'cloudTimeout') return t('files.findWork.why.cloudTimeout', { provider: cloudName(r.error.cloud ?? 'cloud', t) })
     return t('files.findWork.why.lookAgain')
   }
   if (r.local === 'unreadable') return t('files.folderUpload.unreadable')
@@ -603,6 +605,7 @@ function RunResult({ run: start, onClose, onUndone, phone }: { run: Run; onClose
       <h2 className="text-display font-semibold text-ink" role="status" data-testid="find-work-run-title">
         {undo.s === 'done' && undo.n > 0 ? t('files.findWork.undone', { n: undo.n }) : undo.s === 'done' ? t('files.findWork.undoFailed', { n: undo.failed }) : running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('files.findWork.added', { n: v.done, place: words.path(folder, ' › ') })}
       </h2>
+      {running && <FromCloudLine active={v.active} />}
       {undo.s === 'done' && undo.until && <p className="text-sm text-muted" data-testid="find-work-undone-until">{t('files.findWork.undoneUntil', { date: until(undo.until)! })}</p>}
       {undo.s === 'done' && undo.n > 0 && undo.failed > 0 && <ErrorNote>{t('files.findWork.undoFailed', { n: undo.failed })}</ErrorNote>}
       {undo.s === 'error' && <ErrorNote>{undo.text}</ErrorNote>}

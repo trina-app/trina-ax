@@ -63,3 +63,26 @@ export const GUEST_ONE_PLACE = 'guest_one_place'
 export const GUEST_LIMIT = 'guest_limit'
 /** A removed guest switched on with nothing to bring them back to (409 conflict, params.placeOut: why). */
 export const GUEST_NO_PLACE = 'guest_no_place'
+
+/**
+ * Where a guest opens a team folder (they have no 파일 screen: App.tsx NotForGuests): the files screen of the project
+ * that holds it (`/projects/<id>/files?dir=…`, Projects.tsx ProjectFiles); null for any other folder, their own
+ * users/<id>/ included (no screen lists it: its files open in the preview panel only).
+ */
+export function guestFolderHref(path: string, projects: readonly { id: string; folderPath: string }[]): string | null {
+  const clean = path.replace(/^\/+|\/+$/g, '')
+  const p = projects.find((x) => x.folderPath && (clean === x.folderPath || clean.startsWith(`${x.folderPath}/`)))
+  if (!p) return null
+  const dir = clean === p.folderPath ? '' : clean.slice(p.folderPath.length + 1)
+  return `/projects/${p.id}/files${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`
+}
+
+/** An in-app address as a guest opens it: a /files address goes to their project's files screen (guestFolderHref, via
+ * `folder`) or nowhere (null); any other address stays as it is. */
+export function guestAppHref(href: string, folder: (path: string) => string | null): string | null {
+  // (the router matches addresses without regard to case: /FILES is /files)
+  if (!/^\/files(\/|\?|#|$)/i.test(href)) return href
+  const u = new URL(href, 'http://app.invalid')
+  const path = u.pathname.toLowerCase() === '/files' ? u.searchParams.get('path') : null
+  return path ? folder(path) : null
+}

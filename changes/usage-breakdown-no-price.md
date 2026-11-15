@@ -1,0 +1,1 @@
+- Admin › Usage: in the breakdown table (every Group by) and its total row, a row whose answers all have no price now reads **No price**, like the cost tile, instead of "$0.00 +?". A partly priced row still reads "$x +?".
