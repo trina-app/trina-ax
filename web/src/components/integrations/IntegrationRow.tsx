@@ -257,6 +257,9 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
   const saved = (i: Integration, next: { window: Window | null } | null, created: boolean) => {
     if (created) add(i)
     else replace(i)
+    // a new sign-in connection of my own may have replaced my oldest one still waiting for its first sign-in (the
+    // server's makeRoom, QA TC-3048): the list again, so no removed row stays on screen
+    if (created && i.scope === 'personal' && i.auth === 'oauth') reload()
     if (next && i.status === 'needs_auth') return void signIn.start(i.id, next.window)
     next?.window?.close()
     if (i.status === 'error') toast({ level: 'warn', text: t('integrations.savedWithError') })

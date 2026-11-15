@@ -51,14 +51,10 @@ export function personalCounts(db: AppContext['db'], userId: string): { settled:
     FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL`).get(userId) as { settled: number; waiting: number }
   return { settled: Number(r.settled), waiting: Number(r.waiting) }
 }
-/** Whether a person may add another connection of their own with this sign-in method: fewer than MAX_PERSONAL settled
- * ones always, and for a sign-in one also fewer than MAX_PERSONAL_WAITING waiting. */
-export function personalFull(db: AppContext['db'], userId: string, auth: IntegrationInput['auth']): boolean {
-  const n = personalCounts(db, userId)
-  return n.settled >= MAX_PERSONAL || (auth === 'oauth' && n.waiting >= MAX_PERSONAL_WAITING)
-}
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
+/** the window FLOWS_PER_HOUR counts sign-in tries in */
+const FLOW_WINDOW_MS = 3600_000
 const CLIENT_IDLE_MS = 10 * 60_000
 /** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
 const RECENT_SECRETS = 16
@@ -234,8 +230,9 @@ export class Integrations {
     // a person's own connection that waits for its first sign-in (Connect saves it before the sign-in starts; a refused
     // or closed sign-in leaves it): Connect again at the same address picks it up instead of saving another, with the
     // new name, notes and write rule (a different short name asked for makes a new one). Waiting ones do not count
-    // toward MAX_PERSONAL, so failed tries never stop someone adding a service; they have a cap of their own, and the
-    // sign-in's callback stops one that would go over MAX_PERSONAL. Nothing with a stored sign-in or key is reused.
+    // toward MAX_PERSONAL, so failed tries never stop someone adding a service; they have a cap of their own, at which a
+    // new one replaces the oldest (makeRoom), and the sign-in's callback stops one that would go over MAX_PERSONAL.
+    // Nothing with a stored sign-in or key is reused.
     const personal = scope === 'personal' && !templateId
     if (personal && input.auth === 'oauth' && !input.oauthClient) {
       const waiting = this.db.query(`SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${WAITING}
@@ -249,10 +246,8 @@ export class Integrations {
         return Object.keys(patch).length ? this.update(viewer, again.id, patch, L) : view(this.db, again, viewer, L)
       }
     }
-    const full = templateId ? false : personal ? personalFull(this.db, viewer.id, input.auth)
-      : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n >= MAX_TEAM
-    const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-    if (full) fail('conflict', say('tooMany', L, { n: max }))
+    if (personal) this.roomOrFail(viewer.id, input.auth, L)
+    else if (scope === 'team' && (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n >= MAX_TEAM) fail('conflict', say('tooMany', L, { n: MAX_TEAM }))
     const authHeader = input.auth === 'header' ? this.headerName(input.authHeader ?? null, L) : null
     // a template's members sign in through the template's app (templates.ts), never one of their own
     if (input.oauthClient && (input.auth !== 'oauth' || templateId)) fieldError(L, 'oauthClient', 'appNeedsOauth')
@@ -278,7 +273,11 @@ export class Integrations {
       const sealed = this.sealFor(row, { type: 'key', key: input.secret } satisfies KeySecret, L)
       row.secret_enc = sealed.enc; row.key_version = sealed.keyVersion; row.last_error = null
     }
+    let replaced: string[] = []
     this.db.transaction(() => {
+      // every check passed: a waiting one may go to make room for this one, in the write's transaction (a write that
+      // fails removes nothing)
+      if (personal && input.auth === 'oauth') replaced = this.makeRoom(viewer.id, L)
       this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
         write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at, template_id, oauth_client, oauth_client_enc, oauth_client_key_version)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?,?,?,?)`)
@@ -287,6 +286,7 @@ export class Integrations {
           row.oauth_client ?? null, row.oauth_client_enc ?? null, row.oauth_client_key_version ?? 1)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
+    for (const r of replaced) this.forget(r)
     // made from a template: logged like any member's own connection, without which template (that would say which
     // service, and that this member connected it: admins see only how many did)
     audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined, ...(app ? { ownApp: true } : {}) }) })
@@ -344,15 +344,18 @@ export class Integrations {
     if (moved) { next.tools_updated_at = null; next.account = null }
     const recheck = moved || secret !== 'kept'
     // a person's own connection that stops waiting for a sign-in (to a key, or no sign-in) now counts toward
-    // MAX_PERSONAL; one that starts waiting (a key changed to sign-in) toward the waiting cap
-    if (countsAsOwn(row) && row.owner_user_id && isWaiting(row) !== isWaiting(next)) {
-      const n = personalCounts(this.db, row.owner_user_id)
-      if (isWaiting(row) ? n.settled >= MAX_PERSONAL : n.waiting >= MAX_PERSONAL_WAITING) fail('conflict', say('tooMany', L, { n: MAX_PERSONAL }))
-    }
+    // MAX_PERSONAL; one that starts waiting (a key changed to sign-in) toward the waiting cap, where it replaces the
+    // oldest waiting one (makeRoom, below once every check passed)
+    const startsWaiting = countsAsOwn(row) && !!row.owner_user_id && !isWaiting(row) && isWaiting(next)
+    if (countsAsOwn(row) && row.owner_user_id && isWaiting(row) && !isWaiting(next) && personalCounts(this.db, row.owner_user_id).settled >= MAX_PERSONAL) fail('conflict', say('tooManyWorking', L, { n: MAX_PERSONAL }))
+    if (startsWaiting && !this.replaceable(row.owner_user_id!)) fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
     if (recheck) { next.status = next.auth === 'oauth' && !next.secret_enc ? 'needs_auth' : 'error'; next.last_error = next.auth === 'none' || next.secret_enc ? null : next.auth === 'oauth' ? 'sign_in' : 'no_secret' }
     const accessBefore = row.scope === 'team' ? accessOf(this.db, id) : null
     const now = iso(this.now())
+    let replaced: string[] = []
     this.db.transaction(() => {
+      // the oldest waiting one makes room in the write's transaction: a write that fails (conflict) removes nothing
+      if (startsWaiting) replaced = this.makeRoom(row.owner_user_id!, L)
       const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
         tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
         version=version+1, updated_at=? WHERE id=? AND version=?`)
@@ -363,6 +366,7 @@ export class Integrations {
       // the sign-in is gone (removed, or moved with the address or the way in): so is the record of whose it was
       if (secret !== 'kept') this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
     })()
+    for (const r of replaced) this.forget(r)
     this.dropClient(id)
     // one entry per change; who may use a team connection is part of it (before and after)
     const accessAfter = row.scope === 'team' ? accessOf(this.db, id) : null
@@ -407,13 +411,59 @@ export class Integrations {
     const row = this.manageable(viewer, id)
     const old = row.secret_enc ? this.tryOpen(row) : null
     // local first: the tokens are gone even when the service cannot be told
-    this.db.query('DELETE FROM integrations WHERE id = ?').run(id)
-    this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
-    this.dropClient(id)
-    this.recent.delete(id)
-    toolListsOf(this.db).drop(id)
-    audit(this.db, { actor: viewer.id, action: 'integration.delete', target: id, detail: auditDetail(row) })
+    this.drop(row, viewer.id)
+    this.forget(id)
     if (old?.type === 'oauth') await this.revokeTokens(old)
+  }
+
+  /** A connection gone from the database (Delete, or makeRoom inside a write's transaction): its sign-in flows go with
+   * it (ON DELETE CASCADE), and the audit says so. Then forget: what is kept of it in memory. Telling the service about
+   * a stored sign-in is the caller's job. */
+  private drop(row: Row, actor: string, more: Record<string, unknown> = {}) {
+    this.db.query('DELETE FROM integrations WHERE id = ?').run(row.id)
+    this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(row.id)
+    audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), ...more } })
+  }
+
+  // ---------------- the limits of a person's own connections ----------------
+  /** Whether this person may add one more connection of their own with this sign-in method (Settings, an admin's
+   * request and the chat's card all ask this): not at MAX_PERSONAL settled ones ('working'), and for a sign-in one, at
+   * MAX_PERSONAL_WAITING waiting ones, only when one of them may make room (replaceable; else 'waiting'). */
+  personalRoom(userId: string, auth: IntegrationInput['auth']): 'ok' | 'working' | 'waiting' {
+    if (personalCounts(this.db, userId).settled >= MAX_PERSONAL) return 'working'
+    return auth !== 'oauth' || this.replaceable(userId) ? 'ok' : 'waiting'
+  }
+  private roomOrFail(userId: string, auth: IntegrationInput['auth'], L: Locale) {
+    const room = this.personalRoom(userId, auth)
+    if (room === 'working') fail('conflict', say('tooManyWorking', L, { n: MAX_PERSONAL }))
+    if (room === 'waiting') fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
+  }
+  /** The waiting connections that go so one more may wait (oldest first; none below the cap), or null when not enough
+   * may go. Only one that never stored a sign-in or key (WAITING), is the person's own (not from a template, not a
+   * Google app), has no own app (its client secret is the person's), and had no sign-in try within FLOW_WINDOW_MS:
+   * removing it then never gives back a try of FLOWS_PER_HOUR (its flows no longer count) and never cuts off a sign-in
+   * still open (a flow lives FLOW_TTL; an older one ended as expired, failed or completed). The cap keeps the rows
+   * bounded. */
+  private replaceable(userId: string): string[] | null {
+    const over = personalCounts(this.db, userId).waiting - MAX_PERSONAL_WAITING + 1
+    if (over <= 0) return []
+    const ids = (this.db.query(`SELECT id FROM integrations i WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${WAITING}
+      AND oauth_client IS NULL AND oauth_client_enc IS NULL
+      AND NOT EXISTS (SELECT 1 FROM integration_oauth_flows f WHERE f.integration_id = i.id AND f.created_at > ?)
+      ORDER BY created_at, id LIMIT ?`).all(userId, iso(this.now() - FLOW_WINDOW_MS), over) as { id: string }[]).map((r) => r.id)
+    return ids.length >= over ? ids : null
+  }
+  /** At the waiting cap: the oldest waiting connections that may go are removed, as Delete removes them (QA TC-3048:
+   * tries at services that refuse, or windows closed, never stop someone adding a connector). Called inside the
+   * write's transaction; the caller forgets the ids it returns once that committed. */
+  private makeRoom(userId: string, L: Locale): string[] {
+    const ids = this.replaceable(userId)
+    if (!ids) return fail('conflict', say('tooManyWaiting', L, { n: MAX_PERSONAL_WAITING }))
+    for (const id of ids) {
+      const row = getRow(this.db, id)
+      if (row) this.drop(row, userId, { replaced: 'waiting' })
+    }
+    return ids
   }
 
   /** Delete connections made from an admin's template (templates.ts: the template moved to another address or sign-in,
@@ -938,7 +988,7 @@ export class Integrations {
     if (offByTeam(this.db, row)) fail('forbidden', say('personalOffSignIn', L))
     this.liveSession(viewer.id, session)
     this.sweep()
-    const n = (this.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE user_id=? AND created_at>?').get(viewer.id, iso(this.now() - 3600_000)) as { n: number }).n
+    const n = (this.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE user_id=? AND created_at>?').get(viewer.id, iso(this.now() - FLOW_WINDOW_MS)) as { n: number }).n
     if (n >= FLOWS_PER_HOUR) fail('rate_limited')
     let app: OwnClient | null
     try { app = this.appOf(row) } catch { return fail('unavailable', say('key_unsafe', L)) }
