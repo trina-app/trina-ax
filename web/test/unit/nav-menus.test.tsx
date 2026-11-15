@@ -136,7 +136,8 @@ describe('the team menu on top', () => {
   })
 
   // UX review S6: switching teams is found under the logo, as in Slack; the app draws the list (the page never sees it)
-  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환, which opens the app\'s own teams menu (an older app: its team list)', async () => {
+  // owner 2026-11-15: no menu floating over the rail; always the app's own team screen (openTeams), with or without teamMenu
+  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환, which opens the app\'s team screen, never its menu', async () => {
     const calls: string[] = []
     const g = globalThis as Record<string, unknown>
     try {
@@ -157,7 +158,7 @@ describe('the team menu on top', () => {
           }
         }
       }
-      expect(calls).toEqual(['member:teamMenu', 'member:openTeams', 'owner:teamMenu', 'owner:openTeams'])
+      expect(calls).toEqual(['member:openTeams', 'member:openTeams', 'owner:openTeams', 'owner:openTeams'])
     } finally {
       delete g.mycelDesktop
     }

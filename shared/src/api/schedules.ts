@@ -35,8 +35,9 @@ export const Schedule = z.object({
    * servers omit it */
   running: z.boolean().optional(),
   /** lastOutcome 'needs_key': the connection template whose own key the run needed (its owner has not connected it, or
-   * its key stopped working); older servers omit it */
-  lastNeed: z.object({ templateId: z.string(), name: z.string() }).nullable().optional(),
+   * its key stopped working); older servers omit it. `signIn`: the template is one each member signs in to with their
+   * own account (no key) */
+  lastNeed: z.object({ templateId: z.string(), name: z.string(), signIn: z.literal(true).optional() }).nullable().optional(),
   /** lastOutcome 'project_gone' for a team project that is still there but only its members use now (its owner, an owner
    * or admin, is not one since the update from 0.4.0): Add me to it and the task starts again. Older servers omit it */
   lastMembersOnly: z.boolean().optional(),
@@ -126,7 +127,8 @@ export type ScheduleEdit = z.infer<typeof ScheduleEdit>
  * 'interrupted'), 'running' while it is queued or running, or why an occurrence did not run. `chatId`: the run's chat
  * while it is there (null: it did not run, or its chat was deleted). `error`: the first line of a failed run's error
  * message (in the owner's language, as the chat showed it), at most 200 characters; null otherwise. `needName`: for
- * 'needs_key', the template whose own key it needed, by the name it had then. */
+ * 'needs_key', the template whose own key it needed, by the name it had then; `needSignIn`: that template is one each
+ * member signs in to (no key). */
 export const ScheduleRun = z.object({
   id: z.string(),
   status: z.enum(['running', 'done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable', 'needs_key', 'project_gone']),
@@ -135,6 +137,7 @@ export const ScheduleRun = z.object({
   chatId: z.string().nullable(),
   error: z.string().nullable(),
   needName: z.string().nullable().optional(),
+  needSignIn: z.literal(true).optional(),
 })
 export type ScheduleRun = z.infer<typeof ScheduleRun>
 export const ScheduleRunsPage = z.object({ items: z.array(ScheduleRun), nextCursor: z.string().nullable() })

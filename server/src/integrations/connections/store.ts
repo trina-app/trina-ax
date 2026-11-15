@@ -309,7 +309,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     // in words this reader can act on: a member on a team connection, or on the address of one made from a team template
     // (an admin changes it there), is told to tell an admin (QA TC-235)
-    lastError: reasonText(row.last_error, locale, { address: manage && (!row.template_id || isAdmin(viewer.role)), key: manage }),
+    lastError: reasonText(row.last_error, locale, { address: manage && (!row.template_id || isAdmin(viewer.role)), key: manage }, row.name),
     // its code without the HTTP status ("refused:401" -> "refused"), for the page's own one line (ConnectionPage.tsx)
     lastErrorReason: row.last_error ? row.last_error.split(':')[0] || null : null,
     tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),

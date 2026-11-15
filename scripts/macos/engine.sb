@@ -5,7 +5,8 @@
 ;;                -D BRIDGE=<mycel-bridge> -D TOOLS_SOCK=<run/tools/tools.sock> -D PROXY_PORT=<port>
 ;;                -D LOCAL_LOGIN=0|1 -D USER_HOME=<home of the account running the engine>
 ;;                -D SESSION_DIR=<folder of this turn's session transcript: the chat folder, or with LOCAL_LOGIN=1
-;;                   ~/.claude/projects/<chat folder slug>> <engine> ...
+;;                   ~/.claude/projects/<chat folder slug>> [-D KEYCHAIN_DIR=<the launcher's Claude login broker>]
+;;                <engine> ...
 ;; Allowed: the turn's chat folder (HOME, TMPDIR, CLAUDE_CONFIG_DIR, CODEX_HOME live in it), the engine and bridge
 ;; executables, system libraries, our tools socket, the local model proxy port.
 ;; Denied: everything else, in particular /tmp, /private/var/tmp, /Users, /Volumes, other chat folders. That includes
@@ -14,13 +15,16 @@
 ;; resolves a path before the sandbox sees it, so a name that does not exist still answers ENOENT rather than EPERM:
 ;; only an exactly guessed name can be tested for existence.
 ;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the few login files
-;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the login keychain
-;; (Security framework) and, with PROXY_PORT=0 (dev), direct HTTPS to the vendor. Office mode passes PROXY_PORT with
+;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the Claude login broker
+;; (KEYCHAIN_DIR) and, with PROXY_PORT=0 (dev), direct HTTPS to the vendor. Office mode passes PROXY_PORT with
 ;; LOCAL_LOGIN=1: the engine's only network is then the local proxy (security round 4b); no :443 anywhere and no DNS.
 ;; Its model requests go to the proxy's HTTP path, which checks every body like managed mode, and its login refresh
 ;; tunnel ends at the proxy's refresh terminator, which passes the refresh only (TC-359, server/src/proxy/
-;; refresh-terminator.ts). The login stays readable below: Claude Code signs its requests with it and refreshes it
-;; (rotating the refresh token in the keychain); the proxy decides where it can be used.
+;; refresh-terminator.ts). The keychain is NOT open (TC-358): no /usr/bin/security, no keychain files, no Security
+;; services, no ~/.claude/.credentials.json. Claude Code reads and saves its login by running `security` from PATH; the
+;; first one there is the launcher's link KEYCHAIN_DIR/security (mycel-bridge as a shim), which asks the launcher's
+;; Claude login broker (native/cmd/mycel-launcher/keychain.go) over KEYCHAIN_DIR/sock. The broker answers only the
+;; Claude login item of the Mac user (its claudeAiOauth part) and saves only a refreshed login into it.
 ;; SBPL applies the LAST matching rule, so the broad denies come first and the narrow allows after them.
 (version 1)
 (deny default)
@@ -139,8 +143,7 @@
              (literal (in-home "/.claude.lock"))))))
     (apply allow file-read-metadata
       (map literal (append (path-and-ancestors (in-home "/.claude"))
-                           (ancestors (in-home "/.local/share/claude")) (ancestors (in-home "/Library/Keychains/-"))
-                           (ancestors (in-home "/Library/Preferences/-")) (ancestors (param "SESSION_DIR")))))
+                           (ancestors (in-home "/.local/share/claude")) (ancestors (param "SESSION_DIR")))))
     ;; Claude Code: ~/.claude.json and exactly the siblings Claude Code 2.1.306 was seen to write in a real turn
     ;; (security round 4b): the .lock folder of its file lock, .tmp.<pid>.<12 hex> of its atomic write, the older
     ;; .backup, and the ~/.claude/backups folder with .claude.json.backup.<milliseconds> in it. Then this turn's session
@@ -164,36 +167,31 @@
     (deny file-write-create (require-all (vnode-type SYMLINK) (refresh-lock-names)))
     (deny file-link (refresh-lock-names))
     (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
-    ;; Claude Code's login when it is not in the keychain: some Macs keep it in ~/.claude/.credentials.json, and
-    ;; without it every turn ends "Not logged in". Read-write so a refreshed token is saved.
-    (allow file-read* file-write* (literal (in-home "/.claude/.credentials.json")))
+    ;; Claude Code's login when it is not in the keychain (~/.claude/.credentials.json on some Macs) is NOT opened here
+    ;; (TC-358): the broker reads it and answers it as the keychain item, and saves a refreshed login back into it.
     ;; Codex: the login and the installed CLI, only when Codex is on
     (if (equal? (param "LOCAL_CODEX") "1")
       (begin
         (apply allow file-read-metadata (map literal (path-and-ancestors (in-home "/.codex"))))
         (allow file-read* file-write* (literal (in-home "/.codex/auth.json")))
         (allow file-read* (subpath (in-home "/.codex/packages")))))
-    ;; the installed CLI (no secrets) and the login keychain. The Security framework reads it in-process and rewrites
-    ;; login.keychain-db atomically when the CLI refreshes its token (.sb-* temp file renamed over it, -shm/-wal/-journal,
-    ;; the .fl* lock): only those names are writable, so a turn cannot create other files there, make folders or move
-    ;; the keychain away (it can still read and overwrite login.keychain-db itself: security round 4, documented).
-    (allow file-read*
-      (subpath (in-home "/.local/share/claude"))
-      (subpath (in-home "/Library/Keychains"))
-      (literal (in-home "/Library/Preferences/com.apple.security.plist"))
-      (subpath "/Library/Keychains") (subpath "/private/var/db/mds"))
-    (allow file-write* (regex (string-append "^" (regex-quote home) "/Library/Keychains/(login\\.keychain-db(-shm|-wal|-journal|\\.sb-[0-9a-f]+-[A-Za-z0-9]+)?|\\.fl[0-9A-F]+)$")))
-    (allow process-exec (literal "/usr/bin/security"))
+    ;; the installed CLI (no secrets)
+    (allow file-read* (subpath (in-home "/.local/share/claude")))
+    ;; the Claude login broker (TC-358): the `security` link Claude Code finds first in its PATH (exec goes to the
+    ;; bridge, allowed above) and the broker's socket. Nothing else of the keychain: the shim never opens it itself.
+    (let ((kc (param "KEYCHAIN_DIR")))
+      (if (and (string? kc) (> (string-length kc) 0))
+        (begin
+          (apply allow file-read-metadata (map literal (append (path-and-ancestors (string-append kc "/security"))
+                                                               (list (string-append kc "/sock")))))
+          (allow file-read* (literal (string-append kc "/security")))
+          (allow network-outbound (literal (string-append kc "/sock"))))))
     (allow mach-lookup
-      (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc")
-      (global-name "com.apple.security.agent") (global-name "com.apple.secd")
       (global-name "com.apple.system.opendirectoryd.membership") (global-name "com.apple.SystemConfiguration.configd")
       (global-name "com.apple.SystemConfiguration.DNSConfiguration") (global-name "com.apple.networkd")
       (global-name "com.apple.nehelper") (global-name "com.apple.nesessionmanager.content-filter")
       (global-name "com.apple.cfprefsd.daemon") (global-name "com.apple.cfprefsd.agent")
       (global-name "com.apple.CoreServices.coreservicesd") (global-name "com.apple.lsd.mapdb"))
-    (allow ipc-posix-shm-read* (ipc-posix-name "com.apple.AppleDatabaseChanged"))
-    (allow ipc-posix-shm (ipc-posix-name-prefix "apple.shm."))
     (allow system-socket)
     ;; direct network only without the proxy (dev). With PROXY_PORT (office) nothing here: no :443 to any address (the
     ;; internet, the office LAN's chart server or NAS), no DNS (udp 53, mDNSResponder: names are a channel out too) and
@@ -212,6 +210,30 @@
 ;; it; with LOCAL_LOGIN=1 a session folder that is the chat folder itself). Only the folder itself: the turn's own
 ;; chat folder inside it is a different path and stays allowed.
 (deny file-read-metadata (literal (param "AGENT_ROOT")))
+
+;; --- last: the keychain and the Claude login files (TC-358) ------------------------------------------------------
+;; Whatever an allow above opened (an engine folder, a session folder or the chat folder placed there): no turn runs
+;; /usr/bin/security (it reads, without a prompt, every item `security` made: the Claude login and the tokens of other
+;; command-line tools), opens the login keychain files, talks to the Security services that read keychain items
+;; in-process, or reads the Claude login file. Claude Code's own login goes through the broker (KEYCHAIN_DIR above).
+(deny process-exec (literal "/usr/bin/security"))
+(deny file-read* file-write*
+  (subpath (string-append (param "USER_HOME") "/Library/Keychains"))
+  (literal (string-append (param "USER_HOME") "/.claude/.credentials.json")))
+(deny mach-lookup (global-name "com.apple.secd") (global-name "com.apple.security.agent")
+  (global-name "com.apple.security.authhost"))
+;; The system keychains and the Security server too, except for dev's Codex with the owner's own login and direct
+;; HTTPS (LOCAL_CODEX=1, PROXY_PORT=0: a Rust TLS stack may check certificates through Security.framework, which reads
+;; the system roots there; the login keychain and /usr/bin/security stay closed to it, above). Claude Code's TLS needs
+;; none of it (docs/DECISIONS.md "Claude 구독 연결": TLS works without the Security services).
+(if (and (equal? (param "LOCAL_LOGIN") "1") (equal? (param "LOCAL_CODEX") "1") (equal? (param "PROXY_PORT") "0"))
+  (begin
+    (allow file-read* (subpath "/Library/Keychains") (subpath "/private/var/db/mds"))
+    (allow mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc")
+      (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent")))
+  (begin
+    (deny file-read* file-write* (subpath "/Library/Keychains") (subpath "/private/var/db/mds"))
+    (deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc"))))
 
 ;; --- Codex lockdown files (last: wins over the chat folder and SESSION_DIR allows above) -------------------------
 ;; The Codex files that change what the engine may do (design tab 2 "엔진 잠금 (Codex CLI)"): a config.toml,

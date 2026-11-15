@@ -228,11 +228,15 @@ export interface DesktopBridge {
   }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
-  /** The app's own menu of teams under the pointer: the team menu's "다른 팀으로 전환" (the logo menu, the 나 tab). The
-   * same list as the OS menu's 팀 (⌘1–9, the open team ticked) and its "팀 목록…"; drawn by the app, so the page never
-   * learns which other teams the person has. Optional: desktop apps before this addition do not have it (the page opens
-   * the team list, openTeams). */
+  /** Older pages' "다른 팀으로 전환": desktop apps up to 0.5.7 showed a menu of teams under the pointer; since 2026-11-15
+   * the app opens its team screen here too (as openTeams). Pages call openTeams. Optional: older desktop apps. */
   teamMenu?(): void
+  /** true: this team's pages draw the team address and "Switch team" under their sign-in card. The app then leaves out
+   * its own strip above the page on the sign-in paths for this team until another team is opened (false undoes it), so
+   * the address is not shown twice and a later sign-in page does not jump. The address the page shows is the bridge's
+   * connection teamAddress, never location.host. Optional: older desktop apps keep their strip, and the page then draws
+   * no line. */
+  hostLine?(drawn: boolean): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
   setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'): void
@@ -285,6 +289,16 @@ export interface DesktopBridge {
     read(id: string): Promise<WorkFileRead>
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
+  }
+  /** A connector sign-in at a service that takes only an app on the computer as the place to come back to (Canva,
+   * Intercom, Square; RFC 8252): open() gives the port of a one-time return address on 127.0.0.1 that the page passes to
+   * POST /api/integrations/:id/authorize (`loopbackPort`); the service sends the browser there and the app sends it on
+   * to this team's own return page, then the address closes (desktop/src/common/sign-in-return.ts). One at a time; it
+   * closes by itself after 10 minutes. null when none can be opened. close(port): the sign-in did not need it, or was
+   * cancelled. Optional: desktop apps before this addition do not have it (the page sends no port). */
+  signInReturn?: {
+    open(): Promise<number | null>
+    close(port: number): void
   }
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to

@@ -206,8 +206,9 @@ export const InboxNotification = z.object({
    * the link opens Skills › 검토 at that person. Never a skill's name. Older servers omit it */
   contribution: z.object({ name: z.string().nullable(), n: z.number().int().positive() }).optional(),
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
-   * have not connected, or whose key stopped working; older servers omit it */
-  needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
+   * have not connected, or whose key stopped working; older servers omit it. `signIn`: the template is one each member
+   * signs in to with their own account (no key); older servers omit it */
+  needsKey: z.object({ templateId: z.string(), name: z.string(), signIn: z.literal(true).optional() }).optional(),
   /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
    * access was taken away, or it is in the trash); older servers omit it */
   projectGone: z.literal(true).optional(),

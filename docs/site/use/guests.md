@@ -24,8 +24,9 @@ Next to a guest's name you see a **Guest** tag, and a chat or project with guest
 - **To a group chat:** anyone in that chat.
 - **To a project:** the person who made the project, or an owner or admin.
 
-Owners and admins can also start from **Admin › Members & invites › Invite to team**: see
-[From Admin](#from-admin) below.
+You don't have to open the chat or project first: **New conversation** starts with **Invite a guest**, and owners and
+admins also find **Guest** in **Invite people** and in **Admin › Members & invites › Invite to team**. See
+[Without opening the chat or project](#without-opening-the-chat-or-project) and [From Admin](#from-admin) below.
 
 Guests are never in **Team rooms** (the room for everyone and the rooms of each group). A guest can send direct
 messages, but only to the people in their own chat or project.
@@ -34,8 +35,8 @@ messages, but only to the people in their own chat or project.
 
 :::steps
 #### Open the add list
-In a group chat, click the chat's name at the top, then **Invite people**. In a project, choose **Manage** next to
-**Members** on the project's page. The first row is **Invite a guest**.
+In a group chat, choose **⋯** at the top, then **Invite people** (or click the chat's name, then **Invite people**). In
+a project, choose **Manage** next to **Members** on the project's page. The first row is **Invite a guest**.
 
 ![The add list of a group chat: Invite a guest at the top, then a guest who is already in another project, with where they are and Make team member](../images/guests/add-people.webp "Invite a guest, in the add list")
 
@@ -56,13 +57,36 @@ The link also shows in **Admin › Members & invites**, under **Invite links**, 
 
 A link works only while the person who made it can still invite. If they leave the chat, lose the project, are removed, or (for **Team AI**) are no longer an admin, the link stops working and leaves **Invite links** in **Admin › Members & invites**. Someone else who can invite makes a new link.
 
+### Without opening the chat or project
+
+- **New conversation** (the **+** above your conversations): the first row is **Invite a guest**.
+- **Invite people** (owners and admins: the team menu under the team's logo, search, or **Me** on a phone): choose
+  **Guest** at the top of the dialog (**Team member** is picked to start with).
+- **Invite your team** (the getting-started steps and the team goal on Home): under the message, **Invite a guest**.
+
+Each lists the one place the guest can join: the group chats you are in, and the projects whose members you can change
+(the ones you made; owners and admins: any team project). Pick one, then fill in the same dialog as above. If there is
+no such chat or project yet, the dialog says so. If your plan has no room for more guests, it says that instead.
+
+Your own projects under **My projects** are listed too, marked **Only me**. Picking one shares it the way **Add people**
+on the project's page does, and the dialog says so in one line before **Create link**:
+
+- **Create link** makes it a team project. Until the guest joins, it is still only yours and stays under **My projects**.
+- When the guest joins, it moves to **Team projects**, with you and the guest as its two members.
+- The guest can open and edit its files. They don't see your chats, the ones from before or the ones you start later.
+- Like **Add people**, this can't go back to only you.
+
+If your team lets only owners and admins share projects, a member's own projects are not listed.
+
+![Invite people with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/invite-people.webp "Invite a guest from Invite people")
+
 ### From Admin
 
 Owners and admins can invite a guest without opening the chat or project first. In **Admin › Members & invites**, choose
 **Invite to team**, then **Guest** at the top of the dialog (**Team member** is picked to start with). Pick the one
-place the guest joins: a group chat you are in, or a team project. Then fill in the same dialog as above: their name,
-their AI, **Create link** and **Copy link**. If your plan has no room for more guests, the dialog says so instead of
-listing places.
+place the guest joins: a group chat you are in, a team project, or one of your own projects (shared as above). Then
+fill in the same dialog as above: their name, their AI, **Create link** and **Copy link**. If your plan has no room for
+more guests, the dialog says so instead of listing places.
 
 ![Invite to team with Guest picked: Someone from outside the team who joins one group chat or project only, then the group chats and projects to pick from](../images/guests/admin-invite.webp "Invite a guest from Admin")
 

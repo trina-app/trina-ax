@@ -3,6 +3,7 @@
 // never taken from argv or the environment (other processes of the same account could read those).
 // The launcher passes "--turn-dir ." (security audit r2): engines start their MCP servers in their own working folder,
 // which is the chat folder, so no argv names the chat.
+// Started as `security` it is the engine's keychain tool instead (security.go).
 package main
 
 import (
@@ -18,6 +19,11 @@ import (
 )
 
 func main() {
+	// under the name `security` (the launcher's link, first in a local-login Claude turn's PATH) this is the shim of
+	// the Claude login broker (security.go)
+	if filepath.Base(os.Args[0]) == "security" {
+		os.Exit(securityShim(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv("MYCEL_KEYCHAIN_SOCK")))
+	}
 	turnDir := flag.String("turn-dir", "", "chat folder that contains .turn/token (\".\" = the working folder)")
 	sock := flag.String("sock", "", "tools.sock path")
 	flag.Parse()
