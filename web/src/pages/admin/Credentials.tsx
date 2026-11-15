@@ -126,6 +126,13 @@ export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
   return !!tc.state.data?.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind) && !x.disabled && CREDENTIAL_PROBLEMS.includes(x.state))
 }
 
+/** No team account of this provider yet, and Add account is right below on this page (Admin › AI accounts): the
+ * provider's line says so instead of the server's "add one in Admin > Connections > AI accounts" (QA TC-2838). */
+export function addAccountBelow(tc: TeamCredentials, fam: Family): boolean {
+  const d = tc.state.data
+  return !!d && tc.owner && !d.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind)) && d.allowedKinds.some((k) => FAMILY[fam].includes(k))
+}
+
 /** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
  * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
 export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family }) {

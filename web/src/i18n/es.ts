@@ -1968,6 +1968,7 @@ export const es: Record<MessageKey, string> = {
   "providers.howOrder": "Cómo funciona el orden",
   "providers.addAccount": "Añadir cuenta",
   "providers.noAccounts": "Aún no hay cuentas.",
+  "providers.addBelow": "Añada una cuenta abajo para empezar a usarlo.",
   "providers.memberAccounts": "Cuentas propias de los miembros",
   "admin.group.activity": "Actividad",
   "admin.privacy": "Los administradores tampoco pueden ver los chats ni las memorias de otras personas.",

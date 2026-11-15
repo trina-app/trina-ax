@@ -1998,6 +1998,7 @@ export const id: Record<MessageKey, string> = {
   "providers.howOrder": "Cara urutan bekerja",
   "providers.addAccount": "Tambah akun",
   "providers.noAccounts": "Belum ada akun.",
+  "providers.addBelow": "Tambahkan akun di bawah untuk mulai memakainya.",
   "providers.memberAccounts": "Akun milik anggota",
   "admin.group.activity": "Aktivitas",
   "admin.privacy": "Admin pun tidak bisa melihat chat atau memori orang lain.",

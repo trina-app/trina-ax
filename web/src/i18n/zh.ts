@@ -1965,6 +1965,7 @@ export const zh: Record<MessageKey, string> = {
   "providers.howOrder": "顺序如何生效",
   "providers.addAccount": "添加账号",
   "providers.noAccounts": "还没有账号。",
+  "providers.addBelow": "在下面添加账号后即可使用。",
   "providers.memberAccounts": "成员自己的账号",
   "admin.group.activity": "活动",
   "admin.privacy": "管理员看不到其他人的对话或记忆。",
