@@ -132,11 +132,11 @@ for (const { branch, byGuide } of runs) {
     const used = answer(branch).steps?.find((x) => x.tool === 'skill')
     if (used && answer(branch).receipt) {
       const receipt = page.locator('[data-testid="assistant-message"]').last().getByTestId('steps-receipt')
-      await expect(receipt).toContainText(appWord('steps.receipt').split("'")[0]!)
-      // by the skill's title (its metadata title), as the skill list names it
+      // by the skill's title (its metadata title), as the skill list names it, in the app's words ("Team skill 'Brand
+      // guide'", 「…」 in Japanese, “…” in Chinese)
       const asset = script.files.find((f) => f.path === answer(branch).receipt!.skill)!.asset!
       const title = /^\s+title:\s*(.+)$/m.exec(fs.readFileSync(path.join(path.dirname(contentFile()), 'assets', asset), 'utf8'))![1]!.trim()
-      await expect(receipt).toContainText(`'${title}'`)
+      await expect(receipt).toContainText(appWord('steps.receipt').split(' · ')[0]!.replace('{skill}', title))
       await receipt.click()
       await expect(page.locator('[data-testid="assistant-message"]').last().getByText(used.label, { exact: true })).toBeVisible()
       await receipt.click()

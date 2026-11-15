@@ -24,6 +24,6 @@ Steepling es una empresa ficticia creada para esta demo. Esta página es conteni
 | Publicación de banners y anuncios | Chris Walker, Fieldnote Studio | desde el lunes 23 de noviembre |
 
 ## Notas
-- Guía de marca: `shared/Guía de marca.md`
+- Guía de marca: la habilidad del equipo **Guía de marca**
 - Guarda los archivos del banner en el proyecto del equipo "Campaña de lanzamiento de noviembre".
 - Leo se pasa a Ventas el 23 de noviembre. Mina se encarga desde entonces de los banners y las redes.

@@ -25,9 +25,10 @@ export const ja: Strings = {
   marketingGroup: 'マーケティング',
   project: { name: '11月ローンチキャンペーン', description: '冬季限定ゆずジンジャー発売、11月23日（月）' },
 
+  brandSkill: 'brand-guide',
+
   paths: {
     companyIntro: 'shared/会社紹介.md',
-    brandGuide: 'shared/ブランドガイド.md',
     brief: '11月ローンチブリーフ.md',
     leoBanner: 'ローンチバナー_レオ_初稿.png',
     banner: 'ローンチバナー_最終.jpg',
@@ -39,6 +40,7 @@ export const ja: Strings = {
 
   steps: {
     read: 'ファイルを読む',
+    useSkill: 'スキルを使用',
     save: 'ファイルを保存',
     makeBanner: 'バナーを作成',
     makeSquare: 'インスタ用スクエアを作成',
@@ -83,6 +85,8 @@ export const ja: Strings = {
         '**ミナさんの仕事**：サラさんのマーケティングチームで、ローンチバナーとSNSを担当します。',
         '',
         '**今週**：**月曜日**にゆずジンジャーが発売です。いちばん急ぎなのはローンチバナーです。',
+        '',
+        '**チームスキル**：チームで共有しているスキルがあります（*ブランドガイド*、*SNS投稿3案*など）。必要なときは私が代わりに使います。',
       ].join('\n'),
       personLine: '{name}、{title}：{text}',
       peopleTitle: 'まず知っておきたい人',
@@ -97,7 +101,7 @@ export const ja: Strings = {
       text: [
         'Higgsfieldで撮り直しました。霜のついた窓辺に、緑のパウチとアイスのゆずジンジャー。スクエアとストーリーズも同じカットなので、どのサイズでもパウチが同じに見えます。',
         '',
-        '見出しはNoto Serif JP、それ以外はNoto Sans JP。ゆずイエローは20%オフのバッジだけに使いました。',
+        'ブランドガイドに沿って、見出しはNoto Serif JP、それ以外はNoto Sans JP。ゆずイエローは20%オフのバッジだけに使いました。',
         '',
         'キャプション：',
       ].join('\n'),
@@ -207,6 +211,6 @@ export const ja: Strings = {
     explore: '見て回る',
     popupTitle: 'ミナの初日、おつかれさまでした🎉',
     popupLine: 'ローンチキャンペーンを{time}で完成。ふつうは2日ほどかかります。',
-    recap: ['チームのファイルを3つ読む', 'Higgsfieldで成果物を4つ作成', 'CEOが承認', '代理店にメールを送信'],
+    recap: ['チームのファイルを2つ読む', 'チームスキル「ブランドガイド」を使用', 'Higgsfieldで成果物を4つ作成', 'CEOが承認', '代理店にメールを送信'],
   },
 }

@@ -24,6 +24,6 @@ Steepling 是为这个演示虚构的公司，本页内容均为示例。
 | Banner 投放和广告 | Fieldnote Studio 的 Chris Walker | 11 月 23 日（周一）起 |
 
 ## 备注
-- 品牌手册：`shared/品牌手册.md`
+- 品牌手册：团队技能 **品牌手册**
 - Banner 文件放在团队项目“11月新品上市活动”里。
 - Leo 11 月 23 日调去销售部，banner 和社媒由 Mina 接手。

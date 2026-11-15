@@ -24,9 +24,10 @@ export const id: Strings = {
   marketingGroup: 'Marketing',
   project: { name: 'Kampanye peluncuran November', description: 'Peluncuran Yuzu Jahe edisi musim dingin, Senin 23 Nov' },
 
+  brandSkill: 'brand-guide',
+
   paths: {
     companyIntro: 'shared/Profil perusahaan.md',
-    brandGuide: 'shared/Panduan brand.md',
     brief: 'Brief peluncuran November.md',
     leoBanner: 'banner-peluncuran-leo-v1.png',
     banner: 'banner-peluncuran-baru.jpg',
@@ -38,6 +39,7 @@ export const id: Strings = {
 
   steps: {
     read: 'Baca',
+    useSkill: 'Pakai skill',
     save: 'Simpan',
     makeBanner: 'Buat banner',
     makeSquare: 'Buat Instagram square',
@@ -82,6 +84,8 @@ export const id: Strings = {
         '**Tugas Anda**: banner peluncuran dan media sosial, di tim Marketing yang dipimpin Sara.',
         '',
         '**Minggu ini**: Yuzu Jahe meluncur hari **Senin**. Banner peluncuran adalah pekerjaan terbesar yang belum selesai.',
+        '',
+        '**Skill tim**: tim Anda berbagi skill siap pakai, seperti *Panduan brand* dan *3 pilihan postingan media sosial*. Aku yang memakainya untuk Anda.',
       ].join('\n'),
       personLine: '{name}, {title}: {text}',
       peopleTitle: 'Orang yang perlu Anda kenal',
@@ -96,7 +100,7 @@ export const id: Strings = {
       text: [
         'Sudah aku buat dengan Higgsfield: pouch hijau kita dan Yuzu Jahe dingin di dekat jendela berembun. Square dan story diambil dari adegan yang sama, jadi pouch-nya terlihat sama di mana-mana.',
         '',
-        'Judul pakai Fraunces, sisanya Pretendard, kuning yuzu hanya di badge 20%.',
+        'Sesuai Panduan brand: judul pakai Fraunces, sisanya Pretendard, kuning yuzu hanya di badge 20%.',
         '',
         'Caption:',
       ].join('\n'),
@@ -204,6 +208,6 @@ export const id: Strings = {
     explore: 'Lihat-lihat dulu',
     popupTitle: 'Itulah hari pertama Mina 🎉',
     popupLine: 'Kampanye peluncuran selesai dalam {time}. Biasanya sekitar 2 hari.',
-    recap: ['Membaca 3 file tim', 'Membuat 4 aset dengan Higgsfield', 'Disetujui CEO', 'Email ke agensi'],
+    recap: ['Membaca 2 file tim', 'Memakai skill tim Panduan brand', 'Membuat 4 aset dengan Higgsfield', 'Disetujui CEO', 'Email ke agensi'],
   },
 }

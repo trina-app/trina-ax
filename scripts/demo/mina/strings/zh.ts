@@ -24,9 +24,10 @@ export const zh: Strings = {
   marketingGroup: '市场部',
   project: { name: '11月新品上市活动', description: '冬季限定柚子姜上市，11月23日（周一）' },
 
+  brandSkill: 'brand-guide',
+
   paths: {
     companyIntro: 'shared/公司介绍.md',
-    brandGuide: 'shared/品牌手册.md',
     brief: '11月上新简报.md',
     leoBanner: '上新banner_Leo_初稿.png',
     banner: '上新banner_定稿.jpg',
@@ -38,6 +39,7 @@ export const zh: Strings = {
 
   steps: {
     read: '读取',
+    useSkill: '使用技能',
     save: '保存',
     makeBanner: '制作 banner',
     makeSquare: '制作 Instagram 方图',
@@ -82,6 +84,8 @@ export const zh: Strings = {
         '**你的工作**：在 Sara 的市场部，负责上新 banner 和社媒。',
         '',
         '**这周**：柚子姜**周一**上市，上新 banner 是眼下最要紧的事。',
+        '',
+        '**团队技能**：团队共享了一些现成的技能，比如*品牌手册*和*3 版社媒文案*。需要的时候我直接帮你用。',
       ].join('\n'),
       personLine: '{name}，{title}：{text}',
       peopleTitle: '先认识这几位',
@@ -96,7 +100,7 @@ export const zh: Strings = {
       text: [
         '用 Higgsfield 重新拍了一张：结霜的窗边，放着我们的绿色包装袋和一杯冰柚子姜。方图和快拍用的是同一个画面，所以每个尺寸里的包装都一模一样。',
         '',
-        '标题用 Noto Serif SC，其余文字用 Noto Sans SC，柚子黄只用在 8 折标签上。',
+        '按品牌手册来：标题用 Noto Serif SC，其余文字用 Noto Sans SC，柚子黄只用在 8 折标签上。',
         '',
         '文案：',
       ].join('\n'),
@@ -206,6 +210,6 @@ export const zh: Strings = {
     explore: '随便看看',
     popupTitle: 'Mina 的第一天 🎉',
     popupLine: '{time} 搞定上新活动。通常要 2 天左右。',
-    recap: ['读了 3 个团队文件', '用 Higgsfield 做了 4 个素材', 'CEO 批准', '给代理公司发了邮件'],
+    recap: ['读了 2 个团队文件', '用了团队技能“品牌手册”', '用 Higgsfield 做了 4 个素材', 'CEO 批准', '给代理公司发了邮件'],
   },
 }

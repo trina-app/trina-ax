@@ -8,7 +8,7 @@ metadata:
 # 3 opciones de post para redes
 
 ## Fuentes
-- Sigue el tono de `shared/Guía de marca.md`.
+- Sigue el tono de la habilidad del equipo **Guía de marca**.
 - Para una campaña, toma el mensaje y la oferta de su brief en `groups/Marketing/`.
 
 ## Cómo

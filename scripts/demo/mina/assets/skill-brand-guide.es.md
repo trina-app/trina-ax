@@ -1,3 +1,10 @@
+---
+name: brand-guide
+description: Guía de marca. Colores, fotos, tipografía, composición de banners y tono de Steepling. Úsala para cualquier banner, post, imagen o página con el estilo de Steepling, "según la marca", "sigue la guía de marca" y similares.
+metadata:
+  title: Guía de marca
+---
+
 # Guía de marca de Steepling (2026)
 
 Steepling es una empresa ficticia creada para esta demo. Esta página es contenido de ejemplo.

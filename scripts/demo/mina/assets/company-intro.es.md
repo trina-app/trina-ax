@@ -22,5 +22,5 @@ Hacemos **bolsitas de té para preparar en frío**: echas una en una botella de 
 ## Cómo trabajamos
 - Las noticias de la empresa van en **#Todos**; el trabajo de marketing, en **#Marketing**.
 - Los archivos de cada campaña están en un proyecto del equipo (por ejemplo, "Campaña de lanzamiento de noviembre").
-- Antes de diseñar nada, lee `shared/Guía de marca.md`.
+- Antes de diseñar nada, usa la habilidad del equipo **Guía de marca** (Trina la usa por ti).
 - Agencia de diseño: Chris Walker, de Fieldnote Studio (publica nuestros banners y anuncios).

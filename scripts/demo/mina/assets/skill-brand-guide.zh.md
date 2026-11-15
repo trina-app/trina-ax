@@ -1,3 +1,10 @@
+---
+name: brand-guide
+description: 品牌手册。Steepling 的配色、照片、字体、banner 版式和说话语气。做任何 Steepling 风格的 banner、社媒帖子、图片或页面时使用，也适用于“按品牌来”“按品牌手册做”这类要求。
+metadata:
+  title: 品牌手册
+---
+
 # Steepling 品牌手册（2026）
 
 Steepling 是为这个演示虚构的公司，本页内容均为示例。

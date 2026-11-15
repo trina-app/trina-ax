@@ -24,9 +24,10 @@ export const es: Strings = {
   marketingGroup: 'Marketing',
   project: { name: 'Campaña de lanzamiento de noviembre', description: 'Lanzamiento de Yuzu y Jengibre de invierno, lunes 23 de noviembre' },
 
+  brandSkill: 'brand-guide',
+
   paths: {
     companyIntro: 'shared/Presentación de la empresa.md',
-    brandGuide: 'shared/Guía de marca.md',
     brief: 'Brief de lanzamiento de noviembre.md',
     leoBanner: 'banner-lanzamiento-leo-v1.png',
     banner: 'banner-lanzamiento-nuevo.jpg',
@@ -38,6 +39,7 @@ export const es: Strings = {
 
   steps: {
     read: 'Leer',
+    useSkill: 'Usar habilidad',
     save: 'Guardar',
     makeBanner: 'Crear banner',
     makeSquare: 'Crear post cuadrado de Instagram',
@@ -82,6 +84,8 @@ export const es: Strings = {
         '**Su trabajo**: banners de lanzamiento y redes sociales, en el equipo de Marketing de Sara.',
         '',
         '**Esta semana**: Yuzu y Jengibre sale el **lunes**. El banner de lanzamiento es lo más urgente.',
+        '',
+        '**Habilidades del equipo**: su equipo comparte habilidades listas para usar, como *Guía de marca* y *3 opciones de post para redes*. Yo las uso por usted.',
       ].join('\n'),
       personLine: '{name}, {title}: {text}',
       peopleTitle: 'Personas clave',
@@ -96,7 +100,7 @@ export const es: Strings = {
       text: [
         'Hecho con Higgsfield: nuestra bolsa verde y un Yuzu y Jengibre con hielo junto a una ventana empañada. El cuadrado y la historia salen de la misma escena, así que la bolsa se ve igual en todas partes.',
         '',
-        'Titular en Fraunces, el resto en Pretendard, y amarillo yuzu solo en la etiqueta del 20%.',
+        'Como dice la Guía de marca: titular en Fraunces, el resto en Pretendard, y amarillo yuzu solo en la etiqueta del 20%.',
         '',
         'Textos:',
       ].join('\n'),
@@ -204,6 +208,6 @@ export const es: Strings = {
     explore: 'Echar un vistazo',
     popupTitle: 'Así fue el primer día de Mina 🎉',
     popupLine: 'Campaña de lanzamiento lista en {time}. Normalmente lleva unos 2 días.',
-    recap: ['Leyó 3 archivos del equipo', 'Creó 4 piezas con Higgsfield', 'Aprobación del CEO', 'Correo a la agencia'],
+    recap: ['Leyó 2 archivos del equipo', 'Usó la habilidad Guía de marca', 'Creó 4 piezas con Higgsfield', 'Aprobación del CEO', 'Correo a la agencia'],
   },
 }

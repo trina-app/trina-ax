@@ -24,6 +24,6 @@ Steepling adalah perusahaan fiktif yang dibuat untuk demo ini. Halaman ini beris
 | Penayangan banner dan iklan | Chris Walker, Fieldnote Studio | mulai Senin, 23 November |
 
 ## Catatan
-- Panduan brand: `shared/Panduan brand.md`
+- Panduan brand: skill tim **Panduan brand**
 - Simpan file banner di proyek tim "Kampanye peluncuran November".
 - Leo pindah ke Sales pada 23 November. Mina mengambil alih banner dan media sosial.

@@ -8,7 +8,7 @@ metadata:
 # 3 pilihan postingan media sosial
 
 ## Sumber
-- Ikuti gaya bahasa di `shared/Panduan brand.md`.
+- Ikuti gaya bahasa di skill tim **Panduan brand**.
 - Untuk kampanye, ambil pesan dan penawarannya dari brief di `groups/Marketing/`.
 
 ## Cara

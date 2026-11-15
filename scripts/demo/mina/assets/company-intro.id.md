@@ -22,5 +22,5 @@ Kami membuat **kantong teh cold brew**: celupkan satu ke botol berisi air dingin
 ## Cara kami bekerja
 - Kabar perusahaan di **#Semua**, pekerjaan marketing di **#Marketing**.
 - File kampanye disimpan di proyek tim (misalnya "Kampanye peluncuran November").
-- Sebelum mendesain apa pun, baca `shared/Panduan brand.md`.
+- Sebelum mendesain apa pun, pakai skill tim **Panduan brand** (Trina yang memakainya untukmu).
 - Agensi desain: Chris Walker di Fieldnote Studio (menayangkan banner dan iklan kami).

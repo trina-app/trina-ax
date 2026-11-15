@@ -1,3 +1,10 @@
+---
+name: brand-guide
+description: Panduan brand. Warna, foto, huruf, tata letak banner, dan gaya bahasa Steepling. Pakai untuk banner, postingan media sosial, gambar, atau halaman bergaya Steepling, "sesuai brand", "ikuti panduan brand", dan sejenisnya.
+metadata:
+  title: Panduan brand
+---
+
 # Panduan brand Steepling (2026)
 
 Steepling adalah perusahaan fiktif yang dibuat untuk demo ini. Halaman ini berisi contoh konten.
