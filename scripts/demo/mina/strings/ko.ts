@@ -21,9 +21,10 @@ export const ko: Strings = {
   marketingGroup: '마케팅',
   project: { name: '11월 런칭 캠페인', description: '겨울 한정 유자 진저 출시, 11월 23일(월)' },
 
+  brandSkill: 'brand-guide',
+
   paths: {
     companyIntro: 'shared/회사 소개.md',
-    brandGuide: 'shared/브랜드 가이드.md',
     brief: '11월 런칭 브리프.md',
     leoBanner: '런칭배너_레오_초안.png',
     banner: '런칭배너_최종.jpg',
@@ -35,6 +36,7 @@ export const ko: Strings = {
 
   steps: {
     read: '파일 읽기',
+    useSkill: '스킬 사용',
     save: '파일 저장',
     makeBanner: '배너 만들기',
     makeSquare: '인스타 정사각 만들기',
@@ -79,6 +81,8 @@ export const ko: Strings = {
         '**미나님 업무**: 사라님 마케팅팀에서 런칭 배너와 SNS를 맡아요.',
         '',
         '**이번 주**: **월요일**에 유자 진저가 출시돼요. 런칭 배너가 제일 급한 일이에요.',
+        '',
+        '**팀 스킬**: 팀이 같이 쓰는 스킬이 있어요. *브랜드 가이드*, *SNS 캡션 3안* 같은 거요. 필요할 때 제가 알아서 써요.',
       ].join('\n'),
       peopleTitle: '먼저 알아 둘 사람',
       people: {
@@ -92,7 +96,7 @@ export const ko: Strings = {
       text: [
         'Higgsfield로 새로 찍었어요. 성에 낀 창가에 초록 파우치랑 아이스 유자 진저를 놓았어요. 정사각과 스토리도 같은 장면이라 어디서나 파우치가 똑같이 보여요.',
         '',
-        '제목은 Noto Serif KR, 나머지는 Pretendard로 쓰고, 유자 노랑은 20% 배지에만 넣었어요.',
+        '브랜드 가이드대로 제목은 Noto Serif KR, 나머지는 Pretendard로 쓰고, 유자 노랑은 20% 배지에만 넣었어요.',
         '',
         '캡션:',
       ].join('\n'),
@@ -199,6 +203,6 @@ export const ko: Strings = {
     explore: '둘러보기',
     popupTitle: '미나의 첫날 끝 🎉',
     popupLine: '런칭 캠페인을 {time} 만에 끝냈어요. 보통은 2일 정도 걸려요.',
-    recap: ['팀 파일 3개 읽기', 'Higgsfield로 결과물 4개 만들기', '대표님 승인', '에이전시에 메일 보내기'],
+    recap: ['팀 파일 2개 읽기', '팀 스킬 브랜드 가이드 사용', 'Higgsfield로 결과물 4개 만들기', '대표님 승인', '에이전시에 메일 보내기'],
   },
 }

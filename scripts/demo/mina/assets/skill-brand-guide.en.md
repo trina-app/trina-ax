@@ -1,3 +1,10 @@
+---
+name: brand-guide
+description: Brand guide. Steepling's colours, photos, type, banner layout and voice. Use for any banner, social post, picture or page in Steepling's style, "on brand", "follow the brand guide" and similar.
+metadata:
+  title: Brand guide
+---
+
 # Steepling brand guide (2026)
 
 Steepling is a fictional company made up for this demo. This page is sample content.

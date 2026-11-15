@@ -22,5 +22,5 @@ We make **cold-brew tea bags**: drop one in a bottle of cold water and it's read
 ## How we work
 - Company news goes in **#Everyone**, marketing work in **#Marketing**.
 - Campaign files live in a team project (for example "November launch campaign").
-- Before you design anything, read `shared/Brand guide.md`.
+- Before you design anything, use the **Brand guide** team skill (Trina uses it for you).
 - Design agency: Chris Walker at Fieldnote Studio (runs our banners and ads).

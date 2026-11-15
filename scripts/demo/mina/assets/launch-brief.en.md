@@ -24,6 +24,6 @@ Steepling is a fictional company made up for this demo. This page is sample cont
 | Banner placement and ads | Chris Walker, Fieldnote Studio | from Monday, November 23 |
 
 ## Notes
-- Brand guide: `shared/Brand guide.md`
+- Brand guide: the **Brand guide** team skill
 - Put banner files in the team project "November launch campaign".
 - Leo moves to Sales on November 23. Mina takes over banners and social.

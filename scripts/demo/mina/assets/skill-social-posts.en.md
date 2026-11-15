@@ -8,7 +8,7 @@ metadata:
 # 3 social post options
 
 ## Sources
-- Follow the voice in `shared/Brand guide.md`.
+- Follow the voice in the **Brand guide** team skill.
 - For a campaign, take the message and the offer from its brief in `groups/Marketing/`.
 
 ## How

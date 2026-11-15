@@ -169,6 +169,10 @@ export interface DemoAnswer {
   /** team files the answer read: the app's own "sources" under the answer (paths of `files`). Pictures the answer made
    * show in its text, as a real answer shows them: `![label]({{file:<path>}})` */
   sources?: string[]
+  /** the team skill the answer ran (a `files` path, skills/<name>/SKILL.md) and how many team files went into it: the
+   * app's own receipt in place of "N steps" once the answer is done ("Team skill 'Brand guide' · 1 team file", the
+   * skill's title from the skill list). Use it with a step `{ tool: 'skill' }` that names the skill, as a real answer does */
+  receipt?: { skill: string; teamFiles: number }
 }
 
 export interface DemoReply {
@@ -187,7 +191,8 @@ export interface DemoAsk {
 export interface DemoStep {
   /** what the step says, e.g. "Higgsfield · 배경 이미지 만들기" or "파일 읽기 · projects/겨울 캠페인/brief.md" */
   label: string
-  /** the tool's kind for its icon: read, write, glob, grep, web_search, or a connection's name (default: a tool) */
+  /** the tool's kind for its icon: read, write, glob, grep, skill, web_search, or a connection's name (default: a
+   * tool). A team skill the AI uses is `skill`, its label the app's own "Use skill · <name>" */
   tool?: string
   /** how long it runs (default 700 ms) */
   ms?: number
