@@ -31,7 +31,11 @@ import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
+import { windowsAppUserModelId } from '../common/app-id'
 import { AppWindow, type AllowAllOutcome } from './app-window'
+import { workFilesVersion } from './work-files'
+import { scanAsk } from '../common/work-files'
+import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
@@ -55,6 +59,10 @@ const kit: Kit = (() => {
 })()
 
 app.setName(PRODUCT.displayName)
+// Windows: the same AppUserModelID as the installer's shortcuts (common/app-id.ts), before any Notification exists.
+// Without it Electron uses its own default id and Windows drops every notification silently (QA TC-342).
+const aumid = windowsAppUserModelId({ platform: process.platform, windowsStore: process.windowsStore })
+if (aumid) app.setAppUserModelId(aumid)
 // the settings folder keeps its first name (PRODUCT.desktopDataDir) when the product is renamed: Electron would
 // otherwise take the new name and every desk would forget its teams, window and language
 app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), PRODUCT.desktopDataDir))
@@ -254,7 +262,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process) } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0 } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -319,6 +327,21 @@ function registerIpc() {
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
+
+  // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
+  // this process and hands out ids, never paths. A read takes an id of the latest look of the asking origin only.
+  // part 5: the page may ask for the wide look and give the company's names (a flag and short words, never a path);
+  // the app decides what it can see and lists every place in its own dialog first
+  ipcMain.handle('bridge:work-files-scan', (e, ask: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.scan(e.senderFrame.origin, scanAsk(ask)) : { state: 'unavailable' }))
+  // part 5, a Mac: Full Disk Access (a probe that reads nothing), its Settings pane, a restart
+  ipcMain.handle('bridge:work-files-full-disk', (e) => (fromApp(e) ? win!.workFiles.fullDisk() : 'unknown'))
+  ipcMain.on('bridge:work-files-full-disk-settings', (e) => fromApp(e) && win!.workFiles.openFullDiskSettings())
+  ipcMain.on('bridge:work-files-relaunch', (e) => { if (fromApp(e)) void win!.workFiles.relaunch() })
+  ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
+  ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
+  ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())
+  // "Choose it yourself": a folder macOS kept the app out of, picked in the system's folder window (only a root's id)
+  ipcMain.handle('bridge:work-files-pick', (e, id: unknown) => (fromApp(e) && e.senderFrame && (id === 'documents' || id === 'desktop' || id === 'downloads') ? win!.workFiles.pickRoot(e.senderFrame.origin, id) : { state: 'unavailable' }))
 
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is

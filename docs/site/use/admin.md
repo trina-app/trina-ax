@@ -19,7 +19,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | AI accounts, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), Trina AX MCP, Plugins |
+| **Connections** | Providers, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), Trina AX MCP, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
@@ -27,7 +27,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
-**AI accounts** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
+**Providers** page now (it was called **AI accounts** for a while), and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
 own accounts, usage limits) are in **Team settings**. **Slack** had its own menu item too; it is one row of
 **Connected apps** now, and its old address opens it there.
 :::
@@ -41,10 +41,10 @@ On a company with Google Workspace, the Google apps can sign in with your compan
 Assign folders to groups and check access with two test accounts. [Read about permissions](files-and-permissions.md).
 
 #### Connect the AI
-In **AI accounts**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
+In **Providers**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
-![Admin › AI accounts: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "AI accounts")
+![Admin › Providers: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "Providers")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
@@ -68,9 +68,9 @@ Back up, then practise a restore with IT. [Read about backups](../operate/backup
 People who operate the server, its OS or its storage can read stored files and chats. In hosted plans, that includes Trina's operators.
 :::
 
-## AI accounts
+## Providers
 
-**Admin › AI accounts**, first in the Connections group, has one row per engine (Claude Code, Codex, API) with its
+**Admin › Providers**, first in the Connections group, has one row per engine (Claude Code, Codex, API) with its
 logo, its state and an on/off switch. When something is wrong, one short line under the name says how to fix it.
 Under Claude Code and Codex are the accounts the team answers with, in the order they are tried, each with its logo,
 plan and state, and **Add account** for the owner and admins. **How order works** under the list explains the order.

@@ -52,8 +52,8 @@ Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubS
 
 - **Typeform**：在表单的 **Connect › Webhooks › Add a webhook** 中粘贴并保存，然后打开（开关一开始是关闭的，保存后才能使用）。
 - **Tally**：在表单的 **Integrations › Webhooks › Connect** 中，粘贴到 **Endpoint URL**。
-- **Jotform**：在表单的 **Settings › Integrations** 中搜索 **WebHooks**，先按 **Complete Integration**（不要按
-  **Add New Web Hook**，按了之后它会无法使用），然后粘贴并按 **Finish**。
+- **Jotform**：在表单的 **Settings › Integrations** 中搜索 **WebHooks**，先粘贴 Webhook URL，然后按
+  **Complete Integration** 和 **Finish**（粘贴网址之前按钮无法使用；不要按 **Add New Web Hook**）。
 - **Stripe**（需要 Admin 或 Developer 角色）：**Developers › Workbench › Webhooks › Create an event destination**，勾选指南
   列出的事件，选择 **Webhook endpoint**，粘贴到 **Endpoint URL**。
 - **Shopify**（店主或可访问设置的员工）：在 **Settings › Notifications › Webhooks › Create webhook** 中为 **Order

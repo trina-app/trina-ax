@@ -35,13 +35,13 @@ import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { meGuest } from '../../lib/guests'
 import AiAccessBanner from '../chat/AiAccessBanner'
 import { useAiAccess } from '../../store/aiAccess'
-import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
+import { ArrowUp, ChevronLeft, CirclePause, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MESSAGE_ATTACHMENTS_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { oneLineName } from '@mycel/shared'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { answerTooLong, BoxAnswers, composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { SecretWarning, useSecretHold } from '../chat/SecretWarning'
 import { formatDate, formatDateTime } from '../../lib/format'
@@ -69,7 +69,7 @@ import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
 import { IconButton, useMediaQuery } from '../ui'
-import { LoadError } from '../LoadError'
+import { CalmNotice, LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
@@ -377,6 +377,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
 
   const fail = (e: unknown) => toast({ level: 'warn', text: errorText(e, locale, t('error.network')) })
+  // the AI limit used up is a known state: the calm notice under the box (as under the full chat's box, chat/Composer.tsx)
+  // and the text kept, never a warning toast (owner rule; QA TC-2895)
+  const [limit, setLimit] = useState<string | null>(null)
   // the room's apps (docs/DECISIONS.md "Apps posting in rooms"): one chip chosen by the apps that posted here, from the
   // messages on screen (a member cannot list the apps)
   const chip = useRooms((s) => (s.timeline?.roomId === roomId ? appChip(s.timeline.messages) : null))
@@ -395,6 +398,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     if ((!text && !atts.length) || chatId === undefined) return
     // the AI waits for the answer to its question: the text answers it (never a new message while its answer runs)
     if (question && chatId) {
+      setLimit(null)
       // longer than an answer can be: said before sending, the text kept (the full chat's box does the same)
       const max = answerTooLong(question.request, text)
       if (max) return fail(new Error(t('composer.answerTooLong', { n: max.toLocaleString(locale) })))
@@ -411,6 +415,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     }
     if (busy || (asked === undefined && files.uploading)) return
     stick.current = true
+    setLimit(null)
     const q = quoted
     if (asked === undefined) setDraft('')
     setQuoted(null)
@@ -429,7 +434,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     } catch (e) {
       if (asked === undefined) setDraft((d) => d || text)
       setQuoted((x) => x ?? q)
-      fail(e)
+      if (isApiError(e, 'budget_exceeded')) setLimit(errorText(e, locale, t('error.network')))
+      else fail(e)
     }
   }
   const newChat = () => {
@@ -437,6 +443,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     setHistory(null)
     setChatId(null)
     setDraft('')
+    setLimit(null)
     box.current?.focus()
   }
   // a seed with its question (an app's thread: "Summarise this thread"): sent once the message is quoted and the chat
@@ -462,6 +469,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
   const openPast = async (id: string) => {
     setHistory(null)
+    setLimit(null)
     if (id === chatId) return
     stick.current = true
     try {
@@ -652,7 +660,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           <textarea
             ref={box}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => { setDraft(e.target.value); setLimit(null) }}
             onPaste={files.onPaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -699,6 +707,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             }
           />
         </div>
+        {limit && <CalmNotice className="mt-2" testId="side-chat-limit" icon={<CirclePause size={16} />} title={limit} />}
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
         {phone && (
           <TeamFilePicker

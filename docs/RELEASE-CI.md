@@ -79,22 +79,23 @@ git push origin v0.3.0-beta.1
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
-| 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것) | 없음 |
-| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
-| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
+| 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 둘뿐) |
+| 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
+| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
+| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, 맥 dmg, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 | 5 | build-ami | stable만, publish와 github-release 뒤: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
 
-2의 네 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
+2의 다섯 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
-- **맥 데스크톱 앱(dmg)은 넣지 않는다.** Apple 서명·공증이 아직 없다. 맥 데스크는 지금처럼 "새 버전이 있어요" 안내만 받는다.
+- **맥 데스크톱 앱(dmg)은 0.5.5부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
 
 ### 업데이트 주소의 파일
 
 | 경로 | 무엇 | 캐시 |
 |---|---|---|
-| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일) | 안 함 |
-| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml` | 영구 |
+| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일, 맥 앱 `mac`) | 안 함 |
+| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml`, 맥 dmg, 맥 업데이트 zip, `latest-mac.yml` | 영구 |
 | `server/<channel>.json` + `.sig` | 리눅스 서버의 채널 머리. 아래 `release.json`과 같은 바이트 | 안 함 |
 | `server/<version>/release.json` + `.sig` | 그 버전의 릴리스 정보(`mycel-ctl update --version`) | 안 함 |
 | `server/<version>/manifest-linux-<arch>.json` + `.sig` | 묶음의 서명된 파일 목록(다음 릴리스가 root 파일 변경을 판단) | 안 함 |
@@ -108,6 +109,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 ### 설치에 닿는 방법
 
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
+- 데스크톱 앱(윈도우, 그리고 0.5.5부터 서명된 맥 dmg): 피드를 직접 보지 않는다. 팀 서버(리눅스·호스팅은 `system/windows-app.ts`, 사무실 맥은 업데이트 6단계)가 서명된 목록을 확인한 뒤 설치 파일(맥은 업데이트 zip)과 `latest.yml`/`latest-mac.yml`, 그 목록을 `/downloads/`에 둔다. 앱은 4시간마다 `/downloads/`를 보고, 받은 파일이 서명된 목록에 있는 것과 같을 때만 설치한다(맥은 그다음 Squirrel.Mac이 같은 Developer ID 팀의 서명인지 한 번 더 본다).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
   - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다. stable은 그 서버의 차례가 온 뒤다(아래 "단계적 배포"; root 타이머·사무실 맥도 같다).
   - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스는 `mycel-update.timer`(15분마다 확인, 팀의 업데이트 시간 안에서)가 적용한다.
@@ -215,6 +217,35 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
 6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그와 `main`(feed.yml)으로 제한하고, (2) 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다(권장). 승인자는 두지 않는다: 태그 push가 승인이다(대표 결정 2026-11-14). environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다). 2026-11-14 설정됨(10장 "처음 한 번").
 
+### 맥 앱 (Mac app)
+
+다운로드용 맥 앱(dmg)은 Developer ID Application 인증서(Trina Inc., 팀 `YWW96288YY`)로 서명하고 Apple이 공증한다. 처음 열 때 "확인되지 않은 개발자" 경고가 없다. 만드는 곳: `.github/workflows/mac-app.yml`(release.yml의 build-mac-app이 부른다; Actions → Mac app → Run workflow는 아무 브랜치·태그로 같은 파일을 만들고 검사만 하며 아무것도 올리지 않는다).
+
+1. 이 job만의 키체인에 인증서를 넣는다(electron-builder의 `CSC_LINK` 임시 키체인은 지금 macOS에서 `set-key-partition-list`가 실패한다).
+2. `bun run --cwd desktop dist:mac:release`: `desktop/electron-builder.devid.config.ts`. hardened runtime, `build-resources/entitlements.mac*.plist`(JIT, 마이크), 샌드박스 없음. electron-builder가 앱을 공증하고 staple한 뒤 dmg(서명)와 업데이트 zip, `latest-mac.yml`을 만든다. appId는 기본 `com.treesoop.mycel`(Mac App Store판 `app.trina.ax`와 다르다).
+3. `bun scripts/release/mac-app.ts desktop/release`: 앱과 zip 안의 앱을 검사(codesign --strict, 팀, hardened runtime, 샌드박스 아님, `spctl -a -vv`, `stapler validate`, 같은 cdhash), dmg를 `notarytool submit --wait`로 공증하고 staple, `spctl -a -vvv -t install`, `stapler validate`, 그리고 staple로 바뀐 dmg의 sha512·크기를 `latest-mac.yml`에 다시 쓴다.
+
+비밀값(레포 비밀값, build-mac-app만 본다). 값은 화면에 내지 않고 파일에서 바로 넣는다:
+
+| 이름 | 무엇 |
+|---|---|
+| `MAC_DEVELOPER_ID_P12_BASE64` | Developer ID Application 인증서와 키(.p12)의 base64 |
+| `MAC_DEVELOPER_ID_P12_PASSWORD` | 그 .p12의 암호 |
+| `APPLE_API_KEY_ID` | App Store Connect API 키 id(notarytool) |
+| `APPLE_API_ISSUER_ID` | 그 키의 issuer id |
+| `APPLE_API_KEY_P8` | 그 키의 `.p8` 내용 |
+
+```sh
+base64 -i ~/.config/trina/devid/devid.p12 | gh secret set MAC_DEVELOPER_ID_P12_BASE64 --repo trina-app/trina-ax
+gh secret set MAC_DEVELOPER_ID_P12_PASSWORD --repo trina-app/trina-ax < ~/.config/trina/devid/p12.pw
+gh secret set APPLE_API_KEY_P8 --repo trina-app/trina-ax < ~/.config/trina/asc/AuthKey_<id>.p8
+gh secret set APPLE_API_KEY_ID --repo trina-app/trina-ax       # 물으면 붙여 넣는다
+gh secret set APPLE_API_ISSUER_ID --repo trina-app/trina-ax
+```
+
+- 인증서는 2027-12-15에 끝난다(ASC id `YY28J76938`). 새 인증서는 Account Holder만 만들 수 있다(API는 403). 개발 맥의 키와 CSR은 `~/.config/trina/devid/`(600). 이미 서명·공증된 앱은 인증서가 끝나도 계속 열린다.
+- 맥 앱 업데이트: 팀 서버가 업데이트 zip과 `latest-mac.yml`을 `/downloads/`에 둔다(위 "설치에 닿는 방법"). 0.5.5보다 오래된 팀 서버에서는 앱이 예전처럼 "새 버전이 있어요" 안내만 한다. 서명 전 dmg로 설치한 앱(0.5.4까지)은 스스로 바뀌지 않는다: 새 dmg를 한 번 받아 Applications에 덮어쓴다.
+
 ## 5. beta → stable
 
 1. `0.3.0-beta.1`로 올리고 `v0.3.0-beta.1`을 단다. beta 채널을 보는 설치만 받는다.
@@ -241,7 +272,9 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | build-office가 맥 러너를 못 받아 데스크톱만 빠짐(2026-11-12 v0.5.2, 11-13 v0.5.3), 그 run을 더는 다시 돌릴 수 없음 | 서버 피드는 나갔고 사무실 피드(윈도우·맥 zip)는 이전 릴리스에 남는다 | Actions → Release → Run workflow, "Use workflow from"과 tag는 그 태그, **office_only** 체크. 테스트·리눅스 빌드·서버 피드는 건너뛰고 사무실 zip과 윈도우 설치 파일만 빌드해 사무실 피드에 올린다(리눅스 파일은 GitHub Release에서 받아 SHA256SUMS에만 넣는다). 맥 러너가 또 없으면 **mac_runner**에 `macos-15-intel`(다른 러너 풀; Go·swiftc가 두 프로세서를 같이 빌드해 같은 universal zip). 기본값은 레포 변수 `RELEASE_MAC_RUNNER`, 없으면 macos-15. 이 입력은 이 변경이 들어간 뒤의 태그부터 있다 |
+| build-mac-app 실패(맥 러너 없음, 공증 거절, 비밀값 없음) | 사무실 피드는 `mac` 없이 나간다. 맥 앱은 이전 버전 그대로 | 로그를 본다: 공증 거절이면 `notarytool log <id>`가 로그에 있다. 고친 뒤 그 run에서 "Re-run failed jobs": publish가 같은 버전의 목록에 `mac`을 더한다(`versionManifestAction`) |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
+| 맥 파일이 이미 피드에 올라간 릴리스를 "Re-run all jobs" | 맥 빌드는 할 때마다 다시 서명·공증해서 dmg·zip 바이트가 달라진다. publish.ts가 거부한다 | 이런 릴리스는 **"Re-run failed jobs"만** 쓴다. 맥만 다시 만들어야 하면 새 버전으로 태그 |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
 
 ### 배포 멈추기 (hold a bad release)
@@ -393,7 +426,7 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 4. **GitHub OIDC 공급자**(계정에 아직 없으면): IAM → Identity providers → OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
 5. **역할을 만든다**(예: `trina-team-image-ci`).
    - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. subject가 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*` 또는 immutable 꼴 `repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`인 토큰만 받는다(`StringLike`에 두 값의 목록, 3이 필요). 즉 environment `release`의 `team-image.yml`이 `v*` 태그에서 돌 때만이다. fork PR은 OIDC 토큰을 받지 못한다. 이 조건은 1·2(태그 대상 제한, 태그 ruleset)와 함께여야 뜻이 있다: `v*` 태그를 만들 수 있는 사람은 그 태그의 `team-image.yml`을 바꿀 수 있다.
-   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더와 작업 볼륨은 Debian 계정(136693071363)의 이미지·스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). IAM 권한(`iam:*`, `PassRole`)은 없다.
+   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더는 아마존 목록의 공개 이미지(`ec2:Owner` `amazon` + `ec2:Public` `true`)로만, 작업 볼륨은 Debian 계정(136693071363)의 스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). 조건이 둘로 나뉜 이유: Debian 공개 AMI 같은 아마존 목록 이미지는 요청의 `ec2:Owner`가 계정 번호가 아니라 `"amazon"`이고, 그 루트 스냅샷은 `ec2:Owner`가 소유 계정 번호(136693071363)이며 `ec2:Public`이 없다(v0.5.5 첫 실행이 `RunInstances`, 다음 실행이 `CreateVolume`에서 거부됨). Debian 이미지 고르기는 `build-ami.sh`가 소유자 136693071363으로 한다. IAM 권한(`iam:*`, `PassRole`)은 없다.
    - 최대 세션 시간(MaxSessionDuration)을 **4시간**(14400초)으로 올린다. 워크플로가 4시간을 요청한다.
    - 계정의 EBS 기본 암호화 키가 고객 관리 키(CMK)면 그 키의 `kms:CreateGrant`, `kms:Decrypt`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:ReEncrypt*`, `kms:DescribeKey`를 더한다(AWS 관리 키 `aws/ebs`면 필요 없다).
 6. **레포 변수**(Settings → Secrets and variables → Actions → Variables, 비밀값이 아니다):
@@ -422,6 +455,75 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 - 싱가포르 복사: 지역 간 전송 약 $0.08/GB × 실제 쓴 블록(이미지 약 4–6 GB) ≈ $0.3–0.5.
 - 합 **≈ $0.4–0.6 / 빌드**. GitHub 러너는 공개 레포라 무료.
 - 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 2지역 × 최근 3개 ≈ **월 $1.2–1.8**(정리가 그 이상 쌓이지 않게 한다).
+
+## 11. 윈도우 코드 서명 (Microsoft Artifact Signing)
+
+Windows installer signing. With a valid Authenticode signature the installer names the publisher (the company's
+validated legal name) instead of "Unknown publisher", and SmartScreen's "Windows protected your PC" stops once the
+signed files have built up download reputation (Microsoft: reputation is earned per file over its downloads, a new
+certificate does not skip it; an EV certificate would not either, and Artifact Signing issues none).
+
+### 무엇을 쓰나
+
+- **Microsoft Artifact Signing**(옛 이름 Trusted Signing), **Basic** 등급: 월 정액(약 $9.99/월; 가격 페이지는 숫자를 스크립트로 채우므로 계정 생성 화면의 금액을 본다), 한 달 5,000번 서명, 인증서 프로필 종류마다 1개. 일할 계산 없음. 유료 구독(종량제)이 필요하고 무료·체험 구독은 안 된다.
+- 인증서는 Microsoft가 보관하고 매일 새로 발급한다(수명 3일). 키를 받지 않으므로 잃어버리거나 샐 키 파일이 없다. 서명에 RFC 3161 타임스탬프(`http://timestamp.acs.microsoft.com`)를 붙여 인증서가 끝난 뒤에도 서명은 유효하다.
+- 공개 신뢰(Public Trust) 조직 확인: 미국·캐나다·EU·영국·호주·뉴질랜드·일본·**대한민국**·싱가포르·스위스·노르웨이·이스라엘의 조직(2026-05 문서). 확인은 Azure 포털에서만 하고 1–20 영업일(서류를 더 달라면 더). 서류는 12개월 안에 발급된 것, 추가 서류 시도는 세 번(모두 Microsoft 문서 2026-05 기준).
+
+### 흐름
+
+1. release.yml `build-windows`(job 환경 `release`, 권한 `id-token: write`; 그래서 서명을 켜지 않아도 이 job에 environment의 배포 대상 규칙이 걸린다. 릴리스 run은 늘 태그에서 돈다)가 레포 변수 셋을 `MYCEL_WIN_SIGN_ENDPOINT`·`_ACCOUNT`·`_PROFILE`로 넘긴다. 셋 다 비면 서명 단계는 모두 건너뛰고 지금처럼 서명 없는 설치 파일을 만든다. 하나라도 비면 빌드가 실패한다(실수로 서명 없이 나가지 않게).
+2. `ArtifactSigning` PowerShell 모듈을 고정 버전(0.1.8, Azure/artifact-signing-action v2.0.0과 같은 것)으로 설치한다. 모듈이 signtool과 서명 dlib(Microsoft.ArtifactSigning.Client)을 받아 쓴다.
+3. `azure/login`(OIDC, `allow-no-subscriptions`: 서명에는 토큰만 필요하다)이 Azure CLI에 로그인한다. 저장된 비밀번호나 client secret은 없다: GitHub이 그 run에 준 토큰을 Entra 앱 등록의 federated credential이 받는다.
+4. electron-builder가 `win.signtoolOptions.sign`(`desktop/scripts/win-sign.ts` → `win-sign.ps1` → `Invoke-ArtifactSigning`)으로 앱 exe, 제거 프로그램, NSIS 설치 파일에 SHA-256 서명 하나씩을 한다. Azure CLI 자격만 쓰고(다른 자격은 모두 제외) 서명마다 `Get-AuthenticodeSignature`가 Valid이고 타임스탬프가 있는지 본다. 실패하면 두 번 더 해 본다(15초, 30초 뒤). `latest.yml`의 sha512는 서명된 파일의 것이다.
+5. 마지막 단계가 설치 파일과 `win-unpacked/*.exe`를 `signtool verify /pa /tw`로 다시 확인하고 서명자 이름을 로그에 남긴다.
+
+`publisherName`은 넣지 않았다: electron-updater는 지금처럼 윈도우 서명을 따로 요구하지 않고, 업데이트는 Ed25519로 서명된 릴리스와 맞는지로 확인한다(`desktop/src/common/update.ts`). 서명된 판이 퍼진 뒤 넣으면 그 뒤 업데이트는 서명자 이름이 맞아야만 설치된다(이름은 확인된 법인 이름 그대로여야 한다).
+
+### 처음 한 번 (대표)
+
+1. **Azure 구독**: portal.azure.com에서 contact@trina.app으로 **종량제(Pay-As-You-Go)** 구독을 만든다(나라: 대한민국, 나중에 못 바꾼다). 전화 인증과 카드가 필요하다.
+2. **리소스 공급자** `Microsoft.CodeSigning`을 구독에 등록한다(Subscriptions → Resource providers).
+3. **Artifact Signing 계정**: 리소스 그룹 `rg-trina-signing`, 지역 **Korea Central**(endpoint `https://krc.codesigning.azure.net`), 등급 **Basic**.
+4. **역할**: 확인을 신청하는 사람에게 `Artifact Signing Identity Verifier`를 준다(계정 → Access control).
+5. **조직 확인(Public)**: 계정 → Identity validations → Organization → New identity → Public. 법인 이름은 등기 그대로, 웹사이트, 회사 도메인의 메일 두 개(주·보조, 서로 달라야 한다), 사업자등록번호, 등기 주소, 대표자 이름(신분증 그대로). 그 뒤 "Action Required"가 되면 대표자가 Microsoft Authenticator의 Verified ID(AU10TIX 신분증·얼굴 확인)를 한다. 서류를 더 달라는 메일이 오면 포털에서 올린다(시도 세 번). 메일 링크는 7일 안에 눌러야 한다.
+6. **인증서 프로필**(확인이 Completed가 된 뒤): 계정 → Certificate profiles → Create → **Public Trust**, Verified CN and O에 그 확인을 고른다.
+7. **앱 등록과 OIDC**: Entra ID → App registrations → New(예: `trina-ax-release-signing`). 비밀값은 만들지 않는다. 이 레포의 OIDC subject에는 태그가 들어가므로(`job_workflow_ref`, 10장 "처음 한 번" 3) 보통 federated credential(정확히 같은 subject)로는 매 태그마다 하나가 필요하다. 그래서 **flexible federated credential**(미리보기, Graph beta)을 하나 만든다:
+   ```sh
+   cat > fic.json <<'JSON'
+   { "name": "release-yml-v-tags", "issuer": "https://token.actions.githubusercontent.com", "audiences": ["api://AzureADTokenExchange"],
+     "claimsMatchingExpression": { "languageVersion": 1,
+       "value": "claims['sub'] matches 'repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*' and claims['repository_id'] eq '1436599521' and claims['repository_owner_id'] eq '349611973'" } }
+   JSON
+   az rest --method post --url "https://graph.microsoft.com/beta/applications/<앱 object id>/federatedIdentityCredentials" --body @fic.json
+   ```
+   즉 environment `release`에서 `v*` 태그의 release.yml만 서명할 수 있다(태그 ruleset·environment 대상 제한과 함께, 10장). 미리보기가 막히면 대안은 태그마다 정확한 subject의 credential을 하나씩 더하는 것(앱당 20개 한도)이다. client secret은 쓰지 않는다.
+8. **서명 권한**: 그 앱의 서비스 주체에 `Artifact Signing Certificate Profile Signer`를 인증서 프로필(또는 계정)에 준다.
+9. **GitHub에 넣는다** (id는 비밀이 아니지만 비밀값으로 둔다: 공개 레포의 로그에 가려진다. 구독 id는 필요 없다):
+   ```sh
+   GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_CLIENT_ID       --repo trina-app/trina-ax --env release
+   GH_TOKEN=$(gh auth token -u trina-app-admin) gh secret set AZURE_TENANT_ID       --repo trina-app/trina-ax --env release
+   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_ENDPOINT --repo trina-app/trina-ax --body https://krc.codesigning.azure.net
+   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_ACCOUNT  --repo trina-app/trina-ax --body <계정 이름>
+   GH_TOKEN=$(gh auth token -u trina-app-admin) gh variable set WINDOWS_SIGNING_PROFILE  --repo trina-app/trina-ax --body <프로필 이름>
+   ```
+   **세 변수는 인증서 프로필이 생긴 뒤에 넣는다.** 넣는 순간부터 모든 릴리스가 서명을 시도하고, 서명이 안 되면 윈도우 설치 파일이 빠진다(6장 "Desktop builds missing").
+10. **첫 확인**: 다음 태그의 Windows installer job 로그에서 "signed: … (CN=…)"와 `signtool verify` 성공을 본다. 받은 설치 파일을 깨끗한 윈도우에서 열어 게시자 이름을 본다(QA 행).
+
+### 실패했을 때
+
+| 어디서 | 뜻 | 할 일 |
+|---|---|---|
+| `Windows signing is half set up` | 레포 변수 셋 중 일부만 있다 | 셋 다 넣거나 셋 다 지운다 |
+| azure/login: `AADSTS70021` / no matching federated identity record | 토큰의 subject가 credential과 다르다 | 로그의 subject를 7의 식과 비교한다(environment `release`, 태그 run인지) |
+| 서명 403 | 서명 역할이 없거나, 확인이 Completed가 아니거나, 프로필이 비활성 | 8을 확인하고 포털에서 확인·프로필 상태를 본다 |
+| 서명 후 Status가 Valid가 아님 | 체인이나 타임스탬프 문제 | 다시 돌려 본다(Re-run failed jobs). 계속되면 timestamp 상태(`curl http://timestamp.acs.microsoft.com` → 200)를 본다 |
+
+서명 job이 실패해도 리눅스 서버 릴리스는 나간다. 고친 뒤 같은 run에서 "Re-run failed jobs"(6장).
+
+### 비용
+
+- Basic 월 정액 하나(위). 서명은 한 릴리스에 파일 서너 개라 한도(5,000)에 닿지 않는다. 앱 등록·OIDC는 무료. 다른 Azure 리소스는 만들지 않는다.
+- 해지: 계정을 지우면 청구가 멈춘다(이미 서명한 파일은 그대로 유효). 조직 확인은 구독에 남으니 따로 지운다.
 
 ## User-facing release notes
 

@@ -117,6 +117,10 @@ export const GuestInviteLimit = z.object({
   used: z.number().int().nonnegative().optional(),
   seatsFull: z.boolean().optional(),
   manageUrl: z.string().optional(),
+  /** 'host_sign_in': this server runs its AI on its own sign-in (an Office Mac, engine.authMode local-login), where a
+   * guest is never answered, so the invite dialog offers only No AI. For everyone who may invite (members too: the
+   * same flag as CredentialsResponse.guestAiUnavailable, which only the owner and admins read) */
+  guestAiUnavailable: z.enum(['host_sign_in']).optional(),
 })
 export type GuestInviteLimit = z.infer<typeof GuestInviteLimit>
 /** No mail in v1: the admin copies the link. The token is shown only here. `replacedLead`: a lead invite made with

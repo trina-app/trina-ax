@@ -16214,9 +16214,8 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
 - **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
   (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
-  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
-  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
-  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  own), under ONE primary that names what goes in: one skill by its name ("카드뉴스 넣기"), two or more counted ("스킬 3개
+  넣기", "Add 3 skills"; names run together as "A·B·C" read as one word, QA TC-2654, 2026-11-15). Pre-checks without AI: the visual three when a profile is saved,
   never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
   then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
   it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only
@@ -27363,6 +27362,42 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
   and skills/.
 
+## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
+
+Builds on "Guests: only what they were invited to" and "Claude 구독 연결: 브라우저에서".
+
+- **A member's invite dialog knows a guest gets no AI here** (TC-2580): `GET /api/guest-invites/limit` (any non-guest)
+  carries `guestAiUnavailable: 'host_sign_in'` on a server that is not managed, the same flag as
+  `GET /api/admin/credentials`, which only the owner and admins read. The dialog takes it from either, keeps No AI
+  picked and greys out the rest. A member reads only "On this server, guests can't use AI.", because they cannot
+  reinstall the server; the owner and admins also read the `.pkg` sentence. `POST /api/guest-invites` still accepts the
+  other choices (no change in what the server allows: the guest's AI never runs there, `credentials/guest-ai.ts`).
+- **The one sign-in slot is not held by a browser that went away** (TC-2581, `credentials/login.ts`): every sign-in
+  keeps `seenAt`, updated by its start, the code, and every read of it (the dialog's 3-second poll is the heartbeat).
+  When someone asks for the slot, a running sign-in not heard from for `LOGIN_IDLE_MS` (5 minutes: logging in at the provider on a phone,
+  with an email code, can take a while) is ended `expired` with reason `idle`. One storing its token, or checking
+  the pasted code, is never ended this way, and the dialog sends no goodbye then either. A start claims the slot
+  before it waits for the launcher, so two starts at once cannot both run. We only free it when someone asks: a phone that
+  paused the page while its person approved elsewhere keeps its sign-in when nobody is waiting. The dialog also says
+  goodbye itself: on `pagehide` (not a page kept for the back button) it sends the DELETE with `keepalive`
+  (`ApiClient` `keepalive`). Back on the page, the starter reads "This sign-in stopped because this page was away
+  for a while and someone else needed to sign in. Start again."
+- **The busy answer tells everyone the truth** (`LoginBusyParams`, now for every caller): `expiresAt` (the latest end)
+  for everyone; `mine`, `loginId` and `personal` for its own starter, who may stop it ("Stop it and start again" stops
+  it through its door and starts the new one); `starter` only for the owner and admins at the admin door, as before. A
+  member never learns whose it is. The dialog shows that line in place of the server's raw message, keeps its start
+  button off while the slot is taken, and reads `GET /api/me/credential-login-slot` (taken or not, until when; never
+  whose; open to guests with their own sign-in) every 4 seconds while it is someone else's, so the button turns on by
+  itself once it is free. A waiting reader counts as someone asking: a quiet sign-in gives way to it as to a start.
+- **An option that cannot be picked looks off** in the guest AI choices: the whole row is faded, not only its radio.
+- **A switched-off account with its right password is told the truth** (TC-2582, `auth/accounts.ts` login): 401 with
+  `params.reason 'account_off'` and "This account was turned off. Ask the person who invited you." (a guest) or "…Ask
+  the team owner or an admin." (anyone else). A wrong password and an unknown username still get the generic words
+  with no reason, so nothing says which usernames exist. The try is still counted (the limiter hold is kept), it makes
+  no session, and the audit row is the same `auth.login_failed` with `disabled: true`. The trade-off, asked for in
+  QA: someone who already has the password learns the account is off. That opens nothing.
+- Version impact: **patch**.
+
 ## Guest invites, phase 2: the screens — 게스트 초대 화면 (feat/guest-invites-p2, 2026-11-14, the owner)
 
 넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `GuestTag.tsx`, `GuestView.tsx`, `web/src/lib/guests.ts`, `web/src/pages/admin/Guests.tsx`), 이유: people, rooms and projects are core. Builds on phase 1 (the server security core, `docs/AGENTS/plan/20261114-1016-guest-invites-p1.md`, "Guests: only what they were invited to"); the server decides what a guest reaches, the screens only label guests and leave out what is not theirs.
@@ -28451,3 +28486,322 @@ no recommended-skill line for members, the message names the skill; the message 
 - Removed: the suggested-first-task line and the made-skill sentence (`teamLink.msg.tryAny`, `teamLink.messageMade`, 6
   languages), the link box + QR from the invite step's first view.
 - Version impact: **patch**.
+
+## Find work files on this computer, part 1: the desktop app looks, the page never names a path (feat/find-work-files, 2026-11-15)
+
+Plan: `docs/AGENTS/plan/20261115-0330-find-work-files.md` (owner-approved after an independent review; slice 1). The desktop
+app (Windows and the direct-download Mac app) offers to look through Documents, Desktop and Downloads for work files.
+This part is the app side: the bridge call, the look, the reads afterwards and the macOS strings. The screens come in
+part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/src/main/work-files.ts`,
+`shared/src/desktop-bridge.ts` `workFiles`, `shared/src/file-scan.ts`).
+
+- **One call, the app's own dialog first (review MUST: bridge security).** `workFiles.scan()` takes no argument. The main
+  process shows `dialog.showMessageBox` (no web page draws or answers it): what is looked at (the three folders, "(OneDrive)"
+  on Windows when Known Folder Move put one there), that names, types and dates are read, that the file names may go to the
+  team's AI, that contents stay on the computer until the person adds them, that nothing is moved or changed, and on a Mac
+  that macOS asks next for each folder. Cancel is the default button: Enter, Escape and closing answer no, so a page that
+  asks while the person is typing gets no yes from their next Enter (as the allow-all dialog; review). After the dialog
+  (yes or no) it is not shown again for 3 s (`busy`), and only one dialog or look runs at a time. A page script on the team
+  origin can ask, but nothing is read without the person's click in the app's window.
+- **The look runs in the main process** (`scanRoots`), so macOS's privacy question names the app, and one folder after the
+  other (Documents, then Desktop, then Downloads: the first read of each raises its question, which the read waits for).
+  It reads entries with `opendir` (entry by entry, so a folder of millions stops at the entry limit) and `lstat` only: a
+  symbolic link or junction is never entered or listed. Each call gets the time left for the folder (at least 1 s), so a
+  network folder or an offline share that never answers ends that folder's look (`cut`) instead of the whole look (the
+  documents' lstat too, batch by batch, which also stops at Stop); a
+  folder's first read may wait 2 minutes for macOS's question, then it is `unreadable`.
+  Windows marks every reparse point as a link in a listing (OneDrive's online-only files too), so there `lstat` decides
+  (libuv's lstat reports only real links and junctions as links). The same rules as the page's own walk
+  (`shared/src/file-scan.ts`, now shared: `isSystemName` moved there and `@mycel/shared/api` re-exports it): never dot
+  entries, `~$` lock files, system names, node_modules, .git, Library, AppData, app bundles; documents by type; png/jpg
+  only in a brand or logo folder, never a screenshot. Each folder: 5,000 documents, 50,000 entries, 6 folders down, 15 s
+  of walking; all three: 30 s. The time macOS's question takes is not counted. Over 50 MB: counted, not listed. A file
+  reached twice (a folder inside another, a hard link) is listed once; a root that is the same folder as one before is
+  `same`, and a root that holds one looked at before skips it; the home folder or one holding it (`opensHome`, the folder
+  window's rule) is never looked at (`home`; a Windows network path `\\server\share` counts as that too). EPERM on
+  a Mac is `blocked` (Don't Allow, or the app off in Files & Folders), with no way to ask again from the app.
+- **What the page gets:** per folder its state, `cut`, the count over 50 MB and the entries looked at; per file an opaque
+  id (12 random bytes), the folder (`documents|desktop|downloads`), the folders inside it, the name, type, size and date.
+  Never a path of the computer (pinned in the e2e).
+- **Reads by id only** (`WorkFileSessions`). The latest look of each team origin is kept for the person signed in: an id of
+  an older look, of another origin, made up or a path is `unknown`. For an hour (`expired` after), at most 100 files and
+  1 GB per look (`limit`; the same file read again counts once, and reads in all stop at 300). The count is taken before
+  a read starts and given back when it fails, and reads run one at a time, so reads sent at once can neither pass the
+  limits nor hold more than one file (50 MB) in memory (review MUST: they could). A read that gets no answer in 60 s (a
+  drive that stopped answering) is `unreadable`, so the reads behind it go on. A read finds the file again under the
+  real path of its folder, checks that its real path is that same path (a folder on the way swapped for a link is
+  refused), lstats it, opens it with O_NOFOLLOW, and checks the open file's identity, size and date against the look
+  (`changed`). Windows has no O_NOFOLLOW, so there the identity (device and file number) is what tells a link's target
+  apart: a drive that gives no identity (0: FAT, some network drives) is refused on Windows; on macOS such a drive is
+  checked by size and date. A sign-out, another person, another team or the window closing forget the look; a look still
+  running then gives nothing. Sessions are kept per origin: after the app switches between the office address and the
+  team address, the page looks again.
+- **Contents leave only when the person adds files.** The app hands out bytes for any listed id; that the page reads a
+  file only when the person presses Add (never to show or rank the list) is part 2's rule, checked in its review.
+- **Older apps and store builds (review MUST: bridge version).** `bridge:info` carries `workFiles`, the version
+  (`WORK_FILES_BRIDGE_VERSION`, 1) or 0. The preload exposes `workFiles` only then; the page offers the entry only when the
+  version matches, so desktop apps before this, the Mac App Store build (its sandbox reads only what the person picks:
+  it keeps "choose a folder") and Linux show nothing new. The Microsoft Store build is a full-trust app and gets it.
+- **macOS strings (review MUST: true copy).** NSDocumentsFolderUsageDescription, NSDesktopFolderUsageDescription and
+  NSDownloadsFolderUsageDescription in 6 languages: "Looks for work files here. File contents stay on this Mac until you
+  choose to add them." It promises nothing about names, which may go to the team's AI. The old line ("Reads only the
+  folders you pick") was untrue once the app looks by itself. The Mac App Store build reads the same strings and stays
+  true. `openSettings()` opens System Settings › Privacy & Security › Files & Folders (a fixed address; macOS only).
+- **Not here:** the screens and the server route (part 2), the Mac guide (part 3), cloud folders (~/Library/CloudStorage,
+  which macOS guards with a question of its own), a "look again" that keeps state. TCC answers are bound to the code
+  signature: an unsigned build may be asked again after an update (Developer ID signing is its own branch).
+- Tests: `tests/unit/e-desktop-work-files.test.ts` (made-up file system: what is listed, the order of the folders, links
+  and junctions, OneDrive's online-only files, EPERM, every folder denied, home and the same folder, each limit and the
+  time, a folder that never answers, a root holding an earlier one, a file reached twice, Stop; reads: foreign ids,
+  another origin, a new look, an hour, 100 files and 1 GB, reads sent at once (the limits hold, one at a time), a failed
+  read gives its place back, no identity on Windows, a folder or file swapped for a link, another size or date, ELOOP at
+  open, another person; the wiring, Cancel as the dialog's default);
+  `desktop/e2e/work-files.spec.ts` (real Electron in a made-up home, `FOLDER_TEST_HOME` guard as folder-window: the dialog
+  first, cancel and the 3 s quiet, the home folder as Desktop never looked at, a big Downloads cut at 5,000, links not
+  listed, no path in the answer, foreign ids and another origin refused, a folder and a file swapped for links refused, the
+  made-up secret never read). Run with `bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`; CI does not run
+  the desktop e2e.
+- Version impact: **minor** (a new desktop bridge call; nothing uses it until part 2).
+
+## Find work files on this computer, part 2: the screens, members' own AI picks, Undo (feat/find-work-files-ui, 2026-11-15)
+
+The screens over part 1's bridge (`web/src/components/onboarding/FindWorkFiles.tsx`, `web/src/lib/workFiles.ts`), the
+route for members' picks (`POST /api/onboarding/files/rank-own`), and what the review of the plan made binding.
+Placement: Team AX core.
+
+- **Two ways in, no new button on the toolbar.** My files on the desktop app: one quiet line "Find work files on this
+  computer" (anyone but guests; also inside My files › From this computer). The setup's 팀 파일 step on the desktop app: the
+  first button, "Choose a folder" beside it; the TeamFilesEntry dialog for admins has it too, being the same step. Not in
+  a browser, on a phone, in the Mac App Store build or a desktop app without the bridge's version. The line hides on a
+  narrow window, but a dialog already open stays.
+- **Where files go.** Members (anyone on My files): My files › From this computer
+  (`users/<id>/From this computer/<Documents|Desktop|Downloads>/<folders>/<name>`). The folder has one name on disk and is
+  shown in the person's words (`FROM_COMPUTER_LABEL` in shared/src/folder-labels.ts, through `folderLabel`, so
+  useFolderWords and the breadcrumbs say 이 컴퓨터에서, このコンピューターから …). The owner in the setup: the team home, as the
+  step always did (review Q3: no My files first for the owner), with the step's own run, 팀 파일 recorded and the folder plan
+  after.
+- **The page draws no consent of its own.** The app's dialog is the consent (part 1). The page shows "Answer in the window
+  that just opened" while it is up; Cancel there closes the page's dialog with nothing looked at, sent or read.
+- **The list.** Two groups: "Looks like work" (the AI's picks in its order with their reason word; without an AI answer
+  or with no pick, the name rules' order, `forAi`) and "May be personal (n) · Not sent to AI", folded. A search over
+  everything found, the files not picked too ("n more documents · Find them by name" under the AI's picks). The app still
+  busy with a question (asked again too soon) is said in a line, not a silent close. **Nothing is ticked**, by the app or the AI. "Select all n" ticks the
+  shown work files up to 100 (`perUpload`), never a personal-looking one, and the cap line says when it stopped there. Add
+  stays off at no tick and over 1 GB (the app's own limit per look; "Up to 1 GB at a time"). A ticked personal-looking file
+  says who sees it ("Only you see it in My files"; the team's name in the setup). Lines above the list: a folder macOS
+  kept the app out of ("Trina can't see Downloads · Allow in Settings · How": Settings opens Files & Folders through the
+  app, How the Mac guide), a cut folder, a folder left out, files over 50 MB, files already there (the same name and size
+  in the target: never offered twice), Stop pressed. Every folder kept out: no list, the title says so, the way in is said
+  once, with Close and Look again (a new look, the app asks again). Mac guide: `docs/site/use/find-work-files.md`.
+- **Contents leave only on Add (part 1's rule).** The list's documents (`LocalDoc`) hold no `File` any more, here and in
+  the page's own folder walk (review MUST: the walk returned real File objects): `open()` is called by the upload for the
+  ticked files only, one at a time as they go (`PlanFile` with `open` in lib/folderUpload.ts). For the app's look it reads
+  by id (`workFiles.read`); a refused read (moved, changed, a limit) fails that file as "could not be read" and is not
+  tried again; what was read is let go once it is up. The AI's pick gets names, the folder inside the root
+  ("Documents/Clients"), type, size and date, never a personal-looking name, never a path of the computer.
+- **Members' AI picks (review MUST).** `POST /api/onboarding/files/rank-own` (`auth: 'user'`; guests never reach it, the
+  guest allow-list): the same no-tools turn of the caller (their AI connection, their budget, never listed, deleted after)
+  with its own instructions, "work files worth keeping in their own folder", the files as data inside `<material>` (names
+  quoted as JSON, the block's tag broken in names), and the same fixed answer: known ids once, reason words from
+  TEAM_FILE_REASONS. The team pick (`rank`) stays for owners and admins with its own instructions; the setup's owner
+  uses it.
+- **The personal matcher (review MUST).** Words and phrases in all six app languages (en, ko, ja, zh, es, id): pay, tax,
+  ID papers, CVs, health, banking, family and housing papers, passwords. Latin-script entries match whole words or whole
+  phrases of consecutive words without case, accents or apostrophes ("Tax Return 2025", "declaración de la renta",
+  "slip_gaji", "Driver's License"); a phrase never matches its words apart ("return of tax"). Korean, Japanese and
+  Chinese words match inside a part; a few short words only as the whole part (인사, 人事). The setup's own folder walk uses
+  the same matcher.
+- **Undo (review MUST).** The result says "Added n files to My files › From this computer" with Open, Undo and that the
+  computer's files stay as they are. Undo moves to the trash only what the run made: the files that landed new (their
+  path now: an upload never replaces a file, a same-named one gets a name of its own) and the folders the run made (mkdir
+  answered, not 409), deepest first and only when empty now. An upload the server answered with a file that was there
+  already (keepSame: this person's own upload of the same bytes within 24 hours, at the name or a "(k)" name) says so in
+  its answer, `kept: true` on the FileEntry (review: Undo would have trashed it), and is not the run's. The line after
+  Undo names the date from the trash's own answer (`purgeAt`: the team's trash period, not "30 days"). Closing the dialog
+  while files go up keeps the run (its row on the file screen); the line opens on that run again, so Undo stays
+  reachable (the run's record is kept by its FolderUpload, which stays the same while its store entry is replaced).
+- **A file that did not go says why.** A refused read keeps the app's reason with the row: "Changed on this computer since
+  the look", "Over the 100 files or 1 GB of one look", or (the look expired or was replaced) "Look again to add this
+  file"; the setup's run rows say the same. A file read for its upload is let go once it is up or has failed (after a
+  stop, once the server dropped its unfinished upload). "다시" in the setup sends what is left of such a run again.
+- **Exits** (the walk report, PR): the page's dialog ✕ or Escape at any step stops a look still running (`stop()`) and
+  drops the AI's pick (a stop sent while the app's own dialog is up counts for no look: React's double start in
+  development); the app's dialog Cancel; Stop while looking (the list so far, "Stopped early"); list Cancel; Allow
+  in Settings (the app opens Files & Folders; the list stays); How (the guide in the browser); Look again; Add; Stop
+  uploading (what went up stays); Open (My files › From this computer); Undo; Close. In the setup, Cancel and an
+  answer of no in the app go back to the step's start.
+- **Not here (slice 1):** the "share to the team" card, "Choose one folder instead", the "Other documents" group, cloud
+  folders, the Mac App Store build.
+- Tests: `web/test/unit/work-files.test.ts` (the entry by version, the list with nothing read, the folders' lines, Select
+  all and its cap, 1 GB, the six languages' personal words and phrases, a run that reads each file once as it goes and
+  names only the folders it made, Undo's scope, the label), `web/test/unit/team-files.test.ts` (the walk keeps no File),
+  `tests/unit/b-onboarding-file-rank.test.ts` (members' own instructions, the fence, the fixed answer, the route for
+  members and admins), `tests/unit/c-uploads-same.test.ts` (`kept` only on a kept file),
+  `tests/security/lib/onboarding-files-cases.ts` (rankOwnFiles), `web/test/e2e/find-work-files.spec.ts`
+  (a stand-in bridge: Cancel, nothing ticked, the lines, the personal group never sent, search, nothing read before Add,
+  Add, closing and opening again during the upload, Undo, Select all at 100, no AI, a refused read, every folder blocked and Look again, an older app, the owner's
+  setup into the team home), `web/test/e2e/shots-find-work-files.spec.ts` (screens at 1440 and 390, light and dark).
+- Version impact: **minor** (a new API route for members, new screens).
+
+## Find work files, part 4: ask the computer's index, only recent company files, the smallest model (feat/find-work-files-narrow, 2026-11-15)
+
+Owner, 2026-11-15: "don't dumbly look at every file. Only bring files that were used recently, or that relate to the
+company's domain or name. Be conservative." Then: fast, a real progress bar, the smallest model. Research brief:
+find-files-research.md (the coordinator's). Wider sources (cloud-sync folders, recents on any drive, work folders, Full
+Disk Access) are part 5.
+
+- **Measured on this Mac with a Developer-ID-signed probe (throwaway bundle id, launched through LaunchServices).**
+  Spotlight raises macOS's question for a protected folder exactly as a read does: `mdfind -onlyin ~/Documents` asked
+  for Documents, then Desktop, then Downloads, one per query, and returned nothing after Don't Allow. So each folder is
+  still asked for first (its first entry is read), one after the other, before anything else looks at it. A process
+  started from a shell is charged to the shell (no question at all): real tests launch the app through `open`.
+- **Where a Mac's list comes from (fastest measured).** Listing through Spotlight took 0.7–0.8 s per folder (`mdfind`)
+  against 0.1–0.25 s for the walk of a made-up home of 14,450 files; `mdls` answers 200 paths in 0.17 s. So a Mac walks
+  (`FALLBACK_LIMITS`: 4 folders down, 20,000 entries, 10 s a folder, 20 s in all) and asks Spotlight (`mdls`, 200 paths
+  a call, four calls at a time, within the folder's time and Stop) about the newest 1,000 documents of each folder: last opened (kMDItemLastUsedDate), how often
+  (kMDItemUseCount), where it was downloaded from (kMDItemWhereFroms, hosts only, never the address), authors and
+  organisation. Spotlight off (`mdutil -s /`): the walk alone. The parsers stay for part 5's home-wide recents.
+- **Windows:** one PowerShell run of Windows Search's SystemIndex (ADO, `Search.CollatorDSO`) for the three folders,
+  Windows' Recent folder (its shortcuts' targets, via Electron's readShortcutLink) and Office's recent files (the File
+  MRU values, FILETIME in `[T…]`), merged; a download's `Zone.Identifier` stream (4 KB, under Downloads itself, a second each, 5 s in all) gives its hosts. Scripts go as `-EncodedCommand` with every quote doubled, the curly ones PowerShell also reads too (review); no row for a folder that has entries (a Documents moved to D:\ is not indexed by default) walks it; newest first (`ORDER BY`). No answer in time: the
+  walk. Not measured on Windows here (parsers unit-tested on fixture text).
+- **No file is read.** The index's answers and the walk's stat are all the look reads; every index hit is checked
+  (`filesFromIndex`: inside the folder, its real path the same path, lstat a file, a document, recent, 1 KB to 50 MB)
+  before it gets an id; each call within a second or the folder's time, Stop between batches (a drive that stops answering
+  holds nothing up). mdls's answer counts when it exits 1 because one of its paths was gone.
+- **The company's words** (`GET /api/onboarding/files/company`, anyone but guests): the team's and the profile's names
+  without legal forms (Inc., 주식회사, (주), 株式会社, 有限公司, PT … Tbk …), the profile's website domain and the team's work
+  email domains (never a public mail provider), and the team's people's names. The page matches, on the computer: a name
+  as a whole word or phrase (Korean, Japanese and Chinese inside the text), the domain's first label in a name, a
+  download from the company's own host, its Slack or SharePoint (`acme.slack.com`, `acme-my.sharepoint.com`) or a work
+  app (files.slack.com, Google Drive, Dropbox, Box, Notion, Teams), an author or organisation who is the company or a
+  teammate. Document properties are what the index already read; nothing is opened, unzipped or parsed. Left out
+  (review): the caller's own name (Office writes it into everything they made, their CV too), and the team's name while it
+  is still the product's default. A domain's name is the label before its public suffix ("www.app.acme.co.kr" → acme),
+  never a common subdomain word (app, mail, corp, shop, student …). A ticked file stays in view when later picks would
+  push it past 50.
+- **The list (conservative).** Recent = last opened or changed within 180 days. "Looks like work" = recent AND not
+  personal-looking AND (the company's OR the AI's pick), best first by the fixed score: recency (half-life 21 days) ×
+  (1 + log(1 + use count)) × type (office and PDF 1, text 0.6, pictures 0.2) × the company (from its address or a work
+  app ×3, an author ×2, a name ×1.5) × folder (Documents 1.2, Desktop 1, Downloads 0.7); an AI pick ×1.5. At most 50
+  shown; the rest only through the search ("n more documents · Find them by name"; with none shown, "Nothing clearly
+  looks like work" and how many the search can find). "May be personal" lists the recent personal-looking ones.
+  Nothing is ticked. Each row says why, plainly: the AI's reason, "Mentions Acme" / "From acme.slack.com" / "By Bo
+  Lee", "Opened 3 days ago" or "Changed 2 weeks ago" (Intl.RelativeTimeFormat), where it is.
+- **The AI's pick: the engine's smallest model, quickly.** Rank turns (both the team step's and a member's own) run on
+  `smallModelFor`: Claude Code's `haiku` alias (through a gateway only when it names a haiku model), Codex's nano or mini
+  (`cheapestCodexModel`), the person's model otherwise (the API engine), the file list reader's rule
+  (file-list/engine-reader.ts). Only rank turns: a chat keeps its own model, and the setup's folder plan, which reads
+  files, keeps the person's. Claude Code gets `--effort low` on a pick from names when its own `--help` lists the flag
+  (2.1.305 is pinned for servers; an unknown flag would fail the turn); the question runs in the background (off the
+  event loop, a bare environment, 5 s), so the first pick after a start goes without it, and only a real answer is kept.
+  A member's own ChatGPT sign-in may lack Codex's nano or mini: that pick runs on the person's model. A member's
+  pick answers ids grouped by kind, at most 40 (short); the team step keeps its ordered picks (its top 20 come ticked).
+  The page sends the best 80 recent names by the score (was 500). `rankMs` 30 → 20 s.
+- **Measured (2026-11-15, the real engine on this Mac's Claude login, 80 names):** 10.7–18.4 s on the person's model
+  path before; on haiku 10.7–11.7 s, 2.4–4 k output tokens of which most is thinking (the answer is ~400 characters);
+  with `--effort low` 8.5–11.8 s; a 5-name turn 4.7 s (the engine's start). `alwaysThinkingEnabled: false`,
+  `effortLevel` and `MAX_THINKING_TOKENS=0` did not change it. So the list does not wait for the AI: it shows when the
+  look ends (the company's files by the rules) with "Your team's AI is also looking at 80 names · Nothing is ticked", a
+  bar and Stop, and the AI's picks join it when they come.
+- **Progress:** a shared `ProgressBar` (components/ui.tsx; the folder upload's row uses it too) with the look's own
+  measure: the app reports how far it is (`done`, 0–1: each folder's question, then its walk or index), then the AI's
+  stage under the list.
+- **"Choose it yourself" (coordinator, after part 3's finding that a refused app is not listed in Files & Folders).** A
+  folder macOS kept the app out of says "Trina AX can't see Downloads · Choose it yourself · How": the app's
+  `workFiles.pickRoot(id)` opens the system's folder window at that folder (only the root's id crosses; the pick must be
+  that folder or one inside it, never home); the person's pick there is their permission (open-panel consent, not
+  measured on this Mac: no Allow was ever clicked). Its files join the latest look (`WorkFileSessions.extend`, same hour
+  and limits) and the list, after the "already there" check, only while that look is open; the pick is checked on its
+  real path (inside the root's real path). An older app without it offers Settings, as before. The guide's wording follows in part 5.
+- Tests: `tests/unit/e-desktop-work-index.test.ts` (mdfind/mdls parsing with lists over several lines and addresses
+  with commas, hosts only, Windows Search JSON, Office MRU FILETIME, Zone.Identifier, merging, recency, index hits inside
+  the folder only and never through a link, the order ask-first then index, the walk without an index, mdls only for the
+  newest), `tests/unit/b-onboarding-file-rank.test.ts` (smallModelFor for each engine, the turn on haiku, the grouped
+  answer read against the fixed lists, the company's words), `web/test/unit/work-files.test.ts` (recency, the company in
+  names, Korean, hosts and authors, the score, the list's rule and its 50, what goes to the AI),
+  `web/test/e2e/find-work-files.spec.ts` (the list before the AI, 50 shown and the rest by search, Choose it yourself).
+- Version impact: **minor** (a new API route; what the list shows changes).
+
+## Admin: "AI accounts" is called "Providers" (fix/admin-providers-rename, 2026-11-15, QA TC-192 / tracking TC-742)
+
+- **Reverses** "Plain words for members" (2026-11-11) for the admin page only, decided 2026-11-15 (admin side, the
+  scope recommended in closed draft #693): Admin › AI accounts is called **Providers** (ko **AI 제공사**, id Penyedia
+  AI, ja AIプロバイダー, es Proveedores de IA, zh AI 提供商), as the QA report asked. Korean: "AI 제공사" is the word
+  the Korean strings already use for Anthropic and OpenAI ("AI 제공사(Anthropic·OpenAI)"). Every pointer follows: the
+  sidebar, the page title, the phone's admin list and ‹ label (was "Team AI accounts": the names differ now, so no
+  "Team" is needed), Members' no-AI hints, the welcome line, the file list problem, handover, the server's messages that
+  name the page (`system/messages*.ts`, `chat/i18n.ts`, `credentials/i18n.ts`; the Linux ones still said "AI engines"),
+  the guides and docs/site. The "queue is long" message points to Team settings, where "Answers at the same time" is.
+- Kept: the members' own Settings page (`settings.providers`) is still **AI accounts** (ko AI 계정): members see only
+  their own accounts, not providers. The stored chat-error words in `shared/src/api/errors.ts` keep their old text
+  (they match saved answers).
+- The two server lines shown under an engine on this page itself (`admin/engines.ts` managedNone /
+  managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
+- Version impact: **patch** (wording only; no API or data change).
+
+## Find work files, part 5: wider places, Full Disk Access first on a Mac (feat/find-work-files-wide, 2026-11-15)
+
+Owner, 2026-11-15: "Documents, Desktop and Downloads aren't where real company files are", then "doesn't this mean we
+need Full Disk Access?". Still conservative: recent (≤180 days), work-like, the company's or the AI's pick, at most 50.
+
+- **Places beyond the three folders** (`desktop/src/common/work-places.ts`, a wide look: `scan({ wide: true, words })`):
+  cloud drives' folders (Mac: `~/Library/CloudStorage/{OneDrive-*, GoogleDrive-*, Dropbox*, Box*}` only, never iCloud's
+  app data or another provider; Windows: the OneDrive variables and the home folder's Dropbox, Box, Google Drive), the
+  home folder's top folders named with a work word (six app languages) or the company's or a client's name (the page
+  passes at most 20 names; `scanAsk` keeps letters, digits and a few marks, no separators), messengers' download folders
+  (a data table: KakaoTalk, Telegram, WhatsApp, Teams, Slack, LINE, Zalo; not WeChat, whose folder holds its databases; only folders a person sees, never an
+  app's own data), and the files opened lately anywhere in the home folder (Mac: Spotlight's last-opened across home,
+  the shared file lists `*.sfl2/3/4` parsed from their bookmarks, Office for Mac's securebookmarks lists; Windows: the
+  index's rows, the Recent folder's shortcuts parsed in code (MS-SHLLINK, Electron's reader as a second try) and Office's
+  registry list; other fixed drives join the index's scope, a share or mapped drive is checked one call at a time and the
+  first that hangs ends them). Jump Lists are left out (OLE files, not cheap). Each place is named in the app's own
+  dialog before anything is looked at, and on each row ("OneDrive – Acme › Plans", "KakaoTalk downloads", "Home
+  folder › Notes", "D:"). Order: messengers' and work folders, then the three folders, then the cloud drives (a
+  messenger folder inside Downloads keeps its name; a Documents moved into OneDrive stays "Documents (OneDrive)").
+  Each place's name is unique ("Google Drive (2)"), never one of the three folders' or "Home".
+- **Older pages and apps.** A page that does not ask for the wide look gets the three folders as before (the bridge
+  stays version 1; `workFiles.wide` = 1 tells a page it may ask). An older app ignores the ask.
+- **Mac: Full Disk Access is the primary path.** Without it, the wide scope means 5–8 macOS questions. The page shows
+  one screen (why in one line, a drawn picture of the switch, Open Settings → `Privacy_AllFiles`, Not now, How). The app
+  answers whether it has it by opening and closing the privacy database (`TCC.db`; nothing is read; macOS asks nothing).
+  While Settings is open the screen asks every second and goes on by itself; back in the window without it, it says
+  macOS may need a reopen and offers **Reopen** (`app.relaunch`). **Not now** = the three folders with macOS's question
+  for each, and Choose it yourself, as in part 4. The wide look runs only when the main process itself finds the access
+  (never on the page's word). Windows has no screen: it looks wide at once.
+- **Never looked at, even with Full Disk Access.** `homeExcluded`: Library and AppData (Mail, Messages, Safari, every
+  app's container and group container), Pictures (Photos' library), Music, Movies, the trash, Applications, hidden names,
+  packages; a recent list's entry pointing there is dropped. The only app data read is `APP_DATA_ALLOWED` (the shared
+  file lists, Office's three securebookmarks lists, Windows' Recent shortcuts), checked by `appDataAllowed` before each
+  read; a unit test pins the list and the two readers.
+- **Online-only files are never read by the look.** Mac: `SF_DATALESS` from `stat -f %Xf` (one call per folder in a
+  walk, 200 paths per call for Spotlight's hits: 40 ms for 2,000); an online-only folder is never entered (that would
+  make the provider fetch it); a check that does not answer lists nothing of that folder. Windows: the index's
+  `System.FileAttributes` (RECALL_ON_DATA_ACCESS, RECALL_ON_OPEN, OFFLINE): such a file gets no file system call at all;
+  its read (after Add) takes what it is from an lstat just before the open and the open must be that file
+  (`Found.late`). Its Zone.Identifier is never opened. Every index hit is now checked by its folder's real path plus its
+  own lstat, so no file is opened while looking. Such files are listed "In the cloud" (adding one downloads it then).
+- **Review of part 5 (one MUST-FIX, six SHOULD-FIX, all fixed).** Windows never walks a cloud drive's folder (not
+  even its first entry): without the index's rows it is left out. A Mac checks online-only entries in every root of the
+  wide look (iCloud's Desktop & Documents). One deadline (20 s) covers the whole wide look, the walks included. At most
+  three network shares are tried, none after one that hung (a hung call holds one of libuv's four file threads). The
+  Windows query asks for document extensions only, so a busy drive cannot push the three folders out of its 2,000
+  rows. Reopen works only within 15 minutes of Open Settings while the probe still says no, never during a look.
+  Windows short (8.3) names and names ending in a dot or space are never trusted; a stat that does not answer for a path
+  counts it as online only; an online-only file the index gives no date for is not listed; a late read checks the real
+  path again after the open. Re-review (three SHOULD-FIX, fixed): Windows never walks a Documents or Desktop moved
+  into OneDrive either; a Mac looks at its cloud drives (Spotlight, asked at the start) before walking the three folders,
+  so a big Documents cannot use up their time (Windows keeps the cloud drives last, after the three folders); outside a
+  cloud drive only folders get the online-only check, and a folder without folders asks nothing; the step that asks
+  Spotlight about walked files keeps the look's deadline.
+- **Speed (this Mac, load 19–45).** A made-up home of 9,008 listed documents (3,000 in a cloud drive's folder, 6,000 more
+  in Documents and Downloads, a messenger and two work folders, a recent list): the wide look 1.9–2.0 s warm (the
+  cloud walk with its flag checks 0.7–0.85 s of it), 5.6 s on the first, cold run; after the review (online-only
+  checks in every root) 1.7–2.3 s, one run 7.2 s at load 20; after the re-review 2.7 s at load 30–45, two runs 5.1 and
+  8.4 s while that load spiked. Spotlight for one place with 3,000
+  recent files: `mdfind` 0.65–0.74 s, `mdls` of 400 0.2–0.6 s, flags 40 ms; the places are queried at once while the
+  folders are walked. Home-wide Spotlight (last opened, 180 days) 0.23–0.31 s; the shared file lists (48 here) 0.27 s.
+- **Ranking:** a place's weight: a work folder 1.3, a cloud drive 1.2, home and other drives 1, a messenger 0.8 (as
+  part 4's Documents 1.2, Downloads 0.7); a place's name counts for the company match ("OneDrive – Acme").
+- Not verified on Windows here (parsers unit-tested on made-up bytes). Office for Mac's list format is from forensic
+  write-ups; no Office was installed on the Mac this was built on.

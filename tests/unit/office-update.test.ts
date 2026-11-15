@@ -369,6 +369,41 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(fs.existsSync(path.join(home, 'app.failed'))).toBe(false)
   })
 
+  withZip('QA TC-335: the new version migrated the database past the old one and does not answer: no rollback, started again', async () => {
+    const migrated = (home: string) => {
+      fs.rmSync(path.join(home, 'data', 'app.db'))
+      const db = new Database(path.join(home, 'data', 'app.db'))
+      db.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, min_compatible_reader INTEGER)')
+      db.exec("INSERT INTO schema_migrations VALUES (1, '001_a.sql', 1), (2, '002_b.sql', 2)")
+      db.close()
+    }
+    // the old app reads level 1 (no migrations shipped); the database needs 2
+    for (const [name, startsAgain] of [['run-tc335-ok', true], ['run-tc335-down', false]] as const) {
+      const home = makeHome(name, '0.2.0')
+      migrated(home)
+      const files = new Map<string, Uint8Array | string>()
+      publish(files, '0.3.0', makeZip('0.3.0'))
+      const f = fakeDeps(home, files)
+      f.down.add('0.3.0')
+      const exec = f.deps.exec!
+      f.deps.exec = async (cmd, o) => { if (startsAgain && cmd.some((c) => c.endsWith('office.js'))) f.down.clear(); return exec(cmd, o) }
+      const r = await runUpdate(home, { reason: 'now', deps: f.deps, ...short })
+      expect(f.calls).not.toContain('stop agents') // the rollback never started
+      expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.3.0')
+      if (startsAgain) {
+        expect(r).toMatchObject({ kind: 'updated', version: '0.3.0' })
+        expect(readUpdateState(home).lastUpdate).toMatchObject({ to: '0.3.0', result: 'updated' })
+      } else {
+        expect(r.kind).toBe('failed')
+        expect(r.message).toContain('not rolled back (0.2.0 cannot start on it)')
+        expect(r.message).toContain(`office-install.sh from the ${PRODUCT.officeBundle}-0.3.0 zip or a newer one`)
+        expect(r.message).not.toContain(`${PRODUCT.officeBundle}-0.2.0 zip`)
+        // not marked as a version the nightly run skips: it is the one installed
+        expect(readUpdateState(home).failed).toEqual({})
+      }
+    }
+  })
+
   withZip('an installer that fails before changing anything: the old version is started again, app untouched', async () => {
     const home = makeHome('run-installfail', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
@@ -850,7 +885,7 @@ describe('teamax update status', () => {
 describe('desktop updater configuration', () => {
   test('Windows packaged = electron-updater; Mac = notice; store builds and unpacked = off (tests can force a mode)', () => {
     expect(updateMode('win32', true)).toBe('auto-install')
-    expect(updateMode('darwin', true)).toBe('notice')
+    expect(updateMode('darwin', true)).toBe('notice') // an unsigned dmg; the Developer ID build: g-mac-app.test.ts
     expect(updateMode('linux', true)).toBe('off')
     expect(updateMode('win32', false)).toBe('off')
     expect(updateMode('darwin', false, 'auto-install')).toBe('auto-install')

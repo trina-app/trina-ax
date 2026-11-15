@@ -96,6 +96,7 @@ test('the first-run screen speaks Korean or English; the questions name both tea
   expect(inputError(ko, 'hangul')).toBe('한글로 입력됐어요. 한/영 키를 누르고 다시 입력하거나 초대 링크를 붙여 넣어 주세요.')
   expect(inputError(ko, 'email')).toBe('이메일 주소는 쓰지 않아요. 초대 링크나 팀 주소를 넣어 주세요.')
   expect(inputError(ko, 'unsupported_scheme')).toBe(ko.invalidAddress)
+  expect(inputError(ko, 'short_name')).toBe(ko.shortName)
   for (const v of [ko.switchBody, ko.switchTitle, en.switchBody]) expect(v).not.toMatch(/옮겨|move/i)
 })
 

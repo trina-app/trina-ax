@@ -313,7 +313,9 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const pv = new HeicPreviews(dir, NONE, undefined, f.convert)
     const p = photo('photo bytes')
     const r = pv.jpeg(p)
-    await tick()
+    // the converter starts after the file is hashed and read: on a busy CI runner that takes longer than one tick, so
+    // wait for the call itself (up to 5 s) instead of a fixed pause
+    for (let waited = 0; f.calls.length === 0 && waited < 5000; waited += 20) await tick()
     expect(Buffer.from(f.calls[0]!.bytes).toString()).toBe('photo bytes')
     f.calls[0]!.resolve(JPEG)
     const first = await r

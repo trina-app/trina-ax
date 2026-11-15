@@ -41,7 +41,7 @@ function inTime<T>(p: Promise<T>): Promise<T> {
 /** The computer as the folder rules see it: the home folder, a path with its links resolved, a folder's identity, and
  * (macOS, after a pick) whether the app gets into the folder at all: its first entry is read and nothing else, no file
  * is opened. No time limit there: macOS may be asking the person meanwhile (FolderGrants.problem waits a few seconds). */
-const FOLDER_SYSTEM: FolderSystem = {
+export const FOLDER_SYSTEM: FolderSystem = {
   home: () => app.getPath('home'),
   realpath: (path) => inTime(realpath(path)),
   identity: (path) => inTime(stat(path, { bigint: true })).then((s) => ({ dev: s.dev, ino: s.ino })),

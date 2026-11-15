@@ -108,6 +108,9 @@ Then the page is one status line (Connected / Problem, the workspace, the bot) w
 while it is on: **invite the app** to the channels where people may ask it, `/invite @trina-ax` (Slack does not tell
 the app about mentions in a channel it is not in). A problem names the one place to fix it with its link: the app's own
 settings page in Slack (Socket Mode, OAuth & Permissions, Install App, Basic Information) or *Replace tokens* here.
+With the official app there are no tokens and no Slack settings of its own, so its problems never point there: a
+refused connection, missing permissions or an unknown problem say *Add to Slack* again (the owner or an admin can).
+Slack's rate limit says Slack is busy and tries again by itself, with either app.
 
 Save the tokens from the address people sign in at (the team's public address): the links the app sends in Slack open
 there. The status line shows that address only when it is not the one the page is open at. The server needs to reach

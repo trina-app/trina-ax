@@ -127,13 +127,14 @@ export const FEATURES: Feature[] = [
   { id: 'connectors.google-own-app', name: "The company's own Google app for all Google apps", area: 'Connections', endpoints: ['*GoogleOwnApp*', 'googleOwnApp'] },
   { id: 'connectors.slack', name: 'Slack connector and linking my Slack', area: 'Connections', endpoints: ['*Slack*', 'slack*'], screens: ['/slack/*'] },
   { id: 'connectors.ai-apps', name: 'Outside AI apps (Claude etc.) use this server', area: 'Connections', endpoints: ['*RemoteConnector*'], screens: ['/connectors/authorize', '/settings/ai-apps', '/admin/ai-apps'] },
-  { id: 'providers.mine', name: 'My own AI accounts (Claude, Codex sign-in)', area: 'Connections', endpoints: ['myCredentials', 'createMyCredential', 'deleteMyCredential', '*MyCredentialLogin*', 'sealingKey'], screens: ['/settings/providers'] },
+  { id: 'providers.mine', name: 'My own AI accounts (Claude, Codex sign-in)', area: 'Connections', endpoints: ['myCredentials', 'createMyCredential', 'deleteMyCredential', '*MyCredentialLogin*', 'myCredentialLoginSlot', 'sealingKey'], screens: ['/settings/providers'] },
   { id: 'providers.team', name: 'Team AI accounts and engines', area: 'Connections', endpoints: ['listCredentials', 'createCredential', 'updateCredential', 'replaceCredentialSecret', 'deleteCredential', 'checkCredential', 'startCredentialLogin', 'getCredentialLogin', 'cancelCredentialLogin', 'submitCredentialLoginCode', 'updateCredentialSettings', 'engines', 'getApiEngine', 'putApiEngine', 'updateEngines', 'checkEngine'], screens: ['/admin/providers', '/admin/providers/:id', '/admin/settings/ai'] },
 
   // ---------------- Onboarding ----------------
   { id: 'onboarding.welcome', name: 'Getting started steps (owner)', area: 'Onboarding', endpoints: ['getWelcome', 'updateWelcome', 'setupWelcomeTeam', 'welcomeBrand'], screens: ['/welcome'] },
   { id: 'onboarding.company-profile', name: 'Company profile', area: 'Onboarding', endpoints: ['getCompanyProfile', 'saveCompanyProfile', 'startProfileDraft', 'getProfileDraft'], screens: ['/admin/settings/company'] },
   { id: 'onboarding.team-files', name: 'Team files picked by the AI', area: 'Onboarding', endpoints: ['rankTeamFiles', 'teamFilesLanded'] },
+  { id: 'onboarding.find-work-files', name: 'Find work files on this computer (desktop app), the AI\'s picks for my own folder', area: 'Onboarding', endpoints: ['rankOwnFiles', 'companyWords'] },
   { id: 'onboarding.organize-files', name: 'Folder plan for the files uploaded at setup', area: 'Onboarding', endpoints: ['startOrganize', 'organizeStatus', 'applyOrganize'] },
   { id: 'onboarding.goal', name: '7-day team goal', area: 'Onboarding', endpoints: ['getTeamGoal'] },
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },

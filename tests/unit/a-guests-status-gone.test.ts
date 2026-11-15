@@ -86,3 +86,17 @@ test('no status: switching an account off tells nobody', async () => {
   expect((await owner.try('PATCH', `/api/admin/users/${gus.id}`, { status: 'disabled' })).status).toBe(200)
   expect(told).toEqual([])
 })
+
+test('a removed guest signing in fresh with the right password hears the truth, not "wrong password" (QA TC-2582)', async () => {
+  const { owner, gus } = await setup('a-guests-status-gone-signin')
+  expect((await owner.try('PATCH', `/api/admin/users/${gus.id}`, { status: 'disabled' })).status).toBe(200)
+  const r = await h.client().try('POST', '/api/auth/login', { username: 'gus', password: gus.password })
+  expect(r.status).toBe(401)
+  expect(r.body.error).toMatchObject({ code: 'unauthorized', message: '이 계정은 꺼져 있어요. 초대한 사람에게 물어봐 주세요.', params: { reason: 'account_off' } })
+  expect(r.headers.get('set-cookie')).toBeNull()
+  // a wrong password: the usual words, nothing about the account
+  const w = await h.client().try('POST', '/api/auth/login', { username: 'gus', password: 'not gus password 1' })
+  expect(w.status).toBe(401)
+  expect(w.body.error.message).toContain('아이디 또는 비밀번호')
+  expect(w.body.error.params).toBeUndefined()
+})

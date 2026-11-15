@@ -2,7 +2,8 @@
 // nothing is ready to install before the signed release names the download; a contradicted download is deleted,
 // announced once and not downloaded again; an unreadable manifest keeps the download; no new download while one is
 // being checked; a file replaced after its check is never installed (restart or quit). The pure check is in
-// office-update-desktop.test.ts.
+// office-update-desktop.test.ts. The Mac updater (Squirrel.Mac): the checked zip is handed to Squirrel only after the
+// signed release names it, and a Squirrel error leaves nothing ready.
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { EventEmitter } from 'node:events'
@@ -67,6 +68,13 @@ class FakeUpdater extends EventEmitter {
   install() { this.installs.push(`quit ${this.installerPath}`); return true }
 }
 const fake = new FakeUpdater()
+/** Electron's autoUpdater (Squirrel.Mac): checkForUpdates stages what electron-updater's proxy serves */
+class FakeNative extends EventEmitter {
+  checks = 0
+  fail: string | null = null
+  checkForUpdates() { this.checks++; setTimeout(() => (this.fail ? this.emit('error', new Error(this.fail)) : this.emit('update-downloaded')), 1) }
+}
+const native = new FakeNative()
 const ses = {
   cookies: { get: async () => [{ name: 'mycel_session', value: 'a'.repeat(32) }] },
   fetch: async (url: string) => {
@@ -79,6 +87,7 @@ mock.module('electron', () => ({
   app: { isPackaged: true, getVersion: () => '0.2.5', getPath: () => DIR, once: (ev: string, h: (e: unknown, code: number) => void) => { if (ev === 'quit') quitHandlers.push(h) } },
   dialog: { showMessageBox: async (o: { message: string }) => { dialogs.push(o.message); return { response: 1 } } },
   session: { fromPartition: () => ses, defaultSession: ses },
+  autoUpdater: native,
 }))
 mock.module('electron-updater', () => ({ autoUpdater: fake }))
 const { DesktopUpdater } = await import('../../desktop/src/main/updater')
@@ -86,8 +95,8 @@ const { SESSION_COOKIE } = await import('@mycel/shared/api')
 ses.cookies.get = async () => [{ name: SESSION_COOKIE, value: 'a'.repeat(32) }]
 
 let changed = 0
-function updater() {
-  const u = new DesktopUpdater({ team: () => ({ id: 't1', origin: TEAM }), window: () => null, locale: () => 'en', openApps: () => {}, changed: () => { changed++ } }, { keys: KEYS, product: OFFICE_PRODUCT })
+function updater(platform: NodeJS.Platform = 'win32') {
+  const u = new DesktopUpdater({ team: () => ({ id: 't1', origin: TEAM }), window: () => null, locale: () => 'en', openApps: () => {}, changed: () => { changed++ } }, { keys: KEYS, product: OFFICE_PRODUCT, platform })
   ;(u as unknown as { mode: string }).mode = 'auto-install'
   return u
 }
@@ -100,6 +109,8 @@ beforeEach(() => {
   dialogs.length = 0
   changed = 0
   fake.removeAllListeners()
+  native.removeAllListeners()
+  Object.assign(native, { checks: 0, fail: null })
   Object.assign(fake, { installerPath: null, available: { version: '0.3.0' }, next: null, downloads: 0, installs: [] })
 })
 afterAll(() => { mock.restore() })
@@ -197,5 +208,65 @@ describe('the Windows updater installs only a download the signed release names'
       await settle()
       expect(u.ready).toBe('0.3.0')
     } finally { ses.fetch = realFetch }
+  })
+})
+
+function signedMac(zip: Uint8Array, version = '0.3.0'): string {
+  const f = (file: string, sha256: string, size: number) => ({ file, url: fileUrl('https://f.example.test', version, file), sha256, size })
+  const r: OfficeRelease = {
+    format: 1, product: OFFICE_PRODUCT, channel: 'stable', version, minFrom: '0.2.0-0', publishedAt: new Date().toISOString(), notes: '',
+    office: [{ arch: 'universal', ...f('x.zip', sha('z'), 1) }], windows: null,
+    mac: { version, dmg: f(`Trina-AX-${version}-mac-universal.dmg`, sha('d'), 1), zip: f(`Trina-AX-${version}-mac-universal.zip`, sha(zip), zip.byteLength), latestYml: f('latest-mac.yml', sha('y'), 1) },
+  }
+  return signRelease(r, pem)
+}
+
+describe('the Mac updater hands Squirrel.Mac only a zip the signed release names', () => {
+  test('a matching zip: Squirrel stages it, then ready; restart goes through electron-updater; no quit handler', async () => {
+    const zip = crypto.randomBytes(3000)
+    served.set(`${TEAM}/downloads/stable.json`, signedMac(zip))
+    fake.next = { file: path.join(DIR, 'good.zip'), bytes: zip }
+    const u = updater('darwin')
+    await u.check()
+    await settle()
+    expect(native.checks).toBe(1)
+    expect(u.ready).toBe('0.3.0')
+    expect(quitHandlers).toEqual([])
+    u.restartNow()
+    expect(fake.installs.length).toBe(1)
+  })
+
+  test('a zip the signed release does not name (or a Windows-only release): never given to Squirrel', async () => {
+    served.set(`${TEAM}/downloads/stable.json`, signedMac(crypto.randomBytes(3000)))
+    fake.next = { file: path.join(DIR, 'evil.zip'), bytes: crypto.randomBytes(3000) }
+    const u = updater('darwin')
+    await u.check()
+    await settle()
+    expect(native.checks).toBe(0)
+    expect(u.ready).toBeNull()
+    expect(fs.existsSync(path.join(DIR, 'evil.zip'))).toBe(false)
+    const zip = crypto.randomBytes(3000)
+    served.set(`${TEAM}/downloads/stable.json`, signed(zip))
+    fake.next = { file: path.join(DIR, 'win.zip'), bytes: zip }
+    const v = updater('darwin')
+    await v.check()
+    await settle()
+    expect(native.checks).toBe(0)
+    expect(v.ready).toBeNull()
+  })
+
+  test('Squirrel refuses (an app run from the dmg): nothing ready, not downloaded again in this run', async () => {
+    const zip = crypto.randomBytes(3000)
+    served.set(`${TEAM}/downloads/stable.json`, signedMac(zip))
+    fake.next = { file: path.join(DIR, 'ro.zip'), bytes: zip }
+    native.fail = 'Cannot update while running on a read-only volume'
+    const u = updater('darwin')
+    await u.check()
+    await settle()
+    expect(native.checks).toBe(1)
+    expect(u.ready).toBeNull()
+    await u.check()
+    await settle()
+    expect(fake.downloads).toBe(1)
   })
 })

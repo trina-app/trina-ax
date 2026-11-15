@@ -9,8 +9,9 @@ Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on 
 ## Historical validation notes (2026-10-21)
 
 The table below records the original Mac validation session, not current release availability. Published kits and
-installers are listed in [GitHub Releases](https://github.com/trina-app/trina-ax/releases); the Mac desktop DMG is
-still pending Apple signing and notarization. Later feature and test records are in [DECISIONS.md](DECISIONS.md).
+installers are listed in [GitHub Releases](https://github.com/trina-app/trina-ax/releases). Since 0.5.5 the Mac desktop
+DMG is signed with a Developer ID certificate and notarized by Apple, so it opens without a warning and updates itself
+from the team server. Later feature and test records are in [DECISIONS.md](DECISIONS.md).
 
 | | Status |
 |---|---|
@@ -19,7 +20,7 @@ still pending Apple signing and notarization. Later feature and test records are
 | Production install (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf, Claude chats on the owner's `claude setup-token` token | **Not verified on a real install.** Done in code and tests (as the current user), but never run as the real role accounts and no Anthropic answer through the proxy has been seen; run the role-account test first (2.0) |
 | Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, an open owner task) |
 | Public team address `<team>.trina.app` | Not available: the production relay is not running |
-| Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
+| Signed and notarized apps (Mac, menubar, Windows) | Mac desktop app: signed and notarized since 0.5.5 (no warning on first launch). The menubar app and the Windows app are still unsigned, so the OS warns on first launch. The release workflow can sign the Windows installer with Microsoft Artifact Signing; it turns on once the company's identity validation is finished ([RELEASE-CI.md](RELEASE-CI.md) 11) |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |
 | Phones | Production office address only; not tested |
@@ -83,7 +84,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 Check: `bun --version` prints `1.3.12`, `node --version` prints v24 or later, `claude --version` prints
 `2.1.305 (Claude Code)`.
 
-Claude Code updates itself. Once it has moved past the pin, Admin → AI accounts shows "Unsupported version"
+Claude Code updates itself. Once it has moved past the pin, Admin → Providers shows "Unsupported version"
 (`version_unsupported`); dev chats still work. Reinstall the pin with `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.305`
 before a production install, because the installer copies whatever version it is given and does not warn.
 
@@ -153,7 +154,7 @@ them is `teamax-demo-1`; sign in at `http://localhost:19100`. Running it again o
 with a different owner.
 
 **Check.** The home screen shows the yellow "Development mode: no OS isolation…" banner and a **Before you start**
-list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → Connections → AI accounts**,
+list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → Providers**,
 Claude Code shows "Connected" with the owner's subscription login. Send "hello" in a new chat.
 
 **Language.**
@@ -208,7 +209,7 @@ The owner's steps, in order:
 | 2.2 Bundle | `bun run build:bundle` | `dist/release/root/` has `set-claude-token` and `mycel-account` |
 | 2.3 Check, then install | `scripts/install-macos.sh --check …`, then the same with `sudo` and without `--check` | `install: installed mycel 0.1.0 …`; `curl -s http://127.0.0.1:47820/api/health` |
 | 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
-| 2.3a AI connections | Admin → AI accounts (`/admin/providers`) in the browser, Add account in the engine's row | the connection shows "OK" |
+| 2.3a AI connections | Admin → Providers (`/admin/providers`) in the browser, Add account in the engine's row | the connection shows "OK" |
 | 2.4 Claude token (optional; 2.3a is the usual way) | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
 | 2.5 Codex login (older setup; 2.3a is the usual way) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
 | 2.7 Verify | Admin → System → Diagnostics, then a chat | Claude Code "Signed in (setup-token)", model proxy "Listening on 127.0.0.1:47821", Claude answers |
@@ -376,7 +377,7 @@ settings, so a `bunfig.toml` or `.env` in the folder it was started from is neve
 
 ### 2.3a AI connections (owner, from the web)
 
-The engines answer with the team's **AI connections**: Admin > AI accounts (`/admin/providers`). The owner adds
+The engines answer with the team's **AI connections**: Admin > Providers (`/admin/providers`). The owner adds
 them in the browser; nothing on the server's command line is needed.
 
 - **Claude API key** / **OpenAI API key** (pay as you go, made for team use): paste a key made for this team in the
@@ -428,7 +429,7 @@ otherwise be stored half, reported as stored for a year, and refused on the firs
 - No restart: legacy connection import checks the file periodically (up to five minutes); it does not reread it for every model request.
 - Diagnostics then show Claude Code as "Signed in (setup-token)". They also say when the token is older than a year
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
-- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI accounts.
+- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → Providers.
 
 ### 2.5 Codex login for the engine account (older setup)
 
@@ -504,8 +505,8 @@ owner's other sessions are signed out. The tool runs the bundled account CLI as 
 
 | Where | What it shows |
 |---|---|
-| Admin → AI accounts | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > AI accounts." until one is added (2.3a) or imported (2.4, 2.5). |
-| Admin → AI accounts, under each engine | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
+| Admin → Providers | Claude Code and Codex: "AI connections" with how many can be used now; "This engine has no AI account yet. Add one with 'Add account' below." until one is added (2.3a) or imported (2.4, 2.5). |
+| Admin → Providers, under each engine | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | Without an AI connection for that engine: "There is no AI connection for this engine. Let your admin know." With one: the engine answers. |
 
@@ -643,10 +644,12 @@ connection" with the count. A server with no team address (office network only) 
 cd desktop && bun run dist:win
 ```
 
-This writes `desktop/release/Trina-AX-Setup-<version>-win-x64.exe`; it builds on a Mac. It is unsigned, so SmartScreen
-warns: click **More info → Run anyway**. A Windows 11 PC with Smart App Control on blocks it with no such button
-(tested 2026-11-15 on Windows 11 build 26200): use the browser there, or the Microsoft Store build when it exists. The same
-address rules apply.
+This writes `desktop/release/Trina-AX-Setup-<version>-win-x64.exe`; it builds on a Mac. A local build is unsigned, so
+SmartScreen warns: click **More info → Run anyway**. A Windows 11 PC with Smart App Control on blocks an unsigned
+installer with no such button (tested 2026-11-15 on Windows 11 build 26200): use the browser there until the installer
+is signed. The same address rules apply. Release installers are signed in CI with Microsoft Artifact Signing once it is
+set up ([RELEASE-CI.md](RELEASE-CI.md) 11): Windows then shows the company as the publisher, and SmartScreen stops
+warning once the release has enough downloads.
 
 **Offer the apps in the product.** Put the installers and an `index.json` in `<data>/downloads/`. Members then see
 them under **Settings → Apps → Desktop app** (signed-in people only: `/downloads/*` needs a session, with Range for
@@ -803,9 +806,9 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | `cannot start: socket path too long` (dev) or Diagnostics "AI engine socket paths" fails | The data folder path is too long; use the default `~/.team-ax-dev` |
 | "The AI engine is not available right now…" | Dev: no `native/bin/<platform>`; install Go and run `bun run build:native` (Intel: `ARCHS=amd64`). Production: Diagnostics shows why (launcher, engine file); an engine "Not installed" needs the installer again with `--engine claude=…` |
 | "The AI connection (model proxy) is not ready" | Production: see "Model proxy" in Diagnostics; the server retries binding every 10 s |
-| Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → AI accounts |
+| Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → Providers |
 | "relay skipped: it needs Node 24+" | Install Node 24+ (26 recommended); the direct address still works |
-| Admin → AI accounts: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
+| Admin → Providers: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
 | An `admin.js` command ends with `error: An unknown error occurred (Unexpected)` | It was started from a folder `_axserver` cannot enter; start it with `cd / &&` (2.5) |
 | Diagnostics say to run "Repair firewall" / "Reinstall" in the menubar app | Those menubar actions do not exist yet; run the installer again (2.7) |
 | Port in use | `lsof -nP -iTCP:<port> -sTCP:LISTEN`. Dev: 19100, 19161, 19140 (with `--vite`). Production: 47820, 8443, 47821 |

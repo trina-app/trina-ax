@@ -2204,7 +2204,8 @@ export class TeamFiles {
     let finalName = name.normalize('NFC')
     if (onExists === 'rename' && o.keepSame) {
       const same = await this.sameFileAt(user, rules, fr.segs, finalName, fs.statSync(src).size, sha)
-      if (same) return same
+      // said in the answer: the upload made nothing new (Find work files' Undo leaves such a file alone)
+      if (same) return { ...same, kept: true }
     }
     if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
