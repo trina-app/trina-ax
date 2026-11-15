@@ -4978,6 +4978,7 @@ export const id: Record<MessageKey, string> = {
   "files.findWork.add": "Tambahkan {n} file",
   "files.findWork.addNone": "Tambahkan file",
   "files.findWork.entry": "Cari file kerja di komputer ini",
+  "files.findWork.entryButton": "Cari file kerja",
   "files.findWork.dialogTitle": "Cari file kerja di komputer ini",
   "files.findWork.myPlace": "File saya › Dari komputer ini",
   "files.findWork.added": "{n} file ditambahkan ke {place}",

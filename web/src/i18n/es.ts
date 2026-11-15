@@ -4934,6 +4934,7 @@ export const es: Record<MessageKey, string> = {
   "files.findWork.add": "Añadir {n, plural, one {# archivo} other {# archivos}}",
   "files.findWork.addNone": "Añadir archivos",
   "files.findWork.entry": "Buscar archivos de trabajo en este equipo",
+  "files.findWork.entryButton": "Buscar archivos de trabajo",
   "files.findWork.dialogTitle": "Buscar archivos de trabajo en este equipo",
   "files.findWork.myPlace": "Mis archivos › De este equipo",
   "files.findWork.added": "Se añadieron {n, plural, one {# archivo} other {# archivos}} a {place}",
