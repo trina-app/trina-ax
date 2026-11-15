@@ -13,7 +13,7 @@
 // contract. The person edits it and saves it with PUT: the AI never writes the profile.
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
-import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_DRAFT_STEPS_MAX, PROFILE_LIMITS, type CompanyProfileInput, type Locale, type ProfileDraftPage, type ProfileDraftPageReason, type ProfileDraftStarted, type ProfileDraftState, type StartProfileDraft } from '@mycel/shared/api'
+import { normalizeWebsite, profileLineFrom, PROFILE_DRAFT_PAGES_MAX, PROFILE_DRAFT_STEPS_MAX, PROFILE_LIMITS, type CompanyProfileInput, type Locale, type ProfileDraftPage, type ProfileDraftPageReason, type ProfileDraftStarted, type ProfileDraftState, type StartProfileDraft } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Logger } from '../log'
 import type { AuthInfo } from '../services'
@@ -274,7 +274,7 @@ export function draftSystemPrompt(s: DraftScope, o: { locale: Locale; history?: 
     s.source === 'website'
       ? `- name: the company's name as the site writes it, from the page title or the site's name (at most ${PROFILE_LIMITS.name} characters), without a tagline or the page's own title. Empty when the pages do not show one.`
       : `- name: the company's name as the text writes it (at most ${PROFILE_LIMITS.name} characters). Empty when the text does not say.`,
-    `- oneLine: what the company does, in one sentence (at most ${PROFILE_LIMITS.oneLine} characters).`,
+    `- oneLine: what the company does, in one sentence (at most ${PROFILE_LIMITS.oneLine} characters). Always fill it when you filled products or audience: when the ${s.source === 'website' ? 'pages do' : 'text does'} not say it in one sentence, write one plain sentence from what ${s.source === 'website' ? 'they say' : 'it says'} about its products or services and its customers, adding nothing ${s.source === 'website' ? 'they do' : 'it does'} not say (its source is the excerpt of those products or customers). The team's invitations introduce the team with this line.`,
     `- products: its products or services (at most ${PROFILE_LIMITS.products} characters).`,
     `- audience: who its customers are (at most ${PROFILE_LIMITS.audience} characters).`,
     `- tone: how the company itself writes, as up to ${PROFILE_LIMITS.toneCount} short words (each at most ${PROFILE_LIMITS.toneItem} characters), judged only from the pages' own wording.`,
@@ -308,7 +308,19 @@ export function parseDraftAnswer(text: string, s: DraftScope): CompanyProfileInp
   // colours are the server's (what it found on the pages, GET's `assets`), never the AI's
   const p = cleanProfile(raw && typeof raw === 'object' ? { ...(raw as object), website: s.website, colors: undefined } : raw, sourceOk)
   if (!p) return null
-  return profileEmpty({ ...p, website: '' }) ? null : p
+  return profileEmpty({ ...p, website: '' }) ? null : withOneLine(p)
+}
+
+/** The one-line intro is never left empty when the draft says what the company sells (the team's invitations introduce
+ * the team with it, and the review's field would read "not found"): an answer that left it out, against the
+ * instructions, gets the first line of its products, with the products' excerpt as its source. */
+export function withOneLine(p: CompanyProfileInput): CompanyProfileInput {
+  if (p.oneLine.trim()) return p
+  const oneLine = profileLineFrom(p.products)
+  if (!oneLine) return p
+  const from = p.sources.find((x) => x.field === 'products')
+  const rest = p.sources.filter((x) => x.field !== 'oneLine')
+  return { ...p, oneLine, sources: from && rest.length < PROFILE_LIMITS.sources ? [...rest, { ...from, field: 'oneLine' }] : rest }
 }
 
 const TEXT: Record<'askWebsite' | 'askText' | 'title' | 'badWebsite' | 'oneOf' | 'noAttachments', Record<Locale, string>> = {

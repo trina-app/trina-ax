@@ -28599,3 +28599,28 @@ W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is
   `audit_log` `group.create` rows, and `ls -la` of shared/.
 - Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind", "shared/ missing"), web/test/unit/team-files.test.ts,
   web/test/e2e/welcome-team-files.spec.ts, welcome-organize.spec.ts.
+
+## W6 follow-up: the one-line intro is always filled, and a reload keeps the review (fix/onboarding-profile-oneline, 2026-11-15)
+
+- **Problem.** The invite message introduces the team with the profile's `oneLine` ("About us: …"), but the three
+  questions path left it empty (it asks what you sell, to whom, the tone), and a reading of a website or text left it
+  empty whenever the pages did not say it in one sentence. A reload during the review lost the AI draft (about a minute
+  of work) and started again at the website question.
+- **Decision.**
+  - The draft's instructions (`server/src/onboarding/draft.ts draftSystemPrompt`) ask for `oneLine` whenever products
+    or customers are filled, written from them and adding nothing; an answer that still leaves it out gets the first
+    line of its products, with the products' excerpt as its source (`withOneLine`, in `parseDraftAnswer`).
+  - The three answers go to the same text draft while an AI answers the person (the reading screen of a pasted text);
+    the review keeps the answers as typed and takes the AI's name and one-line intro. With no AI, or when that draft
+    fails, the answers go straight to the review as before, the intro from the first line of the products answer
+    (`profileLineFrom` in shared/src/api/onboarding.ts, the same rule the server uses). This replaces "the three
+    questions go straight to the review" for the AI case only. Only the name and the intro come from the AI (the
+    rest, sources included, stays the typed draft). While it writes, the screen says "Writing a one-line intro from
+    your answers" with "Skip, check my answers" (the review at once), and after 20 s it opens the review anyway.
+  - The welcome steps keep the reading under way and the review with its edits in this tab's `sessionStorage`
+    (`ProfileStep` `keep`, key `mycel.profileDraft.<user id>`); a save or going back to the website question clears
+    it. A kept reading whose chat is gone (404) stops at once and opens the fallback (or the answers' review), so a
+    reload never loops; sign-out clears the key (`lib/localData.ts clearLocalData`, sessionStorage). Not the server
+    progress (no API change), not in Admin › Team settings. No schema change.
+- Tests: tests/unit/b-onboarding-draft.test.ts ("always filled"), web/test/unit/profile-step.test.tsx (typed answers
+  with and without AI, keep), web/test/unit/welcome.test.tsx (the reading comes back in the same tab).

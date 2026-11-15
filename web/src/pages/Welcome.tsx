@@ -532,7 +532,7 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
   if (!saved)
     return (
       <div data-testid="welcome-profile">
-        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave onRead={keepSite}
+        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave keep onRead={keepSite}
           continueWith={{ label: t('welcome.profile.save'), note: brandLine, extra: <IntroFiles files={files} disabled={stepBusy} />, disabled: stepBusy || files.uploading, onSaved: async () => onContinue(!(await brand())) }} />
       </div>
     )

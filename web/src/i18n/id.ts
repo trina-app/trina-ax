@@ -3746,6 +3746,8 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.activity.skipped": "Tidak dibaca · {page} ({why})",
   "onboarding.profile.activity.writing": "Menyusun profil perusahaan",
   "onboarding.profile.activity.text": "Merapikan teks yang ditempel",
+  "onboarding.profile.activity.answers": "Menulis perkenalan satu kalimat dari jawaban Anda",
+  "onboarding.profile.skipToReview": "Lewati, periksa jawaban saya",
   "onboarding.profile.activity.why.off_site": "di luar situs ini, dilewati",
   "onboarding.profile.activity.why.limit": "hanya {max} halaman, dilewati",
   "onboarding.profile.activity.why.not_linked": "tidak ditautkan dari halaman, dilewati",
