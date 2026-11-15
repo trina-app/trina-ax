@@ -1,0 +1,22 @@
+{
+  "lang": "es",
+  "brand": "Steepling",
+  "pouchKind": "Té cold brew",
+  "pouchName": "Yuzu y Jengibre",
+  "pouchCount": "10 bolsitas de té",
+  "leoFont": "Arial, Helvetica, sans-serif",
+  "leo1": "Steepling: Nuevo Producto de Invierno",
+  "leo2": "Ya Disponible Nuestra Mezcla Cold Brew Yuzu y Jengibre",
+  "leo3": "¡¡EVENTO DE LANZAMIENTO: 20% DE DESCUENTO YA!!",
+  "leo4": "Periodo: 23/11 ~ 6/12",
+  "leo5": "¡Cómpralo hoy mismo~",
+  "leoLogo": "steepling tea",
+  "eyebrow": "Novedad · Solo en invierno",
+  "headline": "Un poco de sol<br>para <em>mañanas grises.</em>",
+  "productLine": "Yuzu luminoso y un toque cálido<br>de jengibre, en cold brew.",
+  "badge": "20% de descuento",
+  "badgeDates": "23 nov – 6 dic",
+  "cta": "Comprar ahora →",
+  "fontLink": "",
+  "localeCss": ".banner h1 { font-size: 62px; } .square .copy { width: 660px; } .square h1 { font-size: 76px; } .story h1 { font-size: 106px; }"
+}

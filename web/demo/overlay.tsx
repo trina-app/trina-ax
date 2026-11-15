@@ -6,6 +6,7 @@
 // Styles are in demo.css (not Tailwind: the product's stylesheet must not change for the demo).
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
+import { LOCALE_NAMES, type Locale } from '@mycel/shared/api'
 import { Button, Modal } from '../src/components/ui'
 import { useLocale, useT } from '../src/i18n'
 import type { DemoAnswer, DemoGo } from './script'
@@ -14,9 +15,10 @@ import { appPath, appPathNow, BASE } from './base'
 import { demoWord } from './words'
 import './demo.css'
 
-/** the demos of every language on the site (web/demo/vite.ts demoLangs), named in their own language */
+/** the demos of every language on the site (web/demo/vite.ts demoLangs), named in their own language as the app's
+ * language pickers name them */
 const LANGS = __DEMO_LANGS__
-const LANG_NAMES: Record<string, string> = { en: 'English', ko: '한국어', ja: '日本語', es: 'Español', id: 'Bahasa Indonesia' }
+const langName = (l: string) => LOCALE_NAMES[l as Locale] ?? l
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -414,16 +416,19 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           )}
           <button type="button" className="demo-restart" onClick={() => location.assign(BASE)} data-testid="demo-restart">{demoWord('restart', locale)}</button>
           {LANGS.length > 1 && (
-            // the other languages' demos (each its own build on the site): a plain link, a new story
-            <span className="demo-langs" data-testid="demo-langs">
-              {LANGS.map((l, i) => (
-                <span key={l.locale}>
-                  {i > 0 && <span aria-hidden> / </span>}
-                  {l.locale === server.script.locale
-                    ? <span aria-current="true">{LANG_NAMES[l.locale] ?? l.locale}</span>
-                    : <a href={l.base} hrefLang={l.locale} lang={l.locale} data-testid={`demo-lang-${l.locale}`}>{LANG_NAMES[l.locale] ?? l.locale}</a>}
-                </span>
-              ))}
+            // the other languages' demos (each its own build on the site), as the app's own language switcher (a native
+            // select, pages/Auth.tsx) laid over this language's name, so it takes no more room than the name: picking
+            // one opens that demo, a new story
+            <span className="demo-langs">
+              <span aria-hidden>{langName(server.script.locale)} ▾</span>
+              <select
+                value={server.script.locale}
+                aria-label={t('settings.language')}
+                data-testid="demo-langs"
+                onChange={(ev) => { const l = LANGS.find((x) => x.locale === ev.target.value); if (l) location.assign(l.base) }}
+              >
+                {LANGS.map((l) => <option key={l.locale} value={l.locale} lang={l.locale}>{langName(l.locale)}</option>)}
+              </select>
             </span>
           )}
         </div>

@@ -1,0 +1,22 @@
+{
+  "lang": "ja",
+  "brand": "Steepling",
+  "pouchKind": "Cold brew tea",
+  "pouchName": "ゆずジンジャー",
+  "pouchCount": "ティーバッグ10袋入り",
+  "leoFont": "'Noto Sans JP', sans-serif",
+  "leo1": "スティープリング 冬の新商品のお知らせ",
+  "leo2": "ゆずジンジャー水出しティーブレンドが新発売です",
+  "leo3": "発売記念 20%OFFキャンペーン実施中!!",
+  "leo4": "期間：11/23 ～ 12/6",
+  "leo5": "今すぐお買い求めください～",
+  "leoLogo": "steepling tea",
+  "eyebrow": "NEW · 冬季限定",
+  "headline": "くもりの朝に、<br><em>ひとくちの陽ざし。</em>",
+  "productLine": "ゆずジンジャーの水出しティー。<br>爽やかなゆずに、しょうがのぬくもり。",
+  "badge": "20%オフ",
+  "badgeDates": "11/23 – 12/6",
+  "cta": "ゆずジンジャーを見る →",
+  "fontLink": "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Serif+JP:wght@500;600;700&display=block\"><style>.pouch .label { font-family: 'Noto Sans JP', sans-serif; }</style>",
+  "localeCss": "body { font-family: 'Noto Sans JP', sans-serif; word-break: keep-all; line-break: strict; } h1 { font-family: 'Noto Serif JP', serif; font-weight: 600; font-feature-settings: 'palt'; letter-spacing: .01em; line-height: 1.24; font-variation-settings: normal; } h1 em { font-style: normal; font-weight: 600; color: #1F4D3A; } .eyebrow { letter-spacing: .14em; } .product { font-feature-settings: 'palt'; letter-spacing: .03em; line-height: 1.6; } .label .lb-name { font-family: 'Noto Serif JP', serif; font-weight: 600; font-feature-settings: 'palt'; } .banner h1 { font-size: 54px; } .square h1 { font-size: 70px; } .story h1 { font-size: 92px; } .story .copy { top: 350px; } .story .product { margin-top: 20px; font-size: 28px; line-height: 1.55; } .offer, .cta { font-feature-settings: 'palt'; letter-spacing: .03em; }"
+}
