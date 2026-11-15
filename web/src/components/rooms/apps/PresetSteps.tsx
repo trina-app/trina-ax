@@ -34,7 +34,7 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
     </>
     case 'jotform': return <>
       <Step n={1}><p>{t('roomApps.jotform1', { path: v('jotformPath'), hooks: v('jotformHooks') })}</p></Step>
-      <Step n={2}><p>{t('roomApps.jotform2', { complete: v('jotformComplete'), finish: v('jotformFinish') })}</p>{answers}</Step>
+      <Step n={2}><p>{t('roomApps.jotform2', { complete: v('jotformComplete'), add: v('jotformAddHook'), finish: v('jotformFinish') })}</p>{answers}</Step>
     </>
     case 'stripe': {
       // the events of the switches that are on: what Trina would show anyway
