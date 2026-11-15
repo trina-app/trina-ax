@@ -4939,7 +4939,6 @@ export const es: Record<MessageKey, string> = {
   "welcome.tools.driveUnavailable": "Ahora no se puede conectar Google · Hágalo más tarde en {where}",
   "welcome.tools.driveNotConnected": "No se conectó · Una cuenta de Google de empresa se conecta solo cuando su administrador de Google lo permite",
   "welcome.tools.mcp": "Conectar otra herramienta",
-  "welcome.tools.mcpCheck": "Conectado · {name} · Hay que revisarlo",
   "welcome.tools.signingIn": "{name} · Iniciando sesión…",
   "welcome.tools.signInFailed": "{name} · No se pudo iniciar sesión",
   "welcome.done.make": "Crear '{skill}'",

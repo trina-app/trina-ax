@@ -4915,7 +4915,6 @@ export const zh: Record<MessageKey, string> = {
   "welcome.tools.driveUnavailable": "暂时无法连接 Google · 请稍后在{where}中操作",
   "welcome.tools.driveNotConnected": "未连接 · 公司 Google 账号需经其 Google 管理员允许后才能连接",
   "welcome.tools.mcp": "连接其他工具",
-  "welcome.tools.mcpCheck": "已连接 · {name} · 需要检查",
   "welcome.tools.signingIn": "{name} · 正在登录…",
   "welcome.tools.signInFailed": "{name} · 无法登录",
   "welcome.done.make": "制作一份“{skill}”",

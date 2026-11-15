@@ -23751,6 +23751,9 @@ compared after lower-casing) and closes open point (2) of "Projects made on 0.4.
     sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
   - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
     the only one.
+- **Amended 2026-11-15** ("Onboarding's Tools step: Drive, Notion and the full list" below): no Drive row while Drive
+  is not ready (reverses TC-145), Notion is the only listed service, and "다른 도구 연결하기" opens Settings › Connectors
+  instead of the address form.
 
 ## The Linux launcher tests the live engine firewall before every turn (fix/firewall-live-check, 2026-11-12, QA TC-310)
 
@@ -28460,11 +28463,33 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
 - **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
   Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting
   support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+  Its Discover card says "Not set up yet" for an owner or admin too, never **Set up** (`DiscoverItem.noSetUp`).
 - **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
   up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
-  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup). The step's other rows are unchanged here;
-  cutting them waits for the owner (onboarding plan, lane B).
+  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup; that ID is the one the entry names, today's
+  sheet keeps the rule in TC-136's notes). The rest of the step: the next entry.
 - **Slack's official app is not defaulted here.** Its hosted one-click path (sign-in + reading in one consent,
   owner 11-13) is not verified end to end on a hosted team yet, so a hosted server still uses it only with
   `MYCEL_SLACK_BROKER_URL` (or the Drive variable) set, as before. Defaulting it is a separate change after that check.
 - Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts.
+
+## Onboarding's Tools step: Drive, Notion and the full list (fix/hosted-drive-broker-default, 2026-11-15, the owner, Q3)
+
+- **Owner, 2026-11-15 (Q3 of the onboarding re-check):** the step is Google Drive (when ready) + Notion + "Connect
+  another tool", which opens Connectors' full list with a way back. On 11-08 the owner chose Drive + one "connect
+  another" line (W6 core); QA TC-136 (11-12) grew it to seven rows. This **amends "Onboarding's Tools step on
+  Connectors' cards"** again.
+- **Rows.** Google Drive only where this server has it (hosted: once the hosting service said yes; self-installed: a
+  Google client), never a "not set up" or "contact hosting support" row (that line is on Connectors only). Notion, the
+  same one-click card as before (`WELCOME_SERVICES`). Then the quiet "Connect another tool" line. **Removed:** the
+  Linear, Atlassian, Canva and Figma cards, the not-ready Drive card, and the address form opened in place (an MCP
+  address is not a thing an office worker has; Connectors' Discover list has every listed service, and "Add custom
+  connector" for an owner).
+- **The way back.** "Connect another tool" opens `/settings/connectors`. Settings is a dialog over the page it was
+  opened from (App.tsx `useSettingsOverlay`), so the step stays mounted under it, and the dialog's close, Esc and the
+  browser's Back all come back to the step as it was; no extra "Back to getting started" control is needed there (it
+  would be a second back on the same screen). A phone never shows this step (W6), so there is no phone path. When
+  Settings closes (and on `integrations_changed`) the step reads the owner's connections again: one connected there
+  counts, so the primary becomes "Next".
+- **Slack** is not in the step: its hosted one-click path is not verified end to end yet (entry above).
+- Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/e2e/welcome-tools.spec.ts.

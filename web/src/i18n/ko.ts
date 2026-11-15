@@ -4983,7 +4983,6 @@ export const ko = {
   "welcome.tools.driveUnavailable": "지금은 Google 연결을 할 수 없어요 · 나중에 {where}에서 해요",
   "welcome.tools.driveNotConnected": "연결하지 않았어요 · 회사 Google 계정은 Google 관리자가 허용해야 연결돼요",
   "welcome.tools.mcp": "다른 도구 연결하기",
-  "welcome.tools.mcpCheck": "연결됨 · {name} · 확인이 필요해요",
   "welcome.tools.signingIn": "{name} · 로그인 중…",
   "welcome.tools.signInFailed": "{name} · 로그인하지 못했어요",
   "welcome.done.make": "'{skill}' 만들어 보기",

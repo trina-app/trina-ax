@@ -8,6 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { DriveCard } from '../../src/components/integrations/DriveConnector'
+import { DiscoverCard } from '../../src/components/integrations/ConnectorsView'
 import { DriveAdminPage, GOOGLE_APPS_GUIDE, GoogleAppAdminPage } from '../../src/components/integrations/GoogleAdminPage'
 import type { DriveConnectionState } from '../../src/components/settings/DriveConnection'
 import { useSession } from '../../src/store/session'
@@ -17,9 +18,9 @@ const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
 beforeAll(() => installDom())
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }); useSession.setState({ status }) })
-const as = (role: 'owner' | 'admin' | 'member') => {
+const as = (role: 'owner' | 'admin' | 'member', deployment?: 'hosted') => {
   useLocaleStore.setState({ locale: 'ko' })
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: role, username: role, name: role, role, prefs: {} }, team: { name: 'Acme', defaultLocale: 'ko' }, groups: [], session: { id: 's', client: 'web' }, server: { version: '0', dev: true } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: role, username: role, name: role, role, prefs: {} }, team: { name: 'Acme', defaultLocale: 'ko' }, groups: [], session: { id: 's', client: 'web' }, server: { version: '0', dev: true, ...(deployment ? { deployment } : {}) } } as unknown as Me } })
 }
 const ko = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('ko', key, params)
 const drive = { name: 'Google Drive' }
@@ -54,6 +55,31 @@ describe('연결한 서비스: Google Drive not set up', () => {
       expect(html).not.toContain('data-testid="drive-connect"')
     })
   }
+})
+
+// fix/hosted-drive-broker-default: a hosted team has nothing to set up (the hosting service turns Drive on), so no one
+// is sent to Admin for it; the plain line says it turns on by itself
+describe('a hosted team: Google Drive not ready yet', () => {
+  for (const role of ['owner', 'admin', 'member'] as const) {
+    test(`the ${role} reads that it turns on by itself, with Connect off and no Set up`, async () => {
+      as(role, 'hosted')
+      const { text, html } = await card()
+      expect(text).toContain(ko('drive.notReadyHosted'))
+      expect(text).not.toContain(ko('drive.setUpFirst'))
+      expect(html).not.toContain('data-testid="drive-set-up"')
+      expect(html).toMatch(/disabled=""[^>]*data-testid="drive-connect"|data-testid="drive-connect"[^>]*disabled=""/)
+    })
+  }
+  test('Discover\'s card: "not set up yet" for an owner too, never a Set up link to Admin', async () => {
+    as('owner', 'hosted')
+    const c = { id: 'google-drive', name: 'Google Drive', line: 'x', logo: '/x.svg', state: 'off' as const, setUp: true, onOpen: () => {}, onAdd: () => {} }
+    const hosted = await shown(<ul><DiscoverCard c={{ ...c, noSetUp: true }} admin /></ul>)
+    expect(hosted.html).toContain('data-testid="connector-off"')
+    expect(hosted.html).not.toContain('data-testid="connector-set-up"')
+    // a self-installed server's owner still gets Set up
+    const own = await shown(<ul><DiscoverCard c={c} admin /></ul>)
+    expect(own.html).toContain('data-testid="connector-set-up"')
+  })
 })
 
 describe('관리자 › 연결한 서비스 › Google Drive without a public address', () => {

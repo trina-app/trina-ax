@@ -1,9 +1,9 @@
 // Onboarding v6 in a real browser against the mock (docs/DECISIONS.md "W6 — Onboarding v6"):
 // - the step order AI 연결 (only without AI) → 회사 소개 → 내 스킬 → 팀 파일 → 도구 연결 → 팀원 초대 → 준비 끝, n/5;
 // - 도구 연결: the Drive row where this server has Drive (members may not connect yet: the line names both effects; the
-//   confirmed account turns that switch on, a cancel or "다른 계정" changes nothing; the hosting service down says so),
-//   the one "다른 도구 연결하기 (MCP)" line (today's add-a-connection dialog: 취소 leaves the step as it was, a saved one
-//   with its sign-in is one line under it), 나중에 하기 / 다음 and ← 이전;
+//   confirmed account turns that switch on, a cancel or "다른 계정" changes nothing; the hosting service down says so; no
+//   row where the server has no Drive), Notion, and the one "다른 도구 연결하기" line (Settings › Connectors over the step:
+//   its close, Esc and Back come back to the step; one connected there counts), 나중에 하기 / 다음 and ← 이전;
 // - after the setup the one way back is Settings › 커넥터: the Drive card's owner/admin button names both effects;
 // - 준비 끝: "'카드뉴스' 만들어 보기" for the first kept skill the team has, which opens that skill's form on 팀 스킬 only.
 // Google is answered by the page's own routes (the mock has no Google client), as in drive.spec.ts.
@@ -134,7 +134,7 @@ test('도구 연결\'s exits: a refused or closed sign-in says "연결하지 않
   expect(realErrors(errors).filter((e) => !/status of 503/.test(e))).toEqual([])
 })
 
-test('no Drive on this server: no Drive row; the address form (a team connection) closes with nothing changed; a saved one signs in and is one line under it; the primary appears', async ({ page }) => {
+test('no Drive on this server: no Drive row; Notion and "다른 도구 연결하기" only; that line opens Settings › Connectors over the step, and its close and Back both come back to the step as it was', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -142,30 +142,48 @@ test('no Drive on this server: no Drive row; the address form (a team connection
   await expect(page.getByTestId('welcome-tools-mcp-add')).toBeVisible()
   // not on this server: no Drive row in the setup (amends TC-145; Connectors says why)
   await expect(page.getByTestId('welcome-tools-drive')).toHaveCount(0)
-  // the dialog opens over the step; 취소 leaves it as it was
+  // owner Q3 (11-15): Notion, then the full list; no Linear, Atlassian, Canva or Figma rows
+  await expect(page.locator('[data-testid="welcome-tools-service"]')).toHaveCount(1)
+  await expect(page.getByTestId('welcome-tools')).not.toContainText(/Linear|Atlassian|Canva|Figma/)
+  // the full list: Settings › Connectors, a dialog over the step
   await page.getByTestId('welcome-tools-mcp-add').click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByTestId('integration-name')).toBeVisible()
-  await dialog.getByRole('button', { name: '취소' }).click()
-  await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('welcome-tools-mcp-list')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  const settings = page.getByTestId('settings-dialog')
+  await expect(settings.getByTestId('connector-discover')).toBeVisible()
+  // its close: the step as it was
+  await settings.getByTestId('settings-close').click()
+  await expect(settings).toHaveCount(0)
+  await expect(page).toHaveURL(/\/welcome$/)
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
   await expect(page.getByTestId('welcome-tools-next')).toHaveCount(0)
-  // a connection saved: its sign-in in the window reserved during the click, then "연결됨 · {name}"
+  await expect(page.getByTestId('welcome-later')).toBeVisible()
+  // the browser's Back from there: the step too
   await page.getByTestId('welcome-tools-mcp-add').click()
-  await dialog.getByTestId('integration-name').fill('Acme Tools')
-  await dialog.getByTestId('integration-url').fill('https://mcp.acme.example/mcp')
-  await expect(dialog.getByTestId('integration-save')).toHaveText('저장하고 로그인')
+  await expect(settings.getByTestId('connector-discover')).toBeVisible()
+  await page.goBack()
+  await expect(settings).toHaveCount(0)
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  // Esc: the step too
+  await page.getByTestId('welcome-tools-mcp-add').click()
+  await expect(settings.getByTestId('connector-discover')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  // something connected there (Linear, from the list) counts here once Settings closes: the primary is the next step
+  await page.getByTestId('welcome-tools-mcp-add').click()
+  await settings.locator('[data-testid="connector-card"][data-id="linear"]').getByTestId('connector-add').click()
   const popup = page.waitForEvent('popup')
-  await dialog.getByTestId('integration-save').click()
+  await page.getByTestId('integration-save').click()
   await popup
-  await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('welcome-tools-mcp-item')).toHaveText('연결됨 · Acme Tools', { timeout: 10_000 })
-  await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대')
-  // an ordinary team connection in Admin › 커넥터
-  const team = (await (await page.request.get('/api/admin/integrations')).json()).items as { name: string; scope: string }[]
-  expect(team.map((x) => [x.name, x.scope])).toContainEqual(['Acme Tools', 'team'])
+  // its page under the list, signed in
+  await expect(settings).toContainText('연결됨', { timeout: 10_000 })
+  await settings.getByTestId('settings-close').click()
+  await expect(settings).toHaveCount(0)
+  await expect(page).toHaveURL(/\/welcome$/)
+  await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대', { timeout: 10_000 })
   await page.getByTestId('welcome-tools-next').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
+  expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.tools).toBe('done')
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -177,7 +195,7 @@ test('Notion in one click (QA TC-136): the same card as Connectors, the owner\'s
   const notion = page.locator('[data-testid="welcome-tools-service"][data-id="notion"]')
   await expect(notion).toHaveAttribute('data-state', 'available')
   await expect(notion.getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/notion.svg')
-  await expect(page.locator('[data-testid="welcome-tools-service"]')).toHaveCount(5)
+  await expect(page.locator('[data-testid="welcome-tools-service"]')).toHaveCount(1)
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
   const popup = page.waitForEvent('popup')
   await notion.getByTestId('welcome-tools-service-connect').click()

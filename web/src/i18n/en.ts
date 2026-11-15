@@ -4983,7 +4983,6 @@ export const en: Record<MessageKey, string> = {
   "welcome.tools.driveUnavailable": "Google can't be connected right now · Do it later in {where}",
   "welcome.tools.driveNotConnected": "Not connected · A company Google account connects only once its Google admin allows it",
   "welcome.tools.mcp": "Connect another tool",
-  "welcome.tools.mcpCheck": "Connected · {name} · Needs a check",
   "welcome.tools.signingIn": "{name} · Signing in…",
   "welcome.tools.signInFailed": "{name} · Could not sign in",
   "welcome.done.make": "Make a '{skill}'",

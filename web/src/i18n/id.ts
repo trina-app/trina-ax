@@ -4983,7 +4983,6 @@ export const id: Record<MessageKey, string> = {
   "welcome.tools.driveUnavailable": "Google tidak bisa dihubungkan sekarang · Lakukan nanti di {where}",
   "welcome.tools.driveNotConnected": "Tidak terhubung · Akun Google perusahaan baru terhubung setelah admin Google-nya mengizinkan",
   "welcome.tools.mcp": "Hubungkan alat lain",
-  "welcome.tools.mcpCheck": "Terhubung · {name} · Perlu diperiksa",
   "welcome.tools.signingIn": "{name} · Sedang masuk…",
   "welcome.tools.signInFailed": "{name} · Tidak bisa masuk",
   "welcome.done.make": "Buat '{skill}'",

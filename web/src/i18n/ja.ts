@@ -4939,7 +4939,6 @@ export const ja: Record<MessageKey, string> = {
   "welcome.tools.driveUnavailable": "今はGoogleに接続できません · あとで{where}から行ってください",
   "welcome.tools.driveNotConnected": "接続しませんでした · 会社のGoogleアカウントはGoogleの管理者が許可すると接続できます",
   "welcome.tools.mcp": "ほかのツールを接続",
-  "welcome.tools.mcpCheck": "接続済み · {name} · 確認が必要です",
   "welcome.tools.signingIn": "{name} · ログイン中…",
   "welcome.tools.signInFailed": "{name} · ログインできませんでした",
   "welcome.done.make": "「{skill}」を作ってみる",

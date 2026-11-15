@@ -1,34 +1,39 @@
 // 도구 연결, the welcome steps' step between 팀 파일 and 팀원 초대 (docs/DECISIONS.md "W6 — Onboarding v6"): one screen,
 // never blocking, on every team (a phone skips it: pages/Welcome.tsx). The same cards as Connectors' Discover (logo,
-// name, one line; QA TC-136):
-//  - Google Drive. Where this server has it (`configured`: its own Google client, or the hosting service's sign-in once
-//    it answered), one [연결] is the owner's own Google sign-in and, while members may not connect theirs, the team's
-//    switch too: both named in the card's line, and the switch turns on only at the confirmed account ("맞아요"), never
-//    at the press; a cancel changes nothing. A flow under way comes back after a reload (this tab's session storage
-//    keeps its id). Where it does not, the card says so ("아직 설정 안 됨") instead of being left out (TC sheet TC-145).
-//  - The first listed services (Notion, Linear, Atlassian, Canva, Figma: lib/connectors.ts). One [연결] makes the
-//    owner's own connection to it (its address and sign-in from the list: nothing to type) and opens its sign-in in the
-//    window reserved during the click; the card shows how the sign-in goes, and "연결됨" once done (ListedTools).
-//  - Last, one quiet "다른 도구 연결하기" line: the add-a-connection dialog for a team connection (kind, name, address,
-//    sign-in, who may use it), with its own errors; a saved one is one line under it.
+// name, one line; QA TC-136), and only what can be connected right here (docs/DECISIONS.md "Onboarding's Tools step:
+// Drive, Notion and the full list", owner Q3 2026-11-15):
+//  - Google Drive, only where this server has it (`configured`: its own Google client, or the hosting service's sign-in
+//    once it answered). One [연결] is the owner's own Google sign-in and, while members may not connect theirs, the
+//    team's switch too: both named in the card's line, and the switch turns on only at the confirmed account ("맞아요"),
+//    never at the press; a cancel changes nothing. A flow under way comes back after a reload (this tab's session
+//    storage keeps its id). Where it does not have it, no row (a "not set up" line is a dead end in the setup;
+//    Connectors says why; this reverses TC-145).
+//  - Notion (lib/connectors.ts). One [연결] makes the owner's own connection to it (its address and sign-in from the
+//    list: nothing to type) and opens its sign-in in the window reserved during the click; the card shows how the
+//    sign-in goes, and "연결됨" once done (ListedTools).
+//  - Last, one quiet "다른 도구 연결하기" line: Settings › Connectors, the full list. Settings is a dialog over this step
+//    (App.tsx useSettingsOverlay), so its close comes back to the step as it was; anything connected there counts here
+//    (the step reads the connections again when Settings closes).
 // Once something is connected the primary is the next step; until then only "나중에 하기". After the setup the way back
 // is Settings › Connectors (the Drive card has the same two effects for an owner or admin).
 import { Check, Plus } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, type DriveConnection, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
-import { APP_CONNECTORS, connectorLogo, CONNECTORS, servesAt, type Connector } from '../../lib/connectors'
+import { APP_CONNECTORS, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, type Connector } from '../../lib/connectors'
 import { builtInLogo } from '../../lib/googleApps'
 import { splitByScope } from '../../lib/integrations'
 import { aiName } from '../../lib/tabs'
 import { connectorsPlace } from '../../pages/settingsTabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
+import { useRealPath } from '../../lib/realPath'
+import { integrationsChanged } from '../../store/live'
 import { useLocale, useT } from '../../i18n'
 import { Button, WaitLine } from '../ui'
 import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { useDriveConnection } from '../settings/DriveConnection'
 import { LogoTile } from '../integrations/ConnectorsView'
-import { IntegrationDialog } from '../integrations/IntegrationDialog'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
 
 const DRIVE = APP_CONNECTORS[0]
@@ -41,8 +46,8 @@ const kept = () => { try { return sessionStorage.getItem(FLOW_KEY) } catch { ret
 
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
-/** the listed services the step offers (Discover's first ones after the built-ins) */
-export const WELCOME_SERVICES = 5
+/** the listed services the step offers (owner Q3, 2026-11-15: Drive, Notion and the full list) */
+export const WELCOME_SERVICES = ['notion'] as const
 /** one card of the step, as Discover's (pages/Connectors.tsx DiscoverCard): logo, name, one line, one thing on the right */
 const cardCls = 'flex items-start gap-3 py-3'
 const logoCls = 'size-10 rounded-xl p-2'
@@ -59,8 +64,15 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
   const t = useT()
   const [driveOn, setDriveOn] = useState(false)
   const [listedOn, setListedOn] = useState(false)
-  const [added, setAdded] = useState<Integration[]>([])
-  const connected = driveOn || listedOn || added.length > 0 || done
+  const connected = driveOn || listedOn || done
+  // back from Settings (a dialog over this step): what was connected there counts here
+  const real = useRealPath()
+  const [back, setBack] = useState(0)
+  const was = useRef(real)
+  useEffect(() => {
+    if (was.current !== real && real === '/welcome') setBack((n) => n + 1)
+    was.current = real
+  }, [real])
   return (
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
@@ -69,10 +81,10 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
       </div>
       <div className="space-y-4">
         <ul className="divide-y divide-line border-y border-line" data-testid="welcome-tools-cards">
-          <DriveRow onConnected={setDriveOn} />
-          <ListedTools onConnected={setListedOn} />
+          <DriveRow onConnected={setDriveOn} back={back} />
+          <ListedTools onConnected={setListedOn} back={back} />
         </ul>
-        <OtherTools added={added} onAdded={(i) => setAdded((x) => [...x.filter((y) => y.id !== i.id), i])} />
+        <OtherTools />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {connected ? (
@@ -89,10 +101,12 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
 
 /** The Drive row: hidden until the server says it has Drive (and on a failed read); then [연결] → Google's window →
  * "{account} 계정이 맞나요? [맞아요] [다른 계정]" → "연결됨 · {account}". */
-function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
+function DriveRow({ onConnected, back }: { onConnected: (on: boolean) => void; back: number }) {
   const t = useT()
   const s = useDriveConnection((c) => { keep(null); onConnected(c.status === 'connected') })
   const { d } = s
+  // connected in Settings › Connectors meanwhile: read again
+  useEffect(() => { if (back) s.load() }, [back]) // eslint-disable-line react-hooks/exhaustive-deps
   const c: DriveConnection | null = s.connection
   const [note, setNote] = useState<'not' | 'unavailable' | null>(null)
   const linked = c?.status === 'connected'
@@ -162,11 +176,12 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
 
 const WAITING = new Set(['starting', 'pending', 'exchanging'])
 
-/** The first listed services as cards. One [연결]: the owner's own connection to it, made with the list's address and
+/** The listed services as cards. One [연결]: the owner's own connection to it, made with the list's address and
  * sign-in (POST /api/integrations: nothing to type, nobody else's), then its sign-in at the service in the window
  * reserved during the click. One already there (from Connectors, an earlier visit) shows where it stands; its [연결]
- * signs in again. `onConnected`: any of them connected. */
-function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
+ * signs in again. `onConnected`: any of the owner's own connections is connected (one made in Connectors through
+ * "다른 도구 연결하기" too: read again on `back` and when the connections change). */
+function ListedTools({ onConnected, back }: { onConnected: (on: boolean) => void; back: number }) {
   const t = useT()
   const locale = useLocale()
   const [mine, setMine] = useState<Integration[] | null>(null)
@@ -175,12 +190,13 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
   const load = useCallback(async () => {
     try { setMine(splitByScope((await api.call(API.listIntegrations)).items).mine) } catch { setMine((m) => m ?? []) }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, back])
+  useEffect(() => integrationsChanged.on(() => void load()), [load])
   const signIn = useSignIn(() => { void load() })
-  const services: Connector[] = CONNECTORS.slice(0, WELCOME_SERVICES)
+  const services: Connector[] = CONNECTORS.filter((c) => (WELCOME_SERVICES as readonly string[]).includes(c.id))
   const own = (c: Connector) => mine?.find((i) => servesAt(c, i.url))
   const isOn = (i: Integration | undefined) => !!i && i.status === 'connected' && (i.auth !== 'oauth' || i.hasSecret)
-  const anyOn = services.some((c) => isOn(own(c)))
+  const anyOn = !!mine?.some(isOn)
   useEffect(() => { onConnected(anyOn) }, [anyOn]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!mine) return null
   const connect = async (c: Connector) => {
@@ -241,58 +257,16 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
   )
 }
 
-/** "다른 도구 연결하기 (MCP)": today's add-a-connection dialog for a team connection; each one saved here is one line
- * under it ("연결됨 · {name}", "· 확인이 필요해요" when its check failed), its sign-in at the service right after the save
- * when it asks for one. */
-function OtherTools({ added, onAdded }: { added: Integration[]; onAdded: (i: Integration) => void }) {
+/** "다른 도구 연결하기": Settings › Connectors, the full list (Settings is a dialog over the step; its close comes back). */
+function OtherTools() {
   const t = useT()
-  const [open, setOpen] = useState(false)
-  const signIn = useSignIn((id) => {
-    // signed in: the connection as the server keeps it now
-    void api.call(API.listTeamIntegrations).then((r) => { const i = r.items.find((x) => x.id === id); if (i) onAdded(i) }, () => {})
-  })
-  const flow = signIn.state
+  const navigate = useNavigate()
   return (
-    <div className="space-y-1.5" data-testid="welcome-tools-mcp">
-      <p className="text-sm">
-        <button type="button" className={`${quietLink} inline-flex items-center gap-1.5`} onClick={() => setOpen(true)} aria-haspopup="dialog" data-testid="welcome-tools-mcp-add">
-          <Plus size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.tools.mcp')}
-        </button>
-      </p>
-      {added.length > 0 && (
-        <ul className="space-y-1 text-sm" data-testid="welcome-tools-mcp-list">
-          {added.map((i) => {
-            const mine = flow?.id === i.id ? flow : null
-            const waiting = !!mine && ['starting', 'pending', 'exchanging'].includes(mine.state)
-            return (
-              <li key={i.id} className="flex min-w-0 flex-wrap items-center gap-x-2 text-muted" data-testid="welcome-tools-mcp-item" data-status={i.status}>
-                {waiting ? <WaitLine text={t('welcome.tools.signingIn', { name: i.name })} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} /> : <span className="min-w-0 break-words">
-                  {mine ? t('welcome.tools.signInFailed', { name: i.name })
-                      : i.status === 'error' || i.status === 'needs_auth' ? t('welcome.tools.mcpCheck', { name: i.name })
-                        : t('welcome.tools.connected', { name: i.name })}
-                </span>}
-                {waiting && mine?.url && <a href={mine.url} target="_blank" rel="noopener noreferrer" className={quietLink}>{t('integrations.signIn.open')}</a>}
-                {waiting && <Button size="sm" variant="ghost" onClick={signIn.cancel}>{t('common.cancel')}</Button>}
-                {mine && !waiting && <Button size="sm" variant="ghost" onClick={() => void signIn.start(i.id)}>{t('common.retry')}</Button>}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      {open && (
-        <IntegrationDialog
-          scope="team"
-          onClose={() => setOpen(false)}
-          onSaved={(i, next) => {
-            setOpen(false)
-            onAdded(i)
-            // the sign-in at the service next, in the window reserved during the click
-            if (next && i.status === 'needs_auth') void signIn.start(i.id, next.window)
-            else next?.window?.close()
-          }}
-        />
-      )}
-    </div>
+    <p className="text-sm" data-testid="welcome-tools-mcp">
+      <button type="button" className={`${quietLink} inline-flex items-center gap-1.5`} onClick={() => navigate(CONNECTORS_HOME)} data-testid="welcome-tools-mcp-add">
+        <Plus size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.tools.mcp')}
+      </button>
+    </p>
   )
 }
 

@@ -154,6 +154,7 @@ function ConnectorsHome() {
   const t = useT()
   const navigate = useNavigate()
   const { list, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
+  const hosted = useMe()?.server.deployment === 'hosted'
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -187,7 +188,8 @@ function ConnectorsHome() {
     const asked = !admin && asks.stateOf(id) !== 'none'
     if (id === 'google-drive') {
       const setUp = !!drive.connection && !drive.connection.configured
-      return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: dState, setUp, asked: setUp && asked, onOpen: open,
+      // a hosted team: nothing to set up in Admin (the hosting service turns it on; DriveConnector.tsx says so)
+      return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: dState, setUp, asked: setUp && asked, noSetUp: setUp && hosted, onOpen: open,
         onAdd: () => { open(); if (dState === 'available' && !inApp) drive.start() } }]
     }
     const v = google.apps?.find((x) => x.id === id)
