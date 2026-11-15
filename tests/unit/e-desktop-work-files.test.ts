@@ -342,6 +342,9 @@ describe('reading a listed file afterwards', () => {
       release()
       await new Promise((r) => setTimeout(r, 10))
       expect(heard).toEqual(['icloud'])
+      // no retry by itself: added again once it has come down, the same file reads (the failed read was given back)
+      f.fs.open = open
+      expect((await sessions.read(TEAM, id('b.pdf'))).ok).toBe(true)
       // the file did not count against the look's limits; the next read goes
       expect((await sessions.read(TEAM, id('c.pdf'))).ok).toBe(true)
     })
