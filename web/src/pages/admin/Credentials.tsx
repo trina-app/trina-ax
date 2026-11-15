@@ -126,8 +126,8 @@ export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
   return !!tc.state.data?.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind) && !x.disabled && CREDENTIAL_PROBLEMS.includes(x.state))
 }
 
-/** No team account of this provider yet, and Add account is right below on this page (Admin › AI accounts): the
- * provider's line says so instead of the server's "add one in Admin > Connections > AI accounts" (QA TC-2838). */
+/** No team account of this provider yet, and Add account is right below on this page (Admin › Providers): the
+ * owner's line says so in the web's words (QA TC-2838); the server's line, which admins read, says "below" too. */
 export function addAccountBelow(tc: TeamCredentials, fam: Family): boolean {
   const d = tc.state.data
   return !!d && tc.owner && !d.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind)) && d.allowedKinds.some((k) => FAMILY[fam].includes(k))

@@ -505,7 +505,7 @@ owner's other sessions are signed out. The tool runs the bundled account CLI as 
 
 | Where | What it shows |
 |---|---|
-| Admin → Providers | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > AI accounts." until one is added (2.3a) or imported (2.4, 2.5). |
+| Admin → Providers | Claude Code and Codex: "AI connections" with how many can be used now; "No account yet. The owner can add one below." until one is added (2.3a) or imported (2.4, 2.5). |
 | Admin → Providers, under each engine | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | Without an AI connection for that engine: "There is no AI connection for this engine. Let your admin know." With one: the engine answers. |

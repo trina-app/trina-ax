@@ -62,11 +62,11 @@ test('Providers: one row per engine with its state, what is missing, check again
   expect(realErrors(errors)).toEqual([])
 })
 
-// QA TC-2838: on Admin › AI accounts itself, a provider with no account says to add one below (its Add account button),
-// never the server's "add one in Admin > Connections > AI accounts", the page it is on
+// QA TC-2838: on Admin › Providers itself, a provider with no account says to add one below (its Add account button),
+// never a pointer to the page it is on (the server's own line says "below" too since #944)
 test('no Codex account yet: its line points at Add account below, not at this page', async ({ page }) => {
   await start(page)
-  const NONE = 'No AI connection. Add one in Admin > Connections > AI accounts.'
+  const NONE = "This engine has no AI account yet. Add one with 'Add account' below."
   await page.route('**/api/admin/engines', async (route) => {
     if (route.request().method() !== 'GET') return route.fallback()
     const res = await route.fetch()

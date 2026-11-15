@@ -28735,6 +28735,7 @@ Disk Access) are part 5.
   the guides and docs/site. The "queue is long" message points to Team settings, where "Answers at the same time" is.
 - Kept: the members' own Settings page (`settings.providers`) is still **AI accounts** (ko AI 계정): members see only
   their own accounts, not providers. The stored chat-error words in `shared/src/api/errors.ts` keep their old text
-  (they match saved answers). `server/src/admin/engines.ts` managedNone / managedNoneDetail (the "No AI connection"
-  line on the page itself) are left to the branch that rewrites that line.
+  (they match saved answers).
+- The two server lines shown under an engine on this page itself (`admin/engines.ts` managedNone /
+  managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
 - Version impact: **patch** (wording only; no API or data change).
