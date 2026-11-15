@@ -88,7 +88,7 @@ export function returnGuestsWithPlace(ctx: AppContext, places: readonly GuestPla
   const back: string[] = []
   for (const place of places) {
     try {
-      // the guests whose slot of that kind is this place (migration 125: guests.room_id / project_id)
+      // the guests whose slot of that kind is this place (migration 126: guests.room_id / project_id)
       const ids = (ctx.db.query(`SELECT g.user_id AS id FROM guests g JOIN users u ON u.id = g.user_id
         WHERE ${place.kind === 'room' ? 'g.room_id' : 'g.project_id'} = ? AND g.off_with_place IS NOT NULL AND u.guest = 1 AND u.status = 'disabled' AND u.deleted_at IS NULL
         ORDER BY g.off_with_place, g.user_id`).all(place.id) as { id: string }[]).map((r) => r.id)

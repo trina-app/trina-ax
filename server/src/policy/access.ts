@@ -49,7 +49,7 @@ const guestSubject = (p: Principal): Principal => ({ id: p.id, name: p.name, rol
 function guestIds(db: Database): string[] {
   try { return (db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id) } catch { return [] }
 }
-/** Each guest's one project folder (guests.project_id, migration 125; a row only an older build wrote names it in
+/** Each guest's one project folder (guests.project_id, migration 126; a row only an older build wrote names it in
  * place_kind/place_id), while that project is live; null = none. Inside projects/ a guest reads that one project only,
  * whatever rule names them elsewhere (a folder moved or brought back from the trash with their rule on it): docs/
  * DECISIONS.md "Guests: one group chat and one project". Read failing: an empty map, so no guest reads any project

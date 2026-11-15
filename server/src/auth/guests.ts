@@ -5,7 +5,7 @@
 // the people a guest can see or reach (sharesPlace: the people of their places). DMs never count as a place: a guest
 // may DM only the people of their places.
 //
-// Places (migration 125): guests.room_id / guests.project_id, one per kind, set by claimGuestRoom / claimGuestProject
+// Places (migration 126): guests.room_id / guests.project_id, one per kind, set by claimGuestRoom / claimGuestProject
 // in the write that puts them in.
 //
 // Storage (migration 122_a_guests.sql): users.role keeps its CHECK (owner/admin/member), so a guest is stored as role
@@ -30,7 +30,7 @@ export function isGuest(db: Database, userId: string): boolean {
 
 export interface GuestRow {
   user_id: string; ai: GuestAi; invited_by: string | null; created_at: string
-  /** the guest's group chat and project (migration 125): where they are, or were last; NULL = none of that kind */
+  /** the guest's group chat and project (migration 126): where they are, or were last; NULL = none of that kind */
   room_id: string | null; project_id: string | null
   /** the place the invite opened (set once at accept; decides nothing, only the "joined as a guest" notice reads it) */
   place_kind: 'room' | 'project'; place_id: string
@@ -38,7 +38,7 @@ export interface GuestRow {
 export function guestRow(db: Database, userId: string): GuestRow | null {
   return db.query('SELECT user_id, place_kind, place_id, room_id, project_id, ai, invited_by, created_at FROM guests WHERE user_id = ?').get(userId) as GuestRow | null
 }
-/** The guest's places as stored (migration 125: at most one group chat and one project), the group chat first. A slot
+/** The guest's places as stored (migration 126: at most one group chat and one project), the group chat first. A slot
  * says where they are or were last; whether they are in it now is read from the place itself (placePeopleOf). */
 export function guestSlots(db: Database, userId: string): GuestPlace[] {
   const r = guestRow(db, userId)

@@ -29961,7 +29961,7 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   프로젝트 하나까지 들어갈 수 있어요. 더 넣으려면 팀원으로 초대해 주세요."). Unchanged: deny by default, the AI choice,
   the plan's guest cap, no groups, DMs never a place, one place per invite (a second place comes through the place's
   own add list: a group chat's Invite, a project's Members or a new project's people). Supersedes "Exactly one place".
-- **Storage** (migration `125_a_guest_two_places.sql`, additive, reader level stays 8): `guests.room_id` and
+- **Storage** (migration `126_a_guest_two_places.sql`, additive, reader level stays 8): `guests.room_id` and
   `guests.project_id`, one column per kind, so a second place of one kind cannot be stored. Set in the write that puts
   the guest in (`claimGuestRoom` in createGroup/invite, `claimGuestProject` in `writeFolderAccess`); never cleared, so a
   slot says where they are or were last, and whether they are in it now is read from the place (member rows, folder
