@@ -37,7 +37,10 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.setIntegrationTool, ({ c, auth, params, body }) => svc().setTool(viewer(auth), params.id, body.name, body.enabled, c.get('locale')))
   kit.handle(API.stopAlwaysAllow, ({ c, auth, params }) => svc().stopAlwaysAllow(viewer(auth), params.id, c.get('locale')))
   kit.handle(API.refreshIntegration, ({ c, auth, params }) => svc().refresh(viewer(auth), params.id, c.get('locale')))
-  kit.handle(API.authorizeIntegration, ({ c, auth, params }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale')))
+  // the desktop app's return port counts only from a desktop session (what the app said at sign-in, as for its browser
+  // tools); from any other session it is dropped, whatever the body says
+  kit.handle(API.authorizeIntegration, ({ c, auth, params, body }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale'),
+    { client: auth.session.client, loopbackPort: auth.session.client === 'desktop' ? body.loopbackPort ?? null : null }))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
   kit.handle(API.cancelIntegrationFlow, ({ auth, params }) => { svc().cancelFlow(auth.user.id, auth.session.id, params.id) })
   kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')) }))

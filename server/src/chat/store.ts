@@ -170,8 +170,13 @@ export class ChatStore {
       return rest
     })
     // a shared chat: a step's detail (a card's answer, an error's words) and where a post went (Step.posted: a room's
-    // id) are the runner's alone
-    if (view && !view.runner) for (let i = 0; i < steps.length; i++) if (steps[i]!.detail !== undefined || steps[i]!.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = steps[i]!; steps[i] = rest }
+    // id) are the runner's alone, and so is who or which room a post_to_room step names (a group chat's title is its
+    // members' names): the others see its verb alone, sent, cancelled or refused (QA TC-3091 review)
+    if (view && !view.runner) for (let i = 0; i < steps.length; i++) {
+      const st = steps[i]!
+      if (st.tool === 'post_to_room') { const { detail: _d, posted: _p, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
+      if (st.detail !== undefined || st.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = st; steps[i] = rest }
+    }
     if (!steps.some((s) => s.tool === 'attachment')) return steps
     const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
     const gone = (s: Step): boolean => {

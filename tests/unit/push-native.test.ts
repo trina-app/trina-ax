@@ -13,7 +13,7 @@ import { PHONE_TAKEN } from '../../server/src/notifications/text'
 import { HttpError } from '../../server/src/http/errors'
 import { hashToken } from '../../server/src/auth/passwords'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { registerPushPath } from '../../server/src/notifications/push-events'
+import { reconnectPushPath, registerPushPath } from '../../server/src/notifications/push-events'
 import { createNativeTransport, signedGatewayRequest, validGatewayUrl, type NativeSend } from '../../server/src/notifications/push-native'
 import { loadAppConfig, resolvePushGateway } from '../../server/src/app-config'
 import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
@@ -69,7 +69,7 @@ test('a registered path resolver names the page; anything but an id path is drop
   registerPushPath('connection.reconnect', () => 'https://evil.example/')
   now += 10; event('path-2'); await p.tick()
   expect(sent[1]!.payload.path).toBeUndefined()
-  registerPushPath('connection.reconnect', () => '/settings/notifications')
+  registerPushPath('connection.reconnect', reconnectPushPath)
 })
 
 test('410 from the gateway deletes the device, its 404 does not; 5xx retries within the bounded budget', async () => {

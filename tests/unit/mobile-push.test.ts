@@ -85,6 +85,9 @@ test('a tapped notification may only open an id path on the current team', () =>
   expect(tappedNotificationPath({ path: '/rooms/r1' }, since / 1000 - 60, since)).toBeNull() // before this team was chosen
   expect(tappedNotificationPath({ path: 'https://evil.example' }, since + 5000, since)).toBeNull()
   expect(tappedNotificationPath(null, since + 5000, since)).toBeNull()
+  // a connection that needs a sign-in again opens its own page (server push-events.ts reconnectPushPath, QA TC-3053)
+  for (const p of ['/settings/connectors/mcp/0190f5a0-0000-7000-8000-0000000000d1', '/settings/connectors/gmail', '/settings/connectors/google-drive'])
+    expect(tappedNotificationPath({ path: p }, since + 5000, since)).toBe(p)
 })
 
 test('the path rule matches the push gateway contract when it exists', async () => {

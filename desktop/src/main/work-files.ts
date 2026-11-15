@@ -13,7 +13,7 @@ import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState,
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { opensHome } from '../common/folder-access'
 import { inOneDrive, lookRoots, lookWide, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
-import type { IndexedFile } from '../common/work-index'
+import type { IndexedFile, WindowsLook } from '../common/work-index'
 import type { Place } from '../common/work-places'
 import { macHints, windowsFixedDrives, windowsIndex } from './work-index-run'
 import { fullDiskState, macDatalessSet, macPlaceIndex, macRecent, MAC_FULL_DISK_SETTINGS, widePlaces } from './work-places-run'
@@ -146,7 +146,7 @@ export class WorkFilesController {
   /** The roots looked at: the index first (one Windows Search run for all of them; Spotlight per folder, after its
    * question), the walk when there is none (common/work-files.ts lookRoots). */
   private look(roots: WorkRoot[], generation: number) {
-    let win: Promise<IndexedFile[] | null> | null = null
+    let win: Promise<WindowsLook> | null = null
     const downloads = roots.find((r) => r.id === 'downloads')?.path ?? null
     return lookRoots(roots, NODE_WORK_FS, {
       platform: process.platform,
@@ -156,7 +156,7 @@ export class WorkFilesController {
       allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
       // Windows: Windows Search with the recent lists; a Mac walks (faster than listing through Spotlight) and asks
       // Spotlight about the newest documents
-      index: async () => (process.platform === 'win32' ? (win ??= windowsIndex(roots.map((r) => r.path), downloads)) : null),
+      index: async () => (process.platform === 'win32' ? (await (win ??= windowsIndex(roots.map((r) => r.path), downloads))).index : null),
       ...(process.platform === 'darwin' ? { enrich: (paths: string[], until: { deadline: number; stopped: () => boolean }) => macHints(paths, until) } : {}),
       newId: () => randomBytes(12).toString('base64url'),
     })
@@ -188,15 +188,16 @@ export class WorkFilesController {
     }
     if (process.platform === 'win32') {
       const outside = places.filter((x) => !x.path.toLowerCase().startsWith(home.toLowerCase().replace(/\\?$/, '\\'))).map((x) => x.path)
-      const all = windowsIndex([home, ...outside], folders.find((r) => r.id === 'downloads')?.path ?? null, { home, drives: true })
+      const all = windowsIndex([home, ...outside], folders.find((r) => r.id === 'downloads')?.path ?? null, { home, drives: true, lists: true })
       const fixed = windowsFixedDrives()
       const fixedNow = await fixed
       return lookWide(roots, NODE_WORK_FS, {
         ...common,
         // a cloud drive's folder is never walked on Windows (a walk would touch online-only files): the index only
         noWalk: (root) => root.id === 'cloud' || root.oneDrive,
-        index: async () => all,
-        recent: async () => (await all) ?? [],
+        index: async () => (await all).index,
+        // the Recent folder and Office's list count even when the index does not answer
+        recent: async () => (await all).recent,
         network: (path) => path.startsWith('\\\\') || !fixedNow.some((d) => path.toLowerCase().startsWith(d.toLowerCase())),
       })
     }

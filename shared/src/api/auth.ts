@@ -241,7 +241,7 @@ export type MyWebAccess = z.infer<typeof MyWebAccess>
  * team's limit shows only how full it is, not who used it. */
 const MyUsagePeriod = z.enum(['day', 'week', 'month'])
 export const MyUsageQuery = z.object({ period: MyUsagePeriod.default('month') })
-const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
+const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional(), estimatedTurns: z.number().int().optional() })
 /** one engine and model the person's answers used (model null = the engine's default) */
 export const MyUsageRow = MyUsageAmount.extend({ key: z.string(), engine: z.string(), model: z.string().nullable() })
 export const MyUsageLimit = z.object({

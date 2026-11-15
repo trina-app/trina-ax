@@ -9,6 +9,8 @@
 // A team with no skills and no documents yet gets one quiet line above the message (docs/DECISIONS.md "W6.3"): "지금
 // 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기"; it never blocks. No "이 사람이 팀장이에요" here: one link
 // invites many people, so the owner hands the role over after people join (Admin › Members, a person's "…").
+// Under the message, one quiet line for someone from outside the team: "Invite a guest" (GuestInviteFlow: the one group
+// chat or project first, then the guest form); not where the dialog around it has a Guest choice (`guestLine` false).
 import clsx from 'clsx'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -24,6 +26,7 @@ import { Button, Modal, useMediaQuery } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
 import { quietLink } from './SkillShareReview'
 import { useTeamPrepared } from './TeamPrepared'
+import { GuestInviteFlow } from '../GuestInviteChoice'
 
 /** The skills the owner shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): the one the link opens, which "바꾸기"
  * changes among them. The message names that one only (docs/DECISIONS.md "W5"). */
@@ -66,13 +69,18 @@ export interface InviteStepProps {
   /** the welcome steps: the empty-team line's links open 내 스킬 and 팀 파일 there (the next step after each is this one
    * again); absent: they go to 팀 스킬 (the ready-made skills unfolded) and 파일 */
   steps?: EmptyTeamSteps
+  /** false: no "Someone from outside the team? Invite a guest" line (the dialog around it has a Guest choice already:
+   * TeamMenu.tsx InvitePeople) */
+  guestLine?: boolean
 }
 
-export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare, title, shared, steps }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare, title, shared, steps, guestLine = true }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   // copied or sent: "다 했어요" takes over as the primary (the panel's copy button was the one before)
   const [sent, setSent] = useState(false)
+  // "Invite a guest" (docs/DECISIONS.md "Guests from Invite people"): the place first, then the guest form
+  const [guest, setGuest] = useState(false)
   const phone = useMediaQuery(SHARE_PHONE_QUERY)
   // a phone with a share sheet sends the message from there (TeamLinkPanel's primary), so the line says send, not paste
   const sharing = phone && canShareText()
@@ -85,6 +93,13 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
       <EmptyTeamLine steps={steps} />
       <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded onSent={() => setSent(true)} />
+      {guestLine && (
+        <p className="text-label text-muted" data-testid="invite-step-guest">
+          {t('teamLink.guestLine')}{' '}
+          <button type="button" className={clsx(quietLink, 'touch-hit')} onClick={() => setGuest(true)} data-testid="invite-step-guest-open">{t('guest.invite.row')}</button>
+        </p>
+      )}
+      {guest && <GuestInviteFlow onClose={() => setGuest(false)} />}
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => (phone || sent ? onSkip() : setAsking(true))} data-testid="invite-step-skip">

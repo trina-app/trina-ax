@@ -38,7 +38,11 @@ import { canRead, membersOnlyNow } from './projects'
 import { updateWaitingFor } from '../system/update-wait'
 
 /** One entry of a task's run history (Schedules.runs; shared/src/api/schedules.ts ScheduleRun). */
-export type ScheduleRunItem = { id: string; status: 'running' | LastOutcome; startedAt: string; endedAt: string | null; chatId: string | null; error: string | null; needName?: string }
+export type ScheduleRunItem = { id: string; status: 'running' | LastOutcome; startedAt: string; endedAt: string | null; chatId: string | null; error: string | null; needName?: string; needSignIn?: true }
+/** A team template each member signs in to (OAuth), while it is there: a run it held back asks for a sign-in, not a key
+ * (QA TC-3052); a removed template keeps the key words */
+export const templateSignsIn = (db: Database, templateId: string) =>
+  (db.query('SELECT auth FROM integration_templates WHERE id=?').get(templateId) as { auth: string } | null)?.auth === 'oauth'
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
 export const SCHEDULES_PER_PERSON = 20
@@ -334,14 +338,14 @@ export class Schedules {
     const cur = /^([^|]{1,40})\|([^|]{1,80})$/.exec(o.cursor ?? '')
     const at = cur?.[1] ?? null, after = cur?.[2] ?? null
     const rows = this.db.query(`SELECT * FROM (
-      SELECT t.id, t.status code, t.run_outcome, t.started_at at, t.ended_at ended, c.id chat, t.error, NULL need FROM turns t
+      SELECT t.id, t.status code, t.run_outcome, t.started_at at, t.ended_at ended, c.id chat, t.error, NULL need, NULL need_tpl FROM turns t
         LEFT JOIN chats c ON c.id = t.chat_id AND c.user_id = t.user_id AND c.deleted_at IS NULL
         WHERE t.schedule_id=? AND t.user_id=?
-      UNION ALL SELECT id, code, NULL, created_at, NULL, NULL, NULL, NULL FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
-      UNION ALL SELECT id, 'needs_key', NULL, created_at, NULL, NULL, NULL, template_name FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
-      UNION ALL SELECT id, 'project_gone', NULL, created_at, NULL, NULL, NULL, NULL FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
+      UNION ALL SELECT id, code, NULL, created_at, NULL, NULL, NULL, NULL, NULL FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
+      UNION ALL SELECT id, 'needs_key', NULL, created_at, NULL, NULL, NULL, template_name, template_id FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
+      UNION ALL SELECT id, 'project_gone', NULL, created_at, NULL, NULL, NULL, NULL, NULL FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
     ) WHERE (? IS NULL OR at < ? OR (at = ? AND id < ?)) ORDER BY at DESC, id DESC LIMIT ?`)
-      .all(id, userId, id, userId, id, userId, id, userId, at, at, at, after, limit + 1) as { id: string; code: string; run_outcome: string | null; at: string; ended: string | null; chat: string | null; error: string | null; need: string | null }[]
+      .all(id, userId, id, userId, id, userId, id, userId, at, at, at, after, limit + 1) as { id: string; code: string; run_outcome: string | null; at: string; ended: string | null; chat: string | null; error: string | null; need: string | null; need_tpl: string | null }[]
     const items = rows.slice(0, limit).map((r): ScheduleRunItem => {
       let status: ScheduleRunItem['status']
       if (r.code === 'queued' || r.code === 'running') status = 'running'
@@ -351,7 +355,8 @@ export class Schedules {
       } else status = r.code as ScheduleRunItem['status']
       // a failed run's error as its chat showed it (chat/i18n.ts engineError, in the owner's language): one short line
       const error = status === 'error' && r.error ? (r.error.split('\n').find((l) => l.trim())?.trim().slice(0, 200) ?? null) : null
-      return { id: r.id, status, startedAt: r.at, endedAt: r.ended, chatId: r.chat, error, ...(r.need !== null ? { needName: r.need } : {}) }
+      return { id: r.id, status, startedAt: r.at, endedAt: r.ended, chatId: r.chat, error, ...(r.need !== null ? { needName: r.need } : {}),
+        ...(r.need_tpl && templateSignsIn(this.db, r.need_tpl) ? { needSignIn: true as const } : {}) }
     })
     const last = rows.length > limit ? items[items.length - 1] : undefined
     return { items, nextCursor: last ? `${last.startedAt}|${last.id}` : null }
@@ -380,9 +385,9 @@ export class Schedules {
   }
 
   /** lastOutcome 'needs_key': the template the last skipped run needed, by the name it had then. */
-  lastNeed(userId: string, id: string): { templateId: string; name: string } | null {
+  lastNeed(userId: string, id: string): { templateId: string; name: string; signIn?: true } | null {
     const r = this.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE schedule_id=? AND user_id=? ORDER BY created_at DESC LIMIT 1').get(id, userId) as { template_id: string; template_name: string } | null
-    return r ? { templateId: r.template_id, name: r.template_name } : null
+    return r ? { templateId: r.template_id, name: r.template_name, ...(templateSignsIn(this.db, r.template_id) ? { signIn: true as const } : {}) } : null
   }
 
   /** One pending occurrence per schedule. A retry never changes its original due key. */

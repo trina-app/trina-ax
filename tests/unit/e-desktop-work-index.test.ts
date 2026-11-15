@@ -4,7 +4,7 @@
 // no index; index hits only inside the folder, never through a link, recent, a document, the right size. Made-up text
 // and a made-up file system only: nothing of this computer is read.
 import { describe, expect, test } from 'bun:test'
-import { hostsOf, isRecent, macPath, mdfindArgs, mergeIndexed, parseMdfind, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, windowsSearchScript, type IndexedFile } from '../../desktop/src/common/work-index'
+import { hostsOf, isRecent, windowsLook, macPath, mdfindArgs, mergeIndexed, parseMdfind, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, windowsSearchScript, type IndexedFile } from '../../desktop/src/common/work-index'
 import { filesFromIndex, lookRoots, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
 
 const NOW = Date.UTC(2026, 10, 15, 12)
@@ -62,12 +62,30 @@ describe('Windows', () => {
     expect(s).toContain('Search.CollatorDSO')
     expect(s).toContain("System.DateModified >= ''2026-05-19")
     expect(s).toContain('ConvertTo-Json')
+    // Windows Search's SQL has no IN (0x80040E14 on a real PC): one comparison per type
+    expect(s).not.toContain(' IN (')
+    // a curly quote in a folder name is no SQL quote: doubled once for PowerShell only, so the SQL sees it once
+    expect(windowsSearchScript(['C:\\Users\\Alex\u2019s'], 180, NOW)).toContain("SCOPE=''file:C:/Users/Alex\u2019\u2019s''")
+    expect(s).toContain("(System.FileExtension = ''.pdf'' OR System.FileExtension = ''.doc'' OR")
+    // the index's UTC dates go as numbers: ConvertTo-Json took them as local time (9 h early in Seoul)
+    expect(s).toContain('SpecifyKind($v,[DateTimeKind]::Utc)).ToUnixTimeMilliseconds()')
+    expect(s).toContain('p=$r.Fields.Item(0).Value;m=(T $r.Fields.Item(1).Value);s=$r.Fields.Item(2).Value')
+    // recent by the last change only: the last access is never asked for (Windows sets it on any read)
+    expect(s).not.toContain('DateAccessed')
+    // as many columns as the fields read (p, m, s, au, co, fa: Item(0)–Item(5))
+    expect(s.match(/SELECT TOP 2000 (.*?) FROM/)![1]!.split(',')).toHaveLength(6)
+    expect(s).toContain('fa=$r.Fields.Item(5).Value}')
+    expect(s).not.toContain('Item(6)')
+    expect(s).toContain("AND System.DateModified >= ''2026-05-19")
   })
   test('its JSON: one row or many, dates as /Date()/ or text', () => {
     expect(parseWindowsSearch('{"p":"C:\\\\Users\\\\alex\\\\Documents\\\\Plan.docx","a":"/Date(1762992000000)/","m":"2026-11-01T10:00:00","s":2048,"au":["Alex"],"co":"Acme"}')).toEqual([
-      { path: 'C:\\Users\\alex\\Documents\\Plan.docx', used: 1762992000000, modified: Date.parse('2026-11-01T10:00:00'), useCount: null, size: 2048, origins: [], authors: ['Alex'], org: 'Acme' },
+      // an older script's last access ("a") is no "opened": Windows sets it on any read
+      { path: 'C:\\Users\\alex\\Documents\\Plan.docx', used: null, modified: Date.parse('2026-11-01T10:00:00'), useCount: null, size: 2048, origins: [], authors: ['Alex'], org: 'Acme' },
     ])
     expect(parseWindowsSearch('')).toEqual([])
+    // the script's dates: milliseconds since 1970, UTC (a number is taken as it is, never shifted by the time zone)
+    expect(parseWindowsSearch('[{"p":"C:\\\\a\\\\b.docx","a":1762992000000,"m":1762900000000}]').map((f) => [f.used, f.modified])).toEqual([[null, 1762900000000]])
     expect(parseWindowsSearch('not json')).toEqual([])
     expect(parseWindowsSearch('[{"p":"a"},{"x":1}]')).toHaveLength(1)
   })
@@ -217,13 +235,28 @@ describe('the look with the index', () => {
   })
 })
 
+describe('Windows: the index and the recent lists', () => {
+  const f = (path: string, o: Partial<IndexedFile> = {}): IndexedFile => ({ path, used: null, modified: null, useCount: null, size: null, origins: [], authors: [], org: null, ...o })
+  const lists = [f('C:\\Users\\a\\Notes\\Plan.docx', { used: 7, listed: true }), f('D:\\Clients\\Quote.xlsx', { used: 5, listed: true })]
+  test('the index did not answer: no index (the folders are walked), the Recent folder and Office\'s list still count', () => {
+    expect(windowsLook(null, lists)).toEqual({ index: null, recent: lists })
+    expect(windowsLook(null, [])).toEqual({ index: null, recent: [] })
+  })
+  test('the index answered: its rows and the lists merged, both for the folders and for the recent files', () => {
+    const w = windowsLook([f('c:\\users\\a\\notes\\plan.docx', { modified: 3, size: 2000 })], lists)
+    expect(w.index).toEqual([f('c:\\users\\a\\notes\\plan.docx', { used: 7, modified: 3, size: 2000, listed: true }), lists[1]])
+    expect(w.recent).toBe(w.index!)
+  })
+})
+
 describe('PowerShell', () => {
   test('quotes, the curly ones too, are doubled; the script goes encoded, never through a command line', async () => {
     const { psQuote, powershellArgs } = await import('../../desktop/src/common/work-index')
     expect(psQuote("O'Brien \u2019x\u2018")).toBe("O''Brien \u2019\u2019x\u2018\u2018")
     const a = powershellArgs("Write-Output 'a'")
     expect(a.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand'])
-    expect(Buffer.from(a[3]!, 'base64').toString('utf16le')).toBe("Write-Output 'a'")
+    // the output is UTF-8 whatever the console's code page (437 or 949 turned a Korean path into "?")
+    expect(Buffer.from(a[3]!, 'base64').toString('utf16le')).toBe("[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false;Write-Output 'a'")
     expect(windowsSearchScript(['C:\\Users\\a\\Documents'])).toContain('ORDER BY System.DateModified DESC')
   })
 })

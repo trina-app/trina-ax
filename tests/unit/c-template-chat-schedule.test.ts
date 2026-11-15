@@ -248,12 +248,22 @@ describe('R7: scheduled tasks need the owner\'s own key', () => {
     const listed = (await h.api('alice').call(API.listSchedules)).items.find((x) => x.id === s.id)!
     expect(listed.lastOutcome).toBe('needs_key')
     expect(listed.lastNeed).toEqual({ templateId: t.id, name: 'Roadmap' })
+    expect((await h.api('alice').call(API.listScheduleRuns, { params: { id: s.id } })).items.find((r) => r.status === 'needs_key')!.needSignIn).toBeUndefined()
     // no run, no chat: nobody's key was used for alice
     expect(h.ctx.db.query('SELECT count(*) n FROM turns WHERE schedule_id = ?').get(s.id)).toEqual({ n: 0 })
     notificationsOf(h.ctx).reconcile('alice')
     const inbox = (await h.api('alice').call(API.listNotifications, { query: { limit: 50 } })).items
     const n = inbox.find((x) => x.eventType === 'schedule.failure' && x.needsKey)
     expect(n).toMatchObject({ needsKey: { templateId: t.id, name: 'Roadmap' }, link: 'integrations', outcome: 'failed' })
+    // a key template: no sign-in mark; one members sign in to says so, so the Inbox does not ask for a key (QA TC-3052)
+    expect(n!.needsKey!.signIn).toBeUndefined()
+    h.ctx.db.query("UPDATE integration_templates SET auth = 'oauth' WHERE id = ?").run(t.id)
+    const signIn = (await h.api('alice').call(API.listNotifications, { query: { limit: 50 } })).items.find((x) => x.id === n!.id)
+    expect(signIn!.needsKey).toEqual({ templateId: t.id, name: 'Roadmap', signIn: true })
+    // the Scheduled page says the same: the task's last need and its run in the history (QA TC-3052)
+    expect((await h.api('alice').call(API.listSchedules)).items.find((x) => x.id === s.id)!.lastNeed).toEqual({ templateId: t.id, name: 'Roadmap', signIn: true })
+    expect((await h.api('alice').call(API.listScheduleRuns, { params: { id: s.id } })).items.find((r) => r.status === 'needs_key')).toMatchObject({ needName: 'Roadmap', needSignIn: true })
+    h.ctx.db.query("UPDATE integration_templates SET auth = 'bearer' WHERE id = ?").run(t.id)
     expect(JSON.stringify(inbox)).not.toContain(OTHER)
     // Run now says it as well
     const runNow = await h.req('alice', `/api/schedules/${s.id}/run`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
