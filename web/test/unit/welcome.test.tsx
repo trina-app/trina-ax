@@ -1284,6 +1284,8 @@ describe('the later steps and the end', () => {
         await n.click('welcome-done-make')
         // the form on 팀 스킬 (closing it stays there: Skills.tsx), nothing sent or run from here
         await n.until(() => at(n) === `/skills?run=${encodeURIComponent(path)}`, 'the skill form')
+        // closing the form goes Home (Skills.tsx closeRun reads state.back, PR #909), not Team skills
+        expect(JSON.parse(n.get('where').getAttribute('data-state')!)).toMatchObject({ back: '/' })
         expect(calls.filter((c) => /\/messages$|\/chats$/.test(c.key))).toEqual([])
       } finally { await n.unmount() }
       useWelcome.getState().reset()

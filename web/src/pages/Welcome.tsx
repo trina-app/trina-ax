@@ -171,15 +171,15 @@ function WelcomeSteps() {
   /** The steps are over (finished, or the end screen's 홈으로 or its skill): `to`. On a phone the steps' entries go, so
    * Back from there goes to where they were opened from, never through the steps (which would show and record them
    * again): back to that page when `to` is it, else back to the first step's entry and `to` in its place. */
-  const exit = (to: string) => {
-    if (!phoneNow()) return navigate(to)
+  const exit = (to: string, state?: unknown) => {
+    if (!phoneNow()) return navigate(to, { state })
     const { trail, first } = stepsInTrail()
     const from = trail[first - 1]
-    if (from && sameScreen(from.p, to)) return navigate(to)
+    if (from && sameScreen(from.p, to)) return navigate(to, { state })
     leaving.current = true
     const top = trail[first]
     if (top) navigate(top.p)
-    navigate(to, { replace: true })
+    navigate(to, { replace: true, state })
   }
 
   const open = async () => {
@@ -773,7 +773,7 @@ const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
  * Under it, the steps put off (QA TC-206), each with 지금 하기: the step opens here and, answered, comes back to this
  * screen. Put off still counts as answered (the setup is finished), as W6 decided.
  */
-function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void; onExit: (to: string) => void }) {
+function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void; onExit: (to: string, state?: unknown) => void }) {
   const t = useT()
   const phone = useMediaQuery(PHONE_QUERY)
   const own = inviteSkill(progress)
@@ -800,6 +800,9 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
   }, [own, title])
   // out of the steps (on a phone their entries go: Back from where this leads never walks them again)
   const home = () => onExit('/')
+  // a skill's form from here closes back to Home (Skills.tsx closeRun reads `state.back`, PR #909), never stranding the
+  // owner on Team skills; the end screen shows once, so Home is where they would go next
+  const runSkill = (path: string) => onExit(skillRunLink(path), { back: '/' })
   // the steps put off (still counted as answered, docs/DECISIONS.md "W6"): named, each with a way back now (QA TC-206)
   const later = countedSteps(progress, aiReady).filter((s) => s !== 'ai' && progress.steps[s] === 'skipped' && offeredHere(s, computer))
   const tryOwn = aiReady && !!own
@@ -811,11 +814,11 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
         {!aiReady ? (
           <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />
         ) : tryOwn ? (
-          <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => onExit(skillRunLink(own))} data-testid="welcome-done-try">
+          <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => runSkill(own)} data-testid="welcome-done-try">
             {t('welcome.done.try', { skill: title ?? '' })}
           </Button>
         ) : make ? (
-          <Button variant="primary" className="max-sm:w-full" onClick={() => onExit(skillRunLink(kept.path))} data-testid="welcome-done-make" data-skill={kept.path}>
+          <Button variant="primary" className="max-sm:w-full" onClick={() => runSkill(kept.path)} data-testid="welcome-done-make" data-skill={kept.path}>
             {kept.verb ? t(kept.verb) : t('welcome.done.write', { skill: kept.title })}
           </Button>
         ) : kept === undefined ? (
