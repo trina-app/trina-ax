@@ -133,6 +133,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
+  const guestHere = isGuestMe(me)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -610,7 +611,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
           {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
-          <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
+          {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
+          {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
           {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer

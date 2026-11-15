@@ -27367,6 +27367,41 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
   and skills/.
 
+## The AI tells a guest the truth — 게스트에게 맞는 AI 안내 (fix/guest-prompt-truth, 2026-11-15, the owner's report)
+
+Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: the screens".
+
+- **Ask:** a guest asked "hello can I connect apps?" and the AI described the team drive, "Admin > Plugins", the desktop
+  app's browser, and told them to ask a team admin. Cause: a guest's turn already had only the guest tools
+  (`chat/guest-tools.ts`), but its instructions (`chat/prompt.ts`) were a member's: "working in the team's shared drive",
+  the team folders (shared/, groups/, skills/), the "Where you run" text about the team drive and the Files screen, the
+  web/phone browser line ("the desktop app has a browser"), "an admin can check" for a missing file, and the tool
+  descriptions themselves (make_file: "an admin can turn on the Hangul plugin (Admin > Plugins)", a template "under
+  skills/"; list: "the team drive").
+- **A guest section** (`guestSection`, in the instructions and a resumed session's turn context): the user is a guest
+  from outside the team; their places by name (a list, so a guest in one group chat and one project reads right); what
+  they can do (the project's files and their own folder; in a group chat, talk with the people there); what a guest
+  cannot do (other parts of the team, connecting apps, skills, Admin, inviting, making rooms or projects, web, browser);
+  for those and anything else, ask the person who invited them (by name), never a team admin, and where a tool result
+  says to ask an admin, say the inviter instead. Place and inviter names are cut to one line without `<>`.
+- **Left out of a guest's turn:** the team folder lines, the company profile, team rules, the team skill list, the
+  connected-services text, both browser sections, source links to /files/view (not a guest's page) and the member
+  wording of the trash and placement rules; the "Where you run" text has a guest version. In a shared project chat the
+  "not available here" line names only what sharing takes away. A guest's turn loads no `/skill`, skill hints or skill
+  changes (a project's own skills included). Tool descriptions go through `guestToolDescription`: exact rewrites of the
+  member-only parts (the Hangul plugin sentence, a template under skills/, "the team drive"), then any sentence still
+  about Admin, plugins, connect_service, the desktop app or save_url is left out (fails closed); a test checks that what
+  each tool does survives. The `list` tool now says "the team files" for everyone. The trash rule tells a guest they
+  cannot get their own folder's files back (they have no trash screen; the project's people can restore project files).
+- **A guest's room side chat:** a guest's turn has no room tools, so the side-panel section says the AI sees only what
+  the person writes, pastes, attaches or quotes, and asks them to quote or paste (a room file: attach it). The panel
+  shows a guest no "Looking at <room>" line, no Catch up / Anything for me / Summarize starters and no quick asks about a
+  quoted file; its empty line says to quote or paste a message. A guest gets no "Save as skill" on answers and no
+  result suggestion under them (the server refuses that endpoint to guests).
+- **Not changed:** what a guest may do. Room reading for a guest's side chat stays off (phase 1 left it out on
+  purpose); whether a guest's AI may read their own room is the owner's call.
+- Version impact: **patch**.
+
 ## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
 
 Builds on "Guests: only what they were invited to" and "Claude 구독 연결: 브라우저에서".

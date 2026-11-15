@@ -32,7 +32,7 @@
 // here (`frame`), or by the room page around this (frame={false}). `closeX`: the ✕ at every width, never the phone's ‹
 // (the file viewer's sheet on a phone, which closes back to the file).
 import { GuestNoAi, useGuestNoAi } from '../GuestView'
-import { meGuest } from '../../lib/guests'
+import { isGuestMe, meGuest } from '../../lib/guests'
 import AiAccessBanner from '../chat/AiAccessBanner'
 import { useAiAccess } from '../../store/aiAccess'
 import { ArrowUp, ChevronLeft, CirclePause, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
@@ -234,6 +234,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const guestNoAi = useGuestNoAi()
   // a guest with their own sign-in not made yet: the line above the box offers it (Connect my AI), as Home's box does
   const guestOwn = meGuest(me)?.ai === 'own'
+  // a guest's AI cannot read the room (server chat/guest-tools.ts: no room tools), so nothing here says or asks it to:
+  // no "Looking at <room>" line, no room starters, no quick asks about a room file
+  const guest = isGuestMe(me)
   // and until it is made (ai-access answers usable), no starters or quick asks: nothing would answer them, so the
   // "Connect my AI" line is the one thing to do here
   const guestWaits = useAiAccess((s) => guestOwn && !(s.loaded && s.usable))
@@ -504,7 +507,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
   const name = aiName(t)
   // what the box asks: the answer to the AI's question, or about the file or message quoted, or about the room
-  const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })
+  const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t(guest ? 'sideChat.placeholderGuest' : 'sideChat.placeholder', { name })
 
   const body = (
     // files dropped anywhere on the panel go with the next question (the overlay over the panel shows the drop)
@@ -562,12 +565,14 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             <div className="flex flex-col items-center gap-3 py-10 text-center" data-testid="side-chat-empty">
               <AiFace size={40} />
               {/* what Trina reads here: this room, as I see it (Slackbot's "함께 확인하는 중") */}
-              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-xs text-muted" data-testid="side-chat-context">
-                <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
-              </span>
-              <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
+              {!guest && (
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-xs text-muted" data-testid="side-chat-context">
+                  <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
+                </span>
+              )}
+              <p className="max-w-[280px] text-sm text-muted">{t(guest ? 'sideChat.emptyGuest' : 'sideChat.empty', { name })}</p>
               {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
-              {!quoted && !guestNoAi && !guestWaits && (
+              {!quoted && !guestNoAi && !guestWaits && !guest && (
                 <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
                   {chip && (
                     <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(chip === 'forms' ? 'roomApps.askForms' : 'roomApps.askToday'))}
@@ -631,7 +636,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                     {t('roomApps.chipThread')}
                   </button>
                 )}
-                {(quoted.file ? QUICK_FILE : QUICK_MESSAGE).map((k) => (
+                {(quoted.file ? (guest ? [] : QUICK_FILE) : QUICK_MESSAGE).map((k) => (
                   <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(SIDE_CHAT_QUICK[k].ask[locale])}
                     className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
                     {SIDE_CHAT_QUICK[k].label[locale]}
