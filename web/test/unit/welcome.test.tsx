@@ -476,6 +476,8 @@ describe('where the steps go', () => {
     const words = (computer: boolean) => setupRowWords((k, prm) => translate('en', k, prm), off, true, computer).text
     expect(words(true)).toBe('Still to do: Team files · Tools')
     expect(words(false)).toBe('Still to do: Team files')
+    const many = { ...off, steps: { ...off.steps, profile: 'skipped', skills: 'skipped' } } as WelcomeProgress
+    expect(setupRowWords((k, prm) => translate('en', k, prm), many, true, true).text).toBe('Still to do: About the company +3')
     // only 도구 연결 left: nothing on a phone
     const toolsOnly = { ...off, steps: { ...off.steps, files: 'done' } } as WelcomeProgress
     expect(at('/c/abc', true, false, toolsOnly)).toBe('hidden')
