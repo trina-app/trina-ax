@@ -3,7 +3,9 @@
 // DM (POST /api/rooms, the existing one when there is one); two or more: a new group chat of me and them, with an
 // optional name that shows only then. The same list invites people into a group chat (mode invite: the people in it
 // are left out), and a DM's "초대하기" opens it with the other person ticked (a new group chat; the DM stays). A
-// bottom sheet on phones (Modal), the action in its footer.
+// bottom sheet on phones (Modal), the action in its footer. Its first row is "Invite a guest" for everyone but a guest:
+// in a group chat's add list for that chat, in "New conversation" it picks the group chat or project first
+// (components/GuestInviteChoice.tsx GuestInviteFlow; docs/DECISIONS.md "Guests from Invite people").
 import clsx from 'clsx'
 import { Check, Hash, Search } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -19,6 +21,7 @@ import { Avatar } from '../Avatar'
 import { ListRow } from '../list/List'
 import { Button, ErrorNote, inputCls, Modal, Skeleton } from '../ui'
 import { elsewhereText, GuestInviteDialog, guestElsewhere, InviteGuestRow, MakeMemberButton, OnePlaceNote, onePlaceOf } from '../GuestInvite'
+import { GuestInviteFlow } from '../GuestInviteChoice'
 import { GuestTagFor } from '../GuestTag'
 import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
@@ -89,6 +92,8 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // a guest picked here is in another place already (409 guest_one_place): said under their row (or over the list)
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   const mayInviteGuest = !!room && room.kind === 'group' && !isGuestMe(me)
+  // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
+  const mayInviteGuestAnywhere = !inviting && !isGuestMe(me)
   const roomTitle = useRoomTitle()
 
   // who may be picked: active people (the directory has no one else), never me, never someone already in the room
@@ -143,6 +148,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
     }
   }
   if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
+  if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
   const group = !inviting && picked.length >= 2
   const action = inviting ? t('rooms.picker.invite') : group ? t('rooms.picker.createGroup') : t('rooms.picker.start')
@@ -174,9 +180,9 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
         </label>
       </div>
-      {mayInviteGuest && (
+      {(mayInviteGuest || mayInviteGuestAnywhere) && (
         <ul className="-mx-5 border-b border-line px-2 py-1 max-sm:-mx-4 max-sm:px-1" data-testid="picker-guest">
-          <InviteGuestRow place="room" onOpen={() => setGuestInvite(true)} />
+          <InviteGuestRow place={mayInviteGuest ? 'room' : 'any'} onOpen={() => setGuestInvite(true)} />
         </ul>
       )}
       {onePlace && !(onePlace.guestId && people?.some((p) => p.id === onePlace.guestId)) && <OnePlaceNote admin={isAdmin(me)} className="pt-3" />}

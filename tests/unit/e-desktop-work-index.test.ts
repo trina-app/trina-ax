@@ -62,12 +62,22 @@ describe('Windows', () => {
     expect(s).toContain('Search.CollatorDSO')
     expect(s).toContain("System.DateModified >= ''2026-05-19")
     expect(s).toContain('ConvertTo-Json')
+    // Windows Search's SQL has no IN (0x80040E14 on a real PC): one comparison per type
+    expect(s).not.toContain(' IN (')
+    // a curly quote in a folder name is no SQL quote: doubled once for PowerShell only, so the SQL sees it once
+    expect(windowsSearchScript(['C:\\Users\\Alex\u2019s'], 180, NOW)).toContain("SCOPE=''file:C:/Users/Alex\u2019\u2019s''")
+    expect(s).toContain("(System.FileExtension = ''.pdf'' OR System.FileExtension = ''.doc'' OR")
+    // the index's UTC dates go as numbers: ConvertTo-Json took them as local time (9 h early in Seoul)
+    expect(s).toContain('SpecifyKind($v,[DateTimeKind]::Utc)).ToUnixTimeMilliseconds()')
+    expect(s).toContain('a=(T $r.Fields.Item(1).Value);m=(T $r.Fields.Item(2).Value)')
   })
   test('its JSON: one row or many, dates as /Date()/ or text', () => {
     expect(parseWindowsSearch('{"p":"C:\\\\Users\\\\alex\\\\Documents\\\\Plan.docx","a":"/Date(1762992000000)/","m":"2026-11-01T10:00:00","s":2048,"au":["Alex"],"co":"Acme"}')).toEqual([
       { path: 'C:\\Users\\alex\\Documents\\Plan.docx', used: 1762992000000, modified: Date.parse('2026-11-01T10:00:00'), useCount: null, size: 2048, origins: [], authors: ['Alex'], org: 'Acme' },
     ])
     expect(parseWindowsSearch('')).toEqual([])
+    // the script's dates: milliseconds since 1970, UTC (a number is taken as it is, never shifted by the time zone)
+    expect(parseWindowsSearch('[{"p":"C:\\\\a\\\\b.docx","a":1762992000000,"m":1762900000000}]').map((f) => [f.used, f.modified])).toEqual([[1762992000000, 1762900000000]])
     expect(parseWindowsSearch('not json')).toEqual([])
     expect(parseWindowsSearch('[{"p":"a"},{"x":1}]')).toHaveLength(1)
   })
@@ -223,7 +233,8 @@ describe('PowerShell', () => {
     expect(psQuote("O'Brien \u2019x\u2018")).toBe("O''Brien \u2019\u2019x\u2018\u2018")
     const a = powershellArgs("Write-Output 'a'")
     expect(a.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand'])
-    expect(Buffer.from(a[3]!, 'base64').toString('utf16le')).toBe("Write-Output 'a'")
+    // the output is UTF-8 whatever the console's code page (437 or 949 turned a Korean path into "?")
+    expect(Buffer.from(a[3]!, 'base64').toString('utf16le')).toBe("[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false;Write-Output 'a'")
     expect(windowsSearchScript(['C:\\Users\\a\\Documents'])).toContain('ORDER BY System.DateModified DESC')
   })
 })
