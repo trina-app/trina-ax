@@ -34,15 +34,15 @@ describe('Add names the ticked files to the app before any is read (TC-3300)', (
     const asked: string[][] = []
     const bridge = (state: 'added' | 'refused') => ({ version: WORK_FILES_BRIDGE_VERSION, add: async (ids: string[]) => { asked.push(ids); return { state } } }) as unknown as Parameters<typeof confirmAdd>[0]
     // a and c ticked (b ticked, then unticked)
-    expect(await confirmAdd(bridge('added'), [docs[0]!, docs[2]!])).toBe(true)
+    expect(await confirmAdd(bridge('added'), [docs[0]!, docs[2]!])).toBe('added')
     expect(asked).toEqual([['id-a.pdf', 'id-c.pdf']])
-    expect(await confirmAdd(bridge('refused'), [docs[0]!])).toBe(false)
+    expect(await confirmAdd(bridge('refused'), [docs[0]!])).toBe('refused')
     // a file not of the look (no id) is never sent
-    expect(await confirmAdd(bridge('added'), [{ ...docs[0]!, workId: undefined }])).toBe(false)
-    expect(await confirmAdd(bridge('added'), [])).toBe(false)
+    expect(await confirmAdd(bridge('added'), [{ ...docs[0]!, workId: undefined }])).toBe('refused')
+    expect(await confirmAdd(bridge('added'), [])).toBe('refused')
   })
   test('an app of version 1 has no add: the old way', async () => {
-    expect(await confirmAdd({ version: 1 } as unknown as Parameters<typeof confirmAdd>[0], [docs[0]!])).toBe(true)
+    expect(await confirmAdd({ version: 1 } as unknown as Parameters<typeof confirmAdd>[0], [docs[0]!])).toBe('added')
   })
 })
 

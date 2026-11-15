@@ -238,9 +238,16 @@ describe('reads only what the person added, right as they press Add (TC-3300)', 
     expect(win).not.toMatch(/appInputAt = Date\.now\(\)[^\n]*ipc/)
   })
   test('a remembered yes skips the window only with the person\'s press just now; Not now remembers nothing', () => {
-    expect(ctl).toContain('const remembered = !!key && covered(memory[key], keys, Date.now()) && Date.now() - this.o.lastInput() <= PERSON_INPUT_MS')
+    expect(ctl).toContain('const pressed = Date.now() - this.o.lastInput() <= PERSON_INPUT_MS')
+    expect(ctl.indexOf('const pressed =')).toBeLessThan(ctl.indexOf('await this.fullDisk()'))
+    expect(ctl).toContain('const remembered = !!key && covered(memory[key], keys, Date.now()) && pressed')
     expect(ctl).toContain('const yes = remembered || (await this.consent(win, roots, wide ? places : null))')
     expect(ctl).toContain('if (yes && !remembered && key && generation === this.generation)')
+  })
+  test('the strip shows during every read of an added file (never quiet while one runs); another team\'s press never counts', () => {
+    expect(ctl).toMatch(/if \(!this\.sessions\.isAdded\(origin, id\)\) return this\.sessions\.read\(origin, id\)\n\s*this\.inFlight\+\+\n\s*this\.tellReading\(true\)/)
+    expect(ctl).toContain('this.o.reading(this.inFlight || this.stripOn ? Math.max(this.pending.size, this.inFlight, 1) : 0)')
+    expect(win).toMatch(/this\.app = app\n[^\n]*\n\s*this\.appInputAt = 0/)
   })
   test('the reading strip is the app\'s own (the host strip\'s view), never the page\'s', () => {
     expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')

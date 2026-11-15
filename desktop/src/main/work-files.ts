@@ -130,6 +130,8 @@ export class WorkFilesController {
     const win = this.o.win()
     if (!win || win.isDestroyed() || !workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
     if (this.busy || Date.now() < this.quietUntil) return { state: 'busy' }
+    // the person's own press just before the page asked (taken now: Full Disk Access and the places take a moment)
+    const pressed = Date.now() - this.o.lastInput() <= PERSON_INPUT_MS
     this.busy = true
     this.stopped = false
     const generation = this.generation
@@ -144,7 +146,7 @@ export class WorkFilesController {
       const keys = placeKeys(roots, wide ? places : null)
       const key = this.personId ? memoryKey(origin, this.personId) : null
       const memory = key ? this.o.memory.load() : {}
-      const remembered = !!key && covered(memory[key], keys, Date.now()) && Date.now() - this.o.lastInput() <= PERSON_INPUT_MS
+      const remembered = !!key && covered(memory[key], keys, Date.now()) && pressed
       const yes = remembered || (await this.consent(win, roots, wide ? places : null))
       // remembered only after a yes in the window ("Not now" keeps nothing), for the person signed in when it was asked
       if (yes && !remembered && key && generation === this.generation) {
@@ -163,6 +165,8 @@ export class WorkFilesController {
       const r = wide ? await this.lookWide(roots, places, generation) : await this.look(roots, generation)
       if (generation !== this.generation) return { state: 'cancelled' }
       this.sessions.begin(origin, r.found)
+      this.pending.clear()
+      this.tellReading()
       return { state: 'done', stopped: r.stopped, roots: r.roots, files: r.files }
     } finally {
       this.busy = false
@@ -320,18 +324,23 @@ export class WorkFilesController {
     if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS) return { state: 'refused' }
     if (!this.sessions.toAdd(origin, ids) || !this.sessions.allow(origin, ids)) return { state: 'refused' }
     for (const id of ids) this.pending.add(id)
-    this.tellReading()
+    this.tellReading(true)
     return { state: 'added' }
   }
 
-  /** the files added and not read yet: the strip "Trina is reading N files from this computer" while there are any */
+  /** The strip "Trina is reading N files from this computer": files added and not read yet, and every read of an added
+   * file while it runs (a read late or again shows it again; it never stays hidden while one runs). It hides itself
+   * after a while with no read; a new look or another person clears what is waiting. */
   private pending = new Set<string>()
+  private inFlight = 0
+  private stripOn = false
   private readingIdle?: NodeJS.Timeout
-  private tellReading() {
+  private tellReading(active = false) {
+    if (active) this.stripOn = true
     clearTimeout(this.readingIdle)
-    // a page that adds and never reads: the strip goes after a while without a read
-    if (this.pending.size) this.readingIdle = setTimeout(() => { this.pending.clear(); this.tellReading() }, READING_IDLE_MS)
-    this.o.reading(this.pending.size)
+    if (this.stripOn && !this.inFlight) this.readingIdle = setTimeout(() => { this.stripOn = false; this.tellReading() }, READING_IDLE_MS)
+    if (!this.pending.size && !this.inFlight) this.stripOn = false
+    this.o.reading(this.inFlight || this.stripOn ? Math.max(this.pending.size, this.inFlight, 1) : 0)
   }
 
   stop() {
@@ -340,11 +349,16 @@ export class WorkFilesController {
 
   async read(origin: string, id: string): Promise<WorkFileRead> {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return { ok: false, reason: 'unknown' }
-    if (this.pending.has(id)) this.tellReading()
+    // only an added file is ever read (WorkFileSessions); each such read shows the strip while it runs
+    if (!this.sessions.isAdded(origin, id)) return this.sessions.read(origin, id)
+    this.inFlight++
+    this.tellReading(true)
     try {
       return await this.sessions.read(origin, id)
     } finally {
-      if (this.pending.delete(id)) this.tellReading()
+      this.inFlight--
+      this.pending.delete(id)
+      this.tellReading(true)
     }
   }
 

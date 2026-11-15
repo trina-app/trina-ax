@@ -4979,6 +4979,7 @@ export const en: Record<MessageKey, string> = {
   "files.findWork.byAi": "Picked by your team's AI from file names",
   "files.findWork.byNames": "Sorted by file names",
   "files.findWork.bytes": "Up to 1 GB at a time · Untick some files",
+  "files.findWork.addRefused": "The app didn't take these files. Press Add again, or look again if this list is over an hour old.",
   "files.findWork.add": "Add {n, plural, one {# file} other {# files}}",
   "files.findWork.addNone": "Add files",
   "files.findWork.entry": "Find work files on this computer",

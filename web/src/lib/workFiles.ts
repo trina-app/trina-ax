@@ -26,13 +26,14 @@ export function workFilesBridge(bridge: DesktopBridge | null): WorkFilesBridge |
   return w.version === 1 ? w : null
 }
 
-/** The ticked files, asked once more in the desktop app's own window (version 2) before any is read: true when the person
- * said Add there. An app of version 1 has no such window (true). Files that are not of the look (no id) are refused. */
-export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<boolean> {
-  if (typeof bridge.add !== 'function') return true
+/** The ticked files named to the desktop app (version 2) as the person presses Add, before any is read: the app takes
+ * them only right after the person's own press and reads nothing else. 'refused' (the list is over an hour old, the
+ * press did not reach it in time) asks for Add again or a new look. An app of version 1 has no such step ('added'). */
+export async function confirmAdd(bridge: WorkFilesBridge, docs: readonly LocalDoc[]): Promise<'added' | 'refused'> {
+  if (typeof bridge.add !== 'function') return 'added'
   const ids = docs.map((d) => d.workId)
-  if (!ids.length || ids.some((id) => !id)) return false
-  return (await bridge.add(ids as string[]).catch(() => ({ state: 'cancelled' as const }))).state === 'added'
+  if (!ids.length || ids.some((id) => !id)) return 'refused'
+  return (await bridge.add(ids as string[]).catch(() => ({ state: 'refused' as const }))).state === 'added' ? 'added' : 'refused'
 }
 
 /** The folder in My files the files go to (shared/src/folder-labels.ts: its name on disk, said in the person's words). */

@@ -527,6 +527,8 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    // a press on another team's page never counts for this one (Find work files: WorkFilesController.add)
+    this.appInputAt = 0
     this.watchKeys(app, false)
     // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
     attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })

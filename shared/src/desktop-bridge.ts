@@ -86,7 +86,7 @@ export interface DesktopBrowserSettings {
 export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 
 /** The version of DesktopBridge.workFiles this page knows. A desktop app with another (or none) gets no entry.
- * 2 (TC-3300): add(ids) first, in the app's own window; read(id) then gives only the files added. A page of version 1
+ * 2 (TC-3300): add(ids) first, as the person presses Add; read(id) then gives only the files added. A page of version 1
  * does not know add(), so an app of version 2 offers it nothing (its reads would all be refused); this page still
  * takes an app of version 1 (no add(): its reads are not limited to the files added). */
 export const WORK_FILES_BRIDGE_VERSION = 2
@@ -160,10 +160,10 @@ export type WorkFileScan =
  * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable. */
 export type WorkFileRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
 
-/** add(): added (the person said Add in the app's own window; these files can be read now) · cancelled (they did not) ·
- * busy (a window or a look is under way) · refused (an id not of this page's latest look, named twice, the look over an
- * hour old, or over 100 files or 1 GB with what was added before) · unavailable. */
-export type WorkFileAdd = { state: 'added' | 'cancelled' | 'busy' | 'refused' | 'unavailable' }
+/** add(): added (these files can be read now) · refused (no key or mouse press of the person's on the page in the 2 s
+ * before, an id not of this page's latest look, named twice, the look over an hour old, or over 100 files or 1 GB with
+ * what was added before) · unavailable. No window: the app takes it as the person's Add. */
+export type WorkFileAdd = { state: 'added' | 'refused' | 'unavailable' }
 
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
@@ -261,8 +261,8 @@ export interface DesktopBridge {
    * "Find work files on this computer" (docs/DECISIONS.md "Find work files on this computer"). The page never names a
    * path: scan() first shows the app's own dialog (no web page draws it) and looks through Documents, Desktop and
    * Downloads only after the person agrees there; the look runs in the app (names, sizes and dates; links never
-   * followed) and gives back a list with an opaque id per file. add(ids) asks the person again, in the app's own window,
-   * for the files they ticked; read(id) gives one such file's bytes, only for the latest look of this page, within an
+   * followed) and gives back a list with an opaque id per file. add(ids) names the files the person ticked, as they
+   * press Add (taken only right after a real press of theirs on the page); read(id) gives one such file's bytes, only for the latest look of this page, within an
    * hour, at most 100 files and 1 GB. Optional: the Mac App Store build and desktop
    * apps before this addition do not have it; a page checks `version` against WORK_FILES_BRIDGE_VERSION.
    */
@@ -291,9 +291,9 @@ export interface DesktopBridge {
      * (opened at it), which counts as their permission, and the app looks at it now. The latest look's ids stay
      * readable and the new ones are added to it. 'cancelled' when the window was closed. Optional (older apps). */
     pickRoot?(root: WorkFolderId): Promise<WorkFileScan>
-    /** version 2: the files the person ticked, before any of them is read. The app lists them by name in its own window
-     * (no web page draws or answers it); only after the person's Add there does read() give their bytes, and never a
-     * file not added. Absent in version 1. */
+    /** version 2: the files the person ticked, named as they press Add, before any of them is read. The app takes it only
+     * within 2 s of the person's own key or mouse press on the page (no window); read() then gives these files' bytes and
+     * never a file not added. Absent in version 1. */
     add?(ids: string[]): Promise<WorkFileAdd>
     /** the bytes of a file added (version 2; version 1: any file of the look) */
     read(id: string): Promise<WorkFileRead>

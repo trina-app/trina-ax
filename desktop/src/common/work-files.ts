@@ -576,7 +576,7 @@ interface Session {
   bytes: number
   /** reads in all, a file read again included */
   reads: number
-  /** the files the person said Add to in the app's own window (WorkFilesController.add): only these are read */
+  /** the files the page named at the person's Add (WorkFilesController.add): only these are read */
   added: Set<string>
 }
 
@@ -603,7 +603,7 @@ export class WorkFileSessions {
     this.sessions.set(origin, { origin, at: this.now(), found, read: new Set(), bytes: 0, reads: 0, added: new Set() })
   }
 
-  /** The files these ids name in this origin's latest look, for the app's Add window: null when the look is gone or
+  /** The files these ids name in this origin's latest look, before they are added: null when the look is gone or
    * expired, an id is not of it, an id is named twice, or they are over the read limits (files, bytes) all together. */
   toAdd(origin: string, ids: readonly string[]): { name: string; size: number }[] | null {
     const s = this.sessions.get(origin)
@@ -617,7 +617,13 @@ export class WorkFileSessions {
     return files.map((f) => ({ name: f!.parts.at(-1) ?? '', size: f!.size }))
   }
 
-  /** The person said Add to these files in the app's own window: they (and nothing else of the look) may be read now. */
+  /** An id of this origin's latest look that was added. */
+  isAdded(origin: string, id: string): boolean {
+    return !!this.sessions.get(origin)?.added.has(id)
+  }
+
+  /** The page named these files at the person's Add (WorkFilesController.add): they (and nothing else of the look) may be
+   * read now. */
   allow(origin: string, ids: readonly string[]): boolean {
     const s = this.sessions.get(origin)
     if (!s || this.now() - s.at > this.lim.sessionMs || ids.some((id) => !s.found.has(id))) return false

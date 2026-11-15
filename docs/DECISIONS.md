@@ -29197,16 +29197,20 @@ was built first and dropped before it shipped: the owner, "창 좀 그만 띄워
   page within 2 s. A new place (Full Disk Access turned on, a new cloud drive or messenger folder) or 90 days ask again;
   Not now remembers nothing; another person on the same computer is asked for themselves.
 - **"Trina is reading N files from this computer"** while added files are read: the app's own strip above the team page
-  (the host strip's view, `hostbar.ts`; the team address there wins on sign-in pages), no click, gone when the reads
-  are done or after 15 s without one.
+  (the host strip's view, `hostbar.ts`; the team address there wins on sign-in pages), no click. It shows from the
+  add, and again during every read of an added file however late; it hides when nothing is waiting or after 15 s with
+  no read running. When the app does not take an add (the press did not reach it in time, the list is over an hour
+  old), the list says so under the Add button (`files.findWork.addRefused`) instead of doing nothing.
 - **What this does not stop (residual risk, said plainly).** The 2 s check proves that a person is at the team page, not
   which files they chose: the main process cannot see which element was clicked. A team page that runs a hostile script
   (a compromised team server, an injected script) can wait for any real click or key press (typing a chat message is
   enough) and within 2 s name any ids of the latest look: up to 100 files and 1 GB of its places, within the hour after
   the look. And once a yes is remembered, such a page can start a look without the window, again only right after a real
   press of the person's. What it does stop: reads and looks with nobody at the page (a background or overnight script),
-  ids never named at an add, ids of another origin, look or person, and anything over the limits. The strip makes
-  reads visible while they happen.
+  ids never named at an add, ids of another origin, look or person, and anything over the limits. The strip shows
+  every read of an added file while it runs (security review: it no longer goes quiet after 15 s). Known limit: a
+  VoiceOver or Voice Control "press" sends no key or mouse event, so Add is refused there (the line under Add says so);
+  a keyboard Enter or Space works.
 - Version: an app of version 2 offers nothing to a page of version 1 (whose reads would all be refused); a page of version
   2 still takes an app of version 1 (no add: the old behaviour), so a newer page works with an older app.
 - Tests: `tests/unit/e-desktop-work-files.test.ts` (only added files are read; ticked then unticked; ids of another
