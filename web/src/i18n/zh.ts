@@ -4757,7 +4757,7 @@ export const zh: Record<MessageKey, string> = {
   "welcome.skills.bringLead": "如果你使用 Claude Code 或 Codex，也可以添加你自己的技能",
   "welcome.skills.installed": "{n, plural, one {已将#个技能添加到团队} other {已将#个技能添加到团队}}",
   "welcome.skills.put": "添加{names}",
-  "welcome.skills.putN": "添加 {n} 个技能",
+  "welcome.skills.putN": "添加 {n, plural, one {# 个} other {# 个}}技能",
   "welcome.skills.allIn": "{product}准备的所有技能都已在你的团队中。",
   "skillShare.page.toSetup": "返回设置",
   "skillShare.target": "共享给",

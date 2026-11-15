@@ -4777,7 +4777,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.skills.bringLead": "Claude CodeやCodexを使っている方は、使っていたスキルも一緒に追加できます",
   "welcome.skills.installed": "{n, plural, one {スキルを#個チームに追加しました} other {スキルを#個チームに追加しました}}",
   "welcome.skills.put": "{names}を追加",
-  "welcome.skills.putN": "スキルを{n}個追加",
+  "welcome.skills.putN": "スキルを{n, plural, one {#個} other {#個}}追加",
   "welcome.skills.allIn": "{product}が用意したスキルはすべてチームに入っています。",
   "skillShare.page.toSetup": "設定に戻る",
   "skillShare.target": "共有先",
