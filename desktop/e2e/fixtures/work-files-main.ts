@@ -52,7 +52,7 @@ void (async () => {
   let inputAt = 0
   let memory: ConsentMemory = {}
   const reading: number[] = []
-  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p), consent, lastInput: () => inputAt, memory: { load: () => memory, save: (m) => { memory = m } }, reading: (n) => reading.push(n) })
+  const ctl = new WorkFilesController({ win: () => win, locale: () => 'en', progress: (p) => progress.push(p), consent, lastInput: () => inputAt, assistive: () => app.accessibilitySupportEnabled, memory: { load: () => memory, save: (m) => { memory = m } }, reading: (n) => reading.push(n) })
   ctl.person({ signedIn: true, userId: 'u-alex' })
   const out: Record<string, unknown> = {}
 
@@ -75,12 +75,33 @@ void (async () => {
   }
   // TC-3300: nothing is read before the page adds it, right after the person's own press; then only what was added
   out.beforeAdd = await text(TEAM, id('Quote template.xlsx'))
-  out.addNoPress = ctl.add(TEAM, [id('Quote template.xlsx')]).state
+  out.addNoPress = (await ctl.add(TEAM, [id('Quote template.xlsx')])).state
   inputAt = Date.now()
-  out.added = ctl.add(TEAM, [id('Quote template.xlsx'), id('proposal.pdf'), id('notes.txt')]).state
-  out.addOtherOrigin = ctl.add(OTHER, [id('Quote template.xlsx')]).state
+  out.added = (await ctl.add(TEAM, [id('Quote template.xlsx'), id('proposal.pdf'), id('notes.txt')])).state
+  out.addOtherOrigin = (await ctl.add(OTHER, [id('Quote template.xlsx')])).state
   out.read = await text(TEAM, id('Quote template.xlsx'))
   out.notAdded = await text(TEAM, r.files.find((f) => f.root === 'downloads')!.id)
+
+  // VoiceOver / Voice Control (assistive technology on, forced here): their "press" makes no key or mouse event. Then,
+  // and only then, the app's own window lists the files; No adds nothing, Add adds them
+  const dl = r.files.find((f) => f.root === 'downloads')!.id
+  inputAt = 0
+  out.a11yOff = (await ctl.add(TEAM, [dl])).state
+  app.setAccessibilitySupportEnabled(true)
+  out.a11yOn = app.accessibilitySupportEnabled
+  // one window at a time, never right after another (3 s after any answer, the look's included)
+  await new Promise((r) => setTimeout(r, 3100))
+  answer = false
+  out.a11yNo = (await ctl.add(TEAM, [dl])).state
+  out.a11yNoRead = await text(TEAM, dl)
+  out.a11yAtOnce = (await ctl.add(TEAM, [dl])).state
+  await new Promise((r) => setTimeout(r, 3100))
+  answer = true
+  out.a11yYes = (await ctl.add(TEAM, [dl])).state
+  out.a11yWindow = { kind: asked.at(-1)?.kind, places: asked.at(-1)?.places.map((p) => p.name), yes: asked.at(-1)?.yes }
+  const yesRead = await ctl.read(TEAM, dl)
+  out.a11yYesRead = yesRead.ok
+  app.setAccessibilitySupportEnabled(false)
   out.foreignId = await text(TEAM, 'AAAAAAAAAAAAAAAA')
   out.pathAsId = await text(TEAM, join(home, '.aws', 'credentials'))
   out.otherOrigin = await text(OTHER, id('Quote template.xlsx'))

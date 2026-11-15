@@ -27,11 +27,11 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { companyMatch, confirmAdd, docsFromScan, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { companyMatch, confirmAdd, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, isRecentDoc, lookWords, offersWide, overBytes, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { useMe, useMeStrict } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { startFolderUpload, stopFolderUpload } from '../FolderUploads'
@@ -113,18 +113,45 @@ export interface FindWorkFilesProps {
   phone?: boolean
 }
 
+/** While the app says whether it has Full Disk Access (the same line as the screen's own check) */
+function AccessChecking() {
+  const t = useT()
+  return <p className="flex items-center gap-2 text-sm text-muted" role="status" data-testid="find-work-access" data-screen="checking"><Loader2 size={14} className="animate-spin" aria-hidden /> {t('files.findWork.access.checking')}</p>
+}
+
 /** The steps; "Look again" (every folder kept out, after the person let the app in) starts them over with a new look.
  * Part 5: a Mac app that offers the wide look shows the Full Disk Access screen first when the app has none (its
  * "Not now" is the three folders with macOS's question for each); Windows looks wide at once. */
 export function FindWorkFiles(props: FindWorkFilesProps) {
+  // whose "Not now" (none before sign-in: nothing remembered)
+  const uid = useMe()?.user.id ?? ''
   const [round, setRound] = useState(0)
   const wide = offersWide(props.bridge)
-  const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : props.bridge.fullDisk ? null : { wide: true }))
-  if (!mode) return <FullDiskAccess bridge={props.bridge} onGo={(w) => setMode({ wide: w })} phone={props.phone} />
-  return <FindWorkFilesRound key={round} {...props} mode={mode} onAgain={() => setRound((n) => n + 1)} />
+  const fd = wide ? props.bridge.fullDisk : undefined
+  // "Not now" on that screen within 30 days (this team, this person): straight to the three folders, unless the app has
+  // Full Disk Access by now (asked first; nothing shows meanwhile)
+  const [later, setLater] = useState(() => !!fd && !!uid && fullDiskLater(uid))
+  const [mode, setMode] = useState<Mode | null>(() => (!wide ? { wide: false } : fd ? null : { wide: true }))
+  // the person was not known yet at the first render: their Not now counts as soon as they are
+  useEffect(() => { if (!mode && fd && uid && !later && fullDiskLater(uid)) setLater(true) }, [uid])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!later || mode || !fd) return
+    let live = true
+    fd.state().then((x) => { if (live) setMode({ wide: x === 'granted' }) }, () => { if (live) setMode({ wide: false }) })
+    // an app that does not answer: the three folders after a moment
+    const slow = setTimeout(() => { if (live) setMode({ wide: false }) }, 3000)
+    return () => { live = false; clearTimeout(slow) }
+  }, [later, mode, fd])
+  if (!mode) {
+    if (later) return <AccessChecking />
+    return <FullDiskAccess bridge={props.bridge} onGo={(w) => { if (!w && uid) setFullDiskLater(uid, true); setMode({ wide: w }) }} phone={props.phone} />
+  }
+  // the list's quiet "Look in more places (Full Disk Access)": the screen again, the "Not now" forgotten
+  const morePlaces = fd && !mode.wide ? () => { if (uid) setFullDiskLater(uid, false); setLater(false); setMode(null); setRound((n) => n + 1) } : undefined
+  return <FindWorkFilesRound key={round} {...props} mode={mode} onAgain={() => setRound((n) => n + 1)} onMorePlaces={morePlaces} />
 }
 
-function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, mode, phone = false }: FindWorkFilesProps & { onAgain: () => void; mode: Mode }) {
+function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, onMorePlaces, mode, phone = false }: FindWorkFilesProps & { onAgain: () => void; onMorePlaces?: () => void; mode: Mode }) {
   const t = useT()
   const locale = useLocale()
   const ids = useId()
@@ -150,7 +177,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     setRefused(false)
     const r = await confirmAdd(bridge, picked).finally(() => setAdding(false))
     if (r === 'added') onAdd(picked)
-    else setRefused(true)
+    else if (r === 'refused') setRefused(true)
   }
   const [q, setQ] = useState('')
   const [openPersonal, setOpenPersonal] = useState(false)
@@ -370,6 +397,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         <h2 className="text-display font-semibold text-ink" data-testid="find-work-title">{title}</h2>
         <p className="text-sm text-balance text-muted">{audience === 'me' ? t('files.findWork.descMe', { place: placeName }) : t('files.findWork.descTeam', { place: placeName })}</p>
         {!work.length && <p className="text-sm text-muted" data-testid="find-work-search-hint">{t('files.findWork.searchHint', { n: docs.length })}</p>}
+        {onMorePlaces && <button type="button" className={clsx(quietLink, 'text-label')} onClick={onMorePlaces} data-testid="find-work-more-places">{t('files.findWork.morePlaces')}</button>}
       </div>
       {lines}
       <TickSearch value={q} onChange={setQ} placeholder={t('welcome.teamFiles.search')} pad="px-0" testId="find-work-search" />

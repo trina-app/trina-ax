@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test'
 import { WORK_FILES_BRIDGE_VERSION, folderLabel, FROM_COMPUTER_DIR, type DesktopBridge, type WorkFileMeta, type WorkFileRead } from '@mycel/shared'
 import { FolderUpload, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { personalPath } from '../../src/lib/teamFiles'
-import { confirmAdd, docsFromScan, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
+import { confirmAdd, docsFromScan, FULL_DISK_LATER_MS, fullDiskLater, setFullDiskLater, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
 import { folderWords } from '../../src/lib/folderLabels'
 
 const meta = (name: string, o: Partial<WorkFileMeta> = {}): WorkFileMeta => ({ id: `id-${name}`, root: 'documents', folder: '', name, ext: name.split('.').pop()!, size: 10, modified: Date.UTC(2026, 9, 3, 12), ...o })
@@ -337,5 +337,24 @@ describe('part 5: places beyond the three folders', () => {
     expect(offersWide(base)).toBe(false)
     expect(offersWide({ ...base, wide: WORK_FILES_WIDE_VERSION })).toBe(true)
     expect(offersWide({ ...base, wide: WORK_FILES_WIDE_VERSION + 1 })).toBe(false)
+  })
+})
+
+describe('Not now on the Full Disk Access screen, for 30 days (this team, this person)', () => {
+  const store = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) }, removeItem: (k: string) => { m.delete(k) } } }
+  test('kept for 30 days, per person; forgotten by the link; nonsense or a future time counts as not said', () => {
+    const s = store()
+    const now = Date.UTC(2026, 10, 15)
+    expect(fullDiskLater('u-bob', now, s)).toBe(false)
+    setFullDiskLater('u-bob', true, now, s)
+    expect(fullDiskLater('u-bob', now + 1000, s)).toBe(true)
+    expect(fullDiskLater('u-alex', now + 1000, s)).toBe(false)
+    expect(fullDiskLater('u-bob', now + FULL_DISK_LATER_MS, s)).toBe(false)
+    expect(fullDiskLater('u-bob', now - 1, s)).toBe(false)
+    setFullDiskLater('u-bob', false, now, s)
+    expect(fullDiskLater('u-bob', now + 1000, s)).toBe(false)
+    s.setItem('mycel.findWork.fullDiskLater:u-bob', 'soon')
+    expect(fullDiskLater('u-bob', now, s)).toBe(false)
+    expect(fullDiskLater('u-bob', now, null)).toBe(false)
   })
 })

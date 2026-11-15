@@ -29543,3 +29543,36 @@ was built first and dropped before it shipped: the owner, "창 좀 그만 띄워
   files read, the strip counted down, the second look without the window), `web/test/unit/work-files.test.ts`
   (`confirmAdd`, versions), `web/test/e2e/find-work-files.spec.ts` (the fake app enforces it; ticked then unticked is
   never named). Version impact: **minor** (bridge version 2).
+
+## Find work files: Not now kept 30 days; VoiceOver and Voice Control get the Add window (feat/work-files-later-a11y, 2026-11-15, product owner)
+
+Two follow-ups to "asked once, reads only what is added":
+
+- **"Not now" on the Full Disk Access screen is kept 30 days** for this team (the page's own storage, per origin) and this
+  person (`mycel.findWork.fullDiskLater:<user id>`, `web/src/lib/workFiles.ts fullDiskLater`). The next looks go straight
+  to the three folders (the app is asked first whether it has Full Disk Access by now: then the wide look, no screen),
+  with a quiet link in the list's header, "Look in more places (Full Disk Access)", which forgets the Not now and shows
+  the screen again. A private window or blocked storage remembers nothing (the screen comes as before).
+- **Assistive technology is not locked out.** A VoiceOver or Voice Control "press" makes no key or mouse event, so the
+  2 s rule refused their Add. Now, when an add comes with no press and Electron's `app.accessibilitySupportEnabled` is on
+  (macOS turns it on for VoiceOver, Voice Control and other assistive apps; a screen reader on Windows), and only then,
+  the main process asks in the consent window's style: "Add N files from this computer?" with the files by name (8
+  shown, "and N more files"), Cancel / Add N files, the same 800 ms gate and one answer (`addView`,
+  `WorkFilesController.askAdd`). Cancel adds nothing (the page says nothing: the person chose it). Everyone else keeps
+  the way with no window. One window at a time, never right after another: 3 s after any answer, a minute after two
+  Cancels in a row (security review: a page asking again in a loop). VoiceOver reads the files' names with the
+  question (the list is part of the window's description).
+- **What this path does not stop (said plainly, security review).** A page cannot turn assistive support on itself,
+  but Chromium turns it on when any app on the computer reads the window's accessibility tree, not only a screen
+  reader: on a Mac, Grammarly, window managers (Rectangle, Magnet), text expanders, launchers and some password managers
+  do; on Windows, any automation client. It then stays on until the app restarts. On such a computer an add with no
+  press is asked in this window instead of refused: a hostile page can make the window come (at most once every 3 s,
+  once a minute after two Cancels), and files are read only after the person's Add there. Only the forced setting was
+  tested on this Mac; that VoiceOver and Voice Control turn it on is Chromium's documented behaviour, checked by hand in
+  QA (TC-3401).
+- Tests: `desktop/e2e/work-files.spec.ts` (real Electron, `app.setAccessibilitySupportEnabled(true)` forced: refused with
+  it off; with it on the window lists the file, No adds nothing and reads nothing, Add adds it and it reads),
+  `tests/unit/e-desktop-work-consent.test.ts` (`addView`, the fallback only after the press check and only with
+  `assistive()`), `web/test/unit/work-files.test.ts` (30 days, per person, forgotten by the link, nonsense stored),
+  `web/test/e2e/find-work-files-wide.spec.ts` (Not now, then the next open goes straight to the three folders; the
+  link brings the screen back; granted by then: wide). Version impact: **patch**.

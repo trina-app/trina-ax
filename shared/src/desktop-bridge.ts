@@ -165,8 +165,9 @@ export type WorkFileRead = { ok: true; bytes: Uint8Array } | { ok: false; reason
 
 /** add(): added (these files can be read now) · refused (no key or mouse press of the person's on the page in the 2 s
  * before, an id not of this page's latest look, named twice, the look over an hour old, or over 100 files or 1 GB with
- * what was added before) · unavailable. No window: the app takes it as the person's Add. */
-export type WorkFileAdd = { state: 'added' | 'refused' | 'unavailable' }
+ * what was added before) · cancelled (assistive technology on and no press: the app asked in its own window and the
+ * person said no) · unavailable. No window otherwise: the app takes it as the person's Add. */
+export type WorkFileAdd = { state: 'added' | 'refused' | 'cancelled' | 'unavailable' }
 
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'

@@ -927,7 +927,7 @@ body.driving .driving-bar {
   stroke-linejoin: round;
   stroke-linecap: round;
 }
-.consent-mark .ic path:last-child {
+.consent-mark .ic-mark path:last-child {
   fill: currentColor;
   stroke: none;
 }
@@ -993,6 +993,12 @@ body.driving .driving-bar {
   color: var(--faint);
   font-size: 13px;
   line-height: 18px;
+}
+.consent-more {
+  margin: -8px 0 16px;
+  padding-left: 14px;
+  color: var(--faint);
+  font-size: 13px;
 }
 .consent-promises {
   list-style: none;

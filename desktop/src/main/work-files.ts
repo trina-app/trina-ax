@@ -9,7 +9,7 @@ import { posix, win32 } from 'node:path'
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { app, dialog, shell, type BaseWindow } from 'electron'
-import { consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
+import { addView, consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import type { ConsentAsk } from './work-consent-window'
 import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
@@ -38,6 +38,8 @@ export const MAC_FILES_SETTINGS = 'x-apple.systempreferences:com.apple.preferenc
 const COOLDOWN_MS = 3000
 /** The reading strip goes when no added file has been read for this long */
 const READING_IDLE_MS = 15_000
+/** After two Cancels in a row in the Add window, the next one waits this long */
+const ADD_NO_QUIET_MS = 60_000
 
 const kindOf = (d: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): WorkStat['kind'] =>
   d.isSymbolicLink() ? 'link' : d.isFile() ? 'file' : d.isDirectory() ? 'dir' : 'other'
@@ -123,6 +125,9 @@ export class WorkFilesController {
       lastInput: () => number
       /** the yeses remembered per team and person (a file in the app's data) */
       memory: { load(): ConsentMemory; save(m: ConsentMemory): void }
+      /** assistive technology is on (Electron's app.accessibilitySupportEnabled: VoiceOver, Voice Control, a screen
+       * reader): an add without a key or mouse press is asked in the app's own window instead of refused */
+      assistive: () => boolean
       /** the strip above the team page: files added and being read (0: none, the strip goes) */
       reading: (n: number) => void
     },
@@ -340,14 +345,48 @@ export class WorkFilesController {
    * input events, which no page script can make), only for ids of this origin's latest look, each once, within the read
    * limits. Only files added this way are read (WorkFileSessions.read refuses every other id). This proves a person is
    * there, not which files they chose: docs/DECISIONS.md "Find work files: asked once, reads only what is added". */
-  add(origin: string, ids: string[]): WorkFileAdd {
+  async add(origin: string, ids: string[]): Promise<WorkFileAdd> {
     if (!workFilesVersion({ platform: process.platform, mas: process.mas })) return { state: 'unavailable' }
-    if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS) return { state: 'refused' }
-    if (!this.sessions.toAdd(origin, ids) || !this.sessions.allow(origin, ids)) return { state: 'refused' }
+    if (!this.sessions.toAdd(origin, ids)) return { state: 'refused' }
+    if (Date.now() - this.o.lastInput() > PERSON_INPUT_MS) {
+      // VoiceOver, Voice Control and other assistive technology "press" with no key or mouse event: only then, the
+      // app's own window lists the files and asks (everyone else keeps the way without a window)
+      if (!this.o.assistive()) return { state: 'refused' }
+      const asked = await this.askAdd(origin, ids)
+      if (asked !== 'added') return { state: asked }
+    } else if (!this.sessions.allow(origin, ids)) return { state: 'refused' }
     for (const id of ids) this.pending.add(id)
     this.tellReading(true)
     return { state: 'added' }
   }
+
+  /** The Add window (assistive technology only): one at a time, the consent window's rules (shown, then a yes counts). */
+  private async askAdd(origin: string, ids: string[]): Promise<'added' | 'cancelled' | 'refused'> {
+    const win = this.o.win()
+    const files = this.sessions.toAdd(origin, ids)
+    if (!win || win.isDestroyed() || !files) return 'refused'
+    // never one window right after another (a page asking in a loop after Cancel): 3 s after any answer, a minute after
+    // two Cancels in a row (security review)
+    if (this.busy || Date.now() < this.quietUntil) return 'refused'
+    this.busy = true
+    const generation = this.generation
+    let ask: ConsentAsk | null = null
+    try {
+      ask = this.o.consent(win, addView(this.o.locale(), files))
+      this.asking = ask
+      const yes = (await ask.result) === true && !win.isDestroyed()
+      this.addNos = yes ? 0 : this.addNos + 1
+      this.quietUntil = Date.now() + (this.addNos >= 2 ? ADD_NO_QUIET_MS : COOLDOWN_MS)
+      if (!yes || generation !== this.generation) return 'cancelled'
+      return this.sessions.allow(origin, ids) ? 'added' : 'refused'
+    } finally {
+      if (ask && this.asking === ask) this.asking = null
+      this.busy = false
+    }
+  }
+
+  /** Cancels in a row in the Add window (two: the next waits a minute) */
+  private addNos = 0
 
   /** The strip "Trina is reading N files from this computer": files added and not read yet, and every read of an added
    * file while it runs (a read late or again shows it again; it never stays hidden while one runs). It hides itself
