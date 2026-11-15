@@ -190,7 +190,7 @@ function settlePutOff(ctx: AppContext, p: WelcomeProgress): WelcomeProgress {
       const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null
       if (owner && readCompanyProfile(ctx.files, ctx.files.principal(owner.id))) done.push('profile')
     }
-    if (p.steps.invite === 'skipped' && ctx.db.query("SELECT 1 FROM users WHERE role IN ('admin', 'member') AND deleted_at IS NULL LIMIT 1").get()) done.push('invite')
+    if (p.steps.invite === 'skipped' && ctx.db.query("SELECT 1 FROM users WHERE role IN ('admin', 'member') AND guest = 0 AND deleted_at IS NULL LIMIT 1").get()) done.push('invite')
     if (p.steps.tools === 'skipped' && ctx.db.query("SELECT 1 FROM integrations WHERE status = 'connected' LIMIT 1").get()) done.push('tools')
     if (!done.length) return p
     const s = stored(ctx)
