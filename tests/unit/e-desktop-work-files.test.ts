@@ -300,6 +300,26 @@ describe('reading a listed file afterwards', () => {
     expect(reads.filter((x) => x.ok).length).toBe(6)
   })
 
+  test('a read on a drive that stops answering gives up, gives its place back, and the next read goes', async () => {
+    const { f, sessions, id } = await looked({}, { readFiles: 1, readMs: 50 })
+    const open = f.fs.open
+    f.fs.open = (p) => (p.endsWith('b.pdf') ? new Promise(() => {}) : open(p))
+    const [stuck, next] = await Promise.all([sessions.read(TEAM, id('b.pdf')), sessions.read(TEAM, id('c.pdf'))])
+    expect(stuck).toEqual({ ok: false, reason: 'unreadable' })
+    expect(next.ok).toBe(true)
+  })
+
+  test('the documents\' lstat stops at the time left and at Stop (a slow drive): the folder is cut', async () => {
+    const docs: Record<string, Node> = {}
+    for (let i = 0; i < 40; i++) docs[`d${i}.pdf`] = file()
+    const f = fakeFs(home({ Documents: dir(docs), Desktop: dir(), Downloads: dir() }))
+    let clock = 0
+    const fs: WorkFs = { ...f.fs, lstat: async (p) => { clock += 100; return f.fs.lstat(p) } }
+    const r = await scanRoots(ROOTS, fs, opts({ now: () => clock, limits: { rootMs: 1000 } }))
+    expect(r.roots[0]!.cut).toBe(true)
+    expect(r.files.filter((x) => x.root === 'documents').length).toBe(16)
+  })
+
   test('a failed read gives its place back; on Windows a file system with no identity is refused', async () => {
     const { f, sessions, id } = await looked({}, { readFiles: 1 })
     const docs = f.at('/Users/alex/Documents', true) as { children: Record<string, Node> }

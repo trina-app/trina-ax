@@ -28387,7 +28387,8 @@ part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/sr
   other (Documents, then Desktop, then Downloads: the first read of each raises its question, which the read waits for).
   It reads entries with `opendir` (entry by entry, so a folder of millions stops at the entry limit) and `lstat` only: a
   symbolic link or junction is never entered or listed. Each call gets the time left for the folder (at least 1 s), so a
-  network folder or an offline share that never answers ends that folder's look (`cut`) instead of the whole look; a
+  network folder or an offline share that never answers ends that folder's look (`cut`) instead of the whole look (the
+  documents' lstat too, batch by batch, which also stops at Stop); a
   folder's first read may wait 2 minutes for macOS's question, then it is `unreadable`.
   Windows marks every reparse point as a link in a listing (OneDrive's online-only files too), so there `lstat` decides
   (libuv's lstat reports only real links and junctions as links). The same rules as the page's own walk
@@ -28406,7 +28407,8 @@ part 2. Placement: Team AX core (`desktop/src/common/work-files.ts`, `desktop/sr
   an older look, of another origin, made up or a path is `unknown`. For an hour (`expired` after), at most 100 files and
   1 GB per look (`limit`; the same file read again counts once, and reads in all stop at 300). The count is taken before
   a read starts and given back when it fails, and reads run one at a time, so reads sent at once can neither pass the
-  limits nor hold more than one file (50 MB) in memory (review MUST: they could). A read finds the file again under the
+  limits nor hold more than one file (50 MB) in memory (review MUST: they could). A read that gets no answer in 60 s (a
+  drive that stopped answering) is `unreadable`, so the reads behind it go on. A read finds the file again under the
   real path of its folder, checks that its real path is that same path (a folder on the way swapped for a link is
   refused), lstats it, opens it with O_NOFOLLOW, and checks the open file's identity, size and date against the look
   (`changed`). Windows has no O_NOFOLLOW, so there the identity (device and file number) is what tells a link's target

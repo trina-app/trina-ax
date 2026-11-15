@@ -80,6 +80,8 @@ function within<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 /** A folder's first read may wait for macOS's question to the person: this long at most, then the folder is unreadable. */
 export const FIRST_READ_MS = 120_000
+/** A read of one file (at most 50 MB) gives up after this long: the next read waits behind it. */
+export const READ_MS = 60_000
 /** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
 const CALL_MIN_MS = 1000
 
@@ -207,8 +209,17 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         docs++
       }
       for (let i = 0; i < files.length; i += 16) {
+        // Stop and the time count between batches too (a folder of thousands of documents on a slow drive)
+        if (o.stopped?.()) { out.stopped = true; end = true; break }
+        if (left() <= 0) { r.cut = true; end = true; break }
         const batch = files.slice(i, i + 16)
-        const stats = await Promise.all(batch.map((f) => inTime(fs.lstat(join(p, real, ...f.parts))).catch(() => null)))
+        let late = false
+        const stats = await Promise.all(batch.map((f) => inTime(fs.lstat(join(p, real, ...f.parts))).catch((e: unknown) => {
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') late = true
+          return null
+        })))
+        // a drive that stops answering ends this folder's look (cut), as a folder that does not answer does
+        if (late) { r.cut = true; end = true }
         batch.forEach((f, j) => {
           const st = stats[j]
           if (!st || st.kind !== 'file') return
@@ -221,6 +232,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           out.found.set(id, { root: real, parts: f.parts, size: st.size, mtimeMs: st.mtimeMs, dev: st.dev, ino: st.ino })
           out.files.push({ id, root: root.id, folder: dir.parts.map((x) => x.normalize('NFC')).join('/'), name: f.name, ext: fileExt(f.name), size: st.size, modified: Math.round(st.mtimeMs) })
         })
+        if (end) break
       }
     }
     spent += now() - start
@@ -254,7 +266,7 @@ export class WorkFileSessions {
     private readonly fs: WorkFs,
     private readonly platform: string,
     private readonly now: () => number = () => Date.now(),
-    private readonly limits: Partial<Record<'readFiles' | 'readBytes' | 'sessionMs', number>> = {},
+    private readonly limits: Partial<Record<'readFiles' | 'readBytes' | 'sessionMs' | 'readMs', number>> = {},
   ) {}
 
   private get lim() {
@@ -292,7 +304,8 @@ export class WorkFileSessions {
       s.read.add(id)
       s.bytes += f.size
     }
-    const r = await this.readFile(f).catch((): WorkFileRead => ({ ok: false, reason: 'unreadable' }))
+    // a file on a drive that stops answering gives up after READ_MS, so the reads behind it are not held forever
+    const r = await within(this.readFile(f), this.limits.readMs ?? READ_MS).catch((): WorkFileRead => ({ ok: false, reason: 'unreadable' }))
     // a session that changed while this read (a new look, a sign-out) gives nothing
     if (this.sessions.get(origin) !== s) return { ok: false, reason: 'unknown' }
     if (!r.ok && !again) {
