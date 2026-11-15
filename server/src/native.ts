@@ -55,6 +55,26 @@ export async function startLauncher(bin: string, o: { listen: string; agentRoot:
   return p
 }
 
+/** Office own-login (TC-358): the Mac's real Claude refresh token, kept by the launcher's Claude login broker
+ * (native/cmd/mycel-launcher/keychain.go), for the proxy's refresh terminator. */
+export function launcherHeldLogin(sock: string) {
+  const op = (req: Record<string, unknown>) => new Promise<Record<string, unknown> | null>((res) => {
+    connectUnix(sock, (c) => {
+      let b = ''
+      c.setEncoding('utf8')
+      c.setTimeout(15_000, () => c.destroy())
+      c.on('connect', () => c.write(JSON.stringify(req) + '\n'))
+      c.on('data', (d: string) => { b += d; if (b.includes('\n')) c.end() })
+      c.on('close', () => { try { res(JSON.parse(b.split('\n')[0]!)) } catch { res(null) } })
+      c.on('error', () => res(null))
+    })
+  })
+  return {
+    async refreshToken() { const r = await op({ op: 'claude-refresh-token' }); return r?.ev === 'refresh-token' && typeof r.value === 'string' ? r.value : null },
+    async rotated(t: { accessToken?: string; refreshToken: string; expiresAt?: number }) { const r = await op({ op: 'claude-refresh-rotated', ...t }); return r?.ev === 'ok' },
+  }
+}
+
 /** The boundary between the server and whatever runs engines as the engine account. */
 export interface Launcher {
   launch(req: LaunchRequest): LaunchHandle
