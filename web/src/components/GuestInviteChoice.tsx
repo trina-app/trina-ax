@@ -15,7 +15,10 @@
 //   - group chats I am in (the rooms list holds only rooms I am in, not archived; a group chat is its people's
 //     conversation, so an admin who is not in it cannot let a guest in);
 //   - team projects whose members I may change (Project.membersEditable on the manage=1 list, not in the trash): the
-//     projects whose members dialog shows "Invite a guest" (the creator, the owner and admins).
+//     projects whose members dialog shows "Invite a guest" (the creator, the owner and admins);
+//   - my own personal projects, when I may share them (as the project page's "Add people": the owner and admins, or
+//     members when the team lets them): the invite form shares one first, then makes the link (docs/DECISIONS.md
+//     "Guests into a personal project"). Such a row says "Only me".
 // A search box once there are more than a few; group chats first, then projects; a row picks the place.
 import { FolderKanban, MessagesSquare } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -27,6 +30,7 @@ import { Button, ErrorNote, Modal, Skeleton, TabPanel, Tabs } from './ui'
 import { isAdmin, useMe } from '../store/session'
 import { readManagedList, useProjects } from '../store/projects'
 import { useRooms } from '../store/rooms'
+import type { Project } from '@mycel/shared/api'
 import { matches, SearchBox } from '../pages/admin/common'
 
 export type InviteKind = 'member' | 'guest'
@@ -97,6 +101,15 @@ export function GuestChoiceForm({ choice, onDone }: { choice: GuestChoice; onDon
   return <GuestInviteDialog place={choice.place} onClose={onDone} onCancel={choice.back} onFull={choice.refused} />
 }
 
+/** One of my personal projects that I may share (the project page's "Add people", pages/Projects.tsx: a folder in my
+ * own users/<me>/, not my whole folder, the owner and admins or members when the team lets them make team projects):
+ * a guest place once shared. */
+export function mayShareForGuest(p: Pick<Project, 'folderPath'>, me: ReturnType<typeof useMe>): boolean {
+  if (!me) return false
+  const segs = p.folderPath.split('/')
+  return segs[0] === 'users' && segs[1] === me.user.id && segs.length >= 3 && (isAdmin(me) || me.team.projectCreators === 'members')
+}
+
 /** more places than this: a search box above them */
 const SEARCH_FROM = 6
 
@@ -123,7 +136,8 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
   }
   const groupChats = useMemo(() => rooms.filter((r) => r.kind === 'group').map((r) => ({ id: r.id, name: roomTitle(r), count: r.memberCount })), [rooms, roomTitle])
   // no count for a project: who sees it (Project.audience) is not who is in it, as a group chat's count is
-  const projects = useMemo(() => (managed ?? []).filter((p) => p.membersEditable && !p.inTrash).map((p) => ({ id: p.id, name: p.name })), [managed])
+  const me = useMe()
+  const projects = useMemo(() => (managed ?? []).filter((p) => !p.inTrash && (p.membersEditable || mayShareForGuest(p, me))).map((p) => ({ id: p.id, name: p.name, personal: mayShareForGuest(p, me) })), [managed, me])
   const needle = q.trim().toLocaleLowerCase(locale)
   const shownRooms = groupChats.filter((r) => matches(needle, locale, r.name))
   const shownProjects = projects.filter((p) => matches(needle, locale, p.name))
@@ -156,7 +170,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
               <p className={label}>{t('projects.title')}</p>
               <ul data-testid="guest-place-projects">
                 {shownProjects.map((p) => (
-                  <ListRow key={p.id} face icon={<FolderKanban />} name={p.name} onClick={() => onPick({ kind: 'project', id: p.id, name: p.name })} testId="guest-place-project" />
+                  <ListRow key={p.id} face icon={<FolderKanban />} name={p.name} meta={p.personal ? t('projects.members.onlyMe') : undefined} onClick={() => onPick({ kind: 'project', id: p.id, name: p.name, ...(p.personal ? { personal: true as const } : {}) })} testId="guest-place-project" />
                 ))}
               </ul>
             </>

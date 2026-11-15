@@ -22,13 +22,17 @@ import { useLocale, useT } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { isAdmin, useMe } from '../store/session'
 import { usePeople, usePeopleList } from '../store/people'
-import { Button, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
+import { Button, confirmDialog, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
+import { projectSkillsOn } from '../lib/bulkFiles'
+import { aiName } from '../lib/tabs'
+import { useProjects } from '../store/projects'
 import { toast } from '../store/ui'
 import { ListRow } from './list/List'
 import { LocalLinkNote } from './LocalLinkNote'
 import { absoluteUrl } from './handover/LeadInvite'
 
-export interface InvitePlace { kind: PlaceKind; id: string; name: string }
+/** `personal`: one of my personal projects (GuestInviteChoice.tsx mayShareForGuest), shared before the link is made. */
+export interface InvitePlace { kind: PlaceKind; id: string; name: string; personal?: true }
 
 /** The row of an "Add people" list that opens the dialog (a ListRow, face box, like the room info's 초대하기). `any`: the
  * "New conversation" list's, which picks the place first (GuestInviteChoice.tsx GuestInviteFlow). */
@@ -225,11 +229,38 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
   // answer has none: lib/api.ts storeSafeError)
   const [refusedFull, setRefusedFull] = useState<{ n: number; manageUrl?: string } | null>(null)
   const full = refusedFull ?? guestsFullOf(limit)
+  // one of my personal projects: shared first, with nobody else yet, as its page's "Add people" does (POST
+  // /api/projects/:id/share: a team project in projects/<name> that still only I see, so it stays in My projects until
+  // the guest joins; docs/DECISIONS.md "Guests into a personal project"). Once only: a Create link refused after it
+  // (the plan filled up meanwhile) makes the link alone on the next try
+  const [personal, setPersonal] = useState(!!place.personal)
+  const share = async (skillsOk = false): Promise<boolean> => {
+    try {
+      const r = await api.call(API.shareProject, { params: { id: place.id }, body: { participants: [], ...(skillsOk ? { skillsOk } : {}) } })
+      if ('id' in r) useProjects.getState().put(r)
+      setPersonal(false)
+      return true
+    } catch (e) {
+      // shared meanwhile (another tab, its page's Add people): a team project already, so the link is all that is left
+      if (isApiError(e, 'validation') && e.body.fields?.['params.id'] === 'not a personal project') {
+        setPersonal(false)
+        return true
+      }
+      // its skills/ holds skills: they switch on in this project's chats once I say yes (as the page's share asks)
+      const skills = projectSkillsOn(e)
+      if (skills && !skillsOk) {
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('guest.invite.create') })) return share(true)
+        return false
+      }
+      throw e
+    }
+  }
   const create = async () => {
     if (busy || !aiChoiceReady(ai) || full) return
     setBusy(true)
     setError(null)
     try {
+      if (personal && !(await share())) return
       const r = await api.call(API.createGuestInvite, { body: { place: { kind: place.kind, id: place.id }, ai, ...(name.trim() ? { name: name.trim() } : {}) } })
       setUrl(absoluteUrl(r.url))
       setExpiresAt(r.invite.expiresAt)
@@ -281,6 +312,7 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
           <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-where">
             {t(place.kind === 'room' ? 'guest.invite.whereRoom' : 'guest.invite.whereProject', { place: place.name })}
           </p>
+          {personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="guest-invite-personal">{t('guest.invite.personalProject')} {t('projects.shareConfirmFinal')}</p>}
           <Field label={t('guest.invite.name')}>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={t('guest.invite.namePlaceholder')} className={inputCls} data-testid="guest-invite-name" />
           </Field>
