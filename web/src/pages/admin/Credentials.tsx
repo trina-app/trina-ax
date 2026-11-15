@@ -649,8 +649,12 @@ function LoginBusy({ b, admin, stopping, onStop }: { b: LoginBusyParams; admin: 
     : admin && b.starter !== undefined ? t('credentials.loginBusy', { name: b.starter, kind: t(b.personal ? 'credentials.loginBusyPersonal' : 'credentials.loginBusyTeam') })
     : t('credentials.loginBusyMember')
   const canStop = !!b.loginId && (b.mine || (admin && b.starter !== undefined))
+  // on a phone the personal dialog is taller than the screen: the line appears under the fold, behind the button row,
+  // and the person only saw the connect button turn off (QA TC-2581 at 390). Bring it into view when it appears.
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => { box.current?.scrollIntoView?.({ block: 'nearest' }) }, [])
   return (
-    <div role="status" className="space-y-2 rounded-lg bg-subtle p-3 text-sm leading-6 break-keep" data-testid="login-busy">
+    <div ref={box} role="status" className="space-y-2 rounded-lg bg-subtle p-3 text-sm leading-6 break-keep" data-testid="login-busy">
       <p className="text-ink">{text}{!b.mine && wait ? <> <span data-testid="login-busy-left">{wait}</span></> : null}</p>
       {canStop && (
         <Button size="sm" variant="secondary" busy={stopping} onClick={onStop} data-testid="login-busy-stop">{t(b.mine ? 'credentials.loginStopRestart' : 'credentials.loginStop')}</Button>
