@@ -162,6 +162,9 @@ test('a message the server refuses says why under it (a used-up usage limit), wi
   await expect(failed).toContainText('보내지 못했어요.')
   await expect(failed).toContainText('오늘 AI 사용 한도를 다 썼어요')
   await expect(failed.getByRole('button', { name: '다시 보내기' })).toBeVisible()
+  // a used-up limit is a known state, told calmly: a status line, never an alert (QA TC-2491)
+  await expect(failed).toHaveAttribute('data-limit', 'true')
+  await expect(failed).toHaveAttribute('role', 'status')
 })
 
 test('the forced password screen lets someone at a shared desk leave for another account', async ({ page }) => {

@@ -28341,3 +28341,16 @@ it makes are the hosted speech keys.
   engine, and "다른 AI로 대신 답하기".
 - Version impact: **minor** (an endpoint, a tenant command and visible lines removed).
 
+
+## Guest states, hands-on QA round 1 (fix/guest-states-qa-s1, 2026-11-15, QA TC-2189–2206, 2491)
+
+넣을 곳: Team AX core (`server/src/auth/guests.ts`, `web/src/pages/admin/Guests.tsx`, `web/src/components/chat/Composer.tsx`, `Messages.tsx`), 이유: guests and the AI limit are core.
+
+QA on a private copy of QA-Acme in managed AI mode with a plan file of two guests found six small gaps; each is fixed here.
+
+- **The joining guest is not told to change the plan.** `assertGuestFree(…, joining)` at accept (409 plan_limit, reason `guest_limit`) now says "This team can't take more guests right now. Let the person who invited you know." (`AUTH_MESSAGES.guestLimitJoin`) and carries no `changePlan`/`manageUrl`, so a store app does not reword it into seat words either. The inviter's refusal is unchanged.
+- **Admin's guest count is the list on the screen.** `used` in "N of M guests" is counted from the guests shown (active ones), not from the cap read once when the page opened, which stayed at "2 of 2" after Remove guest / Make team member until a reload. The cap (M) is still read once.
+- **A Team AI limit says it is monthly.** The Monthly limit box adds "Starts over on the 1st of every month." and Admin's row reads "up to $5 a month" (the code's own comment already said so). A guest's row also says "AI limit used up" (after where they are, so a phone's one-line cut keeps it) when `budgetBlock` hits: `User.guest.aiUsedUp` (true only then; `guestDetail`).
+- **The limit is a notice, not an error, also before the send.** The server refuses a send at a used-up limit before the AI runs (`budget_exceeded`, with the guest's wording and the reset date), and the box showed it in red like a fault. The message box (`Composer`) and a refused user message ("Not sent.") now show it as a neutral line with the pause icon, as the answer's own limit notice already did. "Send again" stays on the message (it works once an admin raises the limit or the month turns). Left as it was: the room's ✦ side chat also shows a warn toast for it (the "Not sent." line in the chat is calm now).
+- **Docs:** the guest limits table lists Free trial 10 (the Free plan is gone, owner 2026-11-14).
+- **Checked and fine:** the full invite dialog (owner, admin, member, store app without "See plans"); an older link at the cap keeps the typed fields; a freed seat works at once; See plans opens a new tab and loses no picks; the guest's AI stops exactly at the limit and resumes in the same chat when the limit is raised or the month turns.

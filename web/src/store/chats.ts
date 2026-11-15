@@ -487,7 +487,7 @@ export const useChats = create<ChatsState>((set, get) => {
         }
         // the server's reason is already in the person's words (budget used up, attachment gone, …); a network
         // failure has only the browser's English text, so the screen says "not sent" without it
-        setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'failed', e instanceof ApiError ? e.message : undefined) }))
+        setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'failed', e instanceof ApiError ? e.message : undefined, undefined, e instanceof ApiError && e.code === 'budget_exceeded') }))
         throw e
       }
     }

@@ -517,7 +517,7 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
     const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r.id) as InviteRow | null
     if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
-    assertGuestFree(ctx.db, locale)
+    assertGuestFree(ctx.db, locale, 1, true)
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r.id, now)
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })

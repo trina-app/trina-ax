@@ -91,7 +91,7 @@ test('Change AI: one title; Team AI is off without a team AI account, and its fi
   await page.getByTestId('guest-ai-team').check()
   await expect(page.getByTestId('guest-ai-account')).toBeVisible()
   await page.getByTestId('guest-ai-save').click()
-  await expect(page.getByTestId('guest-row-gina')).toContainText('팀 AI · $20')
+  await expect(page.getByTestId('guest-row-gina')).toContainText('팀 AI · 한 달 최대 $20')
 })
 
 test('invite links: a used guest link is gone, a project link names its project', async ({ page, browser }) => {
