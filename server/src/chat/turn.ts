@@ -85,6 +85,8 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
+import { situationOf } from './situation'
+import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
@@ -787,6 +789,13 @@ export class TurnExec {
     const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId)
+    // who the person is and where (chat/situation.ts): their role and what it may open, the app, whose AI answers, what
+    // they may add themselves; never in a shared chat (prompt.ts SHARED_PROMPT_SECTIONS)
+    // `managed`: the same check as the guest gate above (Codex runs on the team's connections on an installed server
+    // whatever engine.authMode says)
+    const managedEngine = engine === 'claude-code' ? claude?.authMode === 'managed' && !!claude.modelProxy : engine === 'codex' ? codex?.auth === 'managed' : false
+    const situation = this.shared ? null : situationOf(rt.ctx, { userId: spec.userId, role: this.principal.role, clientKind: spec.clientKind, browser: this.browser, engine, locale: spec.locale, managed: managedEngine, webSearch })
+    const runKind = runKindOf(rt.ctx.config)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a shared project chat
@@ -800,6 +809,7 @@ export class TurnExec {
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
       // the file lists (file-list/service.ts): only while the feature is on and this person has one
       fileList: fileListPromptOn(rt.ctx, this.principal!),
+      situation, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
     })

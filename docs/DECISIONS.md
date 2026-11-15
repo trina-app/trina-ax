@@ -29891,3 +29891,28 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
   cannot read (most Latin words) left the mark. Texts with a name people type (projects, files, schedules, folders,
   connection labels, dev sites, attachments, search words) now put the particle after a fixed word ("'{name}' 프로젝트를")
   or put the name after a colon. People's names in share lines are left as they are (Korean names resolve).
+
+## The AI knows who it is talking to (fix/ai-knows-the-person, 2026-11-15, product owner)
+
+- **Problem.** The instructions named the person's role in a word ("role member") and nothing else about them. The AI
+  answered as if everyone were the owner at a computer: it sent members to Admin pages they cannot open, did not know
+  whether they were on the web, the phone app or the desktop app, whose AI account answered, or that an admin had
+  turned off personal AI sign-ins or personal connected services, and it told hosted teams their server was "a
+  computer in the office".
+- **Decision.** Every own chat's instructions (and a resumed session's turn context) carry a short **About this
+  person and place** block built from real state (`server/src/chat/situation.ts`): the role and whether it may open
+  Admin (a member: never sent to an Admin page; the owner or an admin does team-wide changes), the app (web, phone with
+  Settings under the Me tab, desktop with or without its browser, Slack, a scheduled run), whose AI account answers
+  (their own, one the team set up, or the server computer's own sign-in), whether they may add their own AI sign-in and
+  their own connected services, where their usage is, and for the owner and admins the team's plan from the plan file.
+  "Where you run" says where the server is by the way it runs (hosted: in the cloud; office: a Mac in the office; else
+  a computer the team runs itself).
+- Screen names come from `SCREEN` (`server/src/policy/refusal.ts`) in English and in the person's language; a test
+  compares them with the web app's labels, so a renamed screen fails the test instead of misleading the AI.
+- **Kept out.** Anything about other people (no admin names, as in "Refusals say why, who and what next"), connection
+  or account names, secrets, and numbers that change every answer (usage left): the block stays the same from turn to
+  turn. A shared chat leaves it out (the person's role is not the chat's people's to know). A guest gets only the app
+  line: what a guest can do is the guest part of the instructions. Whose AI answers follows the engine the turn starts
+  with, decided as the turn decides it (Codex runs on the team's AI connections on an installed server whatever
+  engine.authMode says); a limit that hands the answer to the other engine midway changes the next turn's block. No
+  card is offered in Slack or a scheduled run, and no web tools are named where the chat has none.
