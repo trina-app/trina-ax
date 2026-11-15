@@ -4,7 +4,8 @@
 // welcome steps (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2").
 // Once the message (or the link) was copied or sent, "다 했어요" is the step's primary: the one thing left to press.
 // Skipping on a computer asks once, softly, whether to invite one or two people first, because a team skill is only a
-// team's once others use it; on a phone "나중에" just skips (a dialog over a bottom sheet is one layer too many).
+// team's once others use it; on a phone, or once something was sent, "나중에" just skips (a dialog over a bottom sheet
+// is one layer too many, and someone who already sent the invite needs no nudge).
 // A team with no skills and no documents yet gets one quiet line above the message (docs/DECISIONS.md "W6.3"): "지금
 // 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기"; it never blocks. No "이 사람이 팀장이에요" here: one link
 // invites many people, so the owner hands the role over after people join (Admin › Members, a person's "…").
@@ -48,7 +49,7 @@ export interface InviteStepProps {
   /** the skill the first result used: people who join land on its form (skills/…). Omitted: none. */
   skillPath?: string | null
   /** `skillPath` is a team skill the lead just made from their own work (docs/DECISIONS.md "S"): an open link is changed
-   * to lead there, and the message says the skill was made for the team */
+   * to lead there (the message is the standard one: "I set up '{skill}' for us") */
   made?: boolean
   /** `skillPath` is the skill that made the welcome steps' first result, shared as it is: an open link that leads
    * elsewhere is changed to lead there, keeping its address */
@@ -86,7 +87,7 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
       <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded onSent={() => setSent(true)} />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
-          <Button variant="ghost" onClick={() => (phone ? onSkip() : setAsking(true))} data-testid="invite-step-skip">
+          <Button variant="ghost" onClick={() => (phone || sent ? onSkip() : setAsking(true))} data-testid="invite-step-skip">
             {t('teamLink.later')}
           </Button>
         )}

@@ -49,11 +49,11 @@ export function forgetJoinToken() {
  * skill the link names, as set up for the team ("I set up '{skill}' for us": no "first", no "together", the member lands
  * on Home; several shared skills are never listed, docs/DECISIONS.md "W5"), no line without one; `ownAi`: people
  * who join sign in to their own AI (the link's `memberAi` is `connect_own`), so it says "본인 AI 계정이 필요해요" before
- * they hit it; the link alone on the last line. `made`: the team skill the lead just made ("Acme에 '견적서 쓰기' 스킬을
- * 만들어 뒀어요…"). The person can edit it before copying (TeamLinkPanel); nothing is ever sent by itself. */
-export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; made?: boolean; ownAi?: boolean; about?: string | null }): string {
-  // a team skill the lead just made from their own work (docs/DECISIONS.md "S"), in their voice
-  if (o.made && o.skill) return t('teamLink.messageMade', { team: o.team, skill: o.skill, url: o.url })
+ * they hit it; the link alone on the last line. A skill the lead just made from their own work reads the same ("I set
+ * up '{skill}' for us"): people who join land on Home, so there is no "open the link to use it" any more. The person
+ * can edit it before copying (TeamLinkPanel; an edit without the link gets it back on copy); nothing is ever sent by
+ * itself. */
+export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; ownAi?: boolean; about?: string | null }): string {
   const product = namedProduct(t)
   const name = o.name.trim()
   // one line: a profile line is short (PROFILE_LIMITS.oneLine), but its line breaks would split the message
@@ -140,4 +140,10 @@ export function getAppHref(platform: 'ios' | 'android' | 'mac' | 'windows' | 'ot
   if (client !== 'web') return null
   const href = platform === 'ios' ? links.iphone || links.page : platform === 'android' ? links.android || links.page : ''
   return /^https:\/\//.test(href) ? href : null
+}
+
+/** What Copy message / Send message sends: the person's text, with the link put back on its own last line when their
+ * edit took it out (the message is only an invite with the link in it). */
+export function withInviteLink(text: string, url: string): string {
+  return text.includes(url) ? text : `${text.trimEnd()}\n${url}`
 }

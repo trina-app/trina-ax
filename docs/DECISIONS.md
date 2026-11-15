@@ -28427,21 +28427,27 @@ no recommended-skill line for members, the message names the skill; the message 
   "About us: {oneLine}" from the company profile (no line when it is empty, never a blank "About us:") · "Trina, our
   team's AI, helps us with everyday documents." (no claim about files or tools the team may not have added) · "I set
   up '{skill}' for us." only when the link names a skill (no "first", no "together": people who join land on Home, not
-  on the skill; no line and no made-up first task without one) · "You'll need your own AI account." when they sign in
-  to their own AI · the link alone on the last line. A skill the lead just made keeps its own one-line message
-  (`teamLink.messageMade`). The old `teamLink.message*` sentences and `teamLink.msg.tryAny` are gone.
+  on the skill; without a skill there is no skill line and no suggested first task) · "You'll need your own AI
+  account." when they sign in to their own AI · the link alone on the last line. A skill the lead just made gets the
+  same message (the old `teamLink.messageMade`, "Open the link to use it the same way", is gone: members land on Home).
+  The old one-sentence `teamLink.message*` texts are gone. Home's goal card "Copy invite" copies the same message (the
+  "About us" line, in the team's language: `useMessageWords`).
 - **Editable in place**: the message is a text field that replaces the old preview (no second box); what is in it is
-  what Copy message / Send message sends. Another skill or a new link starts the message again from its own words.
+  what Copy message / Send message sends; an edit that took the link out gets it back on its own last line when
+  copied or sent. Another skill or a new link starts the message again from its own words.
 - **The invite step (folded) shows the message only**: the link box with Copy link, the QR code, the facts and "Replace
   with a new link" are all under the one quiet "Manage link" row (the message already ends with the link). A link that
   opens on this computer only still says so outside the fold. Admin › Members is unchanged (link above the message).
-- **"Done" is the primary once something went out**: after Copy message, Send message (the share sheet's "shared") or
-  Copy link, the step's "Done" becomes the primary and the copy button steps down, so there is one primary on screen.
-- **"Later" asks only on a computer**: "Most teams start with one or two" stays on a computer; on a phone (the bottom
-  sheet) "Later" skips at once, no dialog over the sheet.
+- **"Done" is the primary once something went out**: after Copy message, Send message (the share sheet's "shared"; a
+  closed sheet changes nothing) or Copy link, the step's "Done" becomes the primary and the copy button steps down, so
+  there is one primary on screen. A copy the browser refused (the copy command answered false) shows no "Copied" and
+  changes nothing.
+- **"Later" asks only on a computer, and only before anything was sent**: "Most teams start with one or two" stays on
+  a computer; on a phone (the bottom sheet), or after the message went out, "Later" skips at once.
 - **Lines that named a landing**: `teamLink.landing` → "The message names '{skill}'" (with Change among the shared
   skills); the Admin link form's `teamLink.skillHint` → "Named in the invite message." (the skill no longer opens by
   itself after joining: lane D, member lands on Home); its label `teamLink.skillField` "Skill to try together
   (optional)" → "Skill (optional)".
-- Removed: `teamLink.msg.tryAny` (6 languages), the link box + QR from the invite step's first view.
+- Removed: the suggested-first-task line and the made-skill sentence (`teamLink.msg.tryAny`, `teamLink.messageMade`, 6
+  languages), the link box + QR from the invite step's first view.
 - Version impact: **patch**.

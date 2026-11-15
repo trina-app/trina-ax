@@ -4527,7 +4527,6 @@ export const en: Record<MessageKey, string> = {
   "skillShare.retry": "Try again",
   "skillShare.later": "Later",
   "skillShare.note": "Everyone's AI on the team will work this way · You can change it anytime in Team skills",
-  "teamLink.messageMade": "I've made a team skill for {team}: '{skill}'. Open the link to use it the same way.\n{url}",
   "skillForm.madeBy": "{by} made this team skill · Only {name} can see this chat",
   "steps.receiptBy": "{by}'s team skill '{skill}' · {n, plural, one {# team file} other {# team files}}",
   "audit.act.onboarding.skill_share": "Team skill shared (welcome steps)",

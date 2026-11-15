@@ -18,7 +18,7 @@ import { api, API } from '../../lib/api'
 import { noPurchaseLinks } from '../../lib/desktop'
 import { formatDateTime } from '../../lib/format'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../lib/share'
-import { teamLinkMessage } from '../../lib/team-link'
+import { teamLinkMessage, withInviteLink } from '../../lib/team-link'
 import { loadLocale, localeLoaded, translate, useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
@@ -185,7 +185,6 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           groups={groups.data ?? []}
           skills={skillPicker ? (skills.data ?? []) : null}
           fixedSkillPath={skillPath}
-          made={made}
           shared={shared}
           defaultGroupIds={teamGroup ? [teamGroup.id] : []}
           busy={busy}
@@ -203,24 +202,27 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
 /** What the ready-made message is made of besides the link: the team's one line from the company profile (the welcome
  * steps' "About the company"; everyone reads it, GET /api/onboarding/profile; none saved or a failed read: no line) and
  * the team's language (the people invited read it; the screen's language until that dictionary is here, or when it
- * cannot load). null while either is on its way. */
-function useMessageWords(teamLocale: Locale | null): { about: string | null; locale: Locale | null } | null {
+ * cannot load). null while either is on its way. `on` false: nothing is read (null). Also Home's goal card's "Copy
+ * invite", so both copy the same message. */
+export function useMessageWords(teamLocale: Locale | null, on = true): { about: string | null; locale: Locale | null } | null {
   const [about, setAbout] = useState<string | null | undefined>(undefined)
   const [localeReady, setLocaleReady] = useState(() => !teamLocale || localeLoaded(teamLocale))
   useEffect(() => {
+    if (!on) return
     let live = true
     api.call(API.getCompanyProfile).then((r) => live && setAbout(r.profile?.oneLine.trim() || null), () => live && setAbout(null))
     return () => { live = false }
-  }, [])
+  }, [on])
   useEffect(() => {
+    if (!on) return
     if (!teamLocale || localeLoaded(teamLocale)) { setLocaleReady(true); return }
     let live = true
     setLocaleReady(false)
     const done = () => { if (live) setLocaleReady(true) }
     loadLocale(teamLocale).then(done, done)
     return () => { live = false }
-  }, [teamLocale])
-  if (about === undefined || !localeReady) return null
+  }, [teamLocale, on])
+  if (!on || about === undefined || !localeReady) return null
   return { about, locale: teamLocale && localeLoaded(teamLocale) ? teamLocale : null }
 }
 
@@ -238,8 +240,6 @@ export interface TeamLinkViewProps {
   /** the skills to pick from; null: no picker (fixedSkillPath, else the skill the link had) */
   skills: SkillInfo[] | null
   fixedSkillPath?: string | null
-  /** `fixedSkillPath` is a team skill the lead just made: the message says so ("{팀}에 '…' 스킬을 만들어 뒀어요") */
-  made?: boolean
   /** the skills shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): one line says which the link opens first, with
    * 바꾸기 among them (the message names that one only: docs/DECISIONS.md "W5") */
   shared?: InviteShared | null
@@ -266,7 +266,7 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, team, about = null, messageLocale = null, groups, skills, fixedSkillPath, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke, onGroups, onSent }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, team, about = null, messageLocale = null, groups, skills, fixedSkillPath, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke, onGroups, onSent }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
@@ -323,8 +323,10 @@ export function TeamLinkView({ data, inviter, team, about = null, messageLocale 
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
   // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
   const mt = messageLocale ? (k: MessageKey, p?: Params) => translate(messageLocale, k, p) : t
-  const message = teamLinkMessage(mt, { name: inviter, team, url, about, skill: skillName, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
+  const message = teamLinkMessage(mt, { name: inviter, team, url, about, skill: skillName, ownAi: link.memberAi === 'connect_own' })
   const text = edit && edit.from === message ? edit.text : message
+  // an edit that took the link out gets it back on its own last line when copied or sent
+  const sendText = withInviteLink(text, url)
   // the Groups row ("Leads" / "None"): which groups everyone who joins is put in (QA TC-458: a link made with the
   // wrong group put the whole team in it, and the card did not say so)
   const groupNames = linkGroupNames(t, link.groupIds, groups)
@@ -423,7 +425,7 @@ export function TeamLinkView({ data, inviter, team, about = null, messageLocale 
         {/* editable in place, on the same quiet tint as the link line (no frame); what is in it is what gets copied */}
         <MessageField id={messageId} text={text} onChange={(v) => setEdit({ from: message, text: v })} />
         {sharedHere && skillName && <LandingLine shared={sharedHere} skill={skillName} />}
-        <CopyPrimary text={text} disabled={!text.trim()} label={t('teamLink.copyMessage')} onSent={sent} quiet={folded && sentHere} />
+        <CopyPrimary text={sendText} disabled={!text.trim()} label={t('teamLink.copyMessage')} onSent={sent} quiet={folded && sentHere} />
       </div>
       {folded ? <ManageFold>{linkLine}{details}</ManageFold> : details}
     </div>
@@ -575,6 +577,7 @@ function CopyPrimary({ text, label, disabled, onSent, quiet = false }: { text: s
       setFailed(false)
       const r = await shareText(text)
       setFailed(r === 'failed')
+      // only a sheet that was used: a closed sheet sent nothing
       if (r === 'shared') onSent?.()
     }
     return (
@@ -583,14 +586,14 @@ function CopyPrimary({ text, label, disabled, onSent, quiet = false }: { text: s
           <Share size={14} aria-hidden /> {t('teamLink.shareMessage')}
         </Button>
         {failed && <p className="text-center text-label text-warn" role="status" data-testid="team-link-share-failed">{t('teamLink.shareFailed')}</p>}
-        <Button variant="ghost" className="w-full" disabled={disabled} onClick={() => { setFailed(false); void copy(text).then(onSent) }} data-testid="team-link-copy-message">
+        <Button variant="ghost" className="w-full" disabled={disabled} onClick={() => { setFailed(false); void copy(text).then((ok) => { if (ok) onSent?.() }) }} data-testid="team-link-copy-message">
           {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
         </Button>
       </div>
     )
   }
   return (
-    <Button variant={quiet ? 'secondary' : 'primary'} className="mt-3 max-sm:w-full" disabled={disabled} onClick={() => void copy(text).then(onSent)} data-testid="team-link-copy-message">
+    <Button variant={quiet ? 'secondary' : 'primary'} className="mt-3 max-sm:w-full" disabled={disabled} onClick={() => void copy(text).then((ok) => { if (ok) onSent?.() })} data-testid="team-link-copy-message">
       {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
     </Button>
   )
@@ -601,7 +604,7 @@ function CopyQuiet({ text, label, onCopied }: { text: string; label: string; onC
   const t = useT()
   const { copied, copy } = useCopy()
   return (
-    <Button size="sm" variant="ghost" onClick={() => void copy(text).then(onCopied)} data-testid="team-link-copy-link">
+    <Button size="sm" variant="ghost" onClick={() => void copy(text).then((ok) => { if (ok) onCopied?.() })} data-testid="team-link-copy-link">
       {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
     </Button>
   )

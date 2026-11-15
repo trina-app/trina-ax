@@ -1662,7 +1662,10 @@ describe('the later steps and the end', () => {
       await m.click('skill-share-share')
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: SHARED.path, addGroupIds: [TEAM.id] }])
-      expect((m.get('team-link-message') as unknown as { value: string }).value).toBe("Acme에 '주간 회의 할 일' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nhttps://acme.example/join#t=open")
+      // the usual invitation (members land on Home), naming the skill just made
+      const msg = (m.get('team-link-message') as unknown as { value: string }).value
+      expect(msg).toContain("우리 팀용으로 '주간 회의 할 일' 스킬을 준비해 뒀어요.")
+      expect(msg.endsWith('\nhttps://acme.example/join#t=open')).toBe(true)
     } finally { await m.unmount() }
   })
 
