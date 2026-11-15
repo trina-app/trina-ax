@@ -2102,7 +2102,7 @@ export const id: Record<MessageKey, string> = {
   "adminHome.members": "{count} anggota",
   "adminHome.invites": "{count} undangan terbuka",
   "adminHome.guests": "{n} tamu",
-  "adminHome.guestsOf": "{n} dari {m} tamu",
+  "adminHome.guestsOf": "{n} dari {m}",
   "adminHome.default": "Bawaan: {engine}",
   "adminHome.connections": "{count} koneksi tim",
   "adminHome.services": "{count} koneksi",

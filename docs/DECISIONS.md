@@ -29863,7 +29863,7 @@ tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id.
 
 ## Guests in Admin: a Home card, left or removed; one name for each thing (fix/guest-walk-b, 2026-11-15, guest walkthrough)
 - **Admin Home › Guests card** (S2): shown once the team has any guest (a team without guests sees no extra card).
-  "1 of 3 guests" (active guests against the plan's cap, GET /api/guest-invites/limit; "1 guest" without a cap) and the
+  "1 of 3" under the card title (active guests against the plan's cap, GET /api/guest-invites/limit; "1 guest" without a cap; QA 11-16: never "Guests" twice) and the
   active guests' names; it opens `/admin/members?role=guest` (Members reads `?role=guest` as its first Role filter). The
   Members card (and the phone's Admin list value) counts team members only, as the Members page header does. No
   sidebar item: it would open the same page as Members & invites, which is not lean.

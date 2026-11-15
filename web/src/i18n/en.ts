@@ -2103,7 +2103,7 @@ export const en: Record<MessageKey, string> = {
   "adminHome.members": "{count, plural, one {# member} other {# members}}",
   "adminHome.invites": "{count, plural, one {# open invite} other {# open invites}}",
   "adminHome.guests": "{n, plural, one {# guest} other {# guests}}",
-  "adminHome.guestsOf": "{n} of {m, plural, one {# guest} other {# guests}}",
+  "adminHome.guestsOf": "{n} of {m}",
   "adminHome.default": "Default: {engine}",
   "adminHome.connections": "{count, plural, one {# team connection} other {# team connections}}",
   "adminHome.services": "{count, plural, one {# connection} other {# connections}}",

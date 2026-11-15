@@ -2072,7 +2072,7 @@ export const ja: Record<MessageKey, string> = {
   "adminHome.members": "{count, plural, one {メンバー#人} other {メンバー#人}}",
   "adminHome.invites": "{count, plural, one {有効な招待#件} other {有効な招待#件}}",
   "adminHome.guests": "{n, plural, one {ゲスト#人} other {ゲスト#人}}",
-  "adminHome.guestsOf": "ゲスト{n}/{m, plural, one {#人} other {#人}}",
+  "adminHome.guestsOf": "{n}/{m}人",
   "adminHome.default": "既定: {engine}",
   "adminHome.connections": "{count, plural, one {チームの接続#件} other {チームの接続#件}}",
   "adminHome.services": "{count, plural, one {接続#件} other {接続#件}}",
