@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-15 08:24
 - Branch: `fix/phone-drive-card-template-notices`
-- Status: in progress
+- Status: done
 - Where: web/src/components/chat, web/src/components/settings, server/src/notifications, server/src/integrations/connections. Why: QA TC-2977, TC-2980.
 - Version impact: patch: fixes wording and adds one notice; no API removed, no migration.
 
@@ -44,3 +44,5 @@ e2e integration-templates and the chat connect card specs. Screenshots 1440/390 
 
 ## Result
 
+Built as planned in PR #956. The card in the phone app also leaves out the privacy box, which is shown where the
+person connects. Activity does not list the left-out notice under 요청. No migration.
