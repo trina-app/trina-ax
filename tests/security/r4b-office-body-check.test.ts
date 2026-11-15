@@ -198,6 +198,13 @@ describe('TC-359: the refresh host\'s tunnel ends at the refresh terminator', ()
     await Promise.all([through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm), through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm)])
     expect(refreshSeen.map((r) => JSON.parse(r.body).refresh_token)).toEqual(['REAL-A', 'REAL-1'])
     held.rotated.push = orig
+    // the launcher does not take the rotated login: the next refresh uses it and hands it over again
+    held.token = 'REAL-OLD'; held.ok = false; refreshSeen.length = 0; held.rotated.length = 0
+    await through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm)
+    held.ok = true
+    await through('POST', '/v1/oauth/token', body, 'application/json', heldProxy, heldTerm)
+    // (this stand-in launcher does not change its token on rotated: what matters is the hand-over before the refresh)
+    expect(held.rotated.map((t) => (t as { refreshToken: string }).refreshToken).slice(0, 2)).toEqual(['new-refresh', 'new-refresh'])
   })
 
   /** CONNECT platform.claude.com:443 as the turn, TLS with the engine's trust (the terminator's CA), one request */

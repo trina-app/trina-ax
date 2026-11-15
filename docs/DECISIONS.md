@@ -29125,7 +29125,10 @@ there (their items trust `/usr/bin/security`). Owner: keep the local-login mode,
 - **Left open.** The engine holds the current access token (it signs with it), so a turn whose tool lockdown and
   sandbox both failed could show it in an answer or a web search query (#800 ①) until it runs out. In dev (no proxy) the
   engine keeps the real refresh token and its saves are written. A refresh of the Mac user's own `claude` outside Team
-  AX is not serialized with the terminator's. `~/.claude.json` stays readable (account e-mail, project list). A real
+  AX is not serialized with the terminator's. A turn can ask for refresh after refresh (each waits for the one before;
+  it does not lose the login, but other turns' refreshes wait). The old keychain item that cannot be removed after a
+  move to the login file, and a rotated login the launcher does not take, are kept in memory (broker / terminator) and
+  handed over again; a restart of both before that loses them. `~/.claude.json` stays readable (account e-mail, project list). A real
   refresh through the terminator with the Mac's real login has not been run (it would touch the owner's sign-in): QA row.
 - **Checked.** Real Claude Code 2.1.325 under the new profile through the real launcher and bridge, with a FAKE login in a
   stand-in keychain (`--keychain-test-store`) and HOME in the chat folder: `claude auth status` "loggedIn: true" from the

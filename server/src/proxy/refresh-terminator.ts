@@ -129,8 +129,12 @@ export function startRefreshTerminator(o: {
   }
   let serial: Promise<void> = Promise.resolve()
   const jsonAnswer = (status: number, j: unknown) => new Response(JSON.stringify(j), { status, headers: { 'content-type': 'application/json' } })
+  // a rotated login the launcher did not take (restarting, no answer): kept here and handed over again before the next
+  // refresh, whose real token it is
+  let unsaved: { accessToken?: string; refreshToken: string; expiresAt?: number } | null = null
   async function heldRefresh(req: Request, checked: { type: string; body: string }): Promise<Response> {
-    const real = await o.login!.refreshToken().catch(() => null)
+    if (unsaved && await o.login!.rotated(unsaved).catch(() => false)) unsaved = null
+    const real = unsaved?.refreshToken ?? await o.login!.refreshToken().catch(() => null)
     if (!real) return jsonAnswer(400, { error: 'invalid_grant', error_description: 'no Claude login on this Mac' })
     const body = withRefreshToken(checked, real)
     if (!body) return refuse('not a Claude Code refresh')
@@ -151,8 +155,12 @@ export function startRefreshTerminator(o: {
     }
     const expiresIn = typeof j.expires_in === 'number' ? j.expires_in : 0
     // the broker keeps it in memory when it cannot write it yet (rotated never drops it); false = no broker answered
-    const saved = await o.login!.rotated({ refreshToken: j.refresh_token, ...(typeof j.access_token === 'string' ? { accessToken: j.access_token } : {}), ...(expiresIn > 0 ? { expiresAt: Date.now() + expiresIn * 1000 } : {}) }).catch(() => false)
-    if (!saved) o.log?.warn('model proxy: the renewed Claude sign-in could not be handed to the launcher')
+    const rot = { refreshToken: j.refresh_token, ...(typeof j.access_token === 'string' ? { accessToken: j.access_token } : {}), ...(expiresIn > 0 ? { expiresAt: Date.now() + expiresIn * 1000 } : {}) }
+    unsaved = null
+    if (!await o.login!.rotated(rot).catch(() => false)) {
+      unsaved = rot
+      o.log?.warn('model proxy: the renewed Claude sign-in could not be handed to the launcher; kept and handed over at the next refresh')
+    }
     j.refresh_token = REFRESH_PLACEHOLDER
     return jsonAnswer(up.status, j)
   }

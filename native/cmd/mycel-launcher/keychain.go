@@ -457,7 +457,10 @@ func (b *kcBroker) writeOAuth(cur kcLogin, o kcOAuth) kcResponse {
 			return r
 		}
 		if d := b.store.del(kcLoginService); d != 0 && d != kcNotFound {
+			// the old item would still be read first, with its used-up refresh token: not done (rotated keeps the login
+			// in memory and this runs again at the next request)
 			b.warn(fmt.Sprintf("the Claude login moved to the login file but the old keychain item stayed (security exited %d)", d))
+			return kcResponse{Code: 1}
 		}
 		return kcResponse{}
 	}

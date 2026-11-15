@@ -19,9 +19,13 @@ type memStore struct {
 	locked bool
 	adds   int
 	fail   bool // every add fails (a disk or keychain error)
+	noDel  bool // delete fails
 }
 
 func (m *memStore) del(s string) int {
+	if m.noDel {
+		return 1
+	}
 	if _, ok := m.items[s]; !ok {
 		return kcNotFound
 	}
@@ -361,5 +365,22 @@ func TestKeychainItemTooLongGoesToTheLoginFile(t *testing.T) {
 	}
 	if r := find(b, kcLoginService); r.Code != 0 || !strings.Contains(r.Stdout, "sk-ant-oat01-ROT") || strings.Contains(r.Stdout, "mmmm") {
 		t.Fatalf("read: %.200s", r.Stdout)
+	}
+	// the old item cannot be removed: the new login stays in memory and wins over the stale item until it can
+	b2, st2 := newBroker(t, map[string]string{kcLoginService: big})
+	b2.hideRefresh = true
+	st2.noDel = true
+	if err := b2.rotated("sk-ant-oat01-ROT", "sk-ant-ort01-ROT", 2100000000000); err != nil {
+		t.Fatal(err)
+	}
+	if b2.pending == nil || b2.refreshToken() != "sk-ant-ort01-ROT" {
+		t.Fatal("stale keychain item won")
+	}
+	st2.noDel = false
+	if b2.refreshToken() != "sk-ant-ort01-ROT" || b2.pending != nil {
+		t.Fatal("not settled")
+	}
+	if _, ok := st2.items[kcLoginService]; ok {
+		t.Fatal("old item stayed")
 	}
 }
